@@ -914,7 +914,8 @@ def test_the_sweep_reaches_the_overlapping_statement_rows():
     rows = _package_rows(package)
     assert package["totals"]["cross_currency_totals_refused"] is True
     assert package["totals"]["overlapping_statements"] == [
-        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0, "currency": "CAD"}]
+        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0, "currency": "CAD",
+         "days_shared": 16}]
     assert _cross_document_numbers_not_counts(rows) == []
     statement_sections = {s for s, _, _ in rows if re.fullmatch(r"(document|overlapping_statement)_\d+", s)}
     assert "overlapping_statement_1" in statement_sections

@@ -1357,7 +1357,8 @@ def test_a_partial_overlap_sharing_credits_is_named_and_never_netted():
     package = _package_analysis([_april(), interim])
     totals = package["totals"]
     assert totals["overlapping_statements"] == [
-        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0, "currency": "USD"}]
+        {"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0, "currency": "USD",
+         "days_shared": 16}]
     assert totals["true_revenue_total"] == sum(part["true_revenue_total"] for part in alone) == 31000.0
     assert totals["decision"] == "review_required"
     assert _left_out(package) == [] and totals["has_duplicate_documents"] is False
@@ -1375,14 +1376,19 @@ def test_statements_sharing_only_a_boundary_day_and_no_row_stay_approved():
     assert _left_out(package) == []
 
 
-def test_a_contained_period_printing_other_rows_under_the_same_last_four_is_kept():
+def test_a_contained_period_printing_other_rows_under_the_same_last_four_is_kept_and_named():
+    """Audit round 3, R3-B18 (R3-04): a printed pair one of whose periods lies inside the other is named even when the
+    two share no credit, and the package goes to review; it is never netted."""
     from webapp.app import _package_analysis
 
     other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
                     number="XXXX1010")
     package = _package_analysis([_april(), other])
-    assert _left_out(package) == [] and "overlapping_statements" not in package["totals"]
-    assert package["totals"]["true_revenue_total"] == 23000.0 and package["totals"]["decision"] == "approved"
+    assert _left_out(package) == []
+    assert package["totals"]["overlapping_statements"] == [
+        {"job": "other", "other": "apr", "shared_credit_count": 0, "shared_credit_total": 0.0, "currency": "USD",
+         "days_shared": 20}]
+    assert package["totals"]["true_revenue_total"] == 23000.0 and package["totals"]["decision"] == "review_required"
 
 
 def test_a_repeated_full_statement_still_drops_as_the_same_statement():
@@ -1597,6 +1603,10 @@ def _unkeyed(job_id, rows, start, end, *, number=None, bank="CONTOSO BANK", open
                    content=job_id)
 
 
+def _pairs(package):
+    return package["totals"].get("overlapping_statements")
+
+
 @pytest.mark.parametrize(("number", "bank"), _UNKEYED_VARIANTS)
 def test_a_re_read_statement_whose_number_is_not_read_is_left_out_by_its_ledger(number, bank):
     from webapp.app import _package_analysis
@@ -1661,6 +1671,97 @@ def test_the_ledger_key_reads_the_period_the_balances_and_every_row_on_its_day_a
         assert ledger(bare) == set()
 
 
+@pytest.mark.parametrize("mtd_first", [False, True])
+@pytest.mark.parametrize(("number", "bank"), _UNKEYED_VARIANTS)
+def test_an_interim_of_a_statement_whose_number_is_not_read_is_left_out(number, bank, mtd_first):
+    from webapp.app import _package_analysis
+
+    march = _unkeyed("mar", _MARCH, "2031-03-01", "2031-03-31", number=number, bank=bank)
+    april = _unkeyed("apr", _APRIL, "2031-04-01", "2031-04-30", number=number, bank=bank, opening=21000.0)
+    mtd = _unkeyed("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", number=number, bank=bank, opening=21000.0)
+    package = _package_analysis([mtd, march, april] if mtd_first else [march, april, mtd])
+    assert _left_out(package) == [("mtd", "apr", "superseded_interim", None)]
+    assert _r14(package) == (40000.0, 20000.0, 2, "review_required")
+    assert _pairs(package) is None
+
+
+def test_an_unkeyed_overlap_sharing_its_credits_is_named_and_never_netted():
+    from webapp.app import _package_analysis
+
+    interim = _unkeyed("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                       "2031-04-15", "2031-05-10", opening=30000.0)
+    package = _package_analysis([_unkeyed("apr", _APRIL, "2031-04-01", "2031-04-30", opening=21000.0), interim])
+    assert _pairs(package) == [{"job": "int", "other": "apr", "shared_credit_count": 1, "shared_credit_total": 5000.0,
+                                "currency": "USD", "days_shared": 16}]
+    assert package["totals"]["true_revenue_total"] == 31000.0
+    assert package["totals"]["decision"] == "review_required" and _left_out(package) == []
+
+
+_SAVINGS = [("2031-04-05", "ONLINE TRANSFER FROM CHK", 3000.0),
+            ("2031-04-18", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:9", 2500.0),
+            ("2031-04-30", "INTEREST PAYMENT", 1.25)]
+
+
+@pytest.mark.parametrize("savings_rows", [
+    _SAVINGS,
+    # One of its three credits a checking credit's cents a day off: under half of them, so no pair.
+    [_SAVINGS[0], ("2031-04-13", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:9", 7000.0), _SAVINGS[2]],
+])
+def test_two_unkeyed_accounts_of_one_bank_sharing_no_credit_are_never_named(savings_rows):
+    from webapp.app import _package_analysis
+
+    checking = _unkeyed("chk", _APRIL, "2031-04-01", "2031-04-30", opening=21000.0)
+    savings = _unkeyed("sav", savings_rows, "2031-04-01", "2031-04-30", opening=9000.0)
+    alone = [_package_analysis([job])["totals"]["true_revenue_total"] for job in (checking, savings)]
+    package = _package_analysis([checking, savings])
+    assert _pairs(package) is None and _left_out(package) == []
+    assert package["totals"]["true_revenue_total"] == sum(alone)
+
+
+def test_a_lone_matching_credit_names_a_possible_pair():
+    """The recorded residual: an unkeyed savings account whose only credit is a checking credit's cents a day off is
+    named with the checking account (review only, never netted)."""
+    from webapp.app import _package_analysis
+
+    checking = _unkeyed("chk", _APRIL, "2031-04-01", "2031-04-30", opening=21000.0)
+    savings = _unkeyed("sav", [("2031-04-13", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:9", 7000.0)], "2031-04-01",
+                       "2031-04-30", opening=9000.0)
+    package = _package_analysis([checking, savings])
+    assert _pairs(package) == [{"job": "sav", "other": "chk", "shared_credit_count": 1, "shared_credit_total": 7000.0,
+                                "currency": "USD", "days_shared": 30}]
+    assert package["totals"]["decision"] == "review_required" and _left_out(package) == []
+
+
+def test_a_possible_pair_printing_one_period_and_both_balances_is_named():
+    """Another reading of the April statement that misread every credit's cents: no credit is shared and the ledgers
+    differ, but the two print one period and both balances, so they are one account's and the pair is named."""
+    from webapp.app import _package_analysis
+
+    april = _unkeyed("apr", _APRIL, "2031-04-01", "2031-04-30", opening=21000.0)
+    misread = _copy_module.deepcopy(april.analysis)
+    for row in misread["statement"]["transactions"]:
+        if row["amount"] > 0:
+            row["amount"] = round(row["amount"] + 0.08, 2)
+    package = _package_analysis([april, _listed("misread", misread, content="misread")])
+    assert _pairs(package) == [{"job": "misread", "other": "apr", "shared_credit_count": 0, "shared_credit_total": 0.0,
+                                "currency": "USD", "days_shared": 30}]
+    assert _left_out(package) == [] and package["totals"]["decision"] == "review_required"
+
+
+@pytest.mark.parametrize("differs", ["name", "currency"])
+def test_statements_whose_names_or_currencies_differ_are_never_one_account(differs):
+    from webapp.app import _package_analysis
+
+    april = _unkeyed("apr", _APRIL, "2031-04-01", "2031-04-30", opening=21000.0)
+    if differs == "name":
+        mtd = _unkeyed("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0, name="FABRIKAM TOOLS LLC")
+    else:
+        mtd = _unkeyed("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
+        mtd.analysis["statement"]["currency"] = "CAD"
+    package = _package_analysis([april, mtd])
+    assert _left_out(package) == [] and _pairs(package) is None
+
+
 def test_the_package_bank_reads_the_informal_export_label_as_its_bank():
     from webapp.app import _bank_key, _package_bank
 
@@ -1669,6 +1770,128 @@ def test_the_package_bank_reads_the_informal_export_label_as_its_bank():
     assert _package_bank({"bank": None}) == "" and _package_bank(None) == ""
     # R2-OW15's and R2-OW16's passes keep reading the label as printed.
     assert _bank_key({"bank": "Chase Transaction Export"}) == "chase transaction export"
+
+
+def test_a_chase_transaction_export_is_compared_with_its_chase_statements():
+    """The informal export's label is read as its bank: an export printing the account's last four beside the
+    account's Chase statement is left out when the statement prints its rows, and named when they are a day off. (The
+    export is an informal printout, so its package goes to review either way.)"""
+    from webapp.app import _package_analysis
+
+    april = _listed("apr", _printed(_ACCOUNT, _APRIL, start="2031-04-01", end="2031-04-30", opening=21000.0,
+                                    bank="Chase"), content="apr")
+
+    def export(rows):
+        return _listed("export", _printed("...1010", rows, start="2031-04-01", end="2031-04-20", opening=21000.0,
+                                          bank="Chase Transaction Export"), content="export")
+
+    package = _package_analysis([april, export(_APRIL[:2])])
+    assert _left_out(package) == [("export", "apr", "superseded_interim", None)]
+    assert package["totals"]["true_revenue_total"] == 20000.0 and package["totals"]["decision"] == "review_required"
+    shifted = [("2031-04-04", _APRIL[0][1], _APRIL[0][2]), ("2031-04-13", _APRIL[1][1], _APRIL[1][2])]
+    package = _package_analysis([april, export(shifted)])
+    assert _left_out(package) == []
+    assert _pairs(package) == [{"job": "export", "other": "apr", "shared_credit_count": 2,
+                                "shared_credit_total": 15000.0, "currency": "USD", "days_shared": 20}]
+    assert package["totals"]["decision"] == "review_required"
+
+
+def test_a_month_to_date_printout_a_day_off_is_named_and_sent_to_review():
+    from webapp.app import _package_analysis
+
+    mtd = _period("mtd", [("2031-04-04", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 8000.0),
+                          ("2031-04-13", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 7000.0)],
+                  "2031-04-01", "2031-04-20", opening=21000.0)
+    package = _package_analysis([_march(), _april(), mtd])
+    assert _left_out(package) == []
+    assert _r14(package) == (55000.0, 27500.0, 2, "review_required")
+    assert _pairs(package) == [{"job": "mtd", "other": "apr", "shared_credit_count": 2, "shared_credit_total": 15000.0,
+                                "currency": "USD", "days_shared": 20}]
+
+
+def test_a_printout_in_other_wording_with_a_moved_debit_is_named():
+    from webapp.app import _package_analysis
+
+    mtd = _period("mtd", [("2031-04-03", "ONLINE DEPOSIT NORTHWIND SUPPLY REF 0001", 8000.0),
+                          ("2031-04-12", "ONLINE DEPOSIT NORTHWIND SUPPLY REF 0002", 7000.0),
+                          ("2031-04-15", "CARD PURCHASE FABRIKAM SUPPLY", -75.0)],
+                  "2031-04-01", "2031-04-20", opening=21000.0)
+    package = _package_analysis([_march(), _april(), mtd])
+    assert _left_out(package) == []
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["shared_credit_total"])
+            for pair in _pairs(package)] == [("mtd", "apr", 2, 15000.0)]
+
+
+def test_a_partial_shift_names_the_whole_double_count():
+    from webapp.app import _package_analysis
+
+    mtd = _period("mtd", [("2031-04-03", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 8000.0),
+                          ("2031-04-13", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 7000.0)],
+                  "2031-04-01", "2031-04-20", opening=21000.0)
+    package = _package_analysis([_march(), _april(), mtd])
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["shared_credit_total"])
+            for pair in _pairs(package)] == [("mtd", "apr", 2, 15000.0)]
+
+
+def test_a_quarterly_export_a_day_off_names_each_monthly_statement():
+    from datetime import date, timedelta
+
+    from webapp.app import _package_analysis
+
+    later = [((date.fromisoformat(day) + timedelta(days=1)).isoformat(), text, amount)
+             for day, text, amount in _JAN + _FEB + _MAR_Q1]
+    package = _package_analysis([*_first_quarter(), _period("q1", later, "2031-01-01", "2031-03-31")])
+    assert _left_out(package) == []
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["shared_credit_total"], pair["days_shared"])
+            for pair in _pairs(package)] == [("q1", "jan", 1, 10000.0, 31), ("q1", "feb", 1, 10000.0, 28),
+                                             ("q1", "mar", 1, 10000.0, 31)]
+    assert (package["totals"]["true_revenue_total"], package["totals"]["decision"]) == (60000.0, "review_required")
+
+
+def test_a_recurring_credit_beside_a_boundary_day_is_never_named():
+    """The shape of the cached boundary pairs: one recurring amount just before the shared day on one statement and
+    just after it on the next lies outside the days both cover, so it is never a shared credit."""
+    from webapp.app import _package_analysis
+
+    first = _period("first", [("2031-03-30", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 4000.0)], "2031-03-01",
+                    "2031-04-01")
+    second = _period("second", [("2031-04-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 4000.0)], "2031-04-01",
+                     "2031-05-01", opening=5500.0)
+    package = _package_analysis([first, second])
+    assert _pairs(package) is None and package["totals"]["decision"] == "approved"
+    assert _left_out(package) == []
+
+
+def test_a_credit_both_statements_print_on_their_shared_boundary_day_is_named_whatever_its_wording():
+    from webapp.app import _package_analysis
+
+    first = _period("first", [("2031-04-01", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:7", 4000.0)], "2031-03-01",
+                    "2031-04-01")
+    second = _period("second", [("2031-04-01", "NORTHWIND SUPPLY PAYMENT REF 7", 4000.0)], "2031-04-01",
+                     "2031-05-01")
+    package = _package_analysis([first, second])
+    assert [(pair["job"], pair["other"], pair["shared_credit_count"], pair["days_shared"])
+            for pair in _pairs(package)] == [("second", "first", 1, 1)]
+    assert package["totals"]["decision"] == "review_required" and _left_out(package) == []
+
+
+def test_the_shared_credits_are_matched_one_to_one_inside_the_days_both_cover():
+    from datetime import date
+
+    from webapp.app import _shared_credits
+
+    def entry(*credits):
+        return {"credits": [{"date": day, "amount": amount, "description": "FABRIKAM"} for day, amount in credits]}
+
+    earlier = entry(("2031-04-03", 8000.0), ("2031-04-05", 8000.0), ("2031-04-10", 500.0), ("2031-03-30", 4000.0))
+    later = entry(("2031-04-04", 8000.0), ("2031-04-04", 8000.0), ("2031-04-04", 8000.0), ("2031-04-09", 500.25),
+                  ("2031-04-02", 4000.0))
+    first, last = date(2031, 4, 1), date(2031, 4, 30)
+    # Two of the later statement's three 8,000.00 credits each take one earlier credit; 500.25 is other cents; the
+    # earlier 4,000.00 lies outside the common days.
+    assert _shared_credits(earlier, later, first, last) == (2, 1600000)
+    assert _shared_credits(entry(("2031-04-01", 10.0)), entry(("2031-04-05", 10.0)), first, last) == (0, 0)
+    assert _shared_credits(entry(("2031-04-01", 10.0)), entry(("2031-04-04", 10.0)), first, last) == (1, 1000)
 
 
 # ---------------------------------------------------------------------------

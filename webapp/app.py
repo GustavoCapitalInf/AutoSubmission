@@ -1665,6 +1665,13 @@ SUPERSEDED_REASON_WORDS = {
 }
 #: A statement period of more days than this is more than a month (`_package_superseded` tests it first).
 _MONTH_DAYS = 31
+#: Audit round 3, R3-B18 (R3-04): the most days two statements of one account may share and still be named only when
+#: they share a credit (a boundary day or a cycle that closes on the day the next opens; every one of the corpus's
+#: overlapping distinct-period pairs shares exactly one day).
+_OVERLAP_BOUNDARY_DAYS = 3
+#: Audit round 3, R3-B18 (R3-04): the most days apart two statements of one account may print one credit (equal cents)
+#: and still share it (`_shared_credits`): a transaction or value date, a pending item posted a day later.
+_OVERLAP_SHIFT_DAYS = 3
 
 
 def _posted_rows(account: dict) -> list[dict]:
@@ -1725,27 +1732,34 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
 
     The kept jobs' accounts (a done job's, never one `repeated_accounts` already leaves out and, when `members` is
     given, only the ``(job id, account index or None)`` members `_package_members` admits, so a statement whose money
-    the package does not count never covers another or is covered) are grouped by their bank, casefolded, and the
-    last four digits of their printed number (`_printed_account_digits`); a statement's period is its printed one, or
-    else its first and last posted row's day. Two accounts of one document are never compared, and two statements
-    whose printed full numbers conflict (`_numbers_conflict`) are never one account's. A statement is left out when
-    its period lies inside the union of the other kept statements' periods of its account, it prints a posted row, and
-    every posted row of it, credit or debit, is a posted row of those statements, as a multiset on the day and the
-    signed cents. The statements of more than a month (`_MONTH_DAYS`) are tested first, the longest first, so a
-    quarterly printout or a multi-month export whose rows the monthly statements print is left out
-    (`superseded_long_printout`) and the monthly statements, each its own calendar month, stay; then the rest, the
-    shortest first, so an interim or month-to-date printout beside the full statement, a second month-to-date printout
-    of one open month, or a short custom range of days the full statements print is left out (`superseded_interim`)
-    and a full month is never left out for partial printouts of it (of two periods alike, the one listed later is
-    tested first; R2-B14 review round 1). It repeats the statement left in the package that shares the most of its
-    days (of two alike, the one listed first).
+    the package does not count never covers another or is covered) are compared when they are one account's
+    (`_pair_kind`; audit round 3, R3-B18, R3-02: every account with a period, whatever its bank and digits): a
+    "printed" pair prints one bank (`_package_bank`: casefolded, an informal printout's label read as its bank) and
+    one last four (`_printed_account_digits`) with no conflict between full numbers (`_numbers_conflict`); a statement
+    that prints no bank or fewer than four digits makes a "possible" pair with one whose bank, account name and
+    declared currency do not differ from its own where both print one. A statement's period is its printed one, or
+    else its first and last posted row's day. Two accounts of one document are never compared. A statement is left
+    out when its period lies inside the union of the periods of the other kept statements it is one account with, it
+    prints a posted row, and every posted row of it, credit or debit, is a posted row of those statements, as a
+    multiset on the day and the signed cents (never a fuzzy match). The statements of more than a month
+    (`_MONTH_DAYS`) are tested first, the longest first, so a quarterly printout or a multi-month export whose rows the
+    monthly statements print is left out (`superseded_long_printout`) and the monthly statements, each its own
+    calendar month, stay; then the rest, the shortest first, so an interim or month-to-date printout beside the full
+    statement, a second month-to-date printout of one open month, or a short custom range of days the full statements
+    print is left out (`superseded_interim`) and a full month is never left out for partial printouts of it (of two
+    periods alike, the one listed later is tested first; R2-B14 review round 1). It repeats the statement left in the
+    package that shares the most of its days (of two alike, the one listed first).
 
-    Any other overlap of two statements of one account is never netted: the credits the two share in the days both
-    cover (a multiset on the day, the cents and the description, casefolded, its blanks collapsed) are counted, and a
-    pair sharing one or more is named in `overlapping`, ``{"job", "other", "shared_credit_count",
-    "shared_credit_total", "currency"}`` (`job` the statement listed later; `currency` the account's, None when the
-    two declare different ones; with `account` and `other_account` for an account of a document), which sends the
-    package to review.
+    Any other overlap of two statements of one account is never netted. Audit round 3, R3-B18 (R3-04): the credits
+    the two share in the days both cover are matched one to one on the cents within `_OVERLAP_SHIFT_DAYS` days,
+    whatever their wording (`_shared_credits`). A printed pair is named when it shares a credit, shares more than
+    `_OVERLAP_BOUNDARY_DAYS` days, or one period lies inside the other; a possible pair when it shares more than
+    `_OVERLAP_BOUNDARY_DAYS` days and either shares at least half the credits the fewer-credited side prints in those
+    days, or the two print one period and the same opening and closing balances. A named pair is listed in
+    `overlapping`, ``{"job", "other", "shared_credit_count", "shared_credit_total", "currency", "days_shared"}`` (`job`
+    the statement listed later; `currency` the account's, None when the two declare different ones; `days_shared` the
+    days both cover; with `account` and `other_account` for an account of a document), and sends the package to
+    review; the figures keep the double count.
 
     Returns ``(kept jobs, dropped, superseded_accounts, overlapping)``: a job whose every account is left out is
     dropped as a duplicate is (``{"job", "duplicate_of", "reason"}``, in listed order); an account of a document whose
@@ -1764,83 +1778,105 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                 continue
             if members is not None and (job.id, index if document else None) not in members:
                 continue
-            digits = _printed_account_digits(account)
-            bank = " ".join(str((account.get("statement") or {}).get("bank") or "").split()).casefold()
+            statement = account.get("statement") or {}
             rows = _posted_rows(account)
             span = _statement_span(account, rows)
-            if not bank or len(digits) < 4 or span is None:
+            if span is None:
                 continue
             days = (span[1] - span[0]).days + 1
             statements.append({
                 "job": job, "order": order, "index": index if document else None, "accounts": len(accounts),
-                "group": (bank, digits[-4:]), "digits": digits, "span": span,
+                # Audit round 3, R3-B18 (R3-02, R3-04): what `_pair_kind` reads the account by, whatever is printed.
+                "bank": _package_bank(statement), "digits": _printed_account_digits(account),
+                "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
+                "currency": _statement_currency(account),
+                "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
+                "start_printed": _iso_day(statement.get("period_start")),
+                "end_printed": _iso_day(statement.get("period_end")),
+                "span": span, "days": days,
                 "rows": Counter((_row_day(row), _row_cents(row)) for row in rows),
                 "credits": [row for row in rows if _num(row.get("amount")) > 0],
-                "currency": _statement_currency(account),
                 # R2-B14 review round 1: a printout of more than a month is tested first, the longest first; the rest
                 # the shortest first (of two alike, the later listed first).
                 "test_order": (0, -days, -order) if days > _MONTH_DAYS else (1, days, -order),
                 "reason": "superseded_long_printout" if days > _MONTH_DAYS else "superseded_interim",
             })
-    groups: dict[tuple, list[dict]] = {}
-    for statement in statements:
-        groups.setdefault(statement["group"], []).append(statement)
 
     def peers(statement: dict, alive: list[dict]) -> list[dict]:
-        return [other for other in alive if other["job"] is not statement["job"]
-                and not _numbers_conflict(statement["digits"], other["digits"])]
+        """The statements left in the package that `statement` is one account with (`_pair_kind`)."""
+        return [other for other in alive if _pair_kind(statement, other) is not None]
 
     def most_days(statement: dict, others: list[dict]) -> dict:
         return max(others, key=lambda other: (_days_shared(statement["span"], other["span"]), -other["order"]))
 
     superseded: list[tuple[dict, dict]] = []
     overlapping: list[dict] = []
-    for group in groups.values():
-        alive = list(group)
-        left_out: list[tuple[dict, dict]] = []
-        for statement in sorted(group, key=lambda item: item["test_order"]):
-            others = peers(statement, alive)
-            if not others or not statement["rows"] or not _span_covered(statement["span"],
-                                                                        [other["span"] for other in others]):
+    alive = list(statements)
+    left_out: list[tuple[dict, dict]] = []
+    for statement in sorted(statements, key=lambda item: item["test_order"]):
+        others = peers(statement, alive)
+        if not others or not statement["rows"] or not _span_covered(statement["span"],
+                                                                    [other["span"] for other in others]):
+            continue
+        pool: Counter = Counter()
+        for other in others:
+            pool.update(other["rows"])
+        if statement["rows"] - pool:
+            continue
+        left_out.append((statement, most_days(statement, others)))
+        alive.remove(statement)
+    for statement, covering in left_out:
+        # The statement it repeats is one the package keeps: a covering statement left out after it hands it on.
+        remaining = [other for other in peers(statement, alive)
+                     if _days_shared(statement["span"], other["span"]) > 0]
+        superseded.append((statement, most_days(statement, remaining) if remaining else covering))
+    alive.sort(key=lambda item: (item["order"], item["index"] or 0))
+    for position, earlier in enumerate(alive):
+        for later in alive[position + 1:]:
+            kind = _pair_kind(earlier, later)
+            if kind is None:
                 continue
-            pool: Counter = Counter()
-            for other in others:
-                pool.update(other["rows"])
-            if statement["rows"] - pool:
+            first, last = max(earlier["span"][0], later["span"][0]), min(earlier["span"][1], later["span"][1])
+            if first > last:
                 continue
-            left_out.append((statement, most_days(statement, others)))
-            alive.remove(statement)
-        for statement, covering in left_out:
-            # The statement it repeats is one the package keeps: a covering statement left out after it hands it on.
-            remaining = [other for other in peers(statement, alive)
-                         if _days_shared(statement["span"], other["span"]) > 0]
-            superseded.append((statement, most_days(statement, remaining) if remaining else covering))
-        alive.sort(key=lambda item: (item["order"], item["index"] or 0))
-        for position, earlier in enumerate(alive):
-            for later in alive[position + 1:]:
-                if later["job"] is earlier["job"] or _numbers_conflict(later["digits"], earlier["digits"]):
-                    continue
-                first, last = max(earlier["span"][0], later["span"][0]), min(earlier["span"][1], later["span"][1])
-                if first > last:
-                    continue
-                shared = _credits_between(earlier, first, last) & _credits_between(later, first, last)
-                if not shared:
-                    continue
-                pair = {
-                    "job": later["job"].id,
-                    "other": earlier["job"].id,
-                    "shared_credit_count": sum(shared.values()),
-                    "shared_credit_total": round(sum(cents * count for (_day, cents, _text), count in shared.items())
-                                                 / 100, 2),
-                    # R2-B14 review round 1 (CURRENCY DOCTRINE): the unit of the shared money, the account's; unknown
-                    # when the two statements declare different ones.
-                    "currency": later["currency"] if later["currency"] == earlier["currency"] else None,
-                }
-                if later["index"] is not None:
-                    pair["account"] = later["index"]
-                if earlier["index"] is not None:
-                    pair["other_account"] = earlier["index"]
-                overlapping.append(pair)
+            days_shared = (last - first).days + 1
+            count, cents = _shared_credits(earlier, later, first, last)
+            if kind == "printed":
+                # R3-04: a printed pair sharing a credit, more than a boundary's days, or a period inside the other.
+                inside = any(one["span"][0] >= two["span"][0] and one["span"][1] <= two["span"][1]
+                             for one, two in ((earlier, later), (later, earlier)))
+                named = count >= 1 or days_shared > _OVERLAP_BOUNDARY_DAYS or inside
+            else:
+                # R3-02: a possible pair only where more than a boundary's days are shared and the shared credits, or
+                # one period printed with both balances, show the two are one account's.
+                fewer = min(len(_dated_credits(earlier, first, last)), len(_dated_credits(later, first, last)))
+                one_period = (
+                    earlier["start_printed"] is not None and earlier["end_printed"] is not None
+                    and (earlier["start_printed"], earlier["end_printed"]) == (later["start_printed"],
+                                                                               later["end_printed"])
+                    and all(_is_money_value(entry[side]) for entry in (earlier, later) for side in ("opening", "closing"))
+                    and all(round(float(earlier[side]) * 100) == round(float(later[side]) * 100)
+                            for side in ("opening", "closing"))
+                )
+                named = days_shared > _OVERLAP_BOUNDARY_DAYS and ((count >= 1 and 2 * count >= fewer) or one_period)
+            if not named:
+                continue
+            pair = {
+                "job": later["job"].id,
+                "other": earlier["job"].id,
+                "shared_credit_count": count,
+                "shared_credit_total": round(cents / 100, 2),
+                # R2-B14 review round 1 (CURRENCY DOCTRINE): the unit of the shared money, the account's; unknown
+                # when the two statements declare different ones.
+                "currency": later["currency"] if later["currency"] == earlier["currency"] else None,
+                # Audit round 3, R3-B18 (R3-04): the days both cover.
+                "days_shared": days_shared,
+            }
+            if later["index"] is not None:
+                pair["account"] = later["index"]
+            if earlier["index"] is not None:
+                pair["other_account"] = earlier["index"]
+            overlapping.append(pair)
 
     by_job: dict[str, list[tuple[dict, dict]]] = {}
     for statement, covering in superseded:
@@ -1862,14 +1898,64 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     return [job for job in kept if job.id not in dropped_ids], dropped, superseded_accounts, overlapping
 
 
-def _credits_between(statement: dict, first, last) -> Counter:
-    """A statement's posted credits dated from `first` to `last`, as a multiset on the day, the cents and the
-    description, casefolded, its blanks collapsed (`_package_superseded`)."""
-    return Counter(
-        (_row_day(row), _row_cents(row), " ".join(str(row.get("description") or "").split()).casefold())
-        for row in statement["credits"]
+def _pair_kind(statement: dict, other: dict) -> str | None:
+    """Audit round 3, R3-B18 (R3-02, R3-04): whether two of `_package_superseded`'s statements are one account's, and
+    on what. None for two accounts of one document (never compared). "printed" when both print a bank and four digits
+    or more, the banks (`_package_bank`) and the last fours are equal and the full numbers do not conflict
+    (`_numbers_conflict`): R2-B14's account, with no name or currency test, so a holder's name read two ways never
+    splits it. None when both print four digits or more and the last fours differ or the numbers conflict. Otherwise
+    (a statement printing no bank or fewer than four digits) "possible" when the banks agree where both print one, the
+    account names do not differ where both print one and the declared currencies (`_statement_currency`) are equal
+    where both declare one; else None."""
+    if statement["job"] is other["job"]:
+        return None
+    digits, other_digits = statement["digits"], other["digits"]
+    if len(digits) >= 4 and len(other_digits) >= 4:
+        if digits[-4:] != other_digits[-4:] or _numbers_conflict(digits, other_digits):
+            return None
+        if statement["bank"] and other["bank"] and statement["bank"] == other["bank"]:
+            return "printed"
+    if statement["bank"] and other["bank"] and statement["bank"] != other["bank"]:
+        return None
+    if statement["name"] and other["name"] and statement["name"] != other["name"]:
+        return None
+    if statement["currency"] and other["currency"] and statement["currency"] != other["currency"]:
+        return None
+    return "possible"
+
+
+def _dated_credits(statement: dict, first, last) -> list[tuple]:
+    """A statement's posted credits dated from `first` to `last`: ``(day, cents, position)`` each, `position` its place
+    among the statement's posted credits (`_package_superseded`)."""
+    return [
+        (day, _row_cents(row), position) for position, row in enumerate(statement["credits"])
         if (day := _iso_day(row.get("date"))) is not None and first <= day <= last
-    )
+    ]
+
+
+def _shared_credits(earlier: dict, later: dict, first, last) -> tuple[int, int]:
+    """Audit round 3, R3-B18 (R3-04; MCA standard §4.6(3): match on account, date, amount and text): the credits two
+    statements of one account share in the days both cover (`first` to `last`), as ``(count, cents)``. A one-to-one
+    match: only the posted, dated credits of each side inside those days are read (so a recurring amount printed just
+    outside them is never shared); the later statement's credits, in (day, cents, place) order, each take the untaken
+    credit of the earlier with equal cents whose day is at most `_OVERLAP_SHIFT_DAYS` away (the smallest gap, then the
+    earlier day, then the place). The description is not read: a transaction or value date, a pending item or another
+    reference is still one credit."""
+    pool = _dated_credits(earlier, first, last)
+    taken: set[int] = set()
+    count = cents = 0
+    for day, amount, _position in sorted(_dated_credits(later, first, last)):
+        best = min(
+            ((abs((other_day - day).days), other_day, position) for other_day, other_amount, position in pool
+             if position not in taken and other_amount == amount
+             and abs((other_day - day).days) <= _OVERLAP_SHIFT_DAYS),
+            default=None,
+        )
+        if best is not None:
+            taken.add(best[2])
+            count += 1
+            cents += amount
+    return count, cents
 
 
 def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
