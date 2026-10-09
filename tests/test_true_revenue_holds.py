@@ -875,10 +875,34 @@ def test_r3_08_the_label_less_builder_word(region, builder):
     ("QUICK DRAW CONST PAYMENT", False),
     ("SURE DRAW CONTRACTORS INC PAYMENT", False),
     ("DRAW FABRIKAM CONTOSO BUILDERS INC", False),
+    # R3-B15 review round 2 (finding 2): only a phrase that starts the region is the entry-first entry; one printed
+    # after the payer's name lends no DRAW to a later builder word.
+    ("  CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC", True),
+    ("FABRIKAM AMERICA CONST DRAW CONTRACTOR PMT", False),
+    ("SAMPLE COUNTY CONST DRAW BUILDER PMT", False),
+    ("FABRIKAM AMERICA BUILD DRAW CONTRACTOR", False),
 ])
 def test_r3_08_the_label_less_draw_purpose(row, draw):
     builder = tr._label_less_builder_word(row)
     assert (tr._DRAW_WORD.search(tr._label_less_draw_purpose(row, row, builder)) is not None) is draw
+
+
+# R3-B15 review round 2 (finding 2; R3-08's own target payers): the entry-first reading of review round 1 reads only a
+# draw's purpose phrase that starts the payer region (Truist's '<entry> <company field> <receiver> CUSTOMER ID'). A
+# root-less lender's, a county's or a developer's '<NAME> CONST DRAW' followed by any later builder word in the payer
+# region names no builder: the phrase is that payer's entry, the later word no builder's name, so the row keeps its
+# reading before the ruling, held non_sale_purpose, as its Bank of America DES twin does.
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    "FABRIKAM AMERICA CONST DRAW CONTRACTOR PMT 540503 7788 NORTHWIND SOLAR",
+    "SAMPLE COUNTY CONST DRAW BUILDER PMT 540503 7788 NORTHWIND SOLAR",
+    "CONTOSO DEVELOPM CONST DRAW BUILDERS 540503 7788 NORTHWIND SOLAR",
+    "FABRIKAM AMERICA CONST DRAW NORTHWIND HOMES 540503 7788 NORTHWIND SOLAR",
+    "FABRIKAM AMERICA BUILD DRAW CONTRACTOR 540503 7788 NORTHWIND SOLAR",
+])
+def test_r3_08_review_round_2_a_phrase_after_the_payer_s_name_lends_no_draw_to_a_later_builder_word(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [NON_SALE]
 
 
 # Audit round 3, R3-B15 (R3-59; the underwriter's Q11 (b) of 2026-10-02, "Don't count as true revenue and go straight to
@@ -892,18 +916,18 @@ ASSET_SALE = ("non_revenue", "asset_sale_proceeds")
 R3_59_AMOUNT = 27500.0
 
 
-def _r3_59_chase_wire(purpose: str) -> str:
+def _r3_59_chase_wire(purpose: str, holder: str = FLORIST) -> str:
     return ("FEDWIRE CREDIT VIA CONTOSO BANK/123456789 B/O: FABRIKAM FREIGHT LLC SAMPLEVILLE CA 12345 REF: CHASE NYC/"
-            "CTR/BNF=NORTHWIND FLORIST LLC SAMPLEVILLE WA 12345-1234 US/AC-000000001234 RFB=NOTPROVIDED "
+            f"CTR/BNF={holder} SAMPLEVILLE WA 12345-1234 US/AC-000000001234 RFB=NOTPROVIDED "
             f"OBI={purpose} IMAD: 0102ABCDEF12000123 TRN: 1234567890FF")
 
 
-def _r3_59(purpose: str, layout: str, zelle: bool):
-    """A florist's one-credit month: FABRIKAM FREIGHT LLC's wire printing `purpose`, on Bank of America's PMT DET or
-    Chase's Fedwire OBI layout, under the Zelle setting `zelle`."""
+def _r3_59(purpose: str, layout: str, zelle: bool, holder: str = FLORIST):
+    """A one-credit month (a florist's unless `holder` says otherwise): FABRIKAM FREIGHT LLC's wire printing `purpose`,
+    on Bank of America's PMT DET or Chase's Fedwire OBI layout, under the Zelle setting `zelle`."""
     if layout == "bofa":
-        return _q11([(_q11_wire("FABRIKAM FREIGHT LLC", purpose), R3_59_AMOUNT)], FLORIST, zelle_true_revenue=zelle)
-    return _q11([(_r3_59_chase_wire(purpose), R3_59_AMOUNT)], FLORIST, bank="Chase", zelle_true_revenue=zelle)
+        return _q11([(_q11_wire("FABRIKAM FREIGHT LLC", purpose), R3_59_AMOUNT)], holder, zelle_true_revenue=zelle)
+    return _q11([(_r3_59_chase_wire(purpose, holder), R3_59_AMOUNT)], holder, bank="Chase", zelle_true_revenue=zelle)
 
 
 @pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
@@ -960,9 +984,51 @@ def test_r3_59_a_platform_seller_payout_printing_net_of_fees_stays_asset_sale_pr
     ("", "NET FEES ", False), ("", "NET FEES FOR ", False),
     ("", "NET COMMISSION ON ", True), ("", "NET COMMISSION ", True), ("", "NET COMMISSIONS FOR ", True),
     ("", "AGENT NET COMMISSION ", True), ("", "NET FEE FOR ", True), ("", "NET FEE ", True),
+    # R3-B15 review round 2 (finding 1): a commission word directly before the netting phrase, or the fees taken from
+    # or off a commission, is a broker's own commission; a commission that is itself netted is not.
+    ("", "COMMISSION LESS FEES ON ", True), ("", "COMMISSION NET OF FEES ", True), ("", "COMM LESS FEES ", True),
+    ("", "AGENT COMMISSION AFTER FEES FOR ", True), ("", "NET COMMISSION LESS FEES ", True),
+    ("", "COMMISSIONS MINUS FEES ", True), ("", "COMMISSION NET FEES ", True),
+    (" FEES WITHHELD FROM COMMISSION", "", True), (" FEES DEDUCTED FROM COMMISSION", "", True),
+    (" FEE DEDUCTED OFF COMM", "", True), (" FEES NETTED FROM AGENT COMMISSION", "", True),
+    ("", "NET OF COMMISSION LESS FEES ", False), ("", "LESS COMMISSION AFTER FEES ", False),
+    ("", "MINUS COMMISSIONS NET OF FEES ", False), (" FEES WITHHELD FROM PROCEEDS", "", False),
 ])
 def test_r3_59_the_netting_words(after, before, vetoed):
     assert tr._asset_sale_commission(after, before) is vetoed
+
+
+R3_59_AGENCY = "NORTHWIND SALES AGENCY LLC"
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("holder", [FLORIST, R3_59_AGENCY])
+@pytest.mark.parametrize("purpose", [
+    # R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a seller's proceeds
+    # never lead with or come out of a commission. A commission word printed directly before the netting phrase (a
+    # broker's or an agent's commission less its fees) or the fees taken from a commission is the broker's own earned
+    # commission, so the veto stays, as for the mirrors printed after the sale.
+    "COMMISSION LESS FEES ON TRUCK SALE", "COMMISSION NET OF FEES TRUCK SALE", "COMM LESS FEES TRUCK SALE",
+    "AGENT COMMISSION AFTER FEES FOR TRUCK SALE", "NET COMMISSION LESS FEES TRUCK SALE",
+    "TRUCK SALE FEES WITHHELD FROM COMMISSION", "TRUCK SALE FEES DEDUCTED FROM COMMISSION",
+    "TRUCK SALE COMMISSION LESS FEES", "TRUCK SALE COMMISSION NET OF FEES",
+])
+def test_r3_59_review_round_2_a_commission_the_fees_come_out_of_stays_a_broker_s_revenue(
+        purpose, holder, layout, zelle):
+    assert _r3_59(purpose, layout, zelle, holder) == [REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", [
+    # Controls: a commission that is itself netted, and fees withheld from the proceeds, are what a seller's proceeds
+    # are net of, so the sale is read.
+    "NET OF COMMISSION LESS FEES TRUCK SALE", "LESS COMMISSION AFTER FEES TRUCK SALE",
+    "TRUCK SALE FEES WITHHELD FROM PROCEEDS",
+])
+def test_r3_59_review_round_2_a_netted_commission_is_still_a_seller_s_sale(purpose, layout, zelle):
+    assert _r3_59(purpose, layout, zelle) == [ASSET_SALE]
 
 
 @pytest.mark.parametrize(("text", "bank"), [

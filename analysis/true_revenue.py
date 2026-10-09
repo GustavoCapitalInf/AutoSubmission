@@ -1074,6 +1074,21 @@ _ASSET_SALE_NETTING_BEFORE = re.compile(
     r"(?<![A-Z])(?:(?:NET OF|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)|NET\s+FEES)"
     r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
 )
+#: R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a seller's proceeds never
+#: lead with or come out of a commission. A commission word printed directly before that netting phrase ('COMMISSION
+#: LESS FEES ON TRUCK SALE', 'NET COMMISSION LESS FEES TRUCK SALE': a broker's or an agent's commission less its fees)
+#: or fees a netting word takes from or off a commission after the sale ('TRUCK SALE FEES WITHHELD FROM COMMISSION') is
+#: the broker's own earned commission, so the veto stays, as for its mirror 'TRUCK SALE COMMISSION LESS FEES'; never a
+#: commission a netting word itself stands before ('NET OF COMMISSION LESS FEES TRUCK SALE', _ASSET_SALE_NETTED_WORD:
+#: what a seller's proceeds are net of; a bare NET is a broker's NET COMMISSION).
+_ASSET_SALE_COMMISSION_NETTED_BEFORE = re.compile(
+    r"(?<![A-Z])(?:COMMISSIONS?|COMMS?)\s+(?:(?:NET OF|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)|NET\s+FEES)"
+    r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
+)
+_ASSET_SALE_NETTED_WORD = re.compile(r"(?<![A-Z])(?:NET OF|LESS|AFTER|MINUS)\s*$")
+_ASSET_SALE_FEES_FROM_COMMISSION = re.compile(
+    r"^\s*FEES?\s+(?:WITHHELD|DEDUCTED|DEDUCT\w*|NETTED)\s+(?:FROM|OFF)\s+(?:[A-Z]+\s+)?(?:COMMISSIONS?|COMMS?)\b"
+)
 #: Q11 (b): an invoice reference, which a vehicle's or heavy equipment's sale reads through (the owner made no invoice
 #: carve-out); accounts-payable, vendor or payables wording still spares the row.
 _INVOICE_REFERENCE = re.compile(
@@ -2410,7 +2425,7 @@ def construction_progress_draw(
     receiver inside the region). On a row that prints no payer-name field (_prints_payer_name_field: Wells Fargo's,
     Citizens', TD Bank's, Huntington's and Truist's label-less layouts) the region holds the entry words too: the
     payer's builder word is the first that does not start a draw's purpose phrase (_label_less_builder_word: '<NAME>
-    CONST DRAW' names no builder), and DRAW is read only after it or in such a phrase before it
+    CONST DRAW' names no builder), and DRAW is read only after it or in such a phrase that starts the region
     (_label_less_draw_purpose: any other printed before it, 'QUICK DRAW CONST PAYMENT', is inside the payer's
     name). A row these refuse keeps its reading before the ruling,
     the non-sale hold of its DRAW, as its Bank of America DES twin does; on a row that prints a payer-name field the
@@ -2421,7 +2436,9 @@ def construction_progress_draw(
     a builder's draw on Truist's entry-first layout ('CONST DRAW <NAME> BUILDERS INC ...') counts, the DRAW of the
     entry's purpose phrase read before the builder word (_label_less_draw_purpose); its recorded residual (counted, as
     before R3-08; 0 corpus rows): a receiver the holder's names do not strip that prints a builder word lends it to a
-    root-less payer's entry-first CONST DRAW."""
+    root-less payer's entry-first CONST DRAW. R3-B15 review round 2 (finding 2): only a phrase that starts the payer
+    region is that entry, so a root-less lender's, a county's or a developer's '<NAME> CONST DRAW' followed by a later
+    builder word in the region ('SAMPLE COUNTY CONST DRAW BUILDER PMT') names no builder and keeps its hold."""
     if not region or _REALTY_PAYER.search(region) or (not zelle_true_revenue and zelle_deposit(text)):
         return False
     named = _prints_payer_name_field(text)
@@ -2464,14 +2481,18 @@ def _label_less_draw_purpose(row: str, payer: str, builder: re.Match[str]) -> st
     the conservative side). R3-B15 review round 1 (finding 2; Q11 (a)): a draw's purpose phrase printed before the
     builder word (_DRAW_PURPOSE_PHRASE, which _label_less_builder_word skipped) is the entry's purpose, never the
     payer's name, so its DRAW is read too: Truist's entry-first 'CONST DRAW <NAME> BUILDERS INC <receiver> CUSTOMER
-    ID' is a builder's draw, while 'QUICK DRAW CONST PAYMENT' prints no phrase and stays unread."""
+    ID' is a builder's draw, while 'QUICK DRAW CONST PAYMENT' prints no phrase and stays unread. R3-B15 review round 2
+    (finding 2; R3-08's own target payers): only a phrase that starts the payer region, the entry-first entry, is read;
+    one printed after the payer's name ('FABRIKAM AMERICA CONST DRAW CONTRACTOR PMT', 'SAMPLE COUNTY CONST DRAW BUILDER
+    PMT') is that root-less payer's own entry and lends no DRAW to a later builder word."""
     lead = payer[: builder.end()].strip()
     at = row.find(lead) if lead else -1
     after = row[at + len(lead):] if at >= 0 else payer[builder.end():]
-    entry = " ".join(
-        found.group(0) for found in _DRAW_PURPOSE_PHRASE.finditer(payer) if found.end() <= builder.start()
-    )
-    return f"{entry} {after}" if entry else after
+    offset = len(payer) - len(payer.lstrip())
+    first = _DRAW_PURPOSE_PHRASE.match(payer, offset)
+    if first is not None and first.end() <= builder.start():
+        return f"{first.group(0)} {after}"
+    return after
 
 
 def non_sale_purpose(
@@ -6901,7 +6922,17 @@ def _asset_sale_commission(after: str, before: str) -> bool:
     seller's proceeds are net of: 'TRUCK SALE FEES WITHHELD', 'NET FEES TRUCK SALE' and 'LESS COMMISSION TRUCK SALE'
     are the sale, as 'TRUCK SALE NET OF FEES' was; 'TRUCK SALE COMMISSION', 'COMMISSION ON TRUCK SALE', 'TRUCK SALE
     FEE', 'FEE FOR TRUCK SALE' and a broker's or an agent's 'NET COMMISSION ON TRUCK SALE' (its own earned commission
-    after splits) stay a broker's revenue."""
+    after splits) stay a broker's revenue. R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out,
+    standard A11): a seller's proceeds never lead with or come out of a commission, so a commission word printed
+    directly before the netting phrase (_ASSET_SALE_COMMISSION_NETTED_BEFORE: 'COMMISSION LESS FEES ON TRUCK SALE',
+    'NET COMMISSION LESS FEES TRUCK SALE') or fees taken from or off a commission (_ASSET_SALE_FEES_FROM_COMMISSION:
+    'TRUCK SALE FEES WITHHELD FROM COMMISSION') keeps the veto, as its mirror 'TRUCK SALE COMMISSION LESS FEES' does;
+    a commission a netting word itself stands before ('NET OF COMMISSION LESS FEES TRUCK SALE') is still the sale."""
+    broker = _ASSET_SALE_COMMISSION_NETTED_BEFORE.search(before)
+    if _ASSET_SALE_FEES_FROM_COMMISSION.search(after) or (
+        broker is not None and _ASSET_SALE_NETTED_WORD.search(before[: broker.start()]) is None
+    ):
+        return True
     return bool(
         (_ASSET_SALE_COMMISSION_AFTER.search(after) and not _ASSET_SALE_NETTING_AFTER.search(after))
         or (_ASSET_SALE_COMMISSION_BEFORE.search(before) and not _ASSET_SALE_NETTING_BEFORE.search(before))
