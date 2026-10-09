@@ -1762,6 +1762,61 @@ def test_r3_b11_r1_the_code_s_docstrings_name_the_narrowed_care_of_and_the_rule_
     assert "never the contact, except a contact whose words are the premium-trust designation itself" in reader
 
 
+#: Audit round 3, R3-B12: the code commit §20 and the contract name.
+R3_B12_CODE_COMMIT = "1360d98"
+
+
+def test_the_spec_and_the_contract_record_r3_b12():
+    """Audit round 3, R3-B12 (R3-12, R3-29, R3-56): §8.2's VIREMENT sentence, §8.4's rails bullet, its Yes paragraph's
+    PNC reading marked in place, its reader sentence naming `pass_text` and the wire gate and its residuals, §9.3's
+    stored-output bullet, the VIREMENT and R2-OW17 lines marked in place, one §20 line per issue and the batch line
+    with the commit, and the contract's bullets."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    transfer = re.sub(r"\s+", " ", _section(text, "\n### 8.2 ", "\n### 8.3 "))
+    assert "audit round 3, R3-B12 (R3-29, §20): `PAR COURRIEL` is an Interac form" in transfer
+    p2p = re.sub(r"\s+", " ", _section(text, "\n### 8.4 ", "\n### 8.5 "))
+    for words in ("Audit round 3, R3-B12 (R3-29, §20): pass 7 also reads Interac's French name, "
+                  "`\\bVIREMENTS? PAR COURRIEL\\b`",
+                  "(since audit round 3, R3-B12: R3-12, §20: pass 7 reads PNC's `ZEL` as its `ZELLE` twin",
+                  "on the pass's own text (`pass_text`:",
+                  "a wire is never a Zelle deposit (R3-56)",
+                  "a company whose name holds the word `ZELLE` paying by ACH (`DE ZELLE HOLDINGS LLC DES:VENDOR PAY`) "
+                  "is still read as a Zelle deposit",
+                  "PNC's `ZEL TO` debits keep the classifier's debit reading"):
+        assert words in p2p, words
+    assert "Audit round 3, R3-B12 (§20): no bump in a fix batch either" in flat
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(Amended by audit round 3, R3-B12: R3-29, §20 below: `PAR COURRIEL` is an Interac form",
+                  "(Amended by audit round 3, R3-B12: R3-12, §20 below:",
+                  "- **PNC's `ZEL` Zelle rail reads as its `ZELLE` twin in pass 7**",
+                  "- **Banque Royale's French autodeposit is the Interac rail**",
+                  "- **A wire is never a Zelle deposit**",
+                  "- **Audit round 3, R3-B12 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B12 (R3-") >= 3
+    assert amendments.count(R3_B12_CODE_COMMIT) >= 4
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT", "R3B12" + "CODE"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B12 (R3-12, R3-29, R3-56; {R3_B12_CODE_COMMIT})",
+                  "pass 7 reads the consumer person-to-person rails as the banks print them",
+                  "(Amended by audit round 3, R3-B12: R3-12 and R3-56, below:"):
+        assert words in contract, words
+
+
+def test_r3_b12_the_code_s_docstrings_name_the_pass_text_and_the_wire_gate():
+    """Audit round 3, R3-B12 (R3-12, R3-56, R3-29): pass_text, zelle_deposit and _p2p_rail name their readings."""
+    doc = re.sub(r"\s+", " ", true_revenue.pass_text.__doc__)
+    assert "spelled as its ZELLE twin" in doc
+    assert "The classifier's _CONSUMER_P2P_RAIL (the 5.5 channel gate, the legacy classes, the debits) is " \
+           "unchanged" in doc
+    reader = re.sub(r"\s+", " ", true_revenue.zelle_deposit.__doc__)
+    assert "a wire is never a Zelle deposit" in reader
+    rail = re.sub(r"\s+", " ", true_revenue._p2p_rail.__doc__)
+    assert "Interac's French form, singular or plural (_INTERAC_COURRIEL" in rail
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
