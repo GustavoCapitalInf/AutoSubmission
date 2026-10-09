@@ -2715,3 +2715,81 @@ def test_r3_b16_the_code_s_docstrings_name_the_readings():
     assert "Audit round 3, R3-B16 (R3-34)" in re.sub(r"\s+", " ", true_revenue._cash_withdrawal.__doc__)
     registry = inspect.getsource(classification_registry)
     assert "Audit round 3, R3-B16 (R3-03; owner-batch insurer code, R2-OW07's table): American Income Life" in registry
+
+
+#: Audit round 3, R3-B17: the code commit §20 and the contract name.
+R3_B17_CODE_COMMIT = "2b684b8"
+
+
+def test_the_spec_and_the_contract_record_r3_b17():
+    """Audit round 3, R3-B17 (R3-77, R3-74, R3-15): §5.2's template prefixes and counter-debit readings, T11, §8.1's
+    three holds, §9.3's stored-output bullet, one §20 line per issue and the batch line with the commit, and the
+    contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    terms = re.sub(r"\s+", " ", _section(text, "\n### 5.2 Terms", "\n### 5.3 "))
+    for words in ("Audit round 3, R3-B17 (R3-15, §20): and RBC's `ACCOUNT PAYABLE PMT` and Scotiabank's `ACCOUNTS "
+                  "PAYABLE`",
+                  "- **Counter-debit readings** (audit round 3, R3-B17, §20;",
+                  "RBC's `INSURANCE`, `INVESTMENT`, `FEES DUES`, `EQUIPMENT RENT` and `PAY EMPLOYEE VENDOR`, "
+                  "Scotiabank's `INVESTMENT`",
+                  "and Scotiabank's `ACHDEBIT` is a label word",
+                  "Two readings name one payer when their numbers are equal"):
+        assert words in terms, words
+    decisions = re.sub(r"\s+", " ", _section(text, "\n## 4. ", "\n## 5. "))
+    assert "Audit round 3, R3-B17 (R3-15, §20; OQ3 counts a numbered payer only after the holds" in decisions
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("5.6's first word or a cut or glued spelling, or (audit round 3, R3-B17: R3-15, §20) a numbered "
+                  "company's number",
+                  "- **`payer_debited_as_lender`:** the payer's first distinctive word (§7.5), or a numbered company's "
+                  "number (audit round 3, R3-B17: R3-15, §20)",
+                  "- **`payer_also_debited`:** the payer's first distinctive word (§7.5's definition), or a numbered "
+                  "company's number (audit round 3, R3-B17: R3-15, §20)",
+                  "Audit round 3, R3-B17 (R3-77, R3-74, R3-15, §20; standard C1, C2, B6, A17",
+                  "(R3-77, §20; the underwriter's Q2; standard A9, B6) RBC's posting-type label `INSURANCE`",
+                  "(R3-15, §20) A numbered affiliate's or own account's round trip"):
+        assert words in holds, words
+    assert "- Audit round 3, R3-B17 (§20): no bump in a fix batch either" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A bank's posting-type label names no party in the counter-debit readings**",
+                  "- **A funder collecting under a Canadian pre-authorized-debit label is read by its name**",
+                  "- **Numbered companies are compared by their number; an accounts-payable label before the number no "
+                  "longer hides the holder's own**",
+                  "Recorded residuals (0 corpus rows): a numbered payer printed by its bare number with no province",
+                  "- **Audit round 3, R3-B17 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B17 (R3-") == 3
+    assert amendments.count(R3_B17_CODE_COMMIT) >= 4
+    assert R3_B17_CODE_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B17 in all**")
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B17 (R3-77, R3-74, R3-15; {R3_B17_CODE_COMMIT})",
+                  "A statement's bank's own posting-type label printed before the party names no party",
+                  "is compared by its number, read only where the numbered-company form prints",
+                  "D6's lender names are unchanged."):
+        assert words in contract, words
+
+
+def test_r3_b17_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B17: the readers and the holds' helpers name the label cuts and the number key, and the
+    registry's table comment its evidence."""
+    from analysis import classification_registry
+
+    def doc(function):
+        return re.sub(r"\s+", " ", function.__doc__)
+
+    assert "Audit round 3, R3-B17 (R3-77, R3-74; owner ruling 2026-10-02" in doc(
+        transaction_classifier._without_posting_type_label)
+    assert "Audit round 3, R3-B17: the region is read without the statement's bank's posting-type label" in doc(
+        transaction_classifier.counter_debit_payer_reading)
+    assert "`number` is the first numbered-company form the debit prints" in doc(
+        transaction_classifier.counter_debit_debit_reading)
+    assert "Audit round 3, R3-B17 (R3-15; §5.2, T11, §8.1; standard C1, B6, A17): `number`" in doc(
+        transaction_classifier.CounterDebitReading)
+    assert "Audit round 3, R3-B17 (R3-15; standard C1, B6, A17" in doc(true_revenue._same_payer)
+    assert "Audit round 3, R3-B17 (R3-77, R3-74): both readings are read with the statement's bank" in doc(
+        true_revenue.counter_credit)
+    assert "Audit round 3, R3-B17 (R3-15): a debit whose reading names no word is kept" in doc(
+        true_revenue.counter_debits)
+    assert "Audit round 3, R3-B17 (R3-15): a numbered company's number" in doc(true_revenue._head_word)
+    registry = inspect.getsource(classification_registry)
+    assert "Audit round 3, R3-B17 (R3-77, R3-74; §5.2, §8.1; owner ruling 2026-10-02" in registry
+    assert "analysis/rbc.py's _is_debit lists" in registry
