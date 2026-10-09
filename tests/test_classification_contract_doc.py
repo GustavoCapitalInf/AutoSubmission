@@ -2581,3 +2581,76 @@ def test_r3_b15_r1_the_code_s_docstrings_name_the_readings():
     source = inspect.getsource(true_revenue)
     assert "R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11)" in source
     assert "R3-B15 review round 1 (finding 4)" in source
+
+
+#: Audit round 3, R3-B15, review round 2: the code commit §20 and the contract name.
+R3_B15_R2_CODE_COMMIT = "bc8d55e"
+
+
+def test_the_spec_and_the_contract_record_r3_b15_review_round_2():
+    """Audit round 3, R3-B15, review round 2 (findings 1 to 3): §8.1's progress-draw paragraph (only a phrase that
+    starts the payer region) and asset-sale purpose (a commission the netting phrase follows or the fees come out of),
+    §9.3's review-round sentence, §19.1's Q11 bullet, the R3-08, R3-59, R3-53 and review round 1 lines marked in place
+    (the single-row amounts removed), the §20 line with the commit and the measurement, and the contract's rows,
+    paragraph, bullets and entries."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("narrowed by R3-B15 review round 2, finding 2, §20: only a phrase that starts the payer region is "
+                  "that entry-first entry",
+                  "R3-B15 review round 2 (finding 1, §20; R2-OW06 review round 1's broker carve-out, standard A11): a "
+                  "seller's proceeds never lead with or come out of a commission",
+                  "(`TRUCK SALE FEES WITHHELD FROM COMMISSION`) stays a broker's revenue",
+                  "(`NET OF COMMISSION LESS FEES TRUCK SALE`) is still the sale"):
+        assert words in holds, words
+    assert "Its review round 2 (§20) changes, for the same move, the same readings of: a label-less draw" in text
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert "Its review round 2 (§20): only a phrase that starts the payer region is that entry" in review
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("narrowed by R3-B15 review round 2, finding 2, §20 below, to a phrase that starts the payer region",
+                  "and by R3-B15 review round 2, finding 1, §20 below: a commission word printed directly before the "
+                  "netting phrase",
+                  "(never after a commission word, nor fees taken from a commission: R3-B15 review round 2, finding 1, "
+                  "§20 below)",
+                  "(only one that starts the payer region since R3-B15 review round 2, finding 2, §20 below;"):
+        assert words in amendments, words
+    # Finding 3: the batch's lines name the single corpus rows without their amounts.
+    assert amendments.count("its amount removed in place by R3-B15 review round 2, finding 3, §20 below") == 3
+    assert "the Mission Valley builder's draw, still counted (its amount removed in place" in _amendment_line(
+        amendments, "- **A label-less construction draw names a builder only by the payer's own word**")
+    assert "row, a platform payout, is unchanged; its amount removed in place" in _amendment_line(
+        amendments, "- **A sale printed net of a fee or a commission is still a sale**")
+    assert "`payroll_or_salary` 1 (1 statement; its amount removed in place" in _amendment_line(
+        amendments, "- **A held row's reason sentence never says it is counted**")
+    line = _amendment_line(amendments, "- **R3-B15 review round 2: ")
+    for words in ("audit round 3, R3-B15, review round 2 (findings 1 to 3)", R3_B15_R2_CODE_COMMIT,
+                  "Measured against `b5cf2fe`'s tree", "(finding 1)", "(finding 2)", "(finding 3)"):
+        assert words in line, words
+    assert amendments.count("audit round 3, R3-B15 (R3-") == 4
+    for placeholder in ("R3B15R2" + "CODE", "MEASURE" + "_R3B15R2"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "when the phrase starts the payer region (its review round 2)" in when["`construction_progress_draw`"]
+    assert ("the fees come out of (`COMMISSION LESS FEES ON TRUCK SALE`, `TRUCK SALE FEES WITHHELD FROM COMMISSION`; "
+            "its review round 2)") in when["`asset_sale_proceeds`"]
+    contract = _flat(CONTRACT)
+    assert "R3B15R2" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B15, review round 2 ({R3_B15_R2_CODE_COMMIT})",
+                  "when the phrase starts the payer region, its review round 2)",
+                  "that follows no commission word and takes no fees from a commission (its review round 2)",
+                  "since its review round 2 only a phrase that starts the payer region is read",
+                  "`TRUCK SALE FEES WITHHELD FROM COMMISSION`, R3-B15's review round 2)",
+                  "(one that starts the payer region, since its review round 2)"):
+        assert words in contract, words
+
+
+def test_r3_b15_r2_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B15, review round 2: the netting reader, the label-less draw purpose and the progress draw
+    carry their notes."""
+    assert "R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out" in re.sub(
+        r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    assert "R3-B15 review round 2 (finding 2; R3-08's own target payers)" in re.sub(
+        r"\s+", " ", true_revenue._label_less_draw_purpose.__doc__)
+    assert "R3-B15 review round 2 (finding 2): only a phrase that starts the payer region" in re.sub(
+        r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
+    source = inspect.getsource(true_revenue)
+    assert "R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11)" in source
