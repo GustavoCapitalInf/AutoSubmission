@@ -1978,6 +1978,79 @@ def test_r3_b13_the_code_s_docstrings_name_the_readings():
     assert "Audit round 3, R3-B13 (R3-11;" in source and "Audit round 3, R3-B13 (R3-55)" in source
 
 
+#: Audit round 3, R3-B13, review round 1: the code commit §20 and the contract name.
+R3_B13_R1_CODE_COMMIT = "7135088"
+
+
+def test_the_spec_and_the_contract_record_r3_b13_review_round_1():
+    """Audit round 3, R3-B13, review round 1 (findings 1 to 4): §7.6's veto spares MUTUAL AID; §8.1's Eligible
+    sentence reads the provider as the holder's first trade and a benefit word inside the carrier's name as no
+    benefit, marked in place; §9.3's review-round sentence; §17.1's Q2 default (5) names the provider reading, its
+    alternative and the residuals; the R3-10 and R3-11 lines marked in place; the §20 line with the commit; the
+    contract's row, bullet, entry and the new entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    public = re.sub(r"\s+", " ", _section(text, "\n### 7.6 ", "\n### 7.7 "))
+    assert "`(?! (?:MUTUAL(?! AID\\b)|MUTUA|MUT|" in public
+    assert "never `MUTUAL AID` either (R3-B13 review round 1, finding 3, §20:" in public
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("read by `_non_provider_benefit` on the purpose and the payer; R3-B13 review round 1, finding 2, "
+                  "§20:",
+                  "so `MUTUAL BENEFIT INS CO DES:DRP PAYMENT` still counts at a repair shop",
+                  "the holder's trade, the first `_holder_service_trade` reads with its strict and its loose words, is "
+                  "no clinic or pharmacy",
+                  "(Amended by R3-B13 review round 1, finding 1, §20 below: the provider is the holder's first trade"):
+        assert words in holds, words
+    assert "refusing every ground only where no holder name reads a clinic or a pharmacy (`_holder_provider`, by " \
+           "the strict and the loose words" not in holds
+    assert ("Its review round 1 (§20) changes the same reading of an insurer's credit printing workers' compensation"
+            in text)
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    defaults = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Insurers paid for the business's work: the defaults (the underwriter's Q2 of 2026-10-02, §8.1; "
+        "R2-OW08).**"))
+    for words in ("The clinic or pharmacy is the holder's first trade (R3-B13 review round 1, finding 1, §20",
+                  "the owner may widen it to any clinic or pharmacy word on a holder name (the batch's first reading)",
+                  "recorded residuals, both latent"):
+        assert words in defaults, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    benefit = _amendment_line(amendments, "- **A personal benefit is never an insurer's payment for work**")
+    assert "(Amended by R3-B13 review round 1, findings 1 and 2, §20 below:" in benefit
+    county = _amendment_line(amendments, "- **A Texas county mutual is an insurer, never a county**")
+    assert "(Amended by R3-B13 review round 1, finding 3, §20 below: never `MUTUAL AID`" in county
+    line = _amendment_line(amendments, "- **R3-B13 review round 1: ")
+    for words in ("audit round 3, R3-B13, review round 1 (findings 1 to 4)", R3_B13_R1_CODE_COMMIT,
+                  "Measured against `be75450`'s tree", "(finding 1)", "(finding 2)", "(finding 3)", "(finding 4)"):
+        assert words in line, words
+    for placeholder in ("R3B13R1" + "CODE", "MEASURE" + "_R3B13R1"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "except where the holder's first trade is a clinic or a pharmacy" in when["`insurer_paid_for_services`"]
+    contract = _flat(CONTRACT)
+    assert "R3B13R1" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B13, review round 1 ({R3_B13_R1_CODE_COMMIT})",
+                  "(amended by R3-B13 review round 1, below: where the holder's first trade is no clinic or pharmacy",
+                  "never `FIRE` or `SELF`, nor `MUTUAL AID`: review round 1)",
+                  "its review round 1: the holder's first trade, and a benefit word inside the carrier's name"):
+        assert words in contract, words
+
+
+def test_r3_b13_r1_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B13, review round 1 (findings 1 to 3): _holder_provider reads the holder's first trade,
+    _non_provider_benefit the carrier's name, _insurer_for_work names both, and the classifier's veto spares MUTUAL
+    AID."""
+    provider = re.sub(r"\s+", " ", true_revenue._holder_provider.__doc__)
+    for words in ("the first _holder_service_trade reads with its strict and its loose words",
+                  "R3-B13 review round 1 (finding 1, the brief's reading)"):
+        assert words in provider, words
+    benefit = re.sub(r"\s+", " ", true_revenue._non_provider_benefit.__doc__)
+    assert "followed by an insurer word or spelling or a legal form is the carrier's name" in benefit
+    release = re.sub(r"\s+", " ", true_revenue._insurer_for_work.__doc__)
+    assert "_non_provider_benefit: review round 1, never a benefit word inside the carrier's name" in release
+    assert "where the holder's first trade is no clinic or pharmacy (_holder_provider)" in release
+    source = inspect.getsource(transaction_classifier)
+    assert "R3-B13\n#: review round 1 (finding 3): never MUTUAL AID" in source
+
+
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
 R2_L01_CODE_COMMIT = "b02a930"
 
