@@ -990,6 +990,33 @@ def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_
     assert {record["source_account"] for record in two_accounts["verified_revenue_evidence"]} == {1}
 
 
+def test_r3_53_a_held_row_s_evidence_never_says_it_is_counted():
+    """Audit round 3, R3-B15 (R3-53; §5.3): the JSON download (the served payload) and the package downloads' evidence
+    sections write a held row's `revenue_reason` beside `revenue_tier` excluded_pending_review. A hold that re-tiers a
+    counted re-statement (here the underwriter's Q2 release of a repair shop's insurer credit, which the debit for its
+    own amount holds as payer_also_debited) names the hold by its own label there, never "counted and flagged"."""
+    from analysis.revenue import REVENUE_TIER_REASONS
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_rows
+
+    rows = [(2, "STATE FARM DES:DRP PAYMENT ID:1", 3000.0), (3, "STATE FARM DES:AUTOPAY ID:9", -3000.0),
+            (4, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0)]
+    payload = document_report_to_dict(_report("CONTOSO AUTO REPAIR LLC", "000000001010", 1500.0, rows))
+    held = [record for record in _records(payload) if record.get("revenue_tier") == "excluded_pending_review"]
+    assert held
+    label = REVENUE_TIER_REASONS["payer_also_debited"][1]
+    for record in held:
+        assert record["revenue_tier_reason"] == "payer_also_debited"
+        assert "counted and flagged" not in record["revenue_reason"]
+        assert f"never verified, and held for review ({label})" in record["revenue_reason"]
+    package_rows = _package_rows(_package(payload))
+    reasons = [value for section, field, value in package_rows
+               if section.startswith("excluded_pending_review_evidence_") and field == "revenue_reason"]
+    assert reasons and all(f"held for review ({label})" in value for value in reasons)
+    assert not any("counted and flagged" in str(value) for section, _field, value in package_rows
+                   if section.startswith("excluded_pending_review_evidence_"))
+
+
 # ---------------------------------------------------------------- Audit round 2, R2-B15 (R13): months by days covered
 
 #: The two fabricated accounts the R13 tests read: CONTOSO BAKERY LLC's checking and its FABRIKAM-paid operating account.

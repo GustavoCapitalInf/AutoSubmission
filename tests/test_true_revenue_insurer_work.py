@@ -22,6 +22,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import (
     classify_statement_transactions,
@@ -879,9 +880,14 @@ def test_every_released_row_is_counted_or_held_by_a_later_hold_never_verified(ro
         if record.revenue_tier == "counted_flagged":
             assert record.revenue_tier_reason == "insurer_paid_for_services"
             assert record.revenue_review_required is False
+            assert "counted and flagged, never verified" in record.revenue_reason
         else:
             assert record.revenue_tier_reason not in {"insurer_named_payer", "insurer_payer"}
             assert record.revenue_review_required is True
+            # Audit round 3, R3-B15 (R3-53): a held row's sentence never says it is counted.
+            assert "counted and flagged" not in record.revenue_reason
+            assert (f"never verified, and held for review "
+                    f"({REVENUE_TIER_REASONS[record.revenue_tier_reason][1]})") in record.revenue_reason
 
 
 def test_a_released_row_never_counts_toward_a_q5_or_q6_repeat():
@@ -1383,6 +1389,32 @@ def test_r3_09_one_insurer_s_repeated_round_sums_on_a_push_rail_or_a_named_trans
     rows, statement = ROUND_P2P[case]
     assert _same_in_both(rows, **statement) == [REPEAT] * len(rows)
     assert [record.revenue_match_method for record in _dated(rows, **statement)] == [METHOD] * len(rows)
+
+
+@pytest.mark.parametrize(("rows", "statement", "reason"), [
+    pytest.param([("STATE FARM DES:DRP PAYMENT ID:1", 3000.0, "03-02"),
+                  ("STATE FARM DES:AUTOPAY ID:9", -3000.0, "03-03")],
+                 {"holder": REPAIR_SHOP}, "payer_also_debited", id="T18b"),
+    pytest.param([("FARMERS INS DES:PAYROLL ID:1", 1234.0, "03-02")], {"holder": REPAIR_SHOP}, "payroll_or_salary",
+                 id="T16"),
+    # R3-B13's R3-09, Zelle Yes: one insurer's repeated round sums on Zelle are held p2p_round_repeat.
+    pytest.param(ROUND_ZELLE, {"bank": "Bank of America", "zelle_true_revenue": True}, "p2p_round_repeat",
+                 id="r3-09-zelle-yes"),
+])
+def test_r3_53_a_released_insurer_a_later_hold_names_says_it_is_held(rows, statement, reason):
+    """Audit round 3, R3-B15 (R3-53; §5.3, §8.10): the Q2 release re-states an insurer's credit with "counted and
+    flagged, never verified"; when a later hold names the row, its sentence names the hold by the hold's own label
+    (REVENUE_TIER_REASONS) instead, and nothing else of the record changes (today the held row kept the counted
+    sentence, which the JSON download and the package's evidence sections write beside excluded_pending_review)."""
+    records = [record for record in _dated(rows, **statement) if record.revenue_match_method == METHOD]
+    assert records
+    label = REVENUE_TIER_REASONS[reason][1]
+    for record in records:
+        assert (record.revenue_tier, record.revenue_tier_reason) == ("excluded_pending_review", reason)
+        assert "counted and flagged" not in record.revenue_reason
+        assert f"never verified, and held for review ({label}) (the owner's ruling on the underwriter's Q2)" in (
+            record.revenue_reason)
+        assert record.revenue_reason.startswith("An insurer pays the business for its work (")
 
 
 ODD = (1234.56, 987.65, 1050.25)

@@ -884,6 +884,11 @@ _BUILDER_PAYER = re.compile(
     r"|(?<![A-Z])(?<!NURSING )(?<!FUNERAL )(?<!MOBILE )(?<!MANUFACTURED )(?<!CARE )(?<!GROUP )(?<!FOSTER )"
     r"(?<!SENIOR )(?<!RETIREMENT )HOMES\b(?! FOR (?:SALE|RENT)\b)"
 )
+#: Audit round 3, R3-B15 (R3-08; Q11 (a): "when the payer is a builder"): a draw's purpose phrase, CONSTRUCTION,
+#: CONSTR or CONST directly followed by DRAW or DRAWS. On a row that prints no payer-name field the payer region holds
+#: the entry words ('<NAME> CONST DRAW', TD's whole 'CONSTRUCTION DRAW'), so the phrase is the entry's purpose, never
+#: the payer's builder word (_label_less_builder_word).
+_DRAW_PURPOSE_PHRASE = re.compile(r"(?<![A-Z])(?:CONSTRUCTION|CONSTR|CONST) DRAWS?\b")
 #: Q11 (a): a loan's, a credit line's, a mortgage's, an escrow's or a title's draw, an owner's, member's, partner's or
 #: shareholder's draw, a personal, line, credit, advance, capital, equity or cash draw, and a draw on a line, a LOC, a
 #: credit facility or an account: the business's own loan or money, never a builder's progress draw. R2-OW06 review
@@ -1056,6 +1061,14 @@ _ASSET_SALE_PURPOSE = re.compile(
 #: the sale.
 _ASSET_SALE_COMMISSION_AFTER = re.compile(r"^\s*(?:COMMISSIONS?|COMMS?|FEES?)\b")
 _ASSET_SALE_COMMISSION_BEFORE = re.compile(r"(?<![A-Z])(?:COMMISSIONS?|FEES?)(?:\s+(?:ON|FOR|FROM|OF))?\s*$")
+#: Audit round 3, R3-B15 (R3-59; Q11 (b), "Don't count as true revenue and go straight to non-revenue"; standard G6 and
+#: §4.2: deposits arrive net of fees): a netting word beside that commission or fee, after it ('TRUCK SALE FEES
+#: WITHHELD', 'TRUCK SALE COMM DEDUCTED') or before it ('LESS FEES TRUCK SALE', 'NET OF COMMISSION TRUCK SALE'): what
+#: the seller's proceeds are net of, never a broker's earned fee, so the sale is read (_asset_sale_commission).
+_ASSET_SALE_NETTING_AFTER = re.compile(r"^\s*(?:COMMISSIONS?|COMMS?|FEES?)\s+(?:WITHHELD|DEDUCTED|DEDUCT\w*|NETTED)\b")
+_ASSET_SALE_NETTING_BEFORE = re.compile(
+    r"(?<![A-Z])(?:NET(?: OF)?|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
+)
 #: Q11 (b): an invoice reference, which a vehicle's or heavy equipment's sale reads through (the owner made no invoice
 #: carve-out); accounts-payable, vendor or payables wording still spares the row.
 _INVOICE_REFERENCE = re.compile(
@@ -2384,21 +2397,63 @@ def construction_progress_draw(
     prints no draw), nothing reads as the business's own loan or money (_OWN_LOAN_DRAW: a loan's, a line's, an
     escrow's, an owner's, an equity draw, a draw on a line; R2-OW06 review round 1: a commission draw), and the payer is
     no bank, title, escrow, closing or settlement firm, owner-shaped payer or financing root (the earlier financing
-    holds read those first). R2-OW06 review round 1: nor a realty firm (_REALTY_PAYER: '<NAME> HOMES REALTY LLC')."""
-    if (
-        not region or _BUILDER_PAYER.search(region) is None or _REALTY_PAYER.search(region)
-        or (not zelle_true_revenue and zelle_deposit(text))
-    ):
+    holds read those first). R2-OW06 review round 1: nor a realty firm (_REALTY_PAYER: '<NAME> HOMES REALTY LLC').
+
+    Audit round 3, R3-B15 (R3-08; Q11 (a), "when the payer is a builder"; §2.1's Q11 row, "a DRAW printed only inside
+    the payer's own name ... keep(s) today's reading"): the builder word is read on the payer region without the
+    holder's names (`account_name` and `also`), so the holder's own builder word is never the payer's (Truist prints the
+    receiver inside the region). On a row that prints no payer-name field (_prints_payer_name_field: Wells Fargo's,
+    Citizens', TD Bank's, Huntington's and Truist's label-less layouts) the region holds the entry words too: the
+    payer's builder word is the first that does not start a draw's purpose phrase (_label_less_builder_word: '<NAME>
+    CONST DRAW' names no builder), and DRAW is read only after it (_label_less_draw_purpose: one printed before it,
+    'QUICK DRAW CONST PAYMENT', is inside the payer's name). A row these refuse keeps its reading before the ruling,
+    the non-sale hold of its DRAW, as its Bank of America DES twin does; on a row that prints a payer-name field the
+    name field is the payer's and today's reading stands. Recorded residuals (held, reviewable; 0 corpus rows): a
+    builder named '<NAME> CONSTRUCTION' with no company form before a bare DRAW on a label-less row (the phrase cannot
+    be told from the name), and a builder's draw on Truist's entry-first layout ('CONST DRAW <NAME> BUILDERS INC
+    ...')."""
+    if not region or _REALTY_PAYER.search(region) or (not zelle_true_revenue and zelle_deposit(text)):
+        return False
+    named = _prints_payer_name_field(text)
+    payer = _without_holder_name(region, account_name, also=also)
+    builder = _BUILDER_PAYER.search(payer) if named else _label_less_builder_word(payer)
+    if builder is None:
         return False
     row = _without_holder_name(_hold_text(text), account_name, also=also)
-    name = _payer_name_proper(text, region) if _prints_payer_name_field(text) else ""
-    purpose = row.replace(name, " ") if name else row
+    if named:
+        name = _payer_name_proper(text, region)
+        purpose = row.replace(name, " ") if name else row
+    else:
+        purpose = _label_less_draw_purpose(row, payer, builder)
     if _DRAW_WORD.search(_non_sale_reading(text, purpose, region)) is None or _OWN_LOAN_DRAW.search(row):
         return False
     return not (
         _BANK_OR_TITLE_SENDER.search(region) or _TITLE_FIRM.search(region) or _OWNER_SHAPED_PAYER.search(region)
         or _FINANCING_ROOT.search(region)
     )
+
+
+def _label_less_builder_word(payer: str) -> re.Match[str] | None:
+    """Audit round 3, R3-B15 (R3-08): the payer's builder word on a payer region that is no payer-name field (`payer`,
+    read without the holder's names): the first _BUILDER_PAYER match that does not start a draw's purpose phrase
+    (_DRAW_PURPOSE_PHRASE: CONSTRUCTION, CONSTR or CONST directly followed by DRAW or DRAWS, the entry's words); None
+    when there is none ('FABRIKAM AMERICA CONST DRAW', 'SAMPLE COUNTY CONSTRUCTION DRAW')."""
+    for found in _BUILDER_PAYER.finditer(payer):
+        if _DRAW_PURPOSE_PHRASE.match(payer, found.start()) is None:
+            return found
+    return None
+
+
+def _label_less_draw_purpose(row: str, payer: str, builder: re.Match[str]) -> str:
+    """Audit round 3, R3-B15 (R3-08): where a row that prints no payer-name field reads DRAW: the hold row (`row`,
+    without the holder's names) from the end of the payer's builder word on (`builder`, a match on `payer`, the payer
+    region without the holder's names), so a DRAW printed before the builder word is inside the payer's name. The
+    builder word is found in the row through the region's words up to it; where the row does not print them as the
+    region does, only the region's words after the builder word are read (a draw the row prints later stays unread,
+    the conservative side)."""
+    lead = payer[: builder.end()].strip()
+    at = row.find(lead) if lead else -1
+    return row[at + len(lead):] if at >= 0 else payer[builder.end():]
 
 
 def non_sale_purpose(
@@ -6767,7 +6822,8 @@ def asset_sale_reading(
     the payer is IAA (its INSURANCE is the auction's name) and no later hold would name it (R2-OW06 review round 1:
     CreditFacts.hold_past_insurer_name), a Zelle row (Q3 of 2026-10-02), a possible return or a refund; nor a printed
     sale with a commission or a fee next to it (review round 1: _ASSET_SALE_COMMISSION_AFTER and _BEFORE, a broker's or
-    an agent's earned revenue). `verified` is a row an invoice or customer-payment descriptor verified
+    an agent's earned revenue; audit round 3, R3-B15: R3-59, unless a netting word stands beside it,
+    _asset_sale_commission). `verified` is a row an invoice or customer-payment descriptor verified
     (ASSET_SALE_INVOICE_METHODS): only its printed sale is read, never a platform. The pass reads the statement's dealer
     evidence first (_dealer_statement) and applies the reading where the tier would count the row or a verification it
     overrules; a held tier keeps the row held. The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17):
@@ -6804,11 +6860,9 @@ def asset_sale_reading(
     found = _ASSET_SALE_PURPOSE.search(purpose)
     if found is None:
         return None
-    # R2-OW06 review round 1: a commission or a fee next to the sale is earned revenue (_ASSET_SALE_COMMISSION_*).
-    if (
-        _ASSET_SALE_COMMISSION_AFTER.search(purpose[found.end():])
-        or _ASSET_SALE_COMMISSION_BEFORE.search(purpose[:found.start()])
-    ):
+    # R2-OW06 review round 1: a commission or a fee next to the sale is earned revenue (_ASSET_SALE_COMMISSION_*);
+    # audit round 3, R3-B15 (R3-59): unless a netting word makes it what the proceeds are net of.
+    if _asset_sale_commission(purpose[found.end():], purpose[:found.start()]):
         return None
     if _VEHICLE_NOUN_WORD.search(found.group(0)):
         if _vendor_payment(_INVOICE_REFERENCE.sub(" ", text), _INVOICE_REFERENCE.sub(" ", row)):
@@ -6817,6 +6871,21 @@ def asset_sale_reading(
     if verified or _vendor_payment(text, row) or _SUPPLIER_HOLDER.search(holder):
         return None
     return "purpose"
+
+
+def _asset_sale_commission(after: str, before: str) -> bool:
+    """§8.1 (Q11 (b); R2-OW06 review round 1): a commission or a fee printed right after a printed sale (`after`, the
+    purpose after it: _ASSET_SALE_COMMISSION_AFTER) or right before it with at most a connector (`before`, the purpose
+    before it: _ASSET_SALE_COMMISSION_BEFORE), a broker's or an agent's earned revenue, so the purpose arm reads no
+    sale. Audit round 3, R3-B15 (R3-59; Q11 (b), standard G6, §4.2): never one a netting word stands beside
+    (_ASSET_SALE_NETTING_AFTER: WITHHELD, DEDUCTED, DEDUCT..., NETTED after it; _ASSET_SALE_NETTING_BEFORE: NET, NET
+    OF, LESS, AFTER, MINUS before it), which is what the seller's proceeds are net of: 'TRUCK SALE FEES WITHHELD' and
+    'LESS COMMISSION TRUCK SALE' are the sale, as 'TRUCK SALE NET OF FEES' was; 'TRUCK SALE COMMISSION', 'COMMISSION ON
+    TRUCK SALE', 'TRUCK SALE FEE' and 'FEE FOR TRUCK SALE' stay a broker's revenue."""
+    return bool(
+        (_ASSET_SALE_COMMISSION_AFTER.search(after) and not _ASSET_SALE_NETTING_AFTER.search(after))
+        or (_ASSET_SALE_COMMISSION_BEFORE.search(before) and not _ASSET_SALE_NETTING_BEFORE.search(before))
+    )
 
 
 def _dealer_statement(
@@ -7216,17 +7285,41 @@ def _tier_reason_read(
     return "counted_flagged", "no_payer_printed"
 
 
+#: Audit round 3, R3-B15 (R3-53; §5.3): the words a counted re-statement's reason sentence says it is counted with (the
+#: insurer-for-work release, the factoring, financier, payables, progress-draw and settlement demotions, the processor
+#: card payout), which a hold that re-tiers the row replaces (_held_reason).
+_COUNTED_SENTENCE = "counted and flagged, never verified"
+
+
 def _with_tier(record: TransactionClassification, tier: str, reason: str | None) -> TransactionClassification:
     """A record with its 5.6 tier, initial tier, reason and contribution flags. The review flag is set for a held
-    row only; a counted row is reviewable, not required."""
+    row only; a counted row is reviewable, not required. Audit round 3, R3-B15 (R3-53; §5.3): a held row's reason
+    sentence never says it is counted (_held_reason); every other field, and a counted row's sentence, is as before."""
     return replace(
         record,
         revenue_tier=tier,
         revenue_initial_tier=tier,
         revenue_tier_reason=reason,
         revenue_review_required=tier == "excluded_pending_review",
+        revenue_reason=_held_reason(record.revenue_reason, reason) if tier == "excluded_pending_review" else (
+            record.revenue_reason),
         **revenue_contribution_flags(record.revenue_classification, tier),
     )
+
+
+def _held_reason(sentence: str | None, reason: str | None) -> str | None:
+    """Audit round 3, R3-B15 (R3-53; §5.3): the reason sentence of a row a hold re-tiers (`reason`, the held reason
+    code): where an earlier counted re-statement wrote "counted and flagged, never verified" (_COUNTED_SENTENCE), that
+    phrase becomes "never verified, and held for review (<label>)", the label the held reason's own
+    (REVENUE_TIER_REASONS; the code itself when the table lists none). The wording follows _zelle_excluded, which names
+    the rules' reading inside its own sentence. It covers every hold of the owner batches: the Q2 release a later hold
+    names, Q8's lump sum, Q9 (c')'s hidden-loan guard, Q10's premium-trust hold and the $1 floor on a counted or
+    demoted unverified row (a Verified row the floor or the premium-trust hold re-states gets its own sentence first).
+    Any other sentence is returned unchanged."""
+    if not sentence or _COUNTED_SENTENCE not in sentence:
+        return sentence
+    label = REVENUE_TIER_REASONS.get(reason or "", (None, reason or "excluded_pending_review"))[1]
+    return sentence.replace(_COUNTED_SENTENCE, f"never verified, and held for review ({label})")
 
 
 def _verify(record: TransactionClassification, method: str, reason: str, confidence: float) -> TransactionClassification:
@@ -7646,8 +7739,10 @@ def apply_true_revenue_pass(
         # A3-H review: a factoring payer's credit is never verified, whichever earlier rule verified it. Audit B6 (I25,
         # I10): nor is a factoring payee's (the ledger's factoring aliases, a factoring review entity), whose name may
         # print no financing word ('<factor> OPER DES:INVOICE PMT' is an invoice descriptor's).
+        # Audit round 3, R3-B15 (R3-63): a credit under $1 is left to the floor, which holds it with its own method,
+        # rule and sentence naming the rule it overruled, as the self-own arm below leaves it.
         factor = fact.factor or record.classification == "factoring"
-        if record.revenue_classification == "verified_revenue" and factor:
+        if record.revenue_classification == "verified_revenue" and factor and not _under_micro_floor(record):
             updated[index] = _with_tier(_factor_never_verified(record), "counted_flagged", "factoring_payout")
             continue
         # Audit round 2, R2-B04 (R41): nor is the holder's own push, which an earlier rule verified (an
@@ -7686,8 +7781,12 @@ def apply_true_revenue_pass(
             updated[index] = _with_tier(_asset_sale_record(record, asset_sales[index]), "non_revenue", ASSET_SALE_METHOD)
             continue
         # Owner ruling 2026-10-02 (the underwriter's Q11 (a); R2-OW06 review round 1): nor is a builder's progress draw
-        # an earlier rule verified (§7.5's accounts-payable remittance): counted and flagged, never verified.
-        if record.revenue_classification == "verified_revenue" and fact.progress_draw:
+        # an earlier rule verified (§7.5's accounts-payable remittance): counted and flagged, never verified. Audit
+        # round 3, R3-B15 (R3-63): a credit under $1 is left to the floor, as the factoring arm's is.
+        if (
+            record.revenue_classification == "verified_revenue" and fact.progress_draw
+            and not _under_micro_floor(record)
+        ):
             updated[index] = _with_tier(
                 _progress_draw_never_verified(record), "counted_flagged", CONSTRUCTION_PROGRESS_DRAW_REASON
             )

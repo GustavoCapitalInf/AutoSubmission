@@ -217,6 +217,19 @@ def test_a_verified_financier_payout_held_as_a_lump_names_the_overruled_rule():
                                 bank="Capital One")
     assert _reading(record) == LUMP
     assert record.revenue_classification == "unverified_deposit"
+    # Audit round 3, R3-B15 (R3-53; §5.3): a payout a single-row rule verified (Cherry's operating-income descriptor),
+    # overruled and then held as a lump, names the overruled rule and never says it is counted; its sentence names the
+    # lump hold by its own label. The same payout at a small amount is counted and keeps the counted sentence.
+    (lump, _big) = _credits([("CHERRY MERCHANT PAYOUT 1234", 15000.0), BIG])
+    assert _reading(lump) == LUMP
+    assert lump.revenue_match_method == "customer_financing_payer"
+    assert "operating_income_descriptor" in lump.revenue_reason
+    assert "counted and flagged" not in lump.revenue_reason
+    assert (f"never verified, and held for review ({REVENUE_TIER_REASONS['customer_financing_lump_sum'][1]})"
+            in lump.revenue_reason)
+    (counted,) = _credits([("CHERRY MERCHANT PAYOUT 1234", 2200.0)])
+    assert _reading(counted) == CFP
+    assert "counted and flagged, never verified" in counted.revenue_reason
 
 
 def test_the_thresholds_are_whole_unit_integers():

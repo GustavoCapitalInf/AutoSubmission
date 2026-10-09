@@ -333,9 +333,14 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
             assert not new.contributes_to_verified_revenue
         else:
             # A counted credit keeps its state, method, rule and reason sentence: only its tier and reason change.
+            # Audit round 3, R3-B15 (R3-53): a sentence that said the row is counted ("counted and flagged, never
+            # verified", the Q2 release's commission here) names the hold instead.
             for field in ("revenue_classification", "revenue_match_method", "revenue_matched_rule",
-                          "revenue_confidence_score", "revenue_reason", "revenue_context_signals"):
+                          "revenue_confidence_score", "revenue_context_signals"):
                 assert getattr(new, field) == getattr(old, field), field
+            assert new.revenue_reason == old.revenue_reason.replace(
+                "counted and flagged, never verified",
+                f"never verified, and held for review ({tr.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]})")
         # Nothing but the revenue reading moves: the classification and its lender flags are the same.
         for field in ("classification", "match_method", "canonical_entity", "contributes_to_lender_count",
                       "contributes_to_lender_totals", "contributes_to_withholding_rate",
@@ -490,6 +495,39 @@ def test_t6_commissions_count_on_the_operating_account_and_are_held_on_the_trust
     metrics = compute_metrics(trust, classifications=records)
     assert (_money(metrics.true_revenue_total), _money(metrics.excluded_pending_review_total)) == (0.0, 7130.67)
     assert metrics.premium_trust_account is True
+
+
+#: Audit round 3, R3-B15 (R3-53): counted re-statements whose sentence says "counted and flagged, never verified": a
+#: listed auto lender's payables with no dealer evidence (Q9 (c')), a financier's payout a descriptor verified (Q8) and
+#: an insurer's commission the Q2 release counts at an agency; and a verified card settlement.
+R3_53_ROWS = [
+    ("WESTLAKE FINANCI DES:PAYABLES ID:1", 1500.00, ("counted_flagged", "lender_paid_for_services")),
+    ("KOALAFI MERCHANT PAYOUT 1234", 2200.00, ("counted_flagged", "customer_financing_payout")),
+    ("SAMPLE MUTUAL INS CO AGT COMM 1234", 640.00, ("counted_flagged", "insurer_paid_for_services")),
+    ("BANKCARD 8030 BTOT DEP 1234567", 5120.44, ("verified", None)),
+]
+
+
+def test_r3_53_a_counted_re_statement_held_on_a_trust_account_says_it_is_held(monkeypatch):
+    """Audit round 3, R3-B15 (R3-53; §5.3, §8.10): the premium-trust hold re-tiers a counted re-statement, so its
+    sentence names the hold by its own label (REVENUE_TIER_REASONS), never "counted and flagged"; the operating account
+    keeps the counted sentence, and a verified row on the trust account keeps the sentence the hold already writes."""
+    rows = [(text, amount) for text, amount, _today in R3_53_ROWS]
+    operating = tc.classify_statement_transactions(_statement(rows, OPERATING_LINE, account_name="Business Banking"))
+    assert [rules_reading(record) for record in operating] == [today for _text, _amount, today in R3_53_ROWS]
+    for record in operating[:3]:
+        assert "counted and flagged, never verified" in record.revenue_reason
+    trust = tc.classify_statement_transactions(_statement(rows, TRUST_LINE, account_name="Business Banking"))
+    assert _reading(trust) == [PT] * 4
+    label = tr.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]
+    for counted, held in zip(operating[:3], trust[:3]):
+        assert "counted and flagged" not in held.revenue_reason
+        assert held.revenue_reason == counted.revenue_reason.replace(
+            "counted and flagged, never verified", f"never verified, and held for review ({label})")
+        assert (held.revenue_match_method, held.revenue_matched_rule) == (
+            counted.revenue_match_method, counted.revenue_matched_rule)
+    assert trust[3].revenue_reason.startswith("A deposit into an account titled PREMIUM TRUST ACCOUNT: ")
+    assert "held for review (" not in trust[3].revenue_reason
 
 
 def test_a_zelle_deposit_into_a_trust_account_stays_excluded(monkeypatch):

@@ -502,6 +502,37 @@ def test_the_floor_overrules_every_rule_that_verifies_a_credit_under_one_dollar(
                     or record.contributes_to_counted_flagged)
 
 
+#: Audit round 3, R3-B15 (R3-63): rows a remittance descriptor verifies and a pass-7 demotion overrules at $1 or more: a
+#: builder's progress draw (Q11 (a)) and a public factoring payer's payout (A3-H; LOVES SOLUTIONS is the registry's
+#: FACTORING_PAYOUT_PAYERS entry).
+R3_63_DEMOTIONS = [
+    ("CONTOSO BUILDERS INC DES:A P PMT DRAW 3 ID:0001 INDN:NORTHWIND SOLAR LLC CO ID:0000000001 CCD", 0.50,
+     ("counted_flagged", "construction_progress_draw"), "construction_progress_draw"),
+    ("LOVES SOLUTIONS DES:A P PMT ID:0001 INDN:NORTHWIND SOLAR LLC CO ID:0000000001 CCD", 0.55,
+     ("counted_flagged", "factoring_payout"), "factoring_payout_payer"),
+]
+
+
+@pytest.mark.parametrize(("text", "micro", "demoted", "demoted_method"), R3_63_DEMOTIONS)
+def test_r3_63_the_floor_overrules_a_demotion_of_a_credit_under_one_dollar(text, micro, demoted, demoted_method):
+    """Audit round 3, R3-B15 (R3-63; §8.10, §20's $1-floor line): every pass-7 demotion leaves a credit under $1 to the
+    floor, so the floor holds it with its own method, rule and sentence naming the rule it overruled (today the row kept
+    the demotion's method, rule and "counted and flagged, never verified" sentence); at $1 and above the demotion reads
+    as before."""
+    record = _one(text, micro, holder="NORTHWIND SOLAR LLC")
+    assert _tier(record) == MICRO
+    assert (record.revenue_match_method, record.revenue_matched_rule) == (
+        "micro_deposit_floor", "credit_under_micro_deposit_floor")
+    assert "payer_remittance_descriptor" in record.revenue_reason
+    assert "counted and flagged" not in record.revenue_reason
+    assert record.revenue_classification == "unverified_deposit" and record.revenue_review_required
+    for amount in (1.0, 12500.0):
+        control = _one(text, amount, holder="NORTHWIND SOLAR LLC")
+        assert _tier(control) == demoted
+        assert control.revenue_match_method == demoted_method
+        assert "counted and flagged, never verified" in control.revenue_reason
+
+
 def test_a_statement_s_figures_never_carry_a_credit_under_one_dollar():
     from analysis.metrics import compute_metrics
 
@@ -3462,6 +3493,19 @@ def test_q9_c_the_hidden_loan_guard_holds_a_payables_credit_whose_lender_also_de
     assert record.revenue_matched_rule == "q7_payables_without_dealer_evidence"
     # The lender's debit keeps its reading.
     assert rows[1].classification == "vehicle_financing"
+    # Audit round 3, R3-B15 (R3-53; §5.3): a held row's reason sentence never says it is counted; the hold names
+    # itself by its own label. The counted twin (no debit) keeps "counted and flagged, never verified".
+    assert "counted and flagged" not in record.revenue_reason
+    assert f"never verified, and held for review ({REVENUE_TIER_REASONS['financing_named_payer'][1]})" in (
+        record.revenue_reason)
+    assert "auto_lender_dealer_funding" in record.revenue_reason
+    counted = _one("WESTLAKE FINANCI DES:PAYABLES ID:1", 1500.0, holder=AGENCY)
+    assert _q7_reading(counted)[:2] == ("counted_flagged", "lender_paid_for_services")
+    assert "counted and flagged, never verified" in counted.revenue_reason
+    assert counted.revenue_reason.replace(
+        "counted and flagged, never verified",
+        f"never verified, and held for review ({REVENUE_TIER_REASONS['financing_named_payer'][1]})",
+    ) == record.revenue_reason
 
 
 def test_q9_c_the_demotion_never_moves_a_debit_or_a_lender_reading():
