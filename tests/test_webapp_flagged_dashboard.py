@@ -715,8 +715,9 @@ def test_the_dashboard_labels_every_flag_group_as_the_analysis_does():
 def test_the_page_asks_browsers_for_the_new_script():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     # Audit B11: the package, copy and export changes ship as a new script; audit round 2, R2-B16 (R51): so does the
-    # Monthly Statements table's unit rule.
-    assert '<script src="/static/app.js?v=true-revenue-6"></script>' in html
+    # Monthly Statements table's unit rule. Audit round 3, R3-B25: so do the round-3 batches' app.js changes; the value
+    # skips true-revenue-7 and -8, which the hosting line (fix/boa-nsf) served for code not on this branch.
+    assert '<script src="/static/app.js?v=true-revenue-9"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in

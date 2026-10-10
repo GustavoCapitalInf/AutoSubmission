@@ -486,7 +486,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_33():
+def test_analysis_stage_version_is_pinned_at_36():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -519,8 +519,14 @@ def test_analysis_stage_version_is_pinned_at_33():
     it goes 31 -> 32. Its last batch (R2-B16, R56) moves the classification
     version 5.6 -> 5.7 for the fix batches, round 2 and the owner's rulings,
     whose stored shape changed under 5.6, and the stage with it, so Re-analyze
-    misses a stage-32 entry still stamped 5.6: 32 -> 33. This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 33
+    misses a stage-32 entry still stamped 5.6: 32 -> 33. Audit round 3's last
+    batch (R3-B25) moves the classification 5.7 -> 5.8 for the round-3 fix
+    batches, and the stage with it, so Re-analyze misses a stage-33 entry still
+    stamped 5.7: 33 -> 36. Stages 34 and 35 are skipped: the hosting line
+    (fix/boa-nsf, deployed on the Fly demo) used them for its Capital One
+    carry-in fix (34) and Bank of America daily-ledger table (35), code this
+    branch merges after the run keeping 36. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 36
 
 
 def test_paddle_model_token_is_not_in_free_models():

@@ -14,8 +14,10 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
   (`1dd3b64`, `7b7fb1e`, `2d81a43`, `80e3d4b`).
   It sits on `text-first-v1` = `c106634` (lender detection, classification 5.4). Nothing of this branch is merged or
   deployed: the Fly demo runs the hosting line below.
-- **Versions:** classification **5.7**, analysis stage **33** (`webapp/artifact_cache.py`) until R3-B25's versions
-  commit, the run's last, which moves them once for the whole run (spec §9.3).
+- **Versions:** classification **5.8**, analysis stage **36** (`webapp/artifact_cache.py`), set by R3-B25's versions
+  commit, the run's last, once for the whole round (spec §9.3); stages 34 and 35 and the cache-bust values
+  `true-revenue-7` and `-8` are skipped (the hosting line below used them), so the page asks for `true-revenue-9`.
+  Neither is released.
 - **The hosting line:** `fix/boa-nsf` = `f2e9ae1` (it holds `fix/capone-daily-ledger` `6c2eadb` and
   `ui/5.7-dashboard-clarity` `a858647`) is live on the Fly demo as release v21. It is round 2's code (classification
   5.7) plus the owner's reports of 2026-10-07 and 2026-10-08: analysis stages 34 (the Capital One carry-in fix) and 35
@@ -36,7 +38,7 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
 | Acceptance of the round (`283e90e`) | census on both bases, G7, full suite, real browser | ACCEPTED 2026-10-07 (LOCAL `round2/reports/ACCEPT-report.md`) |
 | Final review of `c486fd5..283e90e` | three findings (F1 important, F2 and F3 minor) | fixed (LOCAL `round2/reports/FINAL-FIX-report.md`) |
 | Review round 1 of that fix run | one important finding (the review decision) and three minor ones | fixed (the same report, "Review round 1 fixes") |
-| Audit round 3 | re-audit on `1a761de`: 91 issues verified; 89 fixed or recorded in R3-B01..R3-B24, 2 owner items (R3-28, R3-76); 14 owner decisions (R3-73, R3-79 and R3-25 answered by the owner on 2026-10-07; the others with their defaults in the code, R3-78's in the held patch, R3-07's a git question) | done (R3-B01..R3-B24); R3-B25 makes the single version move |
+| Audit round 3 | re-audit on `1a761de`: 91 issues verified; 89 fixed or recorded in R3-B01..R3-B24, 2 owner items (R3-28, R3-76); 14 owner decisions (R3-73, R3-79 and R3-25 answered by the owner on 2026-10-07; the others with their defaults in the code, R3-78's in the held patch, R3-07's a git question) | done (R3-B01..R3-B24); R3-B25 made the single version move (5.8 / 36) |
 | Acceptance of round 3 (the Accept phase) | census on both bases, G7, the full suite, a real browser; then the final review of `1a761de..HEAD` | pending |
 
 Corpus figures (re-parsed basis, 2,513 accounts; shares of posted credits; Zelle setting Yes, the default, unless the row says No):

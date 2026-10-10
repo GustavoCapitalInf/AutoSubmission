@@ -733,7 +733,61 @@ OCR_STAGE_VERSION = 5
 # stage-33 analysis when it landed, so it needs no bump of its own. F1 (the
 # withholding basis) is applied when an analysis is served and F2(b) when a
 # package is built: neither changes a stored analysis.
-ANALYSIS_STAGE_VERSION = 33
+# 33 -> 36: TRUE-REVENUE audit round 3, batch R3-B25, in the commit that moves
+# CLASSIFICATION_VERSION 5.7 -> 5.8 (required with it: Re-analyze reads the
+# analysis cache through, so with 5.8 alone it would return the stage-33 entry
+# still stamped 5.7 and the notice would survive its own button; at 36 a
+# re-analysis or a re-upload misses that entry and recomputes the analysis
+# stage from the cached reading). Stages 34 and 35 are skipped: the hosting
+# line (fix/boa-nsf, deployed on the Fly demo) used them for its Capital One
+# carry-in fix (34) and its Bank of America daily-ledger table (35), code this
+# branch merges after the run keeping 36, so no entry cached under 34 or 35 is
+# served as this branch's reading. The round-3 fix batches (R3-B01 to R3-B24)
+# changed stored output under 5.7 and stage 33 with no bump of their own:
+# R3-B01, the classification of a bank's stop-payment and item charges that
+# name a funder (`fee` or `nsf_or_return`, no lender row; R3-80) and of
+# ODKRAOD's debits as ONDECK's (R3-26: paid to lenders, the withholding
+# numerator and rates, the funder rollup); R3-B02, the record field
+# `represented_by` and, on a returned funder payment the funder re-debited, its
+# `contributes_to_withholding_rate` and reason, the numerator, the rates, the
+# metrics note and the detection item's `represented_*` keys (R3-73), a
+# potential lender's return paired only with a payment on or before it
+# (`reversed_by`, `reversal_of`, contributions; R3-71) and the funding aid's
+# `revenue_funding_series` where a bounced attempt precedes the deposit
+# (R3-66); R3-B03, the metrics' `withholding_basis_below_floor`,
+# `lump_sum_payoff_total` and `lump_sum_payoff_count`, the record field
+# `lump_sum_payoff`, the detection's `lump_sum_payoffs`, the rates, exposure,
+# notes and potential lenders' denominators under the $500 basis floor (R3-20)
+# and a worded payoff's place outside the rate (R3-79); R3-B04 to R3-B06, the
+# statement items of `detection.lender_payment_changes` (items gained and
+# lost, the `catch_up` kind and its fields, `first_after_amount`,
+# `first_after_multiple`, `larger_debits_inside`, `catch_ups_inside`,
+# `other_debits_after.catch_ups`, `payoff.earlier`, `same_amount_debits`,
+# `alongside` and the weekly totals, the funding note's credit); R3-B07,
+# R3-B08, R3-B10 and R3-B12 to R3-B17, the revenue reading of the credits
+# their readers move (state, tier, reason, method, matched rule, sentence,
+# contribution flags; R3-B12's PNC and French P2P rails with their
+# `zelle_prior` signals and `zelle_counted_reading` edits) with their
+# statements' totals, review gate and True-basis rates, R3-B08's credit
+# classes and check, ACH and POS facts where page furniture decided them
+# (R3-92) and R3-B14's Cherry loan credits' D1 record (R3-06); R3-B09, the
+# parser output `Transaction.payer_text_unread` and `unread_payer_text` the
+# daily core-processor, balance-by-date and B1 readers now write (R3-91), the
+# metrics' `payer_text_unread` and its count, and the `possible_return` holds
+# on outgoing e-Transfer labels (R3-75); R3-B11, the 22 holder readers'
+# `Statement.holder_name` and `account_title` on contact lines and the
+# premium-trust forms (R3-61, R3-65; 0 corpus statements); R3-B15, the held
+# rows' `revenue_reason` (R3-53) and the $1 floor's method on demoted rows
+# (R3-63). A warm cache keyed on 33 would serve each of them as the round-2
+# reading. The package (R3-B03's mixed basis, R3-B06's reappearance, R3-B18's
+# `days_shared`, R3-B19's gate on the sums, R3-B20's Zelle `setting`, R3-B24's
+# large-deposit totals), the served flags (R3-B20's unestablished Zelle
+# parts, R3-B24's `large_unsourced_deposit_*`), the downloads (R3-B23), the
+# copied memos (R3-B22), the batch and CLI columns (R3-B22, R3-B24) and the
+# census tools are computed when served or exported, never stored. Nothing of
+# this branch's between 33 and 36 was released. OCR stays cached. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 36
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

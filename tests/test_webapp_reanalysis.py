@@ -1105,8 +1105,8 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     # Re-pinned from 5.0: the D6 clarification (2026-09-26) is classification 5.1, the second one (2026-09-27) 5.2,
     # the false-positive release 5.3, the Idea Financial ruling (2026-09-28) 5.4.
     # 5.5: the true-revenue bug fixes (2026-09-28); 5.6: its revenue tiers; 5.7: the audit's fix batches, round 2 and
-    # the owner's rulings (audit round 2, R2-B16: R56).
-    assert {record["classification_version"] for record in records.values()} == {"5.7"}
+    # the owner's rulings (audit round 2, R2-B16: R56); 5.8: the round-3 fix batches (audit round 3, R3-B25).
+    assert {record["classification_version"] for record in records.values()} == {"5.8"}
     # Premium financing is no state of its own: the row stays insurance, in the insurance totals, and carries its flag.
     (premium,) = [record for record in flagged if record["flagged_group"] == "premium_financing"]
     assert (premium["classification"], premium["contributes_to_insurance_totals"]) == ("insurance", True)
@@ -1119,14 +1119,18 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 
 #: Audit round 2, R2-B16 (R56): a statement analysed at classification 5.6, before the audit's fix batches and round 2
 #: moved its tiers and the review gate: a CONTOSO LLC customer payment (Verified), a bare FABRIKAM online transfer (held,
-#: no counterparty) and a SAMPLE sweep from savings (non-revenue); the stage it was cached at (32) and the stage and
-#: classification the batch moves to (33, 5.7).
+#: no counterparty) and a SAMPLE sweep from savings (non-revenue); the stage it was cached at (32) and the current
+#: stage and classification (R2-B16 moved them to 33 and 5.7; audit round 3, R3-B25, to 36 and 5.8, skipping the
+#: stages 34 and 35 the hosting line used). R56's 5.6 / stage-32 statement stays a stale case.
 STALE_ROWS = [(3, "CONTOSO LLC DES:ACH PAYMENT ID:1", 1000.0), (5, "ONLINE BANKING TRANSFER CONF FABRIKAM", 900.0),
               (9, "SAMPLE SWEEP TRANSFER FROM SAVINGS", 6000.0)]
 STALE_TIERS = [("verified_revenue", "verified", None),
                ("unverified_deposit", "excluded_pending_review", "transfer_no_counterparty"),
                ("non_revenue", "non_revenue", None)]
-STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 33, "5.7"
+STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 36, "5.8"
+#: Audit round 3, R3-B25: the same statement analysed at classification 5.7 and cached at stage 33, as the round-2
+#: rules left it, before the round-3 fix batches (R3-B01 to R3-B24) moved tiers, reasons and lender readings under 5.7.
+ROUND3_STALE_STAGE, ROUND3_STALE_CLASSIFICATION = 33, "5.7"
 
 
 def _stale_payload():
@@ -1144,8 +1148,8 @@ def _tiers(payload):
 
 
 def test_a_5_6_analysis_is_served_with_the_re_analyze_notice():
-    """R56 T1, T5: the versions moved (classification 5.7, stage 33), so a statement analysed at 5.6 is served with
-    the notice; its rows tier as the rules tier them today."""
+    """R56 T1, T5: the versions moved (classification 5.7, stage 33; since audit round 3, R3-B25, 5.8 and 36), so a
+    statement analysed at 5.6 is served with the notice; its rows tier as the rules tier them today."""
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
     from webapp import artifact_cache
     from webapp.app import _displayed
@@ -1156,10 +1160,11 @@ def test_a_5_6_analysis_is_served_with_the_re_analyze_notice():
     assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
 
 
-@pytest.mark.parametrize("version, outdated", [("5.7", False), ("5.6", True), ("4.1", True), (None, True)])
-def test_only_a_record_older_than_5_7_sets_the_notice(version, outdated):
-    """R56 T2: at 5.7 the notice is off; at 5.6, 4.1, or with no version (a record from before the field) it is on.
-    `_rules_outdated` itself is unchanged (D12)."""
+@pytest.mark.parametrize("version, outdated",
+                         [("5.8", False), ("5.7", True), ("5.6", True), ("4.1", True), (None, True)])
+def test_only_a_record_older_than_5_8_sets_the_notice(version, outdated):
+    """R56 T2, moved by audit round 3 (R3-B25 T2): at 5.8 the notice is off; at 5.7 (the round-2 rules), 5.6, 4.1, or
+    with no version (a record from before the field) it is on. `_rules_outdated` itself is unchanged (D12)."""
     from webapp.app import _displayed
 
     payload = _payload(STALE_ROWS)
@@ -1174,9 +1179,10 @@ def test_only_a_record_older_than_5_7_sets_the_notice(version, outdated):
 def test_re_analysing_a_5_6_statement_misses_its_stage_32_entry_and_clears_the_notice(
         pipeline, private_store, monkeypatch):
     """R56 T4: the statement was uploaded at stage 32, so its 5.6 analysis is cached under stage 32's key; at stage 33
-    Re-analyze misses that entry (`_CacheOnly` passes `get_analysis` through), runs the analysis stage on the cached
-    reading, stamps 5.7 and clears the notice, and the statement's gate (its pill) is the package's member gate. With
-    5.7 alone the cached 5.6 entry would come back and the notice would survive its own button."""
+    (36 since audit round 3, R3-B25) Re-analyze misses that entry (`_CacheOnly` passes `get_analysis` through), runs
+    the analysis stage on the cached reading, stamps the current classification and clears the notice, and the
+    statement's gate (its pill) is the package's member gate. With 5.7 alone the cached 5.6 entry would come back and
+    the notice would survive its own button."""
     from webapp import artifact_cache
     from webapp.app import _displayed, _package_analysis, app
 
@@ -1204,6 +1210,72 @@ def test_re_analysing_a_5_6_statement_misses_its_stage_32_entry_and_clears_the_n
     served = _displayed(saved, settings={})
     package = _package_analysis([private_store.get(job_id)], settings={})
     assert served["metrics"]["revenue_review_required"] is True
+    assert package["documents"][0]["revenue_review_required"] is served["metrics"]["revenue_review_required"]
+
+
+def _round3_stale_payload():
+    """Audit round 3, R3-B25: STALE_ROWS analysed by the real path and stored as 5.7 left it, every record stamped
+    5.7 (the round-2 rules, before the round-3 fix batches)."""
+    return _saved_under_old_rules(_payload(STALE_ROWS), ROUND3_STALE_CLASSIFICATION)
+
+
+def _stamps(payload):
+    return {row["classification"]["classification_version"] for row in payload["statement"]["transactions"]}
+
+
+def test_a_5_7_analysis_is_served_with_the_re_analyze_notice():
+    """Audit round 3, R3-B25 T1 (the twin of R56 T1): the round-3 fix batches moved tiers, reasons and lender readings
+    under 5.7, so the versions move (classification 5.8, stage 36) and a statement analysed at 5.7 is served with the
+    re-analyze notice."""
+    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+    from webapp import artifact_cache
+    from webapp.app import _displayed
+
+    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.8", 36)
+    stale = _round3_stale_payload()
+    assert _stamps(stale) == {"5.7"}
+    assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
+
+
+def test_the_round_3_version_move_tiers_the_stale_rows_as_before():
+    """Audit round 3, R3-B25 T5 (control): the batch moves only the versions, so the three rows tier as R56 pinned them
+    (a CONTOSO LLC customer payment Verified, a bare FABRIKAM transfer held, a SAMPLE sweep non-revenue), stored at 5.7
+    or analysed today."""
+    assert _tiers(_round3_stale_payload()) == STALE_TIERS == _tiers(_payload(STALE_ROWS))
+
+
+def test_re_analysing_a_5_7_statement_misses_its_stage_33_entry_and_clears_the_notice(
+        pipeline, private_store, monkeypatch):
+    """Audit round 3, R3-B25 T4 (the twin of R56 T4): the statement was uploaded at stage 33, so its 5.7 analysis is
+    cached under stage 33's key; at stage 36 Re-analyze misses that entry (`_CacheOnly` passes `get_analysis`
+    through), runs the analysis stage on the cached reading, stamps 5.8 and clears the notice, and the statement's
+    gate (its pill) is the package's member gate. With 5.8 alone the cached 5.7 entry would come back and the notice
+    would survive its own button."""
+    from webapp import artifact_cache
+    from webapp.app import _displayed, _package_analysis, app
+
+    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.8") == (36, "5.8")
+    monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", ROUND3_STALE_STAGE)
+    job_id = pipeline.upload(_round3_stale_payload())
+    monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", CURRENT_STAGE)
+    assert _stamps(private_store.get(job_id).analysis) == {"5.7"}
+    assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
+    pipeline.payload = _payload(STALE_ROWS)  # what the analysis stage answers when it runs, under today's rules
+    hits_before = len(private_store.storage.audit_events("cache_hit", job_id=job_id))
+
+    body = _reanalyze(job_id).get_json()
+
+    hits = {json.loads(row["detail"])["stage"]
+            for row in private_store.storage.audit_events("cache_hit", job_id=job_id)[hits_before:]}
+    assert "ocr" in hits and "analysis" not in hits
+    assert pipeline.reads == 1  # the statement was read once, at its upload
+    assert body["analysis"]["analysis_rules_outdated"] is False
+    saved = private_store.get(job_id).analysis
+    assert _stamps(saved) == {"5.8"}
+    # T5: no rule moves in this batch, so the rows tier as they were stored.
+    assert _tiers(saved) == STALE_TIERS
+    served = _displayed(saved, settings={})
+    package = _package_analysis([private_store.get(job_id)], settings={})
     assert package["documents"][0]["revenue_review_required"] is served["metrics"]["revenue_review_required"]
 
 

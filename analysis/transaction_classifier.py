@@ -156,8 +156,16 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: R2-L01's ledger admission) moved tiers and added reasons, all under 5.6; the
 #: one bump that covers them, so an analysis saved at 5.6 gets the re-analyze
 #: notice (lender spec D12) and its button computes the current reading.
+#: 5.8 (audit round 3, R3-B25): the round-3 fix batches (R3-B01 to R3-B24)
+#: moved credit tiers, reasons and sentences, the classification of bank-charge
+#: debits that name a funder and of ODKRAOD's debits (admitted as an OnDeck
+#: alias, R3-26), a potential lender's return pair, re-debited returned funder
+#: payments and worded lump-sum payoffs, the withholding basis floor and the
+#: lender payment change items under 5.7; the one bump that covers them, so an
+#: analysis saved at 5.7 gets the re-analyze notice (lender spec D12) and its
+#: button computes the current reading.
 #: Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.7"
+CLASSIFICATION_VERSION = "5.8"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"

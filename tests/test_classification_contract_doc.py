@@ -2372,7 +2372,8 @@ def test_the_handoff_and_the_plan_state_the_final_state():
     finished batches as to do; the plan's withholding bullet points to spec §11."""
     handoff = _flat(HANDOFF)
     # Audit round 3, R3-B25: the round-3 run is done, so the handoff's next step is the round-4 re-audit, not round 3's.
-    for words in ("283e90e", "classification **5.7**, analysis stage **33**", "Mark Zelle Payments as True Revenue",
+    # Audit round 3, R3-B25: the versions words move to 5.8 / 36 with the round's single bump.
+    for words in ("283e90e", "classification **5.8**, analysis stage **36**", "Mark Zelle Payments as True Revenue",
                   "Yes by default", "**not implemented**", "OW17", "OW18", "ACCEPTED 2026-10-07", "67.58%",
                   "**The round-4 re-audit**", "FINAL-FIX-report.md"):
         assert words in handoff, words
@@ -3586,3 +3587,72 @@ def test_the_spec_and_the_handoff_record_r3_b25_s_round_3_documents():
         assert words in handoff, words
     for issue in R3_B25_OWNER_DECISIONS:
         assert issue in handoff, issue
+
+
+#: Audit round 3, R3-B25: the words §20's "Audit round 3 in all" line carries: this batch alone, then the round's True
+#: and Verified moves, each the sum of the batches' recorded moves in run order, and the declared demotion.
+R3_B25_IN_ALL_WORDS = ("**this batch alone, 0 credits change**",
+                       "`classification_version` 5.7 → 5.8 and `analysis_stage_version` 33 → 36",
+                       "+$419,550.25 under Yes", "+$430,640.25 under No", "−$17,000.00",
+                       "R3-B07 +$141,030.87", "R3-B09 −$6,025.01", "R3-B10 +$44,686.45",
+                       "R3-B12 −$28,590.00 under Yes and −$17,500.00 under No", "R3-B16 +$268,447.94",
+                       "`q5_q6_relayed_customer`", "G18 finds no parse move", "no row leaves or enters `non_revenue`",
+                       "G7")
+
+
+def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
+    """Audit round 3, R3-B25 (V1 to V5): the code reads 5.8 and stage 36; §9.3's 5.8 line (33 → 36, the skipped stages
+    named) and its closing paragraph; §20's two lines (the 5.7 notice with the cache-bust value `true-revenue-9`, and
+    the round in all, each batch's recorded move summing to the round's); the contract's version line; the handoff's
+    versions words and round-3 row. R2-B16's lines stay as they were (pinned above)."""
+    from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
+
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 36)
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    for words in ("- 5.8 (audit round 3, R3-B25: §20): `CLASSIFICATION_VERSION = \"5.8\"`, and `ANALYSIS_STAGE_VERSION` "
+                  "33 → 36 in the same commit, the last of the run.",
+                  "Stages 34 and 35 are skipped: the hosting line (`fix/boa-nsf`, deployed on the Fly demo) used them for "
+                  "its Capital One carry-in fix (34) and its Bank of America daily-ledger table (35)",
+                  "So an analysis saved at 5.7 gets the re-analyze notice, and its Re-analyze misses the stage-33 cache "
+                  "entry",
+                  "and 5.7 sets it on every analysis saved at 5.6 or earlier (audit round 2, R2-B16: R56), and 5.8 sets "
+                  "it on every analysis saved at 5.7 or earlier (audit round 3, R3-B25)."):
+        assert words in versions, words
+    # The stage note names the skip and the round's stored output, batch by batch.
+    note = (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8")
+    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split("ANALYSIS_STAGE_VERSION = 36", 1)[0])
+    for words in ("TRUE-REVENUE audit round 3, batch R3-B25", "Stages 34 and 35 are skipped",
+                  "A warm cache keyed on 33 would serve each of them as the round-2 reading",
+                  "computed when served or exported, never stored", "Nothing of this branch's between 33 and 36 was "
+                  "released"):
+        assert words in note, words
+    for batch in ("R3-B01", "R3-B02", "R3-B03", "R3-B04", "R3-B06", "R3-B07", "R3-B08", "R3-B09", "R3-B10", "R3-B11",
+                  "R3-B12", "R3-B15", "R3-B17", "R3-B18", "R3-B19", "R3-B20", "R3-B22", "R3-B23", "R3-B24"):
+        assert batch in note, batch
+    notice = _amendment_line(amendments, "- **A 5.7 analysis gets the re-analyze notice, and its button recomputes it** (")
+    for words in ("audit round 3, R3-B25", "§9.3", "`ANALYSIS_STAGE_VERSION` 33 → 36", "`app.js?v=true-revenue-9`",
+                  "`true-revenue-7` and `true-revenue-8` are skipped", "`fix/boa-nsf` `f2e9ae1`",
+                  "R2-B16's line keeps its `true-revenue-6`", "the census tests' \"5.7\" snapshot rows are data and stay",
+                  "the job stores on this machine hold no 5.7 job"):
+        assert words in notice, words
+    in_all = _amendment_line(amendments, "- **Audit round 3 in all** (")
+    for words in R3_B25_IN_ALL_WORDS:
+        assert words in in_all, words
+    assert amendments.index("- **A 5.7 analysis gets the re-analyze notice") < amendments.index(
+        "- **Audit round 3 in all** (")
+    contract = _flat(CONTRACT)
+    assert ("Audit round 3, R3-B25: classification 5.8 (`CLASSIFICATION_VERSION`), with `ANALYSIS_STAGE_VERSION` 36 in "
+            "the same commit, the run's last") in contract
+    assert contract.index("Audit round 2, R2-B16 (R56): classification 5.7") < contract.index(
+        "Audit round 3, R3-B25: classification 5.8")
+    handoff = _flat(HANDOFF)
+    for words in ("classification **5.8**, analysis stage **36**",
+                  "done (R3-B01..R3-B24); R3-B25 made the single version move (5.8 / 36)"):
+        assert words in handoff, words
+    for stale in ("classification **5.7**, analysis stage **33**", "R3-B25 makes the single version move"):
+        assert stale not in handoff, stale
+    html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert "app.js?v=true-revenue-9" in html
+    assert "true-revenue-7" not in html and "true-revenue-8" not in html
