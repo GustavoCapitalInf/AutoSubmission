@@ -3272,3 +3272,98 @@ def test_r3_b22_the_code_names_its_rules():
         assert words in script, words
     start = batch.FIELDS.index("withholding_numerator")
     assert batch.FIELDS[start - 2:start] == ["withholding_denominator_mode", "withholding_denominator_label"]
+
+
+#: Audit round 3, R3-B23: the code commits §20 and the contract name, one per issue.
+R3_B23_COMMITS = {"R3-49": "e482ed4", "R3-47": "47288fb", "R3-67": "686912a", "R3-62": "897d136"}
+
+
+def test_the_spec_and_the_contract_record_r3_b23():
+    """Audit round 3, R3-B23 (R3-49, R3-47, R3-67, R3-62): §9.3's no-bump line, §10.4's I51 download rule, §10.8's
+    sections (the repeated account, the package with nothing analysed, the returned funder payment, the account
+    title), §17.1's default D1, R2-OW10's line amended in place, the four §20 lines with their commits, the batch's
+    measured line, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B23 (§20): no bump in a fix batch either, and no stored-output change: the batch "
+            "changes the package and statement downloads only") in versions
+    na_rules = re.sub(r"\s+", " ", _section(text, "\n### 10.4 ", "\n### 10.5 "))
+    assert ("empty when a member is not established or no statement is analysed (R54; audit round 3, R3-B23: R3-49, "
+            "§20, where its revenue counts, `unverified_deposit_count`, `potential_revenue_count`, "
+            "`verified_revenue_count` and `confirmed_true_revenue_count`, are empty too") in na_rules
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    for words in ("each is a section `repeated_account_<n>`, in listed order, after the `excluded_account_<n>` sections",
+                  "\"account `<n>` of `<file>` repeats `<file>`\", plus \" (`<the reason's words above>`)\" for a "
+                  "superseded printout and nothing more for a repeat",
+                  "(a repeated account of a document: its `repeated_account_<n>` section, R2-B14's bullet above; audit "
+                  "round 3, R3-B23: R3-47)",
+                  "Audit round 3, R3-B23 (R3-49, §10.4, §20): or no statement analysed (R54)",
+                  "one section `returned_funder_payment_<n>` per served `returned_funder_payments` item, in served "
+                  "order, after the `funder_<n>` sections",
+                  "\"Returned funder payment: `<funder>` `<amount>` `<unit>` debited `<date>`, returned `<date>` "
+                  "(\"`<the bank's words>`\"). Not counted as paid; still in the withholding rate.\"",
+                  "the package ledger table (`package_transaction`) gains no column",
+                  "**Statement CSV/XLSX:** `statement,account_title` (a document's `account_<n>.statement,account_title`, "
+                  "account by account) is written only where the title reads as a bank's account designation",
+                  "The JSON download and the served payload keep `statement.account_title` as read (the API contract)"):
+        assert words in exports, words
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("**The account title in the statement CSV/XLSX (audit round 3, R3-62; §10.8, §20;",
+                  "Default implemented (D1, audit round 3, R3-B23)",
+                  "(b) leave the row out of the CSV/XLSX on every statement; (c) write every title as printed under a "
+                  "relabelled field that says it is the holder line's tail; (d) as before the batch",
+                  "Stakes: cosmetic, about 1% of statements"):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    owner_title = _amendment_line(amendments, "- **The holder readers publish the account title they drop**")
+    assert ("A title is published as printed (amended in place by audit round 3, R3-B23: R3-62, §10.8 and below: the "
+            "statement CSV/XLSX write it only where it reads as a bank's designation") in owner_title
+    for start, issue, words in (
+            ("- **A package that analyses no statement downloads no partial revenue figure**", "R3-49",
+             ("completes R54's line above for the downloads", "`_PACKAGE_NO_ANALYSIS_COUNT_KEYS`",
+              "The live store's 6 jobs without an analysis (3 done, 3 interrupted)")),
+            ("- **The package CSV/XLSX name a document's account left out as a repeat**", "R3-47",
+             ("review R2-B14-r2's finding 2", "`_REPEATED_ACCOUNT_FIELDS`", "0 corpus documents")),
+            ("- **The package CSV/XLSX list each returned funder payment with the dashboard's warning**", "R3-67",
+             ("the memo half being R3-B22's", "Beside the brief: R3-B02 (the owner's \"Count it once\")",
+              "`_RETURNED_FUNDER_PAYMENT_FIELDS`")),
+            ("- **The statement CSV/XLSX write the account title only where it reads as a bank designation**", "R3-62",
+             ("amends R2-OW10's line above, \"a title is published as printed\", marked in place",
+              "Beside the brief's word list: `LLOYDS` and `LLOYD'S`",
+              "the 34 designations written (First Citizens 14, RBC 12, Capital One 4, Wells Fargo 4) and the 24 others "
+              "left out"))):
+        line = _amendment_line(amendments, start)
+        for word in (f"audit round 3, R3-B23 ({issue}", R3_B23_COMMITS[issue], *words):
+            assert word in line, (issue, word)
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B23 in all**")
+    for words in ("the head snapshots equal the base's in every key", "G7 not run", "no stored output",
+                  "no version bump"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    assert ("Audit round 3, R3-B23 (R3-49, R3-47, R3-67, R3-62; e482ed4, 47288fb, 686912a, 897d136): the downloads say "
+            "what the dashboard says, and no classification moves") in contract
+
+
+def test_r3_b23_the_code_names_its_rules():
+    """Audit round 3, R3-B23: the export's rules, in the code."""
+    from analysis import holder_name
+    from webapp import app as appmod
+
+    assert appmod._PACKAGE_NO_ANALYSIS_COUNT_KEYS == (
+        "unverified_deposit_count", "potential_revenue_count", "verified_revenue_count", "confirmed_true_revenue_count")
+    export = re.sub(r"\s+", " ", inspect.getsource(appmod._package_for_export))
+    assert "no_analysis = isinstance(totals, dict) and totals.get(\"completed\") == 0" in export
+    # The source with its comments' line breaks read as spaces.
+    rows = re.sub(r"\s+", " ", re.sub(r"\n\s*# ", " ", inspect.getsource(appmod._package_rows)))
+    for words in ("rows.append((f\"repeated_account_{idx}\", \"words\", _repeated_account_words(entry, filenames)))",
+                  "rows.append((f\"returned_funder_payment_{idx}\", \"words\", _returned_funder_payment_words(item)))",
+                  "a repeated account of a document, a B11 repeat or an R14 superseded printout, has its own "
+                  "`repeated_account_<n>` section below, and a whole repeated job its document row and duplicate group "
+                  "above"):
+        assert words in rows, words
+    assert "a repeat is named by its document row and its duplicate group above" not in rows
+    assert appmod._REPEATED_ACCOUNT_FIELDS[-1] == "duplicate_of"
+    assert appmod._RETURNED_FUNDER_PAYMENT_FIELDS[:3] == ("funder", "amount", "debit_date")
+    assert holder_name._DESIGNATION_WORDS <= appmod._EXPORT_DESIGNATION_WORDS
+    flat = re.sub(r"\s+", " ", inspect.getsource(appmod._account_analysis_rows))
+    assert ("if section == \"statement\" and key == \"account_title\" and not _designation_title(item):") in flat
