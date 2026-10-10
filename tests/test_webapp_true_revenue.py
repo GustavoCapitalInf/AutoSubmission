@@ -1416,6 +1416,67 @@ def test_yes_a_member_whose_revenue_is_not_established_still_shows_its_zelle_fig
     assert package["totals"]["true_revenue_total"] is None
     assert package["totals"]["zelle_deposits"]["count"] == 3
     assert package["documents"][1]["zelle_deposits"]["count"] == 1
+    # Audit round 3, R3-B20 (R3-48; §10.4's I51): the captured rows' count and total stay; every part of True or Held
+    # is None (the package's, as one member is not established; the member row's, by its own flags); the established
+    # member's row keeps its figures.
+    totals = package["totals"]["zelle_deposits"]
+    assert (totals["count"], totals["total"]) == (3, 1500.0)
+    assert totals["by_tier"] == {"verified": {"count": None, "total": None},
+                                 "counted_flagged": {"count": None, "total": None},
+                                 "excluded_pending_review": {"count": None, "total": None}}
+    member = package["documents"][1]["zelle_deposits"]
+    assert (member["count"], member["total"]) == (1, 500.0)
+    assert member["by_tier"]["counted_flagged"] == member["by_tier"]["excluded_pending_review"] == {
+        "count": None, "total": None}
+    assert package["documents"][0]["zelle_deposits"]["by_tier"] == {"counted_flagged": {"count": 2, "total": 1000.0}}
+    assert (member["counted_as_true_revenue"], member["setting_applied"]) == (True, True)
+    from webapp.app import _package_rows
+    rows = _package_rows(package)
+    for section in ("revenue_tier", "document_2.revenue_tier"):
+        for tier in ("counted_flagged", "excluded_pending_review"):
+            for field in ("count", "total"):
+                assert (section, f"zelle_deposits.{tier}.{field}", "") in rows, (section, tier, field)
+    assert ("revenue_tier", "zelle_deposits.count", 3) in rows
+    assert ("revenue_tier", "zelle_deposits.total", 1500.0) in rows
+    assert ("document_2.revenue_tier", "zelle_deposits.count", 1) in rows
+    assert ("document_1.revenue_tier", "zelle_deposits.counted_flagged.total", 1000.0) in rows
+
+
+def test_an_unestablished_statement_download_leaves_the_zelle_parts_of_true_and_held_empty():
+    """Audit round 3, R3-B20 (R3-48; §10.4's I51, §10.8): where the statement's revenue is not established, its
+    downloads leave the Zelle in-True and held parts empty and keep the captured rows' count, total, non-revenue part,
+    setting and setting_applied; the established download is unchanged."""
+    from tests import zelle_setting_fixtures as fx
+    from webapp.app import _analysis_rows
+
+    stored = fx.case("Z1")
+    stored["metrics"]["deposits_source"] = "summary"
+    stored["metrics"]["effective_total_deposits"] = 99999.0
+    served = _download(stored, "json", zelle=True)
+    assert served["metrics"]["revenue_established"] is False
+    rows = _analysis_rows(served)
+    for tier in ("verified", "counted_flagged", "excluded_pending_review"):
+        for field in ("count", "total"):
+            assert ("revenue_tier", f"zelle_deposits.{tier}.{field}", "") in rows, (tier, field)
+    for kept in (("zelle_deposits.setting", "Yes"), ("zelle_deposits.count", 4), ("zelle_deposits.total", 7734.56),
+                 ("zelle_deposits.setting_applied", True)):
+        assert ("revenue_tier", *kept) in rows, kept
+    csv_lines = _download(stored, "csv", zelle=True).splitlines()
+    assert "revenue_tier,zelle_deposits.counted_flagged.total," in csv_lines
+    assert "revenue_tier,zelle_deposits.excluded_pending_review.total," in csv_lines
+    # The non-revenue part stays: Z4's Zelle truck sale is non-revenue in the counted reading.
+    truck = fx.case("Z4_TRUCK")
+    truck["metrics"]["deposits_source"] = "summary"
+    truck["metrics"]["effective_total_deposits"] = 99999.0
+    truck_rows = _analysis_rows(_download(truck, "json", zelle=True))
+    assert ("revenue_tier", "zelle_deposits.non_revenue.count", 1) in truck_rows
+    assert ("revenue_tier", "zelle_deposits.non_revenue.total", 9000.0) in truck_rows
+    assert ("revenue_tier", "zelle_deposits.counted_flagged.total", "") in truck_rows
+    # The established download is today's.
+    established = _analysis_rows(_download(fx.case("Z1"), "json", zelle=True))
+    assert ("revenue_tier", "zelle_deposits.counted_flagged.total", 1234.56) in established
+    assert ("revenue_tier", "zelle_deposits.excluded_pending_review.count", 3) in established
+    assert not any(field.startswith("zelle_deposits.verified") for _section, field, _value in established)
 
 
 def test_yes_a_mixed_currency_package_refuses_the_zelle_money_and_keeps_its_counts():

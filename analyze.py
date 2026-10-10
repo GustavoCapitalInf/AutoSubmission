@@ -45,14 +45,24 @@ def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) ->
     return "Review required (captured credits differ from the bank-stated total)"
 
 
-def _zelle_line(stored: Report, shown: Report) -> str | None:
+def _zelle_line(stored: Report, shown: Report, *, established: bool = True) -> str | None:
     """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): under Yes, where the statement has Zelle
-    policy rows, one line saying where the Zelle money sits (analysis/zelle_view.py's figures over the records)."""
+    policy rows, one line saying where the Zelle money sits (analysis/zelle_view.py's figures over the records).
+
+    Audit round 3, R3-B20 (R3-48; §10.4's I51 and R52): where the revenue is not `established`, the line keeps what the
+    captured rows say (the Zelle total and count, and the non-revenue part) and reads the parts in True revenue and held
+    for review as N/A, as the True and Held lines do; the established line is unchanged."""
     figures = zelle_view.record_zelle_figures(stored.classifications, shown.classifications)
     if figures is None:
         return None
     parts = zelle_view.figure_parts(figures)
     out = f", ${parts['out']:,.2f} non-revenue" if parts["out"] > 0 else ""
+    if not established:
+        return (
+            f"  Zelle deposits: ${figures['total']:,.2f} ({figures['count']}), captured rows only; in True revenue and "
+            f"held for review: {_NOT_ESTABLISHED}{out} (Mark Zelle Payments as True Revenue: Yes; "
+            "--zelle-true-revenue no excludes them)"
+        )
     return (
         f"  Zelle deposits: ${figures['total']:,.2f} ({figures['count']}): ${parts['in_true']:,.2f} in True revenue, "
         f"${parts['held']:,.2f} held for review{out} (Mark Zelle Payments as True Revenue: Yes; "
@@ -231,7 +241,7 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
         f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "
         f"({m.non_revenue_count} credit(s))"
     )
-    zelle = _zelle_line(stored, report) if zelle_true_revenue else None
+    zelle = _zelle_line(stored, report, established=established) if zelle_true_revenue else None
     if zelle is not None:
         L.append(zelle)
     L.append("  Maximum revenue       : " + figure(f"${m.maximum_revenue:,.2f}", established))

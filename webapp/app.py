@@ -50,6 +50,7 @@ from analysis.revenue_view import (
     WITHHOLDING_BASIS_UNESTABLISHED,
     apply_revenue_view,
     debit_side_flags,
+    unestablished_zelle_figures,
     withholding_basis_unestablished,
 )
 from analysis import zelle_view
@@ -293,6 +294,14 @@ def _export_account_revenue(account: object) -> object:
     # (its rate is None already) is an empty cell too, as the dashboard reads it N/A.
     if metrics.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
         nulled.update({key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in metrics})
+    # Audit round 3, R3-B20 (R3-48; §10.4's I51, §10.8): the Zelle figures' parts of True and Held are empty cells too
+    # (`_zelle_deposit_rows`); the captured rows' count, total and non-revenue part stay.
+    if ZELLE_DEPOSITS_KEY in metrics:
+        zelle = unestablished_zelle_figures(
+            metrics[ZELLE_DEPOSITS_KEY], established=metrics.get("revenue_established") is True,
+            verified_established=metrics.get("verified_revenue_established") is True)
+        if zelle is not metrics[ZELLE_DEPOSITS_KEY]:
+            nulled[ZELLE_DEPOSITS_KEY] = zelle
     return {**account, "metrics": {**metrics, **nulled}} if nulled else account
 
 
@@ -4503,9 +4512,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         if member_basis_unestablished:
             doc_row[WITHHOLDING_BASIS_UNESTABLISHED] = True
             any_member_basis_unestablished = True
-        # R2-OW17: the member's Zelle figures, where its served copy carries them (the Monthly cell reads them).
+        # R2-OW17: the member's Zelle figures, where its served copy carries them (the Monthly cell reads them). Audit
+        # round 3, R3-B20 (R3-48; §10.4's I51): their parts of True and Held are None where the member's revenue is not
+        # established, as the row's tier figures follow its flags; the captured rows' count, total and non-revenue part
+        # stay.
         if member_zelle is not None:
-            doc_row[ZELLE_DEPOSITS_KEY] = deepcopy(member_zelle)
+            doc_row[ZELLE_DEPOSITS_KEY] = deepcopy(unestablished_zelle_figures(
+                member_zelle, established=revenue_established, verified_established=verified_revenue_established))
         # Owner ruling 2026-10-02 (the underwriter's Q6; §9.2; R2-OW15): the member's rows the package passes matched
         # or annotated, and why the passes could not read it ('no_currency', 'older_rules'), each only where there is one.
         if member_overlay:
@@ -4752,6 +4765,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # T9: confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so they are N/A with it.
         for key in ("verified_revenue_total", "confirmed_true_revenue_total", "confirmed_true_revenue"):
             totals[key] = None
+    # Audit round 3, R3-B20 (R3-48; §10.4's I51): and so are the Zelle figures' parts of them, the counted and held
+    # slots with True, Counted and Held and the verified slot with Verified; the captured rows' count, total and
+    # non-revenue part stay (the Non-revenue figures stay too).
+    if ZELLE_DEPOSITS_KEY in totals:
+        totals[ZELLE_DEPOSITS_KEY] = unestablished_zelle_figures(
+            totals[ZELLE_DEPOSITS_KEY], established=not unestablished_revenue,
+            verified_established=not unestablished_verified)
     # Audit round 2, R2-B15 (R54): a package with no statement analysed (every job failed, was interrupted or is still
     # queued or processing, or every account was left out) has no revenue figure at all: True, Verified, Counted and
     # Held are N/A, never a $0.00 an underwriter would read as a measured decline, and nothing reads as reconciled.

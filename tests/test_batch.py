@@ -102,6 +102,61 @@ def test_the_batch_row_reads_the_chosen_reading():
     assert {"zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total"} <= set(batch.FIELDS)
 
 
+# --- Audit round 3, R3-B20 (R3-48; true revenue spec §10.4's I51 and R52): where the revenue is not established, the
+# Zelle figures keep what the captured rows say (the count and total, the non-revenue part) and drop every part of True
+# or Held. Z1 printed with a bank-summary credit total $30.00 above its rows: a tied ledger, revenue not established.
+
+#: Z1's rows' credits: 10,000.00 + 1,234.56 + 2,000.00 + 2,000.00 + 2,500.00 + 300.00.
+_Z1_CREDITS = 18034.56
+
+
+def _unestablished(name="Z1", credits=_Z1_CREDITS):
+    from tests import zelle_setting_fixtures as fx
+    return fx.case_document(name, stated_credits=round(credits + 30.0, 2)).accounts[0]
+
+
+def test_render_of_an_unestablished_statement_prints_the_captured_zelle_rows_only():
+    import analyze
+
+    report = _unestablished()
+    assert report.metrics.deposits_source == "bank_stated_unverified"
+    lines = analyze._render(report).splitlines()
+    assert "  True revenue          : N/A (not established)" in lines
+    assert ("  Zelle deposits: $7,734.56 (4), captured rows only; in True revenue and held for review: N/A (not "
+            "established) (Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no excludes them)") in lines
+    assert not any("in True revenue," in line or "held for review (" in line for line in lines)
+
+
+def test_render_of_an_unestablished_statement_keeps_the_zelle_non_revenue_part():
+    import analyze
+
+    lines = analyze._render(_unestablished("Z4_TRUCK", 9000.0)).splitlines()
+    assert ("  Zelle deposits: $9,000.00 (1), captured rows only; in True revenue and held for review: N/A (not "
+            "established), $9,000.00 non-revenue (Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no "
+            "excludes them)") in lines
+
+
+def test_render_of_an_established_statement_keeps_today_s_zelle_line():
+    """The established line is byte-identical to the one
+    test_render_prints_the_yes_figures_and_the_zelle_line_by_default pins."""
+    import analyze
+
+    assert ("  Zelle deposits: $7,734.56 (4): $1,234.56 in True revenue, $6,500.00 held for review "
+            "(Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no excludes them)") in analyze._render(
+        _z1().accounts[0]).splitlines()
+
+
+def test_the_batch_row_of_an_unestablished_statement_leaves_the_zelle_in_true_cell_empty():
+    from pathlib import Path
+
+    row = batch._row(Path("fabricated.md"), _unestablished())
+    assert (row["zelle_in_true_revenue_total"], row["zelle_deposit_total"], row["true_revenue_total"]) == (
+        "", "7734.56", "")
+    assert row["revenue_established"] == "NO"
+    established = batch._row(Path("fabricated.md"), _z1().accounts[0])
+    assert (established["zelle_in_true_revenue_total"], established["zelle_deposit_total"]) == ("1234.56", "7734.56")
+
+
 def test_a_zelle_free_row_carries_the_fixed_columns():
     from pathlib import Path
 

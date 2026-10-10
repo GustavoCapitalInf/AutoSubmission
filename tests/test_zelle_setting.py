@@ -601,6 +601,33 @@ def test_z11_the_figure_function():
         HELD: {"count": 1, "total": 2.0}, "non_revenue": {"count": 1, "total": 0.1}}}
 
 
+def test_z11_the_unestablished_figures_keep_the_captured_rows_only():
+    """Audit round 3, R3-B20 (R3-48; spec §10.4's I51): where the revenue is not established, the parts of Counted and
+    Held (and, where Verified is not, of Verified) read None, present or not; the count, the total, the non-revenue
+    part, the flags and a package's `setting` stay; the input is never mutated and is returned itself where both flags
+    hold."""
+    from analysis.revenue_view import (
+        UNESTABLISHED_VERIFIED_ZELLE_TIERS,
+        UNESTABLISHED_ZELLE_TIERS,
+        unestablished_zelle_figures,
+    )
+
+    assert UNESTABLISHED_ZELLE_TIERS == (COUNTED, HELD) and UNESTABLISHED_VERIFIED_ZELLE_TIERS == ("verified",)
+    figures = {"counted_as_true_revenue": True, "setting": True, "setting_applied": True,
+               **zelle_view.zelle_deposit_figures([(COUNTED, 0.2), ("non_revenue", 0.1)])}
+    frozen = copy.deepcopy(figures)
+    assert unestablished_zelle_figures(figures, established=True, verified_established=True) is figures
+    assert unestablished_zelle_figures(None, established=False, verified_established=False) is None
+    none = {"count": None, "total": None}
+    held_only = unestablished_zelle_figures(figures, established=False, verified_established=True)
+    assert held_only == {**frozen, "by_tier": {COUNTED: none, HELD: none, "non_revenue": {"count": 1, "total": 0.1}}}
+    assert list(held_only["by_tier"]) == [COUNTED, HELD, "non_revenue"]
+    both = unestablished_zelle_figures(figures, established=False, verified_established=False)
+    assert list(both["by_tier"]) == ["verified", COUNTED, HELD, "non_revenue"] and both["by_tier"]["verified"] == none
+    assert (both["count"], both["total"], both["setting"]) == (2, 0.3, True)
+    assert figures == frozen
+
+
 # --- Z12: decisions on Zelle rows, through the routes (spec §10.7) ---------------------------------------------------
 
 PAT_ROW, FABRIKAM_ROW, OWN_ROW = "transaction:2", "transaction:3", "transaction:5"

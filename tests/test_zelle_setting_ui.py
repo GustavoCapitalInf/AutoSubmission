@@ -224,8 +224,9 @@ generateSummary();
 console.log(JSON.stringify({rows, chips, memo: els.summaryBox.textContent}));
 """)
     notes = {row["label"]: row["note"].replace("&#39;", "'") for row in result["rows"]}
+    values = {row["label"]: row["value"] for row in result["rows"]}
     return {"true": notes["True Revenue"], "non_revenue": notes["Non-Revenue"], "memo": result["memo"],
-            "chipped": [text for text, chip in result["chips"] if chip]}
+            "chipped": [text for text, chip in result["chips"] if chip], "true_value": values["True Revenue"]}
 
 
 @needs_node
@@ -295,8 +296,9 @@ generateSummary();
 console.log(JSON.stringify({{rows, details, memo: els.summaryBox.textContent}}));
 """)
     notes = {row["label"]: row["note"].replace("&#39;", "'") for row in result["rows"]}
+    values = {row["label"]: row["value"] for row in result["rows"]}
     return package, {"true": notes["True Revenue"], "non_revenue": notes["Non-Revenue"], "memo": result["memo"],
-                     "details": result["details"]}
+                     "details": result["details"], "true_value": values["True Revenue"]}
 
 
 @needs_node
@@ -342,3 +344,48 @@ def test_a_mixed_currency_package_prints_the_counts_only(tmp_path, monkeypatch):
     assert "Zelle deposits in True revenue: 2 · held for review: 3" in facts
     # Audit round 2, R2-B16 (R51): in a refused package every declared row names its unit, USD included.
     assert yes["details"] == [["Zelle in True 1,235 USD · held 6,500 USD"], ["Zelle in True 1,500 CAD"]]
+
+
+# --- Audit round 3, R3-B20 (R3-48; spec §10.1, §10.4's I51, §10.5): where the revenue is not established, the Zelle
+# figures say what the captured rows say (the count and total, the non-revenue part) and no part of True or Held.
+
+
+def _unestablished(name="Z1", **kwargs):
+    """A fabricated statement whose captured credits are not the money its Total counts (the shape the webapp tests
+    use: a summary Total above the captured credits)."""
+    stored = fx.case(name, **kwargs)
+    stored["metrics"]["deposits_source"] = "summary"
+    stored["metrics"]["effective_total_deposits"] = 99999.0
+    return stored
+
+
+@needs_node
+def test_an_unestablished_statement_names_its_captured_zelle_rows_only():
+    yes = _statement_copy(_unestablished(), True)
+    assert yes["true_value"] == "N/A"
+    assert yes["true"] == TRUE_NOTE + "Zelle deposits captured: $7,734.56 (4), captured rows only"
+    assert "True revenue N/A, verified revenue N/A, non-revenue " in yes["memo"]
+    assert ("captured rows only); Zelle deposits captured $7,734.56 (captured rows only).") in yes["memo"]
+    assert "counted as True revenue" not in yes["memo"] and "held for review" not in yes["memo"]
+    # The established statement reads as before (test_the_statement_copy_in_both_readings).
+    assert _statement_copy(fx.case("Z1"), True)["true"] == TRUE_NOTE + YES_FACT
+
+
+@needs_node
+def test_an_unestablished_statement_keeps_its_zelle_non_revenue_part():
+    yes = _statement_copy(_unestablished("Z4_TRUCK"), True)
+    assert yes["true"] == TRUE_NOTE + ("Zelle deposits captured: $9,000.00 (1), captured rows only · non-revenue: "
+                                       "$9,000.00 (1)")
+    assert "; Zelle deposits captured $9,000.00 (captured rows only), non-revenue $9,000.00." in yes["memo"]
+
+
+@needs_node
+def test_a_package_with_an_unestablished_member_names_its_captured_zelle_rows_only(tmp_path, monkeypatch):
+    analyses = {"mar": fx.case("Z1"), "apr": _unestablished("Z2", month=4)}
+    package, yes = _package_copy(analyses, tmp_path, monkeypatch, True)
+    assert package["totals"]["true_revenue_total"] is None and yes["true_value"] == "N/A"
+    assert yes["true"] == TRUE_NOTE + "Zelle deposits captured: $9,234.56 (5), captured rows only"
+    assert "; Zelle deposits captured $9,234.56 (captured rows only)." in yes["memo"]
+    assert "counted as True revenue" not in yes["memo"]
+    # The unestablished member's Monthly cell names no firm Zelle figure in True (its parts are None).
+    assert yes["details"] == [["Zelle in True 1,235 · held 6,500"], ["Zelle in True N/A"]]

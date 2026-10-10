@@ -339,6 +339,8 @@ function zelleDeposits(source = {}) {
     counted: figures.counted_as_true_revenue === true,
     applied: figures.setting_applied !== false,
     count: numberOrNull(figures.count) || 0,
+    // Audit round 3, R3-B20 (R3-48): the captured Zelle rows' total, null where the package refuses its currencies.
+    total: numberOrNull(figures.total),
     inTrue: part("verified", "counted_flagged"),
     verified: part("verified"),
     countedFlagged: part("counted_flagged"),
@@ -350,14 +352,19 @@ function zelleDeposits(source = {}) {
 // The True card's Zelle fact (R2-OW17), every non-zero part, the count alone where the money is refused. Yes: "Zelle
 // deposits in True revenue: $C (n)" always, then the held and non-revenue parts; No: "Zelle deposits excluded: $N (k)"
 // then the parts a review or an older analysis left counted or held. A statement or a package member analysed before the
-// setting says it is shown as analysed. Without served figures, today's fact.
-function zelleFact(source, currency, { package: isPackage = false } = {}) {
+// setting says it is shown as analysed. Without served figures, today's fact. Audit round 3, R3-B20 (R3-48; §10.4's
+// I51): where the revenue is not `established`, the captured rows only: "Zelle deposits captured: $T (n), captured rows
+// only", then the non-revenue part where there is some, never a part in True revenue, counted or held.
+function zelleFact(source, currency, { package: isPackage = false, established = true } = {}) {
   const zelle = zelleDeposits(source);
   if (!zelle) return zelleExcludedFact(source, currency);
   const money = (part) => (part.total === null ? formatNumber(part.count)
     : `${formatMoney(part.total, currency)} (${formatNumber(part.count)})`);
   const parts = [];
-  if (zelle.counted) {
+  if (established === false) {
+    parts.push(`Zelle deposits captured: ${money({ count: zelle.count, total: zelle.total })}, captured rows only`);
+    if (zelle.out.count > 0) parts.push(`non-revenue: ${money(zelle.out)}`);
+  } else if (zelle.counted) {
     parts.push(`Zelle deposits in True revenue: ${money(zelle.inTrue)}`);
     if (zelle.held.count > 0) parts.push(`held for review: ${money(zelle.held)}`);
     if (zelle.out.count > 0) parts.push(`non-revenue: ${money(zelle.out)}`);
@@ -435,7 +442,12 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
   const served = zelleDeposits(source);
   const excluded = zelleExcluded(source);
   let zelleNote = excluded ? `, of which Zelle deposits excluded ${formatMoney(excluded.total, currency)}` : "";
-  if (served && served.counted) {
+  if (served && established !== true) {
+    // Audit round 3, R3-B20 (R3-48; §10.4's I51): where the revenue is not established, the captured Zelle rows only,
+    // and their non-revenue part where there is some; no part in True revenue or held for review.
+    zelleNote = `; Zelle deposits captured ${formatMoney(served.total, currency)} (captured rows only)`
+      + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
+  } else if (served && served.counted) {
     zelleNote = `; Zelle deposits counted as True revenue ${formatMoney(served.inTrue.total, currency)}`
       + (served.held.count > 0 ? `, held for review ${formatMoney(served.held.total, currency)}` : "")
       + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
@@ -491,8 +503,9 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
   if (metrics.premium_trust_account === true) {
     facts.push("Premium trust account: deposits that would count are held (insureds' premiums, not revenue); non-revenue deposits stay excluded");
   }
-  // R2-OW17: where the Zelle money sits, in the reading served (zelleFact).
-  const zelle = zelleFact(metrics, currency);
+  // R2-OW17: where the Zelle money sits, in the reading served (zelleFact). Audit round 3, R3-B20 (R3-48): the captured
+  // rows only where the statement's revenue is not established.
+  const zelle = zelleFact(metrics, currency, { established: metrics.revenue_established === true });
   if (zelle) facts.push(zelle);
   return [...facts, ...debitFlagFacts(metrics, currency)];
 }
@@ -525,7 +538,8 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
   const premiumTrust = statements(totals.premium_trust_documents);
   if (premiumTrust) facts.push(`${formatNumber(premiumTrust)} ${noun(premiumTrust)} of a premium trust account: deposits that would count are held`);
-  const zelle = zelleFact(totals, currency, { package: true });
+  // Audit round 3, R3-B20 (R3-48): the captured rows only where the package's revenue is not established.
+  const zelle = zelleFact(totals, currency, { package: true, established: packageRevenueFlags(totals).established });
   if (zelle) facts.push(zelle);
   return [...facts, ...debitFlagFacts(totals, currency)];
 }

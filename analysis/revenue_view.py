@@ -57,6 +57,35 @@ UNESTABLISHED_REVENUE_KEYS = (
 )
 #: ... and when its Verified figure is not established: Verified and its aliases (T9).
 UNESTABLISHED_VERIFIED_KEYS = ("verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total")
+#: Audit round 3, R3-B20 (R3-48; §10.4's I51 and R52): the Zelle figures' parts (`zelle_deposits.by_tier`,
+#: analysis/zelle_view.py) that are parts of Counted and Held, read as None where the revenue is not established ...
+UNESTABLISHED_ZELLE_TIERS = ("counted_flagged", "excluded_pending_review")
+#: ... and the part of Verified, where the Verified figure is not.
+UNESTABLISHED_VERIFIED_ZELLE_TIERS = ("verified",)
+#: The order the Zelle figures list their parts in (zelle_view's, the dashboard's).
+_ZELLE_TIER_ORDER = ("verified", "counted_flagged", "excluded_pending_review", "non_revenue")
+
+
+def unestablished_zelle_figures(figures: object, *, established: bool, verified_established: bool) -> object:
+    """Audit round 3, R3-48 (§10.4, I51): Zelle figures (`{counted_as_true_revenue, setting_applied, count, total,
+    by_tier}`, and a package's `setting`) as a surface prints them where an account's or a package's revenue is not
+    established: `figures` itself when both flags hold or it is no dict; otherwise a copy whose
+    UNESTABLISHED_ZELLE_TIERS slots (where `established` is false) and UNESTABLISHED_VERIFIED_ZELLE_TIERS slot (where
+    `verified_established` is false) read `{"count": None, "total": None}`, present or not, so no reader takes a
+    missing slot for a firm zero.
+    It keeps what the captured rows say: `count` and `total` (the captured Zelle rows, as `total_posted_credits` is
+    kept), the `non_revenue` slot (as Non-revenue is kept), `counted_as_true_revenue`, `setting_applied` and `setting`.
+    The input is never mutated."""
+    if not isinstance(figures, Mapping) or (established and verified_established):
+        return figures
+    nulled = (UNESTABLISHED_ZELLE_TIERS if not established else ()) + (
+        UNESTABLISHED_VERIFIED_ZELLE_TIERS if not verified_established else ())
+    by_tier = figures.get("by_tier") if isinstance(figures.get("by_tier"), Mapping) else {}
+    slots = {tier: copy.deepcopy(slot) for tier, slot in by_tier.items()}
+    slots.update({tier: {"count": None, "total": None} for tier in nulled})
+    order = {tier: position for position, tier in enumerate(_ZELLE_TIER_ORDER)}
+    return {**figures, "by_tier": dict(sorted(slots.items(), key=lambda item: (order.get(item[0], len(order)),
+                                                                              item[0])))}
 
 #: The final review of round 2, F1 (§10.4, §11; the owner's ruling of 2026-10-02 on the underwriter's Q7, R2-OW14, beside
 #: B11's I51 and the final review's M10): where the basis an account's withholding mode divides by is not established

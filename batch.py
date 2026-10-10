@@ -207,7 +207,9 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "non_revenue_count": m.non_revenue_count,
         "zelle_true_revenue": "yes" if zelle_true_revenue else "no",
         "zelle_deposit_total": f"{zelle['total'] if zelle is not None else 0.0:.2f}",
-        "zelle_in_true_revenue_total": f"{zelle_parts['in_true']:.2f}",
+        # Audit round 3, R3-B20 (R3-48; §10.4's I51): the Zelle part of True is empty where True is; the Zelle total
+        # stays (the captured Zelle rows, as total_posted_credits is kept).
+        "zelle_in_true_revenue_total": established_figure(zelle_parts["in_true"], established),
         "maximum_revenue": established_figure(m.maximum_revenue, established),
         "revenue_tiers_sum_to_posted": "yes" if m.revenue_tiers_sum_to_posted else "NO",
         "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
