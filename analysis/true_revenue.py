@@ -3083,6 +3083,23 @@ _WIRE_DESIGNATION_OWN_WORDS = frozenset({
     "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
     "PLC",
 })
+#: §8.5, Q5 (audit round 3, final review (R3-FF), F4; Q5 of 2026-09-28: a wire with a named sender is counted): the
+#: R3-40 product and holder-noise words a company's own name is made of ('PREMIUM SOLUTIONS LLC', 'TOTAL SERVICES INC',
+#: 'ELITE MANAGEMENT GROUP LLC', 'ADVANTAGE GROUP LLC', 'SELECT HOLDINGS LLC', 'COMMERCIAL SERVICES INC'), which
+#: _wire_generic_company reads as a sender. Never an account-designation word (BUSINESS, OPERATING, OPERATIONS,
+#: CHECKING, SAVINGS, ACCOUNT, ACCT, DDA, SAV, CHK, MONEY, MARKET, ANALYZED), a purpose or filler word, TRUST or DBA,
+#: a legal form, a generic word or a label word: each of those keeps R3-40's reading.
+_WIRE_COMPANY_NAME_WORDS = frozenset({
+    "COMMERCIAL", "PREMIUM", "PLATINUM", "SELECT", "PREFERRED", "STANDARD", "BASIC", "SIMPLE", "ESSENTIALS",
+    "FUNDAMENTALS", "COMPLETE", "ADVANTAGE", "PERFORMANCE", "EVERYDAY", "PLUS", "ELITE", "FREE", "SMALL", "TOTAL",
+    "GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT", "ENTERPRISES",
+})
+#: R3-FF F4: the words that join a company's name words ('THE ADVANTAGE GROUP') and its legal forms (R3-40's).
+_WIRE_NAME_CONNECTORS = frozenset({"THE", "OF", "AND"})
+_WIRE_LEGAL_FORMS = frozenset({
+    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
+    "PLC",
+})
 
 
 @cache
@@ -3091,13 +3108,37 @@ def _wire_designation_words() -> frozenset[str]:
     return _WIRE_DESIGNATION_OWN_WORDS | _classifier().REVENUE_GENERIC_WORDS
 
 
-def _wire_names_nobody(region: str) -> bool:
+def _wire_generic_company(words: Sequence[str], labelled: bool, holder_names: Sequence[str] = ()) -> bool:
+    """§8.5, Q5 (audit round 3, final review (R3-FF), F4): a sender's name made only of R3-40's words that still names a
+    company: one or more of its name words (_WIRE_COMPANY_NAME_WORDS), joined only by THE, OF or AND and legal forms,
+    printed behind an originator label (`labelled`: the classifier's _WIRE_ORIGINATOR_LABEL, ORG, B/O, WIRE FROM ...) or
+    ending in a legal form ('WIRE TRANSFER IN SELECT HOLDINGS LLC', 'INCOMING WIRE ORG PREMIUM SOLUTIONS REF 1'). A
+    designation, purpose, holder-designation (TRUST, DBA), generic or label word anywhere in it keeps R3-40's reading
+    ('BUSINESS LLC', 'WIRE FROM BUSINESS ACCOUNT', 'ORG OPERATING ACCOUNT', 'TOTAL BUSINESS SERVICES LLC'), and so does a
+    name word alone with no label and no form ('WIRE TRANSFER IN 1234 SERVICES'). So does a name whose name words are
+    all words of one of the holder's names (`holder_names`, _holder_names): the holder test reads distinctive words, and
+    these are all its noise, so it cannot see the holder's own money there; the wire stays held as at R3-40."""
+    names = [word for word in words if word in _WIRE_COMPANY_NAME_WORDS]
+    if not names:
+        return False
+    if not all(word in _WIRE_COMPANY_NAME_WORDS or word in _WIRE_NAME_CONNECTORS or word in _WIRE_LEGAL_FORMS
+               for word in words):
+        return False
+    classifier = _classifier()
+    if any(set(names) <= set(classifier.account_name_text(holder).split()) for holder in holder_names if holder):
+        return False
+    return labelled or words[-1] in _WIRE_LEGAL_FORMS
+
+
+def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Sequence[str] = ()) -> bool:
     """§8.5, Q5 (audit round 3, R3-B07: R3-40; the underwriter's Q1 of 2026-10-02): a wire's payer region that names no
     sender: only labels (_wire_label_only), or only label, holder-noise, account-designation, purpose, filler or
     legal-form words (_WIRE_LABEL_ONLY_WORDS, _wire_designation_words: 'BUSINESS', 'OPERATING ACCOUNT', 'BUSINESS LLC',
     'THE AMOUNT OF'), on every wire layout and the labelled path. A numbered company keeps its reading (the
     classifier's _NUMBERED_COMPANY_REGION or _NUMBERED_PROVINCE_START: '1234567 ONTARIO INC', '1234567 B C LTD',
-    OQ3)."""
+    OQ3). Audit round 3, final review (R3-FF), F4: and so does a company named only with R3-40's product and holder-noise
+    words, behind an originator label (`labelled`) or ending in a legal form, unless those are the holder's own name's
+    words (`holder_names`; _wire_generic_company)."""
     if _wire_label_only(region):
         return True
     classifier = _classifier()
@@ -3107,7 +3148,8 @@ def _wire_names_nobody(region: str) -> bool:
     ):
         return False
     nobody = _WIRE_LABEL_ONLY_WORDS | _wire_designation_words()
-    return all(word in nobody for word in classifier.payer_name(region).split())
+    words = classifier.payer_name(region).split()
+    return all(word in nobody for word in words) and not _wire_generic_company(words, labelled, holder_names)
 
 
 def _sending_bank_after_label(text: str, region: str, bank: str | None) -> bool:
@@ -3122,14 +3164,17 @@ def _sending_bank_after_label(text: str, region: str, bank: str | None) -> bool:
     return _bank_only_payer(region, "", bank) in {"sending", "own"}
 
 
-def _wire_region_names_nobody(text: str, region: str, bank: str | None) -> bool:
+def _wire_region_names_nobody(text: str, region: str, bank: str | None, holder_names: Sequence[str] = ()) -> bool:
     """§8.5, Q5: the wire channel's blank point (_facts_region, _customer_financier): a region that names nobody
     (_wire_names_nobody, audit round 3: R3-40), a bare incoming wire (the classifier's _bare_incoming_wire, R2-B10
     review round 1: R11) or a sending bank's channel name printed after the wire's label (_sending_bank_after_label,
-    audit round 3: R3-42)."""
+    audit round 3: R3-42). Audit round 3, final review (R3-FF), F4: the region's name is read as labelled where the row
+    prints an originator label (the classifier's _WIRE_ORIGINATOR_LABEL), beside the holder's names (`holder_names`)."""
+    classifier = _classifier()
     return bool(region) and (
-        _wire_names_nobody(region) or _classifier()._bare_incoming_wire(text)
-        or _sending_bank_after_label(text, region, bank)
+        _wire_names_nobody(region, labelled=classifier._WIRE_ORIGINATOR_LABEL.search(text) is not None,
+                           holder_names=holder_names)
+        or classifier._bare_incoming_wire(text) or _sending_bank_after_label(text, region, bank)
     )
 
 
@@ -4925,7 +4970,7 @@ def _lessor_business(
         if not _rent_words(_without_holder_name(row, holder, also=also)):
             continue
         channel = _channel(text, record.bank)
-        region = _facts_region(text, channel, record.bank)
+        region = _facts_region(text, channel, record.bank, _holder_names(record))
         if region and classifier._payer_key(region) == ():
             continue
         name = _rent_payer_name(text, region)
@@ -5417,7 +5462,7 @@ def _customer_financier(record: TransactionClassification, text: str, *, non_sal
     if channel not in _CUSTOMER_FINANCING_CHANNELS:
         return None
     region = classifier.payer_region(text)
-    if channel == "wire" and _wire_region_names_nobody(text, region, record.bank):
+    if channel == "wire" and _wire_region_names_nobody(text, region, record.bank, _holder_names(record)):
         region = ""
     if not region:
         return None
@@ -5996,7 +6041,7 @@ def insurer_payer_reading(
     return None
 
 
-def _facts_region(text: str, channel: str, bank: str | None = None) -> str:
+def _facts_region(text: str, channel: str, bank: str | None = None, holder_names: Sequence[str] = ()) -> str:
     """The payer region the pass's facts read (credit_facts; owner ruling 2026-10-02, Q2: the insurer-for-work release
     reads it too): the classifier's payer_region, '' on the wire channel where it names no sender. Audit B5 (I14): a
     wire's region of labels alone, or with no name word, names no sender (_wire_label_only). Audit round 2, R2-B10
@@ -6004,9 +6049,11 @@ def _facts_region(text: str, channel: str, bank: str | None = None) -> str:
     _bare_incoming_wire), whatever word of it the payer reader keeps (a month, a stray TT or FROM): it left the
     own-account reading only to be held as a wire with no sender, never counted. Audit round 3, R3-B07: nor a region of
     label, holder-noise, account-designation, purpose, filler or legal-form words (R3-40), nor a sending bank's channel
-    name printed after the wire's label (R3-42, read with the statement's `bank`): _wire_region_names_nobody."""
+    name printed after the wire's label (R3-42, read with the statement's `bank`): _wire_region_names_nobody. Audit round
+    3, final review (R3-FF), F4: a company named only with R3-40's product and holder-noise words is a sender, behind an
+    originator label or ending in a legal form, unless they are the holder's own name's words (`holder_names`)."""
     region = _classifier().payer_region(text)
-    if channel == "wire" and _wire_region_names_nobody(text, region, bank):
+    if channel == "wire" and _wire_region_names_nobody(text, region, bank, holder_names):
         return ""
     return region
 
@@ -6236,7 +6283,7 @@ def _insurer_for_work(
             or _under_micro_floor(record)
         ):
             continue
-        region = _facts_region(text, _channel(text, record.bank), record.bank)
+        region = _facts_region(text, _channel(text, record.bank), record.bank, _holder_names(record))
         if _claimed(record, text) or _factoring_payout_payer(region, text):
             continue
         entry = classifier.entry_fields(text)
@@ -6326,7 +6373,7 @@ def credit_facts(
     builder's Zelle draw is a progress draw (construction_progress_draw); nothing else here reads it."""
     classifier = _classifier()
     channel = _channel(text, record.bank)
-    region = _facts_region(text, channel, record.bank)
+    region = _facts_region(text, channel, record.bank, _holder_names(record))
     # Audit round 2, R2-B11 (R09 part A): a TD Canada Trust e-Transfer prints a per-transfer code where a sender would
     # stand, which the pass's text no longer prints (without_transfer_code): the row reads no sender and no key.
     sender, holder_sender = (

@@ -550,6 +550,86 @@ def test_r3_40_the_designation_words_are_the_brief_s_list_never_a_place_or_a_non
     assert not {"INTEREST", "ONTARIO", "CANADA", "USA", "AMERICA", "AMERICAN", "NATIONAL", "QUEBEC"} & words
 
 
+# Audit round 3, final review (R3-FF), F4 (§8.5 Q5; Q5 of 2026-09-28: a wire with a named sender is counted): a company
+# named only with R3-40's product and holder-noise words ('PREMIUM SOLUTIONS LLC') read as naming nobody, so its wire
+# was held as "Wire, no sender printed". Its name now reads where the row prints it behind an originator label or ends
+# it with a legal form, and holds no account-designation, purpose or label word; every R3-40 pin above still names
+# nobody.
+
+FF_GENERIC_COMPANIES = ("PREMIUM SOLUTIONS LLC", "TOTAL SERVICES INC", "ELITE MANAGEMENT GROUP LLC",
+                        "ADVANTAGE GROUP LLC", "SELECT HOLDINGS LLC", "COMMERCIAL SERVICES INC")
+
+
+@pytest.mark.parametrize("name", FF_GENERIC_COMPANIES)
+@pytest.mark.parametrize("shape", ["WIRE TRANSFER IN {}", "INCOMING WIRE ORG {} REF 12345"])
+def test_ff_f4_a_company_named_with_generic_words_is_a_named_sender(shape, name):
+    text = shape.format(name)
+    assert _tiers([(text, 12000.0)]) == [NAMED]
+    assert not tr._wire_names_nobody(name, labelled="ORG" in text)
+
+
+@pytest.mark.parametrize("text", [
+    # Behind an originator label, a name of those words needs no legal form.
+    "INCOMING WIRE ORG PREMIUM SOLUTIONS REF 12345",
+    "WIRE FROM ELITE MANAGEMENT GROUP",
+    "INCOMING WIRE ORG THE ADVANTAGE GROUP REF 12345",
+])
+def test_ff_f4_behind_an_originator_label_the_name_needs_no_legal_form(text):
+    assert _tiers([(text, 12000.0)]) == [NAMED]
+
+
+@pytest.mark.parametrize("text", [
+    # No originator label and no legal form: R3-40's single holder-noise words stay nobody.
+    "WIRE TRANSFER IN 1234 SERVICES",
+    "WIRE TRANSFER IN SELECT HOLDINGS",
+    # An account-designation, purpose or holder-noise designation word keeps R3-40's reading, a legal form or a label
+    # beside it or not.
+    "WIRE TRANSFER IN 1234 BUSINESS LLC",
+    "WIRE FROM BUSINESS ACCOUNT",
+    "INCOMING WIRE ORG BUSINESS LLC REF 12345",
+    "INCOMING WIRE ORG OPERATING ACCOUNT REF 12345",
+    "INCOMING WIRE ORG PREMIUM BUSINESS CHECKING REF 12345",
+    "WIRE TRANSFER IN TOTAL BUSINESS SERVICES LLC",
+    "WIRE TRANSFER IN 1234 TRUST INC",
+    "WIRE TRANSFER IN THE AMOUNT OF 1234",
+    # A legal form alone, or with connecting words alone, names nobody.
+    "INCOMING WIRE ORG LLC REF 12345",
+    "WIRE TRANSFER IN THE LLC",
+])
+def test_ff_f4_controls_designations_and_lone_forms_still_name_nobody(text):
+    assert _tiers([(text, 12000.0)]) == [NO_SENDER]
+
+
+@pytest.mark.parametrize("holder", ["SELECT HOLDINGS LLC", "CONTOSO SELECT HOLDINGS LLC"])
+@pytest.mark.parametrize("text", ["WIRE TRANSFER IN SELECT HOLDINGS LLC", "INCOMING WIRE ORG SELECT HOLDINGS LLC REF 1"])
+def test_ff_f4_a_holder_named_with_those_words_keeps_its_wire_held(holder, text):
+    """The holder test reads distinctive words, and these names are all its noise: a holder named with them would see
+    its own money counted. Where the name's words are all words of the holder's name, the wire stays held, as at
+    R3-40; another holder's reads the sender."""
+    assert _tiers([(text, 12000.0)], holder=holder) == [NO_SENDER]
+    assert _tiers([(text, 12000.0)], holder="CONTOSO PLUMBING LLC") == [NAMED]
+
+
+def test_ff_f4_the_named_reading_is_q5_s_a_repeat_verifies_as_any_named_sender_s():
+    text = "WIRE TRANSFER IN SELECT HOLDINGS LLC"
+    assert _tiers([(text, 2345.67), (text, 3456.78)]) == [REPEAT_WIRE, REPEAT_WIRE]
+
+
+def test_ff_f4_control_a_distinctive_name_reads_as_before():
+    assert _tiers([("WIRE TRANSFER IN FABRIKAM SERVICES LLC", 12000.0)]) == [NAMED]
+    assert _tiers([("INCOMING WIRE ORG FABRIKAM SERVICES LLC REF 12345", 12000.0)]) == [NAMED]
+
+
+def test_ff_f4_the_name_words_are_r3_40_s_product_and_holder_noise_words_never_a_designation():
+    names = tr._WIRE_COMPANY_NAME_WORDS
+    assert names <= tr._WIRE_DESIGNATION_OWN_WORDS
+    assert {"PREMIUM", "TOTAL", "ELITE", "ADVANTAGE", "SELECT", "COMMERCIAL", "GROUP", "HOLDINGS", "SERVICES",
+            "SOLUTIONS", "MANAGEMENT", "ENTERPRISES"} <= names
+    assert not {"BUSINESS", "OPERATING", "OPERATIONS", "CHECKING", "SAVINGS", "ACCOUNT", "ACCT", "MONEY", "MARKET",
+                "TRUST", "DBA", "AMOUNT", "RENT", "THE", "OF", "AND", "LLC", "INC"} & names
+    assert not names & (tc.REVENUE_GENERIC_WORDS | tr._WIRE_LABEL_ONLY_WORDS)
+
+
 # Audit round 3, R3-B07 (R3-42; Q5 of 2026-09-28: a wire with a named sender is counted): a sender printed straight
 # after R32's labels (INBOUND WIRE, INBOUND FEDWIRE, INCOMING FEDWIRE, INCOMING CHIPS, their TRANSFER FROM forms),
 # 'INCOMING WIRE TRANSFER FROM' and the WIRE TRANSFER[S] CREDIT label is read.
