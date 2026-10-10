@@ -280,6 +280,9 @@ def test_a_statement_analysed_before_the_setting_says_so():
     stored.pop("zelle_counted_reading")
     yes = _statement_copy(stored, True)
     assert yes["true"] == TRUE_NOTE + NO_FACT + " · analysed before the Zelle setting: shown as analysed"
+    # Audit round 3, R3-B20 (R3-19; §10.5): the memo carries the notice too.
+    assert (", of which Zelle deposits excluded $7,734.56; analysed before the Zelle setting: shown as analysed. "
+            "Average daily balance") in yes["memo"]
 
 
 def _package_copy(analyses, tmp_path, monkeypatch, counted):
@@ -324,14 +327,96 @@ def test_the_package_names_a_confirmed_zelle_deposit_in_no(tmp_path, monkeypatch
     assert no["details"] == [["Zelle excluded 6,500 · counted after review 1,235"]]
 
 
+NOTICE = "a statement analysed before the Zelle setting is shown as analysed"
+
+
+def _older(name, **kwargs):
+    """A fabricated statement analysed between the Zelle policy and the setting: its policy rows, no counted reading's
+    edits (served as analysed under Yes, `setting_applied` false)."""
+    stored = fx.case(name, **kwargs)
+    stored.pop("zelle_counted_reading")
+    return stored
+
+
+def _legacy(name, **kwargs):
+    """A stand-in for a statement analysed before the Zelle policy (test_zelle_setting.py's Z11 legacy fixture): the
+    counted reading stored, no edits (served as stored under No, counted, `setting_applied` false)."""
+    from analysis.serialization import _account_payload
+
+    report = fx.case_document(name, **kwargs).accounts[0]
+    return json.loads(json.dumps(_account_payload(report.zelle_counted)))
+
+
 @needs_node
 def test_a_package_with_a_member_analysed_before_the_setting_prints_every_part(tmp_path, monkeypatch):
-    older = fx.case("Z2", month=4)
-    older.pop("zelle_counted_reading")
-    _package_, yes = _package_copy({"mar": fx.case("Z1"), "apr": older}, tmp_path, monkeypatch, True)
+    package, yes = _package_copy({"mar": fx.case("Z1"), "apr": _older("Z2", month=4)}, tmp_path, monkeypatch, True)
+    # Audit round 3, R3-B20 (R3-19; §9.2, §10.1, §10.5): the package's flag says what its members serve: one member is
+    # served as analysed, its Zelle deposits out of True, so the package's Zelle deposits do not all count; the card and
+    # the memo name where each part sits, and the notice.
+    figures = package["totals"]["zelle_deposits"]
+    assert (figures["counted_as_true_revenue"], figures["setting"], figures["setting_applied"]) == (False, True, False)
     assert yes["true"] == TRUE_NOTE + (
-        "Zelle deposits in True revenue: $1,234.56 (1) · held for review: $6,500.00 (3) · non-revenue: $1,500.00 (1)"
-        " · a statement analysed before the Zelle setting is shown as analysed")
+        "Zelle deposits excluded: $1,500.00 (1) · counted: $1,234.56 (1) · held for review: $6,500.00 (3)"
+        f" · {NOTICE}")
+    assert yes["non_revenue"] == NON_REVENUE
+    assert (", of which Zelle deposits excluded $1,500.00; Zelle deposits counted $1,234.56, held for review "
+            f"$6,500.00; {NOTICE}.") in yes["memo"]
+    assert "counted as True revenue" not in yes["memo"]
+
+
+@needs_node
+def test_r3_19_a_package_of_members_analysed_before_the_setting_under_yes(tmp_path, monkeypatch):
+    """Audit round 3, R3-B20 (R3-19): under Yes, every member served as analysed: the package's Zelle deposits are
+    excluded, as each member serves them; the Non-Revenue note keeps them; the memo never says $0.00 counted."""
+    from webapp.app import _package_rows
+
+    analyses = {"mar": _older("Z1"), "apr": _older("Z2", month=4)}
+    package, yes = _package_copy(analyses, tmp_path, monkeypatch, True)
+    figures = package["totals"]["zelle_deposits"]
+    assert (figures["counted_as_true_revenue"], figures["setting"], figures["setting_applied"]) == (False, True, False)
+    assert figures["by_tier"] == {"non_revenue": {"count": 5, "total": 9234.56}}
+    assert yes["non_revenue"] == NON_REVENUE
+    assert yes["true"] == TRUE_NOTE + f"Zelle deposits excluded: $9,234.56 (5) · {NOTICE}"
+    assert f", of which Zelle deposits excluded $9,234.56; {NOTICE}." in yes["memo"]
+    assert "counted as True revenue $0.00" not in yes["memo"]
+    # The download names the setting the package was served under, beside the members' reading.
+    assert ("revenue_tier", "zelle_deposits.setting", "Yes") in _package_rows(package)
+
+
+@needs_node
+def test_r3_19_a_package_of_legacy_members_under_no(tmp_path, monkeypatch):
+    """Audit round 3, R3-B20 (R3-19): under No, every member analysed before the Zelle policy (its Zelle counted, served
+    as stored): the package's Zelle deposits count, as its members serve them; the Non-Revenue note drops them; the memo
+    says where they sit, with the notice; the download's setting reads No."""
+    from webapp.app import _package_rows
+
+    analyses = {"mar": _legacy("Z1"), "apr": _legacy("Z2", month=4)}
+    package, no = _package_copy(analyses, tmp_path, monkeypatch, False)
+    figures = package["totals"]["zelle_deposits"]
+    assert (figures["counted_as_true_revenue"], figures["setting"], figures["setting_applied"]) == (True, False, False)
+    assert no["non_revenue"] == "Own-account transfers, funding, refunds and other known non-revenue"
+    assert no["true"] == TRUE_NOTE + (
+        f"Zelle deposits in True revenue: $2,734.56 (2) · held for review: $6,500.00 (3) · {NOTICE}")
+    assert (f"; Zelle deposits counted as True revenue $2,734.56, held for review $6,500.00; {NOTICE}.") in no["memo"]
+    assert "of which Zelle deposits excluded" not in no["memo"]
+    rows = _package_rows(package)
+    assert ("revenue_tier", "zelle_deposits.setting", "No") in rows
+    assert ("revenue_tier", "zelle_deposits.setting_applied", False) in rows
+
+
+@needs_node
+def test_r3_19_a_mixed_package_under_no_names_the_legacy_member_s_parts(tmp_path, monkeypatch):
+    """Audit round 3, R3-B20 (R3-19): under No, a fresh member (its Zelle excluded, no figures served) beside a legacy
+    one (its Zelle counted): the package's Zelle deposits do not all count; the memo names the excluded and counted
+    parts and the notice."""
+    analyses = {"mar": fx.case("Z1"), "apr": _legacy("Z2", month=4)}
+    package, no = _package_copy(analyses, tmp_path, monkeypatch, False)
+    figures = package["totals"]["zelle_deposits"]
+    assert (figures["counted_as_true_revenue"], figures["setting"], figures["setting_applied"]) == (False, False, False)
+    assert no["true"] == TRUE_NOTE + (
+        f"Zelle deposits excluded: $7,734.56 (4) · counted: $1,500.00 (1) · {NOTICE}")
+    assert no["non_revenue"] == NON_REVENUE
+    assert f", of which Zelle deposits excluded $7,734.56; Zelle deposits counted $1,500.00; {NOTICE}." in no["memo"]
 
 
 @needs_node

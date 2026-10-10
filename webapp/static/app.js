@@ -383,7 +383,7 @@ function zelleFact(source, currency, { package: isPackage = false, established =
 
 // R2-OW17 (§10.5): whether the served account or package says its Zelle deposits count in True revenue (Yes, with
 // Zelle). The Non-Revenue note then no longer says Zelle deposits are among it; a payload without the figures cannot
-// say the mode and keeps today's note.
+// say the mode and keeps today's note. Audit round 3, R3-B20 (R3-19): a package's flag is its members' served reading.
 function zelleCountedInTrue(source = {}) {
   const figures = source && source.zelle_deposits;
   return Boolean(figures) && figures.counted_as_true_revenue === true;
@@ -430,8 +430,10 @@ function revenueCardItems(source, currency, {
 
 // Audit B11 (I07): the revenue sentence of a copied summary (the credit-memo artefact): True revenue (the headline, Q1),
 // Verified beside it and Non-revenue, each in total and per calendar month (`monthly`: {trueMonthly, verifiedMonthly,
-// nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there.
-function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {}) {
+// nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there. Audit
+// round 3, R3-B20 (R3-19; §10.5): `package` picks the notice's words for a package's memo.
+function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {},
+  { package: isPackage = false } = {}) {
   const pair = (total, perMonth, shown) => (shown
     ? `${formatMoney(total, currency)} (${formatMoney(perMonth, currency)} a month)` : "N/A");
   const nonRevenue = `${formatMoney(source.non_revenue_total, currency)} `
@@ -452,9 +454,21 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
       + (served.held.count > 0 ? `, held for review ${formatMoney(served.held.total, currency)}` : "")
       + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
   } else if (served) {
+    // Audit round 3, R3-B20 (R3-19): every part zelleFact names, so a package mixing members served counted and
+    // excluded, or a legacy member under No, says where each part sits: the part a review counted, then the parts
+    // counted and held.
+    const parts = [
+      ...(served.verified.count > 0 ? [`counted after review ${formatMoney(served.verified.total, currency)}`] : []),
+      ...(served.countedFlagged.count > 0 ? [`counted ${formatMoney(served.countedFlagged.total, currency)}`] : []),
+      ...(served.held.count > 0 ? [`held for review ${formatMoney(served.held.total, currency)}`] : []),
+    ];
     zelleNote = `, of which Zelle deposits excluded ${formatMoney(served.out.total, currency)}`
-      + (served.verified.count > 0 ? `; Zelle deposits counted after review ${formatMoney(served.verified.total, currency)}`
-        : "");
+      + (parts.length ? `; Zelle deposits ${parts.join(", ")}` : "");
+  }
+  // R3-19: a statement or a member analysed before the setting says it is shown as analysed, as the True card does.
+  if (served && !served.applied) {
+    zelleNote += isPackage ? "; a statement analysed before the Zelle setting is shown as analysed"
+      : "; analysed before the Zelle setting: shown as analysed";
   }
   return `True revenue ${pair(source.true_revenue_total, monthly.trueMonthly, established === true)}, `
     + `verified revenue ${pair(source.verified_revenue_total, monthly.verifiedMonthly, verifiedEstablished === true)}, `
@@ -5730,7 +5744,7 @@ function generateSummary() {
         trueMonthly: totals.avg_monthly_true_revenue,
         verifiedMonthly: totals.avg_monthly_verified_revenue,
         nonRevenueMonthly: totals.avg_monthly_non_revenue,
-      })} ` +
+      }, { package: true })} ` +
       `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +

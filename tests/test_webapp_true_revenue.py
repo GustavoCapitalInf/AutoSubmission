@@ -1392,8 +1392,9 @@ def test_yes_the_package_counts_its_members_zelle_deposits():
     assert totals["non_revenue_by_reason"] == {}
     assert totals["true_revenue_total"] == 3000.0  # 2,000.00 under No, plus March's two counted Zelle deposits
     # April's Zelle sender is also debited by the statement: held, out of True.
+    # Audit round 3, R3-B20 (R3-19): `counted_as_true_revenue` is what the members serve, `setting` the setting.
     assert totals["zelle_deposits"] == {
-        "counted_as_true_revenue": True, "setting_applied": True, "count": 3, "total": 1500.0,
+        "counted_as_true_revenue": True, "setting": True, "setting_applied": True, "count": 3, "total": 1500.0,
         "by_tier": {"counted_flagged": {"count": 2, "total": 1000.0}, "excluded_pending_review": {"count": 1,
                                                                                                   "total": 500.0}}}
     assert [document["zelle_deposits"]["count"] for document in package["documents"]] == [2, 1]
@@ -1508,7 +1509,10 @@ def test_yes_a_member_analysed_before_the_setting_is_named_beside_the_others():
     older.pop("zelle_counted_reading")
     package = _package(fx.case("Z1"), older)
     figures = package["totals"]["zelle_deposits"]
-    assert figures["setting_applied"] is False and figures["counted_as_true_revenue"] is True
+    # Audit round 3, R3-B20 (R3-19; §9.2): the flag is what the members serve (the older member's Zelle deposits are
+    # out of True), the setting beside it.
+    assert figures["setting_applied"] is False and figures["counted_as_true_revenue"] is False
+    assert figures["setting"] is True
     assert figures["by_tier"] == {"counted_flagged": {"count": 1, "total": 1234.56},
                                   "excluded_pending_review": {"count": 3, "total": 6500.0},
                                   "non_revenue": {"count": 1, "total": 1500.0}}
@@ -1524,6 +1528,7 @@ def test_no_a_member_without_the_figures_contributes_its_excluded_zelle():
     package = _package(confirmed, fx.case("Z2"), zelle=False)
     figures = package["totals"]["zelle_deposits"]
     assert figures["counted_as_true_revenue"] is False and figures["setting_applied"] is True
+    assert figures["setting"] is False  # audit round 3, R3-B20 (R3-19)
     assert figures["by_tier"] == {"verified": {"count": 1, "total": 1234.56},
                                   "non_revenue": {"count": 4, "total": 8000.0}}
     assert "zelle_deposits" not in package["documents"][1]

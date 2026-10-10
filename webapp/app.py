@@ -807,12 +807,15 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             value = json.dumps(value)
         rows.append(("totals", key, "" if value is None else value))
     rows.extend(_tier_reason_rows(totals))
-    # R2-OW17: the package's Zelle figures; its `counted_as_true_revenue` is the setting it was built under.
+    # R2-OW17: the package's Zelle figures. Audit round 3, R3-B20 (R3-19): the setting row reads the setting the package
+    # was built under (`setting`; its `counted_as_true_revenue` is the members' reading), or, on a package built before
+    # the key, its `counted_as_true_revenue`, which was the setting.
     package_zelle = totals.get(ZELLE_DEPOSITS_KEY)
-    rows.extend(_zelle_deposit_rows(
-        package_zelle,
-        setting=package_zelle.get("counted_as_true_revenue") is True if isinstance(package_zelle, dict) else None,
-    ))
+    package_setting = None
+    if isinstance(package_zelle, dict):
+        package_setting = package_zelle["setting"] if isinstance(package_zelle.get("setting"), bool) else (
+            package_zelle.get("counted_as_true_revenue") is True)
+    rows.extend(_zelle_deposit_rows(package_zelle, setting=package_setting))
     # CURRENCY DOCTRINE §F: a refusal that only exists in the JSON payload is
     # invisible to the underwriter reading the sheet, who would see the empty
     # money cells and read them as missing data rather than as refused units.
@@ -3513,7 +3516,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # by part ((served tier, amount) slots, read from each member's metrics.zelle_deposits), whether a member carried
     # them, and whether every member's reading is the one the setting asks for.
     zelle_counted = _zelle_setting(settings)
-    package_zelle: dict = {"carried": False, "setting_applied": True, "count": 0, "total": 0.0, "by_tier": {}}
+    # Audit round 3, R3-B20 (R3-19; §9.2): `counted`, whether every kept member that carries the figures, or contributes
+    # its excluded Zelle deposits, is served with them counted (the package's `counted_as_true_revenue`).
+    package_zelle: dict = {"carried": False, "counted": True, "setting_applied": True, "count": 0, "total": 0.0,
+                           "by_tier": {}}
     unestablished_verified: list[str] = []
     unestablished_revenue: list[str] = []
     # True revenue final review M10 (§11): a member whose True or Verified figure is not established adds a partial
@@ -4036,8 +4042,11 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             package_zelle["carried"] = True
             package_zelle["setting_applied"] = package_zelle["setting_applied"] and (
                 member_zelle.get("setting_applied") is not False)
+            # Audit round 3, R3-B20 (R3-19): the member's own reading, as its statement serves it.
+            package_zelle["counted"] = package_zelle["counted"] and member_zelle.get("counted_as_true_revenue") is True
             parts = member_zelle.get("by_tier") if isinstance(member_zelle.get("by_tier"), dict) else {}
         elif not zelle_counted and member_by_reason["non_revenue"].get("zelle_excluded"):
+            package_zelle["counted"] = False  # R3-19: its Zelle deposits are excluded
             parts = {"non_revenue": member_by_reason["non_revenue"]["zelle_excluded"]}
         else:
             parts = {}
@@ -4741,13 +4750,17 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # currency refusal, its counts kept.
     totals["non_revenue_by_reason"] = dict(sorted(package_by_reason["non_revenue"].items()))
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (§9.2; R2-OW17): the kept members' Zelle figures, part
-    # by part, present when a kept member carries them; `counted_as_true_revenue` is the setting, `setting_applied`
-    # False when a member's is. Its money is refused with the totals under a currency refusal, its counts kept.
+    # by part, present when a kept member carries them; `setting_applied` False when a member's is. Its money is refused
+    # with the totals under a currency refusal, its counts kept. Audit round 3, R3-B20 (R3-19):
+    # `counted_as_true_revenue` is the members' served reading (true when every kept member carrying the figures, or
+    # contributing its excluded Zelle deposits, is served with them counted), as each statement's is; `setting` is the
+    # setting the package was served under (packages only), which the download's `zelle_deposits.setting` row reads.
     if package_zelle["carried"]:
         order = {tier: position for position, tier in enumerate(("verified", "counted_flagged",
                                                                  "excluded_pending_review", "non_revenue"))}
         totals[ZELLE_DEPOSITS_KEY] = {
-            "counted_as_true_revenue": zelle_counted,
+            "counted_as_true_revenue": package_zelle["counted"],
+            "setting": zelle_counted,
             "setting_applied": package_zelle["setting_applied"],
             "count": package_zelle["count"],
             "total": package_zelle["total"],
