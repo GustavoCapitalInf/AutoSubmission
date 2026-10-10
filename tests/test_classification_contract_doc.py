@@ -3478,3 +3478,43 @@ def test_r3_b24_the_code_names_its_rules():
                   "function largeDepositEvidenceRowHtml(", "function largeDepositNotes(tx, debitFlags = null) {",
                   "function largeDepositSummary(source = {}, currency = \"USD\", { package: isPackage = false } = {}) {"):
         assert words in script, words
+
+
+def test_the_spec_and_the_contract_record_r3_b24_review_round_1():
+    """Audit round 3, R3-B24, review round 1 (findings 1 to 3): the package memo's space restored; a package share
+    is of the member's True as the package counts it (§9.2, §10.1, §10.6, §17.1 with alternative (e)'s narrower
+    variant, the contract); §9.3 names the refused total on packages without a flag; the §20 line, its commit and
+    its measurement."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    assert ("each share its own statement's (the package-month share is §17.1's alternative (e)): of the member's "
+            "True as the package counts it, its holds applied, the True Deposits its row shows on the package "
+            "page") in package
+    assert "so the package can list a deposit its statement alone does not" in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("every refused (cross-currency) package's `currency.refused_total_fields`, which gains "
+            "`large_unsourced_deposit_total` with or without a flag") in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    assert "(each share is its member statement's True as the package counts it" in cards
+    assert "keeps the space 9a5e610 had dropped" in cards
+    ledger = re.sub(r"\s+", " ", _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("\"of its statement's True revenue\" (the True Deposits that statement's row shows on the package "
+            "page") in ledger
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("each share of the member's True as the package counts it, its holds applied",
+                  "(e) a package-month share instead of the statement's (a narrower variant: a package member's share "
+                  "of the True its statement shows alone, before the package's holds"):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **R3-B24 review round 1:")
+    for word in ("audit round 3, R3-B24, review round 1 (findings 1 to 3)", "c57d5c8", "(finding 1)",
+                 "(finding 2)", "(finding 3)", "is AST-identical (comments only)", "0 debit moves",
+                 "No stored output, no version bump"):
+        assert word in line, word
+    assert amendments.index("- **Audit round 3, R3-B24 in all**") < amendments.index("- **R3-B24 review round 1:")
+    assert ("each share its own statement's True as the package counts it (its holds applied, the True Deposits its "
+            "row shows on the package page; R3-B24 review round 1)") in _flat(CONTRACT)
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert ("average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average "
+            "monthly cash flow, ") in script
+    assert "gross credits,${" not in script
