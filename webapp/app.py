@@ -803,6 +803,26 @@ def _analysis_csv(analysis: dict) -> str:
 _PACKAGE_MEMBER_ID = re.compile(r"(.*)#account_\d+")
 #: Audit round 2, R2-B15 (R15): the fields of an `excluded_account_<n>` section of the package downloads, in order.
 _EXCLUDED_ACCOUNT_FIELDS = ("job_id", "filename", "account_index", "account_count", "outcome", "reason")
+#: Audit round 3, R3-B23 (R3-47): the fields of a `repeated_account_<n>` section of the package downloads, in order,
+#: before its words: an account of a kept document the package leaves out as a repeat (B11's `duplicate_statement`)
+#: or as a superseded printout (R14's `superseded_interim` or `superseded_long_printout`).
+_REPEATED_ACCOUNT_FIELDS = ("job_id", "filename", "account_index", "account_count", "outcome", "reason",
+                            "duplicate_of")
+
+
+def _repeated_account_words(entry: dict, filenames: dict[str, str]) -> str:
+    """Audit round 3, R3-B23 (R3-47): a repeated account of a document as the dashboard's duplicate notice names it (app.js
+    renderDuplicateNotice): "account <n> of <file> repeats <file>", then the reason's words in parentheses for a
+    superseded printout (none for a B11 repeat). A job is named by its listed row's filename, "an earlier statement"
+    where none is listed (app.js nameOf)."""
+    def name(job_id: object) -> str:
+        return (filenames.get(str(job_id)) if job_id is not None else None) or "an earlier statement"
+
+    index = entry.get("account_index")
+    shown = f"{index:,}" if isinstance(index, int) and not isinstance(index, bool) else "N/A"
+    words = f"account {shown} of {name(entry.get('job_id'))} repeats {name(entry.get('duplicate_of'))}"
+    reason = entry.get("reason")
+    return f"{words} ({SUPERSEDED_REASON_WORDS[reason]})" if reason in SUPERSEDED_REASON_WORDS else words
 
 
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
@@ -852,19 +872,31 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
             rows.append((f"duplicate_{idx}", key, "" if value is None else value))
-    # Audit round 2, R2-B15 (R15): each account left out of every figure for another reason than a repeat (a repeat is
-    # named by its document row and its duplicate group above), so the sheet an underwriter reads names it.
-    left_out = [entry for entry in package.get("excluded_accounts") or []
-                if isinstance(entry, dict) and entry.get("is_duplicate") is not True]
-    for idx, entry in enumerate(left_out, start=1):
-        for key in _EXCLUDED_ACCOUNT_FIELDS:
-            value = entry.get(key)
-            rows.append((f"excluded_account_{idx}", key, "" if value is None else value))
-    # Audit round 2, R2-B14 (R14): each pair of overlapping statements that share credits, and the notice's words for it.
+    # Each listed job's filename by its id: a member id's job part to its row's filename, kept members and left-out
+    # repeat rows alike, the first row of a job winning (app.js renderDuplicateNotice's nameOf), for the words below.
     filenames: dict[str, str] = {}
     for document in package.get("documents") or []:
         member = _PACKAGE_MEMBER_ID.fullmatch(str(document.get("id") or ""))
         filenames.setdefault(member[1] if member else str(document.get("id") or ""), document.get("filename"))
+    # Audit round 2, R2-B15 (R15): each account left out of every figure for a reason other than a repeat
+    # (`excluded_account_<n>`), so the sheet an underwriter reads names it. Audit round 3, R3-B23 (R3-47): a repeated
+    # account of a document, a B11 repeat or an R14 superseded printout, has its own `repeated_account_<n>` section
+    # below, and a whole repeated job its document row and duplicate group above.
+    excluded = [entry for entry in package.get("excluded_accounts") or [] if isinstance(entry, dict)]
+    left_out = [entry for entry in excluded if entry.get("is_duplicate") is not True]
+    for idx, entry in enumerate(left_out, start=1):
+        for key in _EXCLUDED_ACCOUNT_FIELDS:
+            value = entry.get(key)
+            rows.append((f"excluded_account_{idx}", key, "" if value is None else value))
+    # Audit round 3, R3-B23 (R3-47; R2-B14 step 4, the notice's words in the package rows): each account of a kept
+    # document left out as a repeat, in listed order, its fields and then the dashboard notice's words for it.
+    repeated = [entry for entry in excluded if entry.get("is_duplicate") is True]
+    for idx, entry in enumerate(repeated, start=1):
+        for key in _REPEATED_ACCOUNT_FIELDS:
+            value = entry.get(key)
+            rows.append((f"repeated_account_{idx}", key, "" if value is None else value))
+        rows.append((f"repeated_account_{idx}", "words", _repeated_account_words(entry, filenames)))
+    # Audit round 2, R2-B14 (R14): each pair of overlapping statements that share credits, and the notice's words for it.
     for idx, pair in enumerate(totals.get("overlapping_statements") or [], start=1):
         for key, value in pair.items():
             rows.append((f"overlapping_statement_{idx}", key, "" if value is None else value))

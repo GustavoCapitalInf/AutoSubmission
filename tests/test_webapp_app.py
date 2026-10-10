@@ -2627,6 +2627,106 @@ def test_r3_49_an_analysed_statement_beside_a_failed_one_keeps_its_download_figu
     assert (xlsx_cells["maximum_revenue"], xlsx_cells["confirmed_true_revenue_count"]) == (10000.0, 1.0)
 
 
+# ---------------------------------------------------------------------------
+# Audit round 3, R3-B23 (R3-47; spec §10.8's R2-B14 step 4, "the notice's words in the CSV and XLSX package rows", and
+# its R2-B15 bullet): an account of a kept document that the package leaves out as a repeat (B11's
+# `duplicate_statement`) or as a superseded printout (R14's `superseded_interim` or `superseded_long_printout`) has no
+# document row of its own and no duplicate group, so the package CSV/XLSX name it in a `repeated_account_<n>` section,
+# its fields then the dashboard notice's words (app.js renderDuplicateNotice). R15's `excluded_account_<n>`,
+# `completeness` and `excluded_account_count` are unchanged, and a whole repeated job keeps its document row and its
+# duplicate group. Fabricated CONTOSO BANK statements of CONTOSO BAKERY LLC, NORTHWIND SUPPLY LLC payments, 2031.
+# ---------------------------------------------------------------------------
+
+
+def _repeated_account(rows, index=1):
+    """A `repeated_account_<index>` section's (field, value) pairs, in written order."""
+    return [(field, value) for section, field, value in rows if section == f"repeated_account_{index}"]
+
+
+def _r3_47_long_printout():
+    """jan and feb, and doc, whose account 2 prints January and February (R14's longer printout)."""
+    from webapp.app import _package_analysis
+
+    january, february, _march_q1 = _first_quarter()
+    document = _document_with(_ACCOUNT, _JAN + _FEB, start="2031-01-01", end="2031-02-28", opening=1500.0)
+    return _package_analysis([january, february, _listed("doc", document, content="doc")])
+
+
+def test_r3_47_the_package_rows_name_a_document_account_left_out_as_a_longer_printout():
+    from webapp.app import _package_rows
+
+    rows = _package_rows(_r3_47_long_printout())
+    assert _repeated_account(rows) == [
+        ("job_id", "doc"), ("filename", "doc.pdf"), ("account_index", 2), ("account_count", 2),
+        ("outcome", "duplicate"), ("reason", "superseded_long_printout"), ("duplicate_of", "jan"),
+        ("words", "account 2 of doc.pdf repeats jan.pdf (" + _LONG_PRINTOUT_WORDS + ")")]
+    assert _repeated_account(rows, 2) == []
+    # Apart from R15's section: no exclusion is written for a repeat.
+    assert not any(section.startswith("excluded_account") for section, _field, _value in rows)
+    assert ("totals", "duplicate_accounts", 1) in rows
+
+
+def test_r3_47_the_package_rows_name_a_document_account_left_out_as_an_interim():
+    from webapp.app import _package_analysis, _package_rows
+
+    document = _document_with(_ACCOUNT, _APRIL[:2], start="2031-04-01", end="2031-04-20", opening=21000.0)
+    rows = _package_rows(_package_analysis([_april(), _listed("doc", document, content="doc")]))
+    section = dict(_repeated_account(rows))
+    assert (section["reason"], section["duplicate_of"], section["account_index"]) == ("superseded_interim", "apr", 2)
+    assert section["words"] == "account 2 of doc.pdf repeats apr.pdf (a shorter printout of days another statement covers)"
+
+
+def test_r3_47_the_package_rows_name_a_document_account_repeating_another_statement():
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_analysis, _package_rows
+
+    alone = _listed("chk", document_report_to_dict(_r15_checking(3)), content="chk")
+    package = _package_analysis([alone, _r15_document(3)])
+    rows = _package_rows(package)
+    assert _repeated_account(rows) == [
+        ("job_id", "doc3"), ("filename", "doc3.pdf"), ("account_index", 1), ("account_count", 2),
+        ("outcome", "duplicate"), ("reason", "duplicate_statement"), ("duplicate_of", "chk"),
+        ("words", "account 1 of doc3.pdf repeats chk.pdf")]
+    # Still no exclusion: no excluded_account section, no completeness and no excluded_account_count.
+    assert not any(section.startswith("excluded_account") for section, _field, _value in rows)
+    assert "completeness" not in package["totals"] and "excluded_account_count" not in package["totals"]
+
+
+def test_r3_47_a_whole_repeated_job_keeps_its_document_row_and_duplicate_group():
+    """D4 (control): a statement uploaded twice is named by its document row and its duplicate group, as before."""
+    import csv
+
+    content = b"%PDF-" + _uuid.uuid4().hex.encode()
+    first = _completed("jan.pdf", content)
+    duplicate = _completed("jan-again.pdf", content)
+    other = _completed("feb.pdf", b"%PDF-" + _uuid.uuid4().hex.encode())
+    body = app.test_client().get(
+        f"/package_download/csv?ids={first.id},{duplicate.id},{other.id}").get_data(as_text=True)
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(body)) if len(row) == 3}
+    assert not any(section.startswith("repeated_account_") for section, _field in cells)
+    (row,) = [section for (section, field), value in cells.items() if field == "id" and value == duplicate.id]
+    assert (cells[(row, "is_duplicate")], cells[(row, "duplicate_of")], cells[(row, "duplicate_reason")]) == (
+        "True", first.id, "same_content")
+    assert (cells[("duplicate_1", "count")], cells[("totals", "duplicate_documents")]) == ("2", "1")
+
+
+def test_r3_47_the_section_and_its_words_reach_the_package_csv_and_xlsx():
+    """D5: through the download route's chain (`_masked(_package_for_export(...))`, then the writers)."""
+    import csv
+
+    from tests.test_webapp_true_revenue import _sheet_rows
+    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+
+    exported = _masked(_package_for_export(_r3_47_long_printout()))
+    words = "account 2 of doc.pdf repeats jan.pdf (" + _LONG_PRINTOUT_WORDS + ")"
+    csv_rows = [row for row in csv.reader(io.StringIO(_package_csv(exported))) if row[:1] == ["repeated_account_1"]]
+    assert ["repeated_account_1", "reason", "superseded_long_printout"] in csv_rows
+    assert ["repeated_account_1", "words", words] in csv_rows
+    xlsx_rows = [row for row in _sheet_rows(_package_xlsx(exported)) if row[:1] == ["repeated_account_1"]]
+    assert ["repeated_account_1", "account_index", 2.0] in xlsx_rows
+    assert ["repeated_account_1", "words", words] in xlsx_rows
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
