@@ -237,3 +237,92 @@ console.log(JSON.stringify([
     assert ", held for review 3 credits, non-revenue" in result[1]
     assert all("held for review" not in text for text in result[2:])
 
+
+# ---------------------------------------------------------------- R3-67: returned funder payments in the package memo
+
+def _returned_package():
+    """P1: March, whose only ONDECK payment of 1,200 the bank returns two days later; April, one of whose four KAPITUS
+    payments of 850 the bank returns the next day by "ACH RETURN ITEM NSF"."""
+    from tests.test_returned_funder_payment_boundaries import BARE_BOUNCE, MARCH, _april, _months
+
+    march_rows = sorted([*MARCH, (9, ONDECK_BAKERY, -1200.0), (11, BARE_BOUNCE, 1200.0)], key=lambda row: row[0])
+    march, april = _months(sorted(_april(day=4), key=lambda row: row[0]), march_rows=march_rows)
+    return _package(("mar", march), ("apr", april))
+
+
+def _lender_lines(memo):
+    return memo.split("\n\nPackage lender summary:\n", 1)[1].split("\n")
+
+
+@needs_node
+def test_r3_67_the_package_memo_names_each_funder_s_returned_payments_and_warns_per_item():
+    package = _returned_package()
+    totals = package["totals"]
+    assert (totals["lender_debits"], totals["withholding_numerator"], totals["withholding_denominator"]) == (
+        5950.0, 8000.0, 60000.0)
+    assert (totals["returned_funder_payment_count"], totals["returned_funder_payment_total"]) == (2, 2050.0)
+    assert len(package["returned_funder_payments"]) == 2
+    result = _package_memo(package)
+    memo = result["memo"]
+    lines = _lender_lines(memo)
+    assert lines[:2] == [
+        "KAPITUS: $5,950.00 across 2 statement(s), 1 returned unpaid ($850.00, still in the withholding rate)",
+        "ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding rate)"]
+    # One "- <warning>" per served item, in served order, as the Lenders tab words it.
+    assert lines[2:4] == [f"- {warning}" for warning in result["warnings"]]
+    assert all(line.startswith("- Returned funder payment: ") for line in lines[2:4])
+    assert "Not counted as paid; still in the withholding rate." in lines[2]
+    assert ("0 NSF events, $5,950.00 confirmed lender debits paid (2 returned funder payments, $2,050.00), 13.33% "
+            "confirmed withholding") in memo
+
+
+@needs_node
+def test_r3_67_a_cross_statement_bounce_names_both_documents():
+    """P2: the F2(b) fixture: March 27's KAPITUS payment returned on April 2."""
+    from tests.test_returned_funder_payment_boundaries import _april, _months
+
+    march, april = _months(_april())
+    package = _package(("mar", march), ("apr", april))
+    result = _package_memo(package)
+    lines = _lender_lines(result["memo"])
+    assert lines[0] == ("KAPITUS: $5,950.00 across 2 statement(s), 1 returned unpaid ($850.00, still in the "
+                        "withholding rate)")
+    (warning,) = [line for line in lines if line.startswith("- Returned funder payment: ")]
+    assert warning == f"- {result['warnings'][0]}"
+    assert "(mar.pdf)" in warning and "(apr.pdf)" in warning
+    assert "$5,950.00 confirmed lender debits paid (1 returned funder payment, $850.00), " in result["memo"]
+
+
+@needs_node
+def test_r3_67_a_re_debited_return_reads_counted_once_never_still_in_the_rate():
+    """R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it once"): a return the funder re-debited in the next
+    statement is out of the rate, its re-debit (in paid) counting the payment once, so its funder line never says the
+    returned money is still in the rate; the warning line says it is counted once."""
+    from tests.test_represented_funder_payments import BARE_BOUNCE, KAPITUS_BAKERY, MARCH, NW_APRIL, _months
+
+    march, april = _months([*MARCH, (28, BARE_BOUNCE, 850.0)],
+                           [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0)]
+                           + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)])
+    package = _package(("mar", march), ("apr", april))
+    assert (package["totals"]["withholding_numerator"], package["totals"]["lender_debits"]) == (6800.0, 6800.0)
+    result = _package_memo(package)
+    lines = _lender_lines(result["memo"])
+    assert lines[0] == ("KAPITUS: $6,800.00 across 2 statement(s), 1 returned unpaid ($850.00, re-debited: counted "
+                        "once in the withholding rate)")
+    assert lines[1] == f"- {result['warnings'][0]}" and "counted once in the withholding rate" in lines[1]
+    assert "still in the withholding rate" not in result["memo"]
+
+
+@needs_node
+def test_r3_67_a_package_without_a_return_reads_as_before():
+    """P3: no "returned" word, and the funder lines as they read before the batch."""
+    from tests.test_returned_funder_payment_boundaries import KAPITUS_BAKERY, NW_APRIL, _months
+
+    march, april = _months([(3, NW_APRIL, 30000.0)] + [(day, KAPITUS_BAKERY, -850.0) for day in (3, 10, 17, 24)])
+    package = _package(("mar", march), ("apr", april))
+    assert package["returned_funder_payments"] == [] and package["totals"]["returned_funder_payment_count"] == 0
+    memo = _package_memo(package)["memo"]
+    assert "returned" not in memo.lower()
+    assert _lender_lines(memo) == ["KAPITUS: $6,800.00 across 2 statement(s)"]
+    assert "$6,800.00 confirmed lender debits" not in memo and "NSF events, 11.33% confirmed withholding" in memo
+

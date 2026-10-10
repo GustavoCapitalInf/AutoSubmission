@@ -1046,6 +1046,27 @@ function returnedFunderPaymentWarning(item, currency = "USD") {
   return `${head}. Not counted as paid; still in the withholding rate.`;
 }
 
+// Audit round 3, R3-B22 (R3-67; §10.1's R2-OW13 copy line, the owner's Q5): a package memo's funder line, its paid
+// total and statements, then its payments returned unpaid, which paid leaves out and the withholding rate keeps, so the
+// line explains the rate ("ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding
+// rate)"). R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it once"): a return the funder re-debited (its
+// served item names the re-debit) is out of the rate, the re-debit in paid counting it once, so the line says so.
+function packageFunderSummaryLine(funder, currency = "USD", returnedPayments = []) {
+  const line = `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across `
+    + `${formatNumber(funder.documents)} statement(s)`;
+  const count = numberOrNull(funder.returned_payment_count) ?? 0;
+  if (count <= 0) return line;
+  const money = formatMoney(funder.returned_payment_total, currency);
+  const reDebited = Math.min(count, (Array.isArray(returnedPayments) ? returnedPayments : [])
+    .filter((item) => item && typeof item === "object" && item.funder === funder.funder && item.represented_date)
+    .length);
+  const rate = reDebited === 0 ? `${money}, still in the withholding rate`
+    : reDebited === count ? `${money}, re-debited: counted once in the withholding rate`
+      : `${money}; ${formatNumber(reDebited)} re-debited, counted once in the withholding rate; `
+        + `${formatNumber(count - reDebited)} still in it`;
+  return `${line}, ${formatNumber(count)} returned unpaid (${rate})`;
+}
+
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
 // checked across statements (webapp/app.py LENDER_PAYMENT_UNCHECKED_WORDS).
 const LENDER_PAYMENT_UNCHECKED_WORDS = {
@@ -5768,9 +5789,19 @@ function generateSummary() {
     // so it must carry the package's real denomination — or none at all when
     // the package has no single one (CURRENCY DOCTRINE §D/§F).
     const currency = packageCurrencyInfo(pkg).currency;
+    const returnedPayments = (Array.isArray(pkg.returned_funder_payments) ? pkg.returned_funder_payments : [])
+      .filter((item) => item && typeof item === "object");
+    // Audit round 3, R3-B22 (R3-67): each funder line names its payments returned unpaid.
     const lenderSummary = funders.length
-      ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
+      ? funders.map((funder) => packageFunderSummaryLine(funder, currency, returnedPayments)).join("\n")
       : "No lenders detected across the package.";
+    // R3-67 (the owner's Q5, "show a 'returned funder payment' warning"): one "- <warning text>" line per returned
+    // funder payment, in served order, as the Lenders tab words it (its own unit; a cross-statement match names both
+    // documents), before the payment changes.
+    const returnedLines = returnedPayments.map((item) => `\n- ${returnedFunderPaymentWarning(item, currency)}`).join("");
+    // R3-67: the sentence names the returned payments before the rate that keeps them, as the statement's memo does.
+    const returnedSummary = (numberOrNull(totals.returned_funder_payment_count) ?? 0) > 0
+      ? `${lenderDebitsSummary(totals, currency)}, ` : "";
     // R2-OW18 (G5): one "- <warning text>" line per lender payment change across the package's statements.
     const paymentChangeLines = (Array.isArray(pkg.lender_payment_changes) ? pkg.lender_payment_changes : [])
       .filter((item) => item && typeof item === "object")
@@ -5796,10 +5827,10 @@ function generateSummary() {
         nonRevenueMonthly: totals.avg_monthly_non_revenue,
       }, { package: true })} ` +
       `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
-      `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
+      `${formatNumber(totals.nsf_count)} NSF events, ${returnedSummary}${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
       `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
-      `\n\nPackage lender summary:\n${lenderSummary}${paymentChangeLines}`;
+      `\n\nPackage lender summary:\n${lenderSummary}${returnedLines}${paymentChangeLines}`;
     return;
   }
   const s = currentAnalysis.statement || {};
