@@ -55,6 +55,7 @@ from analysis.revenue_view import (
 )
 from analysis import zelle_view
 from analysis import lender_payment_changes as payment_changes_module
+from analysis.holder_name import PREMIUM_TRUST_WORDS
 from analysis.true_revenue import zelle_deposit
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY, ZELLE_ROW_TAG, apply_zelle_view
 from analysis.payee_matcher import match_known_payee
@@ -482,6 +483,37 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
 #: identical numbers is authoritative.
 _EXPORT_SUPPRESSED_KEYS = {("statement", "stated_average_balance")}
 
+#: Audit round 3, R3-B23 (R3-62; §10.8, §17.1's default D1): the words that make a printed account title read as a
+#: bank's account designation in the statement CSV/XLSX: analysis/holder_name.py's `_DESIGNATION_WORDS` (copied, not
+#: imported, so the reader stays private; a test pins that every one of them is here), then the account words and the
+#: product words the banks print as a title ('US BUSINESS ACCOUNT', 'CAD CHEQUING ACCOUNT', '(RECEIVABLES)'), then the
+#: Lloyd's market's name, which a bank prints as the designation of an insurance agency's account holding Lloyd's
+#: premiums ('LLOYDS OF LONDON' after the agency's legal form; Lloyd's of London, the public insurance market, requires
+#: its coverholders to keep the premiums they collect in a separate trust account).
+_EXPORT_DESIGNATION_WORDS = frozenset({
+    "PREMIUM", "TRUST", "OPERATING", "WIRE", "PRODUCER", "PAYABLE", "ESCROW", "PAYROLL", "CLIENT", "CLIENTS",
+    "CUSTOMER", "RESERVE", "TAX", "GENERAL", "SWEEP", "MAIN", "IOLTA", "DEPOSIT", "DISBURSEMENT", "COLLECTION",
+    "ACCOUNT", "ACCT", "CHECKING", "CHEQUING", "SAVINGS", "RECEIVABLE", "RECEIVABLES",
+    "LLOYDS", "LLOYD'S",
+})
+#: The premium-trust words (holder_name.PREMIUM_TRUST_WORDS, public: 'PREM TRST', 'PREMIUM FUNDS TRUST').
+_EXPORT_PREMIUM_TRUST_TITLE = re.compile(PREMIUM_TRUST_WORDS)
+#: The punctuation a title's word is trimmed of at either end, brackets included ('(RECEIVABLES)' is RECEIVABLES).
+_TITLE_WORD_TRIM = "()[]{}<>.,;:!?'\"-/#*&"
+
+
+def _designation_title(title: object) -> bool:
+    """Audit round 3, R3-B23 (R3-62): whether a printed account title (R2-OW10's `statement.account_title`, the words a
+    holder line prints after the business's name) reads as a bank's account designation: a word of it, read upper
+    case with its dots dropped and its brackets and punctuation trimmed, is in `_EXPORT_DESIGNATION_WORDS`, or it
+    prints the premium-trust words. An owner's name or a legal-form fragment ('LIABILITY', 'BILLS') does not."""
+    if not isinstance(title, str) or not title.strip():
+        return False
+    text = title.upper()
+    if _EXPORT_PREMIUM_TRUST_TITLE.search(text):
+        return True
+    return any(token.replace(".", "").strip(_TITLE_WORD_TRIM) in _EXPORT_DESIGNATION_WORDS for token in text.split())
+
 
 def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     """The flat export sheet for one published payload.
@@ -522,6 +554,11 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
         if isinstance(value, dict):
             for key, item in value.items():
                 if (section, key) in _EXPORT_SUPPRESSED_KEYS:
+                    continue
+                # Audit round 3, R3-B23 (R3-62): a printed title is written only where it reads as a bank's account
+                # designation; an owner's name or a legal-form fragment read as the title is left out of the flat sheet
+                # (the JSON download and the served payload keep it as read).
+                if section == "statement" and key == "account_title" and not _designation_title(item):
                     continue
                 if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY):
                     continue  # emitted as their own sections below

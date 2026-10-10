@@ -2727,6 +2727,117 @@ def test_r3_47_the_section_and_its_words_reach_the_package_csv_and_xlsx():
     assert ["repeated_account_1", "words", words] in xlsx_rows
 
 
+# ---------------------------------------------------------------------------
+# Audit round 3, R3-B23 (R3-62; spec §10.8, §17.1's D1 default; amends R2-OW10's "a title is published as printed" for
+# the flat downloads only): the statement CSV/XLSX write `statement,account_title` only where the title reads as a
+# bank's account designation (`_designation_title`: a designation word, holder_name's and the account words, or the
+# premium-trust words); a title that is an owner's name or a legal-form fragment printed after the business's name is
+# left out of the flat sheet, as the deprecated alias is, so no person's name sits in a cell named as the bank's
+# account designation. The JSON download and the served payload keep the title as read. Fabricated CONTOSO TRADING
+# LLC, SAMPLE and EXAMPLE names, CONTOSO BANK, NORTHWIND SUPPLY LLC payments, 2031.
+# ---------------------------------------------------------------------------
+
+#: A holder line printing an owner's name after the business's legal form.
+_R3_62_OWNER_LINE = "CONTOSO TRADING LLC PAT Q SAMPLE 100 SAMPLE AVE SAMPLEVILLE MN 00000-0000"
+_R3_62_OPERATING_LINE = "CONTOSO TRADING LLC OPERATING ACCOUNT 100 SAMPLE AVE SAMPLEVILLE MN 00000-0000"
+
+
+def _r3_62_payload(line):
+    """A March statement whose holder line is `line`, read by `holder_name.read_address_line` (its name and its title),
+    analysed by the real pipeline."""
+    from analysis.holder_name import read_address_line
+    from analysis.pipeline import analyze_statement
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+    from analysis.serialization import document_report_to_dict
+
+    reading = read_address_line(line)
+    transactions, balance = [], 1500.0
+    for day, description, amount in (("2031-03-04", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 5000.0),
+                                     ("2031-03-18", "CARD PURCHASE FABRIKAM SUPPLY", -200.0)):
+        balance = round(balance + amount, 2)
+        transactions.append(Transaction(date=day, description=description, amount=amount,
+                                        direction="credit" if amount > 0 else "debit", running_balance=balance))
+    statement = Statement(bank="CONTOSO BANK", account_name="CONTOSO TRADING LLC", holder_name=reading.name,
+                          account_title=reading.title, account_number="000000001010", period_start="2031-03-01",
+                          period_end="2031-03-31", beginning_balance=1500.0, ending_balance=balance, currency="USD",
+                          currency_source="printed", transactions=transactions)
+    return document_report_to_dict(analyze_statement(statement, reconciliation=reconcile(statement), markdown="",
+                                                     sheets=[], model_used="fabricated-test"))
+
+
+def _r3_62_flat(payload):
+    """The statement download's flat rows (the route's chain): the CSV's rows, then the XLSX's."""
+    import csv
+
+    from tests.test_webapp_true_revenue import _sheet_rows
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed, _masked
+
+    exported = _masked(_displayed(payload, settings={}, export=True))
+    return (list(csv.reader(io.StringIO(_analysis_csv(exported)))), _sheet_rows(_analysis_xlsx(exported)),
+            exported)
+
+
+def test_r3_62_an_owner_s_name_read_as_the_title_is_left_out_of_the_statement_csv_and_xlsx():
+    from webapp.app import _displayed
+
+    payload = _r3_62_payload(_R3_62_OWNER_LINE)
+    assert (payload["statement"]["holder_name"], payload["statement"]["account_title"]) == (
+        "CONTOSO TRADING LLC", "PAT Q SAMPLE")
+    csv_rows, xlsx_rows, json_download = _r3_62_flat(payload)
+    assert not [row for row in csv_rows if row[:2] == ["statement", "account_title"]]
+    assert not [row for row in xlsx_rows if row[:2] == ["statement", "account_title"]]
+    # The holder's own row is written as before.
+    assert ["statement", "holder_name", "CONTOSO TRADING LLC"] in csv_rows
+    # The JSON download and the served payload keep the title as read.
+    assert json_download["statement"]["account_title"] == "PAT Q SAMPLE"
+    assert _displayed(payload, settings={})["statement"]["account_title"] == "PAT Q SAMPLE"
+
+
+def test_r3_62_a_designation_title_is_written_as_before():
+    payload = _r3_62_payload(_R3_62_OPERATING_LINE)
+    assert payload["statement"]["account_title"] == "OPERATING ACCOUNT"
+    csv_rows, xlsx_rows, _json_download = _r3_62_flat(payload)
+    assert ["statement", "account_title", "OPERATING ACCOUNT"] in csv_rows
+    assert ["statement", "account_title", "OPERATING ACCOUNT"] in xlsx_rows
+
+
+@pytest.mark.parametrize(("title", "designation"), [
+    ("PREMIUM TRUST ACCOUNT", True), ("PREM TRST", True), ("Prem. Trust Acct.", True), ("OPERATING ACCOUNT", True),
+    ("(RECEIVABLES)", True), ("US BUSINESS ACCOUNT", True), ("CAD CHEQUING ACCOUNT", True), ("PRODUCER PAYABLE", True),
+    ("WIRE", True), ("BUSINESS SAVINGS", True), ("operating account", True), ("LLOYDS OF LONDON", True),
+    ("Lloyd's of London", True),
+    ("LIABILITY W1", False), ("BILLS", False), ("SAMPLE", False), ("JANE SAMPLE", False), ("JOHN Q EXAMPLE", False),
+    ("", False), (None, False)])
+def test_r3_62_a_title_reads_as_a_designation(title, designation):
+    from webapp.app import _designation_title
+
+    assert _designation_title(title) is designation
+
+
+def test_r3_62_the_export_designation_words_hold_holder_name_s():
+    """G3: the export's word list never drifts from the reader's own designation words."""
+    from analysis import holder_name
+    from webapp.app import _EXPORT_DESIGNATION_WORDS
+
+    assert holder_name._DESIGNATION_WORDS <= _EXPORT_DESIGNATION_WORDS
+    assert {"ACCOUNT", "ACCT", "CHECKING", "CHEQUING", "SAVINGS", "RECEIVABLE", "RECEIVABLES"} <= (
+        _EXPORT_DESIGNATION_WORDS)
+
+
+def test_r3_62_each_account_of_a_document_follows_the_rule():
+    """G4: a document of two accounts, account 1 titled as a designation and account 2 by a person's name."""
+    payload = _r15_document(3)
+    payload.analysis["accounts"][0]["statement"]["account_title"] = "OPERATING ACCOUNT"
+    payload.analysis["accounts"][1]["statement"]["account_title"] = "JANE SAMPLE"
+    csv_rows, xlsx_rows, json_download = _r3_62_flat(payload.analysis)
+    for rows in (csv_rows, xlsx_rows):
+        assert ["account_1.statement", "account_title", "OPERATING ACCOUNT"] in rows
+        assert not [row for row in rows if row[:2] == ["account_2.statement", "account_title"]]
+    assert [account["statement"]["account_title"] for account in json_download["accounts"]] == [
+        "OPERATING ACCOUNT", "JANE SAMPLE"]
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
