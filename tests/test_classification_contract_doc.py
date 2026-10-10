@@ -3825,3 +3825,44 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_ff():
     handoff = _flat(HANDOFF)
     assert "the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asks for `true-revenue-10`" in (
         handoff)
+
+
+def test_the_spec_and_the_contract_record_r3_ff_review_round_1():
+    """Audit round 3, final review (R3-FF), review round 1 (findings 1 and 2): §8.5's Held names the two-word rule and
+    the held lone-word and product-only shapes; the F4 and R3-40 lines of §20 are marked in place; §9.3's folded line
+    names it; §20 gains its line with its commit after the final review in all; the contract's R3-FF entry says the
+    same; and the code's name they cite."""
+    from analysis import true_revenue
+
+    commit = "9ec8e60"
+    assert true_revenue._WIRE_HOLDER_NOISE_NAME_WORDS == {"GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT",
+                                                          "ENTERPRISES"}
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    held = re.sub(r"\s+", " ", _section(sections, "\n### 8.5 ", "\n### 8.6 "))
+    for words in ("two or more different ones and at least one of them a holder-noise word "
+                  "(`_WIRE_HOLDER_NOISE_NAME_WORDS`",
+                  "review round 1: so does a lone name word with a legal form or behind a label (R3-40's own shapes: "
+                  "`WIRE TRANSFER IN <ref> GROUP LLC`",
+                  "held once and on a repeat, never Verified",
+                  "and so do product words alone (`ORG PLATINUM SELECT`"):
+        assert words in held, words
+    folded = re.sub(r"\s+", " ", _section(sections, "\n### 9.3 ", "\n## 10. "))
+    assert "two or more of them, one a holder-noise word, since its review round 1" in folded
+    f4 = _amendment_line(amendments, "- **A wire from a company named only with generic words names its sender** (")
+    assert "(narrowed by its review round 1, below: two or more different name words, one of them a holder-noise word" in (
+        f4)
+    r340 = _amendment_line(amendments, "- **A wire region of designation words names no sender** (")
+    assert "(amended by audit round 3, final review (R3-FF), F4 and its review round 1, below:" in r340
+    line = _amendment_line(amendments, "- **R3-FF review round 1: a generic wire name needs two name words, one a "
+                                       "holder-noise word** (")
+    for words in (f"audit round 3, final review (R3-FF), review round 1: findings 1 and 2; the underwriter's Q1 of "
+                  f"2026-10-02, a wire with no sender is held; {commit}", "`_WIRE_HOLDER_NOISE_NAME_WORDS`",
+                  "`04559a2`", "Zelle Yes and under No", "revenue census", "0 differing leaf paths"):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.index("- **The final review of round 3 in all** (") < amendments.index(
+        "- **R3-FF review round 1: a generic wire name needs two name words")
+    contract = _flat(CONTRACT)
+    assert (f"(F4; its review round 1, {commit}: the name prints two or more different name words, one of them a "
+            "holder-noise word, `_WIRE_HOLDER_NOISE_NAME_WORDS`") in contract
