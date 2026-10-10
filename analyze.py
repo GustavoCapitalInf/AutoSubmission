@@ -34,6 +34,19 @@ def _revenue_flags(report: Report) -> tuple[bool, bool]:
     return revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
 
 
+def _large_unsourced_line(report: Report) -> str | None:
+    """Audit round 3, R3-B24 (R3-16; §13): "  Large deposits to source: N, $X (each $10,000 or more and over 25% of True;
+    information only)" where the account's served copy (analysis/revenue_view.py apply_revenue_view, over the payload
+    `_revenue_flags` reads) flags one, else None."""
+    served = apply_revenue_view(document_report_to_dict(DocumentReport(accounts=[report])))
+    metrics = served.get("metrics") if isinstance(served, dict) else None
+    count = metrics.get("large_unsourced_deposit_count") if isinstance(metrics, dict) else None
+    if not count:
+        return None
+    return (f"  Large deposits to source: {count}, ${metrics['large_unsourced_deposit_total']:,.2f} (each $10,000 or "
+            "more and over 25% of True; information only)")
+
+
 def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) -> str:
     """R52: "Balanced" where the ledger reconciles and the revenue is established (app.js statementRevenueBalanced),
     otherwise "Review required" and why: the ledger does not reconcile, or the captured credits are not the money the
@@ -232,6 +245,12 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
         + figure(f"${m.excluded_pending_review_total:,.2f}  ({m.excluded_pending_review_count} credit(s))",
                  established)
     )
+    # Audit round 3, R3-B24 (R3-16; true revenue spec §13; standard G7, P22): the counted credits whose source the
+    # statement does not prove that are large beside its True, as the account is served (only where one is flagged on a
+    # statement whose revenue is established); information only.
+    large = _large_unsourced_line(report)
+    if large is not None:
+        L.append(large)
     L.append(
         "  Unverified deposits   : "
         + figure(f"${m.unverified_deposit_total:,.2f}  ({m.unverified_deposit_count} credit(s): counted plus held)",

@@ -25,7 +25,7 @@ from pathlib import Path
 
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.revenue_view import revenue_flags, withholding_basis_unestablished
+from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
 from telemetry import (
     DispatchCollector,
@@ -47,6 +47,9 @@ FIELDS = [
     "verified_revenue_total", "verified_revenue_count",
     "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
     "non_revenue_count",
+    # Audit round 3, R3-B24 (R3-16; standard G7, P22): the counted credits whose source the statement does not prove
+    # that are $10,000 or more and over 25% of True, information only (needs_review does not read them).
+    "large_unsourced_deposit_count", "large_unsourced_deposit_total",
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the reading shown and its Zelle figures,
     # a fixed header in both modes.
     "zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total",
@@ -158,7 +161,11 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     # Audit round 2, R2-B16 (R52; true revenue spec §10.4): the account's revenue flags in the reading shown, from its
     # serialized payload (the flags the dashboard and the downloads read), published through the document entry point
     # as a document of its one account (RULE S: that account's payload; the L1-S3 seam rule).
-    verified_established, established = revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
+    payload = document_report_to_dict(DocumentReport(accounts=[report]))
+    verified_established, established = revenue_flags(payload)
+    # Audit round 3, R3-B24 (R3-16; §13): the account served once (analysis/revenue_view.py apply_revenue_view, in the
+    # reading shown) for its large unsourced deposits; the flag is served only where the revenue is established.
+    served = apply_revenue_view(payload).get("metrics") or {}
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted —
     # when its revenue gate is set (5.6, T7: a direction conflict, or held credits
@@ -208,6 +215,10 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "unverified_deposit_count": m.unverified_deposit_count,
         "non_revenue_total": f"{m.non_revenue_total:.2f}",
         "non_revenue_count": m.non_revenue_count,
+        # R3-B24 (R3-16): 0 and 0.00 where none is flagged, both empty where the revenue is not established (R52).
+        "large_unsourced_deposit_count": int(served.get("large_unsourced_deposit_count") or 0) if established else "",
+        "large_unsourced_deposit_total": established_figure(
+            float(served.get("large_unsourced_deposit_total") or 0.0), established),
         "zelle_true_revenue": "yes" if zelle_true_revenue else "no",
         "zelle_deposit_total": f"{zelle['total'] if zelle is not None else 0.0:.2f}",
         # Audit round 3, R3-B20 (R3-48; §10.4's I51): the Zelle part of True is empty where True is; the Zelle total

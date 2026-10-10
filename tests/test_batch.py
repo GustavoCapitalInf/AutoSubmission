@@ -362,3 +362,31 @@ def test_r3_68_the_error_row_leaves_the_basis_cells_empty(monkeypatch, tmp_path)
     with open(out, newline="", encoding="utf-8") as handle:
         [row] = list(csv.DictReader(handle))
     assert (row["withholding_denominator_mode"], row["withholding_denominator_label"]) == ("", "")
+
+
+# --- Audit round 3, R3-B24 (R3-16; standard G7, P22; true revenue spec §13): the large unsourced deposits' count and
+# total, information only, right after the non-revenue count (tests/test_large_unsourced_deposits.py pins the values).
+
+
+def test_r3_16_the_large_deposit_columns_follow_the_non_revenue_count():
+    start = batch.FIELDS.index("non_revenue_count")
+    assert batch.FIELDS[start:start + 4] == [
+        "non_revenue_count", "large_unsourced_deposit_count", "large_unsourced_deposit_total", "zelle_true_revenue"]
+    assert batch.FIELDS.count("large_unsourced_deposit_count") == 1
+
+
+def test_r3_16_the_error_row_leaves_the_large_deposit_cells_empty(monkeypatch, tmp_path):
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    monkeypatch.setattr(batch, "analyze_document", boom)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        [row] = list(csv.DictReader(handle))
+    assert (row["large_unsourced_deposit_count"], row["large_unsourced_deposit_total"]) == ("", "")

@@ -44,12 +44,14 @@ from analysis.flagged_view import apply_flagged_groups_to_payload, enabled_group
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue_view import (
     DEBIT_FLAG_KINDS,
+    LARGE_UNSOURCED_DEPOSIT_FIELDS,
     UNESTABLISHED_REVENUE_KEYS,
     UNESTABLISHED_VERIFIED_KEYS,
     UNESTABLISHED_WITHHOLDING_BASIS_KEYS,
     WITHHOLDING_BASIS_UNESTABLISHED,
     apply_revenue_view,
     debit_side_flags,
+    large_unsourced_deposits,
     unestablished_zelle_figures,
     withholding_basis_unestablished,
 )
@@ -560,7 +562,8 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
                 # (the JSON download and the served payload keep it as read).
                 if section == "statement" and key == "account_title" and not _designation_title(item):
                     continue
-                if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY):
+                if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY,
+                                                    LARGE_UNSOURCED_DEPOSITS_KEY):
                     continue  # emitted as their own sections below
                 if isinstance(item, (dict, list)):
                     item = json.dumps(item)
@@ -570,6 +573,9 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
         rows.extend(_adb_rows(metrics))
         rows.extend(_tier_reason_rows(metrics))
         rows.extend(_zelle_deposit_rows(metrics.get(ZELLE_DEPOSITS_KEY)))
+        # Audit round 3, R3-B24 (R3-16; §10.8): one section per large unsourced deposit the served copy flags (its count
+        # and total are metric rows above); nothing where none is flagged.
+        rows.extend(_large_unsourced_deposit_rows(metrics.get(LARGE_UNSOURCED_DEPOSITS_KEY)))
     detection = analysis.get("detection")
     if isinstance(detection, dict):
         for key, item in detection.items():
@@ -706,6 +712,30 @@ def _zelle_deposit_rows(
             value = slot.get(field) if isinstance(slot, dict) else None
             rows.append((section, f"zelle_deposits.{tier}.{field}", "" if value is None else value))
     rows.append((section, "zelle_deposits.setting_applied", figures.get("setting_applied") is not False))
+    return rows
+
+
+#: Audit round 3, R3-B24 (R3-16; true revenue spec §9.1, §9.2, §10.8): the served list of large unsourced deposits (a
+#: statement's metrics key, a package's top-level key) and the fields of a package's `large_unsourced_deposit_<n>`
+#: section: the statement's (LARGE_UNSOURCED_DEPOSIT_FIELDS), then the member's.
+LARGE_UNSOURCED_DEPOSITS_KEY = "large_unsourced_deposits"
+_PACKAGE_LARGE_UNSOURCED_DEPOSIT_FIELDS = (
+    *LARGE_UNSOURCED_DEPOSIT_FIELDS, "source_job", "source_document", "source_account", "source_currency",
+)
+
+
+def _large_unsourced_deposit_rows(
+    items: object, fields: tuple[str, ...] = LARGE_UNSOURCED_DEPOSIT_FIELDS,
+) -> list[tuple[str, str, object]]:
+    """Audit round 3, R3-B24 (R3-16; §10.8): one readable section per flagged credit, `large_unsourced_deposit_<n>`, in
+    served order, its `fields` (an empty cell where the item has none). A description is statement text: these rows
+    reach a file only through `_escaped_rows`."""
+    rows: list[tuple[str, str, object]] = []
+    entries = [entry for entry in items if isinstance(entry, dict)] if isinstance(items, list) else []
+    for number, item in enumerate(entries, start=1):
+        for field in fields:
+            value = item.get(field)
+            rows.append((f"large_unsourced_deposit_{number}", field, "" if value is None else value))
     return rows
 
 
@@ -989,6 +1019,10 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value)
                 rows.append((f"{section}_{idx}", key, "" if value is None else value))
+    # Audit round 3, R3-B24 (R3-16; §10.8): after the debit flags, each member's large unsourced deposit
+    # (`large_unsourced_deposit_<n>`), its statement, account and unit named, its share its own statement's.
+    rows.extend(_large_unsourced_deposit_rows(package.get(LARGE_UNSOURCED_DEPOSITS_KEY),
+                                              _PACKAGE_LARGE_UNSOURCED_DEPOSIT_FIELDS))
     # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): each lump-sum payoff (in paid to lenders, out of
     # the withholding rate), `lump_sum_payoff_<n>`, its words the bank's, through the escaped-row path.
     for idx, item in enumerate(package.get("lump_sum_payoffs") or [], start=1):
@@ -1377,6 +1411,9 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs, published only where a
     # member has one (_PACKAGE_MATCH_TOTAL_KEYS); their count is unit-free and stays.
     "lump_sum_payoff_total",
+    # Audit round 3, R3-B24 (R3-16): the large unsourced deposits flagged, published only where a member has one
+    # (_PACKAGE_MATCH_TOTAL_KEYS); their count is unit-free and stays.
+    "large_unsourced_deposit_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
     "total_credits",
@@ -1410,6 +1447,8 @@ _PACKAGE_MATCH_TOTAL_KEYS = frozenset({
     "own_account_transfer_held_total", "own_account_transfer_already_held_total",
     # Audit round 3, R3-B03 (R3-79): published the same way, only where a member has a lump-sum payoff.
     "lump_sum_payoff_total",
+    # Audit round 3, R3-B24 (R3-16): and only where a member has a large unsourced deposit flagged.
+    "large_unsourced_deposit_total",
 })
 
 #: The same rule for the cross-document funder / potential-lender / insurance
@@ -3624,6 +3663,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # lump-sum payoffs (each naming its statement and its unit) and their sum, published only where there is one.
     package_lump_sum_payoffs: list[dict] = []
     package_lump_sum = {"count": 0, "total": 0.0}
+    # Audit round 3, R3-B24 (R3-16; §9.2; standard G7, P22): the ready members' large unsourced deposits, each naming its
+    # statement, its account and its unit, its share its own statement's; information only.
+    package_large_unsourced_deposits: list[dict] = []
     package_potential_lender_evidence: list[dict] = []
     package_insurance_evidence: list[dict] = []
     package_revenue_evidence: dict[str, list[dict]] = {
@@ -4307,6 +4349,18 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     **({"source_account": account_index} if account_index is not None else {}),
                     # Audit round 3, R3-B02 (R3-73): a payment the funder re-debited in the next statement.
                     **package_matched["represented"].get((member_key, returned_item.get("debit_location")), {}),
+                })
+        # Audit round 3, R3-B24 (R3-16; §9.2, §17.1's default D1): a ready, tiered member whose revenue is established
+        # lists its large unsourced deposits as the package counts its rows (R-d's pairs left out, the package passes'
+        # holds applied, so a deposit R2-OW16 holds as an own-account transfer is not listed), each share of the
+        # member's own True; read by no figure, gate or decision.
+        if ready and tiered and revenue_established:
+            for large_item in large_unsourced_deposits(
+                    tier_rows["counted_flagged"], round(tier_totals["verified"] + tier_totals["counted_flagged"], 2)):
+                package_large_unsourced_deposits.append({
+                    **large_item, "source_job": job.id, "source_document": job.filename,
+                    **({"source_account": account_index} if account_index is not None else {}),
+                    "source_currency": statement_currency,
                 })
         # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the member's lump-sum payoffs, each naming
         # its statement, its account (a statement of several) and its unit; a payment the package's pass 4 matched to a
@@ -5163,6 +5217,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # out of `withholding_numerator`, only where a member has one (the total refused across currencies).
         **({"lump_sum_payoff_total": package_lump_sum["total"], "lump_sum_payoff_count": package_lump_sum["count"]}
            if package_lump_sum["count"] else {}),
+        # Audit round 3, R3-B24 (R3-16; §9.2): the large unsourced deposits flagged, only where a member has one (the
+        # total refused across currencies, the count kept); information only.
+        **({"large_unsourced_deposit_count": len(package_large_unsourced_deposits),
+            "large_unsourced_deposit_total": round(sum(_num(item["amount"])
+                                                       for item in package_large_unsourced_deposits), 2)}
+           if package_large_unsourced_deposits else {}),
         "potential_withholding_exposure": potential_withholding,
         "potential_withholding_exposure_raw": potential_withholding_raw,
         "potential_withholding_formula": POTENTIAL_WITHHOLDING_FORMULA,
@@ -5276,6 +5336,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs' lines, each in its
         # statement's own unit, only where there is one (never summed here, so the currency refusal leaves them).
         **({"lump_sum_payoffs": package_lump_sum_payoffs} if package_lump_sum_payoffs else {}),
+        # Audit round 3, R3-B24 (R3-16; §9.2): each member's large unsourced deposits, in member order, each in its own
+        # statement's unit and share, only where there is one (never summed here, so the currency refusal leaves them).
+        **({"large_unsourced_deposits": package_large_unsourced_deposits} if package_large_unsourced_deposits else {}),
         # The owner's request of 2026-10-06 (R2-OW18): the lender payment changes across each account's consecutive
         # statements, absent only when no member was assessed, and the members not checked across statements (each with
         # its reason), only where there is one. Never summed, so the currency refusal leaves them as they are.
