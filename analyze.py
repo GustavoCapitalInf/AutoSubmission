@@ -17,7 +17,9 @@ import json
 import sys
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
+from analysis.revenue_view import (
+    LARGE_UNSOURCED_DEPOSIT_FLOOR, apply_revenue_view, revenue_flags, withholding_basis_unestablished,
+)
 from analysis.serialization import document_report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
@@ -34,17 +36,28 @@ def _revenue_flags(report: Report) -> tuple[bool, bool]:
     return revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
 
 
+def _unit_money(value: float, currency: str | None) -> str:
+    """Audit round 3, final review (R3-FF), F6: money in the statement's own unit: '$1,234.56' on a USD statement (the
+    CLI's '$', which every other line prints) or one that declares none, '1,234.56 CAD' on any other (the metrics notes'
+    form; CURRENCY DOCTRINE: never a '$' on a CAD statement)."""
+    unit = str(currency or "").strip().upper()
+    return f"{value:,.2f} {unit}" if unit and unit != "USD" else f"${value:,.2f}"
+
+
 def _large_unsourced_line(report: Report) -> str | None:
-    """Audit round 3, R3-B24 (R3-16; §13): "  Large deposits to source: N, $X (each $10,000 or more and over 25% of True;
-    information only)" where the account's served copy (analysis/revenue_view.py apply_revenue_view, over the payload
-    `_revenue_flags` reads) flags one, else None."""
+    """Audit round 3, R3-B24 (R3-16; §13): "  Large deposits to source: N, $X (each $10,000.00 or more and over 25% of
+    True; information only)" where the account's served copy (analysis/revenue_view.py apply_revenue_view, over the
+    payload `_revenue_flags` reads) flags one, else None. Audit round 3, final review (R3-FF), F6: the total and the floor
+    (LARGE_UNSOURCED_DEPOSIT_FLOOR, compared in the statement's own unit) are written in that unit (_unit_money)."""
     served = apply_revenue_view(document_report_to_dict(DocumentReport(accounts=[report])))
     metrics = served.get("metrics") if isinstance(served, dict) else None
     count = metrics.get("large_unsourced_deposit_count") if isinstance(metrics, dict) else None
     if not count:
         return None
-    return (f"  Large deposits to source: {count}, ${metrics['large_unsourced_deposit_total']:,.2f} (each $10,000 or "
-            "more and over 25% of True; information only)")
+    currency = report.statement.currency
+    return (f"  Large deposits to source: {count}, {_unit_money(metrics['large_unsourced_deposit_total'], currency)} "
+            f"(each {_unit_money(LARGE_UNSOURCED_DEPOSIT_FLOOR, currency)} or more and over 25% of True; "
+            "information only)")
 
 
 def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) -> str:

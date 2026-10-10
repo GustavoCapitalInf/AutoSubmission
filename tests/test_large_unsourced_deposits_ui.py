@@ -22,7 +22,7 @@ from tests.webapp_js_harness import NODE, run_dashboard
 
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
-FACT = ("Large deposits to source: 2 · $270,000.00 (each $10,000 or more and over 25% of True; counted, not "
+FACT = ("Large deposits to source: 2 · $270,000.00 (each $10,000.00 or more and over 25% of True; counted, not "
         "verified)")
 NOTE_39 = "Large deposit: 39.0% of True revenue, counted without proof of the sale. Ask for its source."
 NOTE_31 = "Large deposit: 31.2% of True revenue, counted without proof of the sale. Ask for its source."
@@ -113,7 +113,7 @@ generateSummary();
 console.log(JSON.stringify({{note: trueNote(), all, large, memo: els.summaryBox.textContent, evidence: evidence()}}));
 """)
     assert result["note"].endswith(
-        " · Large deposits to source: 3 · $300,000.00 (each $10,000 or more and over 25% of its statement's True; "
+        " · Large deposits to source: 3 · $300,000.00 (each $10,000.00 or more and over 25% of its statement's True; "
         "counted, not verified)")
     notes = {row["desc"]: row["large"] for row in result["all"] if row["large"]}
     assert notes == {
@@ -235,7 +235,8 @@ generateSummary();
 console.log(JSON.stringify({{facts: packageRevenueFacts(pkg.totals, null), memo: els.summaryBox.textContent,
   evidence: evidence()}}));
 """)
-    assert ("Large deposits to source: 3 (each $10,000 or more and over 25% of its statement's True; counted, not "
+    # Audit round 3, final review (R3-FF), F6: a refused package's members differ in unit, so the floor has none.
+    assert ("Large deposits to source: 3 (each 10,000.00 or more and over 25% of its statement's True; counted, not "
             "verified)") in result["facts"]
     assert (" 3 large deposits to source (each over 25% of its statement's True revenue; counted, not verified). "
             in result["memo"])
@@ -267,3 +268,53 @@ def test_the_words_live_in_one_place():
         start = script.index(function)
         body = script[start:script.index("\n}\n", start)]
         assert "large_unsourced" not in body and "LARGE_DEPOSIT" not in body, function
+
+
+# ------------------------------------------- audit round 3, final review (R3-FF), F6: the floor in the statement's unit
+#
+# The floor (LARGE_UNSOURCED_DEPOSIT_FLOOR) is compared in the statement's own unit, and the sentence printed "$10,000"
+# on every statement, a CAD one included (CURRENCY DOCTRINE: never a '$' on a CAD statement). It is now formatted as the
+# withholding floor's note formats its floor: formatMoney in the statement's unit, a package's unit where its members
+# share one, no unit where they differ.
+
+
+@needs_node
+def test_ff_f6_the_card_writes_the_floor_in_a_cad_statement_s_unit():
+    served = _served(_payload(L1, currency="CAD"))
+    assert served["metrics"]["large_unsourced_deposit_count"] == 2
+    result = _statement_view(served, "console.log(JSON.stringify({note: trueNote()}));")
+    assert result["note"].endswith(" · Large deposits to source: 2 · CA$270,000.00 (each CA$10,000.00 or more and over "
+                                   "25% of True; counted, not verified)")
+    assert "$10,000 " not in result["note"].replace("CA$10,000", "")
+
+
+@needs_node
+def test_ff_f6_the_fact_formats_the_floor_in_each_unit():
+    result = run_dashboard("""
+const one = {large_unsourced_deposit_count: 1, large_unsourced_deposit_total: 12000};
+const refused = {large_unsourced_deposit_count: 3, large_unsourced_deposit_total: null};
+console.log(JSON.stringify({usd: largeDepositFacts(one, "USD"), cad: largeDepositFacts(one, "CAD"),
+  none: largeDepositFacts(one, null), pkg: largeDepositFacts(one, "CAD", {package: true}),
+  mixed: largeDepositFacts(refused, null, {package: true}), floor: LARGE_UNSOURCED_DEPOSIT_FLOOR}));
+""")
+    tail = "or more and over 25% of True; counted, not verified)"
+    assert result["usd"] == [f"Large deposits to source: 1 · $12,000.00 (each $10,000.00 {tail}"]
+    assert result["cad"] == [f"Large deposits to source: 1 · CA$12,000.00 (each CA$10,000.00 {tail}"]
+    assert result["none"] == [f"Large deposits to source: 1 · 12,000.00 (each 10,000.00 {tail}"]
+    assert result["pkg"] == ["Large deposits to source: 1 · CA$12,000.00 (each CA$10,000.00 or more and over 25% of its "
+                             "statement's True; counted, not verified)"]
+    assert result["mixed"] == ["Large deposits to source: 3 (each 10,000.00 or more and over 25% of its statement's "
+                               "True; counted, not verified)"]
+    assert result["floor"] == 10000
+
+
+def test_ff_f6_the_dashboard_s_floor_mirrors_the_python_constant():
+    import re
+    from pathlib import Path
+
+    from analysis.revenue_view import LARGE_UNSOURCED_DEPOSIT_FLOOR
+
+    script = (Path(__file__).resolve().parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
+    (value,) = re.findall(r"^const LARGE_UNSOURCED_DEPOSIT_FLOOR = (\d+);$", script, re.M)
+    assert int(value) == LARGE_UNSOURCED_DEPOSIT_FLOOR
+    assert "$10,000" not in script[script.index("function largeDepositFacts("):][:1200]

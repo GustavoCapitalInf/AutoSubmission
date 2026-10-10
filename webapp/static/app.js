@@ -218,6 +218,10 @@ const WITHHOLDING_BASIS_LABELS = Object.freeze({
 // units of the statement's own currency publishes no rate (analysis/revenue.py WITHHOLDING_BASIS_FLOOR, which a test
 // pins equal to this mirror). The note names the floor; nothing that decides a review reads it.
 const WITHHOLDING_BASIS_FLOOR = 500;
+// Audit round 3, final review (R3-FF), F6: the large unsourced deposits' floor, compared in the statement's own unit
+// (analysis/revenue_view.py LARGE_UNSOURCED_DEPOSIT_FLOOR, which a test pins equal to this mirror); largeDepositFacts
+// writes it in that unit, never "$" on a CAD statement.
+const LARGE_UNSOURCED_DEPOSIT_FLOOR = 10000;
 const WITHHOLDING_BASIS_DEFINITIONS = Object.freeze({
   verified_revenue: "verified classified revenue",
   true_revenue: "verified plus counted credits",
@@ -557,17 +561,20 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
 
 // Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §17.1's default D1; standard G7, "COUNT+FLAG, and source them
 // when large", P22): the True card's line for the counted credits whose source the statement does not prove that are
-// $10,000 or more and over 25% of True, from a statement's served metrics or a package's totals, only where the count
-// is: "Large deposits to source: N · $X (each $10,000 or more and over 25% of True; counted, not verified)", a package's
-// share being each statement's own True as the package counts it (the True Deposits its row shows on the package page,
+// 10,000 or more of the statement's unit and over 25% of True, from a statement's served metrics or a package's totals,
+// only where the count is: "Large deposits to source: N · $X (each $10,000.00 or more and over 25% of True; counted,
+// not verified)", a package's share being each statement's own True as the package counts it (the True Deposits its row shows on the package page,
 // its holds applied; R3-B24 review round 1), and the count alone where a package refuses its money. Information only:
-// no figure, badge, gate or decision reads it.
+// no figure, badge, gate or decision reads it. Audit round 3, final review (R3-FF), F6: the floor is written in the
+// unit it is compared in, as the withholding floor's note writes its floor (formatMoney): the statement's, a package's
+// where its members share one, none where they differ ("$10,000.00", "CA$10,000.00", "10,000.00").
 function largeDepositFacts(source = {}, currency = "USD", { package: isPackage = false } = {}) {
   const count = numberOrNull(source && source.large_unsourced_deposit_count);
   if (!count) return [];
   const total = numberOrNull(source.large_unsourced_deposit_total);
   return [`${LARGE_DEPOSIT_WORDS}: ${formatNumber(count)}${total === null ? "" : ` · ${formatMoney(total, currency)}`} `
-    + `(each $10,000 or more and over 25% of ${isPackage ? "its statement's True" : "True"}; counted, not verified)`];
+    + `(each ${formatMoney(LARGE_UNSOURCED_DEPOSIT_FLOOR, currency)} or more and over 25% of `
+    + `${isPackage ? "its statement's True" : "True"}; counted, not verified)`];
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6, "Flag, but do not deduct, returns that cannot be matched and processor

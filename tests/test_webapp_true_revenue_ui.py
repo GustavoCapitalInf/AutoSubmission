@@ -606,8 +606,8 @@ def test_the_settings_say_what_true_revenue_is():
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
             "beside it.") in text
     # Audit round 3, R3-B25: the round-3 batches' app.js changes ship as a new script (-7 and -8 were the hosting
-    # line's).
-    assert '<script src="/static/app.js?v=true-revenue-9"></script>' in html
+    # line's). Audit round 3, final review (R3-FF), F6: the floor's unit moves app.js again (-9 served the Accept run).
+    assert '<script src="/static/app.js?v=true-revenue-10"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports

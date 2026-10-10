@@ -479,6 +479,20 @@ def test_l8_the_batch_row_reads_the_zelle_reading_asked_for():
     assert (no["large_unsourced_deposit_count"], no["large_unsourced_deposit_total"]) == (0, "0.00")
 
 
+def test_ff_f6_analyze_writes_the_total_and_the_floor_in_a_cad_statement_s_unit():
+    """Audit round 3, final review (R3-FF), F6: the floor is compared in the statement's own unit, so the line writes it,
+    and the total, in that unit (the metrics notes' form, the amount then the unit), never '$' on a CAD statement; a USD
+    statement keeps the CLI's '$'."""
+    import analyze
+
+    line = analyze._large_unsourced_line(_report(L1, currency="CAD"))
+    assert line == ("  Large deposits to source: 2, 270,000.00 CAD (each 10,000.00 CAD or more and over 25% of True; "
+                    "information only)")
+    assert "$" not in line
+    assert analyze._large_unsourced_line(_report(L1)) == (
+        "  Large deposits to source: 2, $270,000.00 (each $10,000.00 or more and over 25% of True; information only)")
+
+
 def test_l8_analyze_prints_one_line_after_held_for_review_and_its_json_carries_the_keys():
     import analyze
     from analysis.pipeline import DocumentReport
@@ -486,8 +500,8 @@ def test_l8_analyze_prints_one_line_after_held_for_review_and_its_json_carries_t
     report = _report(L1)
     lines = analyze._render(report).splitlines()
     held = next(index for index, line in enumerate(lines) if line.startswith("  Held for review"))
-    assert lines[held + 1] == ("  Large deposits to source: 2, $270,000.00 (each $10,000 or more and over 25% of True; "
-                               "information only)")
+    assert lines[held + 1] == ("  Large deposits to source: 2, $270,000.00 (each $10,000.00 or more and over 25% of "
+                               "True; information only)")
     assert not [line for line in analyze._render(_report([*_squares(), (6, DEPOSIT, 4000.0)])).splitlines()
                 if "Large deposits" in line]
     assert not [line for line in analyze._render(_report(L1, dropped=1)).splitlines() if "Large deposits" in line]

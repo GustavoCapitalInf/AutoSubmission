@@ -3671,8 +3671,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     for stale in ("classification **5.7**, analysis stage **33**", "R3-B25 makes the single version move"):
         assert stale not in handoff, stale
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
-    assert "app.js?v=true-revenue-9" in html
-    assert "true-revenue-7" not in html and "true-revenue-8" not in html
+    # Audit round 3, final review (R3-FF), F6: the floor's unit moved app.js again, past the -9 the Accept run served.
+    assert "app.js?v=true-revenue-10" in html
+    assert "true-revenue-7" not in html and "true-revenue-8" not in html and "true-revenue-9" not in html
 
 
 def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_and_every_served_batch():
