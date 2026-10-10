@@ -44,8 +44,14 @@ from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_ti
 #: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §11; R2-OW13): the withholding rate's
 #: numerator is the confirmed lender debits paid plus the funder payments returned unpaid (the scheduled obligation
 #: stands), divided by the withholding basis the statement selected (legacy eligible deposits, Verified or True
-#: revenue). The package and the funder rows publish the same words.
-WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+#: revenue). The package and the funder rows publish the same words. Audit round 3, final review (R3-FF), F5: the words
+#: name what compute_metrics sums since R3-B02 and R3-B03: the paid debits less the worded lump-sum payoffs (R3-79, in
+#: paid to lenders and out of the rate), plus the returned payments their funder did not re-debit (R3-73's re-debited
+#: ones leave the rate); folded into classification 5.8 and stage 36, which no release carries yet.
+WITHHOLDING_FORMULA = (
+    "abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / withholding basis "
+    "* 100"
+)
 POTENTIAL_WITHHOLDING_FORMULA = "abs(potential_lender_debit_total) / withholding basis * 100"
 
 
@@ -183,6 +189,8 @@ class Metrics:
     withholding_denominator: float = 0.0
     # R2-OW13 (the underwriter's Q5): the numerator is the confirmed lender debits paid plus the returned funder
     # payments, every row marked contributes_to_withholding_rate; the basis is the selected withholding denominator.
+    # Audit round 3 (R3-B02, R3-B03; the formula's words, R3-FF F5): less the worded lump-sum payoffs and the returned
+    # payments their funder re-debited.
     withholding_formula: str = WITHHOLDING_FORMULA
     withholding_review_required: bool = False
     # Audit round 3, R3-B03 (R3-20; true revenue spec §9.1, §11): the True or Verified basis is above $0 and under

@@ -131,6 +131,28 @@ def test_the_warning_item_names_the_re_debit():
             in compute_metrics(on_cycle, classifications=on_cycle_records).notes)
 
 
+def test_ff_f5_the_formula_s_words_are_what_the_numerator_sums():
+    """Audit round 3, final review (R3-FF), F5: the published formula names the paid debits less the worded lump-sum
+    payoffs, plus the returned payments their funder did not re-debit, which is what compute_metrics sums, to the cent.
+    The 13th's payment is returned and re-presented on the 16th, the 27th's returned and standing, the 24th a payoff
+    (KAPITUS_PAYOFF, below)."""
+    from analysis.metrics import WITHHOLDING_FORMULA
+
+    rows = _weekly((16, KAPITUS, -1000.0), (24, KAPITUS_PAYOFF, -5000.0), (29, BOFA_RETURN, 1000.0))
+    statement = _statement(rows)
+    records = tc.classify_statement_transactions(statement)
+    metrics = compute_metrics(statement, classifications=records)
+    re_debited = round(sum(abs(record.amount) for record in records if record.represented_by), 2)
+    assert (metrics.lender_debits, metrics.lump_sum_payoff_total, metrics.returned_funder_payment_total, re_debited) == (
+        8000.0, 5000.0, 2000.0, 1000.0)
+    assert metrics.withholding_numerator == round(
+        metrics.lender_debits - metrics.lump_sum_payoff_total + metrics.returned_funder_payment_total - re_debited, 2
+    ) == 4000.0
+    assert metrics.withholding_formula == WITHHOLDING_FORMULA == (
+        "abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / withholding "
+        "basis * 100")
+
+
 def test_the_cli_names_the_re_debited_payment():
     from analysis.pipeline import analyze_statement
     from analysis.reconcile import reconcile

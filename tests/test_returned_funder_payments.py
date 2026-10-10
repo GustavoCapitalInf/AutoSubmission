@@ -182,8 +182,10 @@ def test_t1_the_received_on_day_wins_and_the_metrics_split_paid_from_withholding
     assert metrics.withholding_numerator == round(metrics.lender_debits + metrics.returned_funder_payment_total, 2)
     assert metrics.lenders_detected == 1
     assert metrics.true_revenue_total == 20000.0
+    # Audit round 3, final review (R3-FF), F5: the words name the lump sums and the re-debited returns it leaves out.
     assert metrics.withholding_formula == WITHHOLDING_FORMULA == (
-        "abs(paid lender debits + returned funder payments) / withholding basis * 100")
+        "abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / withholding "
+        "basis * 100")
     assert metrics.withholding_rate == pytest.approx(2550.0 / metrics.withholding_denominator * 100)
     assert ("1 returned funder payment (850.00 USD): out of paid to lenders, kept in the withholding rate"
             in metrics.notes)
@@ -467,7 +469,9 @@ def test_t18_a_package_sums_paid_returned_and_the_members_numerators():
     assert (totals["returned_funder_payment_total"], totals["returned_funder_payment_count"]) == (1700.0, 2)
     assert totals["package_withholding_rate"] == round(3400.0 / totals["withholding_denominator"] * 100, 2)
     assert totals["lenders_detected"] == 1
-    assert totals["withholding_formula"] == "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+    assert totals["withholding_formula"] == (
+        "abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / withholding "
+        "basis * 100")
     assert totals["potential_withholding_formula"] == "abs(potential_lender_debit_total) / withholding basis * 100"
     [kapitus] = package["funders"]
     assert (kapitus["funder"], kapitus["debit_count"], kapitus["total_debited"], kapitus["documents"]) == (

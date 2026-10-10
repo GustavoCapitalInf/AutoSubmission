@@ -267,9 +267,18 @@ def test_z8_a_statement_without_a_zelle_credit_has_one_reading(rows):
 # --- Z9: invariants through the pipeline and the publisher ----------------------------------------------------------
 
 
+#: Audit round 3, final review (R3-FF), F5: the withholding formula's words as the fixture recorded them (R2-OW13);
+#: `_normalised` reads today's words (analysis.metrics.WITHHOLDING_FORMULA) as these: only the words moved, no figure.
+R2_OW13_WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+
+
 def _normalised(node, version):
+    from analysis.metrics import WITHHOLDING_FORMULA
+
     if isinstance(node, dict):
-        return {key: (version if key == "classification_version" else _normalised(value, version))
+        return {key: (version if key == "classification_version"
+                      else R2_OW13_WITHHOLDING_FORMULA if key == "withholding_formula" and value == WITHHOLDING_FORMULA
+                      else _normalised(value, version))
                 for key, value in node.items()}
     if isinstance(node, list):
         return [_normalised(value, version) for value in node]

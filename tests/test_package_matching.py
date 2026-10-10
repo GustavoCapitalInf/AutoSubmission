@@ -493,12 +493,21 @@ def _without_r2_ow18(node):
     return node
 
 
+#: Audit round 3, final review (R3-FF), F5: the withholding formula's words as the pinned fixtures recorded them (R2-OW13).
+#: `_canonical` reads today's words (analysis.metrics.WITHHOLDING_FORMULA, which tests/test_returned_funder_payments.py
+#: pins) as these, so the pinned fixtures stay as recorded: only the words moved, no figure.
+R2_OW13_WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+
+
 def _canonical(payload):
     """The payload as JSON, every record's classification_version read as one placeholder (R2-B16 moves it), without
-    R2-OW18's keys (part N)."""
+    R2-OW18's keys (part N), R3-FF F5's withholding formula read as the R2-OW13 words the fixtures recorded."""
+    from analysis.metrics import WITHHOLDING_FORMULA
+
     payload = _without_r2_ow18(payload)
-    return re.sub(r'"classification_version": "[^"]*"', '"classification_version": "<version>"',
+    text = re.sub(r'"classification_version": "[^"]*"', '"classification_version": "<version>"',
                   json.dumps(payload, sort_keys=True, indent=1))
+    return text.replace(json.dumps(WITHHOLDING_FORMULA), json.dumps(R2_OW13_WITHHOLDING_FORMULA))
 
 
 def test_a_package_without_a_qualifying_pair_is_byte_identical_to_the_pinned_payload():
