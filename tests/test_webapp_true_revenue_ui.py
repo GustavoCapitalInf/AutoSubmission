@@ -1345,8 +1345,9 @@ def test_the_copied_summaries_carry_true_verified_and_non_revenue(tmp_path, monk
     statement = run_dashboard(_open("s", _served(_payload())) + """
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """)
-    assert ("True revenue $1,000.00 ($1,000.00 a month), verified revenue $700.00 ($700.00 a month), non-revenue "
-            "$100.00 ($100.00 a month).") in statement
+    # Audit round 3, R3-B22 (R3-01): and the money held for review, between the verified pair and non-revenue.
+    assert ("True revenue $1,000.00 ($1,000.00 a month), verified revenue $700.00 ($700.00 a month), held for review "
+            "$900.00 (1 credit), non-revenue $100.00 ($100.00 a month).") in statement
     short = run_dashboard(_open("s", _served(_summary_only(3))) + """
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """)
@@ -1357,8 +1358,8 @@ currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)}); ge
 console.log(JSON.stringify(els.summaryBox.textContent));
 """)
     assert text.startswith("Package 2031-03-01 to 2031-04-28 (2 statements · 2 months): 2 of 2 statements completed. ")
-    assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), non-revenue "
-            "$200.00 ($100.00 a month).") in text
+    assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), held for "
+            "review $1,800.00 (2 credits), non-revenue $200.00 ($100.00 a month).") in text
     assert "average monthly gross credits" in text and "average monthly credits" not in text
 
 

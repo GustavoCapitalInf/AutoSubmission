@@ -431,11 +431,21 @@ function revenueCardItems(source, currency, {
 // Audit B11 (I07): the revenue sentence of a copied summary (the credit-memo artefact): True revenue (the headline, Q1),
 // Verified beside it and Non-revenue, each in total and per calendar month (`monthly`: {trueMonthly, verifiedMonthly,
 // nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there. Audit
-// round 3, R3-B20 (R3-19; §10.5): `package` picks the notice's words for a package's memo.
+// round 3, R3-B20 (R3-19; §10.5): `package` picks the notice's words for a package's memo. Audit round 3, R3-B22 (R3-01;
+// §10.1): and the money held for review, between the verified pair and non-revenue.
 function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {},
   { package: isPackage = false } = {}) {
   const pair = (total, perMonth, shown) => (shown
     ? `${formatMoney(total, currency)} (${formatMoney(perMonth, currency)} a month)` : "N/A");
+  // R3-01: the credits held for review, which the average daily balance, the ending balance and the cash flow include
+  // and True does not: "held for review $H (n credits)", the count alone where a package refuses its money; only where
+  // the revenue is established (the Held card reads N/A otherwise, as True does) and something is held.
+  const heldCount = numberOrNull(source.excluded_pending_review_count);
+  const heldTotal = numberOrNull(source.excluded_pending_review_total);
+  const heldCredits = heldCount === null ? "" : `${formatNumber(heldCount)} ${heldCount === 1 ? "credit" : "credits"}`;
+  const held = established === true && heldCount !== null && heldCount > 0
+    ? `held for review ${heldTotal === null ? heldCredits : `${formatMoney(heldTotal, currency)} (${heldCredits})`}, `
+    : "";
   const nonRevenue = `${formatMoney(source.non_revenue_total, currency)} `
     + `(${formatMoney(monthly.nonRevenueMonthly, currency)} a month${established ? "" : ", captured rows only"})`;
   // R2-OW03 (the underwriter's Q3): the memo states the Zelle deposits the owner's policy excluded. R2-OW17 (the owner's
@@ -472,7 +482,7 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
   }
   return `True revenue ${pair(source.true_revenue_total, monthly.trueMonthly, established === true)}, `
     + `verified revenue ${pair(source.verified_revenue_total, monthly.verifiedMonthly, verifiedEstablished === true)}, `
-    + `non-revenue ${nonRevenue}${zelleNote}.`;
+    + `${held}non-revenue ${nonRevenue}${zelleNote}.`;
 }
 
 // Audit B11 (I31): whether a statement's revenue reads "Balanced": its own rows reconcile to the bank's printed figures
@@ -5795,7 +5805,6 @@ function generateSummary() {
   const s = currentAnalysis.statement || {};
   const m = currentAnalysis.metrics || {};
   const d = currentAnalysis.detection || {};
-  const q = currentAnalysis.quality || {};
   const currency = s.currency || "USD";
   const lenders = Array.isArray(d.known_funders) ? d.known_funders.length : 0;
   // The statement's main account printed no activity: the summary an analyst pastes says so, and whose figures follow;
@@ -5803,11 +5812,9 @@ function generateSummary() {
   const idleNote = idleMainNote(currentDocument, currency);
   // Likewise when the main account was not verified and another, verified, account was picked (All accounts).
   const unverifiedNote = idleNote ? "" : unverifiedMainNote(currentDocument, currency);
-  // F1 (review round 1 of its fix run): a withholding basis that is not established sends the statement to review here
-  // too, as its pill says (withholdingReviewDecision).
-  const decision = withholdingReviewDecision(idleNote || unverifiedNote || hasMaterialPotentialLenderDebits(m)
-    ? "review_required"
-    : q.corporate_use || q.level || "review_required", m);
+  // Audit round 3 (R3-01): the memo's decision is the pill's (accountDecision: T7's revenue gate, material potential
+  // lender debits, the quality word and F1's basis flag); an idle or unverified main account still sends it to review.
+  const decision = idleNote || unverifiedNote ? "review_required" : accountDecision(currentAnalysis);
   const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
     : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
   // Audit round 2, R2-B15 (R13): the statement's monthly figures are its totals over the calendar months its period
