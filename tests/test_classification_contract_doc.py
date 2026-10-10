@@ -3018,3 +3018,57 @@ def test_r3_b18_r2_the_code_s_docstrings_name_the_rules():
         assert words in source, words
     named = re.sub(r"\s+", " ", appmod._possible_pair_named.__doc__)
     assert "Review round 2: the long-printout phase reads a possible pair as a double count on this evidence" in named
+
+
+#: Audit round 3, R3-B19: the code commit §20 and the contract name.
+R3_B19_CODE_COMMIT = "8231040"
+
+
+def test_the_spec_and_the_contract_record_r3_b19():
+    """Audit round 3, R3-B19 (R3-86; owner-decision default): T7's sentence, §9.2's gate bullet, §9.3's no-bump line,
+    §17.1's constant line and the new owner item, the §20 line with the commit and the measurement, and the contract's
+    entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    decisions = re.sub(r"\s+", " ", _section(text, "\n## 4. ", "\n## 5. "))
+    assert ("Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1, §20): the package also gates when its summed "
+            "held credits, per declared currency, are 10% or more of its summed True plus held and at least "
+            "`REVENUE_REVIEW_HELD_FLOOR`") in decisions
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    assert ("`revenue_review_required` is the gate of T7, applied to each member and (audit round 3, R3-B19: R3-86, "
+            "§20) to the package's sums per declared currency") in package
+    assert "Review only: every document row keeps its member's own flag, and no figure moves." in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "- Audit round 3, R3-B19 (§20): no bump in a fix batch either, and no stored-output change" in versions
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("`REVENUE_REVIEW_HELD_FLOOR = 500` (T7, B11), read on each statement and, by default, on a package's "
+                  "sums per currency (audit round 3, R3-B19; below)",
+                  "- **The held floor's scope: each statement, or also a package's sums (audit round 3, R3-86;",
+                  "Default implemented by audit round 3, R3-B19 (option 1, the recommendation)",
+                  "a one-line revert to `totals[\"revenue_review_required\"] = any_member_gated`",
+                  "0 corpus packages are affected."):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **The package revenue gate also reads T7's share on the package's sums")
+    for words in ("audit round 3, R3-B19 (R3-86)", R3_B19_CODE_COMMIT,
+                  "amends B11's I50 line above (\"a statement or package member also needs revenue review when",
+                  "Alternative (option 2, §17.1)", "the posted-credit share on the sums adds nothing",
+                  "R3-B18's package walks W1a (440 packages)"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B19 (R3-86; {R3_B19_CODE_COMMIT}): the package revenue gate (T7) also reads the "
+                  "package's own sums",
+                  "per declared currency, the summed held credits of its members analysed at 5.6 or later are ten "
+                  "percent or more of their summed True revenue plus held and at least $500",
+                  "the alternative is the per-statement gate alone"):
+        assert words in contract, words
+
+
+def test_r3_b19_the_package_names_its_sums_gate():
+    """Audit round 3, R3-B19: `_package_analysis` names the package-sum gate, its currency rule and its owner item."""
+    from webapp import app as appmod
+
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod._package_analysis))
+    for words in ("Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): T7's shares are also read on the "
+                  "package's sums, # per declared currency",
+                  "totals[\"revenue_review_required\"] = any_member_gated or package_sums_gated"):
+        assert words in source, words
