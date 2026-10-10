@@ -4353,7 +4353,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # Audit round 3, R3-B24 (R3-16; §9.2, §17.1's default D1): a ready, tiered member whose revenue is established
         # lists its large unsourced deposits as the package counts its rows (R-d's pairs left out, the package passes'
         # holds applied, so a deposit R2-OW16 holds as an own-account transfer is not listed), each share of the
-        # member's own True; read by no figure, gate or decision.
+        # member's True as the package counts it (its row's `true_revenue_total` below; where a package pass holds one
+        # of its credits, below the True its statement shows alone, so the package can flag a deposit its statement
+        # alone does not: R3-B24 review round 1); read by no figure, gate or decision.
         if ready and tiered and revenue_established:
             for large_item in large_unsourced_deposits(
                     tier_rows["counted_flagged"], round(tier_totals["verified"] + tier_totals["counted_flagged"], 2)):

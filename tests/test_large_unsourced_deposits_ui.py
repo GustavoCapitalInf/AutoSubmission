@@ -153,6 +153,37 @@ def test_u4_the_statement_memo_carries_its_clause_after_the_revenue_sentence():
     assert "large deposit" not in none
 
 
+def _money(value):
+    assert value >= 0
+    return f"${value:,.2f}"
+
+
+@needs_node
+@pytest.mark.parametrize("flagged", [False, True], ids=["no-flag", "flagged"])
+def test_review_round_1_the_package_memo_keeps_its_gross_credits_sentence(flagged):
+    """R3-B24 review round 1 (finding 1): the clause is inserted before the gross credits, and the package memo's
+    "average monthly gross credits, $Y average monthly cash flow, " keeps its space, with or without a flag; the flag's
+    clause is the only difference from the memo of the same package without the keys."""
+    if flagged:
+        march, april = _months()
+    else:
+        march = _payload([*_squares(), (6, DEPOSIT, 4000.0)], month=3)
+        april = _payload([*_squares(), (6, DEPOSIT, 3000.0)], month=4)
+    package = _package(("mar", march), ("apr", april))
+    assert ("large_unsourced_deposits" in package) is flagged
+    totals = package["totals"]
+    render = "currentJobIds = ['mar', 'apr']; renderPackageAnalysis({}); " + MEMO
+    memo = run_dashboard(render.format(json.dumps(package)))
+    gross = f"{_money(totals['avg_monthly_credits'])} average monthly gross credits, "
+    assert gross + f"{_money(totals['avg_monthly_cash_flow'])} average monthly cash flow, " in memo
+    assert "gross credits,$" not in memo
+    plain = run_dashboard(render.format(json.dumps(_without_flag(package))))
+    assert plain.count(gross) == 1 and plain.index(gross) > plain.index("non-revenue")
+    clause = ("3 large deposits to source: $300,000.00 (each over 25% of its statement's True revenue; counted, not "
+              "verified). ")
+    assert memo == (plain.replace(gross, clause + gross, 1) if flagged else plain)
+
+
 #: What the flag must never move on a page: the review badge, the credit cards other than True, the pill and the
 #: decision.
 UNMOVED = METRIC_ROWS + r"""

@@ -346,6 +346,29 @@ def test_l7_a_deposit_the_own_account_pass_holds_is_flagged_on_its_statement_alo
     assert not any(key in package["totals"] for key in FLAG_KEYS) and "large_unsourced_deposits" not in package
 
 
+def test_review_round_1_a_package_share_is_of_the_member_s_true_as_the_package_counts_it():
+    """R3-B24 review round 1 (finding 2; §9.2): where a package pass holds one of a member's credits (R2-OW16's
+    own-account transfer), the member's True in the package is its row's True on the package page, not the True its
+    statement shows alone; each package share divides by that, so the package can flag a deposit its statement alone
+    does not, at a share the statement page does not show."""
+    from tests.test_package_matching import SENT, _account_a, _account_b
+
+    check = "REMOTE ONLINE DEPOSIT 1"
+    b = _account_b(extra=((12, check, 10000.0), (14, "FABRIKAM SUPPLY LLC DES:PAYMENT ID:0001", 9000.0),
+                          (16, "FABRIKAM SUPPLY LLC DES:PAYMENT ID:0002", 9000.0)))
+    alone = _served(b)["metrics"]
+    assert alone["true_revenue_total"] == round(SENT + 30000.0, 2)
+    assert [(item["description"], item["share_of_true_percent"]) for item in alone["large_unsourced_deposits"]] == [
+        (DEPOSIT, 29.1)]
+    package = _package(("a", _account_a()), ("b", b))
+    assert package["totals"]["own_account_transfer_held_count"] == 1
+    row = next(row for row in package["monthly"] if row["id"] == "b")
+    assert row["true_revenue_total"] == 30000.0
+    assert [(item["source_job"], item["description"], item["amount"], item["share_of_true_percent"])
+            for item in package["large_unsourced_deposits"]] == [("b", check, 10000.0, 33.3)]
+    assert round(10000.0 / row["true_revenue_total"] * 100, 1) == 33.3
+
+
 def test_l7_a_package_without_a_flag_carries_no_key():
     package = _package(("mar", _payload([*_squares(), (6, DEPOSIT, 4000.0)], month=3)))
     assert not any(key in package["totals"] for key in FLAG_KEYS) and "large_unsourced_deposits" not in package

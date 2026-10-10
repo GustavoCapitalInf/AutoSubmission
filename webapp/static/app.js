@@ -559,8 +559,9 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
 // when large", P22): the True card's line for the counted credits whose source the statement does not prove that are
 // $10,000 or more and over 25% of True, from a statement's served metrics or a package's totals, only where the count
 // is: "Large deposits to source: N · $X (each $10,000 or more and over 25% of True; counted, not verified)", a package's
-// share being each statement's own, and the count alone where a package refuses its money. Information only: no
-// figure, badge, gate or decision reads it.
+// share being each statement's own True as the package counts it (the True Deposits its row shows on the package page,
+// its holds applied; R3-B24 review round 1), and the count alone where a package refuses its money. Information only:
+// no figure, badge, gate or decision reads it.
 function largeDepositFacts(source = {}, currency = "USD", { package: isPackage = false } = {}) {
   const count = numberOrNull(source && source.large_unsourced_deposit_count);
   if (!count) return [];
@@ -2209,7 +2210,8 @@ function packageMatchNotes(tx, debitFlags = null) {
 // Audit round 3, R3-B24 (R3-16; true revenue spec §10.6; standard G7, P22): a credit the served payload flags as a large
 // unsourced deposit asks for its source under its reason, on the statement page, the statement window and the package
 // ledger: "Large deposit: S% of True revenue, counted without proof of the sale. Ask for its source." (a package's
-// share is its statement's, and says so). Information only: its tier, tag and review controls are unchanged.
+// share is of its statement's True as the package counts it, the True Deposits its row shows on the package page, and
+// says so). Information only: its tier, tag and review controls are unchanged.
 function largeDepositNotes(tx, debitFlags = null) {
   const item = debitFlags && typeof debitFlags.largeDeposit === "function" ? debitFlags.largeDeposit(tx) : null;
   if (!item) return [];
@@ -5931,7 +5933,7 @@ function generateSummary() {
       }, { package: true })} ` +
       // Audit round 3, R3-B24 (R3-16): the members' large unsourced deposits, after the revenue sentence.
       largeDepositSummary(totals, currency, { package: true }) +
-      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits,${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
+      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${returnedSummary}${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       // Audit round 3, R3-B22 (R3-68): the basis the rates divide by, the label the package serves.
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure (${withholdingBasisWords(totals)}). ` +
