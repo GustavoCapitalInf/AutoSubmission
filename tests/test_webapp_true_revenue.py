@@ -635,6 +635,101 @@ def test_the_package_gate_reads_held_against_true_plus_held():
     assert totals["decision"] == "review_required"
 
 
+#: Audit round 3, R3-B19 (R3-86): one month of the issue's shape, fabricated: True 1,000 (a verified customer credit),
+#: held 450 (a financing-named payer, as in ROWS) and 6,000 of lender funding (non-revenue, as in the I50 test above).
+#: Alone it is not gated: 450 is 6% of its posted credits, and 31% of its True plus held but under the $500 floor.
+_FLOOR_ONLY_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1000.0),
+                    (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 450.0),
+                    (5, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 6000.0)]
+
+
+def _floor_only_month(month, rows=_FLOOR_ONLY_ROWS):
+    """A month of `rows`, after checking its own figures and that its own package reads approved (so no other term of
+    the package decision gates it)."""
+    payload = _payload(rows, month=month)
+    alone = _package(copy.deepcopy(payload))
+    document, totals = alone["documents"][0], alone["totals"]
+    assert (document["true_revenue_total"], document["excluded_pending_review_total"],
+            document["non_revenue_total"]) == (1000.0, rows[1][2], 6000.0)
+    assert document["revenue_review_required"] is False and totals["revenue_review_required"] is False
+    assert totals["decision"] == "approved"
+    return payload
+
+
+def test_the_package_gate_reads_the_summed_held_against_the_summed_true_plus_held():
+    """Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): three months each holding 450 beside 1,000 True
+    and 6,000 of funding gate no member (each under REVENUE_REVIEW_HELD_FLOOR), but the package holds 1,350 of its
+    4,350 True plus held (31%, and at least $500), so it gates as the same credits printed as one statement would.
+    Review only: no member row and no figure moves."""
+    package = _package(*(_floor_only_month(month) for month in (3, 4, 5)))
+    totals = package["totals"]
+    assert [document["revenue_review_required"] for document in package["documents"]] == [False, False, False]
+    assert (totals["true_revenue_total"], totals["excluded_pending_review_total"]) == (3000.0, 1350.0)
+    assert totals["revenue_review_required"] is True
+    assert totals["decision"] == "review_required"
+
+
+def test_the_package_sums_are_read_per_currency():
+    """Audit round 3, R3-B19 (R3-86; CURRENCY DOCTRINE: no cross-currency package math): a USD month and a CAD month of
+    one account, each holding 450, are not gated: each currency holds 450, under the floor, and the sums are never
+    mixed. The same two months both in USD hold 900 of 2,900 True plus held (31%, and at least $500) and gate."""
+    from tests.test_package_matching import _payload as _account_month
+
+    def month(number, currency):
+        return _account_month(_FLOOR_ONLY_ROWS, month=number, opening=1500.0, currency=currency)
+
+    mixed = _package(month(3, "USD"), month(4, "CAD"))
+    assert mixed["totals"]["cross_currency_totals_refused"] is True
+    assert [document["excluded_pending_review_total"] for document in mixed["documents"]] == [450.0, 450.0]
+    assert mixed["totals"]["revenue_review_required"] is False
+    one_unit = _package(month(3, "USD"), month(4, "USD"))
+    assert [document["revenue_review_required"] for document in one_unit["documents"]] == [False, False]
+    assert (one_unit["totals"]["true_revenue_total"], one_unit["totals"]["excluded_pending_review_total"]) == (
+        2000.0, 900.0)
+    assert one_unit["totals"]["revenue_review_required"] is True
+    assert one_unit["totals"]["decision"] == "review_required"
+
+
+@pytest.mark.parametrize("held", [100.0, 150.0])
+def test_a_package_whose_summed_held_stays_under_the_floor_is_not_gated(held):
+    """Audit round 3, R3-B19 (R3-86), control: three months each holding `held` beside 1,000 True and 6,000 of funding
+    hold three times it, under REVENUE_REVIEW_HELD_FLOOR, so the package is not gated: at 100 the summed share is 9%
+    of True plus held; at 150 it is 13%, and the floor alone keeps the sums ungated, as one statement holding it."""
+    rows = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1000.0), (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", held),
+            (5, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 6000.0)]
+    totals = _package(*(_floor_only_month(month, rows) for month in (3, 4, 5)))["totals"]
+    assert totals["excluded_pending_review_total"] == round(3 * held, 2)
+    assert totals["revenue_review_required"] is False
+    assert totals["decision"] == "approved"
+
+
+def test_a_member_that_gates_still_gates_the_package():
+    """Audit round 3, R3-B19 (R3-86), control: the I50 member above beside one month of the issue's shape gates the
+    package through its own gate, as before; the other month's row stays ungated."""
+    gated = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 31000.0),
+                      (3, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 9000.0),
+                      (4, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 60000.0)])
+    package = _package(gated, _floor_only_month(4))
+    assert [document["revenue_review_required"] for document in package["documents"]] == [True, False]
+    assert package["totals"]["revenue_review_required"] is True
+    assert package["totals"]["decision"] == "review_required"
+
+
+@pytest.mark.parametrize(("held", "gated"), [(9990.0, True), (9000.0, False)])
+def test_a_floor_only_month_beside_a_large_month_is_read_on_the_sums(held, gated):
+    """Audit round 3, R3-B19 (R3-86): the sums are the package's, whatever its months' size. A month of 90,000 True
+    holding `held` (under 10% of its True plus held, not gated) beside one month of the issue's shape: at 9,990 the
+    package holds 10,440 of 101,440 (10.29%) and gates, as one statement of the same credits would; at 9,000 it holds
+    9.41% and does not. A floor-only month adds under $450 above the share."""
+    large = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 90000.0),
+                      (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", held)])
+    package = _package(large, _floor_only_month(4))
+    assert [document["revenue_review_required"] for document in package["documents"]] == [False, False]
+    assert package["totals"]["true_revenue_total"] == 91000.0
+    assert package["totals"]["revenue_review_required"] is gated
+    assert package["totals"]["decision"] == ("review_required" if gated else "approved")
+
+
 def test_the_tier_identity_has_its_own_name_and_the_package_lists_its_unreconciled_members():
     """I31: the four-tier identity is published as revenue_tiers_sum_to_posted (revenue_reconciles its alias), and the
     members whose own rows do not reconcile to their bank's figures are listed for the Revenue chip."""

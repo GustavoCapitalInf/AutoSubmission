@@ -3513,6 +3513,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # The final review of round 2, F1 (review round 1 of its fix run; §9.2): a member row marked as publishing no rate.
     any_member_basis_unestablished = False
     any_member_gated = False
+    # Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): the ready tiered members' figures T7 reads, summed
+    # per declared currency (None, a member declaring none, is its own group): currency -> [held, posted, True], cents.
+    package_gate_cents: dict[str | None, list[int]] = {}
     #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
     flagged_rollup: dict[tuple[str, str], dict] = {}
     package_flagged_evidence: list[dict] = []
@@ -4066,6 +4069,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 tiers_sum_to_posted=member_reconciles,
                 true_total=round(tier_totals["verified"] + tier_totals["counted_flagged"], 2),
             )
+            if ready:
+                # The very figures the member's gate reads (R-d's pairs already out), for T7 on the package's sums.
+                slot = package_gate_cents.setdefault(statement_currency, [0, 0, 0])
+                slot[0] += round(tier_totals["excluded_pending_review"] * 100)
+                slot[1] += round(posted_credit_total * 100)
+                slot[2] += round((tier_totals["verified"] + tier_totals["counted_flagged"]) * 100)
             totals["true_revenue_total"] = round(
                 totals["true_revenue_total"] + tier_totals["verified"] + tier_totals["counted_flagged"], 2
             )
@@ -4701,7 +4710,17 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # a premium trust account's title; the True card names how many.
     totals["premium_trust_documents"] = sorted(premium_trust_members)
     # 5.6 (T7, §9.2): the gate applied to each member; a package needs revenue review when one of them does.
-    totals["revenue_review_required"] = any_member_gated
+    # Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): T7's shares are also read on the package's sums,
+    # per declared currency, so a package of months each holding under REVENUE_REVIEW_HELD_FLOOR gates as the same
+    # credits printed as one statement would (an advance is sized on the deal's True, standard §4.4). Review only: no
+    # figure moves. The direction-conflict and four-tier terms stay per member; the posted-credit share on the sums adds
+    # nothing (a sum's share reaches 10% only where a member's does), so only the floored True-plus-held share can add.
+    package_sums_gated = any(
+        revenue_review_gate(direction_conflict=False, held_total=held / 100, posted_total=posted / 100,
+                            tiers_sum_to_posted=True, true_total=true / 100)
+        for held, posted, true in package_gate_cents.values()
+    )
+    totals["revenue_review_required"] = any_member_gated or package_sums_gated
     totals["counted_flagged_by_reason"] = package_by_reason["counted_flagged"]
     totals["excluded_pending_review_by_reason"] = package_by_reason["excluded_pending_review"]
     # R2-OW03 (owner ruling 2026-10-02, §9.2): the kept members' non-revenue breakdown. It is left out of the two nulling
