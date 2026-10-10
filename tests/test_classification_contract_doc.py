@@ -2377,8 +2377,9 @@ def test_the_handoff_and_the_plan_state_the_final_state():
     finished batches as to do; the plan's withholding bullet points to spec §11."""
     handoff = _flat(HANDOFF)
     # Audit round 3, R3-B25: the round-3 run is done, so the handoff's next step is the round-4 re-audit, not round 3's.
-    # Audit round 3, R3-B25: the versions words move to 5.8 / 36 with the round's single bump.
-    for words in ("283e90e", "classification **5.8**, analysis stage **36**", "Mark Zelle Payments as True Revenue",
+    # Audit round 3, R3-B25: the versions words move to 5.8 / 36 with the round's single bump. Audit round 3, R3-MERGE:
+    # the hosting line's merge-back moved the stage to 37.
+    for words in ("283e90e", "classification **5.8**, analysis stage **37**", "Mark Zelle Payments as True Revenue",
                   "Yes by default", "**not implemented**", "OW17", "OW18", "ACCEPTED 2026-10-07", "67.58%",
                   "**The round-4 re-audit**", "FINAL-FIX-report.md"):
         assert words in handoff, words
@@ -3677,7 +3678,8 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     assert contract.index("Audit round 2, R2-B16 (R56): classification 5.7") < contract.index(
         "Audit round 3, R3-B25: classification 5.8")
     handoff = _flat(HANDOFF)
-    for words in ("classification **5.8**, analysis stage **36**",
+    # Audit round 3, R3-MERGE: the stage the handoff names is the merge-back's 37; R3-B25's 5.8 and 36 stay recorded.
+    for words in ("classification **5.8**, analysis stage **37**", "set 5.8 and stage 36 once for the whole round",
                   "done (R3-B01..R3-B24); R3-B25 made the single version move (5.8 / 36)"):
         assert words in handoff, words
     for stale in ("classification **5.7**, analysis stage **33**", "R3-B25 makes the single version move"):
@@ -3831,8 +3833,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_ff():
     assert contract.index("Audit round 3, R3-B25: classification 5.8") < contract.index(
         "- The final review of audit round 3, R3-FF (")
     handoff = _flat(HANDOFF)
-    assert "the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asks for `true-revenue-10`" in (
-        handoff)
+    # Audit round 3, R3-MERGE: since the merge-back the page asks for `true-revenue-11`.
+    assert ("the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asked for `true-revenue-10`; "
+            "since the merge-back it asks for `true-revenue-11`") in handoff
 
 
 def test_the_spec_and_the_contract_record_r3_ff_review_round_1():
@@ -3874,3 +3877,75 @@ def test_the_spec_and_the_contract_record_r3_ff_review_round_1():
     contract = _flat(CONTRACT)
     assert (f"(F4; its review round 1, {commit}: the name prints two or more different name words, one of them a "
             "holder-noise word, `_WIRE_HOLDER_NOISE_NAME_WORDS`") in contract
+
+
+#: Audit round 3, R3-MERGE: the merge commit and the tests commit the merge's documents name.
+R3_MERGE_COMMITS = ("7e254cf", "71a6150")
+
+
+def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
+    """Audit round 3, R3-MERGE: the hosting line's merge-back. The code reads 5.8 and stage 37 and the page asks for
+    `true-revenue-11`; the stage note carries the hosting line's 34 and 35 notes and the merge's 36 -> 37; §9.3's merge
+    line; the §10 head's merge paragraph; §20 keeps the hosting line's three lines in date order among round 3's, marks
+    the dashboard-clarity line's review round 3 reading in place and ends with the merge line (its commits, no statement
+    figure); the contract's version line after R3-FF's; the handoff's versions, hosting-line, table and merge-back words."""
+    from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
+
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 37)
+    html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
+    note = re.sub(r"\s*#\s*", " ", (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8"))
+    for words in ("33 -> 34 (owner report 2026-10-08, Capital One daily ledger)",
+                  "34 -> 35 (owner report 2026-10-08, Bank of America NSF)",
+                  "36 -> 37: TRUE-REVENUE audit round 3, R3-MERGE, the merge-back of the hosting line (`fix/boa-nsf` "
+                  "f2e9ae1) into this branch, in the merge commit itself", "CLASSIFICATION_VERSION stays 5.8"):
+        assert words in note, words
+    assert note.index("# 33 -> 36:".replace("# ", " ")) < note.index(" 36 -> 37: TRUE-REVENUE") < note.index(
+        "ANALYSIS_STAGE_VERSION = 37")
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    for words in ("- Audit round 3, R3-MERGE (§20): the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`",
+                  "moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit itself (7e254cf)",
+                  "the app.js cache-bust to `true-revenue-11`", "`CLASSIFICATION_VERSION` stays 5.8",
+                  "`Statement.pre_period_carry_in_count`", "`stated_daily_balances`",
+                  "the package downloads' returned funder payment words (R3-B23)"):
+        assert words in versions, words
+    assert versions.index("- 5.8 (audit round 3, R3-B25: §20)") < versions.index("- Audit round 3, R3-MERGE (§20)")
+    head = sections.split("\n## 10. Metrics and UI", 1)[1].split("\n### 10.1 ", 1)[0]
+    for words in ("*Audit round 3, R3-MERGE (§20;", "It was taken again on <day> (<its statement>).",
+                  "<funder>: a lump-sum payoff.", "<lender>: missed payments caught up.",
+                  "this may be the lender collecting under another name.",
+                  "The Withholding Rate cell reads each row's served `withholding_rate`"):
+        assert words in head, words
+    order = [amendments.index(start) for start in (
+        "- **Re-presented payments: a 2x level on either side of a candidate",
+        "- **Owner request 2026-10-07, dashboard clarity; display only**",
+        "- **A True or Verified withholding basis under 500 publishes no rate**",
+        "- **Audit round 3, R3-B09 in all**", "- **Owner report 2026-10-08, Capital One daily ledger**",
+        "- **R3-B09 review round 1:", "- **Audit round 3, R3-B10 in all**",
+        "- **Owner report 2026-10-08, Bank of America NSF**", "- **R3-B10 review round 1:",
+        "- **R3-FF review round 1:", "- **The hosting line merged back** (")]
+    assert order == sorted(order)
+    dashboard = _amendment_line(amendments, "- **Owner request 2026-10-07, dashboard clarity; display only** (")
+    assert ("the Withholding Rate cell divides the row's own served figures (amended by R3-MERGE, below: the merged cell "
+            "reads the row's served `withholding_rate`") in dashboard
+    line = _amendment_line(amendments, "- **The hosting line merged back** (")
+    for words in ("audit round 3, R3-MERGE", "§9.3", "\"Merge, then audit\"", *R3_MERGE_COMMITS, "`--no-ff`",
+                  "stage 37, `true-revenue-11`", "R3-67's rule", "RED against the hosting line's app.js",
+                  "no test that reads real statements moved", "the corpus extraction gate GREEN",
+                  "equals the base in every key but `analysis_stage_version`", "G7, re-parsed and cached",
+                  "exactly two statements move, both from withheld to validated", "0 console errors"):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.rstrip().endswith(line.rstrip())
+    contract = _flat(CONTRACT)
+    assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
+            "7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit") in contract
+    assert contract.index("- The final review of audit round 3, R3-FF (") < contract.index("- Audit round 3, R3-MERGE:")
+    handoff = _flat(HANDOFF)
+    for words in ("classification **5.8**, analysis stage **37**",
+                  "moved the stage to 37 and the cache-bust to `true-revenue-11`",
+                  "**Merged** with the owner's approval of 2026-10-10", "| Hosting line merge-back (R3-MERGE) |",
+                  "**Done** (R3-MERGE, 2026-10-10): merge commit `7e254cf`, stage 37 and `true-revenue-11`"):
+        assert words in handoff, words

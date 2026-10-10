@@ -14,10 +14,12 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
   (`1dd3b64`, `7b7fb1e`, `2d81a43`, `80e3d4b`).
   It sits on `text-first-v1` = `c106634` (lender detection, classification 5.4). Nothing of this branch is merged or
   deployed: the Fly demo runs the hosting line below.
-- **Versions:** classification **5.8**, analysis stage **36** (`webapp/artifact_cache.py`), set by R3-B25's versions
-  commit, the run's last, once for the whole round (spec §9.3); stages 34 and 35 and the cache-bust values
+- **Versions:** classification **5.8**, analysis stage **37** (`webapp/artifact_cache.py`): R3-B25's versions
+  commit, the run's last, set 5.8 and stage 36 once for the whole round (spec §9.3), and the hosting line's merge-back
+  (R3-MERGE, merge commit `7e254cf`) moved the stage to 37 and the cache-bust to `true-revenue-11`; stages 34 and 35 and the cache-bust values
   `true-revenue-7` and `-8` are skipped (the hosting line below used them), so the page asked for `true-revenue-9`;
-  the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asks for `true-revenue-10`.
+  the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asked for `true-revenue-10`; since the
+  merge-back it asks for `true-revenue-11`.
   Neither is released.
 - **The hosting line:** `fix/boa-nsf` = `f2e9ae1` (it holds `fix/capone-daily-ledger` `6c2eadb` and
   `ui/5.7-dashboard-clarity` `a858647`) is live on the Fly demo as release v21. It is round 2's code (classification
@@ -25,7 +27,9 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
   (the Bank of America daily-ledger table), and the app.js cache-bust values `true-revenue-7` and `true-revenue-8` (the
   dashboard-clarity and monthly-chart changes). This branch never reuses those values: R3-B25 skips them. The hosting
   line is merged into `true-revenue` after this run, never back to those values: the merge commit moves the stage and
-  the cache-bust value past both lines' (§4, item 5).
+  the cache-bust value past both lines' (§4, item 5). **Merged** with the owner's approval of 2026-10-10 ("Merge, then
+  audit"): R3-MERGE, merge commit `7e254cf` (stage 37, `true-revenue-11`); the Fly demo still runs v21 until the
+  owner asks for a release.
 - **Main checkout** (the OneDrive folder) is on `lender-detection` and must stay untouched: `git -C <main> status` prints only `## lender-detection`.
 - Nothing is running.
 
@@ -41,6 +45,7 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
 | Final review of `c486fd5..283e90e` | three findings (F1 important, F2 and F3 minor) | fixed (LOCAL `round2/reports/FINAL-FIX-report.md`) |
 | Review round 1 of that fix run | one important finding (the review decision) and three minor ones | fixed (the same report, "Review round 1 fixes") |
 | Audit round 3 | re-audit on `1a761de`: 91 issues verified; 89 fixed or recorded in R3-B01..R3-B24, 2 owner items (R3-28, R3-76); 14 owner decisions (R3-73, R3-79 and R3-25 answered by the owner on 2026-10-07; the others with their defaults in the code, R3-78's in the held patch, R3-07's a git question) | done (R3-B01..R3-B24); R3-B25 made the single version move (5.8 / 36) |
+| Hosting line merge-back (R3-MERGE) | `fix/boa-nsf` (`f2e9ae1`) merged with `--no-ff` on the owner's approval of 2026-10-10; both sides' behaviour kept (round 3's lender lines in the hosting line's plain voice, the Withholding Rate column on the served rate); stage 37, `true-revenue-11`; census, G7 and the corpus gate equal to `a13464a` but for the stage | done (`7e254cf`; LOCAL `round3/reports/R3-MERGE-report.md`) |
 | Acceptance of round 3 (the Accept phase) | census on both bases, G7, the full suite, a real browser; then the final review of `1a761de..HEAD` | pending |
 
 Corpus figures (re-parsed basis, 2,513 accounts; shares of posted credits; Zelle setting Yes, the default, unless the row says No):
@@ -120,6 +125,8 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
    phase's real-browser run serves 36 and `-9` locally) must never be read as the merged code's. Until then stage 36
    and `true-revenue-10` are this branch's (and `-9`, which it served): a further hosting-line change takes stage 37
    and `true-revenue-11` or above (and the merge then goes above those). Then ask the owner about the Fly release.
+   **Done** (R3-MERGE, 2026-10-10): merge commit `7e254cf`, stage 37 and `true-revenue-11`; the Fly release still
+   waits for the owner.
 6. **The round-4 re-audit** of the branch (Opus), then fix and repeat until a round has no surviving non-owner issue.
    Templates: LOCAL `round2/handoff/templates/` and the round-3 workflow in `round3/handoff/`.
 
