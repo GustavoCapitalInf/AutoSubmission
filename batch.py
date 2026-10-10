@@ -58,7 +58,10 @@ FIELDS = [
     "lender_debit_count", "returned_funder_payment_count", "returned_funder_payment_total",
     "lenders_detected", "potential_lenders_detected",
     "potential_lender_debit_count", "potential_lender_debit_total",
-    "insurance_count", "insurance_total", "withholding_numerator",
+    # Audit round 3, R3-B22 (R3-68; the owner's Q7): the basis the withholding columns divide by, which each run reads
+    # from WITHHOLDING_DENOMINATOR_MODE, written on every account row.
+    "insurance_count", "insurance_total", "withholding_denominator_mode", "withholding_denominator_label",
+    "withholding_numerator",
     "withholding_denominator", "withholding_rate", "potential_withholding_numerator",
     "potential_withholding_denominator", "potential_withholding_exposure",
     "potential_withholding_review_required", "pos_count", "pos_credit_count",
@@ -229,6 +232,10 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "potential_lender_debit_total": f"{m.potential_lender_debit_total:.2f}",
         "insurance_count": m.insurance_count,
         "insurance_total": f"{m.insurance_total:.2f}",
+        # Audit round 3, R3-B22 (R3-68): the basis, written where it is not established too (the label says which basis
+        # the empty cells belong to).
+        "withholding_denominator_mode": m.withholding_denominator_mode,
+        "withholding_denominator_label": m.withholding_denominator_label,
         "withholding_numerator": f"{m.withholding_numerator:.2f}",
         "withholding_denominator": established_figure(m.withholding_denominator, basis_shown),
         "withholding_rate": rate(m.withholding_rate),

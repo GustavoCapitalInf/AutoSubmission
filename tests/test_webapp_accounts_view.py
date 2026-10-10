@@ -215,10 +215,14 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
                # served withholding-basis flag (withholdingReviewDecision, in the accounts block).
                "withholdingBasisUnestablished",
                # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the summary's lump-sum lines.
-               "lumpSumPayoffLine", "lumpSumPayoffLines")
+               "lumpSumPayoffLine", "lumpSumPayoffLines",
+               # Audit round 3, R3-B22 (R3-68): the summary names the withholding basis its rates divide by.
+               "withholdingBasisLabel", "withholdingBasisWords")
+    # R3-68: the basis labels withholdingBasisLabel reads (a frozen object over several lines).
+    labels = APP_JS[APP_JS.index("const WITHHOLDING_BASIS_LABELS = "):].split("\n});\n")[0] + "\n});\n"
     # Each function up to its closing brace (top-level code follows some of them).
-    source = _harness("off") + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
-                                       for name in helpers) + f"""
+    source = _harness("off") + labels + "".join(APP_JS[APP_JS.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
+                                                for name in helpers) + f"""
 let currentDocument = null, currentAnalysis = null, selectedAccountIndex = null, shownName = null;
 for (const key of ["statusBanner", "statusMark", "statusCopy", "validationValue", "statusHeading", "summaryBox",
                    "decisionPill"]) els[key] = {{textContent: "", className: ""}};

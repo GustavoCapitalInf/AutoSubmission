@@ -326,3 +326,87 @@ def test_r3_67_a_package_without_a_return_reads_as_before():
     assert _lender_lines(memo) == ["KAPITUS: $6,800.00 across 2 statement(s)"]
     assert "$6,800.00 confirmed lender debits" not in memo and "NSF events, 11.33% confirmed withholding" in memo
 
+
+# ---------------------------------------------------------------- R3-68: the basis the memos' rates divide by
+
+KAPITUS = "KAPITUS DES:PAYMENT ID:000000001 INDN:CONTOSO BAKERY LLC CO ID:0000000002 CCD"
+#: Two NORTHWIND payments of 10,000 (Verified), a counter deposit of 5,000 (counted), a transfer in from the business's
+#: own savings of 5,000 (non-revenue) and four KAPITUS payments of 850: True 25,000, Verified 20,000, legacy 30,000.
+BASIS_ROWS = [
+    (2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 10000.0),
+    (5, "DEPOSIT", 5000.0),
+    (9, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:2", 10000.0),
+    (12, "ONLINE BANKING TRANSFER FROM SAV 0000 CONFIRMATION# 0000000000", 5000.0),
+] + [(day, KAPITUS, -850.0) for day in (6, 13, 20, 27)]
+BASES = {"true_revenue": "true revenue", "legacy_eligible_deposits": "legacy eligible deposits",
+         "verified_revenue": "verified revenue"}
+
+
+def basis_report(monkeypatch, mode):
+    """The statement of BASIS_ROWS (CONTOSO BAKERY LLC, March 2031) analysed on the withholding basis `mode`."""
+    from analysis import pipeline
+    from analysis.config import load_settings
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", mode)
+    balance, transactions = 5000.0, []
+    for day, text, amount in sorted(BASIS_ROWS, key=lambda row: row[0]):
+        balance = round(balance + amount, 2)
+        transactions.append(Transaction(date=f"2031-03-{day:02d}", description=text, amount=amount,
+                                        direction="credit" if amount > 0 else "debit", running_balance=balance))
+    statement = Statement(
+        bank="Sample Bank", account_name=HOLDER, account_number="000000001010", period_start="2031-03-01",
+        period_end="2031-03-31", beginning_balance=5000.0, ending_balance=balance, currency="USD",
+        currency_source="printed", stated_total_credits=30000.0, stated_total_debits=3400.0, transactions=transactions,
+    )
+    return pipeline._account_report(
+        statement, reconcile(statement), dispatch=None, settings=load_settings(), markdown="", source_markdown="",
+        sheets=[], repair_failure=None, model_used="fabricated-test", escalated=False,
+    )
+
+
+def _basis_payload(monkeypatch, mode):
+    from analysis.pipeline import DocumentReport
+    from analysis.serialization import document_report_to_dict
+
+    return document_report_to_dict(DocumentReport(accounts=[basis_report(monkeypatch, mode)]))
+
+
+@needs_node
+@pytest.mark.parametrize("mode", list(BASES))
+def test_r3_68_the_package_memo_names_its_basis(monkeypatch, mode):
+    """M8: the package memo of one statement on each basis ends its sentence with the basis."""
+    memo = _package_memo(_package(("mar", _basis_payload(monkeypatch, mode))))["memo"]
+    assert f" potential exposure (withholding basis: {BASES[mode]}). " in memo
+
+
+@needs_node
+def test_r3_68_a_mixed_package_names_its_mixed_configuration(monkeypatch):
+    from tests.test_withholding_basis_unestablished import _may_june
+
+    may, june = _may_june(monkeypatch)
+    package = _package(("may", may), ("jun", june))
+    assert package["totals"]["withholding_denominator_label"] == "Mixed denominator configuration"
+    memo = _package_memo(package)["memo"]
+    assert "N/A confirmed withholding" in memo
+    assert " potential exposure (withholding basis: mixed denominator configuration). " in memo
+
+
+@needs_node
+def test_r3_68_the_statement_memo_names_its_basis_and_an_unestablished_one(monkeypatch):
+    from tests.test_withholding_basis_unestablished import _reconciled_stored
+    from tests.test_withholding_basis_unestablished import _served as f1_served
+
+    true_memo = _statement_memo(_served(_basis_payload(monkeypatch, "true_revenue")))["memo"]
+    assert " potential lender debits at 0% exposure (withholding basis: true revenue). " in true_memo
+    legacy_memo = _statement_memo(_served(_basis_payload(monkeypatch, "legacy_eligible_deposits")))["memo"]
+    assert " exposure (withholding basis: legacy eligible deposits). " in legacy_memo
+    unestablished = _statement_memo(f1_served(_reconciled_stored(monkeypatch, "true_revenue")))["memo"]
+    assert " potential lender debits at N/A exposure (withholding basis: true revenue, not established). " in (
+        unestablished)
+    # A stored payload with no mode was analysed on the legacy basis, as the Withholding Basis card says.
+    stored = _served(_basis_payload(monkeypatch, "true_revenue"))
+    for key in ("withholding_denominator_mode", "withholding_denominator_label"):
+        stored["metrics"].pop(key, None)
+    assert " exposure (withholding basis: legacy eligible deposits). " in _statement_memo(stored)["memo"]

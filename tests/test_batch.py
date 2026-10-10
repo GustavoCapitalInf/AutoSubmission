@@ -302,3 +302,63 @@ def test_the_error_row_carries_only_the_file_the_review_and_the_class_name(monke
         [row] = list(csv.DictReader(handle))
     assert {key for key, value in row.items() if value} == {"file", "needs_review", "error"}
     assert (row["needs_review"], row["error"]) == ("REVIEW", "RuntimeError")
+
+
+# --- Audit round 3, R3-B22 (R3-68; the owner's Q7 of 2026-10-02: True revenue the default withholding basis, the others
+# selectable; true revenue spec §11, §13): the row names the basis its withholding columns divide by, which each run
+# reads from WITHHOLDING_DENOMINATOR_MODE, so two CSVs with the same header no longer read alike on different bases.
+# Fabricated rows (tests/test_copied_memos.py's BASIS_ROWS: CONTOSO BAKERY LLC, March 2031).
+
+
+def test_r3_68_the_basis_columns_sit_before_the_withholding_figures():
+    start = batch.FIELDS.index("insurance_total") + 1
+    assert batch.FIELDS[start:][:5] == [
+        "withholding_denominator_mode", "withholding_denominator_label", "withholding_numerator",
+        "withholding_denominator", "withholding_rate"]
+
+
+def test_r3_68_the_row_names_its_basis_beside_its_denominator_and_rate(monkeypatch):
+    from pathlib import Path
+
+    from tests.test_copied_memos import basis_report
+
+    rows = {mode: batch._row(Path("contoso.md"), basis_report(monkeypatch, mode))
+            for mode in ("true_revenue", "legacy_eligible_deposits", "verified_revenue")}
+    read = {mode: (row["withholding_denominator_mode"], row["withholding_denominator_label"],
+                   row["withholding_denominator"], row["withholding_rate"]) for mode, row in rows.items()}
+    assert read == {
+        "true_revenue": ("true_revenue", "True revenue", "25000.00", "13.60"),
+        "legacy_eligible_deposits": ("legacy_eligible_deposits", "Legacy eligible deposits", "30000.00", "11.33"),
+        "verified_revenue": ("verified_revenue", "Verified revenue", "20000.00", "17.00")}
+    # needs_review reads as before on every basis.
+    assert {row["needs_review"] for row in rows.values()} == {""}
+
+
+def test_r3_68_an_unestablished_basis_names_its_basis_and_leaves_its_figures_empty(monkeypatch):
+    from pathlib import Path
+
+    from tests.test_withholding_basis_unestablished import _report
+
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "true_revenue")
+    row = batch._row(Path("contoso.md"), _report())
+    assert (row["withholding_denominator_mode"], row["withholding_denominator_label"]) == (
+        "true_revenue", "True revenue")
+    assert (row["withholding_denominator"], row["withholding_rate"]) == ("", "")
+    assert row["needs_review"] == "REVIEW"
+
+
+def test_r3_68_the_error_row_leaves_the_basis_cells_empty(monkeypatch, tmp_path):
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    monkeypatch.setattr(batch, "analyze_document", boom)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        [row] = list(csv.DictReader(handle))
+    assert (row["withholding_denominator_mode"], row["withholding_denominator_label"]) == ("", "")

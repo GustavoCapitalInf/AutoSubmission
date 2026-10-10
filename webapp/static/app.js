@@ -859,6 +859,12 @@ function withholdingBasisLabel(metrics = {}) {
   return WITHHOLDING_BASIS_LABELS[mode] || "Withholding basis";
 }
 
+// Audit round 3 (R3-68): the basis the copied memos' rates divide by, as the Withholding Basis card names it.
+function withholdingBasisWords(source = {}) {
+  return `withholding basis: ${withholdingBasisLabel(source).toLowerCase()}`
+    + (withholdingBasisUnestablished(source) ? ", not established" : "");
+}
+
 // The final review of round 2, F1 (true revenue spec §10.1, §10.4, §11): the basis the withholding mode divides by is
 // not established (True revenue where the revenue is not, Verified where Verified is not; the server publishes the
 // flag only where it is set), so no rate is published over it and the basis reads N/A, as True does.
@@ -5828,7 +5834,8 @@ function generateSummary() {
       }, { package: true })} ` +
       `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${returnedSummary}${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
-      `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
+      // Audit round 3, R3-B22 (R3-68): the basis the rates divide by, the label the package serves.
+      `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure (${withholdingBasisWords(totals)}). ` +
       `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
       `\n\nPackage lender summary:\n${lenderSummary}${returnedLines}${paymentChangeLines}`;
     return;
@@ -5866,7 +5873,8 @@ function generateSummary() {
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
     `${lenderDebitsSummary(m, currency)}, and ` +
-    `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure. ` +
+    // Audit round 3, R3-B22 (R3-68): the basis the rates divide by.
+    `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure (${withholdingBasisWords(m)}). ` +
     (lenderPaymentChangesSummary(d.lender_payment_changes) ? `${lenderPaymentChangesSummary(d.lender_payment_changes)} ` : "") +
     // Audit round 3, R3-B03 (R3-79): each lump-sum payoff's line.
     lumpSumPayoffLines(d.lump_sum_payoffs, currency).map((line) => `${line} `).join("") +
