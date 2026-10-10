@@ -3094,6 +3094,11 @@ _WIRE_COMPANY_NAME_WORDS = frozenset({
     "FUNDAMENTALS", "COMPLETE", "ADVANTAGE", "PERFORMANCE", "EVERYDAY", "PLUS", "ELITE", "FREE", "SMALL", "TOTAL",
     "GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT", "ENTERPRISES",
 })
+#: R3-FF F4, review round 1 (findings 1 and 2; R3-40's verified claim, the underwriter's Q1 of 2026-10-02): the
+#: holder-noise name words, one of which a generic company's name must print beside another name word. A lone one
+#: ('GROUP LLC', 'SERVICES INC', 'WIRE FROM <ref> SERVICES') is R3-40's own no-sender shape, and account product words
+#: alone ('PLATINUM SELECT', 'ADVANTAGE PLUS LLC') read as an account product's designation: both keep R3-40's hold.
+_WIRE_HOLDER_NOISE_NAME_WORDS = frozenset({"GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT", "ENTERPRISES"})
 #: R3-FF F4: the words that join a company's name words ('THE ADVANTAGE GROUP') and its legal forms (R3-40's).
 _WIRE_NAME_CONNECTORS = frozenset({"THE", "OF", "AND"})
 _WIRE_LEGAL_FORMS = frozenset({
@@ -3110,16 +3115,20 @@ def _wire_designation_words() -> frozenset[str]:
 
 def _wire_generic_company(words: Sequence[str], labelled: bool, holder_names: Sequence[str] = ()) -> bool:
     """§8.5, Q5 (audit round 3, final review (R3-FF), F4): a sender's name made only of R3-40's words that still names a
-    company: one or more of its name words (_WIRE_COMPANY_NAME_WORDS), joined only by THE, OF or AND and legal forms,
-    printed behind an originator label (`labelled`: the classifier's _WIRE_ORIGINATOR_LABEL, ORG, B/O, WIRE FROM ...) or
-    ending in a legal form ('WIRE TRANSFER IN SELECT HOLDINGS LLC', 'INCOMING WIRE ORG PREMIUM SOLUTIONS REF 1'). A
-    designation, purpose, holder-designation (TRUST, DBA), generic or label word anywhere in it keeps R3-40's reading
-    ('BUSINESS LLC', 'WIRE FROM BUSINESS ACCOUNT', 'ORG OPERATING ACCOUNT', 'TOTAL BUSINESS SERVICES LLC'), and so does a
-    name word alone with no label and no form ('WIRE TRANSFER IN 1234 SERVICES'). So does a name whose name words are
-    all words of one of the holder's names (`holder_names`, _holder_names): the holder test reads distinctive words, and
-    these are all its noise, so it cannot see the holder's own money there; the wire stays held as at R3-40."""
+    company: two or more different name words (_WIRE_COMPANY_NAME_WORDS), at least one of them a holder-noise word
+    (_WIRE_HOLDER_NOISE_NAME_WORDS), joined only by THE, OF or AND and legal forms, printed behind an originator label
+    (`labelled`: the classifier's _WIRE_ORIGINATOR_LABEL, ORG, B/O, WIRE FROM ...) or ending in a legal form ('WIRE
+    TRANSFER IN SELECT HOLDINGS LLC', 'INCOMING WIRE ORG PREMIUM SOLUTIONS REF 1'). A designation, purpose,
+    holder-designation (TRUST, DBA), generic or label word anywhere in it keeps R3-40's reading ('BUSINESS LLC', 'WIRE
+    FROM BUSINESS ACCOUNT', 'ORG OPERATING ACCOUNT', 'TOTAL BUSINESS SERVICES LLC'), and so does a name with no label
+    and no form ('WIRE TRANSFER IN SELECT HOLDINGS'). Review round 1 (findings 1 and 2): so does a lone name word with
+    a form or behind a label ('GROUP LLC', 'SERVICES INC', 'WIRE FROM <ref> SERVICES', 'ORG THE GROUP': R3-40's own
+    no-sender shapes, which a repeat would otherwise verify), and so do product words alone ('PLATINUM SELECT',
+    'ADVANTAGE PLUS LLC', 'FREE LLC': an account product's designation). So does a name whose name words are all words
+    of one of the holder's names (`holder_names`, _holder_names): the holder test reads distinctive words, and these are
+    all its noise, so it cannot see the holder's own money there; the wire stays held as at R3-40."""
     names = [word for word in words if word in _WIRE_COMPANY_NAME_WORDS]
-    if not names:
+    if len(set(names)) < 2 or not set(names) & _WIRE_HOLDER_NOISE_NAME_WORDS:
         return False
     if not all(word in _WIRE_COMPANY_NAME_WORDS or word in _WIRE_NAME_CONNECTORS or word in _WIRE_LEGAL_FORMS
                for word in words):
@@ -3137,8 +3146,8 @@ def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Seq
     'THE AMOUNT OF'), on every wire layout and the labelled path. A numbered company keeps its reading (the
     classifier's _NUMBERED_COMPANY_REGION or _NUMBERED_PROVINCE_START: '1234567 ONTARIO INC', '1234567 B C LTD',
     OQ3). Audit round 3, final review (R3-FF), F4: and so does a company named only with R3-40's product and holder-noise
-    words, behind an originator label (`labelled`) or ending in a legal form, unless those are the holder's own name's
-    words (`holder_names`; _wire_generic_company)."""
+    words, two or more of them and one a holder-noise word (review round 1), behind an originator label (`labelled`) or
+    ending in a legal form, unless those are the holder's own name's words (`holder_names`; _wire_generic_company)."""
     if _wire_label_only(region):
         return True
     classifier = _classifier()

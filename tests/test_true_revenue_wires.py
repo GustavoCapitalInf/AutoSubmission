@@ -630,6 +630,62 @@ def test_ff_f4_the_name_words_are_r3_40_s_product_and_holder_noise_words_never_a
     assert not names & (tc.REVENUE_GENERIC_WORDS | tr._WIRE_LABEL_ONLY_WORDS)
 
 
+# Audit round 3, final review (R3-FF), review round 1 (findings 1 and 2; R3-40's verified claim; the underwriter's Q1 of
+# 2026-10-02: a wire with no sender is held): a company's generic name needs two name words, one of them a holder-noise
+# word (_WIRE_HOLDER_NOISE_NAME_WORDS). A lone holder-noise word beside a legal form or behind an originator label
+# ('GROUP LLC', 'SERVICES INC', 'WIRE FROM <ref> SERVICES'), the shapes R3-40 fixed, and a region of account product
+# words alone ('PLATINUM SELECT', 'ADVANTAGE PLUS LLC'), an account product's designation, keep R3-40's nobody reading,
+# once and on a repeat (never Verified as repeat_wire_sender).
+
+FF_R1_LONE_NOISE_WORD = (
+    "WIRE TRANSFER IN 1234 GROUP LLC",
+    "WIRE TRANSFER IN 1234 SERVICES INC",
+    "WIRE TRANSFER IN SERVICES INC",
+    "INCOMING WIRE 1234 GROUP LLC",
+    "WIRE FROM 1234 SERVICES",
+    "WIRE FROM 1234 GROUP",
+    "WIRE FROM 1234 HOLDINGS",
+    "WIRE FROM 1234 MANAGEMENT",
+    "INCOMING WIRE ORG GROUP REF 1",
+    "INCOMING WIRE ORG THE GROUP REF 1",
+    "INCOMING WIRE B/O SOLUTIONS LLC REF 1",
+)
+FF_R1_PRODUCT_WORDS_ONLY = (
+    "INCOMING WIRE ORG PLATINUM SELECT REF 1",
+    "WIRE FROM ADVANTAGE PLUS",
+    "WIRE FROM TOTAL",
+    "WIRE TRANSFER IN FREE LLC",
+    "WIRE TRANSFER IN SMALL CO",
+    "INCOMING WIRE ORG ADVANTAGE PLUS LLC REF 1",
+)
+
+
+@pytest.mark.parametrize("text", FF_R1_LONE_NOISE_WORD + FF_R1_PRODUCT_WORDS_ONLY)
+def test_ff_r1_a_lone_holder_noise_word_or_product_words_name_nobody_once_and_on_a_repeat(text):
+    assert _tiers([(text, 12000.0)]) == [NO_SENDER]
+    assert _tiers([(text, 2345.67), (text, 3456.78)]) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize("region", ["GROUP LLC", "SERVICES INC", "SERVICES", "THE GROUP", "GROUP GROUP LLC",
+                                    "PLATINUM SELECT", "ADVANTAGE PLUS LLC", "TOTAL", "FREE LLC", "SMALL CO"])
+def test_ff_r1_the_name_reader_needs_two_name_words_one_a_holder_noise_word(region):
+    assert tr._wire_names_nobody(region, labelled=True)
+    assert tr._wire_names_nobody(region, labelled=False)
+
+
+@pytest.mark.parametrize("region", ["PREMIUM SOLUTIONS LLC", "ELITE GROUP", "THE ADVANTAGE GROUP",
+                                    "MANAGEMENT SERVICES LLC"])
+def test_ff_r1_control_two_name_words_with_a_holder_noise_word_still_name_a_company(region):
+    assert not tr._wire_names_nobody(region, labelled=True)
+    assert _tiers([(f"INCOMING WIRE ORG {region} REF 1", 12000.0)]) == [NAMED]
+
+
+def test_ff_r1_the_holder_noise_name_words_are_r3_40_s():
+    noise = tr._WIRE_HOLDER_NOISE_NAME_WORDS
+    assert noise == {"GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT", "ENTERPRISES"}
+    assert noise <= tr._WIRE_COMPANY_NAME_WORDS
+
+
 # Audit round 3, R3-B07 (R3-42; Q5 of 2026-09-28: a wire with a named sender is counted): a sender printed straight
 # after R32's labels (INBOUND WIRE, INBOUND FEDWIRE, INCOMING FEDWIRE, INCOMING CHIPS, their TRANSFER FROM forms),
 # 'INCOMING WIRE TRANSFER FROM' and the WIRE TRANSFER[S] CREDIT label is read.
