@@ -332,12 +332,15 @@ def _package_for_export(package: dict) -> dict:
             ]
     # Audit B11 (I51): the package's counted-plus-held figures, and the held count, are partial when a member's
     # revenue is not established (its True, Counted and Held totals are already None, §10.4), so a download leaves
-    # them empty too.
+    # them empty too. Audit round 3, R3-B23 (R3-49): so does a package that analyses no statement (R54: its True,
+    # Verified, Counted and Held are already None), whose revenue counts are left empty too, never the 0.0 or 0 an
+    # underwriter would read as a measured decline. The served totals keep them: the dashboard's review badge reads
+    # its null True count as N/A, and would read a null held count as a payload analysed before 5.6.
     totals = package.get("totals")
-    if isinstance(totals, dict) and totals.get("revenue_unestablished_documents"):
-        totals = exported["totals"] = {
-            **totals, **{key: None for key in _PACKAGE_PARTIAL_REVENUE_KEYS if key in totals},
-        }
+    no_analysis = isinstance(totals, dict) and totals.get("completed") == 0
+    if isinstance(totals, dict) and (totals.get("revenue_unestablished_documents") or no_analysis):
+        emptied = (*_PACKAGE_PARTIAL_REVENUE_KEYS, *(_PACKAGE_NO_ANALYSIS_COUNT_KEYS if no_analysis else ()))
+        totals = exported["totals"] = {**totals, **{key: None for key in emptied if key in totals}}
     # The final review of round 2, F1 (§10.4, §11): the withholding basis summed over a member whose basis is not
     # established (final review M10: no rate on it) is an empty cell, as the dashboard reads it N/A. Audit round 3,
     # R3-B03 (R3-27): so is the sum of members analysed under different bases, which is no basis at all.
@@ -352,6 +355,11 @@ def _package_for_export(package: dict) -> dict:
 #: Audit B11 (I51): the package totals built from every member's counted and held credits, and the held count.
 _PACKAGE_PARTIAL_REVENUE_KEYS = ("maximum_revenue", "potential_revenue_total", "unverified_deposit_total",
                                  "revenue_review_items")
+#: Audit round 3, R3-B23 (R3-49): the package's revenue counts, which a download also leaves empty when the package
+#: analyses no statement (`completed` 0: every job failed, was interrupted, is still on its way or holds no analysis,
+#: or every account was left out), beside R54's empty True, Verified, Counted and Held.
+_PACKAGE_NO_ANALYSIS_COUNT_KEYS = ("unverified_deposit_count", "potential_revenue_count", "verified_revenue_count",
+                                   "confirmed_true_revenue_count")
 
 
 def _export_document_revenue(row: dict) -> dict:

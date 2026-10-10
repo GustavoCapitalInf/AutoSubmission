@@ -2527,6 +2527,106 @@ def test_an_analysed_statement_beside_a_failed_or_pending_one_keeps_its_figures(
     assert "pending" not in alone["totals"] and alone["totals"]["decision"] == "approved"
 
 
+# ---------------------------------------------------------------------------
+# Audit round 3, R3-B23 (R3-49; spec §10.4's I51 download rule and §10.8's R2-B15 bullet; R54): a package that analyses
+# no statement (every job failed, interrupted, still on its way or done without an analysis, or every account left
+# out) downloads its counted-plus-held figures, its held count and its revenue counts as empty cells beside its empty
+# True, never 0.0 or 0 (for an MCA underwriter $0 is a measured decline), as a package holding a member whose revenue
+# is not established already does. The served totals, which the dashboard reads, keep their zeros: its review badge
+# reads N/A off the null True count. Fabricated SAMPLE jobs and CONTOSO BAKERY LLC's statements of 2031.
+# ---------------------------------------------------------------------------
+
+#: The package download keys R3-49 leaves empty where no statement is analysed: B11's I51 partial figures, then the
+#: revenue counts (`_PACKAGE_NO_ANALYSIS_COUNT_KEYS`).
+_R3_49_KEYS = ("maximum_revenue", "potential_revenue_total", "unverified_deposit_total", "revenue_review_items",
+               "unverified_deposit_count", "potential_revenue_count", "verified_revenue_count",
+               "confirmed_true_revenue_count")
+
+#: name -> the jobs of a package that analyses no statement.
+_R3_49_PACKAGES = {
+    **{status: (lambda status=status: [_listed("sample", status=status, filename="sample.pdf")])
+       for status in ("error", "interrupted", "queued", "processing")},
+    "done_without_analysis": lambda: [_listed("sample", status="done", analysis=None)],
+    "main_account_held": lambda: [_r15_document(2, main="held")],
+}
+
+
+def _r3_49_downloads(package):
+    """The package's totals as the download route writes them (`_masked(_package_for_export(...))`): the JSON
+    download's, then the CSV's and the XLSX's `totals` cells."""
+    import csv
+
+    from tests.test_webapp_true_revenue import _sheet_rows
+    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+
+    exported = _masked(_package_for_export(package))
+    csv_cells = {row[1]: row[2] for row in csv.reader(io.StringIO(_package_csv(exported)))
+                 if len(row) == 3 and row[0] == "totals"}
+    xlsx_cells = {row[1]: row[2] for row in _sheet_rows(_package_xlsx(exported)) if len(row) == 3 and row[0] == "totals"}
+    return exported["totals"], csv_cells, xlsx_cells
+
+
+@pytest.mark.parametrize("name", sorted(_R3_49_PACKAGES))
+def test_r3_49_a_package_with_no_analysed_statement_downloads_no_partial_revenue_figure(name):
+    from webapp.app import _package_analysis
+
+    package = _package_analysis(_R3_49_PACKAGES[name]())
+    served = package["totals"]
+    assert (served["completed"], served["true_revenue_total"], served["revenue_unestablished_documents"]) == (
+        0, None, [])
+    stored = json.dumps(package, sort_keys=True, default=str)
+    exported, csv_cells, xlsx_cells = _r3_49_downloads(package)
+    assert {key: exported[key] for key in _R3_49_KEYS} == dict.fromkeys(_R3_49_KEYS)
+    assert {key: csv_cells[key] for key in _R3_49_KEYS} == dict.fromkeys(_R3_49_KEYS, "")
+    assert {key: xlsx_cells[key] for key in _R3_49_KEYS} == dict.fromkeys(_R3_49_KEYS, "")
+    assert csv_cells["true_revenue_total"] == "" and xlsx_cells["true_revenue_total"] == ""
+    # R54's structural zeros and the non-revenue figure stay in the download.
+    assert (exported["total_credits"], exported["avg_monthly_credits"], exported["non_revenue_total"]) == (
+        0.0, 0.0, 0.0)
+    assert exported["currency_resolution"] == "no_analyzed_documents"
+    # The served totals keep their zeros (the dashboard reads them), and the package itself is never rewritten.
+    assert {key: served[key] for key in _R3_49_KEYS} == {
+        "maximum_revenue": 0.0, "potential_revenue_total": 0.0, "unverified_deposit_total": 0.0,
+        "revenue_review_items": 0, "unverified_deposit_count": 0, "potential_revenue_count": 0,
+        "verified_revenue_count": 0, "confirmed_true_revenue_count": 0}
+    assert json.dumps(package, sort_keys=True, default=str) == stored
+
+
+def test_r3_49_the_dashboard_reads_the_served_review_badge_as_n_a():
+    """The served totals stay as they are because the dashboard's review badge reads them: with the True count null it
+    reads N/A; a null held count would read a pre-5.6 payload's deposits left unverified (0) instead."""
+    from tests.webapp_js_harness import NODE, run_dashboard
+    from webapp.app import _package_analysis
+
+    if NODE is None:
+        pytest.skip("node is not installed")
+    served = {name: _package_analysis(jobs())["totals"] for name, jobs in sorted(_R3_49_PACKAGES.items())}
+    result = run_dashboard(f"""
+const served = {json.dumps(served)};
+const badges = {{}};
+for (const [name, totals] of Object.entries(served)) {{
+  badges[name] = reviewBadgeValue(totals, packageRevenueFlags(totals).revenue_established);
+}}
+console.log(JSON.stringify(badges));
+""")
+    assert result == dict.fromkeys(served, "N/A")
+
+
+def test_r3_49_an_analysed_statement_beside_a_failed_one_keeps_its_download_figures():
+    """E2 (control): one analysed month beside a failed job downloads its figures, as served."""
+    from webapp.app import _package_analysis
+
+    package = _package_analysis([_r15_month(1), _listed("sample", status="error", content="s", filename="s.pdf")])
+    served = package["totals"]
+    exported, csv_cells, xlsx_cells = _r3_49_downloads(package)
+    assert (served["completed"], served["failed"], served["maximum_revenue"], served["verified_revenue_count"]) == (
+        1, 1, 10000.0, 1)
+    assert {key: exported[key] for key in _R3_49_KEYS} == {key: served[key] for key in _R3_49_KEYS}
+    assert (csv_cells["maximum_revenue"], csv_cells["verified_revenue_count"],
+            csv_cells["unverified_deposit_count"]) == ("10000.0", "1", "0")
+    assert (xlsx_cells["maximum_revenue"], xlsx_cells["confirmed_true_revenue_count"]) == (10000.0, 1.0)
+
+
 def test_upload_persists_the_preflight_profile_with_the_document(monkeypatch):
     _mock_processing(monkeypatch)
     client = app.test_client()
