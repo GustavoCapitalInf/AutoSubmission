@@ -3367,3 +3367,114 @@ def test_r3_b23_the_code_names_its_rules():
     assert holder_name._DESIGNATION_WORDS <= appmod._EXPORT_DESIGNATION_WORDS
     flat = re.sub(r"\s+", " ", inspect.getsource(appmod._account_analysis_rows))
     assert ("if section == \"statement\" and key == \"account_title\" and not _designation_title(item):") in flat
+
+
+#: Audit round 3, R3-B24: the code commits §20 and the contract name.
+R3_B24_COMMITS = ("d2f209e", "9a5e610")
+
+
+def test_the_spec_and_the_contract_record_r3_b24():
+    """Audit round 3, R3-B24 (R3-16): §9.1's served keys, §9.2's package list and totals, §9.3's no-bump line, §10.1's
+    fact, evidence row and memo clauses, §10.6's filter and note, §10.7's unread flag, §10.8's sections, §13's CLI rows,
+    §17.1's new default D1, the §20 lines with their commits and the batch's measured line, and the contract's entry
+    beside R2-OW15's."""
+    text = SPEC.read_text(encoding="utf-8")
+    served = re.sub(r"\s+", " ", _section(text, "\n### 9.1 ", "\n### 9.2 "))
+    for words in ("audit round 3, R3-B24 (R3-16; §17.1's default D1, §20; standard G7 and P22): the served copy "
+                  "(`_served_account`; never stored) adds, only where a credit is flagged on a statement whose revenue "
+                  "is established", "`large_unsourced_deposit_count`, `large_unsourced_deposit_total` and "
+                  "`large_unsourced_deposits`", "`LARGE_UNSOURCED_DEPOSIT_REASONS` (`no_payer_printed`, "
+                  "`check_deposit`, `wire_named_sender`, `named_payer_one_off`, `numbered_company_payer`, `p2p`, "
+                  "`named_payer_unlabelled`, `payer_text_not_read`)", "of $10,000 or more "
+                  "(`LARGE_UNSOURCED_DEPOSIT_FLOOR`) and strictly more than 25% (`LARGE_UNSOURCED_DEPOSIT_SHARE`)",
+                  "a Zelle deposit counted under Yes can be flagged, the one excluded under No cannot"):
+        assert words in served, words
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("**Audit round 3, R3-B24 (R3-16; §9.1, §17.1's default D1, §20; standard G7 and P22):**",
+                  "a deposit R2-OW16 holds as an own-account transfer is not listed, though its statement viewed "
+                  "alone lists it", "the package-month share is §17.1's alternative (e)",
+                  "a refused package nulls it and keeps the count"):
+        assert words in package, words
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B24 (§20): no bump in a fix batch either, and no stored-output change: the large "
+            "unsourced deposits' flag is served, never stored") in versions
+    assert "which the cache-bust R3-B25 moves covers" in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Audit round 3, R3-B24 (R3-16, information only;",
+                  "\"Large deposits to source: N · $X (each $10,000 or more and over 25% of True; counted, not "
+                  "verified)\"", "\"Source it\" chip", "\"1 large deposit to source: $X, S% of True revenue "
+                  "(counted, not verified).\"", "\"N large deposits to source: $X (each over 25% of its "
+                  "statement's True revenue; counted, not verified).\""):
+        assert words in cards, words
+    ledger = re.sub(r"\s+", " ", _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("\"Large deposit: S% of True revenue, counted without proof of the sale. Ask for its source.\" "
+            "(`largeDepositNotes`) on the statement page, the statement window and the package ledger") in ledger
+    queue = re.sub(r"\s+", " ", _section(text, "\n### 10.7 ", "\n### 10.8 "))
+    assert ("The side badge (`reviewBadgeValue`), the Held for Review view and its grouping, T7's gate, "
+            "`accountDecision`, the pill and the package decision do not read it") in queue
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    for words in ("- **Large unsourced deposits** (audit round 3, R3-B24: R3-16; §9.1, §9.2, §20).",
+                  "one section `large_unsourced_deposit_<n>` per served item follows the Zelle rows",
+                  "after the `debit_flag_<n>` sections, through `_escaped_rows`"):
+        assert words in exports, words
+    consumers = re.sub(r"\s+", " ", _section(text, "\n## 13. ", "\n## 14. "))
+    for words in ("the columns `large_unsourced_deposit_count` and `large_unsourced_deposit_total` right after "
+                  "`non_revenue_count`", "\"Large deposits to source: N, $X (each $10,000 or more and over 25% of "
+                  "True; information only)\""):
+        assert words in consumers, words
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("**Large unsourced deposits: the information flag's defaults (audit round 3, R3-16; standard G7, "
+                  "P22).**", "Default implemented (D1, audit round 3, R3-B24", "(b) every counted reason",
+                  "(c) Ocrolus's test", "(d) also send the statement to review: contradicts T7",
+                  "(e) a package-month share instead of the statement's", "(f) no flag (before the batch)",
+                  "It sits beside, and is not merged into, R2-OW12's default (3) above",
+                  "in 196 of them one is more than half of the True an advance is sized on, and 285 of the 415 carry "
+                  "no review signal at all"):
+        assert words in still_open, words
+    assert still_open.index("**Wires with no sender: the funding aid's defaults") < still_open.index(
+        "**Large unsourced deposits: the information flag's defaults")
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **A large counted deposit whose source the statement does not prove is "
+                                       "flagged for information**")
+    for word in ("audit round 3, R3-B24 (R3-16", *R3_B24_COMMITS, "an owner size-flag question",
+                 "under Yes, 496 rows, $17,982,934.08 (9.54% of True), in 415 statements",
+                 "the served flag leaves out the 3 rows ($206,607.13) of 3 statements whose revenue is not established",
+                 "its statements are served and downloaded byte for byte as at the base"):
+        assert word in line, word
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B24 in all**")
+    for words in ("the head snapshots equal the base's in every key", "G7 not run", "no stored output",
+                  "no version bump"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    entry = ("Audit round 3, R3-B24 (R3-16; d2f209e, 9a5e610): a large counted deposit whose source the statement does "
+             "not prove is flagged for information, beside R2-OW15's served debit flags, and no classification moves")
+    assert entry in contract
+    # Beside R2-OW15's entry, as the brief places it.
+    assert contract.index("Owner ruling 2026-10-02, R2-OW15 (the underwriter's Q6") < contract.index(entry) < (
+        contract.index("Owner ruling 2026-10-02, R2-OW16 (the underwriter's Q4"))
+
+
+def test_r3_b24_the_code_names_its_rules():
+    """Audit round 3, R3-B24: the flag's constants, its served place, the package's reading, the currency sets, the CLI
+    columns and the dashboard's helpers."""
+    import batch
+    from analysis import revenue_view
+    from webapp import app as appmod
+
+    assert (revenue_view.LARGE_UNSOURCED_DEPOSIT_FLOOR, revenue_view.LARGE_UNSOURCED_DEPOSIT_SHARE) == (10_000, 25)
+    assert len(revenue_view.LARGE_UNSOURCED_DEPOSIT_REASONS) == 8
+    served = re.sub(r"\s+", " ", inspect.getsource(revenue_view._served_account))
+    assert ("if metrics[\"revenue_established\"] is True and tiered: metrics.update(large_unsourced_deposit_metrics( "
+            "large_unsourced_deposits(rows, metrics.get(\"true_revenue_total\"))))") in served
+    package = re.sub(r"\s+", " ", inspect.getsource(appmod._package_analysis))
+    assert ("if ready and tiered and revenue_established: for large_item in large_unsourced_deposits( "
+            "tier_rows[\"counted_flagged\"], round(tier_totals[\"verified\"] + tier_totals[\"counted_flagged\"], 2)):"
+            ) in package
+    assert "large_unsourced_deposit_total" in appmod._CROSS_CURRENCY_TOTAL_KEYS & appmod._PACKAGE_MATCH_TOTAL_KEYS
+    start = batch.FIELDS.index("non_revenue_count") + 1
+    assert batch.FIELDS[start:start + 2] == ["large_unsourced_deposit_count", "large_unsourced_deposit_total"]
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    for words in ("function largeDepositFacts(source = {}, currency = \"USD\", { package: isPackage = false } = {}) {",
+                  "function largeDepositEvidenceRowHtml(", "function largeDepositNotes(tx, debitFlags = null) {",
+                  "function largeDepositSummary(source = {}, currency = \"USD\", { package: isPackage = false } = {}) {"):
+        assert words in script, words
