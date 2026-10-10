@@ -2371,12 +2371,14 @@ def test_the_handoff_and_the_plan_state_the_final_state():
     and R2-OW18, the acceptance figures, the round-3 re-audit next) and no longer the superseded Zelle exclusion or the
     finished batches as to do; the plan's withholding bullet points to spec §11."""
     handoff = _flat(HANDOFF)
+    # Audit round 3, R3-B25: the round-3 run is done, so the handoff's next step is the round-4 re-audit, not round 3's.
     for words in ("283e90e", "classification **5.7**, analysis stage **33**", "Mark Zelle Payments as True Revenue",
                   "Yes by default", "**not implemented**", "OW17", "OW18", "ACCEPTED 2026-10-07", "67.58%",
-                  "**Round-3 re-audit**", "FINAL-FIX-report.md"):
+                  "**The round-4 re-audit**", "FINAL-FIX-report.md"):
         assert words in handoff, words
     for stale in ("Every Zelle deposit is non_revenue, with the excluded total shown", "B13-B16 to do",
-                  "planned, not started", "| R2-L01 | Liberis ledger admission, carried over from R2-B03 | to do |"):
+                  "planned, not started", "| R2-L01 | Liberis ledger admission, carried over from R2-B03 | to do |",
+                  "**Round-3 re-audit** of `c486fd5..HEAD`"):
         assert stale not in handoff, stale
     plan = _flat(PLAN)
     assert ("`true_revenue` is added and is never the default. **Superseded** by the owner's ruling of 2026-10-02 on "
@@ -3518,3 +3520,69 @@ def test_the_spec_and_the_contract_record_r3_b24_review_round_1():
     assert ("average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average "
             "monthly cash flow, ") in script
     assert "gross credits,${" not in script
+
+
+#: Audit round 3, R3-B25: the round's owner decisions, one per issue, with the batch that shipped its default.
+R3_B25_OWNER_DECISIONS = {"R3-86": "R3-B19", "R3-21": "R3-B02", "R3-73": "R3-B02", "R3-20": "R3-B03",
+                          "R3-79": "R3-B03", "R3-25": "R3-B05", "R3-84": "R3-B05", "R3-51": "R3-B20",
+                          "R3-78": "R3-B21", "R3-92": "R3-B08", "R3-16": "R3-B24", "R3-62": "R3-B23",
+                          "R3-26": "R3-B01"}
+
+
+def test_the_spec_and_the_handoff_record_r3_b25_s_round_3_documents():
+    """Audit round 3, R3-B25 (D1 to D5; documentation only): §17.1's round-3 owner packet (each decision with its batch,
+    no figure repeated), R3-28's and R3-76's evidence (owner items, no fix), R3-79's same-day payoff as point (31) of
+    the lender payment changes, and the handoff's round-3 state (the run, the hosting line, what is left, the open
+    owner items, the round-3 folder)."""
+    text = SPEC.read_text(encoding="utf-8")
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    [packet] = [line for line in still_open.split(" - **")
+                if line.startswith("Audit round 3 (2026-10-07): the owner decisions.**")]
+    assert ("Each default is in the code (or, for Q3b, in the held patch); the owner may change it.") in packet
+    for issue, batch in R3_B25_OWNER_DECISIONS.items():
+        assert f"{issue} ({batch})" in packet, issue
+    for words in ("answered by the owner on 2026-10-07, \"Count it once (Recommended)\"",
+                  "answered by the owner on 2026-10-07, \"Exclude worded payoffs (Recommended)\"",
+                  "answered by the owner on 2026-10-07, \"Add a 'Caught up' line\" (§19.1), so the brief's default "
+                  "(no line of its own) no longer applies",
+                  "the lender payment changes' point (24)", "point (30)", "the Zelle setting's default (10)",
+                  "the returned funder payments' default (4)", "the returned funder payments' default (9)",
+                  "the withholding basis follow-ups' default (1)", "so no patch is held",
+                  "R3-07's history rewrite is a git question, not a reading: it is in the handoff only."):
+        assert words in packet, words
+    assert not re.search(r"\$\d{1,3},\d{3}", packet)  # the batches' own entries carry their figures
+    # The lender payment changes bullet precedes the packet, and the G7 bullet follows it.
+    assert (still_open.index("- **Lender payment changes: the defaults") < still_open.index(
+        "- **Audit round 3 (2026-10-07): the owner decisions.**") < still_open.index(
+        "- **Debit readings waiting on a G7 admission:**"))
+    for words in ("(31) a known shape: a lump sum dated the same day as the last regular payment carries no "
+                  "\"(possible payoff)\" note, since the payoff test reads only a one-off dated after the last "
+                  "payment (audit round 3, R3-79's side observation, recorded by R3-B25; alternative: read a same-day "
+                  "one-off too)",
+                  "Audit round 3 (R3-28) measured what that counts on the daily core-processor template: of about "
+                  "$296K of counted unread credits (re-parsed, both Zelle readings), about $47K to $50K sits under "
+                  "blocks the MCA standard excludes",
+                  "so holding those rows, or widening the unread screen to these forms, is a reading change the owner "
+                  "can now take; default: unchanged",
+                  "and P18 (audit round 3, R3-76, adds evidence to P18: a tax-preparation business's `TAX REFUND PROC "
+                  "DES:RE DISB` credits, two statements, are excluded as refunds with no review path",
+                  "whether `RE DISB` is the preparer's fee is unconfirmed; default: unchanged"):
+        assert words in still_open, words
+    handoff = _flat(HANDOFF)
+    for words in ("# True revenue: handoff (2026-10-10)",
+                  "The audit round-3 fix run (R3-B01 to R3-B25, on top of `1a761de`) is complete",
+                  "| Audit round 3 | re-audit on `1a761de`: 91 issues verified; 89 fixed or recorded in R3-B01..R3-B24, "
+                  "2 owner items (R3-28, R3-76); 14 owner decisions",
+                  "| Acceptance of round 3 (the Accept phase) |", "| pending |",
+                  "| round-3 fix run head (before acceptance) | 67.73% | 28.11% | 17.25% | 15.03% | 147 |",
+                  "| the same under the Zelle setting No | 66.91% | 28.11% | 16.62% | 16.48% | 170 |",
+                  "`fix/boa-nsf` = `f2e9ae1`", "`fix/capone-daily-ledger` `6c2eadb`", "`ui/5.7-dashboard-clarity` `a858647`",
+                  "**The Accept phase**", "**The final review** of `1a761de..HEAD`",
+                  "**Merge the hosting line back** before any release of `true-revenue`",
+                  "**Audit round 3's owner decisions**", "`a93aedc` and `949b9e1`", "R3-28", "R3-76",
+                  "`round3/held/R3-B21_q3b_no_sender_zelle.patch`", "**R3-75's parser re-orientation**",
+                  "**R3-90 parts B and C**", "**R3-89's person-named company holder**", "**Found (not in scope):**",
+                  "`platform_unconfirmed`", "`PMT INFO:`", "`audit/round3/`", "`tests/test_l1s3_census.py`"):
+        assert words in handoff, words
+    for issue in R3_B25_OWNER_DECISIONS:
+        assert issue in handoff, issue
