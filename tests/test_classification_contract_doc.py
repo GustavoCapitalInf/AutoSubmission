@@ -3072,3 +3072,96 @@ def test_r3_b19_the_package_names_its_sums_gate():
                   "package's sums, # per declared currency",
                   "totals[\"revenue_review_required\"] = any_member_gated or package_sums_gated"):
         assert words in source, words
+
+
+#: Audit round 3, R3-B20: the code commits §20 and the contract name, one per issue.
+R3_B20_COMMITS = {"R3-48": "9e10fd5", "R3-19": "da7f88e", "R3-51": "5860bcc"}
+
+
+def test_the_spec_and_the_contract_record_r3_b20():
+    """Audit round 3, R3-B20 (R3-48, R3-19, R3-51): §9.2's Zelle bullet (the members' flag, `setting`, the parts None
+    where not established), §9.3's no-bump line, §10.1's fact and memo, §10.4's I51 and R52 bullets, §10.5's
+    Non-Revenue note, §10.6's prior reading, §10.7's Confirm, §10.8's cells and setting row, §17.1's Zelle default
+    (10), the three §20 lines with their commits, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("`counted_as_true_revenue` is the members' served reading (audit round 3, R3-B20: R3-19, §20; it was "
+                  "the setting)", "`setting` (packages only, R3-19) is the setting the package was served under",
+                  "Audit round 3, R3-B20 (R3-48; §10.4's I51, §20): where a member's revenue is not established",
+                  "(`revenue_view.unestablished_zelle_figures`)"):
+        assert words in package, words
+    assert "`counted_as_true_revenue` is the setting and" not in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B20 (§20): no bump in a fix batch either, and no stored-output change: the batch "
+            "changes the served view, the downloads, the CLI and the dashboard's text only") in versions
+    assert "the served package's `totals.zelle_deposits` gains `setting` (R3-19)" in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("\"Zelle deposits captured: $T (n), captured rows only\"",
+                  "On a package, Yes and No read the package's `counted_as_true_revenue`, its members' served reading",
+                  "\"; Zelle deposits counted after review $V, counted $C, held for review $H\"",
+                  "\"; Zelle deposits captured $T (captured rows only)\""):
+        assert words in cards, words
+    rules = re.sub(r"\s+", " ", _section(text, "\n### 10.4 ", "\n### 10.5 "))
+    for words in ("the Zelle figures (`zelle_deposits`, R2-OW17) carry parts of True and Held, so they follow the rule",
+                  "written even where the part had no row, so no reader takes a missing part for zero",
+                  "\"Zelle deposits: $T (n), captured rows only; in True revenue and held for review: N/A (not "
+                  "established)\""):
+        assert words in rules, words
+    copy_ = re.sub(r"\s+", " ", _section(text, "\n### 10.5 ", "\n### 10.6 "))
+    assert ("Audit round 3, R3-B20 (R3-19, §9.2, §20): the flag is the reading served, a package's its members'"
+            in copy_)
+    ledger = re.sub(r"\s+", " ", _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("\" With Zelle counted (Yes), the rules hold it for review: <label>. Confirm Revenue releases it in both "
+            "settings.\"") in ledger
+    review = re.sub(r"\s+", " ", _section(text, "\n### 10.7 ", "\n### 10.8 "))
+    assert ("Audit round 3, R3-B20 (R3-51; the owner-decision default, option (a), §17.1 (10)): the one-click Confirm "
+            "stays") in review
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    for words in ("Audit round 3, R3-B20 (R3-48; §10.4's I51, §20): where the statement's revenue is not established",
+                  "the package's `zelle_deposits.setting` row reads the totals' `setting`"):
+        assert words in exports, words
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("(10) Audit round 3, R3-51 (R3-B20; the owner-decision default, option (a); §10.6, §10.7, §20)",
+                  "(b) under No, offer no Confirm on such rows (review them with the setting on Yes)",
+                  "(c) ask for a second confirmation naming the hold", "1,883 rows, $1,756,811.77, in 337 statements"):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, issue, words in (
+            ("- **Where revenue is not established, the Zelle figures say what the captured rows say", "R3-48",
+             ("amends B11's I51 line and R2-B16's R52 line above", "standard A8")),
+            ("- **A package's Zelle flag is what its members serve", "R3-19",
+             ("amends R2-OW17's line above and §9.2's words", "Not fixed (2 of 3 verifiers)")),
+            ("- **Under No, an excluded Zelle deposit names the hold the Yes rules give it", "R3-51",
+             ("the owner-decision default, option (a)", "1,883 rows, $1,756,811.77, in 337 statements"))):
+        line = _amendment_line(amendments, start)
+        for word in (f"audit round 3, R3-B20 ({issue})", R3_B20_COMMITS[issue], *words):
+            assert word in line, (issue, word)
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B20 in all**")
+    for words in ("the head snapshots equal the base's in every key", "passes G-Z (6,886 rows, $4,033,315.10",
+                  "G7 not run (no lender or debit reading is touched)"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    for words in ("Audit round 3, R3-B20 (R3-48, R3-19, R3-51; 9e10fd5, da7f88e, 5860bcc): the Zelle figures say what "
+                  "was judged, and no classification moves",
+                  "A package's `zelle_deposits.counted_as_true_revenue` is what its members serve",
+                  "the one-click Confirm stays, the owner-decision default (R3-51)"):
+        assert words in contract, words
+
+
+def test_r3_b20_the_code_names_its_rules():
+    """Audit round 3, R3-B20: the helper, the package's flag and setting, and the dashboard's prior reader name their
+    rules."""
+    from analysis import revenue_view
+    from webapp import app as appmod
+
+    helper = re.sub(r"\s+", " ", revenue_view.unestablished_zelle_figures.__doc__)
+    assert "Audit round 3, R3-48 (§10.4, I51)" in helper and "present or not" in helper
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod._package_analysis))
+    for words in ("\"counted_as_true_revenue\": package_zelle[\"counted\"]", "\"setting\": zelle_counted",
+                  "`counted_as_true_revenue` is the members' served reading (true when every kept member carrying the "
+                  "figures, or # contributing its excluded Zelle deposits, is served with them counted)"):
+        assert words in source, words
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    for words in ("const ZELLE_PRIOR_SIGNAL = \"zelle_prior:\";", "function zellePriorReading(record) {",
+                  "function zellePriorSentence(record) {", "}, { package: true })} ` +"):
+        assert words in script, words
