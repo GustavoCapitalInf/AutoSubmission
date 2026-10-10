@@ -367,3 +367,187 @@ console.log(JSON.stringify({{items, debit: packageMatchNotes({json.dumps(debit_r
         "Returned unpaid on 2031-04-02 (apr.pdf): out of paid to lenders, still in the withholding rate."]
     assert result["credit"] == [f"Returns the 2031-03-27 payment to {funder} in mar.pdf."]
     assert "Returned" in result["chip"]
+
+
+# ---------------------------------------------------------------- audit round 3, R3-B23: the download section
+# R3-67, its download half (the owner's Q5 of 2026-10-02, "show a 'returned funder payment' warning"; spec §10.8's
+# R2-OW13 bullet): the package CSV/XLSX write one `returned_funder_payment_<n>` section per served
+# `returned_funder_payments` item, after the funder sections: its fields (an empty cell where the item has none), then
+# `words`, the dashboard's warning line (app.js returnedFunderPaymentWarning) with the money in the item's own unit, as
+# the overlapping statements' words write it; a refused package keeps each item in its own unit and sums nothing.
+
+#: The fields of a `returned_funder_payment_<n>` section, in order, before its words.
+RETURNED_SECTION_FIELDS = (
+    "funder", "amount", "debit_date", "debit_location", "credit_date", "credit_location", "credit_description",
+    "source_job", "source_document", "source_account", "source_currency", "cross_statement", "credit_job",
+    "credit_document", "credit_account", "represented_date", "represented_location", "represented_kind",
+    "represented_job", "represented_document", "represented_account")
+
+
+def _returned_sections(package):
+    """Each `returned_funder_payment_<n>` section of the package rows, {n: {field: value}}, and the fields' order."""
+    from webapp.app import _package_rows
+
+    sections, order = {}, {}
+    for section, field, value in _package_rows(package):
+        if section.startswith("returned_funder_payment_"):
+            index = int(section.rsplit("_", 1)[1])
+            sections.setdefault(index, {})[field] = value
+            order.setdefault(index, []).append(field)
+    return sections, order
+
+
+def test_r3_67_the_package_rows_write_a_section_per_returned_funder_payment():
+    """F1: March, and an April whose payment of April 1 the bank returns on April 2 (rule D inside April)."""
+    from tests.test_package_matching import _package
+
+    march, april = _months(_april(extra=((1, KAPITUS_BAKERY, -850.0),)))
+    package = _package(("mar", march), ("apr", april))
+    sections, order = _returned_sections(package)
+    assert list(sections) == [1] and order[1] == [*RETURNED_SECTION_FIELDS, "words"]
+    section = sections[1]
+    assert (section["funder"], section["amount"], section["debit_date"], section["credit_date"]) == (
+        "KAPITUS", 850.0, "2031-04-01", "2031-04-02")
+    assert (section["source_job"], section["source_document"], section["source_currency"]) == ("apr", "apr.pdf", "USD")
+    assert (section["credit_description"], section["debit_location"], section["credit_location"]) == (
+        BARE_BOUNCE, _location(april, 1, -850.0), _location(april, 2, 850.0))
+    # A field the item does not carry is an empty cell.
+    assert all(section[field] == "" for field in ("source_account", "cross_statement", "credit_job", "credit_document",
+                                                  "credit_account", "represented_date", "represented_document"))
+    assert section["words"] == ('Returned funder payment: KAPITUS 850.00 USD debited 2031-04-01, returned 2031-04-02 '
+                                '("ACH RETURN ITEM NSF"). Not counted as paid; still in the withholding rate.')
+
+
+def test_r3_67_a_cross_statement_return_names_both_documents_in_its_section():
+    """F2: F2(b)'s bare bounce of April 2 returning March 27's payment."""
+    from tests.test_package_matching import _package
+
+    package = _package(*zip(("mar", "apr"), _months(_april())))
+    sections, _order = _returned_sections(package)
+    section = sections[1]
+    assert (section["cross_statement"], section["credit_job"], section["credit_document"]) == (True, "apr", "apr.pdf")
+    assert section["words"] == (
+        'Returned funder payment: KAPITUS 850.00 USD debited 2031-03-27 (mar.pdf), returned 2031-04-02 (apr.pdf) '
+        '("ACH RETURN ITEM NSF"). Not counted as paid; still in the withholding rate.')
+
+
+def test_r3_67_a_re_debited_return_reads_counted_once_in_its_section():
+    """R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it once"): a return the funder re-debited in the next
+    statement names the re-debit and is counted once in the rate, as the dashboard's warning reads."""
+    from tests.test_package_matching import _package
+    from tests.test_represented_funder_payments import MARCH as TUESDAYS
+    from tests.test_represented_funder_payments import _months as _tuesday_months
+
+    march, april = _tuesday_months([*TUESDAYS, (28, BARE_BOUNCE, 850.0)],
+                                   [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0)]
+                                   + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)])
+    sections, _order = _returned_sections(_package(("mar", march), ("apr", april)))
+    section = sections[1]
+    assert (section["represented_date"], section["represented_kind"], section["represented_job"],
+            section["represented_document"]) == ("2031-04-03", "re_presented", "apr", "apr.pdf")
+    assert section["words"] == (
+        'Returned funder payment: KAPITUS 850.00 USD debited 2031-03-25, returned 2031-03-28 ("ACH RETURN ITEM NSF"), '
+        're-presented on 2031-04-03 (apr.pdf). Not counted as paid; counted once in the withholding rate, by the '
+        're-presented payment.')
+
+
+def test_r3_67_a_package_without_a_return_writes_no_section():
+    """F3 (control)."""
+    from tests.test_package_matching import _package
+
+    march, _april_payload = _months(_april())
+    package = _package(("mar", march))
+    assert package["returned_funder_payments"] == []
+    assert _returned_sections(package) == ({}, {})
+
+
+def test_r3_67_a_refused_package_keeps_each_returned_payment_in_its_own_unit():
+    """F4: a CAD account and a USD account, each with a payment the bank returned the next day: the package refuses
+    its money across currencies, and each section names its own unit; no returned money is summed."""
+    import csv
+    import io
+
+    from tests.test_package_matching import ACCOUNT_B, _package, _payload
+    from webapp.app import _masked, _package_csv, _package_for_export
+
+    cad = _payload([(2, NW_MARCH, 30000.0), (5, KAPITUS_BAKERY, -850.0), (6, BARE_BOUNCE, 850.0)], month=3,
+                   opening=5000.0, currency="CAD")
+    usd = _payload([(3, NW_APRIL, 30000.0), (7, KAPITUS_BAKERY, -850.0), (8, BARE_BOUNCE, 850.0)], month=3,
+                   opening=5000.0, number=ACCOUNT_B)
+    package = _package(("cad", cad), ("usd", usd))
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert (totals["returned_funder_payment_total"], totals["returned_funder_payment_count"]) == (None, 2)
+    sections, _order = _returned_sections(package)
+    assert [(section["source_currency"], section["amount"]) for section in sections.values()] == [
+        ("CAD", 850.0), ("USD", 850.0)]
+    assert sections[1]["words"].startswith("Returned funder payment: KAPITUS 850.00 CAD debited 2031-03-05, ")
+    assert sections[2]["words"].startswith("Returned funder payment: KAPITUS 850.00 USD debited 2031-03-07, ")
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(_masked(_package_for_export(
+        package))))) if len(row) == 3}
+    assert cells[("totals", "returned_funder_payment_total")] == ""
+    assert cells[("returned_funder_payment_2", "words")] == sections[2]["words"]
+
+
+def test_r3_67_the_section_reaches_the_package_csv_and_xlsx():
+    """Through the download route's chain (`_masked(_package_for_export(...))`, then the writers), every cell through
+    the escaped-row path."""
+    import csv
+    import io
+
+    from tests.test_package_matching import _package
+    from tests.test_webapp_true_revenue import _sheet_rows
+    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+
+    exported = _masked(_package_for_export(_package(*zip(("mar", "apr"), _months(_april())))))
+    words = ('Returned funder payment: KAPITUS 850.00 USD debited 2031-03-27 (mar.pdf), returned 2031-04-02 (apr.pdf) '
+             '("ACH RETURN ITEM NSF"). Not counted as paid; still in the withholding rate.')
+    csv_rows = list(csv.reader(io.StringIO(_package_csv(exported))))
+    assert ["returned_funder_payment_1", "words", words] in csv_rows
+    assert ["returned_funder_payment_1", "cross_statement", "True"] in csv_rows
+    xlsx_rows = _sheet_rows(_package_xlsx(exported))
+    assert ["returned_funder_payment_1", "words", words] in xlsx_rows
+    assert ["returned_funder_payment_1", "amount", 850.0] in xlsx_rows
+    # The section follows the funder sections.
+    sections = [row[0] for row in csv_rows if len(row) == 3]
+    assert sections.index("returned_funder_payment_1") > max(
+        index for index, section in enumerate(sections) if section.startswith("funder_"))
+
+
+#: Fabricated warning items covering each branch of app.js returnedFunderPaymentWarning.
+WARNING_ITEMS = [
+    {"funder": "KAPITUS", "amount": 850.0, "debit_date": "2031-04-01", "credit_date": "2031-04-02",
+     "credit_description": BARE_BOUNCE, "source_document": "apr.pdf", "source_currency": "USD"},
+    {"funder": "KAPITUS", "amount": 1234.5, "debit_date": "2031-03-27", "credit_date": "2031-04-02",
+     "credit_description": "=SAMPLE RETURN", "source_document": "mar.pdf", "source_currency": "CAD",
+     "credit_document": "apr.pdf", "cross_statement": True},
+    {"funder": None, "amount": 850.0, "debit_date": None, "credit_date": None, "credit_description": None,
+     "source_currency": None, "cross_statement": True},
+    {"funder": "ONDECK", "amount": 1200.0, "debit_date": "2031-03-09", "credit_date": "2031-03-11",
+     "credit_description": BARE_BOUNCE, "source_currency": "USD", "represented_date": "2031-03-12",
+     "represented_kind": "re_presented"},
+    {"funder": "ONDECK", "amount": 1200.0, "debit_date": "2031-03-09", "credit_date": "2031-03-11",
+     "source_currency": "USD", "represented_date": "2031-03-16", "represented_kind": "caught_up",
+     "represented_document": "apr.pdf"},
+]
+
+
+@needs_node
+def test_r3_67_the_section_s_words_are_the_dashboard_s_warning():
+    """The words are app.js returnedFunderPaymentWarning's line on every branch (in-statement, cross-statement with and
+    without its documents, re-presented, caught up, no funder, no dates, no unit), the money written as the
+    downloads write money (`850.00 USD`, no unit when the item has none) in place of the dashboard's formatted money."""
+    import json
+
+    from webapp.app import _returned_funder_payment_words
+
+    result = run_dashboard(f"""
+const items = {json.dumps(WARNING_ITEMS)};
+console.log(JSON.stringify(items.map((item) => ({{
+  line: returnedFunderPaymentWarning(item, 'USD'),
+  money: formatMoney(item.amount, "source_currency" in item ? item.source_currency : 'USD'),
+}}))));
+""")
+    for item, dashboard in zip(WARNING_ITEMS, result, strict=True):
+        money = f"{item['amount']:,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
+        assert _returned_funder_payment_words(item) == dashboard["line"].replace(dashboard["money"], money, 1)

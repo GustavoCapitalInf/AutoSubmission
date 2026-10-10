@@ -825,6 +825,43 @@ def _repeated_account_words(entry: dict, filenames: dict[str, str]) -> str:
     return f"{words} ({SUPERSEDED_REASON_WORDS[reason]})" if reason in SUPERSEDED_REASON_WORDS else words
 
 
+#: Audit round 3, R3-B23 (R3-67): the fields of a `returned_funder_payment_<n>` section of the package downloads, in
+#: order, before its words: the served warning item's (R2-OW13; the final review of round 2's F2(b) adds the return's
+#: statement for a match across statements), then, since R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it
+#: once"), the re-debit's of a payment the funder re-debited.
+_RETURNED_FUNDER_PAYMENT_FIELDS = (
+    "funder", "amount", "debit_date", "debit_location", "credit_date", "credit_location", "credit_description",
+    "source_job", "source_document", "source_account", "source_currency", "cross_statement", "credit_job",
+    "credit_document", "credit_account", "represented_date", "represented_location", "represented_kind",
+    "represented_job", "represented_document", "represented_account",
+)
+
+
+def _returned_funder_payment_words(item: dict) -> str:
+    """Audit round 3, R3-B23 (R3-67): a returned funder payment as the dashboard's warning reads it (app.js
+    returnedFunderPaymentWarning, §10.1), its money as the downloads write money: the amount, then the item's own unit
+    where it names one (the overlapping statements' words; no unit when it is unknown). A payment matched to its return
+    across statements names both documents; a payment the funder re-debited (R3-B02) names the re-debit and is counted
+    once in the withholding rate."""
+    amount = item.get("amount")
+    money = (f"{float(amount):,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
+             if _is_money_value(amount) else "N/A")
+    across = item.get("cross_statement") is True
+    debited = f" ({item.get('source_document') or 'a statement'})" if across else ""
+    returned = f" ({item.get('credit_document') or 'the next statement'})" if across else ""
+    quoted = f' ("{item["credit_description"]}")' if item.get("credit_description") else ""
+    head = (f"Returned funder payment: {item.get('funder') or 'Confirmed lender'} {money} debited "
+            f"{item.get('debit_date') or 'N/A'}{debited}, returned {item.get('credit_date') or 'N/A'}{returned}{quoted}")
+    if item.get("represented_date"):
+        where = f" ({item['represented_document']})" if item.get("represented_document") else ""
+        caught_up = item.get("represented_kind") == "caught_up"
+        how = (f"caught up on {item['represented_date']}{where}, 2x" if caught_up
+               else f"re-presented on {item['represented_date']}{where}")
+        return (f"{head}, {how}. Not counted as paid; counted once in the withholding rate, by the "
+                f"{'catch-up' if caught_up else 're-presented payment'}.")
+    return f"{head}. Not counted as paid; still in the withholding rate."
+
+
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
@@ -924,6 +961,15 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"funder_{idx}", key, "" if value is None else value))
+    # Audit round 3, R3-B23 (R3-67; the owner's Q5 of 2026-10-02, "show a 'returned funder payment' warning"; R2-OW13):
+    # each funder payment the bank returned unpaid, as the package serves it, its fields and then the dashboard's
+    # warning line, each in its own statement's unit (a refused package sums none of them).
+    returned = [item for item in package.get("returned_funder_payments") or [] if isinstance(item, dict)]
+    for idx, item in enumerate(returned, start=1):
+        for key in _RETURNED_FUNDER_PAYMENT_FIELDS:
+            value = item.get(key)
+            rows.append((f"returned_funder_payment_{idx}", key, "" if value is None else value))
+        rows.append((f"returned_funder_payment_{idx}", "words", _returned_funder_payment_words(item)))
     for idx, funder in enumerate(package.get("potential_lenders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"potential_lender_{idx}", key, "" if value is None else value))
