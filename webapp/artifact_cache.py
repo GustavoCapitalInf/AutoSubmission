@@ -733,7 +733,7 @@ OCR_STAGE_VERSION = 5
 # stage-33 analysis when it landed, so it needs no bump of its own. F1 (the
 # withholding basis) is applied when an analysis is served and F2(b) when a
 # package is built: neither changes a stored analysis.
-# 33 -> 36: TRUE-REVENUE audit round 3, batch R3-B25, in the commit that moves
+# 33 -> 36:TRUE-REVENUE audit round 3, batch R3-B25, in the commit that moves
 # CLASSIFICATION_VERSION 5.7 -> 5.8 (required with it: Re-analyze reads the
 # analysis cache through, so with 5.8 alone it would return the stage-33 entry
 # still stamped 5.7 and the notice would survive its own button; at 36 a
@@ -803,7 +803,25 @@ OCR_STAGE_VERSION = 5
 # returned payment whose only re-debit was a worded payoff (F3) and a wire from
 # a company named only with R3-40's words (F4); its member-row rates (F2) and
 # large-deposit floor (F6) are computed when served.
-ANALYSIS_STAGE_VERSION = 36
+# The hosting line (`fix/boa-nsf`, served on the Fly demo) moved the stage on
+# its own, from 33, for code this branch did not carry until the merge-back:
+# 33 -> 34 (owner report 2026-10-08, Capital One daily ledger): the parser declares postings printed on the
+# previous-balance day (`Statement.pre_period_carry_in_count`) and the ADB engine folds them into the opening
+# balance, so such a statement's stored ADB and NSF days change from withheld to published; OCR stays cached.
+# 34 -> 35 (owner report 2026-10-08, Bank of America NSF): its verified Daily ledger balances join the stored ledger.
+# 36 -> 37: TRUE-REVENUE audit round 3, R3-MERGE, the merge-back of the hosting
+# line (`fix/boa-nsf` f2e9ae1) into this branch, in the merge commit itself.
+# The merged analysis output differs from both lines' (round 3's readings at
+# 36 with the hosting line's two parser fixes at 34 and 35: a Capital One
+# statement's carry-in fold and a Bank of America statement's verified Daily
+# ledger balances in the stored ledger), so neither line's entry may be served
+# as the merged code's: 37 is the next free stage above both lines (34 and 35
+# are the hosting line's, 36 this branch's). CLASSIFICATION_VERSION stays 5.8:
+# the hosting line changed no classification. The hosting line's dashboard
+# changes (the plain-voice lender notes, the hero, the Monthly Statements
+# columns, the chart's colours) are computed when served, never stored. OCR
+# stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 37
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):

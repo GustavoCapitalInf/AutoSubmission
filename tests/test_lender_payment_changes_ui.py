@@ -76,36 +76,50 @@ def test_u1_to_u4_the_lines():
     p4 = p4["lender_payment_changes"][0]
     texts = warning_texts([L1, p1, L8, L9, L16, p4, L31, L32, L10B, POTENTIAL, POSSIBLE, STEPS])
     lines = [text for text, _chip_html in texts]
-    assert lines[0] == ("Payment decreased: KAPITUS daily $850.00 → $600.00 (-29%) from 2054-03-16; 8 payments at the "
-                        "new amount, after 10 at the old.")
-    assert lines[1] == ("Payment decreased: KAPITUS weekly $1,000.00 → $700.00 (-30%) from 2054-04-01; 4 payments at "
-                        "the new amount, after 4 at the old (march.pdf → april.pdf).")
-    assert lines[2] == ("Payment schedule changed: KAPITUS daily $500.00 → weekly $2,500.00 from 2054-03-23 (weekly "
-                        "equivalent $2,500.00 → $2,500.00, 0%: no decrease); 4 payments on the new schedule, after 15 "
-                        "on the old.")
-    assert lines[3] == ("Payment decreased: KAPITUS daily $500.00 → weekly $1,500.00 (weekly equivalent $2,500.00 → "
-                        "$1,500.00, -40%) from 2054-03-23; 4 payments at the new amount, after 15 at the old.")
-    assert lines[4] == ("Possible stop: no payment to KAPITUS in the last 11 business days of the statement (weekly; "
-                        "last payment $1,000.00 on 2054-05-13; more than 10 business days without a payment, two "
-                        "missed weekly payments).")
-    assert lines[5] == ("No payment to KAPITUS since 2054-04-29 (weekly; last payment $1,000.00; 21 business days "
-                        "through 2054-05-29) (april.pdf).")
-    assert lines[6] == ("Possible stop: no regular $850.00 payment to KAPITUS since 2054-03-13; 3 later debits at "
-                        "other amounts, the last on 2054-03-19 (daily; last payment $850.00 on 2054-03-13; more than "
-                        "5 business days without a payment).")
-    assert lines[7] == ("Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
-                        "daily, grace 5), then resumed at the same daily $850.00.")
-    assert lines[8] == ("New payment stream: KAPITUS weekly $2,100.00 from 2054-03-18, alongside weekly $1,000.00 "
-                        "(weekly total $1,000.00 → $3,100.00, +210%; payment stream 2 of 2).")
-    assert lines[9] == ("Payment decreased (potential lender): Unidentified lender obligation (daily, 300.00) daily "
-                        "$300.00 → $250.00 (-17%) from 2054-03-16; 8 payments at the new amount, after 10 at the old.")
+    # The owner's request of 2026-10-07 (dashboard clarity): each line is a headline, plain sentences and, on a package
+    # item, the statements it comes from (here without the page's rows: the files' names).
+    # Review round 1 of the 2026-10-07 change: no "so far" in the counts, the weekly total first (and in the headline)
+    # where the schedule changes, and the grace window read as a threshold.
+    assert lines[0] == ("KAPITUS: payment went down 29%. The daily payment went from $850.00 to $600.00 starting Mar 16, "
+                        "2054 (8 payments at the new amount, after 10 at the old).")
+    assert lines[1] == ("KAPITUS: payment went down 30%. The weekly payment went from $1,000.00 to $700.00 starting Apr "
+                        "1, 2054 (4 payments at the new amount, after 4 at the old). From: march.pdf → april.pdf.")
+    assert lines[2] == ("KAPITUS: payment schedule changed. Payments changed from daily $500.00 to weekly $2,500.00 "
+                        "starting Mar 23, 2054 (4 payments on the new schedule, after 15 on the old). The weekly total "
+                        "stayed about the same ($2,500.00 before, $2,500.00 after).")
+    assert lines[3] == ("KAPITUS: weekly payment total went down 40%. The weekly total went from $2,500.00 to "
+                        "$1,500.00. Payments changed from daily $500.00 to weekly $1,500.00 starting Mar 23, 2054 (4 "
+                        "payments at the new amount, after 15 at the old).")
+    assert lines[4] == ("KAPITUS: payments may have stopped. No payment in the last 11 business days of this statement. "
+                        "A weekly schedule allows up to 10 business days without a payment. Last payment: $1,000.00 on "
+                        "May 13, 2054.")
+    assert lines[5] == ("KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Apr 29, 2054. No payments in the "
+                        "21 business days after it, through May 29, 2054. From: april.pdf.")
+    # Review round 3 of the 2026-10-07 change: the quiet business days after the last debit at another amount.
+    assert lines[6] == ("KAPITUS: payments may have stopped. Last regular daily payment: $850.00 on Mar 13, 2054. After "
+                        "it came only 3 debits at other amounts, the last on Mar 19, 2054. No payment in the 8 business "
+                        "days after Mar 19, 2054, to the end of this statement. A daily schedule allows up to 5 business "
+                        "days without a payment.")
+    assert lines[7] == ("KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 16, 2054 (6 business "
+                        "days, more than the 5 a daily schedule allows). Payments then resumed at the same daily "
+                        "$850.00.")
+    assert lines[8] == ("KAPITUS: a second payment started. A second weekly payment of $2,100.00 started on Mar 18, "
+                        "2054, alongside the existing weekly $1,000.00. The weekly total went from $1,000.00 to "
+                        "$3,100.00 (+210%).")
+    # Review round 2 of the 2026-10-07 change: the new payments' own label, where it differs, is named. Review round 3:
+    # a potential lender's headline reads "Potential lender <label>: ...".
+    assert lines[9] == ("Potential lender Unidentified lender obligation (daily, 300.00): payment went down 17%. The "
+                        "daily payment went from $300.00 to $250.00 starting Mar 16, 2054 (8 payments at the new amount, "
+                        "after 10 at the old). The new payments are listed as Unidentified lender obligation (daily, "
+                        "250.00).")
     # § Still open 18's alternative and § Still open 23's alternative (the orchestrator's choices of 2026-10-06).
-    assert lines[10] == ("Possible payment decrease: KAPITUS daily $500.00 → weekly $1,600.00 (weekly equivalent "
-                         "$2,500.00 → $1,600.00, -36%) from 2054-03-23; 2 payments at the new amount, after 15 at the "
-                         "old; new schedule not yet confirmed.")
+    assert lines[10] == ("KAPITUS: weekly payment total may have gone down 36%. The weekly total went from $2,500.00 to "
+                         "$1,600.00. Payments changed from daily $500.00 to weekly $1,600.00 starting Mar 23, 2054 (2 "
+                         "payments at the new amount, after 15 at the old). The new schedule isn't confirmed yet.")
     # R2-OW18 review round 1: the unreported levels with the step into each, then the last step.
-    assert lines[11] == ("Payment decreased: KAPITUS weekly $1,000.00 → $880.00 (-12%) from 2054-04-27; 4 payments at "
-                         "the new amount, after 4 at the old; via weekly $950.00 (-5%), then weekly $880.00 (-7%).")
+    assert lines[11] == ("KAPITUS: payment went down 12%. The weekly payment went from $1,000.00 to $880.00 starting Apr "
+                         "27, 2054 (4 payments at the new amount, after 4 at the old). It stepped through $950.00 (-5%) "
+                         "on the way, then to $880.00 (-7%).")
     chips = [chip for _text, chip in texts]
     assert chips[0] == chips[1] == chip_html("↓", "Decreased", "amber")
     assert chips[2] == chip_html("↻", "Schedule", "blue")
@@ -122,20 +136,24 @@ def test_u4_the_stop_suffixes():
                          + [pure._credit(M(13), 25000)])
     p6b = pkg.p6b()["lender_payment_changes"][0]
     texts = [text for text, _chip in warning_texts([L20, L21, L21_NEW, L21_RELIEF, L23, p6b, ATTEMPT, increase])]
-    assert texts[0].endswith("; a final debit of $5,000.00 on 2054-04-20 (possible payoff).")
-    assert texts[1].endswith("; payments of $860.00 continue as ONDECK from 2054-03-17 (possible buyout or refinance).")
-    assert texts[2].endswith("; a new lender series starts: ONDECK daily $1,000.00 from 2054-03-17.")
-    assert texts[3].endswith("; a debt relief program's payments start on 2054-03-18 (possible default or settlement).")
-    assert texts[4] == ("Possible stop: no payment to KAPITUS (payment stream 1 of 2) in the last 23 business days of "
-                        "the statement (weekly; last payment $1,000.00 on 2054-03-30; more than 10 business days "
-                        "without a payment, two missed weekly payments); another KAPITUS payment stream continues "
-                        "($1,200.00 weekly).")
-    assert texts[5].endswith("; payments to KAPITUS continue from another account (b-april.pdf) from 2054-04-15 at "
-                             "$1,000.00 (a-april.pdf).")
-    assert texts[5].startswith("Possible stop: no payment to KAPITUS in the last ")
-    assert "through 2054-05-29" in texts[5]
-    assert texts[6].endswith("; the last attempt, on 2054-04-08, was returned unpaid.")
-    assert texts[7].endswith("; after a new funding from KAPITUS of $25,000.00 on 2054-03-13 (renewal?).")
+    # The owner's request of 2026-10-07: each extra note is its own "Also:" sentence.
+    assert texts[0].endswith(" Also: a final debit of $5,000.00 on Apr 20, 2054 may be a payoff.")
+    assert texts[1].endswith(" Also: payments of $860.00 continue under ONDECK from Mar 17, 2054; this may be a buyout "
+                             "or refinance.")
+    assert texts[2].endswith(" Also: ONDECK started daily payments of $1,000.00 on Mar 17, 2054; it may have taken over "
+                             "this advance.")
+    assert texts[3].endswith(" Also: a debt-relief program's payments start on Mar 18, 2054; this may mean a default or "
+                             "settlement.")
+    assert texts[4] == ("KAPITUS: payments may have stopped. No payment in the last 23 business days of this statement. "
+                        "A weekly schedule allows up to 10 business days without a payment. Last payment: $1,000.00 on "
+                        "Mar 30, 2054. This lender has 2 separate payment streams; this note is about the first. Also: "
+                        "another KAPITUS payment of $1,200.00 weekly continues.")
+    assert texts[5].endswith(" Also: payments to KAPITUS continue from another account (b-april.pdf) from Apr 15, 2054 "
+                             "at $1,000.00. From: a-april.pdf.")
+    assert texts[5].startswith("KAPITUS: payments may have stopped. No payment in the last ")
+    assert ", through May 29, 2054." in texts[5]
+    assert texts[6].endswith(" Also: the last attempt, on Apr 8, 2054, was returned unpaid.")
+    assert texts[7].endswith(" Also: KAPITUS deposited $25,000.00 on Mar 13, 2054, just before; this may be a renewal.")
 
 
 @needs_node
@@ -144,9 +162,9 @@ def test_u4_the_change_suffixes():
     decrease, increase = pure.changes(cut + pure._rows(pure.bdays(M(19), M(26)), 850))
     restart = pure.only(pure._rows(pure.every(M(2), M(23)), 1000) + pure._rows(pure.every(A(20), Y(4)), 700), end=Y(8))
     texts = [text for text, _chip in warning_texts([decrease, increase, restart])]
-    assert texts[0].endswith("; temporary: back to $850.00 from 2054-03-19.")
-    assert texts[1].endswith("; back to the earlier $850.00 payment.")
-    assert texts[2].endswith("; after a pause of 20 business days.")
+    assert texts[0].endswith(" Also: this was temporary; the payment went back to $850.00 on Mar 19, 2054.")
+    assert texts[1].endswith(" Also: this is back to the earlier $850.00 payment.")
+    assert texts[2].endswith(" Also: the new amount started after a pause of 20 business days with no payment.")
 
 
 # ------------------------------------------------------------------- R2-OW18 review round 1 (fabricated rows only)
@@ -159,16 +177,19 @@ def test_r1_an_abrupt_cut_after_a_drift_names_its_last_step():
     older = {**abrupt, "via": [{"amount": 950.0, "cadence": "weekly"}]}
     older.pop("last_step_percent")
     texts = [text for text, _chip in warning_texts([abrupt, possible, change, older])]
-    assert texts[0] == ("Payment decreased: KAPITUS weekly $1,000.00 → $650.00 (-35%) from 2054-04-13; 3 payments at "
-                        "the new amount, after 3 at the old; via weekly $950.00 (-5%), then weekly $650.00 (-32%).")
-    assert texts[1] == ("Possible payment decrease: KAPITUS daily $500.00 → weekly $1,600.00 (weekly equivalent "
-                        "$2,500.00 → $1,600.00, -36%) from 2054-03-16; 2 payments at the new amount, after 10 at the "
-                        "old; new schedule not yet confirmed.")
-    assert texts[2] == ("Payment schedule changed: KAPITUS daily $500.00 → weekly $2,300.00 from 2054-03-30 (weekly "
-                        "equivalent $2,500.00 → $2,300.00, -8%: no decrease); 3 payments on the new schedule, after 10 "
-                        "on the old; via weekly $1,600.00 (-36%), then weekly $2,300.00 (+44%).")
+    assert texts[0] == ("KAPITUS: payment went down 35%. The weekly payment went from $1,000.00 to $650.00 starting Apr "
+                        "13, 2054 (3 payments at the new amount, after 3 at the old). It stepped through $950.00 (-5%) "
+                        "on the way, then to $650.00 (-32%).")
+    assert texts[1] == ("KAPITUS: weekly payment total may have gone down 36%. The weekly total went from $2,500.00 to "
+                        "$1,600.00. Payments changed from daily $500.00 to weekly $1,600.00 starting Mar 16, 2054 (2 "
+                        "payments at the new amount, after 10 at the old). The new schedule isn't confirmed yet.")
+    # A level names its schedule where the change crosses schedules.
+    assert texts[2] == ("KAPITUS: payment schedule changed. Payments changed from daily $500.00 to weekly $2,300.00 "
+                        "starting Mar 30, 2054 (3 payments on the new schedule, after 10 on the old). The weekly total "
+                        "stayed about the same ($2,500.00 before, $2,300.00 after, -8%). It stepped through weekly "
+                        "$1,600.00 (-36%) on the way, then to weekly $2,300.00 (+44%).")
     # An item stored without the step fields names its levels alone; no line claims the steps' size.
-    assert texts[3].endswith("; via weekly $950.00.")
+    assert texts[3].endswith(" It stepped through $950.00 on the way.")
     assert not any("under 10%" in text for text in texts)
 
 
@@ -182,23 +203,25 @@ def test_r1_a_pause_or_a_stop_whose_presence_is_an_attempt_says_so():
     [stop] = pure._chain((march, M(1), M(31)), ([], A(1), A(30)))
     stop = {**pure.lpc.public_item(stop), "source_document": "april.pdf"}
     texts = [text for text, _chip in warning_texts([attempt, other, stop, ATTEMPT, L32])]
-    assert texts[0] == ("Payments paused: no payment or payment attempt to KAPITUS between 2054-03-06 and 2054-03-16 "
-                        "(6 business days; daily, grace 5); the attempt on 2054-03-16 was returned unpaid, and payments "
-                        "resumed at the same daily $850.00 on 2054-03-23.")
-    assert texts[1] == ("Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
-                        "daily, grace 5); a payment at another amount on 2054-03-16, and payments resumed at the same "
-                        "daily $850.00 on 2054-03-23.")
+    assert texts[0] == ("KAPITUS: payments paused, then resumed. No payment or payment attempt between Mar 6 and Mar 16, "
+                        "2054 (6 business days, more than the 5 a daily schedule allows). The attempt on Mar 16, 2054 "
+                        "was returned unpaid, and payments resumed at the same daily $850.00 on Mar 23, 2054.")
+    assert texts[1] == ("KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 16, 2054 (6 business "
+                        "days, more than the 5 a daily schedule allows). A payment of another amount came on Mar 16, "
+                        "2054, and payments resumed at the same daily $850.00 on Mar 23, 2054.")
     assert stop["stop_confirmed"] is True
-    assert texts[2] == (f"No payment or payment attempt to KAPITUS since 2054-03-25 (weekly; last payment $1,000.00 on "
-                        f"2054-03-18; {stop['quiet_business_days']} business days through 2054-04-30); the last "
-                        f"attempt, on 2054-03-25, was returned unpaid (april.pdf).")
-    assert texts[3] == (f"Possible stop: no payment or payment attempt to KAPITUS in the last "
-                        f"{ATTEMPT['quiet_business_days']} business days of the statement (weekly; last payment "
-                        f"$1,000.00 on 2054-04-01; more than 10 business days without a payment, two missed weekly "
-                        f"payments); the last attempt, on 2054-04-08, was returned unpaid.")
+    assert texts[2] == (f"KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Mar 18, 2054. No payment or "
+                        f"payment attempt in the {stop['quiet_business_days']} business days after Mar 25, 2054, "
+                        f"through Apr 30, 2054. Also: the last attempt, on Mar 25, 2054, was returned unpaid. From: "
+                        f"april.pdf.")
+    assert texts[3] == (f"KAPITUS: payments may have stopped. No payment or payment attempt in the last "
+                        f"{ATTEMPT['quiet_business_days']} business days of this statement. A weekly schedule allows "
+                        f"up to 10 business days without a payment. Last payment: $1,000.00 on Apr 1, 2054. Also: the "
+                        f"last attempt, on Apr 8, 2054, was returned unpaid.")
     # The regime's own payment ends L32's pause: the line as before.
-    assert texts[4] == ("Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
-                        "daily, grace 5), then resumed at the same daily $850.00.")
+    assert texts[4] == ("KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 16, 2054 (6 business "
+                        "days, more than the 5 a daily schedule allows). Payments then resumed at the same daily "
+                        "$850.00.")
 
 
 @needs_node
@@ -207,8 +230,8 @@ def test_u11_u12_the_tones():
     assert texts[0][1] == chip_html("‖", "Paused", "amber") and texts[1][1] == chip_html("+", "New stream", "blue")
     assert texts[2][1] == chip_html("↓", "Decreased", "neutral")
     assert texts[3][1] == chip_html("■", "Possible stop", "neutral")
-    assert texts[3][0].startswith("Possible stop: no payment to potential lender Unidentified lender obligation "
-                                  "(daily, 300.00) in the last 6 business days of the statement (daily;")
+    assert texts[3][0].startswith("Potential lender Unidentified lender obligation (daily, 300.00): payments may have "
+                                  "stopped. No payment in the last 6 business days of this statement.")
     assert texts[4][1] == chip_html("↓", "Decreased", "amber")
 
 
@@ -222,14 +245,19 @@ def test_r3_b04_the_lines_of_a_slower_triple_and_of_a_restoration_read_through_b
         pure._rows(pure.bdays(M(2), M(27)), 850) + pure._rows(pure.bdays(M(30), A(10)), 340)
         + pure._split(pure.bdays(A(13), Y(8)), 850, pure._wednesdays), end=Y(8))
     texts = warning_texts([slower, decrease, increase])
+    # Audit round 3, R3-MERGE: each line in the plain voice of the owner's request of 2026-10-07 (the hosting line's
+    # lender notes); every fact the round-3 line carried stays (the levels, the weekly equivalents and the percentage,
+    # the first day, the counts, the unconfirmed schedule, the temporary cut and the return to the earlier amount).
     assert texts[0] == [
-        "Possible payment decrease: KAPITUS daily $500.00 → weekly $1,500.00 (weekly equivalent $2,500.00 → "
-        "$1,500.00, -40%) from 2054-03-23; 2 payments at the new amount, after 15 at the old; new schedule not yet "
-        "confirmed.", chip_html("↓", "Possible decrease", "amber")]
-    assert texts[1][0] == ("Payment decreased: KAPITUS daily $850.00 → $340.00 (-60%) from 2054-03-30; 10 payments at "
-                           "the new amount, after 20 at the old; temporary: back to $850.00 from 2054-04-15.")
-    assert texts[2][0] == ("Payment increased: KAPITUS daily $340.00 → $850.00 (+150%) from 2054-04-15; 4 payments at "
-                           "the new amount, after 10 at the old; back to the earlier $850.00 payment.")
+        "KAPITUS: weekly payment total may have gone down 40%. The weekly total went from $2,500.00 to $1,500.00. "
+        "Payments changed from daily $500.00 to weekly $1,500.00 starting Mar 23, 2054 (2 payments at the new amount, "
+        "after 15 at the old). The new schedule isn't confirmed yet.", chip_html("↓", "Possible decrease", "amber")]
+    assert texts[1][0] == ("KAPITUS: payment went down 60%. The daily payment went from $850.00 to $340.00 starting Mar "
+                           "30, 2054 (10 payments at the new amount, after 20 at the old). Also: this was temporary; the "
+                           "payment went back to $850.00 on Apr 15, 2054.")
+    assert texts[2][0] == ("KAPITUS: payment went up 150%. The daily payment went from $340.00 to $850.00 starting Apr "
+                           "15, 2054 (4 payments at the new amount, after 10 at the old). Also: this is back to the "
+                           "earlier $850.00 payment.")
 
 
 # ------------------------- audit round 3, R3-B05 (R3-25, R3-84; the owner's answer of 2026-10-07; fabricated rows only)
@@ -262,24 +290,27 @@ def test_r3_b05_the_pause_and_stop_lines_name_catch_ups_and_larger_debits():
     two_earlier = {**items["earlier_payoff"], "payoff": {**items["earlier_payoff"]["payoff"], "earlier": 2}}
     texts = warning_texts([items["catch_up_pause"], items["larger_pause"], items["catch_up_stop"],
                            items["earlier_payoff"], after, two_earlier])
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07; every R3-25 fact stays (the
+    # catch-up's amount, multiple and day, the larger debit inside the gap, the later exact multiples, the payoff's
+    # earlier debits of twice the payment or more).
     assert texts[0] == [
-        "Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; daily, grace 5); a "
-        "debit of $1,800.00 (6 times the payment) on 2054-03-16 (possible catch-up), and payments resumed at the same "
-        "daily $300.00 on 2054-03-23.", chip_html("‖", "Paused", "amber")]
+        "KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 16, 2054 (6 business days, more than "
+        "the 5 a daily schedule allows). A debit of $1,800.00 on Mar 16, 2054, 6 times the payment, may be a catch-up, "
+        "and payments resumed at the same daily $300.00 on Mar 23, 2054.", chip_html("‖", "Paused", "amber")]
     assert texts[1][0] == (
-        "Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-23 (11 business days; daily, grace 5), "
-        "then resumed at the same daily $300.00; a debit of $1,300.00 on 2054-03-16 inside the gap, more than twice "
-        "the payment.")
-    assert ("; 2 later debits at other amounts, the last on 2054-06-12 (2 of them exact multiples of the payment: "
-            "possible catch-up)") in texts[2][0]
-    assert "possible payoff" not in texts[2][0]
-    assert texts[3][0].endswith("; a final debit of $5,000.00 on 2054-04-20 (possible payoff; 1 earlier debit of twice "
-                                "the payment or more).")
-    assert ("; 1 later debit at other amounts, the last on 2054-03-17 (1 of them an exact multiple of the payment: "
-            "possible catch-up)") in texts[4][0]
-    assert texts[5][0].endswith("(possible payoff; 2 earlier debits of twice the payment or more).")
+        "KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 23, 2054 (11 business days, more than "
+        "the 5 a daily schedule allows). Payments then resumed at the same daily $300.00. Also: a debit of $1,300.00 on "
+        "Mar 16, 2054, inside the gap, was more than twice the payment.")
+    assert ("After it came only 2 debits at other amounts, the last on Jun 12, 2054; 2 of them are exact multiples of "
+            "the payment, which may be a catch-up.") in texts[2][0]
+    assert "payoff" not in texts[2][0]
+    assert texts[3][0].endswith("Also: a final debit of $5,000.00 on Apr 20, 2054 may be a payoff, after 1 earlier debit "
+                                "of twice the payment or more.")
+    assert ("After it came only 1 debit at another amount, on Mar 17, 2054; it is an exact multiple of the payment, "
+            "which may be a catch-up.") in texts[4][0]
+    assert texts[5][0].endswith("may be a payoff, after 2 earlier debits of twice the payment or more.")
     # A payoff with no earlier one reads as before (L20).
-    assert warning_text(L20).endswith("; a final debit of $5,000.00 on 2054-04-20 (possible payoff).")
+    assert warning_text(L20).endswith("Also: a final debit of $5,000.00 on Apr 20, 2054 may be a payoff.")
 
 
 @needs_node
@@ -291,24 +322,29 @@ def test_r3_b05_the_caught_up_line():
     items = _r3_b05_items()
     caught_up, weekly, potential = items["caught_up"], items["caught_up_weekly"], items["caught_up_potential"]
     texts = warning_texts([caught_up, weekly, potential, chained])
+    # Audit round 3, R3-MERGE: the owner's amber "Caught up" note (R3-25) in the plain voice of the owner's request of
+    # 2026-10-07: the missed scheduled payments and their days, the catch-up's amount, day and multiple of the payment,
+    # the potential lender named first, the statement it comes from; the chips unchanged.
     assert texts[0] == [
-        "Caught up: no payment to KAPITUS on 2 scheduled daily payments (2054-03-16 to 2054-03-17), then $1,700.00 on "
-        "2054-03-18 (2x the daily $850.00).", chip_html("↺", "Caught up", "amber")]
-    assert texts[1][0] == ("Caught up: no payment to KAPITUS on 1 scheduled weekly payment (2054-03-24), then "
-                           "$3,000.00 on 2054-03-27 (3x the weekly $1,000.00).")
+        "KAPITUS: missed payments caught up. 2 scheduled daily payments were missed (Mar 16 to Mar 17, 2054). Then one "
+        "debit of $1,700.00 on Mar 18, 2054 came to 2 times the daily $850.00 payment.",
+        chip_html("↺", "Caught up", "amber")]
+    assert texts[1][0] == ("KAPITUS: missed payments caught up. 1 scheduled weekly payment was missed (Mar 24, 2054). "
+                           "Then one debit of $3,000.00 on Mar 27, 2054 came to 3 times the weekly $1,000.00 payment.")
     assert texts[2] == [
-        "Caught up (potential lender): no payment to Unidentified lender obligation (daily, 300.00) on 1 scheduled "
-        "daily payment (2054-03-16), then $600.00 on 2054-03-17 (2x the daily $300.00).",
-        chip_html("↺", "Caught up", "neutral")]
-    assert texts[3][0] == ("Caught up: no payment to KAPITUS on 3 scheduled daily payments (2054-03-30 to 2054-04-01), "
-                           "then $1,700.00 on 2054-04-02 (2x the daily $850.00) (april.pdf).")
+        "Potential lender Unidentified lender obligation (daily, 300.00): missed payments caught up. 1 scheduled daily "
+        "payment was missed (Mar 16, 2054). Then one debit of $600.00 on Mar 17, 2054 came to 2 times the daily $300.00 "
+        "payment.", chip_html("↺", "Caught up", "neutral")]
+    assert texts[3][0] == ("KAPITUS: missed payments caught up. 3 scheduled daily payments were missed (Mar 30 to Apr 1, "
+                           "2054). Then one debit of $1,700.00 on Apr 2, 2054 came to 2 times the daily $850.00 payment. "
+                           "From: april.pdf.")
     # A weekly triple after two missed weeks: its pause line carries the catch-up, the one line for the gap.
     [pause] = pure.changes(pure._rows(pure.every(M(3), M(17)) + pure.every(A(14), Y(26)), 1000)
                            + pure._rows([A(7)], 3000), end=Y(29))
     assert warning_text(pause) == (
-        "Payments paused: no payment to KAPITUS between 2054-03-17 and 2054-04-07 (15 business days; weekly, grace "
-        "10); a debit of $3,000.00 (3 times the payment) on 2054-04-07 (possible catch-up), and payments resumed at "
-        "the same weekly $1,000.00 on 2054-04-14.")
+        "KAPITUS: payments paused, then resumed. No payment between Mar 17 and Apr 7, 2054 (15 business days, more than "
+        "the 10 a weekly schedule allows). A debit of $3,000.00 on Apr 7, 2054, 3 times the payment, may be a "
+        "catch-up, and payments resumed at the same weekly $1,000.00 on Apr 14, 2054.")
     sentence = run_dashboard(f"""
 console.log(JSON.stringify([lenderPaymentChangesSummary({json.dumps([caught_up, items["catch_up_pause"]])}),
                             lenderPaymentChangesSummary({json.dumps([caught_up, weekly, potential])})]));
@@ -326,15 +362,17 @@ def test_r3_b05_r1_a_pause_names_a_catch_up_before_payments_resumed():
     [after_attempt] = pure.changes(pure._rows(gap, 850) + attempt + pure._rows([M(17)], 1700))
     [after_one_off] = pure.changes(pure._rows(gap, 850) + pure._rows([M(16)], 500) + pure._rows([M(17)], 2550))
     texts = warning_texts([after_attempt, after_one_off])
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07, the catch-up an "Also:" sentence.
     assert texts[0] == [
-        "Payments paused: no payment or payment attempt to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; "
-        "daily, grace 5); the attempt on 2054-03-16 was returned unpaid, and payments resumed at the same daily "
-        "$850.00 on 2054-03-18; a debit of $1,700.00 (2 times the payment) on 2054-03-17 before payments resumed "
-        "(possible catch-up).", chip_html("‖", "Paused", "amber")]
+        "KAPITUS: payments paused, then resumed. No payment or payment attempt between Mar 6 and Mar 16, 2054 (6 "
+        "business days, more than the 5 a daily schedule allows). The attempt on Mar 16, 2054 was returned unpaid, and "
+        "payments resumed at the same daily $850.00 on Mar 18, 2054. Also: a debit of $1,700.00 on Mar 17, 2054, 2 "
+        "times the payment, came before payments resumed; this may be a catch-up.", chip_html("‖", "Paused", "amber")]
     assert texts[1][0] == (
-        "Payments paused: no payment to KAPITUS between 2054-03-06 and 2054-03-16 (6 business days; daily, grace 5); "
-        "a payment at another amount on 2054-03-16, and payments resumed at the same daily $850.00 on 2054-03-18; a "
-        "debit of $2,550.00 (3 times the payment) on 2054-03-17 before payments resumed (possible catch-up).")
+        "KAPITUS: payments paused, then resumed. No payment between Mar 6 and Mar 16, 2054 (6 business days, more than "
+        "the 5 a daily schedule allows). A payment of another amount came on Mar 16, 2054, and payments resumed at the "
+        "same daily $850.00 on Mar 18, 2054. Also: a debit of $2,550.00 on Mar 17, 2054, 3 times the payment, came "
+        "before payments resumed; this may be a catch-up.")
 
 
 @needs_node
@@ -345,19 +383,25 @@ def test_r3_b05_the_same_amount_note_and_a_stop_it_never_confirms():
     [pause] = pure._chain((march, M(1), M(31)), (pure._rows(pure.bdays(A(1), A(30)), 850), A(1), A(30)))
     pause = {**pure.lpc.public_item(pause), "source_document": "april.pdf"}
     texts = warning_texts([_r3_b05_items()["same_amount_stop"], stop, pause])
-    assert texts[0][0].endswith("; 12 debits of exactly $850.00 on the same daily schedule under another description, "
-                                "from 2054-03-16 to 2054-03-31 (possible collection under another name).")
-    assert texts[0][0].startswith("Possible stop: no payment to KAPITUS in the last 12 business days of the statement")
+    # Audit round 3, R3-MERGE: R3-84's note an "Also:" sentence in the plain voice of the owner's request of 2026-10-07:
+    # the count, the exact amount, the schedule, the other description, the days and the possible collection.
+    assert texts[0][0].endswith("Also: 12 debits of exactly $850.00 came on the same daily schedule under another "
+                                "description, from Mar 16 to Mar 31, 2054; this may be the lender collecting under "
+                                "another name.")
+    assert texts[0][0].startswith("KAPITUS: payments may have stopped. No payment in the last 12 business days of this "
+                                  "statement.")
     assert texts[0][1] == chip_html("■", "Possible stop", "amber")
     assert stop["stop_confirmed"] is False
-    assert texts[1][0].startswith("Possible stop: no payment to KAPITUS in the last ")
-    assert texts[1][0].endswith("; 34 debits of exactly $850.00 on the same daily schedule under another description, "
-                                "from 2054-03-16 to 2054-04-30 (possible collection under another name) (march.pdf).")
+    assert texts[1][0].startswith("KAPITUS: payments may have stopped. No payment in the last ")
+    assert texts[1][0].endswith("Also: 34 debits of exactly $850.00 came on the same daily schedule under another "
+                                "description, from Mar 16 to Apr 30, 2054; this may be the lender collecting under "
+                                "another name. From: march.pdf.")
     assert texts[1][1] == chip_html("■", "Possible stop", "amber")
     assert texts[2][0] == (
-        "Payments paused: no payment to KAPITUS between 2054-03-13 and 2054-04-01 (13 business days; daily, grace 5), "
-        "then resumed at the same daily $850.00; 12 debits of exactly $850.00 on the same daily schedule under another "
-        "description, from 2054-03-16 to 2054-03-31 (possible collection under another name) (april.pdf).")
+        "KAPITUS: payments paused, then resumed. No payment between Mar 13 and Apr 1, 2054 (13 business days, more than "
+        "the 5 a daily schedule allows). Payments then resumed at the same daily $850.00. Also: 12 debits of exactly "
+        "$850.00 came on the same daily schedule under another description, from Mar 16 to Mar 31, 2054; this may be "
+        "the lender collecting under another name. From: april.pdf.")
 
 
 # ------------------------------------------- audit round 3, R3-B06 (R3-81, R3-85; fabricated rows only): the lines
@@ -365,9 +409,11 @@ def test_r3_b05_the_same_amount_note_and_a_stop_it_never_confirms():
 def test_r3_81_the_new_stream_line_names_the_level_paying_when_it_began():
     _decrease, stream = pure.changes(pure._rows(pure.bdays(M(2), A(30)), 250) + pure._rows(pure.bdays(Y(1), J(30)), 112)
                                      + pure._rows(pure.bdays(M(16), J(30)), 170), start=M(1), end=J(30))
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07; R3-81's fact stays: the other
+    # stream named at the level it paid when the new one began (daily $250.00, not the later $112.00).
     assert warning_text(stream) == (
-        "New payment stream: KAPITUS daily $170.00 from 2054-03-16, alongside daily $250.00 (weekly total $1,250.00 → "
-        "$2,100.00, +68%; payment stream 2 of 2).")
+        "KAPITUS: a second payment started. A second daily payment of $170.00 started on Mar 16, 2054, alongside the "
+        "existing daily $250.00. The weekly total went from $1,250.00 to $2,100.00 (+68%).")
 
 
 @needs_node
@@ -380,23 +426,27 @@ def test_r3_85_a_confirmed_stop_s_count_names_its_anchor():
     stop = {**pure.lpc.public_item(stop), "source_document": "april.pdf"}
     assert (stop["stop_confirmed"], stop["last_payment_date"], stop["last_presence_date"],
             stop["quiet_business_days"]) == (True, "2054-03-30", "2054-04-20", 28)
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07, which names every count's anchor
+    # ("after <the last presence>", or "after it" where that is the last payment): R3-85's fact stays, the 28 business
+    # days counted after the last presence (Apr 20), not after the last regular payment (Mar 30).
     assert warning_text(stop) == (
-        "No regular $1,000.00 payment to KAPITUS since 2054-03-30; 2 later debits at other amounts, the last on "
-        "2054-04-20 (weekly; last payment $1,000.00; 28 business days after 2054-04-20 through 2054-05-29) "
-        "(april.pdf).")
-    # Controls, byte-identical: the plain confirmed line (U1-U4) and the returned-attempt line count from their
-    # "since" date, which is the last presence, and name no anchor.
+        "KAPITUS: payments stopped. Last regular weekly payment: $1,000.00 on Mar 30, 2054. After it came only 2 debits "
+        "at other amounts, the last on Apr 20, 2054. No payment in the 28 business days after Apr 20, 2054, through May "
+        "29, 2054. From: april.pdf.")
+    # Controls: the plain confirmed line (U1-U4) counts from its last payment ("after it"), and the returned-attempt
+    # line from the attempt, its last presence (the hosting line's review round 1 names that day).
     p4 = pkg.package(*(pkg.job(name, payload) for name, payload in zip(("march", "april", "may"), pkg.p4())))
     attempt_march = pure._rows(pure.every(M(4), M(18)), 1000) + pure._rows(
         [M(25)], 1000, returned_funder_payment_by="transaction:99")
     [attempt] = pure._chain((attempt_march, M(1), M(31)), ([], A(1), A(30)))
     attempt = {**pure.lpc.public_item(attempt), "source_document": "april.pdf"}
     texts = [text for text, _chip in warning_texts([p4["lender_payment_changes"][0], attempt])]
-    assert texts[0] == ("No payment to KAPITUS since 2054-04-29 (weekly; last payment $1,000.00; 21 business days "
-                        "through 2054-05-29) (april.pdf).")
-    assert texts[1] == (f"No payment or payment attempt to KAPITUS since 2054-03-25 (weekly; last payment $1,000.00 on "
-                        f"2054-03-18; {attempt['quiet_business_days']} business days through 2054-04-30); the last "
-                        f"attempt, on 2054-03-25, was returned unpaid (april.pdf).")
+    assert texts[0] == ("KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Apr 29, 2054. No payments in the "
+                        "21 business days after it, through May 29, 2054. From: april.pdf.")
+    assert texts[1] == (f"KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Mar 18, 2054. No payment or "
+                        f"payment attempt in the {attempt['quiet_business_days']} business days after Mar 25, 2054, "
+                        f"through Apr 30, 2054. Also: the last attempt, on Mar 25, 2054, was returned unpaid. From: "
+                        f"april.pdf.")
 
 
 # ------------------------------------------------------------------------------------- U5, U6, U7, U10: the table
@@ -408,8 +458,9 @@ console.log(JSON.stringify(els.lenderTable.innerHTML));
 
 
 FUNDER = {"funder": "KAPITUS", "debit_count": 18, "total_debited": 13300.0, "transactions": [], "evidence": []}
-STATEMENT_TEXT = "Payment changes not checked: this statement was analysed before the check. Re-analyze to see them."
-PACKAGE_TEXT = "Payment changes not checked: no statement of this package has been checked yet."
+# The owner's request of 2026-10-07: the not-checked notes in the same plain voice (headline, then the sentence).
+STATEMENT_TEXT = "This statement was analysed before the check. Re-analyze it to see payment changes."
+PACKAGE_TEXT = "No statement in this package has been checked yet."
 
 
 @needs_node
@@ -428,14 +479,15 @@ def test_u6_lines_render_above_no_lenders_detected():
     returned = {"funder": "KAPITUS", "amount": 850.0, "debit_date": "2054-03-03", "credit_date": "2054-03-05",
                 "credit_description": "RETURN OF POSTED CHECK ITEM"}
     html = _table(f"renderLenders([], [], 'USD', {json.dumps([returned])}, {json.dumps([L16])});")
-    assert html.index("Returned funder payment: KAPITUS") < html.index("Possible stop: no payment to KAPITUS") < (
+    assert html.index("KAPITUS: a payment was returned") < html.index("KAPITUS: payments may have stopped") < (
         html.index("No lenders detected"))
 
 
 @needs_node
 def test_u7_a_cad_item_prints_cad_money():
     item = {**L1, "scope": "package", "source_currency": "CAD", "source_document": "td.pdf", "cross_statement": False}
-    assert warning_text(item, None).startswith("Payment decreased: KAPITUS daily CA$850.00 → CA$600.00 (-29%)")
+    assert warning_text(item, None).startswith("KAPITUS: payment went down 29%. The daily payment went from CA$850.00 "
+                                               "to CA$600.00 starting")
 
 
 @needs_node
@@ -446,9 +498,11 @@ def test_u10_the_package_s_unchecked_line():
                  {"source_job": "p", "source_document": "p.pdf", "reason": "no_period"},
                  {"source_job": "x", "source_document": "x.pdf", "reason": "no_account_number"}]
     html = _table(f"renderLenders({json.dumps([FUNDER])}, [], 'USD', [], [], {json.dumps(unchecked)}, true);")
-    assert ("Payment changes not checked across statements for 5 statement(s): a.pdf (analysed before the check: "
-            "re-analyze), q.pdf (not analysed yet), c.pdf (no currency declared: checked alone), p.pdf (no statement "
-            "period: checked alone), x.pdf (fewer than 4 account digits and no balance chain: checked alone)") in html
+    assert '<strong class="lender-note-headline">Payment changes not checked across statements</strong>' in html
+    assert ("These 5 statements were not compared with the others: a.pdf (analysed before the check; re-analyze it to "
+            "include it); q.pdf (not analysed yet); c.pdf (no currency declared, so it was checked on its own); p.pdf "
+            "(no statement period printed, so it was checked on its own); x.pdf (fewer than 4 account digits and no "
+            "balance chain, so it was checked on its own).") in html
 
 
 # --------------------------------------------------------------------------------------- U8, U9: summary and modal
@@ -479,8 +533,10 @@ generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 currentJobIds = ['march', 'april']; renderPackageAnalysis({json.dumps(built)}); generateSummary();
 console.log(JSON.stringify(els.summaryBox.textContent));
 """)
-    assert text.endswith("\n- Payment decreased: KAPITUS weekly $1,000.00 → $700.00 (-30%) from 2054-04-01; 4 payments "
-                         "at the new amount, after 4 at the old (march.pdf → april.pdf).")
+    # The owner's request of 2026-10-07: the memo's line is the lender table's note, its statements named by month.
+    assert text.endswith("\n- KAPITUS: payment went down 30%. The weekly payment went from $1,000.00 to $700.00 starting "
+                         "Apr 1, 2054 (4 payments at the new amount, after 4 at the old). From: March 2054 → April "
+                         "2054 statements.")
 
 
 @needs_node
@@ -492,8 +548,11 @@ openStatementModal('s');
 renderStatementModal('s', {json.dumps(pkg._account(two))}, '');
 console.log(JSON.stringify(els.statementModalLenders.innerHTML));
 """)
-    assert "Payment decreased: KAPITUS daily $850.00 → $600.00 (-29%) from 2054-03-16" in html
-    assert html.index("Payment decreased") < html.index("Confirmed lender")
+    assert '<strong class="lender-note-headline">KAPITUS: payment went down 29%</strong>' in html
+    assert ("The daily payment went from $850.00 to $600.00 starting Mar 16, 2054 (8 payments at the new amount, after "
+            "10 at the old).") in html
+    assert "lender-note-source" not in html  # a statement's own window names no statement
+    assert html.index("payment went down") < html.index("Confirmed lender")
 
 
 @needs_node
@@ -504,4 +563,5 @@ def test_the_package_page_renders_its_lines():
 currentJobIds = ['march', 'april']; renderPackageAnalysis({json.dumps(built)});
 console.log(JSON.stringify(els.lenderTable.innerHTML));
 """)
-    assert "(march.pdf → april.pdf)." in html and "Decreased" in html
+    assert '<div class="lender-note-source">From: March 2054 → April 2054 statements</div>' in html
+    assert "Decreased" in html

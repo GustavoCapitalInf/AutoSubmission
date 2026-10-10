@@ -3622,6 +3622,11 @@ def _cent_figures(text: str) -> set:
     return set(re.findall(r"\$(\d[\d,]*\.\d\d)\b", text))
 
 
+#: Audit round 3, R3-MERGE: round 3's 33 -> 36 stage note ends where the hosting line's notes and the merge's
+#: 36 -> 37 note begin (it ended at `ANALYSIS_STAGE_VERSION = 36` before the merge-back).
+STAGE_NOTE_36_END = "# The hosting line (`fix/boa-nsf`, served on the Fly demo) moved the stage on"
+
+
 def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     """Audit round 3, R3-B25 (V1 to V5): the code reads 5.8 and stage 36; §9.3's 5.8 line (33 → 36, the skipped stages
     named) and its closing paragraph; §20's two lines (the 5.7 notice with the cache-bust value `true-revenue-9`, and
@@ -3629,7 +3634,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     versions words and round-3 row. R2-B16's lines stay as they were (pinned above)."""
     from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
 
-    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 36)
+    # Audit round 3, R3-MERGE: the hosting line's merge-back moved the stage on to 37 (no classification change); R3-B25's
+    # own move (33 -> 36) stays recorded below.
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 37)
     spec = SPEC.read_text(encoding="utf-8")
     sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
     versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
@@ -3644,7 +3651,7 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
         assert words in versions, words
     # The stage note names the skip and the round's stored output, batch by batch.
     note = (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8")
-    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split("ANALYSIS_STAGE_VERSION = 36", 1)[0])
+    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split(STAGE_NOTE_36_END, 1)[0])
     for words in ("TRUE-REVENUE audit round 3, batch R3-B25", "Stages 34 and 35 are skipped",
                   "A warm cache keyed on 33 would serve each of them as the round-2 reading",
                   "computed when served or exported, never stored", "Nothing of this branch's between 33 and 36 was "
@@ -3677,8 +3684,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
         assert stale not in handoff, stale
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
     # Audit round 3, final review (R3-FF), F6: the floor's unit moved app.js again, past the -9 the Accept run served.
-    assert "app.js?v=true-revenue-10" in html
-    assert "true-revenue-7" not in html and "true-revenue-8" not in html and "true-revenue-9" not in html
+    # Audit round 3, R3-MERGE: the hosting line's merge-back moved it past both lines' values, to -11.
+    assert "app.js?v=true-revenue-11" in html
+    assert all(f"true-revenue-{value}\"" not in html for value in (7, 8, 9, 10))
 
 
 def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_and_every_served_batch():
@@ -3701,7 +3709,7 @@ def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_
     # Finding 2: the merge-back takes the next free values above both lines; 36 and -9 stay this branch's.
     versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
     note = (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8")
-    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split("ANALYSIS_STAGE_VERSION = 36", 1)[0])
+    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split(STAGE_NOTE_36_END, 1)[0])
     for text in (versions, note):
         for words in ("never back to 34 or 35", "36 is reserved for this branch (a further hosting-line change takes 37 "
                       "or above)", "the merge commit moves the stage", "the next free", "above both lines",

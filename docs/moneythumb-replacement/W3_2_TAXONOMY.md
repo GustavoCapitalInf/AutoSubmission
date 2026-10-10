@@ -189,6 +189,7 @@ text can reach these strings.
 | `does not provide a valid, ordered start and end date` | `period_dates_invalid` | period_integrity |
 | `fall outside the statement period` | `out_of_period_transactions` | period_integrity |
 | `account-opening posting(s) dated before the` | `initialization_event_folded` | *advisory* |
+| `carry-in posting(s) dated on the previous-balance day` | `pre_period_carry_in_folded` | *advisory* |
 | `cannot determine a statement period` | `period_unresolvable` | **adb_not_computable** |
 | `no opening balance and none derivable` | `opening_balance_underivable` | **adb_not_computable** |
 | `statement prints no beginning balance` | `beginning_balance_absent` | summary_field_missing |
@@ -578,6 +579,30 @@ own union-of-registrations replay reproduced every deterministic-mode payload
 byte-identically at base and at closure. `integrity:repair_exception` — the
 class's other occupant since v4 — is untouched and still live, so
 `extraction_failure` remains a reachable class rather than an empty rank.
+
+### v6 — owner report 2026-10-08 (Capital One daily ledger): `adb_state:pre_period_carry_in_folded`
+
+**One advisory code added, nothing re-classed.** `analysis/adb.py` gains a
+second narrow fold beside the account-opening event: postings a parser
+DECLARED (`Statement.pre_period_carry_in_count`, Capital One only) are dated
+on the printed previous-balance day, the day before the printed period, and
+counted in the bank's own printed cycle totals. The engine re-checks the
+declaration (every out-of-period row, the day before the period, the
+statement's leading rows, a printed running balance that chains from the
+printed previous balance, a ledger that closes with them and not without
+them) and folds them into the opening balance, leaving the divisor and the
+printed period alone. Its disclosure warning is the new anchor
+`carry-in posting(s) dated on the previous-balance day` (§3.4), classed
+advisory for the reason `initialization_event_folded` is: it is written only
+on a document that then passes every required check, so it must never
+decide a failure class. `VOCABULARY` 60 → 61, `ADVISORY_CODES` 7 → 8,
+`CLASS_OF` unchanged; the code set grew, so a v5 and a v6 rollup are not
+comparable on the code axis.
+
+**Blast radius.** The code fires only where Capital One's parser proves the
+carry-in from the page; the pinned 109-statement corpus has none (the gate
+is unchanged), and the cached Capital One archive has two such statements,
+both withheld before and validated after.
 
 ---
 

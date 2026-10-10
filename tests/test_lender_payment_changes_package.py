@@ -246,8 +246,9 @@ def test_p6b_a_funder_that_moves_to_another_account_is_never_a_confirmed_stop():
     assert (item["kind"], item["stop_confirmed"], item["source_document"]) == ("stop", False, "a-april.pdf")
     assert item["continues_in_other_account"] == {"source_job": "b-april", "source_document": "b-april.pdf",
                                                   "first_date": "2054-04-15", "amount": 1000.0}
-    assert line(item).endswith("; payments to KAPITUS continue from another account (b-april.pdf) from 2054-04-15 at "
-                               "$1,000.00 (a-april.pdf).")
+    # The owner's request of 2026-10-07 (dashboard clarity): an "Also:" sentence, then the statement the note is from.
+    assert line(item).endswith(" Also: payments to KAPITUS continue from another account (b-april.pdf) from Apr 15, "
+                               "2054 at $1,000.00. From: a-april.pdf.")
     [item] = p6b(ONDECK)["lender_payment_changes"]
     assert (item["kind"], item["stop_confirmed"]) == ("stop", True)
     assert "continues_in_other_account" not in item
@@ -282,9 +283,13 @@ def test_r3_83_a_funder_seen_months_later_in_another_account_reappears():
     from tests.test_lender_payment_changes_ui import warning_texts
 
     [[text, chip]] = warning_texts([item])
-    assert text == ("No payment to KAPITUS since 2054-04-08 (weekly; last payment $1,000.00; 36 business days through "
-                    "2054-05-29); payments to KAPITUS reappear in another account (b-july.pdf) from 2054-07-02 at "
-                    "$1,700.00, after 38 business days without one in the statements provided (a-april.pdf).")
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07; the stop, its last payment and
+    # count, and R3-83's reappearance (the other account's statement, its first day and amount, the business days
+    # covered) all stay. Without a package page's rows each statement is named by its file.
+    assert text == ("KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Apr 8, 2054. No payments in the 36 "
+                    "business days after it, through May 29, 2054. Also: payments to KAPITUS reappear in another account "
+                    "(b-july.pdf) from Jul 2, 2054 at $1,700.00, after 38 business days without one in the statements "
+                    "provided. From: a-april.pdf.")
     from tests.test_lender_payment_changes_ui import chip_html
 
     assert chip == chip_html("■", "No payments", "amber")

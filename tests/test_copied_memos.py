@@ -104,8 +104,11 @@ def _package_memo(package):
     return run_dashboard(f"""
 const pkg = {json.dumps(package)};
 currentJobIds = {json.dumps(ids)}; renderPackageAnalysis(pkg); generateSummary();
+// Audit round 3, R3-MERGE: as the Lenders tab words them since the owner's request of 2026-10-07, each statement named
+// from the package's rows (paymentChangeSources).
+const sources = paymentChangeSources(pkg.documents);
 console.log(JSON.stringify({{memo: els.summaryBox.textContent,
-  warnings: (pkg.returned_funder_payments || []).map((item) => returnedFunderPaymentWarning(item, 'USD'))}}));
+  warnings: (pkg.returned_funder_payments || []).map((item) => returnedFunderPaymentWarning(item, 'USD', sources))}}));
 """)
 
 
@@ -270,8 +273,10 @@ def test_r3_67_the_package_memo_names_each_funder_s_returned_payments_and_warns_
         "ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding rate)"]
     # One "- <warning>" per served item, in served order, as the Lenders tab words it.
     assert lines[2:4] == [f"- {warning}" for warning in result["warnings"]]
-    assert all(line.startswith("- Returned funder payment: ") for line in lines[2:4])
-    assert "Not counted as paid; still in the withholding rate." in lines[2]
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 (it read "Returned funder
+    # payment: ..." and "Not counted as paid; still in the withholding rate.").
+    assert all(": a payment was returned. " in line for line in lines[2:4])
+    assert "It isn't counted as paid, but it still counts in the withholding rate." in lines[2]
     assert ("0 NSF events, $5,950.00 confirmed lender debits paid (2 returned funder payments, $2,050.00), 13.33% "
             "confirmed withholding") in memo
 
@@ -287,9 +292,11 @@ def test_r3_67_a_cross_statement_bounce_names_both_documents():
     lines = _lender_lines(result["memo"])
     assert lines[0] == ("KAPITUS: $5,950.00 across 2 statement(s), 1 returned unpaid ($850.00, still in the "
                         "withholding rate)")
-    (warning,) = [line for line in lines if line.startswith("- Returned funder payment: ")]
+    # Audit round 3, R3-MERGE: the note names both statements by their months, as the Lenders tab does since the owner's
+    # request of 2026-10-07 (it named "(mar.pdf)" and "(apr.pdf)").
+    (warning,) = [line for line in lines if line.startswith("- KAPITUS: a payment was returned. ")]
     assert warning == f"- {result['warnings'][0]}"
-    assert "(mar.pdf)" in warning and "(apr.pdf)" in warning
+    assert warning.endswith(" From: March 2031 → April 2031 statements.")
     assert "$5,950.00 confirmed lender debits paid (1 returned funder payment, $850.00), " in result["memo"]
 
 

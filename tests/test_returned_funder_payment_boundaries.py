@@ -360,9 +360,12 @@ console.log(JSON.stringify({{items, debit: packageMatchNotes({json.dumps(debit_r
   credit: packageMatchNotes({json.dumps(credit_row)}), chip: returnedFunderChip({json.dumps(debit_row)})}}));
 """)
     funder = debit_row["classification"]["canonical_entity"]
+    # The owner's request of 2026-10-07 (dashboard clarity): a headline, plain sentences and both statements (without
+    # the page's rows here, by their files).
     assert result["items"] == [
-        f"Returned funder payment: {funder} $850.00 debited 2031-03-27 (mar.pdf), returned 2031-04-02 (apr.pdf) "
-        "(\"ACH RETURN ITEM NSF\"). Not counted as paid; still in the withholding rate."]
+        f"{funder}: a payment was returned. The $850.00 payment on Mar 27, 2031 was returned unpaid on Apr 2, 2031 (the "
+        "bank printed: \"ACH RETURN ITEM NSF\"). It isn't counted as paid, but it still counts in the withholding "
+        "rate. From: mar.pdf → apr.pdf."]
     assert result["debit"] == [
         "Returned unpaid on 2031-04-02 (apr.pdf): out of paid to lenders, still in the withholding rate."]
     assert result["credit"] == [f"Returns the 2031-03-27 payment to {funder} in mar.pdf."]
@@ -414,8 +417,11 @@ def test_r3_67_the_package_rows_write_a_section_per_returned_funder_payment():
     # A field the item does not carry is an empty cell.
     assert all(section[field] == "" for field in ("source_account", "cross_statement", "credit_job", "credit_document",
                                                   "credit_account", "represented_date", "represented_document"))
-    assert section["words"] == ('Returned funder payment: KAPITUS 850.00 USD debited 2031-04-01, returned 2031-04-02 '
-                                '("ACH RETURN ITEM NSF"). Not counted as paid; still in the withholding rate.')
+    # Audit round 3, R3-MERGE: the dashboard's words since the owner's request of 2026-10-07 (the hosting line's plain
+    # voice), which R3-67's rule carries into the section; every fact of the old words stays.
+    assert section["words"] == ('KAPITUS: a payment was returned. The 850.00 USD payment on Apr 1, 2031 was returned '
+                                'unpaid on Apr 2, 2031 (the bank printed: "ACH RETURN ITEM NSF"). It isn\'t counted as '
+                                'paid, but it still counts in the withholding rate. From: apr.pdf.')
 
 
 def test_r3_67_a_cross_statement_return_names_both_documents_in_its_section():
@@ -426,9 +432,12 @@ def test_r3_67_a_cross_statement_return_names_both_documents_in_its_section():
     sections, _order = _returned_sections(package)
     section = sections[1]
     assert (section["cross_statement"], section["credit_job"], section["credit_document"]) == (True, "apr", "apr.pdf")
+    # Audit round 3, R3-MERGE: the dashboard's words since the owner's request of 2026-10-07 (the hosting line's plain
+    # voice), which R3-67's rule carries into the section; every fact of the old words stays.
     assert section["words"] == (
-        'Returned funder payment: KAPITUS 850.00 USD debited 2031-03-27 (mar.pdf), returned 2031-04-02 (apr.pdf) '
-        '("ACH RETURN ITEM NSF"). Not counted as paid; still in the withholding rate.')
+        'KAPITUS: a payment was returned. The 850.00 USD payment on Mar 27, 2031 was returned unpaid on Apr 2, 2031 (the '
+        'bank printed: "ACH RETURN ITEM NSF"). It isn\'t counted as paid, but it still counts in the withholding rate. '
+        'From: mar.pdf → apr.pdf.')
 
 
 def test_r3_67_a_re_debited_return_reads_counted_once_in_its_section():
@@ -445,10 +454,12 @@ def test_r3_67_a_re_debited_return_reads_counted_once_in_its_section():
     section = sections[1]
     assert (section["represented_date"], section["represented_kind"], section["represented_job"],
             section["represented_document"]) == ("2031-04-03", "re_presented", "apr", "apr.pdf")
+    # Audit round 3, R3-MERGE: the dashboard's words since the owner's request of 2026-10-07 (the hosting line's plain
+    # voice), which R3-67's rule carries into the section; every fact of the old words stays.
     assert section["words"] == (
-        'Returned funder payment: KAPITUS 850.00 USD debited 2031-03-25, returned 2031-03-28 ("ACH RETURN ITEM NSF"), '
-        're-presented on 2031-04-03 (apr.pdf). Not counted as paid; counted once in the withholding rate, by the '
-        're-presented payment.')
+        'KAPITUS: a payment was returned. The 850.00 USD payment on Mar 25, 2031 was returned unpaid on Mar 28, 2031 (the '
+        'bank printed: "ACH RETURN ITEM NSF"). It was taken again on Apr 3, 2031 (apr.pdf). It isn\'t counted as paid; '
+        'it is counted once in the withholding rate, by the second debit. From: mar.pdf.')
 
 
 def test_r3_67_a_package_without_a_return_writes_no_section():
@@ -481,8 +492,10 @@ def test_r3_67_a_refused_package_keeps_each_returned_payment_in_its_own_unit():
     sections, _order = _returned_sections(package)
     assert [(section["source_currency"], section["amount"]) for section in sections.values()] == [
         ("CAD", 850.0), ("USD", 850.0)]
-    assert sections[1]["words"].startswith("Returned funder payment: KAPITUS 850.00 CAD debited 2031-03-05, ")
-    assert sections[2]["words"].startswith("Returned funder payment: KAPITUS 850.00 USD debited 2031-03-07, ")
+    # Audit round 3, R3-MERGE: the dashboard's words since the owner's request of 2026-10-07 (the hosting line's plain
+    # voice), which R3-67's rule carries into the section; every fact of the old words stays.
+    assert sections[1]["words"].startswith("KAPITUS: a payment was returned. The 850.00 CAD payment on Mar 5, 2031 ")
+    assert sections[2]["words"].startswith("KAPITUS: a payment was returned. The 850.00 USD payment on Mar 7, 2031 ")
     cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(_masked(_package_for_export(
         package))))) if len(row) == 3}
     assert cells[("totals", "returned_funder_payment_total")] == ""
@@ -500,8 +513,11 @@ def test_r3_67_the_section_reaches_the_package_csv_and_xlsx():
     from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
 
     exported = _masked(_package_for_export(_package(*zip(("mar", "apr"), _months(_april())))))
-    words = ('Returned funder payment: KAPITUS 850.00 USD debited 2031-03-27 (mar.pdf), returned 2031-04-02 (apr.pdf) '
-             '("ACH RETURN ITEM NSF"). Not counted as paid; still in the withholding rate.')
+    # Audit round 3, R3-MERGE: the dashboard's words since the owner's request of 2026-10-07 (the hosting line's plain
+    # voice), which R3-67's rule carries into the section; every fact of the old words stays.
+    words = ('KAPITUS: a payment was returned. The 850.00 USD payment on Mar 27, 2031 was returned unpaid on Apr 2, 2031 '
+             '(the bank printed: "ACH RETURN ITEM NSF"). It isn\'t counted as paid, but it still counts in the withholding '
+             'rate. From: mar.pdf → apr.pdf.')
     csv_rows = list(csv.reader(io.StringIO(_package_csv(exported))))
     assert ["returned_funder_payment_1", "words", words] in csv_rows
     assert ["returned_funder_payment_1", "cross_statement", "True"] in csv_rows

@@ -302,16 +302,25 @@ generateSummary();
 console.log(JSON.stringify({{table, cards, summary, lenderRows, packageTable, packageCards,
   packageSummary: els.summaryBox.textContent}}));
 """)
-    line = ("Lump-sum payment to KAPITUS: $15,000.00 on 2054-03-20 (PAYOFF): in paid to lenders, not in the "
-            "withholding rate.")
-    assert line in result["table"] and line in result["packageTable"]
+    # Audit round 3, R3-MERGE: the note in the plain voice and layout of the owner's request of 2026-10-07 (a headline,
+    # its sentences, the statement it comes from on the package page); it read "Lump-sum payment to KAPITUS: $15,000.00
+    # on 2054-03-20 (PAYOFF): in paid to lenders, not in the withholding rate." Every fact stays: the funder, the amount,
+    # the day, the payoff word as printed, in paid and out of the rate.
+    sentences = ("The $15,000.00 payment on Mar 20, 2054 is worded as a payoff (the bank printed: \"PAYOFF\"). It counts "
+                 "in paid to lenders, but not in the withholding rate.")
+    line = f"KAPITUS: a lump-sum payoff. {sentences}"
+    for table in (result["table"], result["packageTable"]):
+        assert '<strong class="lender-note-headline">KAPITUS: a lump-sum payoff</strong>' in table
+        assert f'<div class="lender-note-detail">{sentences.replace(chr(34), "&quot;")}</div>' in table
+    assert '<div class="lender-note-source">From: March 2054 statement</div>' in result["packageTable"]
+    assert "lender-note-source" not in result["table"]
     assert result["cards"]["Confirmed Withholding"]["note"] == (
         "$2,000.00 confirmed lender debits ($15,000.00 lump-sum payoff not included) divided by $20,000.00 true "
         "revenue")
     assert result["packageCards"]["Confirmed Withholding"]["note"] == (
         "$4,000.00 confirmed lender debits ($15,000.00 lump-sum payoff not included) divided by $40,000.00 true "
         "revenue")
-    assert line in result["summary"] and f"\n- {line}" in result["packageSummary"]
+    assert line in result["summary"] and f"\n- {line} From: March 2054 statement." in result["packageSummary"]
     assert result["lenderRows"] == 5  # the four weekly payments and the lump sum
 
 

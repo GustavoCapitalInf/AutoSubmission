@@ -139,6 +139,7 @@ console.log(JSON.stringify({{rows: metricRows(els.metricsGrid.innerHTML),
 def test_a_statement_shows_true_revenue_first_and_its_parts():
     result = run_dashboard(METRIC_ROWS + _open("s", _served(_payload())) + """
 console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML), meta: els.creditsMeta.innerHTML,
+  label: els.creditsLabel.textContent, value: els.creditsValue.textContent,
   badge: [els.reviewCount.hidden, els.reviewCount.textContent], evidence: cells(els.revenueTable.innerHTML)}));
 """)
     rows = result["rows"]
@@ -153,7 +154,9 @@ console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML), meta: e
         "$1,000.00", "$700.00", "$300.00", "$900.00", "$100.00"]
     assert figures["Verified Revenue"]["note"].startswith("70.0% of true revenue · Revenue with proof")
     assert figures["True Revenue"]["note"] == "Posted credits minus known non-revenue and the deposits held for review"
-    assert "True revenue" in result["meta"] and "$1,000.00" in result["meta"]
+    # The owner's request of 2026-10-07: the hero's big figure is True revenue, Total credits on the line below.
+    assert (result["label"], result["value"]) == ("True revenue", "$1,000.00")
+    assert "Total credits" in result["meta"] and "$2,000.00" in result["meta"]
     assert result["badge"] == [False, "1"]  # the held credit, not every unverified deposit
     evidence = result["evidence"]
     # Audit B11 (I53): Counted is broken down by reason, as Held is.
@@ -549,10 +552,12 @@ setMonthlyDepositsView('true');
 console.log(JSON.stringify({{both, trueOnly: {{...monthly(), chart: chartParts()}}}}));
 """)
     both, true_only = result["both"], result["trueOnly"]
-    # 2,000 posted: 1,000 True (700 verified, 300 counted), 900 held and 100 non-revenue.
-    assert both["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "700"]
-    assert true_only["head"][2:5] == ["Monthly Deposits ($)", "Deposits Per Month", "Verified ($)"]
-    assert true_only["rows"][0][2:5] == ["1,000", "2", "700"]
+    # 2,000 posted: 1,000 True (700 verified, 300 counted), 900 held and 100 non-revenue. The owner's request of
+    # 2026-10-07: the table shows the statement's withholding rate where it showed Verified (no lender debit: 0.00%);
+    # the chart keeps the Verified part.
+    assert both["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "0.00%"]
+    assert true_only["head"][2:5] == ["Monthly Deposits ($)", "Deposits Per Month", "Withholding Rate"]
+    assert true_only["rows"][0][2:5] == ["1,000", "2", "0.00%"]
     assert both["chart"]["labels"] == [["bar-value", "2,000"], ["bar-value-true", "1,000"],
                                        ["bar-value-verified", "700"]]
     assert both["chart"]["parts"] == [["true", "50.0"], ["verified", "35.0"]]
@@ -567,7 +572,9 @@ def test_a_month_without_established_revenue_draws_no_true_or_verified_part(tmp_
 currentJobIds = ['old']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...monthly(), chart: chartParts()}}));
 """)
-    assert result["rows"][0][4:7] == ["N/A", "N/A", "700"]  # Verified stands on its own condition
+    # True is not established, nor is the withholding basis (True revenue), so no rate is published (the owner's request
+    # of 2026-10-07 put the rate where Verified was).
+    assert result["rows"][0][4:7] == ["N/A", "N/A", "N/A"]
     assert result["chart"]["parts"] == []
     assert result["chart"]["labels"][1:] == [["bar-value-true", "N/A"], ["bar-value-verified", "N/A"]]
 
@@ -602,12 +609,16 @@ console.log(JSON.stringify({{both, trueOnly, total: bars()}}));
 def test_the_settings_say_what_true_revenue_is():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     text = " ".join(html.split())
+    # The owner's request of 2026-10-07: Verified ($) left the table; the chart keeps the verified part, and every
+    # choice shows the withholding rate.
     assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
-            "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shown "
-            "beside it.") in text
+            "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shaded "
+            "inside it on the monthly chart.") in text
+    assert "Every choice also shows each statement's confirmed withholding rate." in text
     # Audit round 3, R3-B25: the round-3 batches' app.js changes ship as a new script (-7 and -8 were the hosting
     # line's). Audit round 3, final review (R3-FF), F6: the floor's unit moves app.js again (-9 served the Accept run).
-    assert '<script src="/static/app.js?v=true-revenue-10"></script>' in html
+    # Audit round 3, R3-MERGE: the merged app.js differs from both lines' (-8 the hosting line's, -10 this branch's).
+    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
@@ -617,7 +628,9 @@ const hero = () => ({chips: [...els.heroChips.innerHTML.matchAll(/<span class="h
     .map((m) => m[1]),
   status: Object.fromEntries([...els.statusList.innerHTML.matchAll(
     /<span class="kv-key">([^<]*)<\/span>\s*<span class="kv-value"[^>]*>([^<]*)<\/span>/g)].map((m) => [m[1], m[2]])),
-  label: els.creditsLabel.textContent, meta: els.creditsMeta.innerHTML.replace(/<[^>]+>/g, "")});
+  label: els.creditsLabel.textContent, value: els.creditsValue.textContent,
+  meta: els.creditsMeta.innerHTML.replace(/<span class="credits-meta-line">/g, " | ").replace(/<[^>]+>/g, "")
+    .replace(/^ \| /, "")});
 """
 
 
@@ -685,9 +698,11 @@ currentJobIds = ['chk', 'sav']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...hero(), rows: metricRows(els.metricsGrid.innerHTML),
   sub: (els.metricsGrid.innerHTML.match(/\\d+ statements? · \\d+ months?[^<]*/) || [""])[0]}}));
 """)
-    assert result["label"] == "Total credits · 2 statements · 1 month"
+    # The owner's request of 2026-10-07: the big figure is True revenue; Total credits leads the line below it.
+    assert result["label"] == "True revenue · 2 statements · 1 month"
+    assert result["value"] == "$3,500.00"
     # Gross: the two accounts' posted credits, held and non-revenue included (2,000 + 2,500).
-    assert result["meta"] == ("Avg monthly gross credits $4,500.00 · True revenue $3,500.00 · True per month "
+    assert result["meta"] == ("Total credits $4,500.00 · Avg monthly gross credits $4,500.00 · True per month "
                               "$3,500.00")
     assert result["sub"] == "2 statements · 1 month"
     figures = {row["label"]: row for row in result["rows"]}
@@ -860,9 +875,10 @@ console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 
 
 @needs_node
-def test_a_mixed_currency_chart_scales_and_peaks_within_each_currency():
+def test_a_mixed_currency_chart_scales_within_each_currency():
     """I54: CAD 100,000 and USD 80,000 each fill the tallest bar of their own currency, and every bar names its unit,
-    USD included; CAD beside a member that declared none is refused, and scaled apart too."""
+    USD included; CAD beside a member that declared none is refused, and scaled apart too. The owner's follow-up of
+    2026-10-07: no bar is highlighted (the tallest bar's 'peak' is gone); every Total bar is the neutral Total colour."""
     def doc(job, currency, credits):
         row = {"id": job, "filename": f"{job}.pdf", "status": "done", "period_start": "2031-03-01",
                "period_end": "2031-03-28", "credits": credits, "deposit_count": 1, "revenue_established": False,
@@ -887,12 +903,12 @@ console.log(JSON.stringify({{mixed: view({json.dumps(mixed)}), undeclared: view(
   single: view({json.dumps(single)})}}));
 """)
     tallest = 165.0  # the Total view's tallest bar (test_the_tallest_bar_its_figures_and_the_baseline_fit_the_plot_box…)
-    assert result["mixed"]["heights"] == [["peak", tallest], ["peak", tallest]]
+    assert result["mixed"]["heights"] == [["bar-total", tallest], ["bar-total", tallest]]
     assert result["mixed"]["labels"] == ["100,000 CAD", "80,000 USD"]
-    assert result["undeclared"]["heights"] == [["peak", tallest], ["peak", tallest]]
+    assert result["undeclared"]["heights"] == [["bar-total", tallest], ["bar-total", tallest]]
     assert result["undeclared"]["labels"] == ["100,000 CAD", "80,000"]
-    # One currency: one scale, one peak, no unit (the table's "($)" convention).
-    assert result["single"]["heights"] == [["peak", tallest], ["", tallest * 0.8]]
+    # One currency: one scale, no unit (the table's "($)" convention).
+    assert result["single"]["heights"] == [["bar-total", tallest], ["bar-total", tallest * 0.8]]
     assert result["single"]["labels"] == ["100,000", "80,000"]
 
 
@@ -930,12 +946,13 @@ def _units_package(docs, currencies, refused):
             "currency": {"currencies": currencies, "cross_currency_totals_refused": refused}}
 
 
-#: The deposit amount columns of each view's rows (Total/True/Verified/Monthly Deposits), by cell position, and the
-#: Ledger cell (an amount the chart prints under its bar, in the member's own money format).
-_DEPOSIT_CELLS = {"both": (2, 4, 6), "total": (2,), "true": (2, 4)}
-_LEDGER_CELL = {"both": 7, "total": 4, "true": 5}
+#: The deposit amount columns of each view's rows (Total/True/Monthly Deposits), by cell position, and the Ledger cell
+#: (an amount the chart prints under its bar, in the member's own money format). The owner's request of 2026-10-07: no
+#: Verified ($) column; the Withholding Rate cell (a percentage, never a unit) sits before Ledger in every view.
+_DEPOSIT_CELLS = {"both": (2, 4), "total": (2,), "true": (2,)}
+_LEDGER_CELL = {"both": 7, "total": 5, "true": 5}
 #: ... and the count and NSF cells, which never carry a unit.
-_COUNT_CELLS = {"both": (3, 5, 8), "total": (3, 5), "true": (3, 6)}
+_COUNT_CELLS = {"both": (3, 5, 8), "total": (3, 6), "true": (3, 6)}
 
 
 def _unit(text):
@@ -978,26 +995,27 @@ def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_
     }
     result = run_dashboard(MONTHLY_UNITS + "console.log(JSON.stringify({" + ", ".join(
         f"{name}: unitsCard({json.dumps(package)})" for name, package in cases.items()) + "}));")
-    # (a) CAD beside an undeclared member: the CAD row names CAD on its four amount cells, the undeclared row none.
+    # (a) CAD beside an undeclared member: the CAD row names CAD on its amount cells, the undeclared row none; the
+    # Withholding Rate cell is a percentage (N/A here: the fabricated rows publish no rate) and names no unit.
     card = result["cad_undeclared"]
     assert card["both"]["rows"] == [
-        ["March", "2031", "100,000 CAD", "2", "60,000 CAD", "1", "20,000 CAD", "5,000 CAD", "1", "Open"],
-        ["April", "2031", "80,000", "2", "60,000", "1", "20,000", "5,000", "1", "Open"]]
-    assert card["total"]["rows"] == [["March", "2031", "100,000 CAD", "2", "5,000 CAD", "1", "Open"],
-                                     ["April", "2031", "80,000", "2", "5,000", "1", "Open"]]
-    assert card["true"]["rows"] == [["March", "2031", "60,000 CAD", "1", "20,000 CAD", "5,000 CAD", "1", "Open"],
-                                    ["April", "2031", "60,000", "1", "20,000", "5,000", "1", "Open"]]
+        ["March", "2031", "100,000 CAD", "2", "60,000 CAD", "1", "N/A", "5,000 CAD", "1", "Open"],
+        ["April", "2031", "80,000", "2", "60,000", "1", "N/A", "5,000", "1", "Open"]]
+    assert card["total"]["rows"] == [["March", "2031", "100,000 CAD", "2", "N/A", "5,000 CAD", "1", "Open"],
+                                     ["April", "2031", "80,000", "2", "N/A", "5,000", "1", "Open"]]
+    assert card["true"]["rows"] == [["March", "2031", "60,000 CAD", "1", "N/A", "5,000 CAD", "1", "Open"],
+                                    ["April", "2031", "60,000", "1", "N/A", "5,000", "1", "Open"]]
     # The chart is unchanged (I54): every bar of a refused package names its unit, an undeclared one none.
     assert card["both"]["bars"] == [["100,000 CAD", "60,000 CAD", "20,000 CAD"], ["80,000", "60,000", "20,000"]]
     assert card["total"]["bars"] == [["100,000 CAD"], ["80,000"]]
     assert card["true"]["bars"] == [["60,000 CAD", "20,000 CAD"], ["60,000", "20,000"]]
     # (b) USD beside an undeclared member: the USD row names USD, the undeclared row stays bare.
     assert result["usd_undeclared"]["both"]["rows"][0][2:8] == [
-        "100,000 USD", "2", "60,000 USD", "1", "20,000 USD", "5,000 USD"]
-    assert result["usd_undeclared"]["both"]["rows"][1][2:8] == ["80,000", "2", "60,000", "1", "20,000", "5,000"]
+        "100,000 USD", "2", "60,000 USD", "1", "N/A", "5,000 USD"]
+    assert result["usd_undeclared"]["both"]["rows"][1][2:8] == ["80,000", "2", "60,000", "1", "N/A", "5,000"]
     # (c) CAD and USD: each row names its own unit.
-    assert result["cad_usd"]["both"]["rows"][0][2:8] == ["100,000 CAD", "2", "60,000 CAD", "1", "20,000 CAD", "5,000 CAD"]
-    assert result["cad_usd"]["both"]["rows"][1][2:8] == ["80,000 USD", "2", "60,000 USD", "1", "20,000 USD", "5,000 USD"]
+    assert result["cad_usd"]["both"]["rows"][0][2:8] == ["100,000 CAD", "2", "60,000 CAD", "1", "N/A", "5,000 CAD"]
+    assert result["cad_usd"]["both"]["rows"][1][2:8] == ["80,000 USD", "2", "60,000 USD", "1", "N/A", "5,000 USD"]
     expected_units = {"cad_undeclared": [["CAD"], []], "usd_undeclared": [["USD"], []], "cad_usd": [["CAD"], ["USD"]],
                       "cad_only": [[], []], "usd_only": [[], []], "cad_undeclared_unestablished": [["CAD"], []]}
     for name, card in result.items():
@@ -1010,13 +1028,13 @@ def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_
             for row in card[view]["rows"]:
                 # The count and NSF cells carry no unit.
                 assert all(re.fullmatch(r"[\d,]+|N/A", row[i]) for i in _COUNT_CELLS[view]), (name, view, row)
-        # The headers are unchanged: "($)" whatever the units.
+        # The headers: "($)" whatever the units.
         assert card["both"]["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month",
-                                        "True Deposits ($)", "True Deposits Per Month", "Verified ($)", "Ledger ($)",
-                                        "NSF", "Action"]
+                                        "True Deposits ($)", "True Deposits Per Month", "Withholding Rate",
+                                        "Ledger ($)", "NSF", "Action"]
     # A single-currency package stays bare (the CRM's "($)" convention), CAD-only included.
-    assert result["cad_only"]["both"]["rows"][0][2:8] == ["100,000", "2", "60,000", "1", "20,000", "5,000"]
-    assert result["usd_only"]["total"]["rows"][1][2:5] == ["80,000", "2", "5,000"]
+    assert result["cad_only"]["both"]["rows"][0][2:8] == ["100,000", "2", "60,000", "1", "N/A", "5,000"]
+    assert result["usd_only"]["total"]["rows"][1][2:6] == ["80,000", "2", "N/A", "5,000"]
     # A null amount reads N/A with no unit; the row's other amounts still name it.
     unestablished = result["cad_undeclared_unestablished"]["both"]["rows"][0]
     assert unestablished[2:8] == ["100,000 CAD", "2", "N/A", "N/A", "N/A", "5,000 CAD"]
@@ -1038,9 +1056,10 @@ def test_the_monthly_table_of_a_real_package_names_the_cad_row_beside_an_undecla
 currentJobIds = ['raw', 'cad']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(unitsCard({json.dumps(package)})));
 """)
-    # 2,000 posted: 1,000 True, 700 verified (test_the_monthly_statements_show_true_revenue_and_its_verified_part).
-    assert result["both"]["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "700"]
-    assert result["both"]["rows"][1][2:7] == ["2,000 CAD", "4", "1,000 CAD", "2", "700 CAD"]
+    # 2,000 posted: 1,000 True (test_the_monthly_statements_show_true_revenue_and_its_verified_part), and each row's
+    # own withholding rate, a percentage with no unit (no lender debit: 0.00%).
+    assert result["both"]["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "0.00%"]
+    assert result["both"]["rows"][1][2:7] == ["2,000 CAD", "4", "1,000 CAD", "2", "0.00%"]
     for view, units in _table_units(result).items():
         assert units["table"] == units["chart"] == units["ledger"] == [[], ["CAD"]], view
 
@@ -1070,7 +1089,7 @@ console.log(JSON.stringify({{...monthly(), ...hero(), notice: [els.duplicateNoti
         "mar-download.pdf repeats mar.pdf (the same statement, downloaded again). The package needs review.")]
     assert [row[0] for row in result["rows"]] == ["March", "April"]
     assert result["count"] == "2 statements"
-    assert result["label"] == "Total credits · 2 statements · 2 months"
+    assert result["label"] == "True revenue · 2 statements · 2 months"
     assert result["status"]["Statements completed"] == "2 / 2"
     assert result["kicker"].startswith("Package · 2 statements")
     clean = run_dashboard(f"""
@@ -1379,7 +1398,8 @@ const view = (pkg, ids) => {
   const metrics = els.metricsGrid.innerHTML;
   return {kicker: strip(els.heroKicker.innerHTML), chips: [...els.heroChips.innerHTML.matchAll(
       /<span class="hero-chip[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]),
-    label: els.creditsLabel.textContent, meta: strip(els.creditsMeta.innerHTML), status: kv(els.statusList),
+    label: els.creditsLabel.textContent, value: els.creditsValue.textContent, meta: strip(els.creditsMeta.innerHTML),
+    status: kv(els.statusList),
     card: kv(els.packageSummaryList), count: els.monthlyCount.textContent, memo: els.summaryBox.textContent,
     processing: els.packageProcessingNote.textContent,
     note: (metrics.match(/\d+ of \d+ statements? (?:has|have) no established revenue/) || [""])[0],
@@ -1425,10 +1445,10 @@ generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
     cycle = _package({f"c{index}": _period_payload(start, end) for index, (start, end) in enumerate(_SIXTEENTH_CYCLE)},
                      tmp_path, monkeypatch)
     long_view, cycle_view = _views(long_package, cycle)
-    assert long_view["label"] == "Total credits · 1 statement · 2 months"
+    assert long_view["label"] == "True revenue · 1 statement · 2 months"
     assert "True revenue $20,000.00 ($10,000.00 a month)" in long_view["memo"]
-    assert cycle_view["label"] == "Total credits · 3 statements · 3 months"
-    assert cycle_view["meta"].endswith("True revenue $30,000.00 · True per month $10,000.00")
+    assert cycle_view["label"] == "True revenue · 3 statements · 3 months"
+    assert cycle_view["value"] == "$30,000.00" and cycle_view["meta"].endswith(" · True per month $10,000.00")
     rows = run_dashboard(CELLS + f"""
 renderPackageAnalysis({json.dumps(cycle)}); console.log(JSON.stringify(monthly().rows.map((row) => row[0])));
 """)
@@ -1452,7 +1472,9 @@ def test_an_account_left_out_of_the_package_is_named_and_the_true_line_says_what
     withheld_view, ambiguous_view, alone_view, idle_view, clean_view = _views(withheld, ambiguous, alone, idle, clean)
     assert withheld_view["excluded"] == [False, "1 account left out of every figure. The package needs review. "
                                                 "doc2.pdf (main account not verified)."]
-    assert "True revenue $20,000.00 · covers 2 of 3 statements · True per month $10,000.00" in withheld_view["meta"]
+    # The owner's request of 2026-10-07: True revenue is the big figure, and the line below says what it covers.
+    assert withheld_view["value"] == "$20,000.00"
+    assert withheld_view["meta"].endswith(" · True per month $10,000.00 · True revenue covers 2 of 3 statements")
     assert withheld_view["duplicates"][0] is True  # the repeats' notice stays for repeats
     assert ambiguous_view["excluded"][1] == (
         "2 accounts left out of every figure. The package needs review. doc2.pdf, account 1 of 2 (transfers between "
@@ -1461,7 +1483,8 @@ def test_an_account_left_out_of_the_package_is_named_and_the_true_line_says_what
     assert "covers 1 of 2 statements" in ambiguous_view["meta"]
     assert idle_view["excluded"][1].endswith("doc2.pdf (main account printed no activity).")
     assert "Revenue · Balanced" not in alone_view["chips"] and "Revenue · Review required" in alone_view["chips"]
-    assert "True revenue N/A · covers 0 of 1 statement ·" in alone_view["meta"]
+    assert alone_view["value"] == "N/A"
+    assert alone_view["meta"].endswith(" · True per month N/A · True revenue covers 0 of 1 statement")
     assert alone_view["status"]["Revenue reconciliation"] == "Review required"
     assert alone_view["cards"]["True Revenue"] == "N/A"
     assert clean_view["excluded"] == [True, ""] and "covers" not in clean_view["meta"]
@@ -1500,7 +1523,8 @@ def test_a_package_with_nothing_analysed_reads_n_a_and_names_what_is_still_proce
     failed_view, queued_view, mixed_view = _views(failed, queued, mixed)
     for page in (failed_view, queued_view):
         assert "Revenue · Balanced" not in page["chips"]
-        assert page["label"] == "Total credits · No statements analysed"
+        # The owner's request of 2026-10-07: the big figure is True revenue, N/A here, and the label says why.
+        assert page["label"] == "True revenue · No statements analysed" and page["value"] == "N/A"
         assert "1 statement · 1 month" not in page["all"]
         assert page["cards"]["True Revenue"] == "N/A" and page["cards"]["True Revenue Per Month"] == "N/A"
         assert "True revenue N/A" in page["memo"]
@@ -1509,7 +1533,7 @@ def test_a_package_with_nothing_analysed_reads_n_a_and_names_what_is_still_proce
     assert queued_view["status"]["Processing errors"] == "0"
     # An analysed month beside a failed one keeps its figures and its chip (spec §10.4).
     assert "Revenue · Balanced" in mixed_view["chips"]
-    assert "True revenue $10,000.00 · True per month $10,000.00" in mixed_view["meta"]
+    assert mixed_view["value"] == "$10,000.00" and mixed_view["meta"].endswith(" · True per month $10,000.00")
 
 
 @needs_node
@@ -1543,7 +1567,7 @@ def test_the_package_counts_name_statements_and_accounts_apart(tmp_path, monkeyp
     assert fabrikam_view["card"]["Statements"] == "1 statement · 2 of 2 accounts completed"
     assert fabrikam_view["count"] == "1 statement · 2 accounts"
     assert "): 2 of 2 accounts completed." in fabrikam_view["memo"]
-    assert fabrikam_view["label"] == "Total credits · 1 statement · 1 month"
+    assert fabrikam_view["label"] == "True revenue · 1 statement · 1 month"
     assert april_view["kicker"].startswith("Package · 2 statements · 3 accounts")
     assert april_view["status"]["Accounts completed"] == "3 / 3"
     assert april_view["card"]["Statements"] == "2 statements · 3 of 3 accounts completed"
@@ -1875,12 +1899,12 @@ console.log(JSON.stringify({{rows, evidence, both, trueOnly, totalOnly, memo: el
     note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
     assert note.endswith(" · Zelle deposits excluded: $1,500.00 (3)")
     assert [_ZELLE_LABEL, "3", "$1,500.00"] in [row[:3] for row in result["evidence"]]
-    # The Monthly Statements' True cell names the month's excluded Zelle deposits, only where there are some, in the
-    # both and true views (never in the total view, which shows no True cell).
-    assert result["both"]["details"] == [["1,500"], []]
-    assert result["both"]["rows"][0][4] == "1,000Zelle excluded 1,500" and result["both"]["rows"][1][4] == "1,000"
-    assert result["trueOnly"]["details"] == [["1,500"], []]
-    assert result["trueOnly"]["rows"][0][2] == "1,000Zelle excluded 1,500"
+    # The owner's follow-up of 2026-10-07: the Monthly Statements' True cell no longer names the month's excluded Zelle
+    # deposits (R2-OW03's line is gone in every view); the True card above keeps them.
+    assert result["both"]["details"] == [[], []]
+    assert result["both"]["rows"][0][4] == "1,000" and result["both"]["rows"][1][4] == "1,000"
+    assert result["trueOnly"]["details"] == [[], []]
+    assert result["trueOnly"]["rows"][0][2] == "1,000"
     assert result["totalOnly"] == [[], []]
     assert ", of which Zelle deposits excluded $1,500.00." in result["memo"]
 
@@ -1900,7 +1924,8 @@ console.log(JSON.stringify({{rows, details, memo: els.summaryBox.textContent}}))
 """)
     note = {row["label"]: row["note"] for row in result["rows"]}["True Revenue"]
     assert note.endswith(" · Zelle deposits in True revenue: $1,500.00 (3)")
-    assert result["details"] == [["Zelle in True 1,500"], []]
+    # The owner's follow-up of 2026-10-07: no Monthly Statements row carries R2-OW17's Zelle line any more.
+    assert result["details"] == [[], []]
     assert "; Zelle deposits counted as True revenue $1,500.00." in result["memo"]
 
 
@@ -1917,8 +1942,8 @@ const details = [...els.monthlyTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\
   [...m[1].matchAll(/<div class="table-cell-detail">(Zelle[^<]*)<\\/div>/g)].map((d) => d[1]));
 console.log(JSON.stringify({{details, facts: packageRevenueFacts({json.dumps(totals)}, null)}}));
 """)
-    # Audit round 2, R2-B16 (R51): in a refused package every declared row names its unit, USD included.
-    assert result["details"] == [["Zelle in True 1,500 USD"], ["Zelle in True 1,500 CAD"]]
+    # The owner's follow-up of 2026-10-07: no Monthly Statements row carries a Zelle line; the package's fact stays.
+    assert result["details"] == [[], []]
     assert result["facts"] == ["Zelle deposits in True revenue: 6"]
 
 
@@ -1932,13 +1957,15 @@ def test_a_mixed_currency_package_names_each_month_s_unit_and_counts_the_refused
     assert totals["non_revenue_by_reason"] == {"zelle_excluded": {"count": 6, "total": None}}
     result = run_dashboard(CELLS + LEDGER + f"""
 currentJobIds = ['usd', 'cad']; renderPackageAnalysis({json.dumps(package)});
-console.log(JSON.stringify({{details: zelleDetails(), evidence: cells(els.revenueTable.innerHTML),
-  facts: packageRevenueFacts({json.dumps(totals)}, null),
+console.log(JSON.stringify({{details: zelleDetails(), rows: cells(els.monthlyTable.innerHTML),
+  evidence: cells(els.revenueTable.innerHTML), facts: packageRevenueFacts({json.dumps(totals)}, null),
   statementFacts: statementRevenueFacts({{non_revenue_by_reason: {{zelle_excluded: {{count: 3, total: 1500}}}}}}, 'CAD')}}));
 """)
     # Each row is in its own statement's currency (in a refused package every declared row names its unit, USD
-    # included: audit round 2, R2-B16, R51), and the package's money is refused.
-    assert result["details"] == [["1,500 USD"], ["1,500 CAD"]]
+    # included: audit round 2, R2-B16, R51), and the package's money is refused. The owner's follow-up of 2026-10-07:
+    # the True cell is its figure alone, with no Zelle line.
+    assert result["details"] == [[], []]
+    assert [row[4] for row in result["rows"]] == ["1,000 USD", "1,000 CAD"]
     assert [_ZELLE_LABEL, "6", "N/A"] in [row[:3] for row in result["evidence"]]
     assert result["facts"] == ["Zelle deposits excluded: 6"]
     assert result["statementFacts"] == ["Zelle deposits excluded: CA$1,500.00 (3)"]
@@ -2051,8 +2078,11 @@ def test_the_funding_aid_adds_no_reason_code():
 # say what paid leaves out; the ledger marks the debit and the return names the payment it returns. The statements are
 # tests/test_returned_funder_payments.py's (CONTOSO PLUMBING LLC's fabricated March 2054).
 
-_RETURNED_WARNING = ('Returned funder payment: KAPITUS $850.00 debited 2054-03-03, returned 2054-03-05 ("RETURN OF '
-                     'POSTED CHECK ITEM RECEIVED ON 03/03 03/05"). Not counted as paid; still in the withholding rate.')
+#: The owner's request of 2026-10-07 (dashboard clarity): the note's headline, then its plain sentences.
+_RETURNED_WARNING = ('KAPITUS: a payment was returned The $850.00 payment on Mar 3, 2054 was returned unpaid on Mar 5, '
+                     '2054 '
+                     '(the bank printed: "RETURN OF POSTED CHECK ITEM RECEIVED ON 03/03 03/05"). It isn\'t counted as '
+                     'paid, but it still counts in the withholding rate.')
 LENDER_ROWS = r"""
 const unescape = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const lenderRows = (html) => [...html.matchAll(/<tr([^>]*)>([\s\S]*?)<\/tr>/g)].map((m) => ({cls: m[1].trim(),
@@ -2194,10 +2224,13 @@ console.log(JSON.stringify({{lenders: lenderRows(els.lenderTable.innerHTML),
   rows: metricRows(els.metricsGrid.innerHTML), ledger: ledgerRows(els.transactionTable.innerHTML)}}));
 """)
     warnings = [row["cells"][0] for row in result["lenders"] if row["cls"] == 'class="lender-warning"']
+    # Both statements print March 2054, so each note names its statement by its file under the month.
     assert warnings == [
-        f"! Returned {_RETURNED_WARNING}",
-        f'! Returned Returned funder payment: KAPITUS $850.00 debited 2054-03-02, returned 2054-03-04 ("{NAMED_RETURN}"). '
-        "Not counted as paid; still in the withholding rate.",
+        f"! Returned {_RETURNED_WARNING} From: March 2054 statement, fabricated-mar.pdf",
+        f'! Returned KAPITUS: a payment was returned The $850.00 payment on Mar 2, 2054 was returned unpaid on Mar 4, '
+        '2054 '
+        f'(the bank printed: "{NAMED_RETURN}"). It isn\'t counted as paid, but it still counts in the withholding '
+        "rate. From: March 2054 statement, fabricated-apr.pdf",
     ]
     [kapitus] = [row for row in result["lenders"] if row["cls"] != 'class="lender-warning"']
     assert kapitus["cells"][2:4] == ["2", "$1,700.00 2 returned payments, $1,700.00, not in paid"]

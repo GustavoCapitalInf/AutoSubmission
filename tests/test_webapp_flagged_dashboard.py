@@ -718,7 +718,11 @@ def test_the_page_asks_browsers_for_the_new_script():
     # Monthly Statements table's unit rule. Audit round 3, R3-B25: so do the round-3 batches' app.js changes; the value
     # skips true-revenue-7 and -8, which the hosting line (fix/boa-nsf) served for code not on this branch. Audit round
     # 3, final review (R3-FF), F6: the floor's unit moves app.js again, and -9 may sit in a browser from the Accept run.
-    assert '<script src="/static/app.js?v=true-revenue-10"></script>' in html
+    # On the hosting line, the owner's request of 2026-10-07: so do the lender notes, the hero and the Monthly
+    # Statements' withholding rate; and its follow-up the same day: the Monthly Statements without the Zelle line and
+    # the chart's bars in the key's colours (served there as -7 and -8). Audit round 3, R3-MERGE: the merged app.js
+    # differs from both lines', so it takes the next free value above both: -11.
+    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in

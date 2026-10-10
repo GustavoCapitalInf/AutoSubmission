@@ -486,7 +486,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_36():
+def test_analysis_stage_version_is_pinned_at_37():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -527,8 +527,20 @@ def test_analysis_stage_version_is_pinned_at_36():
     carry-in fix (34) and Bank of America daily-ledger table (35), code this
     branch merges after the run, never back to 34 or 35; 36 is reserved for
     this branch, and the merge commit moves the stage past both lines' values
-    (R3-B25 review round 1). This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 36
+    (R3-B25 review round 1). On the hosting line: the owner report of
+    2026-10-08 (Capital One daily ledger) has the Capital One parser declare the
+    postings it proves were printed on the previous-balance day, which the ADB
+    engine folds into the opening balance, so a stored withheld ledger of such a
+    statement must recompute: 33 -> 34. The owner report of 2026-10-08 (Bank of
+    America NSF) has the Bank of America parser publish the bank's own Daily
+    ledger balances table once every cell is verified against the rows, so a
+    stored ledger relabels its printed days and a quiet negative opening day
+    joins the printed-day NSF count: 34 -> 35. Audit round 3, R3-MERGE: the
+    merge-back of the hosting line carries both parser fixes into round 3's
+    readings, an analysis output neither line's entry holds, so the merge commit
+    moves the stage to the next free value above both lines: 36 -> 37. This is
+    that pin."""
+    assert ANALYSIS_STAGE_VERSION == 37
 
 
 def test_paddle_model_token_is_not_in_free_models():

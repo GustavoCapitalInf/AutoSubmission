@@ -904,29 +904,80 @@ _RETURNED_FUNDER_PAYMENT_FIELDS = (
 )
 
 
+#: Audit round 3, R3-MERGE: the readable day and the uploaded file's name as app.js writes them in the lender notes of the
+#: owner's request of 2026-10-07 (readableDate, statementFileName), so the download keeps R3-67's rule that its words
+#: are the dashboard's.
+_READABLE_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_STATEMENT_ID_PREFIX = re.compile(
+    r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})(?:[_\s-]+|$)", re.IGNORECASE)
+
+
+def _readable_date(value) -> str:
+    """app.js readableDate: "Jun 22, 2026" for an ISO day; any other value as given; N/A when missing."""
+    match = re.fullmatch(r"(\d{4})-(\d{2})-(\d{2})", str(value or ""))
+    if match:
+        try:
+            day = datetime(int(match[1]), int(match[2]), int(match[3]))
+        except ValueError:
+            day = None
+        if day is not None:
+            return f"{_READABLE_MONTHS[day.month - 1]} {day.day}, {day.year}"
+    return str(value) if value else "N/A"
+
+
+def _statement_file_name(name) -> str:
+    """app.js statementFileName: the uploaded file's name, any leading job id or UUID (and its separator) removed."""
+    text = str(name if name is not None else "").strip()
+    while text and _STATEMENT_ID_PREFIX.match(text):
+        text = _STATEMENT_ID_PREFIX.sub("", text, count=1).strip()
+    return text
+
+
+def _returned_funder_payment_source(item: dict) -> str:
+    """app.js paymentChangeSourceLine for a returned funder payment's note, read without a package page's rows (the
+    downloads name each statement by its file, as the dashboard does where it has no rows): none on a statement's own
+    item (it names no source; a returned payment's item carries no `scope`, which only a payment change's does), "From:
+    <file> → <file>" for a match across statements, else "From: <file>"."""
+    if "source_job" not in item and "source_document" not in item:
+        return ""
+
+    def label(prefix: str) -> str:
+        return _statement_file_name(item.get(f"{prefix}_document")) or "a statement"
+
+    if item.get("cross_statement") is True:
+        return f"From: {label('source')} → {label('credit')}"
+    return f"From: {label('source')}"
+
+
 def _returned_funder_payment_words(item: dict) -> str:
     """Audit round 3, R3-B23 (R3-67): a returned funder payment as the dashboard's warning reads it (app.js
     returnedFunderPaymentWarning, §10.1), its money as the downloads write money: the amount, then the item's own unit
     where it names one (the overlapping statements' words; no unit when it is unknown). A payment matched to its return
     across statements names both documents; a payment the funder re-debited (R3-B02) names the re-debit and is counted
-    once in the withholding rate."""
+    once in the withholding rate. Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 that
+    the dashboard now writes (a headline, its sentences, the statements it comes from), so R3-67's rule holds."""
     amount = item.get("amount")
-    money = (f"{float(amount):,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
+    money = (f"{abs(float(amount)):,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
              if _is_money_value(amount) else "N/A")
-    across = item.get("cross_statement") is True
-    debited = f" ({item.get('source_document') or 'a statement'})" if across else ""
-    returned = f" ({item.get('credit_document') or 'the next statement'})" if across else ""
-    quoted = f' ("{item["credit_description"]}")' if item.get("credit_description") else ""
-    head = (f"Returned funder payment: {item.get('funder') or 'Confirmed lender'} {money} debited "
-            f"{item.get('debit_date') or 'N/A'}{debited}, returned {item.get('credit_date') or 'N/A'}{returned}{quoted}")
+    quoted = f' (the bank printed: "{item["credit_description"]}")' if item.get("credit_description") else ""
+    sentences = [f"{item.get('funder') or 'Confirmed lender'}: a payment was returned.",
+                 f"The {money} payment on {_readable_date(item.get('debit_date'))} was returned unpaid on "
+                 f"{_readable_date(item.get('credit_date'))}{quoted}."]
     if item.get("represented_date"):
-        where = f" ({item['represented_document']})" if item.get("represented_document") else ""
+        where = (f" ({_statement_file_name(item.get('represented_document')) or 'a statement'})"
+                 if item.get("represented_job") or item.get("represented_document") else "")
         caught_up = item.get("represented_kind") == "caught_up"
-        how = (f"caught up on {item['represented_date']}{where}, 2x" if caught_up
-               else f"re-presented on {item['represented_date']}{where}")
-        return (f"{head}, {how}. Not counted as paid; counted once in the withholding rate, by the "
-                f"{'catch-up' if caught_up else 're-presented payment'}.")
-    return f"{head}. Not counted as paid; still in the withholding rate."
+        day = _readable_date(item["represented_date"])
+        sentences.append(f"It was caught up on {day}{where}, by one debit of twice the payment." if caught_up
+                         else f"It was taken again on {day}{where}.")
+        sentences.append("It isn't counted as paid; it is counted once in the withholding rate, by the "
+                         f"{'catch-up' if caught_up else 'second debit'}.")
+    else:
+        sentences.append("It isn't counted as paid, but it still counts in the withholding rate.")
+    source = _returned_funder_payment_source(item)
+    if source:
+        sentences.append(f"{source}.")
+    return " ".join(sentences)
 
 
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:

@@ -71,15 +71,23 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # 5.7/33: audit round 2's last batch (R2-B16, R56): the fix batches, round 2 and the owner's rulings of 2026-10-02
     # and 2026-10-06 moved tiers, reasons and the gate under 5.6, and the owner batches' stored shape with them; the
     # stage moves too, so Re-analyze misses a stage-32 entry still stamped 5.6.
+    # 5.7/34 (on the hosting line, fix/boa-nsf): the owner report of 2026-10-08 (Capital One daily ledger): a parser
+    # and ADB change, no classification change; the stage moves so a stored withheld ledger of such a statement
+    # recomputes.
+    # 5.7/35 (on the hosting line): the owner report of 2026-10-08 (Bank of America NSF): a parser change, no
+    # classification change; the stage moves so a stored ledger relabels the bank's printed days and recounts the
+    # printed-day NSF days.
     # 5.8/36: audit round 3's last batch (R3-B25): the round-3 fix batches (R3-B01 to R3-B24) moved credit tiers,
     # reasons and sentences, bank charges naming a funder, a potential lender's return pair, the withholding basis
     # floor and the lender payment change items under 5.7; the stage moves too, so Re-analyze misses a stage-33 entry
     # still stamped 5.7. Stages 34 and 35 are skipped: the hosting line (fix/boa-nsf) used them for code not on this
     # branch.
+    # 5.8/37: audit round 3, R3-MERGE: the merge-back of the hosting line (its two parser fixes beside round 3's
+    # readings) moves the stage past both lines' values; no classification change, so 5.8 stays.
     assert CLASSIFICATION_VERSION == "5.8"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.8"
     assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.8"
-    assert ANALYSIS_STAGE_VERSION == 36
+    assert ANALYSIS_STAGE_VERSION == 37
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

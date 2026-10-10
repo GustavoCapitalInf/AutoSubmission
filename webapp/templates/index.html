@@ -432,6 +432,9 @@
   .credits-value { font-size: 44px; font-weight: 600; letter-spacing: -.035em; line-height: 1.1; font-feature-settings: "tnum" 1; overflow-wrap: anywhere; }
   .credits-meta { font-size: 12.5px; color: var(--text-3); }
   .credits-meta .mono { color: var(--text-2); }
+  /* The owner's request of 2026-10-07: under the True revenue figure, a reason line where it is N/A, then Total credits. */
+  .credits-meta-line { display: block; }
+  .credits-meta-line + .credits-meta-line { margin-top: 2px; }
   .mix-bar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; gap: 2px; background: var(--surface-2); }
   .mix-bar span { display: block; height: 100%; }
   .mix-rows { display: flex; flex-direction: column; }
@@ -487,13 +490,14 @@
   .bar-col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; min-width: 0; }
   /* 5.6 (A4): a set line height, so the stacked figures take a known height (app.js monthlyChartTallestBar). */
   .bar-value { font-family: var(--font-mono); font-size: 12px; line-height: 16px; color: var(--text-2); white-space: nowrap; }
+  /* The owner's follow-up of 2026-10-07: a bar takes only colours its key shows (each with its swatch's background
+     below), so a bar has none of its own and none is highlighted. Total deposits (the Both and Total views) in a
+     neutral tone, its True part in the accent from the bottom up; True revenue (the True view) in the accent. */
   .bar {
     position: relative; overflow: hidden; width: 100%; max-width: 88px; border-radius: 8px 8px 2px 2px;
-    background: var(--accent-muted);
   }
-  /* Both deposits: each Total bar in a neutral tone, its True part in the accent from the bottom up (the muted accent
-     is too close to the accent to tell the two apart in the light theme). */
   .bar.bar-total { background: var(--border-2); }
+  .bar.bar-true { background: var(--accent); }
   .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
   .bar-value-true { margin-top: -6px; color: var(--accent-text); }
   /* 5.6: the Verified part of a True part (or of a True bar), in the third shade. */
@@ -502,7 +506,6 @@
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
   .legend-swatch-true { background: var(--accent); }
   .legend-swatch-verified { background: var(--verified); }
-  .bar.peak { background: var(--accent); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
   .bar-label strong { font-size: 12.5px; font-weight: 500; }
@@ -632,6 +635,15 @@
   .lender-evidence-table th:nth-child(n+3):nth-child(-n+5) { text-align: right; }
   .lender-evidence-table td:first-child { font-weight: 500; }
   .lender-evidence-table td:nth-child(2) { color: var(--text-2); }
+  /* The owner's request of 2026-10-07 (dashboard clarity): a lender note is its chip and a bold headline, then its plain
+     sentences, each "Also:" sentence and the statement it comes from, each on its own line. */
+  .lender-evidence-table tr.lender-warning td { font-weight: 400; white-space: normal; padding-top: 10px; padding-bottom: 10px; }
+  .lender-note { display: flex; flex-direction: column; gap: 3px; max-width: 920px; }
+  .lender-note-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+  .data-table .lender-note-headline { font-weight: 600; color: var(--text); }
+  .lender-note-detail { color: var(--text-2); line-height: 1.5; }
+  .lender-note-also { color: var(--text-3); line-height: 1.5; }
+  .lender-note-source { color: var(--text-3); font-size: 11.5px; }
   .evidence-table td:nth-child(2), .evidence-table td:nth-child(3) { text-align: right; font-family: var(--font-mono); }
   .evidence-table th:nth-child(2), .evidence-table th:nth-child(3) { text-align: right; }
   .flagged-note { margin: 0; padding: 0 20px 12px; font-size: 12.5px; color: var(--text-3); }
@@ -1255,7 +1267,7 @@
         <section class="hero-chart" aria-label="Credits">
           <div class="credits-block">
             <div class="credits-figure">
-              <span class="credits-label" id="creditsLabel">Total credits</span>
+              <span class="credits-label" id="creditsLabel">True revenue</span>
               <span class="credits-value" id="creditsValue">N/A</span>
               <span class="credits-meta" id="creditsMeta"></span>
             </div>
@@ -1287,6 +1299,7 @@
                   <th>Total Deposits Per Month</th>
                   <th>True Deposits ($)</th>
                   <th>True Deposits Per Month</th>
+                  <th>Withholding Rate</th>
                   <th>Ledger ($)</th>
                   <th>NSF</th>
                   <th>Action</th>
@@ -1588,9 +1601,10 @@
                   <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
                   funding included. <strong>True revenue:</strong> every posted credit except known non-revenue
                   (own-account transfers, funding, refunds) and the deposits held for review. The verified part, with
-                  positive proof, is shown beside it.
+                  positive proof, is shaded inside it on the monthly chart.
                   <strong>Both</strong> shows the two side by side. The monthly chart follows the same choice, and a
-                  statement whose revenue could not be established shows N/A. Saved in this browser only.
+                  statement whose revenue could not be established shows N/A. Every choice also shows each statement's
+                  confirmed withholding rate. Saved in this browser only.
                 </p>
               </div>
               <select class="setting-select" id="monthlyDepositsView" aria-describedby="monthlyDepositsHelp">
@@ -1744,6 +1758,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-10"></script>
+<script src="/static/app.js?v=true-revenue-11"></script>
 </body>
 </html>

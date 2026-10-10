@@ -673,18 +673,23 @@ console.log(JSON.stringify({{warnings: items.map((item) => returnedFunderPayment
   audit: withholdingAuditNote({json.dumps(metrics)}, 'USD'),
   lender: filterTransactions(rows, 'lender').map((tx) => rows.indexOf(tx))}}));
 """)
+    # Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 (the hosting line's lender notes);
+    # each fact of R3-73's line stays: the re-presentment or the 2x catch-up and its day, the re-debit's statement, the
+    # payment out of paid and counted once in the rate (by the catch-up or the second debit), the standing return still
+    # in it. Without a package page's rows the statement is named by its file.
     assert result["warnings"] == [
-        'Returned funder payment: KAPITUS $1,000.00 debited 2054-03-13, returned 2054-03-15 ("RETURN OF POSTED CHECK '
-        'ITEM"), re-presented on 2054-03-16. Not counted as paid; counted once in the withholding rate, by the '
-        're-presented payment.',
-        'Returned funder payment: KAPITUS $250.00 debited 2054-03-05, returned 2054-03-06 ("RETURN OF POSTED CHECK '
-        'ITEM"), caught up on 2054-03-06, 2x. Not counted as paid; counted once in the withholding rate, by the '
-        'catch-up.',
-        'Returned funder payment: KAPITUS $850.00 debited 2031-03-25, returned 2031-03-28 ("ACH RETURN ITEM NSF"), '
-        're-presented on 2031-04-03 (apr.pdf). Not counted as paid; counted once in the withholding rate, by the '
-        're-presented payment.',
-        'Returned funder payment: KAPITUS $850.00 debited 2054-03-13, returned 2054-03-15 ("RETURN OF POSTED CHECK '
-        'ITEM"). Not counted as paid; still in the withholding rate.',
+        'KAPITUS: a payment was returned. The $1,000.00 payment on Mar 13, 2054 was returned unpaid on Mar 15, 2054 (the '
+        'bank printed: "RETURN OF POSTED CHECK ITEM"). It was taken again on Mar 16, 2054. It isn\'t counted as paid; it '
+        'is counted once in the withholding rate, by the second debit.',
+        'KAPITUS: a payment was returned. The $250.00 payment on Mar 5, 2054 was returned unpaid on Mar 6, 2054 (the bank '
+        'printed: "RETURN OF POSTED CHECK ITEM"). It was caught up on Mar 6, 2054, by one debit of twice the payment. It '
+        'isn\'t counted as paid; it is counted once in the withholding rate, by the catch-up.',
+        'KAPITUS: a payment was returned. The $850.00 payment on Mar 25, 2031 was returned unpaid on Mar 28, 2031 (the '
+        'bank printed: "ACH RETURN ITEM NSF"). It was taken again on Apr 3, 2031 (apr.pdf). It isn\'t counted as paid; it '
+        'is counted once in the withholding rate, by the second debit. From: mar.pdf.',
+        'KAPITUS: a payment was returned. The $850.00 payment on Mar 13, 2054 was returned unpaid on Mar 15, 2054 (the '
+        'bank printed: "RETURN OF POSTED CHECK ITEM"). It isn\'t counted as paid, but it still counts in the withholding '
+        'rate.',
     ]
     assert result["audit"] == ("$4,850.00 confirmed lender debits (incl. $850.00 returned unpaid; $1,000.00 returned "
                                "and re-debited, counted once) divided by $24,000.00 true revenue")
