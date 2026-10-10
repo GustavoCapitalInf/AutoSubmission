@@ -299,6 +299,35 @@ def test_a_rule_verified_row_awaits_only_a_reject_on_replay():
     assert (ruled.replayed, ruled.not_replayed, ruled.decided_by_rules) == ((), (), (8,))
 
 
+def test_r3_21_the_review_routes_refuse_a_confirm_of_a_matched_return_with_the_declared_words():
+    """Audit round 3, R3-B02 (R3-21): a held return credit rule D matched to a confirmed funder's payment (Citibank's
+    'ACH DR RETURN' a day after a KAPITUS payment) refuses Confirm on the single route and in a batch, all or nothing;
+    the same batch without it is saved (tests/test_returned_funder_payments.py's fabricated statement)."""
+    from tests.test_returned_funder_payments import RETURNS_FUNDER_PAYMENT_REFUSAL, r3_21_payload
+    from webapp.app import app, store
+
+    payload = r3_21_payload(extra=[(3, "MOBILE DEPOSIT", 300.0)])
+    rows = {row["classification"]["source_location"]: row["classification"]
+            for row in payload["statement"]["transactions"]}
+    held = next(location for location, record in rows.items() if record.get("returns_funder_payment"))
+    counted = next(location for location, record in rows.items() if record.get("revenue_tier") == "counted_flagged")
+    job = store.create("r3-21.pdf")
+    store.set_result(job.id, "# Fabricated", "<p>Fabricated</p>", analysis=payload)
+    client = app.test_client()
+    stored = json.dumps(store.get(job.id).analysis, sort_keys=True)
+    single = client.post(f"/analysis/{job.id}/revenue-review", json={"source_location": held, "decision": "confirm"})
+    assert single.status_code == 400 and single.get_json()["error"] == RETURNS_FUNDER_PAYMENT_REFUSAL
+    batch = client.post(f"/analysis/{job.id}/revenue-reviews", json={"decisions": [
+        {"source_location": counted, "decision": "confirm"}, {"source_location": held, "decision": "confirm"}]})
+    assert batch.status_code == 400 and batch.get_json()["error"] == RETURNS_FUNDER_PAYMENT_REFUSAL
+    assert json.dumps(store.get(job.id).analysis, sort_keys=True) == stored  # nothing saved
+    alone = client.post(f"/analysis/{job.id}/revenue-reviews",
+                        json={"decisions": [{"source_location": counted, "decision": "confirm"}]})
+    assert alone.status_code == 200
+    marked = client.post(f"/analysis/{job.id}/revenue-review", json={"source_location": held, "decision": "reject"})
+    assert marked.status_code == 200
+
+
 # --- The S5 service review (fix round 1) ---
 
 
@@ -604,6 +633,101 @@ def test_the_package_gate_reads_held_against_true_plus_held():
             document["non_revenue_total"]) == (31000.0, 9000.0, 60000.0)
     assert document["revenue_review_required"] is True and totals["revenue_review_required"] is True
     assert totals["decision"] == "review_required"
+
+
+#: Audit round 3, R3-B19 (R3-86): one month of the issue's shape, fabricated: True 1,000 (a verified customer credit),
+#: held 450 (a financing-named payer, as in ROWS) and 6,000 of lender funding (non-revenue, as in the I50 test above).
+#: Alone it is not gated: 450 is 6% of its posted credits, and 31% of its True plus held but under the $500 floor.
+_FLOOR_ONLY_ROWS = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1000.0),
+                    (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 450.0),
+                    (5, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 6000.0)]
+
+
+def _floor_only_month(month, rows=_FLOOR_ONLY_ROWS):
+    """A month of `rows`, after checking its own figures and that its own package reads approved (so no other term of
+    the package decision gates it)."""
+    payload = _payload(rows, month=month)
+    alone = _package(copy.deepcopy(payload))
+    document, totals = alone["documents"][0], alone["totals"]
+    assert (document["true_revenue_total"], document["excluded_pending_review_total"],
+            document["non_revenue_total"]) == (1000.0, rows[1][2], 6000.0)
+    assert document["revenue_review_required"] is False and totals["revenue_review_required"] is False
+    assert totals["decision"] == "approved"
+    return payload
+
+
+def test_the_package_gate_reads_the_summed_held_against_the_summed_true_plus_held():
+    """Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): three months each holding 450 beside 1,000 True
+    and 6,000 of funding gate no member (each under REVENUE_REVIEW_HELD_FLOOR), but the package holds 1,350 of its
+    4,350 True plus held (31%, and at least $500), so it gates as the same credits printed as one statement would.
+    Review only: no member row and no figure moves."""
+    package = _package(*(_floor_only_month(month) for month in (3, 4, 5)))
+    totals = package["totals"]
+    assert [document["revenue_review_required"] for document in package["documents"]] == [False, False, False]
+    assert (totals["true_revenue_total"], totals["excluded_pending_review_total"]) == (3000.0, 1350.0)
+    assert totals["revenue_review_required"] is True
+    assert totals["decision"] == "review_required"
+
+
+def test_the_package_sums_are_read_per_currency():
+    """Audit round 3, R3-B19 (R3-86; CURRENCY DOCTRINE: no cross-currency package math): a USD month and a CAD month of
+    one account, each holding 450, are not gated: each currency holds 450, under the floor, and the sums are never
+    mixed. The same two months both in USD hold 900 of 2,900 True plus held (31%, and at least $500) and gate."""
+    from tests.test_package_matching import _payload as _account_month
+
+    def month(number, currency):
+        return _account_month(_FLOOR_ONLY_ROWS, month=number, opening=1500.0, currency=currency)
+
+    mixed = _package(month(3, "USD"), month(4, "CAD"))
+    assert mixed["totals"]["cross_currency_totals_refused"] is True
+    assert [document["excluded_pending_review_total"] for document in mixed["documents"]] == [450.0, 450.0]
+    assert mixed["totals"]["revenue_review_required"] is False
+    one_unit = _package(month(3, "USD"), month(4, "USD"))
+    assert [document["revenue_review_required"] for document in one_unit["documents"]] == [False, False]
+    assert (one_unit["totals"]["true_revenue_total"], one_unit["totals"]["excluded_pending_review_total"]) == (
+        2000.0, 900.0)
+    assert one_unit["totals"]["revenue_review_required"] is True
+    assert one_unit["totals"]["decision"] == "review_required"
+
+
+@pytest.mark.parametrize("held", [100.0, 150.0])
+def test_a_package_whose_summed_held_stays_under_the_floor_is_not_gated(held):
+    """Audit round 3, R3-B19 (R3-86), control: three months each holding `held` beside 1,000 True and 6,000 of funding
+    hold three times it, under REVENUE_REVIEW_HELD_FLOOR, so the package is not gated: at 100 the summed share is 9%
+    of True plus held; at 150 it is 13%, and the floor alone keeps the sums ungated, as one statement holding it."""
+    rows = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 1000.0), (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", held),
+            (5, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 6000.0)]
+    totals = _package(*(_floor_only_month(month, rows) for month in (3, 4, 5)))["totals"]
+    assert totals["excluded_pending_review_total"] == round(3 * held, 2)
+    assert totals["revenue_review_required"] is False
+    assert totals["decision"] == "approved"
+
+
+def test_a_member_that_gates_still_gates_the_package():
+    """Audit round 3, R3-B19 (R3-86), control: the I50 member above beside one month of the issue's shape gates the
+    package through its own gate, as before; the other month's row stays ungated."""
+    gated = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 31000.0),
+                      (3, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", 9000.0),
+                      (4, "ONDECK CAPITAL DES:LOAN PROCEEDS ID:1", 60000.0)])
+    package = _package(gated, _floor_only_month(4))
+    assert [document["revenue_review_required"] for document in package["documents"]] == [True, False]
+    assert package["totals"]["revenue_review_required"] is True
+    assert package["totals"]["decision"] == "review_required"
+
+
+@pytest.mark.parametrize(("held", "gated"), [(9990.0, True), (9000.0, False)])
+def test_a_floor_only_month_beside_a_large_month_is_read_on_the_sums(held, gated):
+    """Audit round 3, R3-B19 (R3-86): the sums are the package's, whatever its months' size. A month of 90,000 True
+    holding `held` (under 10% of its True plus held, not gated) beside one month of the issue's shape: at 9,990 the
+    package holds 10,440 of 101,440 (10.29%) and gates, as one statement of the same credits would; at 9,000 it holds
+    9.41% and does not. A floor-only month adds under $450 above the share."""
+    large = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 90000.0),
+                      (4, "FABRIKAM FUNDING LLC DES:PAYMENT ID:1", held)])
+    package = _package(large, _floor_only_month(4))
+    assert [document["revenue_review_required"] for document in package["documents"]] == [False, False]
+    assert package["totals"]["true_revenue_total"] == 91000.0
+    assert package["totals"]["revenue_review_required"] is gated
+    assert package["totals"]["decision"] == ("review_required" if gated else "approved")
 
 
 def test_the_tier_identity_has_its_own_name_and_the_package_lists_its_unreconciled_members():
@@ -961,6 +1085,33 @@ def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_
     assert {record["source_account"] for record in two_accounts["verified_revenue_evidence"]} == {1}
 
 
+def test_r3_53_a_held_row_s_evidence_never_says_it_is_counted():
+    """Audit round 3, R3-B15 (R3-53; §5.3): the JSON download (the served payload) and the package downloads' evidence
+    sections write a held row's `revenue_reason` beside `revenue_tier` excluded_pending_review. A hold that re-tiers a
+    counted re-statement (here the underwriter's Q2 release of a repair shop's insurer credit, which the debit for its
+    own amount holds as payer_also_debited) names the hold by its own label there, never "counted and flagged"."""
+    from analysis.revenue import REVENUE_TIER_REASONS
+    from analysis.serialization import document_report_to_dict
+    from webapp.app import _package_rows
+
+    rows = [(2, "STATE FARM DES:DRP PAYMENT ID:1", 3000.0), (3, "STATE FARM DES:AUTOPAY ID:9", -3000.0),
+            (4, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0)]
+    payload = document_report_to_dict(_report("CONTOSO AUTO REPAIR LLC", "000000001010", 1500.0, rows))
+    held = [record for record in _records(payload) if record.get("revenue_tier") == "excluded_pending_review"]
+    assert held
+    label = REVENUE_TIER_REASONS["payer_also_debited"][1]
+    for record in held:
+        assert record["revenue_tier_reason"] == "payer_also_debited"
+        assert "counted and flagged" not in record["revenue_reason"]
+        assert f"never verified, and held for review ({label})" in record["revenue_reason"]
+    package_rows = _package_rows(_package(payload))
+    reasons = [value for section, field, value in package_rows
+               if section.startswith("excluded_pending_review_evidence_") and field == "revenue_reason"]
+    assert reasons and all(f"held for review ({label})" in value for value in reasons)
+    assert not any("counted and flagged" in str(value) for section, _field, value in package_rows
+                   if section.startswith("excluded_pending_review_evidence_"))
+
+
 # ---------------------------------------------------------------- Audit round 2, R2-B15 (R13): months by days covered
 
 #: The two fabricated accounts the R13 tests read: CONTOSO BAKERY LLC's checking and its FABRIKAM-paid operating account.
@@ -968,7 +1119,7 @@ _CONTOSO_NUMBER = "000000001010"
 _FABRIKAM_NUMBER = "000000002020"
 
 
-def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="CONTOSO BANK"):
+def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="CONTOSO BANK", opening=1500.0):
     """A fabricated statement of `number` printing `start`..`end`, whose one credit, a FABRIKAM INC ACH payment of
     `total` on its first day, is its True revenue."""
     from analysis.pipeline import analyze_statement
@@ -976,9 +1127,9 @@ def _period_payload(start, end, total=10000.0, *, number=_CONTOSO_NUMBER, bank="
     from analysis.schema import Statement, Transaction
     from analysis.serialization import document_report_to_dict
 
-    balance = round(1500.0 + total, 2)
+    balance = round(opening + total, 2)
     statement = Statement(bank=bank, account_name="CONTOSO BAKERY LLC", account_number=number, period_start=start,
-                          period_end=end, beginning_balance=1500.0, ending_balance=balance, currency="USD",
+                          period_end=end, beginning_balance=opening, ending_balance=balance, currency="USD",
                           currency_source="printed",
                           transactions=[Transaction(date=start, description="FABRIKAM INC DES:ACH PAYMENT ID:1",
                                                     amount=total, direction="credit", running_balance=balance)])
@@ -1088,6 +1239,70 @@ def test_the_covered_days_of_a_period():
     assert len(_covered_days("2030-01-01", "2032-12-31")) == 400  # capped as _statement_month is
 
 
+# Audit round 3, R3-B18 (R3-02): a statement that prints no bank or fewer than four account digits joins its account's
+# months by the balance chain of the owner's Q6 ruling (R2-OW15's `_chained`): it starts 0 to 7 days after another
+# statement of its bank and holder ends and opens on that statement's closing balance. Unchained, it stays its own.
+
+#: The (number, bank) variants of a statement whose account is not printed in full.
+_UNKEYED_VARIANTS = [(None, "CONTOSO BANK"), ("XXXXXXXX010", "CONTOSO BANK"), ("000000001010", "")]
+
+
+def _chained_periods_package(periods, *, number, bank, total=10000.0, opening=1500.0):
+    """A package of one statement per `(start, end)`, each opening on the last one's closing balance."""
+    payloads = []
+    for start, end in periods:
+        payloads.append(_period_payload(start, end, total, number=number, bank=bank, opening=opening))
+        opening = round(opening + total, 2)
+    return payloads
+
+
+@pytest.mark.parametrize(("number", "bank"), _UNKEYED_VARIANTS)
+def test_an_unkeyed_sixteenth_cycle_chained_by_its_balances_reads_three_months(number, bank):
+    totals = _package(*_chained_periods_package(_SIXTEENTH_CYCLE, number=number, bank=bank))["totals"]
+    assert _months(totals) == (3, 30000.0, 10000.0)
+    assert totals["decision"] == "approved"
+
+
+def test_an_unkeyed_cycle_that_does_not_chain_keeps_its_own_months():
+    """The recorded residual: three unkeyed statements that each open on 1,500.00 do not chain, so each is its own
+    account and B11's two calendar months stand."""
+    totals = _periods_package(_SIXTEENTH_CYCLE, number=None)["totals"]
+    assert _months(totals) == (2, 30000.0, 15000.0)
+
+
+def test_two_unkeyed_accounts_of_one_bank_each_chained_read_three_months():
+    checking = _chained_periods_package(_SIXTEENTH_CYCLE, number=None, bank="CONTOSO BANK")
+    savings = _chained_periods_package(_SIXTEENTH_CYCLE, number=None, bank="CONTOSO BANK", total=5000.0,
+                                       opening=9000.0)
+    totals = _package(*checking, *savings)["totals"]
+    assert _months(totals) == (3, 45000.0, 15000.0)
+    assert totals["statement_periods"] == 6
+
+
+def test_the_months_link_never_joins_two_accounts_of_one_document_or_two_keyed_accounts():
+    from datetime import date
+
+    from webapp.app import _months_linked
+
+    def member(job_id, bank, digits, start, end, opening, closing, name="contoso bakery llc"):
+        return {"job_id": job_id, "bank": bank, "digits": digits, "name": name, "start": start, "end": end,
+                "opening": opening, "closing": closing}
+
+    january = member("a", "contoso bank", "", date(2031, 1, 16), date(2031, 2, 15), 1500.0, 11500.0)
+    february = member("b", "contoso bank", "", date(2031, 2, 16), date(2031, 3, 15), 11500.0, 21500.0)
+    assert _months_linked(january, february) and _months_linked(february, january)
+    assert not _months_linked(january, {**february, "job_id": "a"})  # one document's two accounts
+    assert not _months_linked(january, {**february, "bank": "fabrikam bank"})
+    assert _months_linked(january, {**february, "bank": ""})  # a bankless statement reads its chain
+    assert not _months_linked(january, {**february, "name": "fabrikam tools llc"})
+    assert _months_linked(january, {**february, "name": ""})
+    assert not _months_linked(january, {**february, "opening": 11500.01})
+    # Two keyed statements: the bank and the last four, chained or not, as R2-B15's key reads them.
+    keyed = {**january, "digits": "000000001010"}
+    assert _months_linked(keyed, {**february, "digits": "1010", "opening": 1.0})
+    assert not _months_linked(keyed, {**february, "digits": "000000002020"})
+
+
 # ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW03: the non-revenue
 # breakdown of the package (the underwriter's Q3; spec §9.2, §10.8). Fabricated CONTOSO statements: March prints two
 # Zelle deposits (600 and 400), April one (500).
@@ -1177,8 +1392,9 @@ def test_yes_the_package_counts_its_members_zelle_deposits():
     assert totals["non_revenue_by_reason"] == {}
     assert totals["true_revenue_total"] == 3000.0  # 2,000.00 under No, plus March's two counted Zelle deposits
     # April's Zelle sender is also debited by the statement: held, out of True.
+    # Audit round 3, R3-B20 (R3-19): `counted_as_true_revenue` is what the members serve, `setting` the setting.
     assert totals["zelle_deposits"] == {
-        "counted_as_true_revenue": True, "setting_applied": True, "count": 3, "total": 1500.0,
+        "counted_as_true_revenue": True, "setting": True, "setting_applied": True, "count": 3, "total": 1500.0,
         "by_tier": {"counted_flagged": {"count": 2, "total": 1000.0}, "excluded_pending_review": {"count": 1,
                                                                                                   "total": 500.0}}}
     assert [document["zelle_deposits"]["count"] for document in package["documents"]] == [2, 1]
@@ -1201,6 +1417,67 @@ def test_yes_a_member_whose_revenue_is_not_established_still_shows_its_zelle_fig
     assert package["totals"]["true_revenue_total"] is None
     assert package["totals"]["zelle_deposits"]["count"] == 3
     assert package["documents"][1]["zelle_deposits"]["count"] == 1
+    # Audit round 3, R3-B20 (R3-48; §10.4's I51): the captured rows' count and total stay; every part of True or Held
+    # is None (the package's, as one member is not established; the member row's, by its own flags); the established
+    # member's row keeps its figures.
+    totals = package["totals"]["zelle_deposits"]
+    assert (totals["count"], totals["total"]) == (3, 1500.0)
+    assert totals["by_tier"] == {"verified": {"count": None, "total": None},
+                                 "counted_flagged": {"count": None, "total": None},
+                                 "excluded_pending_review": {"count": None, "total": None}}
+    member = package["documents"][1]["zelle_deposits"]
+    assert (member["count"], member["total"]) == (1, 500.0)
+    assert member["by_tier"]["counted_flagged"] == member["by_tier"]["excluded_pending_review"] == {
+        "count": None, "total": None}
+    assert package["documents"][0]["zelle_deposits"]["by_tier"] == {"counted_flagged": {"count": 2, "total": 1000.0}}
+    assert (member["counted_as_true_revenue"], member["setting_applied"]) == (True, True)
+    from webapp.app import _package_rows
+    rows = _package_rows(package)
+    for section in ("revenue_tier", "document_2.revenue_tier"):
+        for tier in ("counted_flagged", "excluded_pending_review"):
+            for field in ("count", "total"):
+                assert (section, f"zelle_deposits.{tier}.{field}", "") in rows, (section, tier, field)
+    assert ("revenue_tier", "zelle_deposits.count", 3) in rows
+    assert ("revenue_tier", "zelle_deposits.total", 1500.0) in rows
+    assert ("document_2.revenue_tier", "zelle_deposits.count", 1) in rows
+    assert ("document_1.revenue_tier", "zelle_deposits.counted_flagged.total", 1000.0) in rows
+
+
+def test_an_unestablished_statement_download_leaves_the_zelle_parts_of_true_and_held_empty():
+    """Audit round 3, R3-B20 (R3-48; §10.4's I51, §10.8): where the statement's revenue is not established, its
+    downloads leave the Zelle in-True and held parts empty and keep the captured rows' count, total, non-revenue part,
+    setting and setting_applied; the established download is unchanged."""
+    from tests import zelle_setting_fixtures as fx
+    from webapp.app import _analysis_rows
+
+    stored = fx.case("Z1")
+    stored["metrics"]["deposits_source"] = "summary"
+    stored["metrics"]["effective_total_deposits"] = 99999.0
+    served = _download(stored, "json", zelle=True)
+    assert served["metrics"]["revenue_established"] is False
+    rows = _analysis_rows(served)
+    for tier in ("verified", "counted_flagged", "excluded_pending_review"):
+        for field in ("count", "total"):
+            assert ("revenue_tier", f"zelle_deposits.{tier}.{field}", "") in rows, (tier, field)
+    for kept in (("zelle_deposits.setting", "Yes"), ("zelle_deposits.count", 4), ("zelle_deposits.total", 7734.56),
+                 ("zelle_deposits.setting_applied", True)):
+        assert ("revenue_tier", *kept) in rows, kept
+    csv_lines = _download(stored, "csv", zelle=True).splitlines()
+    assert "revenue_tier,zelle_deposits.counted_flagged.total," in csv_lines
+    assert "revenue_tier,zelle_deposits.excluded_pending_review.total," in csv_lines
+    # The non-revenue part stays: Z4's Zelle truck sale is non-revenue in the counted reading.
+    truck = fx.case("Z4_TRUCK")
+    truck["metrics"]["deposits_source"] = "summary"
+    truck["metrics"]["effective_total_deposits"] = 99999.0
+    truck_rows = _analysis_rows(_download(truck, "json", zelle=True))
+    assert ("revenue_tier", "zelle_deposits.non_revenue.count", 1) in truck_rows
+    assert ("revenue_tier", "zelle_deposits.non_revenue.total", 9000.0) in truck_rows
+    assert ("revenue_tier", "zelle_deposits.counted_flagged.total", "") in truck_rows
+    # The established download is today's.
+    established = _analysis_rows(_download(fx.case("Z1"), "json", zelle=True))
+    assert ("revenue_tier", "zelle_deposits.counted_flagged.total", 1234.56) in established
+    assert ("revenue_tier", "zelle_deposits.excluded_pending_review.count", 3) in established
+    assert not any(field.startswith("zelle_deposits.verified") for _section, field, _value in established)
 
 
 def test_yes_a_mixed_currency_package_refuses_the_zelle_money_and_keeps_its_counts():
@@ -1232,7 +1509,10 @@ def test_yes_a_member_analysed_before_the_setting_is_named_beside_the_others():
     older.pop("zelle_counted_reading")
     package = _package(fx.case("Z1"), older)
     figures = package["totals"]["zelle_deposits"]
-    assert figures["setting_applied"] is False and figures["counted_as_true_revenue"] is True
+    # Audit round 3, R3-B20 (R3-19; §9.2): the flag is what the members serve (the older member's Zelle deposits are
+    # out of True), the setting beside it.
+    assert figures["setting_applied"] is False and figures["counted_as_true_revenue"] is False
+    assert figures["setting"] is True
     assert figures["by_tier"] == {"counted_flagged": {"count": 1, "total": 1234.56},
                                   "excluded_pending_review": {"count": 3, "total": 6500.0},
                                   "non_revenue": {"count": 1, "total": 1500.0}}
@@ -1248,6 +1528,7 @@ def test_no_a_member_without_the_figures_contributes_its_excluded_zelle():
     package = _package(confirmed, fx.case("Z2"), zelle=False)
     figures = package["totals"]["zelle_deposits"]
     assert figures["counted_as_true_revenue"] is False and figures["setting_applied"] is True
+    assert figures["setting"] is False  # audit round 3, R3-B20 (R3-19)
     assert figures["by_tier"] == {"verified": {"count": 1, "total": 1234.56},
                                   "non_revenue": {"count": 4, "total": 8000.0}}
     assert "zelle_deposits" not in package["documents"][1]

@@ -117,6 +117,44 @@ def test_arm_s_reads_nothing_else(text):
     assert not re.search(tc._BRANCH_DEPOSIT_TRANSIT, text)
 
 
+# Audit round 3, R3-B07 (R3-45; §8.1 T4, §17.1 (3)): off Scotiabank's statements, arm S's whole-row match never counts
+# as "inside a deposit form", so R35's funder-name guard (a financing word after a name word keeps its place and holds)
+# reads there as before arm S. On Scotiabank's statements the words are the branch's printed name: unchanged.
+R345_FUNDER_PLACES = [
+    "DEPOSIT WOODGROVE CAPITAL PLAZA 54321 987",
+    "DEPOSIT WOODGROVE CAPITAL CITY BRANCH 54321 987",
+    "DEPOSIT LITWARE LENDING PARK 54321 987",
+    "DEPOSIT WOODGROVE FUNDING SAMPLETON TX 54321 987",
+]
+R345_FINANCING = ("excluded_pending_review", "financing_named_payer")
+
+
+@pytest.mark.parametrize("bank", ["Wells Fargo", "TD Bank", None])
+@pytest.mark.parametrize("text", R345_FUNDER_PLACES)
+def test_r3_45_off_scotiabank_a_funder_s_name_before_a_place_holds(text, bank):
+    assert re.search(tc._BRANCH_DEPOSIT_TRANSIT, text)
+    assert _tier(_read(bank, [(text, 2345.67)])[0]) == R345_FINANCING
+
+
+@pytest.mark.parametrize("text", [*R345_FUNDER_PLACES, "DEPOSIT WESTGATE CAPITAL PLAZA 54321 987"])
+def test_r3_45_on_scotiabank_the_branch_s_name_still_counts(text):
+    assert _tier(_read("Scotiabank", [(text, 2345.67)])[0]) == NO_PAYER
+
+
+@pytest.mark.parametrize("bank", ["Wells Fargo", "TD Bank", None, "Scotiabank"])
+def test_r3_45_controls(bank):
+    # A place alone and a town's name count on every bank; a financing word with no place holds on every bank.
+    assert _tier(_read(bank, [("DEPOSIT CAPITAL PLAZA 54321 987", 2345.67)])[0]) == NO_PAYER
+    assert _tier(_read(bank, [("DEPOSIT MAPLE GROVE 54321 987", 2345.67)])[0]) == NO_PAYER
+    assert _tier(_read(bank, [("DEPOSIT WOODGROVE CAPITAL 54321 987", 2345.67)])[0]) == R345_FINANCING
+
+
+def test_r3_45_the_form_without_arm_s_is_the_form_s_other_alternatives():
+    assert tr._cash_form_without_arm_s().pattern + "|" + tc._BRANCH_DEPOSIT_TRANSIT == tc._CASH_BRANCH_ATM_FORM.pattern
+    assert tr._SCOTIABANK.search("SCOTIABANK") and tr._SCOTIABANK.search("THE BANK OF NOVA SCOTIA")
+    assert not tr._SCOTIABANK.search("WELLS FARGO")
+
+
 # --- the cash forms that already counted ------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("text", [

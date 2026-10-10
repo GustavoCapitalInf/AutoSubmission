@@ -1348,3 +1348,82 @@ def test_r2_b08_review_a_waiver_printing_another_legal_form_word_is_the_document
     record = _one(text, amount=35.0)
     assert record.revenue_match_method != "reversal_cancellation_exclusion"
     assert _tier(record) == (COUNTED, "named_payer_purpose_refused")
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 3, R3-B08 (R3-44; standard D1, D3; amends R2-B08's R08 line): a lost accent (the replacement character a
+# French text layer can leave, normalized to a space) is tolerated inside CHEQUE (CH QUE) and after RETOURN (EFFET
+# RETOURN, EFFETS RETOURN S), as after REFUS; and four more French interest wordings are interest (INTERETS GAGNES,
+# CREDITEURS, PAYES, VERSES), credits only. All three copies of the arms stay equal (the copy test above).
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("rows", [
+    [("2054-03-01", "Paiement divers SAMPLE", -235.0), ("2054-03-02", "Ch�que refus� sans provision", 235.0),
+     ("2054-03-02", "Frais pour effet sans provision", -45.0)],
+    [("2054-03-02", "Effet retourn�", 410.0)],
+    [("2054-03-02", "Effets retourn�s", 410.0)],
+    [("2054-03-02", "EFFET RETOURN", 410.0)],
+])
+def test_r3_44_a_french_refused_or_returned_item_with_a_lost_accent_is_non_revenue(rows):
+    records = _classify(rows, "Banque Royale du Canada")
+    credits = [record for record in records if record.amount > 0]
+    assert credits
+    for record in credits:
+        assert record.revenue_classification == "non_revenue", record.description
+        assert record.revenue_match_method in _REVERSAL_METHODS, record.description
+    assert _true(records) == 0
+
+
+@pytest.mark.parametrize("text", ["INTERETS GAGNES", "INTERETS PAYES", "INTERETS VERSES", "INTERETS CREDITEURS",
+                                  "INTERET GAGNE", "Intérêts versés"])
+def test_r3_44_the_other_french_interest_wordings_are_strong_non_revenue(text):
+    record = _one(text, "Banque Royale du Canada", 1.23)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == "strong_non_revenue_rule"
+
+
+@pytest.mark.parametrize(("text", "method"), [
+    ("CHEQUE REFUSE SANS PROVISION", "reversal_cancellation_exclusion"),
+    ("EFFET RETOURNE", "reversal_cancellation_exclusion"),
+    ("CREDIT D INTERET", "strong_non_revenue_rule"),
+])
+def test_r3_44_the_spelled_forms_keep_their_readings(text, method):
+    record = _one(text, "Banque Royale du Canada", 235.0)
+    assert record.revenue_classification == "non_revenue"
+    assert record.revenue_match_method == method
+
+
+def test_r3_44_a_name_holding_the_letters_and_a_debit_keep_their_readings():
+    # The REFUS ... SANS PROV tail stays mandatory after CH QUE, so a town or a name never matches.
+    assert _tier(_one("RANCH QUEEN CREEK", "Banque Royale du Canada", 235.0)) == (COUNTED, "named_payer_unlabelled")
+    # The holder's borrowing cost is a debit's, never read by the credit rule.
+    [debit] = _classify([("2054-03-02", "INTERETS SUR DECOUVERT", -12.0)], "Banque Royale du Canada")
+    assert (debit.classification, debit.revenue_tier) == ("other", None)
+
+
+@pytest.mark.parametrize(("hold_text", "held"), [
+    ("CH QUE REFUS SANS PROVISION", True),
+    ("CH QUES REFUSES SANS PROV", True),
+    ("EFFET RETOURN", True),
+    ("EFFETS RETOURN S", True),
+    ("EFFETS RETOURN ES", True),
+    ("RANCH QUEEN CREEK", False),
+    ("CH QUE 1234", False),
+])
+def test_r3_44_the_possible_return_backstop_reads_the_lost_accent(hold_text, held):
+    from analysis import true_revenue
+
+    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+
+
+def test_r3_44_the_french_interest_copy_in_the_census_is_the_classifier_s():
+    from analysis import transaction_classifier as tc
+    from tools import revenue_census as census
+
+    pattern = tc._FRENCH_INTEREST_CREDIT.pattern
+    assert tc._FRENCH_INTEREST_CREDIT in tc._NON_REVENUE_CREDIT_PATTERNS
+    assert census._on_masked(pattern).pattern == census._FRENCH_INTEREST_AND_REBATE_R2_B08[0].pattern
+    for text in ("INTERETS GAGNES", "INTERETS CREDITEURS", "INTERETS PAYES", "INTERETS VERSES", "CREDIT D INTERET"):
+        assert tc._FRENCH_INTEREST_CREDIT.search(text)
+    assert not tc._FRENCH_INTEREST_CREDIT.search("INTERETS SUR PRET")
+    assert not tc._FRENCH_INTEREST_CREDIT.search("INTERETS DECOUVERT")

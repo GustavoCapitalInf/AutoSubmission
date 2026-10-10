@@ -116,6 +116,21 @@ def test_the_validator_refuses_bank_names_that_are_not_normalized_or_repeat(monk
     assert any("names no bank word, no form, or a form twice" in problem for problem in found)
 
 
+def test_the_validator_checks_the_own_bank_sending_spellings(monkeypatch):
+    # Audit round 3, R3-B08 (R3-31): normalized, no spelling twice, every spelling a listed sending bank's.
+    assert not [problem for problem in operating_registry.problems() if "own bank" in problem.lower()]
+    monkeypatch.setattr(registry, "OWN_BANK_SENDING_SPELLINGS", (
+        (("Sample Bank",), ("BOFA",)),
+        (("SAMPLE BANK",), ("BOFA", "SAMPLE TRUST")),
+        ((), ()),
+    ))
+    found = operating_registry.problems()
+    assert "own bank spelling 'Sample Bank' is not normalized" in found
+    assert "OWN_BANK_SENDING_SPELLINGS lists 'BOFA' twice" in found
+    assert "own bank spelling 'SAMPLE TRUST' is not in P2P_SENDING_BANK_NAMES" in found
+    assert "own bank entry () names no marker or no spelling" in found
+
+
 def test_a_waiting_processor_s_bare_aliases_are_gated_and_never_read():
     # §7.1, review I4: the gate lists every processor the ledger has not cleared, and none of its bare aliases reads.
     admitted = {entity for group in registry.PAYEE_GROUP_REGISTRIES.values() for entity in group}

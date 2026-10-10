@@ -1709,6 +1709,19 @@ def _swept(*rows):
     ("PROVINCIAL PAYMENT PROVINCE OF ONTARIO", "H"),
     ("WORK COMP BOARD WCB ALBERTA 1234", "H"),
     ("GOUV QUEBEC RQ 1234", "H"),
+    # Audit round 3, R3-B13 (R3-55): every named form's residue is class H, as Quebec's, North Dakota's and the
+    # Treasury form's already were: Minnesota's, British Columbia's, Ontario's WSIB and Wisconsin DCF's printing a word
+    # the classifier's reader does not read (the program's card settlements among them, an owner item in §17.1).
+    ("MN STATE MMB DIR DEP", "H"),
+    ("PROVINCIAL PAYMENT PROVINCE OF BC DIR DEP", "H"),
+    ("WORK COMP BOARD WSIB LOE", "H"),
+    ("FIS EBT DES WIDCF EBT ID E123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD", "H"),
+    ("ELECTRONIC DEPOSIT FROM MN STATE MMB VENDOR PAY", "H"),
+    ("MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO INVOICE 12345 CONTRACT 9",
+     "H"),
+    ("WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO CHILD CARE INV 123",
+     "H"),
+    ("WORKPLACE SAFETY AND INSURANCE BOARD REBATE", "H"),
 ])
 def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
     sweep = census.sweep(_swept((text, "counted_flagged", 10000)))
@@ -1731,16 +1744,16 @@ def test_each_class_of_the_sweep_reads_its_own_wording(text, letter):
     "NORTHWIND OVERDRAFT SERVICES LLC DES PAYMENT ID 1",
     "ACH CREDIT NORTHWIND CUSTOMER PAYMENT",
     # The owner's ruling of 2026-10-02 (the underwriter's Q12): a government form printing its purpose (an entry, a
-    # remittance, a PMT INFO addenda, the VA's entry codes), another payer's form and the VA's letter code.
+    # remittance, a PMT INFO addenda, the VA's entry codes), another payer's form and the VA's letter code. Audit round
+    # 3, R3-B13 (R3-55): Minnesota's and Wisconsin DCF's forms printing a purpose are class H's residue now (above).
     "36 TREAS 310 DES VENDOR PAY ID 1 INDN NORTHWIND CLINIC LLC CO ID 1 CCD",
-    "ELECTRONIC DEPOSIT FROM MN STATE MMB VENDOR PAY",
-    "FIS EBT DES WIDCF EBT ID E123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD",
     "PROVINCIAL PAYMENT FABRIKAM LIQUOR CORPORATION",
     "ELECTRONIC CREDIT 36 TREAS 310 MISC PAY 123456789012345 APR 31 RMR IV SAMPLE 1234",
     "36 TREAS 310 DES MISC PAY ID 123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO RMR IV INV12345",
-    "MN STATE MMB DES PAYMENT ID 1 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO INVOICE 12345 CONTRACT 9",
-    "WI DCF DES WIDCF DD ID E123456 01 INDN NORTHWIND CLINIC LLC CO ID 1234567890 CCD PMT INFO CHILD CARE INV 123",
     "36 TREAS 310 XXVA CH33 123456789012345",
+    # R3-55: a word that only holds a form's letters is no form.
+    "WSIBCO CONSULTING LLC DES PAYMENT ID 1",
+    "CONTOSO MINWI DCFX LLC",
     "ORIG CO NAME 36 TREAS 310 ORIG ID 1234567890 DESC DATE 010254 CO ENTRY DESCR XXVA CH33SEC PPD TRACE"
     " 123456789012345 EED 540102 IND ID 1 IND NAME NORTHWIND CLINIC LLC TRN 1234567890TC",
     "36 TREAS 310 DES XXVA CH33 ID 123456 INDN NORTHWIND CLINIC LLC CO ID 1234567890 PPD",
@@ -1936,6 +1949,26 @@ def test_q12_guard_g19_fails_a_true_credit_printing_a_no_purpose_form(text, stat
                      text=census.mask(text))
     assert census._row_guards(credit)["G19"] is fails
     assert "G19" in census.FACT_FREE_CHECKS
+
+
+@pytest.mark.parametrize("text", ["12 TREAS 310 MISC PAY 1234567890", "36 TREAS 310 MISC PAY 123456789012345"])
+def test_r3_55_the_treasury_form_is_the_sweep_s_medium_row(text):
+    """Audit round 3, R3-B13 (R3-55): the Treasury form is read at medium confidence (a masked agency code cannot be
+    read), never gated."""
+    letter, confidence, _shape = census._sweep_class(census.mask(text))
+    assert (letter, confidence) == ("G", "medium")
+
+
+def test_r3_55_a_counted_glued_form_still_fails_g19():
+    """Audit round 3, R3-B13 (R3-55): the census lead reads a digit run glued before a form, as the classifier's reader
+    now does, so a glued form left in True still fails G19 and the same row non_revenue passes."""
+    text = census.mask("0102GOUV QUEBEC MSP")
+    assert text.startswith("#") and census._sweep_class(text)[:2] == ("G", "high")
+    counted = _credit(0, 100, "unverified_deposit", "x", tier="counted_flagged", reason="named_payer_one_off",
+                      text=text)
+    excluded = _credit(0, 100, "non_revenue", "x", tier="non_revenue", text=text)
+    assert census._row_guards(counted)["G19"] is True
+    assert census._row_guards(excluded)["G19"] is False
 
 
 def test_the_compare_and_the_sweep_command_report_the_sweep(tmp_path, capsys):
@@ -2197,6 +2230,25 @@ def test_r2_b08_the_reversal_rule_s_new_spellings_are_a_declared_new_marker(text
 ])
 def test_r2_b08_the_french_interest_and_fee_rebate_are_a_declared_new_marker(text, cause):
     later = _later("strong_non_revenue_rule", text, state="non_revenue")
+    assert _causes([_step_11(text)], [later]) == {cause: 1}
+
+
+@pytest.mark.parametrize(("method", "text", "cause"), [
+    # Audit round 3, R3-B08 (R3-44): a lost accent inside CHEQUE or after RETOURN, and four more French interest
+    # wordings, are declared new markers, read on the masked text as the classifier reads them.
+    ("reversal_cancellation_exclusion", "CH QUE REFUS SANS PROVISION", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "CH QUES REFUSES SANS PROV", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "EFFET RETOURN", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "EFFETS RETOURN S", "new_non_revenue_marker"),
+    ("reversal_cancellation_exclusion", "RANCH QUEEN CREEK", "undeclared"),
+    ("strong_non_revenue_rule", "INTERETS GAGNES", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERETS CREDITEURS", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERETS PAYES", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERET VERSE", "new_non_revenue_marker"),
+    ("strong_non_revenue_rule", "INTERETS SUR PRET #### ", "undeclared"),
+])
+def test_r3_44_the_lost_accent_and_the_french_interest_wordings_are_a_declared_new_marker(method, text, cause):
+    later = _later(method, text, state="non_revenue")
     assert _causes([_step_11(text)], [later]) == {cause: 1}
 
 
@@ -2975,6 +3027,116 @@ def test_r2_b01_a_set_aside_analysis_whose_debits_alone_changed_is_a_parse_chang
     older = {key: value for key, value in old.items() if key != "parse_sha"}
     run = _run(_snap("5.6", {"cOLD.0": older}), after)
     assert run["rekeyed"]["reparsed"]["accounts"] == 0 and "undeclared_demotion" in run["guards"]
+
+
+# Audit round 3, R3-B09 (R3-36): a parse change that adds or drops a row, a credit or a debit, is a G18 parse move
+# ('row count changed'), compared apart as a re-parsed account (no row paired with its base) and listed with its rows,
+# dollars and True delta, so a note can explain it. G9 keeps an account the later run lost, and a row-count change
+# without a parse change (a snapshot without parse_sha, or the same parse); its item says whether the parse changed.
+def _r336_base():
+    return _r2_snap({
+        "cK.0": _r2_account([
+            _r2_row(0, 40000, "verified_revenue", "named_payer_repeats", "ACH CREDIT FABRIKAM INVOICE 1",
+                    tier="verified"),
+            _r2_row(1, 25000, "unverified_deposit", "x", "ACH CREDIT CONTOSO SUPPLY", tier="counted_flagged",
+                    reason="named_payer_one_off"),
+        ], parse="P0"),
+        "cM.0": _r2_account([
+            _r2_row(0, 30000, "unverified_deposit", "x", "MOBILE DEPOSIT", tier="counted_flagged",
+                    reason="no_payer_printed"),
+        ], parse="Q0"),
+    })
+
+
+def _r336_after(change, *, parse="P1", reparsed=True):
+    """The base with account cK.0 re-parsed: `change` is 'credit' (one credit appended), 'debit' (one debit appended,
+    the credits identical) or 'drop' (its last credit dropped)."""
+    after = json.loads(json.dumps(_r336_base()))
+    if not reparsed:
+        after["basis_stats"] = {}
+    account = after["accounts"]["cK.0"]
+    credits = account["credits"]
+    if change == "credit":
+        credits.append(_r2_row(10, 15000, "unverified_deposit", "x", "ACH CREDIT NORTHWIND CUSTOMER",
+                               tier="counted_flagged", reason="named_payer_one_off"))
+        account["rows"] += 1
+    elif change == "debit":
+        account["rows"] += 1
+    else:
+        credits.pop()
+        account["rows"] -= 1
+    account.update(posted_cents=sum(credit["cents"] for credit in credits), posted_credit_count=len(credits),
+                   posted_credit_cents=sum(credit["cents"] for credit in credits), parse_sha=parse)
+    return after
+
+
+@pytest.mark.parametrize(("change", "rows", "dollars", "true_delta"), [
+    ("credit", 3, 800.0, 150.0),
+    ("debit", 2, 650.0, 0.0),
+    # The later credit and the base credit with no partner.
+    ("drop", 2, 650.0, -250.0),
+])
+def test_r3_36_a_parse_change_that_adds_or_drops_a_row_is_a_g18_parse_move(change, rows, dollars, true_delta):
+    run = _run(_r336_base(), _r336_after(change))
+    assert run["failed_guards"] == ["G18"] and run["verdict"] == "fail"
+    assert run["accounts_unmatched"] == 0 and "G9" not in run["guards"]
+    moves = run["parse_moves"]
+    assert (moves["accounts"], moves["rows"], moves["dollars"], moves["true_delta"]) == (1, rows, dollars, true_delta)
+    [listed] = moves["listed"]
+    assert (listed["account"], listed["row_count_changed"], listed["base_row_count"], listed["row_count"]) == (
+        "cK.0", True, 10, 9 if change == "drop" else 11)
+    assert listed["explained_by"] is None and moves["row_count_changed"] == 1
+    # Compared apart, as a re-parsed account: no row of it is a rule's move.
+    assert run["move_matrix"] == [{"from": "unverified_deposit|x", "to": "counted_flagged|no_payer_printed",
+                                   "rows": 1, "dollars": 300.0, "statements": 1}]
+    assert run["rekeyed"]["reparsed"]["listed"] == [{"base_account": "cK.0", "account": "cK.0",
+                                                     "row_count_changed": True}]
+    # An account note explains it.
+    noted = census.compare(_r336_base(), [_r336_after(change)],
+                           explained={"accounts": {"cK.0": "read against its PDF"}})["runs"][0]
+    assert noted["verdict"] == "hold" and "G18" not in noted["guards"]
+    assert noted["parse_moves"]["listed"][0]["explained_by"] == "account"
+
+
+def test_r3_36_a_parser_route_explains_a_row_count_change_only_when_both_snapshots_were_re_parsed():
+    routed = census.compare(_r336_base(), [_r336_after("credit")], explained={"routes": [R2_ROUTE]})["runs"][0]
+    assert routed["verdict"] == "hold" and routed["parse_moves"]["listed"][0]["explained_by"] == "route"
+    cached = census.compare(_r336_base(), [_r336_after("credit", reparsed=False)],
+                            explained={"routes": [R2_ROUTE]})["runs"][0]
+    assert cached["failed_guards"] == ["G18"]
+    assert cached["guards"]["G18"]["sample"][0]["route_needs_both_snapshots_re_parsed"] is True
+    assert cached["guards"]["G18"]["sample"][0]["row_count_changed"] is True
+
+
+def test_r3_36_g9_keeps_a_lost_account_and_a_row_count_change_without_a_parse_change():
+    # The later run lost the account: G9 unmatched, no parse change.
+    lost = _r336_base()
+    del lost["accounts"]["cK.0"]
+    run = _run(_r336_base(), lost)
+    assert run["accounts_unmatched"] == 1 and run["guards"]["G9"]["sample"] == [
+        {"account": "cK.0", "unmatched": True, "parse_changed": False}]
+    assert run["parse_moves"]["accounts"] == 0
+    # A snapshot without parse_sha on one side: G9 unmatched, as before, whatever the credits say.
+    for change, changed in (("credit", True), ("debit", False)):
+        after = _r336_after(change)
+        del after["accounts"]["cK.0"]["parse_sha"]
+        run = census.compare(_r336_base(), [after], explained={"accounts": {"cK.0": "a note"}})["runs"][0]
+        assert run["failed_guards"] == ["G9"] and run["accounts_unmatched"] == 1
+        assert run["guards"]["G9"]["sample"] == [{"account": "cK.0", "unmatched": True, "parse_changed": changed}]
+        assert run["parse_moves"]["accounts"] == 0
+    # The same parse over every row with another row count: G9 unmatched.
+    run = _run(_r336_base(), _r336_after("debit", parse="P0"))
+    assert run["failed_guards"] == ["G9"] and run["guards"]["G9"]["sample"][0]["parse_changed"] is False
+
+
+def test_r3_36_the_controls_keep_their_readings():
+    # The same row count and a changed credit: G18, as before (no row-count change).
+    run = _run(*_r2_pair())
+    assert run["failed_guards"] == ["G18"] and run["parse_moves"]["listed"][0]["row_count_changed"] is False
+    assert run["parse_moves"]["row_count_changed"] == 0
+    # Identical snapshots hold.
+    identical = _run(_r336_base(), _r336_base())
+    assert identical["verdict"] == "hold" and identical["parse_moves"]["accounts"] == 0
 
 
 # Audit round 2, R2-B03 (R05): a Q6 repeat whose payer region names only a bank (the pass's own bank_only_payer fact)

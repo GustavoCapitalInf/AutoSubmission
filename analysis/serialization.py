@@ -216,6 +216,9 @@ def _account_payload(report: Report) -> dict:
             "returned_funder_payments": [dict(item) for item in detection.returned_funder_payments],
             # The owner's request of 2026-10-06 (lender payment changes; R2-OW18).
             "lender_payment_changes": [dict(item) for item in detection.lender_payment_changes],
+            # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs' lines, after
+            # R2-OW18's list (which follows the returned payments).
+            "lump_sum_payoffs": [dict(item) for item in detection.lump_sum_payoffs],
             "verified_revenue_evidence": [
                 asdict(item) for item in detection.verified_revenue_evidence
             ],

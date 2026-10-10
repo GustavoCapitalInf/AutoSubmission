@@ -795,3 +795,109 @@ def test_the_detection_prefilters_change_no_outcome():
             and bbd._UNCOUNTED_TERM_RE.search(text[previous.end():ending.start()])
         )
         assert gated == ungated, text[:60]
+
+
+# ===========================================================================
+# Audit round 3, R3-B09 (R3-91): an incoming wire keeps the continuation line
+# printed under its row's line, apart from its description
+# ===========================================================================
+#
+# The line below a row's line carries the continuations of every row of that
+# line with no column boundary left, so it is attributed to no row (a guess
+# with a plausible-looking result). An incoming wire on that line is marked as
+# read only by its label and keeps the WHOLE line apart from its description
+# (Transaction.unread_payer_text): the statement printed a payer line the
+# reader did not attribute. Nothing published moves.
+
+def _rows(stmt):
+    return [(t.date, t.description, t.amount, t.direction, t.running_balance) for t in stmt.transactions]
+
+
+def _credits(row_line: str, below: str) -> str:
+    return (
+        "e Deposits and Other Credits\n"
+        "Date Amount Description Date Amount Description\n"
+        f"{row_line}\n"
+        f"{below}\n"
+        "03/31 .50 SYNTHETIC INTEREST\n"
+    )
+
+
+def _unread(stmt):
+    return [(t.description, t.payer_text_unread, t.unread_payer_text) for t in stmt.transactions if t.amount > 0]
+
+
+def test_r3_91_a_wire_keeps_the_continuation_line_and_its_description():
+    stmt = parse(document(credits=_credits("03/02 100.00 WIRE TRANSFER IN 03/05 200.00 SYNTHETIC CREDIT TWO",
+                                           "REF 0001 CONTOSO TITLE LLC REF 0002")))
+    assert stmt is not None
+    assert _rows(stmt) == _rows(parse(document(credits=_credits(
+        "03/02 100.00 WIRE TRANSFER IN 03/05 200.00 SYNTHETIC CREDIT TWO", ""))))
+    assert _unread(stmt) == [
+        ("WIRE TRANSFER IN", True, "REF 0001 CONTOSO TITLE LLC REF 0002"),
+        ("SYNTHETIC CREDIT TWO", False, ""),
+        ("SYNTHETIC INTEREST", False, ""),
+    ]
+
+
+@pytest.mark.parametrize("label", ["INCOMING USD WIRE", "| INCOMING USD WIRE", "INCOMING WIRE", "INCOMING FX WIRE",
+                                   "FEDWIRE CREDIT", "DOMESTIC WIRE IN"])
+def test_r3_91_the_template_s_incoming_wire_labels_keep_the_line(label):
+    stmt = parse(document(credits=_credits(f"03/02 100.00 SYNTHETIC CREDIT ONE 03/05 200.00 {label}",
+                                           "0000000000000000PPD REF00000001 FABRIKAM SECURITIES,")))
+    assert _unread(stmt)[1] == (label, True, "0000000000000000PPD REF00000001 FABRIKAM SECURITIES,")
+    assert _unread(stmt)[0][1:] == (False, "")
+
+
+def test_r3_91_a_wire_beside_a_transfer_keeps_the_whole_line_and_the_transfer_its_field():
+    stmt = parse(document(credits=_credits("03/02 100.00 TRNSFR CREDIT 03/05 200.00 | INCOMING USD WIRE",
+                                           "OLB XFER FROM 1234 REF00000002 FABRIKAM FUNDING, INC")))
+    assert _unread(stmt)[:2] == [
+        ("TRNSFR CREDIT OLB XFER FROM 1234", False, ""),
+        ("| INCOMING USD WIRE", True, "OLB XFER FROM 1234 REF00000002 FABRIKAM FUNDING, INC"),
+    ]
+
+
+@pytest.mark.parametrize(("row_line", "below"), [
+    # The line below prints a row of its own: no continuation of the wire's.
+    ("03/02 100.00 INCOMING FX WIRE 03/05 200.00 SYNTHETIC CREDIT TWO", ""),
+    # Only the transfer's own field is printed below (the exception the printing proves).
+    ("03/02 100.00 TRNSFR CREDIT 03/05 200.00 INCOMING WIRE", "OLB XFER FROM 1234"),
+])
+def test_r3_91_a_wire_with_nothing_of_its_own_below_is_not_marked(row_line, below):
+    stmt = parse(document(credits=_credits(row_line, below)))
+    assert not any(marked for _description, marked, _text in _unread(stmt))
+
+
+def test_r3_91_a_wire_followed_by_a_row_line_is_not_marked():
+    credits = (
+        "e Deposits and Other Credits\n"
+        "Date Amount Description Date Amount Description\n"
+        "03/02 100.00 INCOMING WIRE\n"
+        "0000000000000000PPD 03/05 200.00 SYNTHETIC CREDIT TWO\n"
+        "03/31 .50 SYNTHETIC INTEREST\n"
+    )
+    stmt = parse(document(credits=credits))
+    assert stmt is not None and not any(marked for _description, marked, _text in _unread(stmt))
+
+
+def test_r3_91_a_debit_section_wire_label_is_never_marked():
+    debits = (
+        "e Other Debits\n"
+        "Date Amount Description Date Amount Description\n"
+        "03/04 100.00 WIRE TRANSFER OUT 03/06 100.00 SYNTHETIC DEBIT TWO\n"
+        "REF 0001 CONTOSO TITLE LLC REF 0002\n"
+        "03/31 5.00 SYNTHETIC LEDGER CHARGE\n"
+    )
+    stmt = parse(document(debits=debits))
+    assert stmt is not None
+    assert not any(t.payer_text_unread or t.unread_payer_text for t in stmt.transactions)
+
+
+def test_r3_91_the_held_wire_keeps_its_hold():
+    from analysis.transaction_classifier import classify_statement_transactions
+
+    stmt = parse(document(credits=_credits("03/02 100.00 WIRE TRANSFER IN 03/05 200.00 SYNTHETIC CREDIT TWO",
+                                           "REF 0001 CONTOSO TITLE LLC REF 0002")))
+    wire = next(r for r in classify_statement_transactions(stmt) if r.original_description == "WIRE TRANSFER IN")
+    assert (wire.revenue_tier, wire.revenue_tier_reason) == ("excluded_pending_review", "wire_no_sender")

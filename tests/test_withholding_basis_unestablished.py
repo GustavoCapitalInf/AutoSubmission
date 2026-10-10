@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -453,4 +454,153 @@ console.log(JSON.stringify({{decisions, summary: els.summaryBox.textContent}}));
 """)
     assert result["decisions"] == ["manual_review_required", "review_required", "review_required"]
     assert result["summary"].endswith("Status: manual review required.")
+
+
+# ---------------------------------------------------------------- audit round 3, R3-B03 (R3-27): mixed bases
+# A package whose members were analysed under different withholding bases summed each member's own basis and published
+# one rate over the blend (legacy eligible deposits beside True revenue), labelled "Mixed denominator configuration",
+# with no review: an MCA holdback is measured on one revenue definition across the months read (standard §1 point 4,
+# §4.4; the owner's Q7, "2 Make True revenue the default"). A package now publishes a rate only on one basis: a mixed one
+# publishes no package rate and no potential exposure, names each member's basis and goes to review (F1/M10's
+# precedent), while each member row keeps its own basis and rate. Fabricated months of CONTOSO BAKERY LLC (the
+# package-matching fixtures' account): a FABRIKAM card deposit of 18,000.00, a DEPOSIT of 6,000.00, a TRANSFER FROM
+# SAVINGS of 12,000.00 and four FORWARD FINANCING payments of 1,200.00.
+
+FORWARD = "FORWARD FINANCING DES:PAYMENT ID:ABC INDN:CONTOSO BAKERY LLC CO ID:XYZ CCD"
+
+
+def _mixed_rows(tag):
+    return [
+        (3, f"FABRIKAM MERCHANT SVCS DES:DEPOSIT ID:{tag}", 18000.0),
+        (10, "DEPOSIT", 6000.0),
+        (12, "ONLINE TRANSFER FROM SAVINGS", 12000.0),
+    ] + [(day, FORWARD, -1200.0) for day in (4, 11, 18, 25)]
+
+
+def _mixed_month(monkeypatch, month, opening, mode=None):
+    from tests.test_package_matching import _payload
+
+    if mode is None:
+        monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
+    else:
+        monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", mode)
+    payload = _payload(_mixed_rows(str(month)), month=month, opening=opening)
+    monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
+    return payload
+
+
+def _may_june(monkeypatch, may_mode="legacy_eligible_deposits", june_mode=None):
+    from tests.test_package_matching import _closing
+
+    may = _mixed_month(monkeypatch, 5, 4000.0, may_mode)
+    june = _mixed_month(monkeypatch, 6, _closing(_mixed_rows("5"), 4000.0), june_mode)
+    return may, june
+
+
+def _assert_mixed_refusal(package, modes):
+    totals = package["totals"]
+    assert totals["package_withholding_rate"] is None and totals["package_withholding_rate_raw"] is None
+    assert totals["potential_withholding_exposure"] is None
+    assert totals["withholding_review_required"] is True
+    assert totals["withholding_basis_mixed"] is True
+    assert totals["withholding_denominator_mode"] == "mixed"
+    assert totals["withholding_denominator_label"] == "Mixed denominator configuration"
+    assert totals["withholding_basis_by_member"] == [
+        {"source_job": job, "mode": mode, "label": label} for job, mode, label in modes]
+    assert totals["decision"] == "review_required"
+
+
+LEGACY = ("legacy_eligible_deposits", "Legacy eligible deposits")
+TRUE = ("true_revenue", "True revenue")
+
+
+def test_r3_27_a_package_mixing_bases_publishes_no_rate_and_asks_for_review(monkeypatch):
+    may, june = _may_june(monkeypatch)
+    package = _package(("may", may), ("jun", june))
+    _assert_mixed_refusal(package, [("may", *LEGACY), ("jun", *TRUE)])  # the rate was 16.0, approved
+    rows = {row["id"]: row for row in package["documents"]}
+    assert rows["may"]["withholding_rate"] == pytest.approx(4800.0 / 36000.0 * 100)
+    assert rows["may"]["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    assert rows["jun"]["withholding_rate"] == pytest.approx(20.0)
+    assert rows["jun"]["withholding_denominator_mode"] == "true_revenue"
+    # The order of the members does not matter.
+    _assert_mixed_refusal(_package(("jun", june), ("may", may)), [("jun", *TRUE), ("may", *LEGACY)])
+
+
+def test_r3_27_a_member_stored_with_no_mode_reads_as_legacy_and_mixes(monkeypatch):
+    may, june = _may_june(monkeypatch)
+
+    def strip(node):
+        if isinstance(node, dict):
+            node.pop("withholding_denominator_mode", None)
+            node.pop("withholding_denominator_label", None)
+            for value in node.values():
+                strip(value)
+        elif isinstance(node, list):
+            for value in node:
+                strip(value)
+
+    strip(may)
+    _assert_mixed_refusal(_package(("may", may), ("jun", june)), [("may", *LEGACY), ("jun", *TRUE)])
+
+
+def test_r3_27_an_untiered_legacy_member_beside_a_true_member_mixes(monkeypatch):
+    from tests.test_webapp_true_revenue import _untiered
+
+    may, june = _may_june(monkeypatch)
+    package = _package(("may", _untiered(may)), ("jun", june))
+    _assert_mixed_refusal(package, [("may", *LEGACY), ("jun", *TRUE)])
+    assert package["totals"]["true_revenue_total"] is None  # True is N/A with an untiered member, as before
+
+
+def test_r3_27_both_members_on_true_publish_as_before(monkeypatch):
+    may, june = _may_june(monkeypatch, may_mode=None)
+    totals = _package(("may", may), ("jun", june))["totals"]
+    assert totals["package_withholding_rate"] == pytest.approx(20.0)
+    assert totals["withholding_denominator_mode"] == "true_revenue"
+    assert totals["decision"] == "approved"
+    assert "withholding_basis_mixed" not in totals and "withholding_basis_by_member" not in totals
+
+
+def test_r3_27_a_failed_member_adds_no_basis(monkeypatch):
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    may, june = _may_june(monkeypatch, may_mode=None)
+    jobs = [Job(id="may", filename="may.pdf", status="error", analysis=None, content_sha256="may"),
+            Job(id="jun", filename="jun.pdf", status="done", analysis=june, content_sha256="jun")]
+    totals = _package_analysis(jobs, settings={})["totals"]
+    assert totals["withholding_denominator_mode"] == "true_revenue"  # was "mixed"
+    assert totals["withholding_denominator_label"] == "True revenue"
+    assert "withholding_basis_mixed" not in totals
+    assert totals["package_withholding_rate"] == pytest.approx(20.0)
+    assert totals["decision"] == "review_required"  # for the failure, as before
+    # A package with no ready member keeps today's mode and label.
+    none_ready = _package_analysis([jobs[0]], settings={})["totals"]
+    assert none_ready["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    assert none_ready["withholding_denominator_label"] == "Legacy eligible deposits"
+
+
+@needs_node
+def test_r3_27_the_dashboard_says_why_and_prints_n_a_everywhere(monkeypatch):
+    from tests.test_webapp_true_revenue_ui import BASIS_ROWS, METRIC_ROWS
+
+    may, june = _may_june(monkeypatch)
+    package = _package(("may", may), ("jun", june))
+    result = run_dashboard(METRIC_ROWS + BASIS_ROWS + f"""
+currentJobIds = ['may', 'jun']; renderPackageAnalysis({json.dumps(package)});
+const cards = basis(metricRows(els.metricsGrid.innerHTML));
+generateSummary();
+console.log(JSON.stringify({{cards, totals: els.totalsGrid.innerHTML, status: els.statusList.innerHTML,
+  summary: els.summaryBox.textContent}}));
+""")
+    assert result["cards"]["Confirmed Withholding"] == {
+        "value": "N/A",
+        "note": "The statements were analysed on different withholding bases (1 on legacy eligible deposits, 1 on true "
+                "revenue), so no package rate is published; re-analyze them on one basis; analyst review is required"}
+    assert result["cards"]["Potential Withholding Exposure"]["value"] == "N/A"
+    assert result["cards"]["Withholding Basis"]["value"] == "N/A"
+    assert "Confirmed withholding" in result["totals"] and "16%" not in result["totals"]
+    assert re.search(r"Confirmed withholding</[^>]+>\s*<[^>]+>N/A", result["status"])
+    assert "N/A confirmed withholding" in result["summary"] and "16%" not in result["summary"]
 

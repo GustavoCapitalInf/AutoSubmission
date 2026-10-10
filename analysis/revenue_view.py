@@ -20,6 +20,10 @@ established (True revenue where `revenue_established` is false, Verified revenue
 is) publishes no rate over it: its served copy nulls `withholding_rate`, `potential_withholding_exposure` and each
 potential lender's exposure and basis, sets `withholding_review_required` and publishes `withholding_basis_unestablished`
 (only there). The legacy basis is the bank's own deposits and is never touched.
+
+Audit round 3, R3-B24 (R3-16; §9.1, §17.1's default D1): an account whose revenue is established also publishes, only
+where one is flagged, the counted credits whose source the statement does not prove that are $10,000 or more and more
+than 25% of its True (`large_unsourced_deposits`, with their count and total), for information only: nothing reads them.
 """
 from __future__ import annotations
 
@@ -57,6 +61,36 @@ UNESTABLISHED_REVENUE_KEYS = (
 )
 #: ... and when its Verified figure is not established: Verified and its aliases (T9).
 UNESTABLISHED_VERIFIED_KEYS = ("verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total")
+#: Audit round 3, R3-B20 (R3-48; §10.4's I51 and R52): the Zelle figures' parts (`zelle_deposits.by_tier`,
+#: analysis/zelle_view.py) that are parts of Counted and Held, read as None where the revenue is not established ...
+UNESTABLISHED_ZELLE_TIERS = ("counted_flagged", "excluded_pending_review")
+#: ... and the part of Verified, where the Verified figure is not.
+UNESTABLISHED_VERIFIED_ZELLE_TIERS = ("verified",)
+#: The order the Zelle figures list their parts in (zelle_view's, the dashboard's).
+_ZELLE_TIER_ORDER = ("verified", "counted_flagged", "excluded_pending_review", "non_revenue")
+
+
+def unestablished_zelle_figures(figures: object, *, established: bool, verified_established: bool) -> object:
+    """Audit round 3, R3-48 (§10.4, I51): Zelle figures (`{counted_as_true_revenue, setting_applied, count, total,
+    by_tier}`, and a package's `setting`) as a surface prints them where an account's or a package's revenue is not
+    established: `figures` itself when both flags hold or it is no dict; otherwise a copy whose
+    UNESTABLISHED_ZELLE_TIERS slots (where `established` is false) and UNESTABLISHED_VERIFIED_ZELLE_TIERS slot (where
+    `verified_established` is false) read `{"count": None, "total": None}`, present or not, so no reader takes a
+    missing slot for a firm zero.
+    It keeps what the captured rows say: `count` and `total` (the captured Zelle rows, as `total_posted_credits` is
+    kept), the `non_revenue` slot (as Non-revenue is kept), `counted_as_true_revenue`, `setting_applied` and `setting`.
+    The input is never mutated."""
+    if not isinstance(figures, Mapping) or (established and verified_established):
+        return figures
+    nulled = (UNESTABLISHED_ZELLE_TIERS if not established else ()) + (
+        UNESTABLISHED_VERIFIED_ZELLE_TIERS if not verified_established else ())
+    by_tier = figures.get("by_tier") if isinstance(figures.get("by_tier"), Mapping) else {}
+    slots = {tier: copy.deepcopy(slot) for tier, slot in by_tier.items()}
+    slots.update({tier: {"count": None, "total": None} for tier in nulled})
+    order = {tier: position for position, tier in enumerate(_ZELLE_TIER_ORDER)}
+    return {**figures, "by_tier": dict(sorted(slots.items(), key=lambda item: (order.get(item[0], len(order)),
+                                                                              item[0])))}
+
 
 #: The final review of round 2, F1 (§10.4, §11; the owner's ruling of 2026-10-02 on the underwriter's Q7, R2-OW14, beside
 #: B11's I51 and the final review's M10): where the basis an account's withholding mode divides by is not established
@@ -218,6 +252,81 @@ def debit_flag_metrics(flags: list[dict]) -> dict:
     return metrics
 
 
+#: Audit round 3, R3-B24 (R3-16; true revenue spec §9.1, §17.1's default D1; standard G7, "Large one-off or unexplained
+#: deposits: COUNT+FLAG, and source them when large", and P22, "count + flag + source"): a counted credit whose source
+#: the statement does not prove is flagged, for information only, when it is this many dollars or more ...
+LARGE_UNSOURCED_DEPOSIT_FLOOR = 10_000
+#: ... and strictly more than this percent of its statement's True revenue ...
+LARGE_UNSOURCED_DEPOSIT_SHARE = 25
+#: ... on these counted reasons, the ones that name no proven source (the owner's Q2 to Q6 and OQ3 of 2026-09-28
+#: count them, never Verified): a bare, cash or branch deposit, a check deposit, a named sender's wire, a one-off or
+#: unlabelled payer, a numbered company, a person-to-person rail, payer text not read. A classified counted reason (a
+#: builder's draw, an insurer paying for work, a lessor's rent and the like) is outside (§17.1's alternative (b)).
+LARGE_UNSOURCED_DEPOSIT_REASONS = frozenset({
+    "no_payer_printed", "check_deposit", "wire_named_sender", "named_payer_one_off", "numbered_company_payer", "p2p",
+    "named_payer_unlabelled", "payer_text_not_read",
+})
+#: The fields of one flagged credit, in order (the served list's, the downloads' sections').
+LARGE_UNSOURCED_DEPOSIT_FIELDS = (
+    "source_location", "date", "description", "amount", "revenue_tier_reason", "share_of_true_percent",
+)
+
+
+def large_unsourced_deposits(transactions: object, true_total: object) -> list[dict]:
+    """Audit round 3, R3-B24 (R3-16; §9.1, §9.2, §17.1's default D1): the credits of serialized rows `transactions` that
+    are large and unsourced, in row order, each `{source_location, date, description, amount, revenue_tier_reason,
+    share_of_true_percent}`: a row with a classification record, an amount above 0, `is_posted` not False and no
+    `duplicate_of`, in the counted tier (`counted_flagged`) for one of LARGE_UNSOURCED_DEPOSIT_REASONS, whose amount is
+    LARGE_UNSOURCED_DEPOSIT_FLOOR dollars or more and strictly more than LARGE_UNSOURCED_DEPOSIT_SHARE percent of
+    `true_total` (the statement's True revenue; read in integer cents, nothing where it is not above 0). Its share is
+    `round(amount / true_total * 100, 1)`.
+
+    Information only: no tier, reason, True or Verified figure, review gate, badge or decision reads it. A Verified,
+    held or non-revenue credit is never flagged, so a deposit the reviewer confirmed (Verified) drops out. The rows are
+    read, never mutated."""
+    try:
+        true_cents = round(float(true_total) * 100) if true_total is not None else 0
+    except (TypeError, ValueError):
+        true_cents = 0
+    if true_cents <= 0 or not isinstance(transactions, list):
+        return []
+    flags: list[dict] = []
+    for position, row in enumerate(transactions):
+        if not isinstance(row, Mapping) or not isinstance(row.get("classification"), Mapping):
+            continue
+        record = row["classification"]
+        amount = _number(row.get("amount"))
+        if amount <= 0 or record.get("is_posted") is False or record.get("duplicate_of"):
+            continue
+        if (record.get("revenue_tier") != "counted_flagged"
+                or record.get("revenue_tier_reason") not in LARGE_UNSOURCED_DEPOSIT_REASONS):
+            continue
+        amount_cents = round(amount * 100)
+        if (amount_cents < LARGE_UNSOURCED_DEPOSIT_FLOOR * 100
+                or amount_cents * 100 <= LARGE_UNSOURCED_DEPOSIT_SHARE * true_cents):
+            continue
+        flags.append({
+            "source_location": _row_location(record, position), "date": row.get("date"),
+            "description": row.get("description"), "amount": row.get("amount"),
+            "revenue_tier_reason": record.get("revenue_tier_reason"),
+            "share_of_true_percent": round(amount / float(true_total) * 100, 1),
+        })
+    return flags
+
+
+def large_unsourced_deposit_metrics(flags: list[dict]) -> dict:
+    """R3-B24 (R3-16; §9.1): a statement's served keys for its flagged credits, `large_unsourced_deposit_count`,
+    `large_unsourced_deposit_total` and the list `large_unsourced_deposits`; {} when none is flagged, so a statement
+    without one is served as before."""
+    if not flags:
+        return {}
+    return {
+        "large_unsourced_deposit_count": len(flags),
+        "large_unsourced_deposit_total": round(sum(_number(flag["amount"]) for flag in flags), 2),
+        "large_unsourced_deposits": flags,
+    }
+
+
 def _served_account(account: Mapping) -> dict:
     verified, established = revenue_flags(account)
     statement = account.get("statement")
@@ -250,6 +359,13 @@ def _served_account(account: Mapping) -> dict:
     # Owner ruling 2026-10-02 (the underwriter's Q6; §9.1, R2-OW15): the statement's returns no credit of it pairs and
     # its processor chargebacks and adjustments, flagged, never deducted; the keys only where a debit is flagged.
     metrics.update(debit_flag_metrics(debit_side_flags(rows)))
+    # Audit round 3, R3-B24 (R3-16; §9.1, §17.1's default D1; standard G7, P22): the counted credits whose source the
+    # statement does not prove that are large beside its True, flagged for information only, never stored; the keys
+    # only where one is flagged on a statement whose revenue is established, read in the reading served (the Zelle
+    # view runs first, so a Zelle deposit counted under Yes can be flagged and the one excluded under No cannot).
+    if metrics["revenue_established"] is True and tiered:
+        metrics.update(large_unsourced_deposit_metrics(
+            large_unsourced_deposits(rows, metrics.get("true_revenue_total"))))
     # The final review of round 2, F1 (§10.4, §11; M10 on the statement): no rate over a basis that is not
     # established. The statement asks for review, and each potential lender's row loses its exposure and its basis.
     if withholding_basis_unestablished(metrics.get("withholding_denominator_mode"), verified_established=verified,

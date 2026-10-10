@@ -1446,6 +1446,11 @@ _REVIEW_REFUSAL_DRIVERS = {
         ]),
         "p1:r1", "confirm",
     ),
+    # Audit round 3, R3-B02 (R3-21): a confirm on a credit that returns a confirmed funder's payment (rule D's pair).
+    "a credit that returns a confirmed funder's payment can only be marked non-revenue": (
+        _analysis_with([_reviewable("p1:r1", returns_funder_payment="transaction:3")]),
+        "p1:r1", "confirm",
+    ),
 }
 
 
@@ -1485,8 +1490,10 @@ def test_the_two_refusals_the_batch_six_census_missed_are_reachable():
     # Five, and two more since the review can name its account (a missing
     # account, and a location held by several accounts with none named), and
     # three more since 5.6's tiers (a confirm on a rule-verified credit, a tier
-    # that disagrees with its state, a payload tiered only in part).
-    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 10
+    # that disagrees with its state, a payload tiered only in part), and one
+    # since audit round 3, R3-B02 (a confirm on a credit that returns a
+    # confirmed funder's payment).
+    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 11
 
 
 def test_the_browser_still_renders_the_review_error_body():

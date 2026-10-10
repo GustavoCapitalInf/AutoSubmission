@@ -17,7 +17,9 @@ import json
 import sys
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
+from analysis.revenue_view import (
+    LARGE_UNSOURCED_DEPOSIT_FLOOR, apply_revenue_view, revenue_flags, withholding_basis_unestablished,
+)
 from analysis.serialization import document_report_to_dict
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 
@@ -34,6 +36,30 @@ def _revenue_flags(report: Report) -> tuple[bool, bool]:
     return revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
 
 
+def _unit_money(value: float, currency: str | None) -> str:
+    """Audit round 3, final review (R3-FF), F6: money in the statement's own unit: '$1,234.56' on a USD statement (the
+    CLI's '$', which every other line prints) or one that declares none, '1,234.56 CAD' on any other (the metrics notes'
+    form; CURRENCY DOCTRINE: never a '$' on a CAD statement)."""
+    unit = str(currency or "").strip().upper()
+    return f"{value:,.2f} {unit}" if unit and unit != "USD" else f"${value:,.2f}"
+
+
+def _large_unsourced_line(report: Report) -> str | None:
+    """Audit round 3, R3-B24 (R3-16; §13): "  Large deposits to source: N, $X (each $10,000.00 or more and over 25% of
+    True; information only)" where the account's served copy (analysis/revenue_view.py apply_revenue_view, over the
+    payload `_revenue_flags` reads) flags one, else None. Audit round 3, final review (R3-FF), F6: the total and the floor
+    (LARGE_UNSOURCED_DEPOSIT_FLOOR, compared in the statement's own unit) are written in that unit (_unit_money)."""
+    served = apply_revenue_view(document_report_to_dict(DocumentReport(accounts=[report])))
+    metrics = served.get("metrics") if isinstance(served, dict) else None
+    count = metrics.get("large_unsourced_deposit_count") if isinstance(metrics, dict) else None
+    if not count:
+        return None
+    currency = report.statement.currency
+    return (f"  Large deposits to source: {count}, {_unit_money(metrics['large_unsourced_deposit_total'], currency)} "
+            f"(each {_unit_money(LARGE_UNSOURCED_DEPOSIT_FLOOR, currency)} or more and over 25% of True; "
+            "information only)")
+
+
 def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) -> str:
     """R52: "Balanced" where the ledger reconciles and the revenue is established (app.js statementRevenueBalanced),
     otherwise "Review required" and why: the ledger does not reconcile, or the captured credits are not the money the
@@ -45,14 +71,24 @@ def _revenue_reconciliation_label(ledger_reconciles: bool, established: bool) ->
     return "Review required (captured credits differ from the bank-stated total)"
 
 
-def _zelle_line(stored: Report, shown: Report) -> str | None:
+def _zelle_line(stored: Report, shown: Report, *, established: bool = True) -> str | None:
     """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): under Yes, where the statement has Zelle
-    policy rows, one line saying where the Zelle money sits (analysis/zelle_view.py's figures over the records)."""
+    policy rows, one line saying where the Zelle money sits (analysis/zelle_view.py's figures over the records).
+
+    Audit round 3, R3-B20 (R3-48; §10.4's I51 and R52): where the revenue is not `established`, the line keeps what the
+    captured rows say (the Zelle total and count, and the non-revenue part) and reads the parts in True revenue and held
+    for review as N/A, as the True and Held lines do; the established line is unchanged."""
     figures = zelle_view.record_zelle_figures(stored.classifications, shown.classifications)
     if figures is None:
         return None
     parts = zelle_view.figure_parts(figures)
     out = f", ${parts['out']:,.2f} non-revenue" if parts["out"] > 0 else ""
+    if not established:
+        return (
+            f"  Zelle deposits: ${figures['total']:,.2f} ({figures['count']}), captured rows only; in True revenue and "
+            f"held for review: {_NOT_ESTABLISHED}{out} (Mark Zelle Payments as True Revenue: Yes; "
+            "--zelle-true-revenue no excludes them)"
+        )
     return (
         f"  Zelle deposits: ${figures['total']:,.2f} ({figures['count']}): ${parts['in_true']:,.2f} in True revenue, "
         f"${parts['held']:,.2f} held for review{out} (Mark Zelle Payments as True Revenue: Yes; "
@@ -96,9 +132,25 @@ def _payment_change_line(item: dict) -> str:
         elif ended == "other_amount":
             tail = (f"; a payment at another amount on {item['first_after_date']}, payments resumed on "
                     f"{item.get('resumed_date')}")
+        elif ended == "catch_up":
+            # Audit round 3, R3-25: an exact 2x to 6x debit ended the pause.
+            tail = (f"; a catch-up of {item.get('first_after_multiple')}x on {item['first_after_date']}, payments "
+                    f"resumed on {item.get('resumed_date')}")
+        # R3-B05 review round 1: a catch-up after the presence that ended the pause, before payments resumed.
+        tail += "".join(f"; a catch-up of {entry.get('multiple')}x on {entry.get('date')} before payments resumed"
+                        for entry in item.get("catch_ups_inside") or [] if isinstance(entry, dict))
         return (f"pause{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, {what} "
                 f"{item['last_before_date']} to {item['first_after_date']}, {item['pause_business_days']} business days "
                 f"(grace {item['grace_business_days']}){tail}")
+    if kind == "catch_up":
+        # The owner's answer of 2026-10-07 to audit round 3's R3-25 ("Add a 'Caught up' line").
+        missed = item.get("missed_payments")
+        span = item.get("missed_first_date")
+        if item.get("missed_last_date") and item.get("missed_last_date") != span:
+            span = f"{span} to {item['missed_last_date']}"
+        return (f"catch-up{potential}: {label} {item['cadence']} ${item['last_payment_amount']:,.2f}, no payment on "
+                f"{missed} scheduled {'payment' if missed == 1 else 'payments'} {span}, then {item['multiple']}x "
+                f"${item['catch_up_amount']:,.2f} on {item['catch_up_date']}")
     if kind == "new_stream":
         alongside = " and ".join(f"{other['cadence']} ${other['amount']:,.2f}" for other in item.get("alongside") or [])
         return (f"new stream{potential}: {label} {item['cadence_after']} ${item['amount_after']:,.2f} from "
@@ -108,9 +160,19 @@ def _payment_change_line(item: dict) -> str:
     # R2-OW18 review round 1: the quiet days run from the last presence; a returned attempt there is named.
     attempt = item.get("last_attempt_returned")
     returned = f", a returned attempt on {attempt.get('date')}" if isinstance(attempt, dict) else ""
+    # Audit round 3, R3-85: the later debits at other amounts are named, and where the last presence is not the last
+    # payment the count names its anchor.
+    others = item.get("other_debits_after")
+    later = ""
+    if isinstance(others, dict):
+        count = others.get("count")
+        later = (f"; {count} later {'debit' if count == 1 else 'debits'} at other amounts, the last on "
+                 f"{others.get('last_date')}")
+    presence = item.get("last_presence_date")
+    anchor = f" after {presence}" if presence and presence != item.get("last_payment_date") else ""
     return (f"{lead}{potential}: {label} {item['cadence']}, last ${item['last_payment_amount']:,.2f} on "
-            f"{item['last_payment_date']}{returned}, {item['quiet_business_days']} business days to {end} "
-            f"(grace {item['grace_business_days']})")
+            f"{item['last_payment_date']}{returned}{later}{'; ' if later else ', '}{item['quiet_business_days']} "
+            f"business days{anchor} to {end} (grace {item['grace_business_days']})")
 
 
 def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
@@ -196,6 +258,12 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
         + figure(f"${m.excluded_pending_review_total:,.2f}  ({m.excluded_pending_review_count} credit(s))",
                  established)
     )
+    # Audit round 3, R3-B24 (R3-16; true revenue spec §13; standard G7, P22): the counted credits whose source the
+    # statement does not prove that are large beside its True, as the account is served (only where one is flagged on a
+    # statement whose revenue is established); information only.
+    large = _large_unsourced_line(report)
+    if large is not None:
+        L.append(large)
     L.append(
         "  Unverified deposits   : "
         + figure(f"${m.unverified_deposit_total:,.2f}  ({m.unverified_deposit_count} credit(s): counted plus held)",
@@ -205,7 +273,7 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
         f"  Non-revenue credits   : ${m.non_revenue_total:,.2f}  "
         f"({m.non_revenue_count} credit(s))"
     )
-    zelle = _zelle_line(stored, report) if zelle_true_revenue else None
+    zelle = _zelle_line(stored, report, established=established) if zelle_true_revenue else None
     if zelle is not None:
         L.append(zelle)
     L.append("  Maximum revenue       : " + figure(f"${m.maximum_revenue:,.2f}", established))
@@ -235,10 +303,21 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
     )
     # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid, out of the lender
     # debits above and in the withholding numerator below.
-    L.append(
-        f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
-        f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
-    )
+    # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned payment the same
+    # funder re-debited is out of the withholding numerator, its re-debit counting the obligation once.
+    re_debited = [record for record in m.returned_funder_payment_evidence if getattr(record, "represented_by", None)]
+    if re_debited:
+        kept = m.returned_funder_payment_count - len(re_debited)
+        L.append(
+            f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
+            f"${m.returned_funder_payment_total:,.2f} ({len(re_debited)} re-debited by the funder, "
+            f"${sum(abs(record.amount) for record in re_debited):,.2f}, counted once; {kept} kept in withholding)"
+        )
+    else:
+        L.append(
+            f"  Returned funder payments: {m.returned_funder_payment_count} row(s), "
+            f"${m.returned_funder_payment_total:,.2f} (kept in withholding)"
+        )
     # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the working lines name the basis, True revenue by default.
     L.append(
         f"  Withholding working   : ${m.withholding_numerator:,.2f} / "

@@ -631,7 +631,28 @@ def _rows(runs: list[str], *, category: _Category,
 #: Audit B10 (I05): the ACH standard entry class codes this template prints as
 #: the LAST field of every ACH block (`<originator> <entry> <id> <receiver>
 #: CCD`): layout grammar, never a payer's name.
-_ACH_CLASS_CODE = re.compile(r"(?<![A-Za-z0-9])(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)(?![A-Za-z0-9])")
+#:
+#: Audit round 3, R3-B09 (R3-87): a class-code word followed by a legal form
+#: is part of a name, never a code (CashArc's ACH company name prints
+#: `CASH-ARC LLC`), whatever the case of the form and the separator before it,
+#: so a lone block of such a name is one block and is attributed. The
+#: true-revenue pass splits an unread run by the same rule
+#: (`true_revenue._UNREAD_BLOCK_END`).
+#:
+#: R3-B09 review round 1: only the LLC family (LLC, L.L.C., L L C, LLP,
+#: PLLC), the forms no ACH originator's name opens on. A code closing one
+#: block is followed by the NEXT block's first word, and INC, INCORPORATED,
+#: CO, COMPANY, CORP, CORPORATION, LTD, LIMITED and LP each open real
+#: originator names (a cooperative, a state's revenue department, a village,
+#: a company store, an LP gas dealer): read as forms, they welded two blocks
+#: under one row into one block and attributed both to it, the unproven
+#: attribution this count refuses. A class-code word before one of those
+#: forms is still a code (the row stays unread: the safe direction); no
+#: registry alias prints one.
+_ACH_CLASS_CODE = re.compile(
+    r"(?<![A-Za-z0-9])(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)(?![A-Za-z0-9])"
+    r"(?![ \t]+(?i:LLC|L\.L\.C|L L C|LLP|PLLC)(?![A-Za-z0-9]))"
+)
 
 
 def _block_below_is_one(lines: list[str]) -> bool:

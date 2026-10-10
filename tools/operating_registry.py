@@ -3,7 +3,8 @@
 The operating registry (`OPERATING_REVENUE_SOURCE_ALIASES` and its types, the sixteen-character cuts, the payout and
 card-settlement forms) and the 5.6 tables (`HEALTHCARE_PAYER_ALIASES`, `DEALER_FUNDING_PAYERS`,
 `FACTORING_PAYOUT_PAYERS`, `OWNER_MONEY_PLATFORMS`, `SECTION_15_DEFERRED_PAYERS`, `P2P_SENDING_BANK_NAMES`,
-`STATEMENT_BANK_PRINTED_NAMES`) are hand-kept in `analysis/classification_registry.py`. This module says what is
+`STATEMENT_BANK_PRINTED_NAMES`, `OWN_BANK_SENDING_SPELLINGS`) are hand-kept in `analysis/classification_registry.py`.
+This module says what is
 wrong with them:
 
 * every operating entity has a source type, and every typed entity has aliases;
@@ -19,7 +20,9 @@ wrong with them:
   `EARNED_WAGE_ACCESS_PAYERS` compile and read no operating alias;
 * (owner ruling 2026-10-02, Q8) each `CUSTOMER_FINANCING_PAYERS` spelling and `CUSTOMER_FINANCING_NAMES` compile and
   read no operating alias, no insurer alias and no rendered ledger alias of an entity other than the financiers';
-* `P2P_SENDING_BANK_NAMES` and `STATEMENT_BANK_PRINTED_NAMES` are normalized, and name no form twice.
+* `P2P_SENDING_BANK_NAMES` and `STATEMENT_BANK_PRINTED_NAMES` are normalized, and name no form twice;
+* (audit round 3, R3-B08) `OWN_BANK_SENDING_SPELLINGS` is normalized, names no spelling twice, and every spelling is
+  a `P2P_SENDING_BANK_NAMES` name.
 
 It also WARNS (never fails) when a multi-word operating alias spans the originator/entry boundary a bank prints between
 two fields ('HEARTLAND PAYMENT SYSTEMS' printed as 'HEARTLAND DES:PAYMENT'), which a contiguous alias cannot match.
@@ -214,6 +217,21 @@ def _check_56_tables(
                 found.append(f"statement bank name {printed!r} is not normalized")
         if not words or not forms or len(set(forms)) != len(forms):
             found.append(f"statement bank entry {words!r} names no bank word, no form, or a form twice")
+    # Audit round 3, R3-B08 (R3-31, R3-32): the own bank's sending spellings, as STATEMENT_BANK_PRINTED_NAMES is
+    # checked: normalized, no spelling twice, and every spelling a listed sending bank's name.
+    spelled: set[str] = set()
+    for markers, spellings in registry.OWN_BANK_SENDING_SPELLINGS:
+        for printed in (*markers, *spellings):
+            if not printed or normalize(printed) != printed:
+                found.append(f"own bank spelling {printed!r} is not normalized")
+        if not markers or not spellings:
+            found.append(f"own bank entry {markers!r} names no marker or no spelling")
+        for spelling in spellings:
+            if spelling in spelled:
+                found.append(f"OWN_BANK_SENDING_SPELLINGS lists {spelling!r} twice")
+            spelled.add(spelling)
+            if spelling not in names:
+                found.append(f"own bank spelling {spelling!r} is not in P2P_SENDING_BANK_NAMES")
 
 
 def warnings() -> list[str]:

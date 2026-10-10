@@ -156,6 +156,13 @@ REVENUE_REVIEW_HELD_SHARE = 10
 #: more of True plus held (the base an MCA advance is sized on, so heavy non-revenue no longer dilutes the share), and
 #: at least this many dollars, so a statement whose True is $0 is never gated on held cents.
 REVENUE_REVIEW_HELD_FLOOR = 500
+#: Audit round 3, R3-B03 (R3-20; true revenue spec §11, §17.1 the R2-OW14 follow-ups (1); the brief's default (a), an
+#: owner decision): a True or Verified withholding basis under this many units of the statement's own currency is read as
+#: $0 is: no rate, no potential exposure, `withholding_review_required` and a note that says why; never a gate. It is the
+#: floor T7 already uses (REVENUE_REVIEW_HELD_FLOOR), so a basis of a few dollars no longer publishes a rate in the
+#: thousands of percent. The legacy basis (the bank's own deposits less lender funding) keeps today's behaviour.
+#: webapp/static/app.js mirrors it (WITHHOLDING_BASIS_FLOOR; tests/test_withholding_basis_floor.py pins the two equal).
+WITHHOLDING_BASIS_FLOOR = REVENUE_REVIEW_HELD_FLOOR
 WITHHOLDING_DENOMINATOR_MODES = (
     "legacy_eligible_deposits",
     "verified_revenue",
@@ -186,6 +193,47 @@ def normalize_withholding_denominator_mode(value: object, default: str = "legacy
     mode = str(value or default)
     mode = LEGACY_WITHHOLDING_DENOMINATOR_MODES.get(mode, mode)
     return mode if mode in WITHHOLDING_DENOMINATOR_MODES else default
+
+
+def withholding_basis_below_floor(denominator: float, mode: object) -> bool:
+    """Audit round 3, R3-B03 (R3-20): whether a revenue basis (True or Verified; a stored mode read with
+    normalize_withholding_denominator_mode, so no mode is legacy) is above $0 and under WITHHOLDING_BASIS_FLOOR."""
+    return (normalize_withholding_denominator_mode(mode) != "legacy_eligible_deposits"
+            and 0 < denominator < WITHHOLDING_BASIS_FLOOR)
+
+
+def withholding_basis_publishable(denominator: float, mode: object) -> bool:
+    """Audit round 3, R3-B03 (R3-20; true revenue spec §11): whether a withholding rate or a potential exposure is
+    published over `denominator`, the basis withholding `mode` divides by: above $0, and on a revenue basis (True or
+    Verified) at least WITHHOLDING_BASIS_FLOOR. The legacy basis bypasses the floor. Every published rate and exposure
+    reads it: `compute_metrics`, the review rebuild, the package's rate, its member rows and its per-match exposures."""
+    return denominator > 0 and (
+        normalize_withholding_denominator_mode(mode) == "legacy_eligible_deposits" or denominator >= WITHHOLDING_BASIS_FLOOR
+    )
+
+
+def withholding_unavailable_note(label: str, denominator: float, unit: str = "") -> str:
+    """The note of a withholding rate that is not published over `denominator` (audit round 3, R3-B03: R3-20), one
+    wording for `compute_metrics` and the review rebuild: R2-OW14's words at $0 or less, else the floor's. `unit` is
+    " <currency>" or ""."""
+    if denominator <= 0:
+        return f"withholding rate is unavailable because {label} is zero or missing"
+    return (f"withholding rate is unavailable because {label} ({denominator:,.2f}{unit}) is under the withholding "
+            f"basis floor ({WITHHOLDING_BASIS_FLOOR:,.2f}{unit})")
+
+
+def potential_withholding_unavailable_note(label: str, denominator: float, unit: str = "") -> str:
+    """The potential exposure's twin of withholding_unavailable_note."""
+    if denominator <= 0:
+        return f"potential withholding exposure is unavailable because {label} is zero or missing"
+    return (f"potential withholding exposure is unavailable because {label} ({denominator:,.2f}{unit}) is under the "
+            f"withholding basis floor ({WITHHOLDING_BASIS_FLOOR:,.2f}{unit})")
+
+
+#: The two notes' leading words, which the review rebuild removes before it writes the notes its basis reads.
+WITHHOLDING_UNAVAILABLE_NOTE_PREFIXES = (
+    "withholding rate is unavailable because ", "potential withholding exposure is unavailable because ",
+)
 
 
 def revenue_contribution_flags(state: RevenueState | None, tier: str | None = None) -> dict[str, bool]:
@@ -259,6 +307,12 @@ def _tiered(records: list[dict]) -> bool:
 _MIXED_TIERS = "every posted credit carries a revenue tier, or none does"
 _TIER_DISAGREES = "every posted credit's revenue state must agree with its tier"
 _ALREADY_VERIFIED = "a credit a rule verified can only be marked non-revenue"
+#: Audit round 3, R3-B02 (R3-21; true revenue spec §10.7, §17.1; the owner's ruling of 2026-10-02 on the underwriter's
+#: Q5, "Revenue is unaffected (the return credit is non-revenue as today)"): a confirm on a credit rule D matched to a
+#: confirmed funder's payment (`returns_funder_payment`, R2-OW13) is refused; Mark Non-Revenue and Reset stay. Nothing
+#: re-reads pass 7b after a review, so a Confirm would count the business's own payment coming back as Verified revenue
+#: while its payment stays out of paid to lenders as a bounce.
+_RETURNS_FUNDER_PAYMENT = "a credit that returns a confirmed funder's payment can only be marked non-revenue"
 
 
 def _rebuild_account_revenue_views(analysis: dict) -> dict:
@@ -443,21 +497,26 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         denominator = true_total
         metrics["withholding_denominator_label"] = "True revenue"
         metrics["eligible_deposit_definition"] = "true revenue: verified plus counted credits"
+    detection = analysis.setdefault("detection", {})
     if denominator is not None:
         metrics["eligible_deposits"] = denominator
         metrics["withholding_denominator"] = denominator
         metrics["potential_withholding_denominator"] = denominator
         numerator = _number(metrics.get("withholding_numerator"))
         potential_numerator = _number(metrics.get("potential_withholding_numerator"))
+        # Audit round 3, R3-B03 (R3-20): one helper decides every published rate; a revenue basis under the floor is
+        # read as $0 is.
+        publishable = withholding_basis_publishable(denominator, denominator_mode)
         metrics["withholding_rate"] = (
-            abs(numerator) / denominator * 100 if denominator > 0 else None
+            abs(numerator) / denominator * 100 if publishable else None
         )
         metrics["potential_withholding_exposure"] = (
-            abs(potential_numerator) / denominator * 100 if denominator > 0 else None
+            abs(potential_numerator) / denominator * 100 if publishable else None
         )
-        metrics["withholding_review_required"] = denominator <= 0
+        metrics["withholding_review_required"] = not publishable
+        metrics["withholding_basis_below_floor"] = withholding_basis_below_floor(denominator, denominator_mode)
+        _refresh_withholding_basis_readers(metrics, detection, denominator, publishable, statement.get("currency"))
 
-    detection = analysis.setdefault("detection", {})
     detection["verified_revenue_evidence"] = evidence["verified_revenue"]
     detection["unverified_deposit_evidence"] = evidence["unverified_deposit"]
     detection["non_revenue_evidence"] = evidence["non_revenue"]
@@ -479,6 +538,49 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         if isinstance(transaction.get("classification"), dict)
     ]
     return analysis
+
+
+def _refresh_withholding_basis_readers(
+    metrics: dict, detection: dict, denominator: float, publishable: bool, currency: object,
+) -> None:
+    """Audit round 3, R3-B03 (R3-13; true revenue spec §9.1, §10.7): a review that moves a True or Verified basis
+    refreshes everything the basis feeds, not only the statement's figures: each potential lender's row
+    (`eligible_deposit_denominator`: the basis where a rate is published or where it is $0 or less, None under the
+    floor; `potential_withholding_exposure`: its debits over the basis, `_funder_dict`'s arithmetic, None where no rate
+    is published) and the basis notes (`metrics.notes`, only where it is a list: the two "unavailable" notes leave and
+    the ones this basis reads take the first one's place, or join the end; a list that already reads them is left as it
+    is, so the rebuild of an analysis is the analysis). Confirmed funders' entries carry no basis and are untouched; the
+    legacy basis never comes here (its basis never moves on review). `currency` is the account's statement's, which the
+    rebuild reads (the notes name the basis in its unit), so this helper reads no payload key."""
+    lenders = detection.get("potential_lenders")
+    if isinstance(lenders, list):
+        for entry in lenders:
+            if not isinstance(entry, dict):
+                continue
+            entry["eligible_deposit_denominator"] = denominator if publishable or denominator <= 0 else None
+            total = entry.get("potential_lender_debit_total")
+            if not isinstance(total, (int, float)) or isinstance(total, bool):
+                total = entry.get("total_debited")
+            entry["potential_withholding_exposure"] = (
+                abs(_number(total)) / denominator * 100 if publishable else None
+            )
+    notes = metrics.get("notes")
+    if not isinstance(notes, list):
+        return
+    unit = f" {currency}" if currency else ""
+    label = str(metrics.get("withholding_denominator_label") or "")
+    wanted: list[str] = []
+    if not publishable:
+        wanted.append(withholding_unavailable_note(label, denominator, unit))
+        if _number(metrics.get("potential_lender_debit_count")) > 0:
+            wanted.append(potential_withholding_unavailable_note(label, denominator, unit))
+    positions = [index for index, note in enumerate(notes)
+                 if isinstance(note, str) and note.startswith(WITHHOLDING_UNAVAILABLE_NOTE_PREFIXES)]
+    if [notes[index] for index in positions] == wanted:
+        return
+    first = positions[0] if positions else len(notes)
+    rest = [note for index, note in enumerate(notes) if index not in set(positions)]
+    notes[:] = rest[:first] + wanted + rest[first:]
 
 
 def _by_reason(slots: dict[str, list]) -> dict[str, dict[str, float | int]]:
@@ -583,6 +685,10 @@ def record_serialized_revenue_review(
         raise ValueError("only automatically unverified deposits can be reviewed")
     if decision == "confirm" and initial_state == "verified_revenue":
         raise ValueError(_ALREADY_VERIFIED)
+    # Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment is never confirmed as revenue.
+    # A record stored before R2-OW13 carries no key and is reviewed as before.
+    if decision == "confirm" and record.get("returns_funder_payment"):
+        raise ValueError(_RETURNS_FUNDER_PAYMENT)
 
     if decision == "confirm":
         state: RevenueState = "verified_revenue"

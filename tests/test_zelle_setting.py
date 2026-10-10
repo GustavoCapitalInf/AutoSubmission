@@ -91,6 +91,25 @@ def test_z1_the_counted_reading_counts_zelle_with_the_person_to_person_holds():
     assert round(metrics.withholding_rate, 4) == 7.3692
 
 
+def _zel(text):
+    """PNC's spelling of a Z1 Zelle sender: 'ZEL FROM <sender> ...' for 'ZELLE PAYMENT FROM <sender> ...'."""
+    return text.replace("ZELLE PAYMENT FROM ", "ZEL FROM ")
+
+
+def test_z1_pnc_s_zel_twin_reads_as_the_zelle_rows_under_yes():
+    """Audit round 3, R3-12 (R3-B12; the owner's amendment of 2026-10-06: "holds as for other P2P"): on a PNC statement
+    the Z1 Zelle senders printed 'ZEL FROM' take the same tiers and reasons as the same senders printed 'ZELLE', the
+    person-to-person holds included (before the batch the round pair counted as named_payer_unlabelled)."""
+    zel_rows = [(_zel(text), *rest) for text, *rest in fx.Z1]
+    zel = classify_statement_transactions(fx.statement(zel_rows, bank="PNC Bank"), zelle_true_revenue=True)
+    zelle = classify_statement_transactions(fx.statement(fx.Z1, bank="PNC Bank"), zelle_true_revenue=True)
+    zel_rows_read = [record for record in _credits(zel) if record.original_description.startswith("ZEL FROM")]
+    zelle_rows_read = [record for record in _credits(zelle) if "ZELLE" in record.original_description]
+    assert [_tier(record) for record in zel_rows_read] == [_tier(record) for record in zelle_rows_read] == [
+        (COUNTED, "p2p"), (HELD, "p2p_round_repeat"), (HELD, "p2p_round_repeat"), (HELD, "holder_name")]
+    assert [_tier(record) for record in zel] == [_tier(record) for record in zelle]
+
+
 def test_z1_venmo_is_counted_in_both_readings():
     no, yes = _readings("Z1")
     venmo = [index for index, record in enumerate(no) if record.original_description == fx.VENMO]
@@ -248,9 +267,18 @@ def test_z8_a_statement_without_a_zelle_credit_has_one_reading(rows):
 # --- Z9: invariants through the pipeline and the publisher ----------------------------------------------------------
 
 
+#: Audit round 3, final review (R3-FF), F5: the withholding formula's words as the fixture recorded them (R2-OW13);
+#: `_normalised` reads today's words (analysis.metrics.WITHHOLDING_FORMULA) as these: only the words moved, no figure.
+R2_OW13_WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+
+
 def _normalised(node, version):
+    from analysis.metrics import WITHHOLDING_FORMULA
+
     if isinstance(node, dict):
-        return {key: (version if key == "classification_version" else _normalised(value, version))
+        return {key: (version if key == "classification_version"
+                      else R2_OW13_WITHHOLDING_FORMULA if key == "withholding_formula" and value == WITHHOLDING_FORMULA
+                      else _normalised(value, version))
                 for key, value in node.items()}
     if isinstance(node, list):
         return [_normalised(value, version) for value in node]
@@ -261,14 +289,23 @@ def _normalised(node, version):
 #: (`potential_payee_key`), every account's detection (`lender_payment_changes`) and a package
 #: (`lender_payment_changes`, `lender_payment_changes_unchecked`).
 R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lender_payment_changes_unchecked"})
+#: Audit round 3, R3-B02 (the owner's answer of 2026-10-07 to R3-73): the record field every record gains
+#: (`represented_by`, null on every row of Z1).
+R3_B02_KEYS = frozenset({"represented_by"})
+#: Audit round 3, R3-B03: the metrics flag of R3-20's floor (`withholding_basis_below_floor`, false on Z1) and the
+#: owner's answer of 2026-10-07 to R3-79's keys (the record field `lump_sum_payoff`, null on every row of Z1; the metrics
+#: `lump_sum_payoff_total` and `_count`, 0; the detection list `lump_sum_payoffs`, empty).
+R3_B03_KEYS = frozenset({"withholding_basis_below_floor", "lump_sum_payoff", "lump_sum_payoff_total",
+                         "lump_sum_payoff_count", "lump_sum_payoffs"})
 
 
 def _without_r2_ow18(node):
-    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds, applied to BOTH sides of
-    the golden comparison, as `_normalised` reads every classification_version as one. The pinned fixture is never
-    rewritten."""
+    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds (and, audit round 3,
+    R3-B02, the record field `represented_by`, and R3-B03's keys), applied to BOTH sides of the golden comparison, as
+    `_normalised` reads every classification_version as one. The pinned fixture is never rewritten."""
     if isinstance(node, dict):
-        return {key: _without_r2_ow18(value) for key, value in node.items() if key not in R2_OW18_KEYS}
+        return {key: _without_r2_ow18(value) for key, value in node.items()
+                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS and key not in R3_B03_KEYS}
     if isinstance(node, list):
         return [_without_r2_ow18(value) for value in node]
     return node
@@ -419,8 +456,10 @@ def test_z10_a_planted_difference_under_a_rebuilt_key_falls_back_to_the_full_lis
 
 def _written_keys(payload):
     """The paths the rebuild writes on `payload`, whose metrics and detection start empty (but for the inputs the
-    rebuild reads) and which carries no classifications view."""
+    rebuild reads) and which carries no classifications view. Audit round 3, R3-B03 (R3-13): and the keys the rebuild
+    writes on each `detection.potential_lenders` entry, whose sample carries none of them."""
     top = set(payload)
+    lenders_before = [set(entry) for entry in (payload.get("detection") or {}).get("potential_lenders") or []]
     rebuilt = rebuild_serialized_revenue_views(payload)
     keys = {("metrics", key) for key in rebuilt["metrics"]} | {("detection", key) for key in rebuilt["detection"]}
     keys |= {(key,) for key in set(rebuilt) - top}
@@ -428,24 +467,34 @@ def _written_keys(payload):
         before = {key for key in transaction["classification"]}
         keys |= {("statement", "transactions", "*", "classification", key) for key in before
                  if key.startswith("contributes_to_") and key in zelle_view._REBUILT_RECORD_FLAGS}
+    for before, entry in zip(lenders_before, rebuilt["detection"].get("potential_lenders") or []):
+        keys |= {("detection", "potential_lenders", "*", key) for key in set(entry) - before}
     return keys
 
 
 def _sample(mode):
     payload = json.loads(json.dumps(fx.case("Z1")))
     payload.pop("zelle_counted_reading")
-    payload["metrics"] = {"withholding_denominator_mode": mode, "withholding_numerator": 850.0}
-    payload["detection"] = {}
+    payload["metrics"] = {"withholding_denominator_mode": mode, "withholding_numerator": 850.0,
+                          "potential_withholding_numerator": 450.0, "potential_lender_debit_count": 3}
+    # R3-13: one potential lender's entry, without the basis and exposure the rebuild writes.
+    payload["detection"] = {"potential_lenders": [{"funder": "Northwind Funding", "classification": "potential_lender",
+                                                   "total_debited": 450.0, "potential_lender_debit_total": 450.0}]}
     payload.pop("classifications")
     return payload
 
 
+#: The inputs the rebuild reads from the sample and never writes.
+_READ_ONLY = {("metrics", "withholding_numerator"), ("metrics", "potential_withholding_numerator"),
+              ("metrics", "potential_lender_debit_count"), ("detection", "potential_lenders")}
+
+
 def test_z10_rebuilt_keys_are_the_keys_the_rebuild_writes():
     written = _written_keys(_sample("true_revenue"))
-    written -= {("metrics", "withholding_numerator")}  # read, never written
+    written -= _READ_ONLY
     assert written == set(zelle_view.REBUILT_KEYS)
     for mode in ("verified_revenue", "legacy_eligible_deposits"):
-        assert _written_keys(_sample(mode)) - {("metrics", "withholding_numerator")} <= set(zelle_view.REBUILT_KEYS)
+        assert _written_keys(_sample(mode)) - _READ_ONLY <= set(zelle_view.REBUILT_KEYS)
 
 
 # --- Z11: the view's robustness --------------------------------------------------------------------------------------
@@ -559,6 +608,33 @@ def test_z11_the_figure_function():
     assert figures == {"count": 4, "total": 3.3, "by_tier": {
         "verified": {"count": 1, "total": 1.0}, COUNTED: {"count": 1, "total": 0.2},
         HELD: {"count": 1, "total": 2.0}, "non_revenue": {"count": 1, "total": 0.1}}}
+
+
+def test_z11_the_unestablished_figures_keep_the_captured_rows_only():
+    """Audit round 3, R3-B20 (R3-48; spec §10.4's I51): where the revenue is not established, the parts of Counted and
+    Held (and, where Verified is not, of Verified) read None, present or not; the count, the total, the non-revenue
+    part, the flags and a package's `setting` stay; the input is never mutated and is returned itself where both flags
+    hold."""
+    from analysis.revenue_view import (
+        UNESTABLISHED_VERIFIED_ZELLE_TIERS,
+        UNESTABLISHED_ZELLE_TIERS,
+        unestablished_zelle_figures,
+    )
+
+    assert UNESTABLISHED_ZELLE_TIERS == (COUNTED, HELD) and UNESTABLISHED_VERIFIED_ZELLE_TIERS == ("verified",)
+    figures = {"counted_as_true_revenue": True, "setting": True, "setting_applied": True,
+               **zelle_view.zelle_deposit_figures([(COUNTED, 0.2), ("non_revenue", 0.1)])}
+    frozen = copy.deepcopy(figures)
+    assert unestablished_zelle_figures(figures, established=True, verified_established=True) is figures
+    assert unestablished_zelle_figures(None, established=False, verified_established=False) is None
+    none = {"count": None, "total": None}
+    held_only = unestablished_zelle_figures(figures, established=False, verified_established=True)
+    assert held_only == {**frozen, "by_tier": {COUNTED: none, HELD: none, "non_revenue": {"count": 1, "total": 0.1}}}
+    assert list(held_only["by_tier"]) == [COUNTED, HELD, "non_revenue"]
+    both = unestablished_zelle_figures(figures, established=False, verified_established=False)
+    assert list(both["by_tier"]) == ["verified", COUNTED, HELD, "non_revenue"] and both["by_tier"]["verified"] == none
+    assert (both["count"], both["total"], both["setting"]) == (2, 0.3, True)
+    assert figures == frozen
 
 
 # --- Z12: decisions on Zelle rows, through the routes (spec §10.7) ---------------------------------------------------

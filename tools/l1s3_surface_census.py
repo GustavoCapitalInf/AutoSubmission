@@ -227,6 +227,10 @@ EXCUSED: dict[str, str] = {
     "webapp/app.py::_statement_span": "one ACCOUNT's period; `_package_superseded` hands it accounts `_stored_accounts` lists",
     "webapp/app.py::_posted_rows": "one ACCOUNT's posted rows; `_package_superseded` hands it accounts `_stored_accounts` lists",
     "webapp/app.py::_package_superseded": "reads each kept job's accounts through the taught `_stored_accounts`; its `accounts` key is its own entry's account count, not a payload",
+    # Audit round 3, final review (R3-FF), F1: R3-B23's title filter (R3-62) compares a section NAME of the flat sheet
+    # with "statement" inside one ACCOUNT's rows; the taught `_analysis_rows` hands it each account from
+    # `payload_accounts` (a single-account payload is that account).
+    "webapp/app.py::_account_analysis_rows": "one ACCOUNT's rows of the flat sheet; `_analysis_rows` hands it each account from `payload_accounts`",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.

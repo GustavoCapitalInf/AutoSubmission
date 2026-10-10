@@ -24,7 +24,8 @@ def _holder_reading(markdown: str) -> HolderReading:
     and ZIP, without the address (analysis.holder_name.read_address_line, which drops an ATTN contact after the name).
     A line that opens on an attention contact names no holder we can place: NO_READING. `account_name` keeps the
     product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line prints after the
-    name (never the contact)."""
+    name (never the contact, except a contact whose words are the premium-trust designation itself, which is the
+    account's title in any spacing: audit round 3, R3-B11, R3-61 and its review round 1)."""
     lines = page_lines(first_page(markdown))
     anchor = next((index for index, line in enumerate(lines) if _CONTACT_HEADING.match(line)), None)
     if anchor is None:

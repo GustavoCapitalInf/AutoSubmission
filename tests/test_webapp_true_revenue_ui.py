@@ -373,6 +373,38 @@ console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
 
 
 @needs_node
+def test_r3_91_a_held_wire_or_transfer_with_unread_payer_text_says_the_payer_line_was_not_read():
+    """Audit round 3, R3-B09 (R3-91): a held wire or bare transfer whose reader kept a payer line it could not
+    attribute (`unread_payer_text`) says so, never that no sender was printed; its tier, reason code and tag stay."""
+    wire = _record("excluded_pending_review", reason="wire_no_sender")
+    wire["unread_payer_text"] = "WT FABRIKAM SUPPLY LLC"
+    transfer = _record("excluded_pending_review", reason="transfer_no_counterparty")
+    transfer["unread_payer_text"] = "REF 0001 CONTOSO TITLE LLC"
+    plain_wire = _record("excluded_pending_review", reason="wire_no_sender")
+    plain_transfer = _record("excluded_pending_review", reason="transfer_no_counterparty")
+    counted = _record("counted_flagged", reason="payer_text_not_read")
+    counted["unread_payer_text"] = "FABRIKAM INC. PAYABLES 3 NORTHWIND CCD"
+    result = run_dashboard(f"""
+const rows = {json.dumps([wire, transfer, plain_wire, plain_transfer, counted])};
+console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
+  tags: rows.map((tx) => transactionCategory(tx).label)}}));
+""")
+    unattributed = ("The statement prints a payer line under this row that the reader could not attribute to it; it "
+                    "stays held for review.")
+    assert result["reasons"] == [
+        f"Wire, payer line not read. {unattributed} Unread payer text: WT FABRIKAM SUPPLY LLC",
+        f"Transfer, payer line not read. {unattributed} Unread payer text: REF 0001 CONTOSO TITLE LLC",
+        "Wire, no sender printed. A wire with no sender printed.",
+        "Transfer, no counterparty. A transfer that names no counterparty.",
+        "Payer text not read. The statement prints a payer for this row that the reader could not read: counted "
+        "without proof of the sale. Unread payer blocks: FABRIKAM INC. PAYABLES 3 NORTHWIND CCD",
+    ]
+    # The tag reads the reason code, unchanged.
+    assert result["tags"][:4] == ["Held: Wire, no sender printed", "Held: Transfer, no counterparty",
+                                  "Held: Wire, no sender printed", "Held: Transfer, no counterparty"]
+
+
+@needs_node
 def test_the_revenue_filters_find_their_rows():
     rows = [_record("verified"), _record("counted_flagged", reason="p2p"),
             _record("excluded_pending_review", reason="holder_name"),
@@ -583,7 +615,10 @@ def test_the_settings_say_what_true_revenue_is():
             "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shaded "
             "inside it on the monthly chart.") in text
     assert "Every choice also shows each statement's confirmed withholding rate." in text
-    assert '<script src="/static/app.js?v=true-revenue-8"></script>' in html
+    # Audit round 3, R3-B25: the round-3 batches' app.js changes ship as a new script (-7 and -8 were the hosting
+    # line's). Audit round 3, final review (R3-FF), F6: the floor's unit moves app.js again (-9 served the Accept run).
+    # Audit round 3, R3-MERGE: the merged app.js differs from both lines' (-8 the hosting line's, -10 this branch's).
+    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
@@ -806,8 +841,11 @@ def test_the_true_card_names_an_unscreened_holder_and_unread_payer_text(tmp_path
 console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 """)
     note = {row["label"]: row["note"] for row in statement}["True Revenue"].replace("&#39;", "'")
+    # Audit round 3, R3-B11 (R3-30): a statement with no holder line read publishes no account title either, so no
+    # premium-trust title is read from it (the underwriter's Q10 of 2026-10-02); the fact says so.
     assert note == ("Posted credits minus known non-revenue and the deposits held for review · No holder name read: the "
-                    "holder's own deposits are not screened · 3 credits' payer text not read")
+                    "holder's own deposits are not screened, nor is a premium-trust account title read · 3 credits' "
+                    "payer text not read")
     unscreened = _payload(month=4)
     unscreened["metrics"]["holder_unscreened"] = True
     package = _package({"mar": _payload(), "apr": unscreened}, tmp_path, monkeypatch)
@@ -815,7 +853,25 @@ console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
 """)
-    assert {row["label"]: row["note"] for row in rows}["True Revenue"].endswith("1 statement with no holder name read")
+    assert {row["label"]: row["note"] for row in rows}["True Revenue"].endswith(
+        "1 statement with no holder name read (nor a premium-trust title)")
+
+
+@needs_node
+def test_r3_30_a_package_names_its_statements_with_no_holder_name_or_title_read(tmp_path, monkeypatch):
+    """Audit round 3, R3-B11 (R3-30): a package with two holder-unscreened members counts them, and says that no
+    premium-trust title is read from them either."""
+    members = {"mar": _payload()}
+    for job, month in (("apr", 4), ("may", 5)):
+        members[job] = _payload(month=month)
+        members[job]["metrics"]["holder_unscreened"] = True
+    package = _package(members, tmp_path, monkeypatch)
+    rows = run_dashboard(METRIC_ROWS + f"""
+currentJobIds = ['mar', 'apr', 'may']; renderPackageAnalysis({json.dumps(package)});
+console.log(JSON.stringify(metricRows(els.metricsGrid.innerHTML)));
+""")
+    note = {row["label"]: row["note"] for row in rows}["True Revenue"]
+    assert note.endswith("2 statements with no holder name read (nor a premium-trust title)")
 
 
 @needs_node
@@ -1279,14 +1335,40 @@ shown.push(els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, ""));
 
 
 @needs_node
+def test_the_notice_names_a_pair_of_one_account_sharing_no_credit_by_its_days(tmp_path, monkeypatch):
+    """Audit round 3, R3-B18 (R3-04): a pair of one account's statements named although the two share no credit (a
+    period inside the other, or more than three common days) reads the days the two cover; the header names pairs of
+    one account unless every pair shares a credit."""
+    from tests.test_webapp_app import _APRIL, _april, _period
+    from webapp.app import _package_analysis, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
+                    number="XXXX1010")
+    interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
+                      "2031-04-15", "2031-05-10", opening=30000.0)
+    packages = [_package_analysis([_april(), other]), _package_analysis([_april(), other, interim])]
+    result = run_dashboard("const shown = [];\n" + "".join(f"""
+renderPackageAnalysis({json.dumps(package)});
+shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")]);
+""" for package in packages) + "console.log(JSON.stringify(shown));")
+    assert result[0] == [False, "1 pair of overlapping statements of one account. other.pdf and apr.pdf cover 20 of "
+                                "the same days of one account. The package needs review."]
+    assert result[1][1].startswith("3 pairs of overlapping statements of one account. ")
+    assert "other.pdf and apr.pdf cover 20 of the same days of one account" in result[1][1]
+    assert "int.pdf and apr.pdf share 1 credit ($5,000.00) in the days both cover, counted in both" in result[1][1]
+
+
+@needs_node
 def test_the_copied_summaries_carry_true_verified_and_non_revenue(tmp_path, monkeypatch):
     """I07: the credit-memo text carries True, Verified and Non-revenue, in total and per month, and names the gross
     monthly figure gross."""
     statement = run_dashboard(_open("s", _served(_payload())) + """
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """)
-    assert ("True revenue $1,000.00 ($1,000.00 a month), verified revenue $700.00 ($700.00 a month), non-revenue "
-            "$100.00 ($100.00 a month).") in statement
+    # Audit round 3, R3-B22 (R3-01): and the money held for review, between the verified pair and non-revenue.
+    assert ("True revenue $1,000.00 ($1,000.00 a month), verified revenue $700.00 ($700.00 a month), held for review "
+            "$900.00 (1 credit), non-revenue $100.00 ($100.00 a month).") in statement
     short = run_dashboard(_open("s", _served(_summary_only(3))) + """
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """)
@@ -1297,8 +1379,8 @@ currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)}); ge
 console.log(JSON.stringify(els.summaryBox.textContent));
 """)
     assert text.startswith("Package 2031-03-01 to 2031-04-28 (2 statements · 2 months): 2 of 2 statements completed. ")
-    assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), non-revenue "
-            "$200.00 ($100.00 a month).") in text
+    assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), held for "
+            "review $1,800.00 (2 credits), non-revenue $200.00 ($100.00 a month).") in text
     assert "average monthly gross credits" in text and "average monthly credits" not in text
 
 
@@ -2067,6 +2149,68 @@ console.log(JSON.stringify({audit: [withholdingAuditNote(metrics, 'USD'), withho
     assert result["summary"][2] == "CA$0.00 confirmed lender debits paid (2 returned funder payments, CA$900.00)"
     assert result["chip"] == ""
     assert result["note"] == ["Returns a confirmed funder's payment (transaction:9)"]
+
+
+@needs_node
+def test_r3_21_a_matched_held_return_shows_mark_non_revenue_only_and_says_why():
+    """Audit round 3, R3-B02 (R3-21; spec §10.6, §10.7): a held credit that returns a confirmed funder's payment
+    (`returns_funder_payment`) shows Mark Non-Revenue only, no multi-select box, and its note says why it cannot be
+    confirmed; a held credit with no such key keeps both buttons and its box; a Zelle deposit the policy excluded that
+    rule D matched shows no control (the server refuses its only one); a rule-decided matched return reads as before."""
+    debit = {"date": "2054-03-03", "description": "KAPITUS", "amount": -850.0, "source_job": "j",
+             "classification": {"classification": "confirmed_lender", "canonical_entity": "KAPITUS",
+                                "source_location": "transaction:3", "returned_funder_payment_by": "transaction:5"}}
+    held = _record("excluded_pending_review", reason="possible_return", status="pending")
+    held["classification"].update(source_location="transaction:5", returns_funder_payment="transaction:3")
+    plain = _record("excluded_pending_review", reason="possible_return", status="pending")
+    plain["classification"]["source_location"] = "transaction:6"
+    zelle = _record("non_revenue", reason="zelle_excluded")
+    zelle["classification"].update(source_location="transaction:7", returns_funder_payment="transaction:3")
+    ruled = _record("non_revenue")
+    ruled["classification"].update(source_location="transaction:8", returns_funder_payment="transaction:3")
+    rows = [debit, held, plain, zelle, ruled]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{controls: rows.slice(1).map((tx) => actions(revenueReviewControls(tx))),
+  kinds: rows.slice(1).map((tx) => revenueReviewKind(tx.classification)),
+  pickable: rows.slice(1).map((tx) => pendingReviewTarget(tx) !== null),
+  notes: rows.slice(1).map((tx) => returnedFunderNotes(tx, rows))}}));
+""")
+    assert result["controls"] == [["reject"], ["confirm", "reject"], [], []]
+    assert result["kinds"] == ["reject", "both", "", ""]
+    assert result["pickable"] == [False, True, False, False]
+    why = ("Returns the 2054-03-03 payment to KAPITUS: the business's own payment coming back, so it cannot be "
+           "confirmed as revenue")
+    assert result["notes"] == [[why], [], [why], ["Returns the 2054-03-03 payment to KAPITUS"]]
+
+
+@needs_node
+def test_r3_21_only_the_zelle_valve_loses_its_control_and_a_verified_return_keeps_mark_non_revenue():
+    """Review round 1 of R3-B02 (finding 4): the refused Confirm takes a control away only where it was the only one,
+    the Zelle deposit the policy excluded; a credit a rule verified that carries `returns_funder_payment` (a lender-side
+    named pair the revenue side did not pair) keeps Mark Non-Revenue, which the server accepts, as before the batch. A
+    counted one shows Mark Non-Revenue only, and a rule-decided non-revenue one none."""
+    verified = _record("verified")
+    verified["classification"].update(source_location="transaction:5", returns_funder_payment="transaction:3")
+    counted = _record("counted_flagged", reason="check_deposit")
+    counted["classification"].update(source_location="transaction:6", returns_funder_payment="transaction:3")
+    zelle = _record("non_revenue", reason="zelle_excluded")
+    zelle["classification"].update(source_location="transaction:7", returns_funder_payment="transaction:3")
+    ruled = _record("non_revenue")
+    ruled["classification"].update(source_location="transaction:8", returns_funder_payment="transaction:3")
+    plain_verified = _record("verified")
+    rows = [verified, counted, zelle, ruled, plain_verified]
+    result = run_dashboard(f"""
+const rows = {json.dumps(rows)};
+const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+)"/g)].map((m) => m[1]);
+console.log(JSON.stringify({{controls: rows.map((tx) => actions(revenueReviewControls(tx))),
+  kinds: rows.map((tx) => revenueReviewKind(tx.classification)),
+  pickable: rows.map((tx) => pendingReviewTarget(tx) !== null)}}));
+""")
+    assert result["kinds"] == ["reject", "reject", "", "", "reject"]
+    assert result["controls"] == [["reject"], ["reject"], [], [], ["reject"]]
+    assert result["pickable"] == [False, False, False, False, False]
 
 
 @needs_node

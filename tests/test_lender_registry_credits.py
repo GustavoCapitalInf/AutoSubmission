@@ -713,3 +713,16 @@ def test_liberis_is_a_ledger_alias_and_airwallex_and_vagaro_are_not():
     assert registry_match("INSTANT PMT FROM AIRWALLEX US LLC CONTOSO", registry.ALTERNATIVE_POSITION_ALIASES) is None
     assert registry_match("VAGARO MERCHANT ACH IN", registry.ALTERNATIVE_POSITION_ALIASES) is None
     assert registry_match("LIBERTY FABRIKAM ACH IN", registry.ALTERNATIVE_POSITION_ALIASES) is None
+
+
+def test_r3_50_a_holder_named_liberis_is_read_as_liberis_a_recorded_residual():
+    """Audit round 3, R3-B01 (R3-50): the RECORDED residual of the bare LIBERIS alias (true revenue spec §17.1, §20; the
+    ledger's Liberis notes). LIBERIS is the company's name and also a rare surname, and the matcher reads the whole row,
+    receiver fields included, so another originator's payment to a holder named '... LIBERIS ...' is read as Liberis US
+    Inc's financing proceeds. No corpus row prints it. This pins today's reading for the owner: a future narrowing (the
+    bare word read only outside the receiver fields, or only in the Mercury 'LIBERIS <ref> ACH IN' form) is a deliberate
+    change, made by changing this test."""
+    printed = "FABRIKAM SUPPLY INC DES:PAYMENT ID:0001 INDN:LIBERIS SAMPLE LLC CO ID:0000000001 CCD"
+    [record] = _records([(printed, 2000.0)], holder="LIBERIS SAMPLE LLC", bank="Bank of America")
+    assert (record.revenue_classification, record.revenue_match_method, record.revenue_canonical_entity) == (
+        "non_revenue", "financing_proceeds_credit", LIBERIS)

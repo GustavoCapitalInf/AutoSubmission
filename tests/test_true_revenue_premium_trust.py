@@ -12,7 +12,12 @@ operating account the insurer-worded commissions count through the underwriter's
 the trust side.
 
 Fabricated rows only (CONTOSO, FABRIKAM, NORTHWIND, ADATUM, SAMPLE, neutral amounts, 2054 dates). The 78 rule cases are
-the card's (q10-rev2 n01: r02's 58, the "designation" cases passed as the account title, and 20 new)."""
+the card's (q10-rev2 n01: r02's 58, the "designation" cases passed as the account title, and 20 new).
+
+Audit round 3, R3-B11 (R3-65, R3-61): a missed title overstates True (the trust account's deposits stay counted), an
+over-read one understates it, held and reviewable. `R3_CASES` pins the product-adjective, PREMIUM FUND TRUST and
+for-benefit forms the rule now reads, the forms it still refuses and the recorded over-reads; a holder line's contact
+naming the premium trust account is the account's title in any spacing, a contact naming a person never."""
 from __future__ import annotations
 
 import pytest
@@ -80,7 +85,7 @@ RULE_CASES = [
     # New: the question's own example as the account name (T5), and the corpus's designation.
     (A, "NORTHWIND INSURANCE AGENCY – PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
     (T, "INSURANCE PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
-    # New, recorded as not read (an abbreviation the words do not read: the safe direction).
+    # New, recorded as not read (an abbreviation the words do not read: it overstates True).
     (A, "PREM. TR. ACCT.", None),
 ]
 
@@ -94,6 +99,101 @@ def test_premium_trust_title_reads_only_the_title_forms(field, text, expected):
     fields = {T: None, A: None, H: None}
     fields[field] = text
     assert tr.premium_trust_title(**fields) == expected
+
+
+#: Audit round 3, R3-B11 (R3-65): a missed title keeps the insureds' premiums counted, so it overstates True; the rule
+#: now reads a product adjective before a kind word (BUSINESS, ANALYZED, COMMERCIAL), a bank's PREMIUM FUND(S) TRUST
+#: product name and the for-benefit form (FBO, OF, FOR) on an account or holder name that ends in the beneficiary's
+#: legal form. An adjective alone is no kind word. Recorded over-reads (a trade name that prints the words and an
+#: account word) understate True, held and reviewable: they are pinned as read.
+R3_CASES = [
+    # Read.
+    (T, "PREMIUM TRUST BUSINESS CHECKING", "PREMIUM TRUST BUSINESS CHECKING"),
+    (A, "PREMIUM TRUST BUSINESS CHECKING", "PREMIUM TRUST BUSINESS CHECKING"),
+    (H, "PREMIUM TRUST BUSINESS CHECKING", "PREMIUM TRUST BUSINESS CHECKING"),
+    (A, "PREMIUM TRUST ANALYZED CHECKING - NORTHWIND AGENCY LLC", "PREMIUM TRUST ANALYZED CHECKING"),
+    (T, "PREMIUM TRUST COMMERCIAL ACCOUNT", "PREMIUM TRUST COMMERCIAL ACCOUNT"),
+    (H, "NORTHWIND AGENCY PREMIUM TRUST BUSINESS ACCT 2", "PREMIUM TRUST BUSINESS ACCT"),
+    (T, "PREMIUM FUND TRUST ACCOUNT", "PREMIUM FUND TRUST ACCOUNT"),
+    (A, "PREMIUM FUNDS TRUST", "PREMIUM FUNDS TRUST"),
+    (H, "PREMIUM TRUST ACCOUNT FBO NORTHWIND AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (A, "PREMIUM TRUST ACCOUNT OF CONTOSO AGENCY INC", "PREMIUM TRUST ACCOUNT"),
+    (H, "PREMIUM TRUST ACCT FOR NORTHWIND AGENCY LLC", "PREMIUM TRUST ACCT"),
+    (A, "PREMIUM TRUST A/C F/B/O NORTHWIND AGENCY LLC", "PREMIUM TRUST A/C"),
+    (T, "PREMIUM TRUST ACCOUNT FBO NORTHWIND AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    # Not read.
+    (A, "PREMIUM TRUST OPERATING", None), (A, "PREMIUM TRUST BUSINESS", None), (T, "PREMIUM TRUST BUSINESS", None),
+    (H, "PREMIUM TRUST ACCOUNT LLC", None), (H, "PREMIUM TRUST ACCOUNTING LLC", None),
+    (H, "PREMIUM TRUST ACCOUNTING FOR NORTHWIND AGENCY LLC", None),
+    (A, "BMO PREMIUM BUSINESS CKG", None), (A, "PREMIUM FUND", None), (T, "PREMIUM FUNDS INVESTOR CLASS", None),
+    (H, "PREMIUM FUNDING TRUST LLC", None),
+    # Recorded false negative (an abbreviation the words do not read: it overstates True).
+    (A, "PREM. TR. ACCT.", None),
+    # Recorded over-reads (a trade name that prints the words and an account word: it understates True, held and
+    # reviewable).
+    (T, "PREMIUM TRUST ACCOUNT SERVICES", "PREMIUM TRUST ACCOUNT"),
+    (H, "NORTHWIND PREMIUM TRUST ACCOUNT SERVICES", "PREMIUM TRUST ACCOUNT"),
+    (H, "PREMIUM TRUST ACCOUNT OF SAMPLEVILLE LLC", "PREMIUM TRUST ACCOUNT"),
+]
+
+
+@pytest.mark.parametrize(("field", "text", "expected"), R3_CASES)
+def test_r3_65_the_rule_reads_the_product_fund_and_for_benefit_forms(field, text, expected):
+    fields = {T: None, A: None, H: None}
+    fields[field] = text
+    assert tr.premium_trust_title(**fields) == expected
+
+
+#: Audit round 3, R3-B11, review round 1 (finding 3): the for-benefit form reads a product adjective before its account
+#: word, as the account-word form does. An adjective alone is still no account word; a company named with the form
+#: and an adjective is a recorded over-read (it understates True, held and reviewable).
+R3_B11_R1_CASES = [
+    (H, "PREMIUM TRUST BUSINESS ACCOUNT FBO NORTHWIND LLC", "PREMIUM TRUST BUSINESS ACCOUNT"),
+    (A, "PREMIUM TRUST COMMERCIAL ACCT FOR NORTHWIND AGENCY INC", "PREMIUM TRUST COMMERCIAL ACCT"),
+    (H, "PREMIUM FUND TRUST ANALYZED ACCOUNT F/B/O NORTHWIND AGENCY LLC", "PREMIUM FUND TRUST ANALYZED ACCOUNT"),
+    (H, "PREMIUM TRUST BUSINESS FBO NORTHWIND LLC", None),
+    (H, "PREMIUM TRUST BUSINESS ACCOUNT OF SAMPLEVILLE LLC", "PREMIUM TRUST BUSINESS ACCOUNT"),
+]
+
+
+@pytest.mark.parametrize(("field", "text", "expected"), R3_B11_R1_CASES)
+def test_r3_b11_r1_the_for_benefit_form_reads_a_product_adjective(field, text, expected):
+    fields = {T: None, A: None, H: None}
+    fields[field] = text
+    assert tr.premium_trust_title(**fields) == expected
+
+
+#: Audit round 3, R3-B11, review round 1 (finding 2): every contact the holder readers publish as a title is one the
+#: rule reads (the title rule's own end form, from the contact's first word), and a department, OPERATING or an
+#: adjective alone, which they refuse, is no title to the rule either.
+@pytest.mark.parametrize(("contact", "title", "rule"), [
+    ("ATTN: PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN:PREMIUM TRUST", "PREMIUM TRUST", "PREMIUM TRUST"),
+    ("C/O PREMIUM TRUST BUSINESS MONEY MARKET", "PREMIUM TRUST BUSINESS MONEY MARKET",
+     "PREMIUM TRUST BUSINESS MONEY MARKET"),
+    ("ATTN:PREMIUM TRUST ACCOUNT (1234)", "PREMIUM TRUST ACCOUNT (1234)", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT II", "PREMIUM TRUST ACCOUNT II", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM FUNDS TRUST ACCT", "PREMIUM FUNDS TRUST ACCT", "PREMIUM FUNDS TRUST ACCT"),
+    ("ATTN: PREMIUM TRUST DEPT", None, None),
+    ("ATTN: PREMIUM TRUST OPERATING", None, None),
+    ("ATTN: PREMIUM TRUST BUSINESS", None, None),
+])
+def test_r3_b11_r1_a_contact_s_title_is_one_the_rule_reads(contact, title, rule):
+    reading = hn.read_name(f"CONTOSO INSURANCE AGENCY INC {contact}")
+    assert reading == ("CONTOSO INSURANCE AGENCY INC", title)
+    assert tr.premium_trust_title(reading.title, None, reading.name) == rule
+    if title is None:
+        assert tr.premium_trust_title(contact.split(None, 1)[1], None, None) is None
+
+
+def test_r3_65_the_holder_reader_s_title_line_sees_a_premium_fund_trust_line():
+    # The block reader's title line reads the widened words too, with no account word on the line.
+    reading = hn.read_address_block(["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM FUND TRUST", "100 SAMPLE ST",
+                                      "SAMPLEVILLE SC 29000-0001"])
+    assert reading == ("NORTHWIND INSURANCE AGENCY LLC", "PREMIUM FUND TRUST")
+    assert tr.premium_trust_title(reading.title, None, reading.name) == "PREMIUM FUND TRUST"
 
 
 def test_the_rule_reads_the_title_then_the_account_name_then_the_holder_name():
@@ -233,9 +333,14 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
             assert not new.contributes_to_verified_revenue
         else:
             # A counted credit keeps its state, method, rule and reason sentence: only its tier and reason change.
+            # Audit round 3, R3-B15 (R3-53): a sentence that said the row is counted ("counted and flagged, never
+            # verified", the Q2 release's commission here) names the hold instead.
             for field in ("revenue_classification", "revenue_match_method", "revenue_matched_rule",
-                          "revenue_confidence_score", "revenue_reason", "revenue_context_signals"):
+                          "revenue_confidence_score", "revenue_context_signals"):
                 assert getattr(new, field) == getattr(old, field), field
+            assert new.revenue_reason == old.revenue_reason.replace(
+                "counted and flagged, never verified",
+                f"never verified, and held for review ({tr.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]})")
         # Nothing but the revenue reading moves: the classification and its lender flags are the same.
         for field in ("classification", "match_method", "canonical_entity", "contributes_to_lender_count",
                       "contributes_to_lender_totals", "contributes_to_withholding_rate",
@@ -295,6 +400,70 @@ def test_t3_to_t5_an_account_name_that_reads_the_title(bank, account_name, monke
     assert compute_metrics(statement).premium_trust_account is True
 
 
+#: Audit round 3, R3-B11 (R3-61): a holder line whose contact names the premium trust account, read by its words and
+#: not its spacing: a bare deposit and a customer's two invoice payments.
+R3_61_ROWS = [
+    ("DEPOSIT", 1200.00),
+    ("FABRIKAM SUPPLY INC DES:INVOICE ID:0001 INDN:CONTOSO INSURANCE AGENCY INC CO ID:0000000001 CCD", 2000.00),
+    ("FABRIKAM SUPPLY INC DES:INVOICE ID:0001 INDN:CONTOSO INSURANCE AGENCY INC CO ID:0000000001 CCD", 2000.00),
+]
+#: The three credits' reading with no premium-trust title.
+R3_61_TODAY = [("counted_flagged", "no_payer_printed"), ("verified", "named_payer_repeats"),
+               ("verified", "named_payer_repeats")]
+
+
+def _r3_61_line(contact):
+    return f"CONTOSO INSURANCE AGENCY INC {contact} PO BOX 100 SAMPLEVILLE SC 29000-0001"
+
+
+@pytest.mark.parametrize("contact", [
+    "ATTN: PREMIUM TRUST ACCOUNT", "ATTN:PREMIUM TRUST ACCOUNT", "CARE OF PREMIUM TRUST ACCOUNT",
+])
+def test_r3_61_a_contact_naming_the_premium_trust_account_holds_in_any_spacing(contact, monkeypatch):
+    statement = _statement(R3_61_ROWS, _r3_61_line(contact))
+    assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", "PREMIUM TRUST ACCOUNT")
+    assert _reading(_today(statement, monkeypatch)) == R3_61_TODAY
+    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+    assert compute_metrics(statement).premium_trust_account is True
+
+
+def test_r3_61_a_contact_naming_a_person_is_no_title_and_holds_nothing(monkeypatch):
+    statement = _statement(R3_61_ROWS, _r3_61_line("ATTN:SAMPLE PERSON"))
+    assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", None)
+    records = tc.classify_statement_transactions(statement)
+    assert records == _today(statement, monkeypatch)
+    assert _reading(records) == R3_61_TODAY
+    assert compute_metrics(statement, classifications=records).premium_trust_account is False
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN:PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN: PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("CARE OF PREMIUM TRUST", "PREMIUM TRUST"),
+    ("ATTN:PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT"),
+])
+def test_r3_b11_r1_a_contact_naming_the_trust_account_by_its_kind_holds_in_any_spacing(contact, title, monkeypatch):
+    # Audit round 3, R3-B11, review round 1 (finding 2): the contact's words are the designation as the title rule reads
+    # it (a kind word, the bare words, a number whose marker the address cut leaves), so the trust account's deposits
+    # are held, glued or spaced.
+    statement = _statement(R3_61_ROWS, _r3_61_line(contact))
+    assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", title)
+    assert _reading(_today(statement, monkeypatch)) == R3_61_TODAY
+    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+
+
+def test_r3_b11_r1_a_dba_home_care_name_keeps_its_care_of_and_its_reading():
+    # Audit round 3, R3-B11, review round 1 (finding 1): a DBA trade name printing CARE OF is the holder's name whole,
+    # as before the batch, so its rows read against the whole name.
+    line = "CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE 100 SAMPLE ST SAMPLEVILLE SC 29000-0001"
+    statement = _statement(R3_61_ROWS, line, bank="Bank of America")
+    assert (statement.holder_name, statement.account_title) == (
+        "CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE", None)
+    whole = Statement(bank="Bank of America", holder_name="CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE",
+                      transactions=statement.transactions)
+    assert tc.classify_statement_transactions(statement) == tc.classify_statement_transactions(whole)
+
+
 #: T6: the owner's two halves. Carrier commissions and a bare deposit, on the operating and on the trust statement.
 T6 = [
     ("SAMPLE MUTUAL INS CO AGT COMM 1234", 640.00),
@@ -326,6 +495,39 @@ def test_t6_commissions_count_on_the_operating_account_and_are_held_on_the_trust
     metrics = compute_metrics(trust, classifications=records)
     assert (_money(metrics.true_revenue_total), _money(metrics.excluded_pending_review_total)) == (0.0, 7130.67)
     assert metrics.premium_trust_account is True
+
+
+#: Audit round 3, R3-B15 (R3-53): counted re-statements whose sentence says "counted and flagged, never verified": a
+#: listed auto lender's payables with no dealer evidence (Q9 (c')), a financier's payout a descriptor verified (Q8) and
+#: an insurer's commission the Q2 release counts at an agency; and a verified card settlement.
+R3_53_ROWS = [
+    ("WESTLAKE FINANCI DES:PAYABLES ID:1", 1500.00, ("counted_flagged", "lender_paid_for_services")),
+    ("KOALAFI MERCHANT PAYOUT 1234", 2200.00, ("counted_flagged", "customer_financing_payout")),
+    ("SAMPLE MUTUAL INS CO AGT COMM 1234", 640.00, ("counted_flagged", "insurer_paid_for_services")),
+    ("BANKCARD 8030 BTOT DEP 1234567", 5120.44, ("verified", None)),
+]
+
+
+def test_r3_53_a_counted_re_statement_held_on_a_trust_account_says_it_is_held(monkeypatch):
+    """Audit round 3, R3-B15 (R3-53; §5.3, §8.10): the premium-trust hold re-tiers a counted re-statement, so its
+    sentence names the hold by its own label (REVENUE_TIER_REASONS), never "counted and flagged"; the operating account
+    keeps the counted sentence, and a verified row on the trust account keeps the sentence the hold already writes."""
+    rows = [(text, amount) for text, amount, _today in R3_53_ROWS]
+    operating = tc.classify_statement_transactions(_statement(rows, OPERATING_LINE, account_name="Business Banking"))
+    assert [rules_reading(record) for record in operating] == [today for _text, _amount, today in R3_53_ROWS]
+    for record in operating[:3]:
+        assert "counted and flagged, never verified" in record.revenue_reason
+    trust = tc.classify_statement_transactions(_statement(rows, TRUST_LINE, account_name="Business Banking"))
+    assert _reading(trust) == [PT] * 4
+    label = tr.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]
+    for counted, held in zip(operating[:3], trust[:3]):
+        assert "counted and flagged" not in held.revenue_reason
+        assert held.revenue_reason == counted.revenue_reason.replace(
+            "counted and flagged, never verified", f"never verified, and held for review ({label})")
+        assert (held.revenue_match_method, held.revenue_matched_rule) == (
+            counted.revenue_match_method, counted.revenue_matched_rule)
+    assert trust[3].revenue_reason.startswith("A deposit into an account titled PREMIUM TRUST ACCOUNT: ")
+    assert "held for review (" not in trust[3].revenue_reason
 
 
 def test_a_zelle_deposit_into_a_trust_account_stays_excluded(monkeypatch):

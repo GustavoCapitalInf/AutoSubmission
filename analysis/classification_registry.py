@@ -277,7 +277,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "Novus Capital Funding II LLC": ("NOVUSCAPITAL II", "NOVUS CAPITAL FU", "NOVUS CAPITAL FUNDING"),
     "Oak Capital Inc": ("OAK CAPITAL ONLINE",),
     "Olympus Business Capital": ("OLYMPUS BUSINESS", "OLYMPUSBUS", "OLYMPUS LENDING"),
-    "ONDECK": ("ONDECK",),
+    "ONDECK": ("ONDECK", "ODKRAOD"),
     "One River Group Inc": ("ONE RIVER FUND", "ONE RIVER GROUP", "ONE RIVER SERVICES", "ONE RIVER FUNDING"),
     "OneView Finance": ("ONEVIEW FINANCE",),
     "Overton Funding LLC": ("OVERTONFUNDING", "OVERTON FUNDING"),
@@ -2095,8 +2095,10 @@ ASSET_SALE_SELLER_WORD_ONLY: frozenset[str] = frozenset({"Copart", "Insurance Au
 #: flag or lender reading; each key is a ledger entity (tools/lender_ledger.customer_financing_problems). A bare CHERRY
 #: is Cherry only when the whole region is CHERRY plus company or entry words ('CHERRY FUNDING', 'CHERRY INC'); a
 #: longer name is another payer ('CHERRY HILL PLUMBING LLC'). KATAPULT ENGINEERING and KATAPULT PRO (KatapultPro,
-#: pole-attachment software) are a namesake, never this lessor. SNAP LOAN FUNDING is read only in Snap's merchant form
-#: (the pass's _SNAP_MERCHANT_FUNDING: 'SNAP LOAN FUNDING F<digits> <merchant>'); a loan to the holder stays a loan.
+#: pole-attachment software) are a namesake, never this lessor; audit round 3, R3-B14 (R3-54): so are the cut forms of
+#: Katapult Engineering's name (KATAPULT ENG..., 'KATAPULT ENGINEE' the 16-character ACH company field), read by
+#: ENG\w*. SNAP LOAN FUNDING is read only in Snap's merchant form (the pass's _SNAP_MERCHANT_FUNDING: 'SNAP LOAN
+#: FUNDING F<digits> <merchant>'); a loan to the holder stays a loan.
 CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
     "SNAP Finance": r"(?<![A-Z])SNAP (?:FINANCE|LOAN FUNDING)\b",
     "Koalafi": r"(?<![A-Z])KOALAFI\b",
@@ -2107,17 +2109,18 @@ CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
     "Acima": r"(?<![A-Z])ACIMA\b",
     "Terrace Finance": r"(?<![A-Z])TERRACE FINANCE\b",
     "Wisetack": r"(?<![A-Z])WISETACK\b",
-    "Katapult": r"(?<![A-Z])KATAPULT\b(?! (?:ENGINEERING|PRO)\b)",
+    "Katapult": r"(?<![A-Z])KATAPULT\b(?! (?:ENG\w*|PRO)\b)",
     "Progressive Leasing": r"(?<![A-Z])(?:PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING)\b",
 }
 
 #: Owner ruling 2026-10-02 (Q8): the names of CUSTOMER_FINANCING_PAYERS' financiers, read with the receiver field's
 #: value removed (analysis/true_revenue.py compiles it): a row that names one of them is never verified by Q5 or Q6 and
-#: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead).
+#: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead, the cut
+#: KATAPULT ENG... forms included: audit round 3, R3-B14, R3-54).
 #: SECTION_15_DEFERRED_PAYERS' ACIMA|KATAPULT|KOALAFI line overlaps it and is left as it is.
 CUSTOMER_FINANCING_NAMES: str = (
     r"(?<![A-Z])(?:SNAP FINANCE|SNAP LOAN FUNDING|KOALAFI|ACIMA|TERRACE FINANCE|WISETACK"
-    r"|KATAPULT(?! (?:ENGINEERING|PRO)\b)|PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING|CHERRY TECHNOL\w*"
+    r"|KATAPULT(?! (?:ENG\w*|PRO)\b)|PROGRESSIVE LEASIN\w*|PROGRESSIVELEASE|PROG LEASING|CHERRY TECHNOL\w*"
     r"|CHERRYPAY)\b"
 )
 
@@ -2214,12 +2217,63 @@ P2P_SENDING_BANK_NAMES: tuple[str, ...] = (
 #: the Royal Bank of Scotland and Royal Bank America (round 3). The bank's whole normalized name is read too, for every
 #: bank. Before currency-conversion wording, the bank's own name names no payer ('ROYAL FOREIGN EXCHANGE DEPOSIT' on a
 #: Royal Bank of Canada statement is the holder's own conversion).
+#: Audit round 3, R3-B08 (R3-32; §8.2, §8.6): every Chase bank field ('Chase Savings', 'Chase Transaction Export',
+#: 'JPMorgan Chase Bank') reads CHASE as its own name, as the 'Chase' field already does, so Chase's bill-pay channel
+#: ('ORIG CO NAME:CHASE ONLINE') is the statement's own bank on each of them.
 STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
     (
         ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "RBC", "BANQUE ROYALE"),
         ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "ROYAL BANK", "ROYAL", "RBC", "BANQUE ROYALE DU CANADA",
          "BANQUE ROYALE"),
     ),
+    (("CHASE",), ("CHASE",)),
+)
+
+#: Audit round 3, R3-B17 (R3-77, R3-74; §5.2, §8.1; owner ruling 2026-10-02, the underwriter's Q2 and Q9; standard A9,
+#: B6, C1): the posting-type labels a statement's bank prints before the party on credits and debits alike, which name
+#: no party, so the counter-debit readings (transaction_classifier._without_posting_type_label) never read one as the
+#: payer's or the payee's word. Each entry is (the words that name the bank inside the statement's bank field, its
+#: labels), all normalized; a bank field names the bank by containment (whole words, any case), as
+#: STATEMENT_BANK_PRINTED_NAMES is read. RBC: the title-case type labels its rows lead with (`Insurance <party>`,
+#: `Investment <word> PAD`, `Fees/Dues`, `Equipment Rent`, `Pay Employee-Vendor`); analysis/rbc.py's _is_debit lists
+#: INSURANCE and EQUIPMENT RENT among its "generic banking transaction types". Scotiabank: the `INVESTMENT <name>`
+#: form a funder's pre-authorized debit prints (R3-74). Only these banks: on any other bank a leading INSURANCE or
+#: INVESTMENT may start a real name (`INSURANCE AUTO AUCTIONS`, `INVESTMENT PROPERTY GROUP LLC`).
+BANK_POSTING_TYPE_LABELS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (
+        ("ROYAL BANK OF CANADA", "RBC ROYAL BANK", "RBC", "BANQUE ROYALE"),
+        ("INSURANCE", "INVESTMENT", "FEES DUES", "EQUIPMENT RENT", "PAY EMPLOYEE VENDOR"),
+    ),
+    (("SCOTIABANK", "BANK OF NOVA SCOTIA", "SCOTIA"), ("INVESTMENT",)),
+)
+
+#: Audit round 3, R3-B08 (R3-31, R3-32; §8.2, §8.6, Q2 of 2026-09-28: a bank's name is never the payer's name, and the
+#: statement's own bank's channel is never held): the listed sending-bank spellings (P2P_SENDING_BANK_NAMES) a
+#: statement's own bank prints for itself, read only by the bank-only payer reader (true_revenue._bank_only_payer): a
+#: payer region that is, as a whole, one of them names the statement's own bank (counted with no payer printed, never
+#: verified, never held as another bank's pull). Each entry is (the words that name the bank at the start of the
+#: statement's normalized bank field, a leading THE skipped, as whole words; its spellings), all normalized. A marker is
+#: read from the field's start, so it never matches inside another bank's name ('FIRST CITIZENS BANK' is not Citizens
+#: Bank). tools/operating_registry.py checks the table (normalized, no spelling twice, every spelling a listed sending
+#: bank's).
+OWN_BANK_SENDING_SPELLINGS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = (
+    (("BANK OF AMERICA",), ("BANK OF AMERICA", "BK OF AMERICA", "BOFA")),
+    (("U S BANK", "US BANK"), ("US BANK", "U S BANK")),
+    (("CHASE", "JPMORGAN CHASE", "JP MORGAN CHASE"), ("JPMORGAN CHASE", "JP MORGAN CHASE", "CHASE BANK")),
+    (("WELLS FARGO",), ("WELLS FARGO",)),
+    (("TD BANK",), ("TD BANK",)),
+    (("PNC",), ("PNC BANK",)),
+    (("TRUIST",), ("TRUIST",)),
+    (("CAPITAL ONE",), ("CAPITAL ONE",)),
+    (("CITIZENS BANK",), ("CITIZENS BANK",)),
+    (("CITIBANK",), ("CITIBANK",)),
+    (("REGIONS BANK", "REGIONS FINANCIAL"), ("REGIONS BANK",)),
+    (("FIFTH THIRD",), ("FIFTH THIRD",)),
+    (("KEYBANK", "KEY BANK"), ("KEYBANK",)),
+    (("HUNTINGTON NATIONAL BANK", "HUNTINGTON BANK"), ("HUNTINGTON BANK",)),
+    (("SANTANDER BANK",), ("SANTANDER BANK",)),
+    (("NAVY FEDERAL",), ("NAVY FEDERAL",)),
+    (("TD CANADA TRUST",), ("TD CANADA TRUST",)),
 )
 
 
@@ -2291,6 +2345,12 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 #: only before an insurer word (CAS, CASUALT..., INS, INSUR...) or at the name's end, never a property manager
 #: (TRAVELERS PROPERTY MANAGEMENT). National General's bare name stays read: a 16-letter field cuts the insurer and
 #: NATIONAL GENERAL CONTRACTORS alike (an accepted over-hold, held and reviewable).
+#: Audit round 3, R3-B16 (R3-03; owner-batch insurer code, R2-OW07's table): American Income Life Insurance Company
+#: (ailife.com), a Globe Life subsidiary selling life and supplemental health insurance through its own agency force,
+#: whose agents' commission credits print AM INCOME LIFE as the ACH originator (no insurer word) and AIL INS as the
+#: entry. The brand reads the payer region only, so the entry spelling AIL INS is not added; credit-only like every
+#: brand (never in INSURANCE_PROVIDER_ALIASES, no §15 deferred payer). A bare LIFE carrier is never added without the
+#: same evidence (a bare LIFE word reads gyms and churches).
 INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
     "Farmers": (r"FARMERS (?:INS(?:UR\w*|U)?|FARMERS|GROUP|NEW WORLD|OF SALEM)", r"FARMERS IN(?! ?[A-Z])"),
     "American Family": (
@@ -2310,6 +2370,7 @@ INSURER_CREDIT_BRANDS: dict[str, tuple[str, ...]] = {
         r"TRAVELERS ?(?:INDEMN\w*|PI ?COMM|CASUALT\w*|CAS"
         r"|PROP(?:ERTY)?(?= (?:CAS|CASUALT\w*|INS|INSUR\w*)(?![A-Z])|(?! ?[A-Z]))|COMM(?:ERCIAL|L)?)",
     ),
+    "American Income Life": (r"AM(?:ERICAN)? INCOME LIFE",),
 }
 
 

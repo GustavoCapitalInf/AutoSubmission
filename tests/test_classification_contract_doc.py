@@ -170,6 +170,8 @@ PASS_CALLS = (
     ("apply_true_revenue_pass(", "true-revenue pass (pass 7)"),
     # Owner ruling 2026-10-02 (the underwriter's Q5), R2-OW13: the returned funder payments, after pass 7.
     ("_apply_returned_funder_payments(", "returned funder payments (pass 7b"),
+    # The owner's answer of 2026-10-07 to audit round 3's R3-73 (R3-B02): the re-presented returned payments.
+    ("_apply_represented_funder_payments(", "re-presented returned payments (pass 7c"),
 )
 
 
@@ -344,6 +346,24 @@ SECTION_19_1_DECISIONS = (
     # The owner's request of 2026-10-06 (lender payment changes), R2-OW18.
     ('**2026-10-06, lender payment changes (the owner\'s request).**', (
         'decrease', 'increase', 'stop', 'weekly equivalent', 'information only',
+    )),
+    # Audit round 3, R3-B02: the owner's answer of 2026-10-07 to R3-73.
+    ('**2026-10-07, a returned funder payment its funder re-presents (audit round 3, R3-73; extends Q5 of '
+     '2026-10-02).**', (
+        '"Count it once (Recommended)"', 'off its cycle', 'exact 2x catch-up', 're-presented on <date>',
+        '`returned_funder_represented`', 'R3-B02',
+    )),
+    # Audit round 3, R3-B03: the owner's answer of 2026-10-07 to R3-79.
+    ('**2026-10-07, lump-sum payoffs in the withholding rate (audit round 3, R3-79).**', (
+        '"Exclude worded payoffs (Recommended)"', 'PAYOFF', 'PAY-OFF', 'PREPAYMENT', 'BUY OUT', 'PAYOUT',
+        'paid to lenders', 'lender count', 'Lump-sum payment to <funder>', '`lump_sum_payoff_excluded`', 'R3-B03',
+    )),
+    # Audit round 3, R3-B05: the owner's answer of 2026-10-07 to R3-25.
+    ("**2026-10-07, a merchant who misses payments then catches up with an exact multiple (audit round 3, R3-25; the "
+     "lender payment changes of 2026-10-06).**", (
+        "Add a 'Caught up' line", "missed scheduled payments", "one line per event",
+        "a multiple with no missed payment before it gets no line", "`catch_up`", "`lender_payment_catch_ups`",
+        "Information only", "R3-B05",
     )),
 )
 
@@ -854,7 +874,8 @@ def test_the_spec_and_the_contract_state_the_funding_aid():
             "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
             "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
             "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
-            "credit; the returned funder payments (pass 7b, the lender side only); duplicate finalisation.") in contract
+            "credit; the returned funder payments (pass 7b, the lender side only); the re-presented returned payments "
+            "(pass 7c, the lender side only); duplicate finalisation.") in contract
 
 
 #: R2-OW13's code commit, which §20 and the contract's note name.
@@ -907,16 +928,23 @@ def test_the_spec_and_the_contract_state_the_returned_funder_payments():
     for words in (f"Owner ruling 2026-10-02, R2-OW13 (the underwriter's Q5, \"Match the return to the funder payment it "
                   f"reverses\"; {R2_OW13_CODE_COMMIT})", "`RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7`",
                   "the returned funder payment pass (above, R2-OW13)", "`returned_funder_payment_count` and `returned_funder_payment_total`",
-                  "`withholding_rate = abs(paid lender debits + returned funder payments) / withholding basis * 100`"):
+                  # Audit round 3, final review (R3-FF), F5: the formula's words name what the numerator sums; the old
+                  # words stay quoted as what it read.
+                  "`withholding_rate = abs(paid lender debits - worded lump-sum payoffs + returned funder payments not "
+                  "re-debited) / withholding basis * 100`",
+                  "(It read `abs(paid lender debits + returned funder payments) / withholding basis * 100` until the "
+                  "final review of audit round 3, R3-FF's F5"):
         assert words in contract, words
     assert "abs(total_qualifying_lender_debits)" not in contract
     assert ("Statement passes run in this order: duplicates (proven by a repeated printed running balance); recurrence "
             "(D6 and the financing-keyword groups, debits only); the labels for unnamed potential payees; reversal "
             "pairs; operating-source context (pass 5, with its auction and property-management branches); the "
             "accounts-payable counter-debit guard (pass 6); the true-revenue pass (pass 7), which tiers every posted "
-            "credit; the returned funder payments (pass 7b, the lender side only); duplicate finalisation.") in contract
+            "credit; the returned funder payments (pass 7b, the lender side only); the re-presented returned payments "
+            "(pass 7c, the lender side only); duplicate finalisation.") in contract
     for words in ("Between pass 7 and the duplicate finalisation the returned funder payments pass (pass 7b, R2-OW13) "
-                  "reads the lender side only.",
+                  "and the re-presented returned payments pass (pass 7c, audit round 3, R3-B02: the owner's answer of "
+                  "2026-10-07 to R3-73) read the lender side only.",
                   "settlement-reversed debits, a confirmed funder's payment returned unpaid (R2-OW13) and credits that "
                   "the reversal pass pairs clear it"):
         assert words in contract, words
@@ -1265,7 +1293,9 @@ def test_the_spec_and_the_contract_record_r2_ow18_review_round_1():
                   "a restart's pause, like a pause, leaves out the business days no statement of the chain covers",
                   "is no new stream, since it may have been paying before",
                   "(29) a known false shape (R2-OW18 review round 1)", "288 of 1,740 confirmed statement series",
-                  "Points 18 to 29"):
+                  # Audit round 3, R3-B05 adds point 30 (R3-84) and the catch-up to point 24 (R3-25).
+                  "Points 18 to 30", "(30) a pause or a stop whose gap holds unclaimed debits",
+                  "a one-off within 2% of exactly 2 to 6 times the reference amount, a catch-up"):
         assert words in open_items, words
     amendments = text.split("\n## 20. Implementation amendments", 1)[1]
     for words in ("- **Owner ruling 2026-10-06, R2-OW18 review round 1** (", R2_OW18_R1_CODE_COMMIT,
@@ -1275,6 +1305,941 @@ def test_the_spec_and_the_contract_record_r2_ow18_review_round_1():
     for words in (f"R2-OW18 review round 1 ({R2_OW18_R1_CODE_COMMIT})", "`last_step_percent`", "`first_after_kind`",
                   "no payment or payment attempt"):
         assert words in contract, words
+
+
+#: Audit round 3, R3-B05, review round 1: the code commit §20 and the contract name.
+R3_B05_R1_CODE_COMMIT = "cc8524e"
+
+
+def test_the_spec_and_the_contract_record_r3_b05_review_round_1():
+    """Audit round 3, R3-B05, review round 1: §9.1's `catch_ups_inside`, §10.1's wording, §10.8's export field, §17.1
+    (24)'s sentence and disclosed shapes, the §20 line with its commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("`catch_ups_inside`",)),
+        ("\n### 10.1 ", "\n### 10.2 ", ("on 2054-03-17 before payments resumed (possible catch-up)",)),
+        ("\n### 10.8 ", "\n## 11. ", ("`catch_ups_inside` (\"2054-03-17 1700.0 2x; …\")",)),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    open_items = re.sub(r"\s+", " ", _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. "))
+    for words in ("R3-B05 review round 1 (findings 2, 3 and 5)", "a partial catch-up", "\"Partly caught up\"",
+                  "a regime paid on the 1st and the 15th", "\"N debits of exact multiples after the last payment\""):
+        assert words in open_items, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("audit round 3, R3-B05, review round 1 (findings 1 to 5)", R3_B05_R1_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B05, review round 1 ({R3_B05_R1_CODE_COMMIT})", "`catch_ups_inside`"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B06: the code commit §20 and the contract name.
+R3_B06_CODE_COMMIT = "85a6d5f"
+
+
+def test_the_spec_and_the_contract_record_r3_b06():
+    """Audit round 3, R3-B06 (R3-81, R3-82, R3-83, R3-85): §9.1's new-stream and funding-note definitions, §9.2's
+    reappearance note, §9.3's stored-output bullet, §10.1's anchored and reappearance wordings, §10.8's cells, §17.1
+    points 11, 25 and 26, the §20 line with its commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    for section, end, words in (
+        ("\n### 9.1 ", "\n### 9.2 ", ("at the level it was paying at the new stream's (P's) first payment",
+                                      "one dated on or before the first payment of the regime just before the new "
+                                      "one; audit round 3, R3-82")),
+        ("\n### 9.2 ", "\n### 9.3 ", ("`reappears_in_other_account`", "`covered_business_days`",
+                                      "a third account's statements never count")),
+        ("\n### 9.3 ", "\n## 10. ", ("Audit round 3, R3-B06 (§20): no bump in a fix batch either",)),
+        ("\n### 10.1 ", "\n### 10.2 ", ("28 business days after 2054-04-20 through 2054-05-29",
+                                        "after 38 business days without one in the statements provided")),
+        ("\n### 10.8 ", "\n## 11. ", ("`reappears_in_other_account.source_document`",)),
+    ):
+        found = _section(text, section, end)
+        for word in words:
+            assert word in found, (section, word)
+    open_items = re.sub(r"\s+", " ", _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. "))
+    for words in ("it never cites a credit that returns or reverses a payment",
+                  "(audit round 3, R3-82: on the corpus 12 of 83 notes leave",
+                  "within the stop's grace window (business days the two accounts' statements cover)",
+                  "\"reappear in another account … after N business days without one\" (audit round 3, R3-83",
+                  "(the other stream is named at the level it paid when the new stream began; audit round 3, R3-81"):
+        assert words in open_items, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **Lender payment changes, lines and notes** (", "audit round 3, R3-B06", R3_B06_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B06 (R3-81, R3-82, R3-83, R3-85; {R3_B06_CODE_COMMIT})",
+                  "`reappears_in_other_account`", "reappear in another account"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B07: the code commit §20 and the contract name.
+R3_B07_CODE_COMMIT = "b9c558b"
+
+
+def test_the_spec_and_the_contract_record_r3_b07():
+    """Audit round 3, R3-B07 (R3-14, R3-40, R3-42, R3-18, R3-45, R3-46): §7.11's LN sentence, §8.1's advance payment and
+    arm-S sentences, §8.5's bank words and no-sender words, §9.3's stored-output bullet, §17.1 point 3, one §20 line per
+    issue and the batch line with the commit, the amended A3-G, R32, R11, B7 and R24 lines, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "Audit round 3, R3-B07 (R3-46, §20; the owner's standing rule that loans never become revenue)",
+        "the abbreviated forms `ADV PAYM`, `ADV PMT`, `ADV PYMT` and `ADVANCE PYMT` too, never after `MERCHANT`, "
+        "`CASH` or `MCA`",
+        "counts as that form only on Scotiabank's statements",
+        "`BANK`, `BANKING`, `BANCO`, `BANCA`, `BANQUE`, `BANCAIRE`, `SPARKASSE`, `BANCORP`",
+        "nor does a region of only label, holder-noise, account-designation, purpose, filler or legal-form words",
+        "Audit round 3, R3-B07 (§20): no bump in a fix batch either",
+        "(on another bank, arm S no longer lifts R35's funder-name guard: R3-45, audit round 3, R3-B07, §20",
+        "the residual now names only the old labels with no `FROM`",
+        "a relayed numbered company is a named customer",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A relaying bank that prints `BANKING` or a non-English bank word relays its customer",
+                  "- **A wire region of designation words names no sender**",
+                  "- **A sender printed straight after the new wire labels is read**",
+                  "- **A wire's abbreviated advance payment is no financing**",
+                  "- **Arm S keeps R35's funder guard off Scotiabank's statements**",
+                  "- **A company named with `LN` is held for review, never unreviewable non-revenue**",
+                  "- **Audit round 3, R3-B07 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B07 (R3-") >= 6
+    assert amendments.count(R3_B07_CODE_COMMIT) >= 7
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B07 (R3-14, R3-40, R3-42, R3-18, R3-45, R3-46; {R3_B07_CODE_COMMIT})",
+                  "Audit round 3, R3-B07 (R3-14): `BANKING` reads as a bank word",
+                  "Audit round 3, R3-B07 (R3-42): and `INBOUND WIRE|FEDWIRE [TRANSFER FROM] <sender>`"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B08: the code commit §20 and the contract name.
+R3_B08_CODE_COMMIT = "3c62215"
+
+
+def test_the_spec_and_the_contract_record_r3_b08():
+    """Audit round 3, R3-B08 (R3-41, R3-88, R3-44, R3-31, R3-32, R3-92): §5.2's template-prefix and numbered-company
+    sentences, §7.0's furniture sentence, §8.2's and §8.6's own-bank sentences, §9.3's stored-output bullet, §17.1's
+    debit-readings sentence with the owner's question, one §20 line per issue and the batch line with the commit, the
+    amended R31, R28, R33, R08 and R2-B03 lines, and the contract's bullet and registry sentence."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "audit round 3, R3-B08: R3-41, §20: or when the full template follows it",
+        "Audit round 3, R3-B08 (R3-88, §20): BMO's two-word CPA code pairs",
+        "Audit round 3, R3-B08 (R3-92, §20): the category rules read a credit without its furniture too",
+        "Audit round 3, R3-B08 (R3-31, R3-32, §20): the own bank is read first, as a whole region",
+        "Audit round 3, R3-B08 (R3-31, R3-32, §20): the statement's own bank is read first, as a whole region",
+        "Audit round 3, R3-B08 (§20): no bump in a fix batch either",
+        "Audit round 3, R3-B08 (R3-92, §7.0, §20; the owner's question, its default shipped)",
+        "Default if unanswered: (b), shipped.",
+        "(Corrected by audit round 3, R3-B08: R3-41, §20 below",
+        "(Closed by audit round 3, R3-B08: R3-88, §20 below",
+        "audit round 3, R3-B08: R3-88, §20 below: and BMO's two-word code pairs",
+        "audit round 3, R3-B08: R3-44, §20 below: a lost accent inside `CHEQUE`",
+        "audit round 3, R3-B08: R3-31, R3-32, §20 below: the own bank is read first",
+        "audit round 3, R3-B08: R3-31, §20 below: nor the own bank's name alone",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **American Express's full incoming-ACH template keeps its ACH reading whatever its originator's",
+                  "- **A town's `DES` never opens the originator field, and BMO's code pairs keep a numbered company's",
+                  "- **A lost French accent inside `CHEQUE` or after `RETOURN`, and four more French interest wordings",
+                  "- **The statement's own bank is read first, as a whole region, by its full name and its printed",
+                  "- **A credit's statement furniture never decides its category**",
+                  "- **Audit round 3, R3-B08 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B08 (R3-") >= 5
+    assert amendments.count(R3_B08_CODE_COMMIT) >= 6
+    assert "PLACEHOLDER" not in amendments
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B08 (R3-41, R3-88, R3-44, R3-31, R3-32, R3-92; {R3_B08_CODE_COMMIT})",
+                  "the own bank's sending spellings (`OWN_BANK_SENDING_SPELLINGS`)"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B09: the code commit §20 and the contract name.
+R3_B09_CODE_COMMIT = "5705367"
+
+
+def test_the_spec_and_the_contract_record_r3_b09():
+    """Audit round 3, R3-B09 (R3-36, R3-87, R3-91, R3-75): §8.1's possible-return arms, §8.2's, §8.5's and §10.7's
+    unread-text sentences, §9.3's stored-output bullet, §14.2's, G9's and G18's row-count sentences, §17.1's I41 and
+    B10 sentences, one §20 line per issue and the batch line with the commit, the amended B10, R2-B07 and R07 lines, and
+    the contract's bullet and reason-table row."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "audit round 3, R3-B09 (R3-75, §20; standard D1, D3, A8;",
+        "`(?<![A-Z])(?:ENVOI|CONTR|REDEPOT) (?:FRAIS )?VFC\\b`",
+        "audit round 3, R3-B09: R3-87, §20: never after a class-code word followed by a legal form",
+        "Audit round 3, R3-B09 (R3-91, R3-87, §20): the daily core-processor template keeps each marked credit's block",
+        "Audit round 3, R3-B09 (R3-91, §8.2, §10.7, §20): a held wire whose reader kept a payer line",
+        "- **A held wire or transfer whose payer line was not read** (audit round 3, R3-B09: R3-91",
+        "\"Wire, payer line not read\"",
+        "Audit round 3, R3-B09 (§20): no bump in a fix batch either",
+        "(audit round 3, R3-B09: R3-36, §20) an account whose parse added or dropped a row",
+        "(audit round 3, R3-B09: R3-36, §20) one whose row count changed without a parse change",
+        "Audit round 3, R3-B09 (R3-36, §20): a parse change that adds or drops a row, credit or debit, is a G18",
+        "audit round 3, R3-B09: R3-75, §20: and its e-Transfer family",
+        "Audit round 3, R3-B09 (R3-91, §20): the daily core-processor template now keeps each marked credit's block",
+        "(Amended by audit round 3, R3-B09: R3-91, §20 below: each marked credit now keeps its block",
+        "(Amended by audit round 3, R3-B09: R3-91, §20 below: the daily template's credit sections",
+        "(audit round 3, R3-B09: R3-87, §20 below: never after a class-code word followed by a legal form",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A parse change that adds or drops a row is a G18 parse move**",
+                  "- **A class-code word followed by a legal form is part of a name**",
+                  "- **The daily core-processor template, balance_by_date and B1 keep the payer line they do not read",
+                  "- **A credit printing an outgoing e-Transfer label, or a French fee adjustment, is a possible",
+                  "- **Audit round 3, R3-B09 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B09 (R3-") >= 4
+    assert amendments.count(R3_B09_CODE_COMMIT) >= 5
+    assert "PLACEHOLDER" not in amendments
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B09 (R3-36, R3-87, R3-91, R3-75; {R3_B09_CODE_COMMIT})",
+                  "or (audit round 3, R3-B09) a credit printing an outgoing e-Transfer label or a French fee",
+                  "debits keep none, and the daily template kept none until audit round 3, R3-B09"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B09, review round 1: the code commit §20 and the contract name.
+R3_B09_R1_CODE_COMMIT = "4776d05"
+
+
+def test_the_spec_and_the_contract_record_r3_b09_review_round_1():
+    """Audit round 3, R3-B09, review round 1 (findings 1 to 3): §8.1's and §8.2's narrowing sentences, the R3-87, R3-75
+    and R07 lines marked in place, the R3-87 line's residual, the batch line's unreconciled-summary sentence, the §20
+    line with its commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "R3-B09 review round 1, §20: a form of the LLC family only, `LLC`, `L.L.C.`, `L L C`, `LLP` or `PLLC`",
+        "R3-B09 review round 1: a form of the LLC family only)",
+        "R3-B09 review round 1 (§20): the send and sent arms read only where no incoming wording",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(narrowed by R3-B09 review round 1, §20 below, to the LLC family:",
+                  "Also not covered, since R3-B09 review round 1: a class-code word before a form outside the LLC",
+                  "(narrowed by R3-B09 review round 1, §20 below: the send and sent labels only after no incoming",
+                  "Beyond the reconciled accounts (added by R3-B09 review round 1, finding 3)",
+                  "- **R3-B09 review round 1: only the LLC family makes a class-code word part of a name",
+                  "audit round 3, R3-B09, review round 1 (findings 1 to 3)", R3_B09_R1_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B09, review round 1 ({R3_B09_R1_CODE_COMMIT})",
+                  "a class-code word is part of a name only before a legal form of the LLC family"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B10: the code commit §20 and the contract name.
+R3_B10_CODE_COMMIT = "6123a5d"
+
+
+def test_the_spec_and_the_contract_record_r3_b10():
+    """Audit round 3, R3-B10 (R3-17, R3-37, R3-38, R3-39, R3-89, R3-90 part A): §5.2's receiver-block, dropped-lead
+    and R20 sentences, §8.1's strip, `holder_name` and direct-deposit sentences, §9.3's stored-output bullet, §17.1's
+    owner item, one §20 line per issue and the batch line with the commit, the amended R19, R20 and R23 lines, and the
+    contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "Audit round 3, R3-B10 (R3-17, §20): the holder's name is read as the payer's is",
+        "audit round 3, R3-B10 (R3-17, §20): a single letter is no word of that run",
+        "Audit round 3, R3-B10 (R3-38, §20; the R20 intent, now the rule)",
+        "Audit round 3, R3-B10 (R3-39, §20): a `DBA` holder's whole name is read as a person's",
+        "audit round 3, R3-B10: R3-37, §20: tried before the whole-word runs",
+        "audit round 3, R3-B10: R3-90 part A, §20: and a bare `SETTLEMENT`, `SETTLMT` or `STLMT`",
+        "audit round 3, R3-B10 (R3-89, §20): a cut form is read only as one of the holder's own forms",
+        "- **A person-named company holder's direct deposit (Q8 of 2026-09-28;",
+        "Audit round 3, R3-B10 (§20): no bump in a fix batch either",
+        "(Amended by audit round 3, R3-B10: R3-38, R3-39, §20 below:",
+        "amended by audit round 3, R3-B10: R3-37, §20 below:",
+        "(Amended by audit round 3, R3-B10: R3-89, §20 below:",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A possessive, a middle initial or a digit token in the holder's name never stops the",
+                  "- **The I47 strip tries a row-end cut first, and a leading `THE` is no word of a run**",
+                  "- **Two shared trade words name the holder only beside the payer's own printed lead**",
+                  "- **A `DBA` holder that leads with a person is read as that person against a person payer**",
+                  "- **The direct-deposit business receiver reads only the holder's own cut forms**",
+                  "- **A bare `SETTLEMENT` under the merchant's own name is no holder's own push**",
+                  "- **Audit round 3, R3-B10 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B10 (R3-") >= 6
+    assert amendments.count(R3_B10_CODE_COMMIT) >= 7
+    assert "PLACEHOLDER" not in amendments
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B10 (R3-17, R3-37, R3-38, R3-39, R3-89, R3-90 part A; {R3_B10_CODE_COMMIT})",
+                  "the holder test reads the holder's name as it reads the payer's"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B10, review round 1: the code commit §20 and the contract name.
+R3_B10_R1_CODE_COMMIT = "f598bca"
+
+
+def test_the_spec_and_the_contract_record_r3_b10_review_round_1():
+    """Audit round 3, R3-B10, review round 1 (findings 1 to 4): §9.3's bullet records the round's short spellings, the
+    R3-17, R3-37, R3-38, R3-39, R3-90 part A and batch lines are marked in place, the §20 line carries the commit, and
+    the contract's bullet. Review round 2 took the short spellings back out of §8.6 and rewrote §8.1's sentence on them
+    (test_the_spec_and_the_contract_record_r3_b10_review_round_2)."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "Its review round 1 (§20) added the reading of a credit whose entry fields or payer region print `SETTLMT`",
+    ):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert amendments.count("(Amended by R3-B10 review round 1, finding 2, §20 below:") == 4
+    for words in ("(Amended by R3-B10 review round 1, finding 3, §20 below: two recorded effects of the `THE`",
+                  "(Amended by R3-B10 review round 1, findings 1 and 4, §20 below:",
+                  "- **R3-B10 review round 1: `SETTLEMENT`'s short spellings are verification-only words",
+                  "audit round 3, R3-B10, review round 1 (findings 1 to 4)", R3_B10_R1_CODE_COMMIT):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B10, review round 1 ({R3_B10_R1_CODE_COMMIT})",
+                  "`SETTLEMENT`'s short spellings `SETTLMT` and `STLMT` are verification-only words beside it"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B10, review round 2: the code commit §20 and the contract name.
+R3_B10_R2_CODE_COMMIT = "99d6760"
+
+
+def test_the_spec_and_the_contract_record_r3_b10_review_round_2():
+    """Audit round 3, R3-B10, review round 2 (findings 1 and 2): §8.1's `holder_name` bullet names the release flag,
+    §8.6 reads `SETTLEMENT` alone again, §8.10 names the overruled verification, §9.3's bullet the round's stored-output
+    change, the R3-90 part A and review round 1 lines are marked in place, the §20 line carries the commit and its
+    measurement, and the contract's bullets."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    assert "R3-B10 review round 2, §20: a row the bare word alone releases" in holds
+    assert "`CreditFacts.settlement_released`" in holds
+    refused = re.sub(r"\s+", " ", _section(text, "\n### 8.6 ", "\n### 8.7 "))
+    assert "audit round 3, R3-B10 review round 2, §20: alone, as before the batch" in refused
+    assert r"`\bSETTLMT\b`" not in refused and r"`\bSTLMT\b`" not in refused
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert "a settlement under the merchant's own name that an earlier rule verified and that only the bare" in tiering
+    assert "Review round 2's own change: the reading of a row the settlement exemption alone releases" in flat
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert amendments.count("(Amended by R3-B10 review round 2, findings 1 and 2, §20 below:") == 2
+    for words in ("- **R3-B10 review round 2: a settlement the bare word alone releases is never verified and never a",
+                  "audit round 3, R3-B10, review round 2 (findings 1 and 2)", R3_B10_R2_CODE_COMMIT,
+                  "Measured against `6919508`'s tree"):
+        assert words in amendments, words
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B10, review round 2 ({R3_B10_R2_CODE_COMMIT})",
+                  "`SETTLMT` and `STLMT` are no verification-only words again",
+                  "(Review round 2 takes the short spellings back out of §8.6: see the next entry.)"):
+        assert words in contract, words
+
+
+#: Audit round 3, R3-B11: the code commit §20 and the contract name.
+R3_B11_CODE_COMMIT = "c85df95"
+
+
+def test_the_spec_and_the_contract_record_r3_b11():
+    """Audit round 3, R3-B11 (R3-61, R3-65, R3-30): §5.2's contact sentence, §8.10's forms, contact title, relabelled
+    false negatives and recorded over-reads, §9.1's title sentence, §9.3's stored-output bullet, §10.1's True card
+    fact, §17.1's premium-trust defaults (2) and (6), the R2-OW10 and R2-OW11 lines marked in place, one §20 line per
+    issue and the batch line with the commit, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "a contact dropped (`ATTN`, `ATTENTION`, `C/O`, glued to its text or not, and `CARE OF` after the name's legal "
+        "form; audit round 3, R3-B11: R3-61, §20)",
+        "Audit round 3, R3-B11 (§20): no bump in a fix batch either; its stored-output changes, for R3-B25's move.",
+        "nor is a premium-trust account title read",
+        "N statement(s) with no holder name read (nor a premium-trust title)",
+        "a title reading `PREMIUM FUND(S) TRUST`, a bank's product name for the same account, is read as PREMIUM TRUST",
+        "(6) Audit round 3, R3-B11 (R3-61, §8.10, §20): a contact line naming the premium trust account",
+        "Alternative: no contact line is ever a title (the account's deposits then count).",
+        "except a contact whose words are the premium-trust designation itself, published as `PREMIUM TRUST ACCOUNT`",
+    ):
+        assert words in flat, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("Recorded false negatives (each overstates True: the trust account's deposits stay counted)",
+                  "Recorded over-reads (each understates True, held and reviewable)",
+                  "in the for-benefit form even when it does (audit round 3, R3-B11: R3-65, §20",
+                  "`FUND` or `FUNDS` may print between them",
+                  "a statement whose parser reads no holder line publishes no account title (62 routes, 452 re-parsed",
+                  "a title printed on its own line under the name on a layout whose text keeps the lines apart"):
+        assert words in tiering, words
+    assert "the safe direction and absent from the corpus" not in tiering
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(amended by audit round 3, R3-B11: R3-61, §20 below: except a contact whose words are the",
+                  "(Amended by audit round 3, R3-B11: R3-65, §20 below: a product adjective before a kind word",
+                  "- **A contact line is read by its words, not its spacing**",
+                  "- **The premium-trust rule reads the product-adjective, `PREMIUM FUND TRUST` and for-benefit forms",
+                  "- **The True card says a statement with no holder line read reads no premium-trust title either**",
+                  "- **Audit round 3, R3-B11 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B11 (R3-") >= 3
+    assert amendments.count(R3_B11_CODE_COMMIT) >= 4
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B11 (R3-61, R3-65, R3-30; {R3_B11_CODE_COMMIT})",
+                  "premium-trust titles are read by their words, not their spacing"):
+        assert words in contract, words
+
+
+def test_r3_b11_the_code_s_docstrings_label_the_misses_and_name_the_contact_title():
+    """Audit round 3, R3-B11 (R3-65, R3-61): premium_trust_title's docstring labels its recorded false negatives as
+    overstating True and records the over-reads; the holder module's docstring names the contact title."""
+    from analysis import holder_name
+
+    doc = re.sub(r"\s+", " ", true_revenue.premium_trust_title.__doc__)
+    assert "Recorded false negatives (each overstates True: the trust account's deposits stay counted)" in doc
+    assert "Recorded over-reads (each understates True, held and reviewable)" in doc
+    assert "the safe direction" not in doc
+    module = re.sub(r"\s+", " ", holder_name.__doc__)
+    assert "except a contact whose words are the premium-trust designation itself" in module
+    block = re.sub(r"\s+", " ", holder_name._block_title_line.__doc__)
+    assert "the account's title in any spacing" in block
+
+
+#: Audit round 3, R3-B11, review round 1: the code commit §20 and the contract name.
+R3_B11_R1_CODE_COMMIT = "186c714"
+
+
+def test_the_spec_and_the_contract_record_r3_b11_review_round_1():
+    """Audit round 3, R3-B11, review round 1 (findings 1 to 4): §5.2's contact sentence, §8.10's contact designation,
+    for-benefit adjective, false negative and over-read, §9.1's published title, §9.3's stored-output sentence, §17.1's
+    premium-trust default (6), the R3-61 and R3-65 lines marked in place, the §20 line with the commit and its
+    measurement, and the contract's bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in (
+        "(amended by R3-B11 review round 1, finding 1, §20 below: `CARE OF` only where the name has ended, right after "
+        "its legal form or the designation printed right after it, so a `DBA` trade name keeps its `CARE OF`)",
+        "R3-B11 review round 1, finding 2, §20: the designation is the premium-trust rule's own title at a field's end",
+        "Its review round 1 (§20) changes, for the same move:",
+        "(Amended by R3-B11 review round 1, finding 2, §20 below: the premium-trust designation a contact must be "
+        "is the title rule's own title at a field's end",
+    ):
+        assert words in flat, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("(Amended by R3-B11 review round 1, findings 1 and 2, §20 below: the designation a contact's words",
+                  "R3-B11 review round 1, finding 3, §20: a product adjective may print before the account word",
+                  "a holder line's contact that prints a name before the words (`CARE OF NORTHWIND PREMIUM TRUST "
+                  "ACCOUNT`)",
+                  "`PREMIUM TRUST BUSINESS ACCOUNT OF <place> LLC`, R3-B11 review round 1, finding 3"):
+        assert words in tiering, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert amendments.count("(Amended by R3-B11 review round 1, findings 1 and 2, §20 below:") == 1
+    assert amendments.count("(Amended by R3-B11 review round 1, finding 3, §20 below:") == 1
+    for words in ("- **R3-B11 review round 1: `CARE OF` is a contact only where the name has ended",
+                  "audit round 3, R3-B11, review round 1 (findings 1 to 4)", R3_B11_R1_CODE_COMMIT,
+                  "Measured against `c8132a0`'s tree"):
+        assert words in amendments, words
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT", "R3B11R1" + "COMMIT"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B11, review round 1 ({R3_B11_R1_CODE_COMMIT})",
+                  "`CARE OF` is a contact only where the holder's name has ended",
+                  "(Review round 1 reads `CARE OF` only where the name has ended and reads the contact's designation "
+                  "as the title rule does: see the next entry.)"):
+        assert words in contract, words
+
+
+def test_r3_b11_r1_the_code_s_docstrings_name_the_narrowed_care_of_and_the_rule_s_designation():
+    """Audit round 3, R3-B11, review round 1 (findings 1, 2 and 4): the holder module names CARE OF where the name has
+    ended and the rule's own designation; U.S. Bank's reader names the contact title it publishes."""
+    from analysis import holder_name, us_bank
+
+    module = re.sub(r"\s+", " ", holder_name.__doc__)
+    assert "`CARE OF` is a contact only where the name has ended" in module
+    split = re.sub(r"\s+", " ", holder_name._contact_split.__doc__)
+    assert ("only where the name has ended, right after its legal form or the designation printed right after it"
+            in split)
+    reader = re.sub(r"\s+", " ", us_bank._holder_reading.__doc__)
+    assert "never the contact, except a contact whose words are the premium-trust designation itself" in reader
+
+
+#: Audit round 3, R3-B12: the code commit §20 and the contract name.
+R3_B12_CODE_COMMIT = "1360d98"
+
+
+def test_the_spec_and_the_contract_record_r3_b12():
+    """Audit round 3, R3-B12 (R3-12, R3-29, R3-56): §8.2's VIREMENT sentence, §8.4's rails bullet, its Yes paragraph's
+    PNC reading marked in place, its reader sentence naming `pass_text` and the wire gate and its residuals, §9.3's
+    stored-output bullet, the VIREMENT and R2-OW17 lines marked in place, one §20 line per issue and the batch line
+    with the commit, and the contract's bullets."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    transfer = re.sub(r"\s+", " ", _section(text, "\n### 8.2 ", "\n### 8.3 "))
+    assert "audit round 3, R3-B12 (R3-29, §20): `PAR COURRIEL` is an Interac form" in transfer
+    p2p = re.sub(r"\s+", " ", _section(text, "\n### 8.4 ", "\n### 8.5 "))
+    for words in ("Audit round 3, R3-B12 (R3-29, §20): pass 7 also reads Interac's French name, "
+                  "`\\bVIREMENTS? PAR COURRIEL\\b`",
+                  "(since audit round 3, R3-B12: R3-12, §20: pass 7 reads PNC's `ZEL` as its `ZELLE` twin",
+                  "on the pass's own text (`pass_text`:",
+                  "a loose wire's originator row is never a Zelle deposit (R3-56)",
+                  "a company whose name holds the word `ZELLE` paying by ACH (`DE ZELLE HOLDINGS LLC DES:VENDOR PAY`) "
+                  "is still read as a Zelle deposit",
+                  "PNC's `ZEL TO` debits keep the classifier's debit reading"):
+        assert words in p2p, words
+    assert "Audit round 3, R3-B12 (§20): no bump in a fix batch either" in flat
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(Amended by audit round 3, R3-B12: R3-29, §20 below: `PAR COURRIEL` is an Interac form",
+                  "(Amended by audit round 3, R3-B12: R3-12, §20 below:",
+                  "- **PNC's `ZEL` Zelle rail reads as its `ZELLE` twin in pass 7**",
+                  "- **Banque Royale's French autodeposit is the Interac rail**",
+                  "- **A wire is never a Zelle deposit**",
+                  "- **Audit round 3, R3-B12 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B12 (R3-") >= 3
+    assert amendments.count(R3_B12_CODE_COMMIT) >= 4
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT", "R3B12" + "CODE"):
+        assert placeholder not in amendments, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B12 (R3-12, R3-29, R3-56; {R3_B12_CODE_COMMIT})",
+                  "pass 7 reads the consumer person-to-person rails as the banks print them",
+                  "(Amended by audit round 3, R3-B12: R3-12 and R3-56, below:"):
+        assert words in contract, words
+
+
+def test_r3_b12_the_code_s_docstrings_name_the_pass_text_and_the_wire_gate():
+    """Audit round 3, R3-B12 (R3-12, R3-56, R3-29): pass_text, zelle_deposit and _p2p_rail name their readings."""
+    doc = re.sub(r"\s+", " ", true_revenue.pass_text.__doc__)
+    assert "spelled as its ZELLE twin" in doc
+    assert "The classifier's _CONSUMER_P2P_RAIL (the 5.5 channel gate, the legacy classes, the debits) is " \
+           "unchanged" in doc
+    reader = re.sub(r"\s+", " ", true_revenue.zelle_deposit.__doc__)
+    assert "an incoming wire or a loose wire's originator row is never a Zelle deposit" in reader
+    rail = re.sub(r"\s+", " ", true_revenue._p2p_rail.__doc__)
+    assert "Interac's French form, singular or plural (_INTERAC_COURRIEL" in rail
+
+
+#: Audit round 3, R3-B12, review round 1: the code commit §20 and the contract name.
+R3_B12_R1_CODE_COMMIT = "f13d1e6"
+
+
+def _amendment_line(amendments: str, start: str) -> str:
+    """The one §20 line that starts with `start`."""
+    [line] = [line for line in amendments.splitlines() if line.startswith(start)]
+    return line
+
+
+def test_the_spec_and_the_contract_record_r3_b12_review_round_1():
+    """Audit round 3, R3-B12, review round 1 (findings 1 to 4): the R3-29 and R3-12 lines carry no single statement's
+    True; §8.4's Yes paragraph narrows the twin parity, its reader sentence names the two wire gates, and its residuals
+    record the platform-named `ZEL` sender, the wire layouts no gate reads and the `ZEL TO` debit's own reading; the
+    R3-12 and R3-56 lines marked in place; the §20 line with the commit; and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    before_after = re.compile(r"\$[0-9][0-9,]*\.[0-9]{2} → \$[0-9][0-9,]*\.[0-9]{2}")
+    courriel = _amendment_line(amendments, "- **Banque Royale's French autodeposit is the Interac rail**")
+    assert before_after.search(courriel) is None
+    for words in ("per statement", "of one business"):
+        assert words not in courriel, words
+    assert "True falls in three of the four statements, two of them newly review-gated" in courriel
+    zel = _amendment_line(amendments, "- **PNC's `ZEL` Zelle rail reads as its `ZELLE` twin in pass 7**")
+    assert "in one statement" not in zel
+    assert "in two small statements these rows made most of True" in zel
+    for words in ("(Amended by R3-B12 review round 1, finding 2, §20 below:",
+                  "the legacy class `other`, where a `ZELLE TO` debit's is `transfer`, and no person key"):
+        assert words in zel, words
+    wire = _amendment_line(amendments, "- **A wire is never a Zelle deposit**")
+    assert "(Amended by R3-B12 review round 1, finding 3, §20 below:" in wire
+    p2p = re.sub(r"\s+", " ", _section(text, "\n### 8.4 ", "\n### 8.5 "))
+    for words in ("except where the classifier's reading of the raw text claims it first (R3-B12 review round 1, "
+                  "finding 2: the residual below)",
+                  "an incoming wire or a loose wire's originator row is never a Zelle deposit (R3-56)",
+                  "(R3-B12 review round 1, finding 3:",
+                  "`ONLINE WIRE TRANSFER FROM <sender>`",
+                  "`MOBILE WIRE ORG ZELLE <sender>`",
+                  "(R3-B12 review round 1, finding 4:",
+                  "the legacy class `other`, where a `ZELLE TO` debit's is `transfer`, and no person key",
+                  "(R3-B12 review round 1, finding 2:",
+                  "counted `platform_unconfirmed` once and Verified on a repeat (`recurring_operating_source`;"):
+        assert words in p2p, words
+    for stale in ("(kind `other`, no person key, where a `ZELLE TO` debit is `circular`)",):
+        assert stale not in p2p, stale
+        assert stale not in amendments, stale
+    for words in ("- **R3-B12 review round 1: the R3-29 and R3-12 lines carry no single statement's True",
+                  "audit round 3, R3-B12, review round 1 (findings 1 to 4)", R3_B12_R1_CODE_COMMIT,
+                  "Measured against `9871cdf`'s tree"):
+        assert words in amendments, words
+    for placeholder in ("CODE" + "COMMIT", "MEASUREMENT", "R3B12R1" + "CODE", "CORPUS" + "_CF"):
+        assert placeholder not in text, placeholder
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B12, review round 1 ({R3_B12_R1_CODE_COMMIT})",
+                  "a `ZEL TO` debit's legacy class and missing person key",
+                  "(Review round 1 records the readings pass 7 does not reach: see the next entry.)"):
+        assert words in contract, words
+
+
+def test_r3_b12_r1_the_code_s_docstrings_name_the_residuals():
+    """Audit round 3, R3-B12, review round 1 (findings 2 to 4): pass_text names the classifier's earlier claim and the
+    ZEL TO debit's reading; zelle_deposit names the wire layouts neither gate reads."""
+    doc = re.sub(r"\s+", " ", true_revenue.pass_text.__doc__)
+    assert "the classifier's earlier reading of the raw text is not pass 7's" in doc
+    assert "its legacy class 'other' and no person key" in doc
+    reader = re.sub(r"\s+", " ", true_revenue.zelle_deposit.__doc__)
+    assert "Review round 1 (finding 3): a wire layout neither gate reads" in reader
+
+
+#: Audit round 3, R3-B13: the code commit §20 and the contract name.
+R3_B13_CODE_COMMIT = "f103f68"
+
+
+def test_the_spec_and_the_contract_record_r3_b13():
+    """Audit round 3, R3-B13 (R3-11, R3-57, R3-10, R3-09, R3-58, R3-64, R3-55): §6.1 step 3a's glued lead, §7.6's
+    county-mutual veto, §8.1's spelling, arm order, consumer rail, personal-benefit words, REF, round-sum repeat and
+    asset-sale sentences, §8.10 item 11, §9.3's stored-output bullet, §14.2's class H, §17.1's I26 residuals and Q2
+    default (5), §19.1's appended sentences, the R2-OW01, R2-OW07 review round 1 and R2-OW08 lines marked in place, one
+    §20 line per issue and the batch line with the commit, and the contract's rows and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    steps = re.sub(r"\s+", " ", _section(text, "\n### 6.1 ", "\n### 6.2 "))
+    assert "Audit round 3, R3-B13 (R3-55, §20): a digit run glued before a letter-led form's first letter" in steps
+    public = re.sub(r"\s+", " ", _section(text, "\n### 7.6 ", "\n### 7.7 "))
+    assert "never followed by an insurer word (audit round 3, R3-B13: R3-11, §20;" in public
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("`COUNTY MUT`, a Texas county mutual's 16-character cut",
+                  "(Narrowed by audit round 3, R3-B13: R3-57, §20: a consumer rail only",
+                  "a listed insurer's credit is read next (audit round 3, R3-B13: R3-11, §20: before the government",
+                  "(qualified by audit round 3, R3-B13: R3-64, §20:",
+                  "Audit round 3, R3-B13 (R3-10, §20;", "`_INSURER_PERSONAL_BENEFIT`", "`_INSURER_LTD_BENEFIT`",
+                  "`_INSURER_NON_PROVIDER_BENEFIT`", "(Audit round 3, R3-B13: R3-58, §20: the service form",
+                  "Audit round 3, R3-B13 (R3-09, §20;",
+                  "on a person-to-person row §8.4's round-sum repeat still wins, as for the progress draw"):
+        assert words in holds, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert ("on a person-to-person row §8.4's round-sum repeat still wins, as for the progress draw (audit round 3, "
+            "R3-B13: R3-09, §20)") in tiering
+    assert "- Audit round 3, R3-B13 (§20): no bump in a fix batch either" in text
+    census = re.sub(r"\s+", " ", _section(text, "\n### 14.2 ", "\n### 14.3 "))
+    assert "Audit round 3, R3-B13 (R3-55, §20): every named form's residue is class H" in census
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    spelling = next(line for line in open_items.splitlines()
+                    if line.startswith("- **Every insurer spelling (audit I26, R2-OW07), for the owner to confirm.**"))
+    for words in ("Recorded residuals, not fixed: (1) R3-57:", "(2) R3-11:", "`HALLMARK COUNTY`"):
+        assert words in spelling, words
+    defaults = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Insurers paid for the business's work: the defaults (the underwriter's Q2 of 2026-10-02, §8.1; "
+        "R2-OW08).**"))
+    assert "(5) Workers' compensation and a plain `BENEFIT(S)` wording refuse the release except at a" in defaults
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert review.count("Audit round 3, R3-B13 (") == 3
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(amended by audit round 3, R3-B13: R3-55, §20 below:",
+                  "(amended by audit round 3, R3-B13: R3-11, §20 below:",
+                  "(qualified by audit round 3, R3-B13: R3-64, §20 below:",
+                  "(narrowed by audit round 3, R3-B13: R3-57, §20 below:",
+                  "corrected, audit round 3, R3-B13: R3-58, §20 below:",
+                  "(amended by audit round 3, R3-B13: R3-10, §20 below:",
+                  "- **A Texas county mutual is an insurer, never a county**",
+                  "- **Every insurer spelling reads off the consumer rails**",
+                  "- **A personal benefit is never an insurer's payment for work**",
+                  "- **A released insurer's round sums on a person-to-person row are held as any sender's**",
+                  "- **The service form never reads a wire's `REF`; the customer-payment wording does**",
+                  "- **A released insurer's printed asset sale is read by Q11 (b)**",
+                  "- **A Q12 form after a glued digit run is read, and class H reads every named form's residue**",
+                  "- **Audit round 3, R3-B13 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B13 (R3-") >= 7
+    assert amendments.count(R3_B13_CODE_COMMIT) >= 6
+    for placeholder in ("R3B13" + "CODE", "MEASURE" + "MENT_R3B13"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "`COUNTY MUT`" in when["`insurer_named_payer`"]
+    assert "a consumer person-to-person rail's sender" in when["`insurer_named_payer`"]
+    assert "a wire's `REF` included, where Chase's book transfer and Santander print the purpose" in when[
+        "`insurer_paid_for_services`"]
+    assert "R3-55" in when["`government_no_purpose`"]
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B13 (R3-11, R3-57, R3-10, R3-09, R3-58, R3-64, R3-55; {R3_B13_CODE_COMMIT})",
+                  "(amended by audit round 3, R3-B13: R3-10, below:", "corrected, audit round 3, R3-B13: R3-58, below:",
+                  "(narrowed by R3-B13, R3-57, below: a consumer rail only)"):
+        assert words in contract, words
+
+
+def test_r3_b13_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B13: insurer_payer_reading names the arm order and the consumer rail; _insurer_for_work the
+    personal-benefit refusals and the REF reader; the classifier's patterns carry their comments."""
+    reader = re.sub(r"\s+", " ", true_revenue.insurer_payer_reading.__doc__)
+    for words in ("read before the government arm", "on a consumer person-to-person rail (_p2p_rail",
+                  "the cut MUTUA reads there only beside a company form"):
+        assert words in reader, words
+    release = re.sub(r"\s+", " ", true_revenue._insurer_for_work.__doc__)
+    for words in ("nor a personal benefit's word", "_INSURER_LTD_BENEFIT", "_holder_provider",
+                  "Chase's book transfer and Santander print the purpose in"):
+        assert words in release, words
+    provider = re.sub(r"\s+", " ", true_revenue._holder_provider.__doc__)
+    assert "Medical claim payments to providers keep counting" in provider
+    source = inspect.getsource(transaction_classifier)
+    assert "Audit round 3, R3-B13 (R3-11;" in source and "Audit round 3, R3-B13 (R3-55)" in source
+
+
+#: Audit round 3, R3-B13, review round 1: the code commit §20 and the contract name.
+R3_B13_R1_CODE_COMMIT = "7135088"
+
+
+def test_the_spec_and_the_contract_record_r3_b13_review_round_1():
+    """Audit round 3, R3-B13, review round 1 (findings 1 to 4): §7.6's veto spares MUTUAL AID; §8.1's Eligible
+    sentence reads the provider as the holder's first trade and a benefit word inside the carrier's name as no
+    benefit, marked in place; §9.3's review-round sentence; §17.1's Q2 default (5) names the provider reading, its
+    alternative and the residuals; the R3-10 and R3-11 lines marked in place; the §20 line with the commit; the
+    contract's row, bullet, entry and the new entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    public = re.sub(r"\s+", " ", _section(text, "\n### 7.6 ", "\n### 7.7 "))
+    assert "`(?! (?:MUTUAL(?! AID\\b)|MUTUA|MUT|" in public
+    assert "never `MUTUAL AID` either (R3-B13 review round 1, finding 3, §20:" in public
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("read by `_non_provider_benefit` on the purpose and the payer; R3-B13 review round 1, finding 2, "
+                  "§20:",
+                  "so `MUTUAL BENEFIT INS CO DES:DRP PAYMENT` still counts at a repair shop",
+                  "the holder's trade, the first `_holder_service_trade` reads with its strict and its loose words, is "
+                  "no clinic or pharmacy",
+                  "(Amended by R3-B13 review round 1, finding 1, §20 below: the provider is the holder's first trade"):
+        assert words in holds, words
+    assert "refusing every ground only where no holder name reads a clinic or a pharmacy (`_holder_provider`, by " \
+           "the strict and the loose words" not in holds
+    assert ("Its review round 1 (§20) changes the same reading of an insurer's credit printing workers' compensation"
+            in text)
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    defaults = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Insurers paid for the business's work: the defaults (the underwriter's Q2 of 2026-10-02, §8.1; "
+        "R2-OW08).**"))
+    for words in ("The clinic or pharmacy is the holder's first trade (R3-B13 review round 1, finding 1, §20",
+                  "the owner may widen it to any clinic or pharmacy word on a holder name (the batch's first reading)",
+                  "recorded residuals, both latent"):
+        assert words in defaults, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    benefit = _amendment_line(amendments, "- **A personal benefit is never an insurer's payment for work**")
+    assert "(Amended by R3-B13 review round 1, findings 1 and 2, §20 below:" in benefit
+    county = _amendment_line(amendments, "- **A Texas county mutual is an insurer, never a county**")
+    assert "(Amended by R3-B13 review round 1, finding 3, §20 below: never `MUTUAL AID`" in county
+    line = _amendment_line(amendments, "- **R3-B13 review round 1: ")
+    for words in ("audit round 3, R3-B13, review round 1 (findings 1 to 4)", R3_B13_R1_CODE_COMMIT,
+                  "Measured against `be75450`'s tree", "(finding 1)", "(finding 2)", "(finding 3)", "(finding 4)"):
+        assert words in line, words
+    for placeholder in ("R3B13R1" + "CODE", "MEASURE" + "_R3B13R1"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "except where the holder's first trade is a clinic or a pharmacy" in when["`insurer_paid_for_services`"]
+    contract = _flat(CONTRACT)
+    assert "R3B13R1" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B13, review round 1 ({R3_B13_R1_CODE_COMMIT})",
+                  "(amended by R3-B13 review round 1, below: where the holder's first trade is no clinic or pharmacy",
+                  "never `FIRE` or `SELF`, nor `MUTUAL AID`: review round 1)",
+                  "its review round 1: the holder's first trade, and a benefit word inside the carrier's name"):
+        assert words in contract, words
+
+
+def test_r3_b13_r1_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B13, review round 1 (findings 1 to 3): _holder_provider reads the holder's first trade,
+    _non_provider_benefit the carrier's name, _insurer_for_work names both, and the classifier's veto spares MUTUAL
+    AID."""
+    provider = re.sub(r"\s+", " ", true_revenue._holder_provider.__doc__)
+    for words in ("the first _holder_service_trade reads with its strict and its loose words",
+                  "R3-B13 review round 1 (finding 1, the brief's reading)"):
+        assert words in provider, words
+    benefit = re.sub(r"\s+", " ", true_revenue._non_provider_benefit.__doc__)
+    assert "followed by an insurer word or spelling or a legal form is the carrier's name" in benefit
+    release = re.sub(r"\s+", " ", true_revenue._insurer_for_work.__doc__)
+    assert "_non_provider_benefit: review round 1, never a benefit word inside the carrier's name" in release
+    assert "where the holder's first trade is no clinic or pharmacy (_holder_provider)" in release
+    source = inspect.getsource(transaction_classifier)
+    assert "R3-B13\n#: review round 1 (finding 3): never MUTUAL AID" in source
+
+
+#: Audit round 3, R3-B14: the code commit §20 and the contract name, and the commit of R3-06's Q6 guard.
+R3_B14_CODE_COMMIT = "17521f1"
+R3_B14_GUARD_COMMIT = "439715b"
+
+
+def test_the_spec_and_the_contract_record_r3_b14():
+    """Audit round 3, R3-B14 (R3-06, R3-54, R3-07, R3-52, R3-60): §6.3 narrowing 12 and the OQ2 note, §8.1's claim
+    convention and the lessor's third arm, §8.7's arms and "What stays", §8.9's Q8 bullet, §8.10's demotions, §9.3's
+    stored-output bullet, §17.1's Q8 residual (5) and Q9 default (6), §19.1's three appended sentences, the R2-OW02,
+    R2-OW04, R2-OW05 and R2-OW06 lines marked in place, one §20 line per issue and the batch line with the commit, and
+    the contract's rows, bullets and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    precedence = re.sub(r"\s+", " ", _section(text, "\n### 6.3 ", "\n## 7. "))
+    for words in ("Audit round 3, R3-B14 (R3-06, §20): the claim never reads a merchant form",
+                  "a Cherry credit that prints `LOAN(S)` or a non-sale or financing word"):
+        assert words in precedence, words
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("a payout entity or a lease-to-own or patient financier never claims a credit whose row",
+                  "never `FUNDING`, `FUNDED`, `PAYOUT`, `PAYMENT`, `LEASE FUND`, `PROCEEDS` or a bare `ADV`",
+                  "Q5 and Q6 never verify such a row and never count it toward a repeat (`_payout_claim_vetoed`",
+                  "Audit round 3, R3-B14 (R3-60, §20;", "a row whose payer region gives an empty payer key",
+                  "`_rent_payer_name`"):
+        assert words in holds, words
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    for words in ("(rewritten by audit round 3, R3-B14: R3-52, §20 below)", "`_FLOOR_PLAN_SERVICE_CREDIT`",
+                  "never `FLOORPLANNER` or `FLOOR PLANKS`", "`_card_purchase_debit`",
+                  "Audit round 3, R3-B14 (R3-52, §20; Q9 (c)",
+                  "(The arms are narrowed by audit round 3, R3-B14: R3-52, §20 below:"):
+        assert words in q7, words
+    rest = re.sub(r"\s+", " ", _section(text, "\n### 8.9 ", "\n### 8.10 "))
+    for words in ("(audit round 3, R3-B14: R3-06, §8.1's claim convention, `_payout_non_sale`",
+                  "(audit round 3, R3-B14: R3-54, §20: `KATAPULT ENG…`",
+                  "so does (audit round 3, R3-B14: R3-06, §20) a Cherry loan or advance"):
+        assert words in rest, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert "audit round 3, R3-B14: R3-06, never a credit printing a non-sale or financing word" in tiering
+    assert "- Audit round 3, R3-B14 (§20): no bump in a fix batch either" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    financiers = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Lease-to-own and patient financiers' follow-ups (the underwriter's Q8 of 2026-10-02, §8.9).**"))
+    assert "(5) A recorded residual (audit round 3, R3-B14: R3-54's Cherry half, not fixed, §20)" in financiers
+    q9 = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Finance-named customers, rent and lenders' service payments: the defaults"))
+    assert ("(the third arm reads rent words outside the payer's own name and never an account designation; R3-60)"
+            in q9)
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert review.count("Audit round 3, R3-B14 (") == 3
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("the largest single drop is one statement's whole True (its figure removed by audit round 3, "
+                  "R3-B14: R3-07, §20 below",
+                  "(amended by audit round 3, R3-B14: R3-06, §20 below: so does a Cherry loan or advance",
+                  "(amended by audit round 3, R3-B14: R3-54, §20 below: nor are the cut forms",
+                  "narrowed by audit round 3, R3-B14: R3-52, §20 below: a financier's credit only where",
+                  "(corrected, audit round 3, R3-B14: R3-52, §20 below: not fail-safe",
+                  "- **A financier's or a payout entity's non-sale or financing credit is no merchant payout, and a "
+                  "Cherry loan keeps D1**",
+                  "- **A cut Katapult Engineering name is the namesake**",
+                  "- **The Q8 tests' values are fabricated, and the R2-OW02 line prints no single statement's figure**",
+                  "- **A row that is no dealer evidence never keeps a lender's payables Verified**",
+                  "- **An own-account transfer or a payer named RENTALS never makes a lessor**",
+                  "- **Audit round 3, R3-B14 in all**"):
+        assert words in amendments, words
+    assert amendments.count("the largest single drop is one statement's whole True") == 1
+    assert amendments.count("audit round 3, R3-B14 (R3-") >= 5
+    assert amendments.count(R3_B14_CODE_COMMIT) >= 5
+    payout = _amendment_line(amendments, "- **A financier's or a payout entity's non-sale or financing credit is no "
+                                         "merchant payout, and a Cherry loan keeps D1**")
+    assert f"(`_payout_claim_vetoed`, read by `_never_q5_or_q6`; {R3_B14_GUARD_COMMIT}," in payout
+    assert R3_B14_GUARD_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B14 in all**")
+    for placeholder in ("R3B14" + "CODE", "MEASURE" + "_R3B14", "R3B14" + "GUARD"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "(audit round 3, R3-B14: R3-06, R3-54)" in when["`customer_financing_payout`"]
+    assert "audit round 3, R3-B14, R3-52" in when["`lender_paid_for_services`"]
+    assert "audit round 3, R3-B14, R3-60" in when["`lessor_rent`"]
+    contract = _flat(CONTRACT)
+    assert "R3B14" + "CODE" not in contract and "R3B14" + "GUARD" not in contract
+    for words in (f"Audit round 3, R3-B14 (R3-06, R3-54, R3-07, R3-52, R3-60; {R3_B14_CODE_COMMIT})",
+                  f"and Q5 and Q6 never verify it (`_payout_claim_vetoed`, its Q6 guard: {R3_B14_GUARD_COMMIT})",
+                  "keeps D1 (audit round 3, R3-B14: R3-06).", "`FLOORPLANNER` or `FLOOR PLANKS` row are no dealer "
+                  "evidence (audit round 3, R3-B14: R3-52).", "the arms narrowed by audit round 3, R3-B14: R3-52"):
+        assert words in contract, words
+
+
+def test_r3_b14_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B14: _payout_non_sale, _claimed and _customer_financier name the veto; _dealer_activity and
+    _dealer_statement the narrowed arms; _lessor_business and _rent_payer_name the third arm's reading; the classifier's
+    _is_payout_credit the Cherry loan, and its pattern carries its comment; the registry's Katapult comment."""
+    from analysis import classification_registry
+
+    veto = re.sub(r"\s+", " ", true_revenue._payout_non_sale.__doc__)
+    assert "Their consumer-side credits (refunds, loans to the holder) stay as today" in veto
+    assert "Audit round 3, R3-B14 (R3-06): a payout entity's or a financier's credit printing a non-sale" in re.sub(
+        r"\s+", " ", true_revenue._claimed.__doc__)
+    assert "audit round 3, R3-B14: R3-06, _payout_non_sale" in re.sub(
+        r"\s+", " ", true_revenue._customer_financier.__doc__)
+    guard = re.sub(r"\s+", " ", true_revenue._payout_claim_vetoed.__doc__)
+    assert "is never verified by Q5 or Q6 and never counts toward a repeat" in guard
+    assert "(_payout_claim_vetoed)" in re.sub(r"\s+", " ", true_revenue._never_q5_or_q6.__doc__)
+    activity = re.sub(r"\s+", " ", true_revenue._dealer_activity.__doc__)
+    for words in ("Audit round 3, R3-B14 (R3-52;", "_card_purchase_debit", "_FLOOR_PLAN_SERVICE_CREDIT"):
+        assert words in activity, words
+    assert "Audit round 3, R3-B14 (R3-52)" in re.sub(r"\s+", " ", true_revenue._dealer_statement.__doc__)
+    lessor = re.sub(r"\s+", " ", true_revenue._lessor_business.__doc__)
+    assert "Audit round 3, R3-B14 (R3-60;" in lessor and "_rent_payer_name" in lessor
+    assert "the _rent_memo_payer convention" in re.sub(r"\s+", " ", true_revenue._rent_payer_name.__doc__)
+    assert "Audit round 3, R3-B14 (R3-06): a Cherry credit printing LOAN(S)" in re.sub(
+        r"\s+", " ", transaction_classifier._is_payout_credit.__doc__)
+    source = inspect.getsource(transaction_classifier)
+    assert "#: Audit round 3, R3-B14 (R3-06): a payout entity's or a lease-to-own or patient financier's" in source
+    registry = inspect.getsource(classification_registry)
+    assert "audit round 3, R3-B14 (R3-54): so are the cut forms of" in registry
+
+
+#: Audit round 3, R3-B14, review round 1: the code commit §20 and the contract name.
+R3_B14_R1_CODE_COMMIT = "ddb4327"
+
+
+def test_the_spec_and_the_contract_record_r3_b14_review_round_1():
+    """Audit round 3, R3-B14, review round 1 (findings 1 to 6): §6.3's OQ2 note and §8.1's claim convention name the
+    Cherry veto's read; §8.1's convention the lump-sum test of a vetoed financier credit; §8.1's lessor the name proper;
+    §8.7's arms the holder's names, the card tail and the glued forms; §8.9's lump-sum bullet; §9.3's review-round
+    sentence; §17.1's Q8 follow-up (6) and Q9 default (6); the R3-06, R3-52 and R3-60 lines marked in place; the §20
+    line with the commit and the measurement; the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    precedence = re.sub(r"\s+", " ", _section(text, "\n### 6.3 ", "\n## 7. "))
+    assert "(R3-B14 review round 1, finding 1, §20: `without_receiver_and_holder`" in precedence
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("the classifier's Cherry veto, §6.3's OQ2 note, reads the same text since R3-B14 review round 1",
+                  "(`_vetoed_financier`, the financier read without the veto; R3-B14 review round 1, finding 2, §20)",
+                  "narrowed by R3-B14 review round 1, finding 3, §20, from \"or the whole region when it prints no "
+                  "form\"", "`_rent_trade_noun_name`", "Truist's `RENT <tenant> LLC … CUSTOMER ID`"):
+        assert words in holds, words
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    for words in ("`FLOORPLANINT`, `FLOORPLANPAYOFF`, `FLOORPLANADV` and `FLOORPLANXPRESS` (R3-B14 review round 1, "
+                  "finding 6, §20)",
+                  "the latter by R3-B14 review round 1, finding 4, §20: `without_receiver_and_holder`",
+                  "is no card purchase on a row that prints a wire, ACH or check form"):
+        assert words in q7, words
+    rest = re.sub(r"\s+", " ", _section(text, "\n### 8.9 ", "\n### 8.10 "))
+    assert "(`_vetoed_financier`: the financier read without the veto), in the one-off count too" in rest
+    assert "Its review round 1 (§20) changes, for the same move, the same readings of: a Cherry payout" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    financiers = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Lease-to-own and patient financiers' follow-ups (the underwriter's Q8 of 2026-10-02, §8.9).**"))
+    assert "(6) A financier's abbreviated advance (`ADVNC`, `ADVN`, `ADVC`)" in financiers
+    q9 = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Finance-named customers, rent and lenders' service payments: the defaults"))
+    assert "(R3-B14 review round 1, finding 3, §20, narrowing R3-60's brief" in q9
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(nor, by R3-B14 review round 1, finding 1, §20 below, printed as an unlabelled receiver",
+                  "held as `customer_financing_lump_sum` again by R3-B14 review round 1, finding 2, §20 below",
+                  "corrected by R3-B14 review round 1, finding 4, §20 below: that held for a labelled receiver only",
+                  "whose `<ST> USA|CAN` tail never reads a wire, ACH or check row since R3-B14 review round 1, "
+                  "finding 5",
+                  "(widened by R3-B14 review round 1, finding 6, §20 below, to the glued",
+                  "narrowed by R3-B14 review round 1, finding 3, §20 below: the name proper"):
+        assert words in amendments, words
+    line = _amendment_line(amendments, "- **R3-B14 review round 1: ")
+    for words in ("audit round 3, R3-B14, review round 1 (findings 1 to 6)", R3_B14_R1_CODE_COMMIT,
+                  "Measured against `3939f5c`'s tree", "(finding 1)", "(finding 2)", "(finding 3)", "(finding 4)",
+                  "(finding 5)", "(finding 6)"):
+        assert words in line, words
+    for placeholder in ("R3B14R1" + "CODE", "MEASURE" + "_R3B14R1"):
+        assert placeholder not in text, placeholder
+    contract = _flat(CONTRACT)
+    assert "R3B14R1" + "CODE" not in contract
+    assert f"Audit round 3, R3-B14, review round 1 ({R3_B14_R1_CODE_COMMIT})" in contract
+
+
+def test_r3_b14_r1_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B14, review round 1: the shared read, the Cherry veto, the vetoed financier, the name proper,
+    the dealer arms and the floor-plan form carry their notes."""
+    shared = re.sub(r"\s+", " ", true_revenue.without_receiver_and_holder.__doc__)
+    assert "the classifier's Cherry D1 veto, _is_payout_credit" in shared
+    assert "Review round 1 (finding 1): those words are read as the true-revenue pass's veto reads them" in re.sub(
+        r"\s+", " ", transaction_classifier._is_payout_credit.__doc__)
+    assert "Keep large one-off lump sums held until sourced" in re.sub(
+        r"\s+", " ", true_revenue._vetoed_financier.__doc__)
+    assert "Review round 1 (finding 3): a row that prints no payer-name field prints the entry description" in re.sub(
+        r"\s+", " ", true_revenue._rent_payer_name.__doc__)
+    assert "Review round 1 (findings 4 to 6)" in re.sub(r"\s+", " ", true_revenue._dealer_activity.__doc__)
+    assert "Review round 1 (finding 5)" in re.sub(r"\s+", " ", true_revenue._card_purchase_debit.__doc__)
+    assert "Review round 1 (finding 6)" in inspect.getsource(true_revenue)
 
 
 #: Audit round 2, R2-L01 (R43): the code commit §20 and the contract name.
@@ -1387,7 +2352,8 @@ def test_the_spec_and_the_contract_record_the_final_review_s_returned_funder_pay
     spec = SPEC.read_text(encoding="utf-8")
     sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
     for words in ("The final review of round 2, F2(a) (§20): a confirmed funder's paid payment is no lender-side",
-                  "`_returns_a_later_funder_payment`",
+                  # Audit round 3, R3-B02 (R3-71): renamed, since a potential lender's payment looks back too.
+                  "`_returns_a_later_lender_payment`",
                   "4. **Returned funder payments across statements** (the final review of round 2, F2(b)",
                   "`returned_funder_redirects`", "`cross_statement: true`",
                   "a return is matched only to a payment dated on or before it"):
@@ -1410,12 +2376,16 @@ def test_the_handoff_and_the_plan_state_the_final_state():
     and R2-OW18, the acceptance figures, the round-3 re-audit next) and no longer the superseded Zelle exclusion or the
     finished batches as to do; the plan's withholding bullet points to spec §11."""
     handoff = _flat(HANDOFF)
-    for words in ("283e90e", "classification **5.7**, analysis stage **33**", "Mark Zelle Payments as True Revenue",
+    # Audit round 3, R3-B25: the round-3 run is done, so the handoff's next step is the round-4 re-audit, not round 3's.
+    # Audit round 3, R3-B25: the versions words move to 5.8 / 36 with the round's single bump. Audit round 3, R3-MERGE:
+    # the hosting line's merge-back moved the stage to 37.
+    for words in ("283e90e", "classification **5.8**, analysis stage **37**", "Mark Zelle Payments as True Revenue",
                   "Yes by default", "**not implemented**", "OW17", "OW18", "ACCEPTED 2026-10-07", "67.58%",
-                  "**Round-3 re-audit**", "FINAL-FIX-report.md"):
+                  "**The round-4 re-audit**", "FINAL-FIX-report.md"):
         assert words in handoff, words
     for stale in ("Every Zelle deposit is non_revenue, with the excluded total shown", "B13-B16 to do",
-                  "planned, not started", "| R2-L01 | Liberis ledger admission, carried over from R2-B03 | to do |"):
+                  "planned, not started", "| R2-L01 | Liberis ledger admission, carried over from R2-B03 | to do |",
+                  "**Round-3 re-audit** of `c486fd5..HEAD`"):
         assert stale not in handoff, stale
     plan = _flat(PLAN)
     assert ("`true_revenue` is added and is never the default. **Superseded** by the owner's ruling of 2026-10-02 on "
@@ -1476,3 +2446,1506 @@ def test_the_spec_the_contract_and_the_handoff_record_the_fix_run_s_review_round
     for words in ("Review round 1 of that fix run", "for ratification", "goes to review"):
         assert words in handoff, words
     assert "asks for review on its withholding only (its decision pill reads as before)" not in handoff
+
+
+#: Audit round 3, R3-B15: the code commit §20 and the contract name.
+R3_B15_CODE_COMMIT = "8e00872"
+
+
+def test_the_spec_and_the_contract_record_r3_b15():
+    """Audit round 3, R3-B15 (R3-08, R3-59, R3-63, R3-53): §5.3's held-sentence rule, §8.1's progress-draw paragraph
+    and asset-sale purpose, §8.10's demotions, §9.3's stored-output bullet, §17.1's developer item, §19.1's Q11 bullet,
+    the $1-floor, R2-OW06 and R2-OW06 review round 1 lines marked in place, one §20 line per issue and the batch line
+    with the commit, and the contract's rows, paragraphs, bullets and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    tiers = re.sub(r"\s+", " ", _section(text, "\n### 5.3 ", "\n### 5.4 "))
+    assert ("A held row's reason sentence never says it is counted: a hold that re-tiers a counted re-statement "
+            "rewrites its sentence (audit round 3, R3-B15: R3-53, §20;") in tiers
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("Audit round 3, R3-B15 (R3-08, §20; the ruling's \"when the payer is a builder\"",
+                  "`_label_less_builder_word`", "`_label_less_draw_purpose`",
+                  "a builder's draw on Truist's entry-first layout",
+                  "(audit round 3, R3-B15: R3-59, §20; Q11 (b), standard G6, §4.2", "`_asset_sale_commission`"):
+        assert words in holds, words
+    tiering = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    for words in ("Every one of these demotions leaves a credit under $1 to the floor",
+                  "(audit round 3, R3-B15: R3-63, §20;", "(audit round 3, R3-B15: R3-53, §5.3, §20)"):
+        assert words in tiering, words
+    assert "- Audit round 3, R3-B15 (§20): no bump in a fix batch either" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    developer = next(line for line in open_items.splitlines() if line.startswith(
+        "- **A project owner or developer that is no builder paying a stage draw"))
+    assert "A county's draw is held the same way (audit round 3, R3-B15: R3-08, §20)" in developer
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert review.count("Audit round 3, R3-B15 (§20): on a label-less layout") == 1
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("marked in place by audit round 3, R3-B15: R3-63, §20 below: every pass-7 demotion leaves a credit "
+                  "under $1 to the floor",
+                  "amended by audit round 3, R3-B15: R3-08, §20 below: read without the holder's names",
+                  "(amended by audit round 3, R3-B15: R3-59, §20 below: so does a sale whose commission or fee",
+                  "- **A label-less construction draw names a builder only by the payer's own word**",
+                  "- **A sale printed net of a fee or a commission is still a sale**",
+                  "- **Every pass-7 demotion leaves a credit under $1 to the floor**",
+                  "- **A held row's reason sentence never says it is counted**",
+                  "- **Audit round 3, R3-B15 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B15 (R3-") == 4
+    assert amendments.count(R3_B15_CODE_COMMIT) >= 5
+    assert R3_B15_CODE_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B15 in all**")
+    for placeholder in ("R3B15" + "CODE", "MEASURE" + "_R3"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "(audit round 3, R3-B15: R3-08)" in when["`construction_progress_draw`"]
+    assert "(audit round 3, R3-B15: R3-59)" in when["`asset_sale_proceeds`"]
+    contract = _flat(CONTRACT)
+    assert "R3B15" + "CODE" not in contract and "MEASURE" + "_R3" not in contract
+    for words in (f"Audit round 3, R3-B15 (R3-08, R3-59, R3-63, R3-53; {R3_B15_CODE_COMMIT})",
+                  "A held credit's reason sentence (`revenue_reason`, which the JSON download and the package's "
+                  "evidence sections write beside its tier) never says it is counted",
+                  "Every pass-7 demotion leaves such a credit to the floor, the factoring and progress-draw demotions "
+                  "included (audit round 3, R3-B15: R3-63).",
+                  "and so does a county's (audit round 3, R3-B15: R3-08).",
+                  "`LESS COMMISSION TRUCK SALE` are a sale, audit round 3, R3-B15: R3-59)",
+                  "unless a netting word stands beside it (audit round 3, R3-B15: R3-59)"):
+        assert words in contract, words
+
+
+def test_r3_b15_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B15: construction_progress_draw and its two helpers name R3-08's reading; asset_sale_reading
+    and _asset_sale_commission R3-59's netting words; the tier loop's two demotion arms R3-63's floor; _with_tier and
+    _held_reason R3-53's sentence."""
+    draw = re.sub(r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
+    for words in ("Audit round 3, R3-B15 (R3-08;", "_label_less_builder_word", "_label_less_draw_purpose",
+                  "Truist's entry-first layout"):
+        assert words in draw, words
+    assert "_DRAW_PURPOSE_PHRASE" in re.sub(r"\s+", " ", true_revenue._label_less_builder_word.__doc__)
+    assert "Audit round 3, R3-B15 (R3-59;" in re.sub(r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    assert "R3-B15: R3-59" in re.sub(r"\s+", " ", true_revenue.asset_sale_reading.__doc__)
+    assert "Audit round 3, R3-B15 (R3-53; §5.3)" in re.sub(r"\s+", " ", true_revenue._with_tier.__doc__)
+    assert "never verified, and held for review (<label>)" in re.sub(r"\s+", " ", true_revenue._held_reason.__doc__)
+    comments = re.sub(r"\s*\n\s*#\s*", " ", inspect.getsource(true_revenue.apply_true_revenue_pass))
+    assert comments.count("Audit round 3, R3-B15 (R3-63): a credit under $1 is left to the floor") == 2
+
+
+#: Audit round 3, R3-B15, review round 1: the code commit §20 and the contract name.
+R3_B15_R1_CODE_COMMIT = "9d5e9a6"
+
+
+def test_the_spec_and_the_contract_record_r3_b15_review_round_1():
+    """Audit round 3, R3-B15, review round 1 (findings 1 to 4): §8.1's progress-draw paragraph (the entry phrase's
+    DRAW before the builder word, BUILD DRAW, the residuals) and asset-sale purpose (a bare NET before FEES only),
+    §9.3's review-round sentence, §19.1's Q11 bullet, the R3-08 and R3-59 lines marked in place, the §20 line with the
+    commit and the measurement, and the contract's rows, paragraph, bullets and entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("and `BUILD` (R3-B15 review round 1, finding 4, §20)",
+                  "R3-B15 review round 1, finding 2, §20: the phrase is the entry's, never the payer's name",
+                  "`<NAME> CONST` or `<NAME> CONSTR`, or `<NAME> BUILD`, with no company form before a bare `DRAW`",
+                  "and a bare `NET` before `FEES` only, R3-B15 review round 1, finding 1, §20",
+                  "a broker's or an agent's `NET COMMISSION ON TRUCK SALE` (its own earned commission after splits)"):
+        assert words in holds, words
+    assert ("Its review round 1 (§20) changes, for the same move, the same readings of: a builder's label-less "
+            "draw") in text
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert "Its review round 1 (§20): the entry's own purpose phrase before the builder word" in review
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("`BUILD` added by R3-B15 review round 1, finding 4, §20 below",
+                  "widened by R3-B15 review round 1, finding 2, §20 below",
+                  "widened in place by R3-B15 review round 1, findings 3 and 4, §20 below",
+                  "(counted again by R3-B15 review round 1, finding 2, §20 below)",
+                  "narrowed by R3-B15 review round 1, finding 1, §20 below: a bare `NET` before `FEES` only"):
+        assert words in amendments, words
+    line = _amendment_line(amendments, "- **R3-B15 review round 1: ")
+    for words in ("audit round 3, R3-B15, review round 1 (findings 1 to 4)", R3_B15_R1_CODE_COMMIT,
+                  "Measured against `0633d9b`'s tree", "(finding 1)", "(finding 2)", "(finding 3)", "(finding 4)"):
+        assert words in line, words
+    assert amendments.count("audit round 3, R3-B15 (R3-") == 4
+    for placeholder in ("R3B15R1" + "CODE", "MEASURE" + "_R3B15R1"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "or in that entry phrase printed before it (its review round 1)" in when["`construction_progress_draw`"]
+    assert "or a broker's `NET COMMISSION` (its review round 1)" in when["`asset_sale_proceeds`"]
+    contract = _flat(CONTRACT)
+    assert "R3B15R1" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B15, review round 1 ({R3_B15_R1_CODE_COMMIT})",
+                  "since its review round 1 `BUILD DRAW` is such an entry phrase too",
+                  "(a broker's `NET COMMISSION ON TRUCK SALE` included: a bare `NET` reads only before `FEES`",
+                  "a bare `NET` before `FEES` only since its review round 1",
+                  "the latter counted again by its review round 1"):
+        assert words in contract, words
+
+
+def test_r3_b15_r1_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B15, review round 1: the netting reader, the two label-less readers and the progress draw
+    carry their notes."""
+    assert "a bare NET before FEES only, R3-B15 review round 1, finding 1" in re.sub(
+        r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    assert "R3-B15 review round 1 (finding 2; Q11 (a))" in re.sub(
+        r"\s+", " ", true_revenue._label_less_draw_purpose.__doc__)
+    assert "since R3-B15 review round 1, finding 4, BUILD" in re.sub(
+        r"\s+", " ", true_revenue._label_less_builder_word.__doc__)
+    draw = re.sub(r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
+    for words in ("'<NAME> CONST' or '<NAME> CONSTR', or '<NAME> BUILD'", "R3-B15 review round 1 (finding 2)"):
+        assert words in draw, words
+    source = inspect.getsource(true_revenue)
+    assert "R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11)" in source
+    assert "R3-B15 review round 1 (finding 4)" in source
+
+
+#: Audit round 3, R3-B15, review round 2: the code commit §20 and the contract name.
+R3_B15_R2_CODE_COMMIT = "bc8d55e"
+
+
+def test_the_spec_and_the_contract_record_r3_b15_review_round_2():
+    """Audit round 3, R3-B15, review round 2 (findings 1 to 3): §8.1's progress-draw paragraph (only a phrase that
+    starts the payer region) and asset-sale purpose (a commission the netting phrase follows or the fees come out of),
+    §9.3's review-round sentence, §19.1's Q11 bullet, the R3-08, R3-59, R3-53 and review round 1 lines marked in place
+    (the single-row amounts removed), the §20 line with the commit and the measurement, and the contract's rows,
+    paragraph, bullets and entries."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("narrowed by R3-B15 review round 2, finding 2, §20: only a phrase that starts the payer region is "
+                  "that entry-first entry",
+                  "R3-B15 review round 2 (finding 1, §20; R2-OW06 review round 1's broker carve-out, standard A11): a "
+                  "seller's proceeds never lead with or come out of a commission",
+                  "(`TRUCK SALE FEES WITHHELD FROM COMMISSION`) stays a broker's revenue",
+                  "(`NET OF COMMISSION LESS FEES TRUCK SALE`) is still the sale"):
+        assert words in holds, words
+    assert "Its review round 2 (§20) changes, for the same move, the same readings of: a label-less draw" in text
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+    assert "Its review round 2 (§20): only a phrase that starts the payer region is that entry" in review
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("narrowed by R3-B15 review round 2, finding 2, §20 below, to a phrase that starts the payer region",
+                  "and by R3-B15 review round 2, finding 1, §20 below: a commission word printed directly before the "
+                  "netting phrase",
+                  "(never after a commission word, nor fees taken from a commission: R3-B15 review round 2, finding 1, "
+                  "§20 below)",
+                  "(only one that starts the payer region since R3-B15 review round 2, finding 2, §20 below;"):
+        assert words in amendments, words
+    # Finding 3: the batch's lines name the single corpus rows without their amounts.
+    assert amendments.count("its amount removed in place by R3-B15 review round 2, finding 3, §20 below") == 3
+    assert "the Mission Valley builder's draw, still counted (its amount removed in place" in _amendment_line(
+        amendments, "- **A label-less construction draw names a builder only by the payer's own word**")
+    assert "row, a platform payout, is unchanged; its amount removed in place" in _amendment_line(
+        amendments, "- **A sale printed net of a fee or a commission is still a sale**")
+    assert "`payroll_or_salary` 1 (1 statement; its amount removed in place" in _amendment_line(
+        amendments, "- **A held row's reason sentence never says it is counted**")
+    line = _amendment_line(amendments, "- **R3-B15 review round 2: ")
+    for words in ("audit round 3, R3-B15, review round 2 (findings 1 to 3)", R3_B15_R2_CODE_COMMIT,
+                  "Measured against `b5cf2fe`'s tree", "(finding 1)", "(finding 2)", "(finding 3)"):
+        assert words in line, words
+    assert amendments.count("audit round 3, R3-B15 (R3-") == 4
+    for placeholder in ("R3B15R2" + "CODE", "MEASURE" + "_R3B15R2"):
+        assert placeholder not in text, placeholder
+    when = {cells[0]: cells[3] for cells in _reason_table()}
+    assert "when the phrase starts the payer region (its review round 2)" in when["`construction_progress_draw`"]
+    assert ("the fees come out of (`COMMISSION LESS FEES ON TRUCK SALE`, `TRUCK SALE FEES WITHHELD FROM COMMISSION`; "
+            "its review round 2)") in when["`asset_sale_proceeds`"]
+    contract = _flat(CONTRACT)
+    assert "R3B15R2" + "CODE" not in contract
+    for words in (f"Audit round 3, R3-B15, review round 2 ({R3_B15_R2_CODE_COMMIT})",
+                  "when the phrase starts the payer region, its review round 2)",
+                  "that follows no commission word and takes no fees from a commission (its review round 2)",
+                  "since its review round 2 only a phrase that starts the payer region is read",
+                  "`TRUCK SALE FEES WITHHELD FROM COMMISSION`, R3-B15's review round 2)",
+                  "(one that starts the payer region, since its review round 2)"):
+        assert words in contract, words
+
+
+def test_r3_b15_r2_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B15, review round 2: the netting reader, the label-less draw purpose and the progress draw
+    carry their notes."""
+    assert "R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out" in re.sub(
+        r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    assert "R3-B15 review round 2 (finding 2; R3-08's own target payers)" in re.sub(
+        r"\s+", " ", true_revenue._label_less_draw_purpose.__doc__)
+    assert "R3-B15 review round 2 (finding 2): only a phrase that starts the payer region" in re.sub(
+        r"\s+", " ", true_revenue.construction_progress_draw.__doc__)
+    source = inspect.getsource(true_revenue)
+    assert "R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11)" in source
+
+
+#: Audit round 3, R3-B16: the code commit §20 and the contract name.
+R3_B16_CODE_COMMIT = "c2bf1cf"
+
+
+def test_the_spec_and_the_contract_record_r3_b16():
+    """Audit round 3, R3-B16 (R3-03, R3-35, R3-33, R3-34): §8.1's brand list, the release's carrier-debit sentence and
+    `payer_also_debited`'s ATM, fee-source, glued-entry and released-insurer sentences; §9.3's stored-output bullet;
+    §17.1's I26 item; the R2-OW08 and R2-B02 review round 1 lines marked in place; one §20 line per issue and the
+    batch line with the commit; and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("American Income Life, `AM INCOME LIFE` or `AMERICAN INCOME LIFE`",
+                  "the entry's `AIL INS` never read as the brand; audit round 3, R3-B16: R3-03, §20",
+                  "recurs at one amount without a premium or retry word",
+                  "amended by audit round 3, R3-B16: R3-03, §20",
+                  "none of them a cash or posting word (audit round 3, R3-B16: R3-34, §20",
+                  "Audit round 3, R3-B16 (R3-33, §20)",
+                  "(R3-35, §20) The processor's fee and the bill are read with Chase's glued SEC code split off",
+                  "(R3-03, §20; owner ruling 2026-10-02, the underwriter's Q2; the MCA principle)"):
+        assert words in holds, words
+    assert "- Audit round 3, R3-B16 (§20): no bump in a fix batch either" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    assert "Audit round 3, R3-B16 (R3-03, §20) adds a tenth brand, American Income Life" in open_items
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("amended by audit round 3, R3-B16: R3-03, §20 below: a debit naming its carrier holds it only when "
+                  "circular",
+                  "narrowed by audit round 3, R3-B16: R3-34, §20 below: none of them a cash or posting word",
+                  "corrected by audit round 3, R3-B16: R3-33, §20 below:",
+                  "- **Chase's glued fee and bill entries read their kind**",
+                  "- **A released insurer is held by its carrier's debit only as circular money",
+                  "- **The outgoing-wire fee's source account reads its product name**",
+                  "- **The ATM carve-out never reads a cash or posting word as a company's name**",
+                  "- **Audit round 3, R3-B16 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B16 (R3-") == 4
+    assert amendments.count(R3_B16_CODE_COMMIT) >= 5
+    assert R3_B16_CODE_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B16 in all**")
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B16 (R3-03, R3-35, R3-33, R3-34; {R3_B16_CODE_COMMIT})",
+                  "is a credit-only insurer brand, so the release reads it",
+                  "an insurer the release does not count stays held beside its premium or bill"):
+        assert words in contract, words
+
+
+def test_r3_b16_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B16: also_debited and counter_credit name R3-03's carrier-debit rule, the kind reader R3-35's
+    split and R3-33's fee source, _cash_withdrawal R3-34's carve-out, and the registry's brand comment its evidence."""
+    from analysis import classification_registry
+
+    also = re.sub(r"\s+", " ", true_revenue.also_debited.__doc__)
+    assert "Audit round 3, R3-B16 (R3-03; owner ruling 2026-10-02, the underwriter's Q2" in also
+    assert "Audit round 3, R3-B16 (R3-03): `released_insurer`" in re.sub(
+        r"\s+", " ", true_revenue.counter_credit.__doc__)
+    kind = re.sub(r"\s+", " ", true_revenue._counter_debit_kind.__doc__)
+    assert "Audit round 3, R3-B16 (R3-35; standard A1, A2, §4.2; §20 B4 review round 1)" in kind
+    assert "R3-33: FROM before an account product's name" in kind
+    assert "Audit round 3, R3-B16 (R3-34)" in re.sub(r"\s+", " ", true_revenue._cash_withdrawal.__doc__)
+    registry = inspect.getsource(classification_registry)
+    assert "Audit round 3, R3-B16 (R3-03; owner-batch insurer code, R2-OW07's table): American Income Life" in registry
+
+
+#: Audit round 3, R3-B17: the code commit §20 and the contract name.
+R3_B17_CODE_COMMIT = "2b684b8"
+
+
+def test_the_spec_and_the_contract_record_r3_b17():
+    """Audit round 3, R3-B17 (R3-77, R3-74, R3-15): §5.2's template prefixes and counter-debit readings, T11, §8.1's
+    three holds, §9.3's stored-output bullet, one §20 line per issue and the batch line with the commit, and the
+    contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    terms = re.sub(r"\s+", " ", _section(text, "\n### 5.2 Terms", "\n### 5.3 "))
+    for words in ("Audit round 3, R3-B17 (R3-15, §20): and RBC's `ACCOUNT PAYABLE PMT` and Scotiabank's `ACCOUNTS "
+                  "PAYABLE`",
+                  "- **Counter-debit readings** (audit round 3, R3-B17, §20;",
+                  "RBC's `INSURANCE`, `INVESTMENT`, `FEES DUES`, `EQUIPMENT RENT` and `PAY EMPLOYEE VENDOR`, "
+                  "Scotiabank's `INVESTMENT`",
+                  "and Scotiabank's `ACHDEBIT` is a label word",
+                  "Two readings name one payer when their numbers are equal"):
+        assert words in terms, words
+    decisions = re.sub(r"\s+", " ", _section(text, "\n## 4. ", "\n## 5. "))
+    assert "Audit round 3, R3-B17 (R3-15, §20; OQ3 counts a numbered payer only after the holds" in decisions
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("5.6's first word or a cut or glued spelling, or (audit round 3, R3-B17: R3-15, §20) a numbered "
+                  "company's number",
+                  "- **`payer_debited_as_lender`:** the payer's first distinctive word (§7.5), or a numbered company's "
+                  "number (audit round 3, R3-B17: R3-15, §20)",
+                  "- **`payer_also_debited`:** the payer's first distinctive word (§7.5's definition), or a numbered "
+                  "company's number (audit round 3, R3-B17: R3-15, §20)",
+                  "Audit round 3, R3-B17 (R3-77, R3-74, R3-15, §20; standard C1, C2, B6, A17",
+                  "(R3-77, §20; the underwriter's Q2; standard A9, B6) RBC's posting-type label `INSURANCE`",
+                  "(R3-15, §20) A numbered affiliate's or own account's round trip"):
+        assert words in holds, words
+    assert "- Audit round 3, R3-B17 (§20): no bump in a fix batch either" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("- **A bank's posting-type label names no party in the counter-debit readings**",
+                  "- **A funder collecting under a Canadian pre-authorized-debit label is read by its name**",
+                  "- **Numbered companies are compared by their number; an accounts-payable label before the number no "
+                  "longer hides the holder's own**",
+                  "Recorded residuals (0 corpus rows): a numbered payer printed by its bare number with no province",
+                  "- **Audit round 3, R3-B17 in all**"):
+        assert words in amendments, words
+    assert amendments.count("audit round 3, R3-B17 (R3-") == 3
+    assert amendments.count(R3_B17_CODE_COMMIT) >= 4
+    assert R3_B17_CODE_COMMIT in _amendment_line(amendments, "- **Audit round 3, R3-B17 in all**")
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B17 (R3-77, R3-74, R3-15; {R3_B17_CODE_COMMIT})",
+                  "A statement's bank's own posting-type label printed before the party names no party",
+                  "is compared by its number, read only where the numbered-company form prints",
+                  "D6's lender names are unchanged."):
+        assert words in contract, words
+
+
+def test_r3_b17_the_code_s_docstrings_name_the_readings():
+    """Audit round 3, R3-B17: the readers and the holds' helpers name the label cuts and the number key, and the
+    registry's table comment its evidence."""
+    from analysis import classification_registry
+
+    def doc(function):
+        return re.sub(r"\s+", " ", function.__doc__)
+
+    assert "Audit round 3, R3-B17 (R3-77, R3-74; owner ruling 2026-10-02" in doc(
+        transaction_classifier._without_posting_type_label)
+    assert "Audit round 3, R3-B17: the region is read without the statement's bank's posting-type label" in doc(
+        transaction_classifier.counter_debit_payer_reading)
+    assert "`number` is the first numbered-company form the debit prints" in doc(
+        transaction_classifier.counter_debit_debit_reading)
+    assert "Audit round 3, R3-B17 (R3-15; §5.2, T11, §8.1; standard C1, B6, A17): `number`" in doc(
+        transaction_classifier.CounterDebitReading)
+    assert "Audit round 3, R3-B17 (R3-15; standard C1, B6, A17" in doc(true_revenue._same_payer)
+    assert "Audit round 3, R3-B17 (R3-77, R3-74): both readings are read with the statement's bank" in doc(
+        true_revenue.counter_credit)
+    assert "Audit round 3, R3-B17 (R3-15): a debit whose reading names no word is kept" in doc(
+        true_revenue.counter_debits)
+    assert "Audit round 3, R3-B17 (R3-15): a numbered company's number" in doc(true_revenue._head_word)
+    registry = inspect.getsource(classification_registry)
+    assert "Audit round 3, R3-B17 (R3-77, R3-74; §5.2, §8.1; owner ruling 2026-10-02" in registry
+    assert "analysis/rbc.py's _is_debit lists" in registry
+
+
+#: Audit round 3, R3-B18: the code commits §20 names (parts A to E, and part D's follow-up) and the contract's range.
+R3_B18_CODE_COMMITS = ("272f28a", "918e47e", "27856c8", "6baaef8", "6553740", "113f6ab")
+
+
+def test_the_spec_and_the_contract_record_r3_b18():
+    """Audit round 3, R3-B18 (R3-02, R3-04, R3-05): §9.2's duplicates, R14 and R13 bullets, §9.3's no-bump line, §10.1's
+    notice, §10.8's downloads, §17.1's Chase item, §20's R14, R14 review round 1 and R13 lines amended in place, the
+    batch's §20 line with its commits, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("or (audit round 3, R3-B18: R3-02, §20) its ledger key when it prints both period days, both "
+                  "balances and a ledger row",
+                  "Audit round 3, R3-B18 (R3-02, R3-04, §20), amended in place (they were grouped by their bank",
+                  "a statement that prints no bank or fewer than four digits makes a \"possible\" pair",
+                  "Chase's `Chase Transaction Export` is Chase",
+                  "in this first phase a statement is left out only in favour of month-length statements (28 days or "
+                  "more)",
+                  "`days_shared`, the days both cover",
+                  "audit round 3, R3-B18 (R3-02, §20), amended in place (the card's \"a member printing neither is its "
+                  "own\""):
+        assert words in package, words
+    assert "a member printing neither is its own." not in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "- Audit round 3, R3-B18 (§20): no bump in a fix batch either, and no stored-output change" in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Audit round 3, R3-B18 (R3-04, §20): a pair of one account's statements named although the two "
+                  "share no credit",
+                  "cover `<days_shared>` of the same days of one account",
+                  "\"N pair(s) of overlapping statements of one account.\""):
+        assert words in cards, words
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    assert "Audit round 3, R3-B18 (R3-04, §20): each pair's section carries `days_shared`" in exports
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    assert ("Audit round 3, R3-B18 (R3-02, §20): until the number is read, such a statement is related to the "
+            "package's other statements by its ledger") in still_open
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(made true by audit round 3, R3-B18: R3-04:",
+                  "(reworded by audit round 3, R3-B18, as R2-B14 review round 2's finding 1 asked:",
+                  "(amended in place by audit round 3, R3-B18: R3-02, R3-04:",
+                  "replaced in place by audit round 3, R3-B18: R3-02:",
+                  "- **One account's statements in a package: a statement whose bank or account number is not read, an "
+                  "interim or export a day off or worded differently, and the 32-35-day monthly cycle**",
+                  "Recorded residuals:"):
+        assert words in amendments, words
+    assert amendments.count("qualified in place by audit round 3, R3-B18: R3-05:") == 2
+    batch = _amendment_line(amendments, "- **One account's statements in a package:")
+    for commit in R3_B18_CODE_COMMITS:
+        assert commit in batch, commit
+    contract = _flat(CONTRACT)
+    for words in ("Audit round 3, R3-B18 (R3-02, R3-04, R3-05; 272f28a to 6553740)",
+                  "another reading of a statement is the same statement when its period, its balances and its ledger "
+                  "rows on the day and the signed cents are the same (the `ledger:` key)",
+                  "so a 32-35-day monthly cycle stays over partial printouts of it"):
+        assert words in contract, words
+
+
+def test_r3_b18_the_code_s_docstrings_name_the_rules():
+    """Audit round 3, R3-B18: the package's identity, relation, shared-credit, supersede, months and words helpers name
+    their rule."""
+    from webapp import app as appmod
+
+    def doc(function):
+        return re.sub(r"\s+", " ", function.__doc__)
+
+    assert "audit round 3, R3-B18 (R3-02): its ledger key (`ledger:`)" in doc(appmod._account_identities)
+    assert "Audit round 3, R3-B18 (R3-02): a ledger key (`ledger:`" in doc(appmod._package_duplicates)
+    assert "Audit round 3, R3-B18 (R3-02, R3-04): whether two of `_package_superseded`'s statements" in doc(
+        appmod._pair_kind)
+    assert "A one-to-one match" in doc(appmod._shared_credits)
+    assert "Audit round 3, R3-B18 (R3-04): the credits the two share in the days both cover" in doc(
+        appmod._package_superseded)
+    assert "audit round 3, R3-B18 (R3-05): in that first phase" in doc(appmod._package_superseded)
+    assert "Audit round 3, R3-B18 (R3-02; the owner's Q6 identity of 2026-10-02" in doc(appmod._months_linked)
+    assert "an informal printout's label read as its bank (`_PACKAGE_BANK_ALIASES`)" in doc(appmod._package_bank)
+    assert "Audit round 3, R3-B18 (R3-04): a pair named although it shares no credit" in doc(appmod._overlap_words)
+    source = inspect.getsource(appmod)
+    assert "(analysis/chase.py:240, `bank=\"Chase Transaction Export\"`)" in source
+
+
+#: Audit round 3, R3-B18, review round 1: the code commits §20 and the contract name (the month-length rule's reach,
+#: then the second activity printout).
+R3_B18_R1_CODE_COMMITS = ("e2f83b6", "ddbac69")
+
+
+def test_the_spec_and_the_contract_record_r3_b18_review_round_1():
+    """Audit round 3, R3-B18, review round 1 (findings 1 to 3): §9.2's R14 bullet (the month-length rule for a monthly
+    cycle's length only, the double-count test on the statements the second phase keeps), §9.3's sentence, the R14,
+    R14 review round 1 and R3-B18 lines amended in place (the rule, the corrected residual, the one-row proof, the
+    savings export), the §20 line with the commit and the measurement, and the contract's entry marked in place and a
+    new entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("Its review round 1 (§20): the month-length rule reads a statement of a monthly cycle's length (35 "
+                  "days or fewer",
+                  "a printout of more days (a 60- or 90-day activity printout, a multi-month export) is left out in "
+                  "favour of all its account's statements",
+                  "the double-count test reads only the statements the second phase would keep side by side",
+                  "and before them another printout of more than 35 days that the others print, the longest first, as "
+                  "the first phase leaves it out"):
+        assert words in package, words
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "Its review round 1 (§20) changes no stored output and no served key either" in versions
+    assert "or a second printout of more than 35 days kept in the package" in versions
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for words in ("(a statement of 32 to 35 days; a printout of more days for all its account's statements that do, "
+                  "since R3-B18 review round 1, §20 below)",
+                  "(for a statement of 32 to 35 days; since R3-B18 review round 1, §20 below, a printout of more days "
+                  "takes all its account's statements)",
+                  "(amended in place by its review round 1, §20 below: the month-length rule reads a statement of 32 "
+                  "to 35 days only",
+                  "(corrected in place by its review round 1, §20 below: it read \"a statement of fewer than 28 days "
+                  "beside a long printout",
+                  "a possible pair leaves a statement out on the full row proof however short it is",
+                  "an export of a Chase savings account, whose statements read `Chase Savings`, never meets them"):
+        assert words in amendments, words
+    batch = _amendment_line(amendments, "- **One account's statements in a package:")
+    assert "the money counted once and R13's floor keeping the months; the ledger key" not in batch
+    line = _amendment_line(amendments, "- **R3-B18 review round 1: ")
+    for words in ("audit round 3, R3-B18, review round 1 (findings 1 to 3)", *R3_B18_R1_CODE_COMMITS,
+                  "Measured against `99f86c4`'s tree", "(finding 1)", "(finding 2)", "(finding 3)",
+                  "a second activity printout"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B18, review round 1 ({', '.join(R3_B18_R1_CODE_COMMITS)})",
+                  "(a statement of 32 to 35 days; a printout of more days in favour of all its account's statements "
+                  "that do, since its review round 1)",
+                  "the long-printout phase's month-length rule reads a statement of a monthly cycle's length (35 days "
+                  "or fewer) only",
+                  "and before them another printout of more than 35 days that the others print, so a second activity "
+                  "printout never keeps the first in the package"):
+        assert words in contract, words
+
+
+def test_r3_b18_r1_the_code_s_docstrings_name_the_rules():
+    """Audit round 3, R3-B18, review round 1: `_package_superseded` names the month-length rule's reach and the double
+    count it reads, `_LONGEST_CYCLE_DAYS` its evidence and `settled` its rule."""
+    from webapp import app as appmod
+
+    superseded = re.sub(r"\s+", " ", appmod._package_superseded.__doc__)
+    assert ("Review round 1: the month-length rule reads a statement of a monthly cycle's length "
+            "(`_LONGEST_CYCLE_DAYS` days or fewer) only") in superseded
+    assert "the monthly statements, each its own calendar month, stay" not in superseded
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod))
+    assert "Audit round 3, R3-B18 review round 1: the most days of a monthly cycle" in source
+    assert ("Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by "
+            "side") in source
+    # Corrected in place by review round 2 (finding 2): the claim that a second printout never keeps the first in the
+    # package was false (a 34-day export, a row-less printout), so it is gone and the rule alone stays.
+    assert ("Before that pass, the longest first, a printout of more than `_LONGEST_CYCLE_DAYS` days that the others "
+            "print is left out, as the first phase leaves it out.") in source
+    assert ("and before them another printout of more than `_LONGEST_CYCLE_DAYS` days that the others print, as this "
+            "phase leaves it out)") in superseded
+    assert "so a second activity printout never keeps the first in the package" not in source
+
+
+#: Audit round 3, R3-B18, review round 2: the code commit §20 and the contract name (one account's double count, the
+#: 32-35-day printout in the second-phase simulation, the row-less printout).
+R3_B18_R2_CODE_COMMITS = ("299778a",)
+
+
+def test_the_spec_and_the_contract_record_r3_b18_review_round_2():
+    """Audit round 3, R3-B18, review round 2 (findings 1 and 2): §9.2's R14 bullet (the false words quoted, the one
+    account's double count, the 32-35-day printout in the simulation, the residual), §9.3's sentence, the batch's and
+    review round 1's §20 lines qualified in place, the §20 line with the commit, the random search and the measurement,
+    and the contract's round 1 entry qualified in place and a new entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("amended in place by that review, which found false the words \"so neither a printout the monthly "
+                  "statements print nor a second activity printout keeps the long printout in the package\"",
+                  "Its review round 2 (§20): the double count is read only between two statements that are one "
+                  "account's, each printing a posted row",
+                  "or whose two statements print only rows of the printout being tested in its days",
+                  "a printout of 32 to 35 days that the month-length statements alone print and that counts nothing "
+                  "twice between them"):
+        assert words in package, words
+    assert "\"so neither a printout the monthly statements print" in package
+    assert package.count("so neither a printout the monthly statements print") == 1
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "Its review round 2 (§20) changes no stored output and no served key either" in versions
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    batch = _amendment_line(amendments, "- **One account's statements in a package:")
+    for words in ("and a printout of more than 35 days no longer waits; qualified in place by its review round 2",
+                  "34 of the reviewer's 2,000 random fabricated keyed packages",
+                  "and by its review round 2, §20 below: a 32-35-day printout the month-length statements alone print"):
+        assert words in batch, words
+    first = _amendment_line(amendments, "- **R3-B18 review round 1: ")
+    assert first.count("qualified in place by its review round 2, §20 below") == 2
+    line = _amendment_line(amendments, "- **R3-B18 review round 2: ")
+    for words in ("audit round 3, R3-B18, review round 2 (findings 1 and 2)", *R3_B18_R2_CODE_COMMITS,
+                  "Measured against `75bcabf`'s tree", "(finding 1)", "(finding 2)", "random search",
+                  "Recorded residuals:"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B18, review round 2 ({', '.join(R3_B18_R2_CODE_COMMITS)})",
+                  "qualified in place by its review round 2, below: true of the shapes pinned, not of every second "
+                  "printout",
+                  "or whose two statements print only rows of the printout being tested in its days",
+                  "a printout with no posted row is no double count"):
+        assert words in contract, words
+
+
+def test_r3_b18_r2_the_code_s_docstrings_name_the_rules():
+    """Audit round 3, R3-B18, review round 2: `_package_superseded` and its double-count helpers name the one account's
+    double count, the 32-35-day printout in the simulation and the residual's reach; `_possible_pair_named` names its
+    second reader."""
+    from webapp import app as appmod
+
+    superseded = re.sub(r"\s+", " ", appmod._package_superseded.__doc__)
+    for words in ("Review round 2: and a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length statements "
+                  "alone print",
+                  "the double count is read only between two statements that are one account's, each printing a posted "
+                  "row (`double_counted`",
+                  "(the residual's reach, recorded by review round 2)"):
+        assert words in superseded, words
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod))
+    for words in ("Audit round 3, R3-B18 review round 2: only two statements that are one account's, each printing a "
+                  "posted row",
+                  "Audit round 3, R3-B18 review round 2: whether `statement` prints a posted row in `printout`'s days",
+                  "Review round 2: so is a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length "
+                  "statements of `group` alone print"):
+        assert words in source, words
+    named = re.sub(r"\s+", " ", appmod._possible_pair_named.__doc__)
+    assert "Review round 2: the long-printout phase reads a possible pair as a double count on this evidence" in named
+
+
+#: Audit round 3, R3-B19: the code commit §20 and the contract name.
+R3_B19_CODE_COMMIT = "8231040"
+
+
+def test_the_spec_and_the_contract_record_r3_b19():
+    """Audit round 3, R3-B19 (R3-86; owner-decision default): T7's sentence, §9.2's gate bullet, §9.3's no-bump line,
+    §17.1's constant line and the new owner item, the §20 line with the commit and the measurement, and the contract's
+    entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    decisions = re.sub(r"\s+", " ", _section(text, "\n## 4. ", "\n## 5. "))
+    assert ("Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1, §20): the package also gates when its summed "
+            "held credits, per declared currency, are 10% or more of its summed True plus held and at least "
+            "`REVENUE_REVIEW_HELD_FLOOR`") in decisions
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    assert ("`revenue_review_required` is the gate of T7, applied to each member and (audit round 3, R3-B19: R3-86, "
+            "§20) to the package's sums per declared currency") in package
+    assert "Review only: every document row keeps its member's own flag, and no figure moves." in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "- Audit round 3, R3-B19 (§20): no bump in a fix batch either, and no stored-output change" in versions
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("`REVENUE_REVIEW_HELD_FLOOR = 500` (T7, B11), read on each statement and, by default, on a package's "
+                  "sums per currency (audit round 3, R3-B19; below)",
+                  "- **The held floor's scope: each statement, or also a package's sums (audit round 3, R3-86;",
+                  "Default implemented by audit round 3, R3-B19 (option 1, the recommendation)",
+                  "a one-line revert to `totals[\"revenue_review_required\"] = any_member_gated`",
+                  "0 corpus packages are affected."):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **The package revenue gate also reads T7's share on the package's sums")
+    for words in ("audit round 3, R3-B19 (R3-86)", R3_B19_CODE_COMMIT,
+                  "amends B11's I50 line above (\"a statement or package member also needs revenue review when",
+                  "Alternative (option 2, §17.1)", "the posted-credit share on the sums adds nothing",
+                  "R3-B18's package walks W1a (440 packages)"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    for words in (f"Audit round 3, R3-B19 (R3-86; {R3_B19_CODE_COMMIT}): the package revenue gate (T7) also reads the "
+                  "package's own sums",
+                  "per declared currency, the summed held credits of its members analysed at 5.6 or later are ten "
+                  "percent or more of their summed True revenue plus held and at least $500",
+                  "the alternative is the per-statement gate alone"):
+        assert words in contract, words
+
+
+def test_r3_b19_the_package_names_its_sums_gate():
+    """Audit round 3, R3-B19: `_package_analysis` names the package-sum gate, its currency rule and its owner item."""
+    from webapp import app as appmod
+
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod._package_analysis))
+    for words in ("Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): T7's shares are also read on the "
+                  "package's sums, # per declared currency",
+                  "totals[\"revenue_review_required\"] = any_member_gated or package_sums_gated"):
+        assert words in source, words
+
+
+#: Audit round 3, R3-B20: the code commits §20 and the contract name, one per issue.
+R3_B20_COMMITS = {"R3-48": "9e10fd5", "R3-19": "da7f88e", "R3-51": "5860bcc"}
+
+
+def test_the_spec_and_the_contract_record_r3_b20():
+    """Audit round 3, R3-B20 (R3-48, R3-19, R3-51): §9.2's Zelle bullet (the members' flag, `setting`, the parts None
+    where not established), §9.3's no-bump line, §10.1's fact and memo, §10.4's I51 and R52 bullets, §10.5's
+    Non-Revenue note, §10.6's prior reading, §10.7's Confirm, §10.8's cells and setting row, §17.1's Zelle default
+    (10), the three §20 lines with their commits, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("`counted_as_true_revenue` is the members' served reading (audit round 3, R3-B20: R3-19, §20; it was "
+                  "the setting)", "`setting` (packages only, R3-19) is the setting the package was served under",
+                  "Audit round 3, R3-B20 (R3-48; §10.4's I51, §20): where a member's revenue is not established",
+                  "(`revenue_view.unestablished_zelle_figures`)"):
+        assert words in package, words
+    assert "`counted_as_true_revenue` is the setting and" not in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B20 (§20): no bump in a fix batch either, and no stored-output change: the batch "
+            "changes the served view, the downloads, the CLI and the dashboard's text only") in versions
+    assert "the served package's `totals.zelle_deposits` gains `setting` (R3-19)" in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("\"Zelle deposits captured: $T (n), captured rows only\"",
+                  "On a package, Yes and No read the package's `counted_as_true_revenue`, its members' served reading",
+                  "\"; Zelle deposits counted after review $V, counted $C, held for review $H\"",
+                  "\"; Zelle deposits captured $T (captured rows only)\""):
+        assert words in cards, words
+    rules = re.sub(r"\s+", " ", _section(text, "\n### 10.4 ", "\n### 10.5 "))
+    for words in ("the Zelle figures (`zelle_deposits`, R2-OW17) carry parts of True and Held, so they follow the rule",
+                  "written even where the part had no row, so no reader takes a missing part for zero",
+                  "\"Zelle deposits: $T (n), captured rows only; in True revenue and held for review: N/A (not "
+                  "established)\""):
+        assert words in rules, words
+    copy_ = re.sub(r"\s+", " ", _section(text, "\n### 10.5 ", "\n### 10.6 "))
+    assert ("Audit round 3, R3-B20 (R3-19, §9.2, §20): the flag is the reading served, a package's its members'"
+            in copy_)
+    ledger = re.sub(r"\s+", " ", _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("\" With Zelle counted (Yes), the rules hold it for review: <label>. Confirm Revenue releases it in both "
+            "settings.\"") in ledger
+    review = re.sub(r"\s+", " ", _section(text, "\n### 10.7 ", "\n### 10.8 "))
+    assert ("Audit round 3, R3-B20 (R3-51; the owner-decision default, option (a), §17.1 (10)): the one-click Confirm "
+            "stays") in review
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    for words in ("Audit round 3, R3-B20 (R3-48; §10.4's I51, §20): where the statement's revenue is not established",
+                  "the package's `zelle_deposits.setting` row reads the totals' `setting`"):
+        assert words in exports, words
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("(10) Audit round 3, R3-51 (R3-B20; the owner-decision default, option (a); §10.6, §10.7, §20)",
+                  "(b) under No, offer no Confirm on such rows (review them with the setting on Yes)",
+                  "(c) ask for a second confirmation naming the hold", "1,883 rows, $1,756,811.77, in 337 statements"):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, issue, words in (
+            ("- **Where revenue is not established, the Zelle figures say what the captured rows say", "R3-48",
+             ("amends B11's I51 line and R2-B16's R52 line above", "standard A8")),
+            ("- **A package's Zelle flag is what its members serve", "R3-19",
+             ("amends R2-OW17's line above and §9.2's words", "Not fixed (2 of 3 verifiers)")),
+            ("- **Under No, an excluded Zelle deposit names the hold the Yes rules give it", "R3-51",
+             ("the owner-decision default, option (a)", "1,883 rows, $1,756,811.77, in 337 statements"))):
+        line = _amendment_line(amendments, start)
+        for word in (f"audit round 3, R3-B20 ({issue})", R3_B20_COMMITS[issue], *words):
+            assert word in line, (issue, word)
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B20 in all**")
+    for words in ("the head snapshots equal the base's in every key", "passes G-Z (6,886 rows, $4,033,315.10",
+                  "G7 not run (no lender or debit reading is touched)"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    for words in ("Audit round 3, R3-B20 (R3-48, R3-19, R3-51; 9e10fd5, da7f88e, 5860bcc): the Zelle figures say what "
+                  "was judged, and no classification moves",
+                  "A package's `zelle_deposits.counted_as_true_revenue` is what its members serve",
+                  "the one-click Confirm stays, the owner-decision default (R3-51)"):
+        assert words in contract, words
+
+
+def test_r3_b20_the_code_names_its_rules():
+    """Audit round 3, R3-B20: the helper, the package's flag and setting, and the dashboard's prior reader name their
+    rules."""
+    from analysis import revenue_view
+    from webapp import app as appmod
+
+    helper = re.sub(r"\s+", " ", revenue_view.unestablished_zelle_figures.__doc__)
+    assert "Audit round 3, R3-48 (§10.4, I51)" in helper and "present or not" in helper
+    source = re.sub(r"\s+", " ", inspect.getsource(appmod._package_analysis))
+    for words in ("\"counted_as_true_revenue\": package_zelle[\"counted\"]", "\"setting\": zelle_counted",
+                  "`counted_as_true_revenue` is the members' served reading (true when every kept member carrying the "
+                  "figures, or # contributing its excluded Zelle deposits, is served with them counted)"):
+        assert words in source, words
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    for words in ("const ZELLE_PRIOR_SIGNAL = \"zelle_prior:\";", "function zellePriorReading(record) {",
+                  "function zellePriorSentence(record) {", "}, { package: true })} ` +"):
+        assert words in script, words
+
+
+def test_the_spec_records_r3_b21():
+    """Audit round 3, R3-B21 (R3-78; documentation and a held patch only): §17.1's Q3b bullet widens the owner's
+    question to Zelle deposits that print no sender, with the default and both alternatives; §2.1's Q3b row points at
+    it; §20 records the batch. Nothing reaches the code: the hold stays held back (no reason code, no predicate)."""
+    from analysis import true_revenue
+    from analysis.revenue import REVENUE_TIER_REASONS
+
+    text = SPEC.read_text(encoding="utf-8")
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    [q3b] = [line for line in still_open.split(" - **") if line.startswith("No-sender e-Transfers' round-sum repeats")]
+    for words in ("leaves Q3b as it is: still held back from the code, the round-repeat hold for no-sender e-Transfers "
+                  "unchanged. Since the amendment counts Zelle by default, the same question reaches Zelle deposits "
+                  "that print no sender (Bank of America's 'ZELLE PAYMENT FROM CONF <reference>', Chase's transaction "
+                  "export 'ZELLE CREDIT', U.S. Bank's 'ZELLE INSTANT PMT TO <name>').",
+                  "Under Yes, 78 such rows, $47,363.14, in 21 statements are counted `p2p` today; 7 rows, $2,500.00, "
+                  "in 1 statement repeat an equal round sum.",
+                  "Default (audit round 3, R3-78): the held patch covers them too (`_no_sender_p2p`), so they are held "
+                  "with the e-Transfers when Q3b lands; alternative: e-Transfers only.",
+                  "Keyless Venmo and Cash App cash-outs, RTP and push rails stay outside the hold (default); "
+                  "alternative: include them (an approximate probe found equal round repeats in 8 statements, 16 rows, "
+                  "$159,600.00).",
+                  "`R3-B21_q3b_no_sender_zelle.patch`"):
+        assert words in q3b, words
+    rulings = _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
+    [row] = [line for line in rulings.splitlines() if line.startswith("| Q3b (2026-10-02, round-2 R09) |")]
+    assert "(scope: §17.1, R3-78)" in row and "**Not yet in the code**" in row
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **No-sender Zelle deposits join Q3b's question and its saved patch**")
+    for words in ("audit round 3, R3-B21 (documentation and a held patch only)", "R3-78",
+                  "`R3-B21_q3b_no_sender_zelle.patch`", "`_no_sender_p2p`", "nothing reaches the code",
+                  "fail on the port as saved (6 tests: the Zelle rows stay counted) and pass on the widened patch",
+                  "under Yes, 458 rows, $1,015,100.00 (0.539% of True), in 89 statements",
+                  "the e-Transfer part as saved, 451 rows, $1,012,600.00 (0.537%), in 88 statements",
+                  "the Zelle widening, 7 rows, $2,500.00, in 1 statement", "only their `zelle_prior` changing"):
+        assert words in line, words
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B21 in all**")
+    for words in ("the tip carries the base's code", "equal the base's in every key in both Zelle readings",
+                  "No G7 and no parser gate", "no stored output and no version bump"):
+        assert words in measured, words
+    # Held back: the code carries neither the reason code nor the predicate.
+    assert "p2p_round_repeat_no_sender" not in REVENUE_TIER_REASONS
+    assert not hasattr(true_revenue, "_no_sender_p2p") and not hasattr(true_revenue, "NO_SENDER_ROUND_REPEAT")
+
+
+#: Audit round 3, R3-B22: the code commits §20 and the contract name, one per issue.
+R3_B22_COMMITS = {"R3-01": "f0cec80", "R3-67": "84196a5", "R3-68": "88e430f"}
+
+
+def test_the_spec_and_the_contract_record_r3_b22():
+    """Audit round 3, R3-B22 (R3-01, R3-67, R3-68): §9.3's no-bump line, §10.1's copied summaries (the statement memo's
+    decision, the held clause, the package memo's returned payments, the basis words), §13's `batch.py` row, the
+    three §20 lines with their commits, the batch's measured line, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B22 (§20): no bump in a fix batch either, and no stored-output change: the batch "
+            "changes the copied summaries (`generateSummary`, dashboard text) and the batch CLI's CSV only") in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Audit round 3, R3-B22 (the copied summaries, `generateSummary`; §4's T7, §11, §20):",
+                  "**The statement memo's decision (R3-01)** is the pill's: `accountDecision`",
+                  "\"True revenue $T ($t a month), verified revenue $V ($v a month), held for review $H (n credit(s)), "
+                  "non-revenue $N ($n a month)\", only where the revenue is established and a credit is held",
+                  "\"ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding "
+                  "rate)\"", "reads \"re-debited: counted once in the withholding rate\"",
+                  "\"$P confirmed lender debits paid (N returned funder payments, $R), <rate> confirmed withholding\"",
+                  "\"… potential lender debits at <x>% exposure (withholding basis: true revenue).\"",
+                  "\"(withholding basis: true revenue, not established)\""):
+        assert words in cards, words
+    consumers = re.sub(r"\s+", " ", _section(text, "\n## 13. ", "\n## 14. "))
+    assert ("audit round 3, R3-B22 (R3-68, §11): the columns `withholding_denominator_mode` and "
+            "`withholding_denominator_label` immediately before `withholding_numerator`") in consumers
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, issue, words in (
+            ("- **The copied statement memo reads the pill's decision, and both memos name the money held for review**",
+             "R3-01", ("amends the final review of round 2's F1 line above", "759 of the 874 gated re-parsed "
+                       "statements")),
+            ("- **The copied package memo names returned funder payments**", "R3-67",
+             ("the download half is R3-B23's", "Beside the brief: R3-B02 (the owner's \"Count it once\")")),
+            ("- **The copied memos and the batch CSV name the withholding basis**", "R3-68",
+             ("which settled the basis, not its labels", "empty on the error row"))):
+        line = _amendment_line(amendments, start)
+        for word in (f"audit round 3, R3-B22 ({issue}", R3_B22_COMMITS[issue], *words):
+            assert word in line, (issue, word)
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B22 in all**")
+    for words in ("the head snapshots equal the base's in every key", "G7 not run", "no stored output",
+                  "no version bump"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    assert ("Audit round 3, R3-B22 (R3-01, R3-67, R3-68; f0cec80, 84196a5, 88e430f): the copied memos and the batch CSV "
+            "say what the dashboard says, and no classification moves") in contract
+
+
+def test_r3_b22_the_code_names_its_rules():
+    """Audit round 3, R3-B22: the memo's decision, the held clause, the funder line, the warning lines and the basis
+    words, in the code."""
+    import batch
+
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    for words in ("const decision = idleNote || unverifiedNote ? \"review_required\" : accountDecision(currentAnalysis);",
+                  "function packageFunderSummaryLine(funder, currency = \"USD\", returnedPayments = []) {",
+                  "function withholdingBasisWords(source = {}) {",
+                  "${held}non-revenue ${nonRevenue}${zelleNote}.",
+                  "${lenderSummary}${returnedLines}${paymentChangeLines}"):
+        assert words in script, words
+    start = batch.FIELDS.index("withholding_numerator")
+    assert batch.FIELDS[start - 2:start] == ["withholding_denominator_mode", "withholding_denominator_label"]
+
+
+#: Audit round 3, R3-B23: the code commits §20 and the contract name, one per issue.
+R3_B23_COMMITS = {"R3-49": "e482ed4", "R3-47": "47288fb", "R3-67": "686912a", "R3-62": "897d136"}
+
+
+def test_the_spec_and_the_contract_record_r3_b23():
+    """Audit round 3, R3-B23 (R3-49, R3-47, R3-67, R3-62): §9.3's no-bump line, §10.4's I51 download rule, §10.8's
+    sections (the repeated account, the package with nothing analysed, the returned funder payment, the account
+    title), §17.1's default D1, R2-OW10's line amended in place, the four §20 lines with their commits, the batch's
+    measured line, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B23 (§20): no bump in a fix batch either, and no stored-output change: the batch "
+            "changes the package and statement downloads only") in versions
+    na_rules = re.sub(r"\s+", " ", _section(text, "\n### 10.4 ", "\n### 10.5 "))
+    assert ("empty when a member is not established or no statement is analysed (R54; audit round 3, R3-B23: R3-49, "
+            "§20, where its revenue counts, `unverified_deposit_count`, `potential_revenue_count`, "
+            "`verified_revenue_count` and `confirmed_true_revenue_count`, are empty too") in na_rules
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    for words in ("each is a section `repeated_account_<n>`, in listed order, after the `excluded_account_<n>` sections",
+                  "\"account `<n>` of `<file>` repeats `<file>`\", plus \" (`<the reason's words above>`)\" for a "
+                  "superseded printout and nothing more for a repeat",
+                  "(a repeated account of a document: its `repeated_account_<n>` section, R2-B14's bullet above; audit "
+                  "round 3, R3-B23: R3-47)",
+                  "Audit round 3, R3-B23 (R3-49, §10.4, §20): or no statement analysed (R54)",
+                  "one section `returned_funder_payment_<n>` per served `returned_funder_payments` item, in served "
+                  "order, after the `funder_<n>` sections",
+                  "\"Returned funder payment: `<funder>` `<amount>` `<unit>` debited `<date>`, returned `<date>` "
+                  "(\"`<the bank's words>`\"). Not counted as paid; still in the withholding rate.\"",
+                  "the package ledger table (`package_transaction`) gains no column",
+                  "**Statement CSV/XLSX:** `statement,account_title` (a document's `account_<n>.statement,account_title`, "
+                  "account by account) is written only where the title reads as a bank's account designation",
+                  "The JSON download and the served payload keep `statement.account_title` as read (the API contract)"):
+        assert words in exports, words
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("**The account title in the statement CSV/XLSX (audit round 3, R3-62; §10.8, §20;",
+                  "Default implemented (D1, audit round 3, R3-B23)",
+                  "(b) leave the row out of the CSV/XLSX on every statement; (c) write every title as printed under a "
+                  "relabelled field that says it is the holder line's tail; (d) as before the batch",
+                  "Stakes: cosmetic, about 1% of statements"):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    owner_title = _amendment_line(amendments, "- **The holder readers publish the account title they drop**")
+    assert ("A title is published as printed (amended in place by audit round 3, R3-B23: R3-62, §10.8 and below: the "
+            "statement CSV/XLSX write it only where it reads as a bank's designation") in owner_title
+    for start, issue, words in (
+            ("- **A package that analyses no statement downloads no partial revenue figure**", "R3-49",
+             ("completes R54's line above for the downloads", "`_PACKAGE_NO_ANALYSIS_COUNT_KEYS`",
+              "The live store's 6 jobs without an analysis (3 done, 3 interrupted)")),
+            ("- **The package CSV/XLSX name a document's account left out as a repeat**", "R3-47",
+             ("review R2-B14-r2's finding 2", "`_REPEATED_ACCOUNT_FIELDS`", "0 corpus documents")),
+            ("- **The package CSV/XLSX list each returned funder payment with the dashboard's warning**", "R3-67",
+             ("the memo half being R3-B22's", "Beside the brief: R3-B02 (the owner's \"Count it once\")",
+              "`_RETURNED_FUNDER_PAYMENT_FIELDS`")),
+            ("- **The statement CSV/XLSX write the account title only where it reads as a bank designation**", "R3-62",
+             ("amends R2-OW10's line above, \"a title is published as printed\", marked in place",
+              "Beside the brief's word list: `LLOYDS` and `LLOYD'S`",
+              "the 34 designations written (First Citizens 14, RBC 12, Capital One 4, Wells Fargo 4) and the 24 others "
+              "left out"))):
+        line = _amendment_line(amendments, start)
+        for word in (f"audit round 3, R3-B23 ({issue}", R3_B23_COMMITS[issue], *words):
+            assert word in line, (issue, word)
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B23 in all**")
+    for words in ("the head snapshots equal the base's in every key", "G7 not run", "no stored output",
+                  "no version bump"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    assert ("Audit round 3, R3-B23 (R3-49, R3-47, R3-67, R3-62; e482ed4, 47288fb, 686912a, 897d136): the downloads say "
+            "what the dashboard says, and no classification moves") in contract
+
+
+def test_r3_b23_the_code_names_its_rules():
+    """Audit round 3, R3-B23: the export's rules, in the code."""
+    from analysis import holder_name
+    from webapp import app as appmod
+
+    assert appmod._PACKAGE_NO_ANALYSIS_COUNT_KEYS == (
+        "unverified_deposit_count", "potential_revenue_count", "verified_revenue_count", "confirmed_true_revenue_count")
+    export = re.sub(r"\s+", " ", inspect.getsource(appmod._package_for_export))
+    assert "no_analysis = isinstance(totals, dict) and totals.get(\"completed\") == 0" in export
+    # The source with its comments' line breaks read as spaces.
+    rows = re.sub(r"\s+", " ", re.sub(r"\n\s*# ", " ", inspect.getsource(appmod._package_rows)))
+    for words in ("rows.append((f\"repeated_account_{idx}\", \"words\", _repeated_account_words(entry, filenames)))",
+                  "rows.append((f\"returned_funder_payment_{idx}\", \"words\", _returned_funder_payment_words(item)))",
+                  "a repeated account of a document, a B11 repeat or an R14 superseded printout, has its own "
+                  "`repeated_account_<n>` section below, and a whole repeated job its document row and duplicate group "
+                  "above"):
+        assert words in rows, words
+    assert "a repeat is named by its document row and its duplicate group above" not in rows
+    assert appmod._REPEATED_ACCOUNT_FIELDS[-1] == "duplicate_of"
+    assert appmod._RETURNED_FUNDER_PAYMENT_FIELDS[:3] == ("funder", "amount", "debit_date")
+    assert holder_name._DESIGNATION_WORDS <= appmod._EXPORT_DESIGNATION_WORDS
+    flat = re.sub(r"\s+", " ", inspect.getsource(appmod._account_analysis_rows))
+    assert ("if section == \"statement\" and key == \"account_title\" and not _designation_title(item):") in flat
+
+
+#: Audit round 3, R3-B24: the code commits §20 and the contract name.
+R3_B24_COMMITS = ("d2f209e", "9a5e610")
+
+
+def test_the_spec_and_the_contract_record_r3_b24():
+    """Audit round 3, R3-B24 (R3-16): §9.1's served keys, §9.2's package list and totals, §9.3's no-bump line, §10.1's
+    fact, evidence row and memo clauses, §10.6's filter and note, §10.7's unread flag, §10.8's sections, §13's CLI rows,
+    §17.1's new default D1, the §20 lines with their commits and the batch's measured line, and the contract's entry
+    beside R2-OW15's."""
+    text = SPEC.read_text(encoding="utf-8")
+    served = re.sub(r"\s+", " ", _section(text, "\n### 9.1 ", "\n### 9.2 "))
+    for words in ("audit round 3, R3-B24 (R3-16; §17.1's default D1, §20; standard G7 and P22): the served copy "
+                  "(`_served_account`; never stored) adds, only where a credit is flagged on a statement whose revenue "
+                  "is established", "`large_unsourced_deposit_count`, `large_unsourced_deposit_total` and "
+                  "`large_unsourced_deposits`", "`LARGE_UNSOURCED_DEPOSIT_REASONS` (`no_payer_printed`, "
+                  "`check_deposit`, `wire_named_sender`, `named_payer_one_off`, `numbered_company_payer`, `p2p`, "
+                  "`named_payer_unlabelled`, `payer_text_not_read`)", "of $10,000 or more "
+                  "(`LARGE_UNSOURCED_DEPOSIT_FLOOR`) and strictly more than 25% (`LARGE_UNSOURCED_DEPOSIT_SHARE`)",
+                  "a Zelle deposit counted under Yes can be flagged, the one excluded under No cannot"):
+        assert words in served, words
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    for words in ("**Audit round 3, R3-B24 (R3-16; §9.1, §17.1's default D1, §20; standard G7 and P22):**",
+                  "a deposit R2-OW16 holds as an own-account transfer is not listed, though its statement viewed "
+                  "alone lists it", "the package-month share is §17.1's alternative (e)",
+                  "a refused package nulls it and keeps the count"):
+        assert words in package, words
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B24 (§20): no bump in a fix batch either, and no stored-output change: the large "
+            "unsourced deposits' flag is served, never stored") in versions
+    assert "which the cache-bust R3-B25 moves covers" in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Audit round 3, R3-B24 (R3-16, information only;",
+                  "\"Large deposits to source: N · $X (each $10,000 or more and over 25% of True; counted, not "
+                  "verified)\"", "\"Source it\" chip", "\"1 large deposit to source: $X, S% of True revenue "
+                  "(counted, not verified).\"", "\"N large deposits to source: $X (each over 25% of its "
+                  "statement's True revenue; counted, not verified).\""):
+        assert words in cards, words
+    ledger = re.sub(r"\s+", " ", _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("\"Large deposit: S% of True revenue, counted without proof of the sale. Ask for its source.\" "
+            "(`largeDepositNotes`) on the statement page, the statement window and the package ledger") in ledger
+    queue = re.sub(r"\s+", " ", _section(text, "\n### 10.7 ", "\n### 10.8 "))
+    assert ("The side badge (`reviewBadgeValue`), the Held for Review view and its grouping, T7's gate, "
+            "`accountDecision`, the pill and the package decision do not read it") in queue
+    exports = re.sub(r"\s+", " ", _section(text, "\n### 10.8 ", "\n## 11. "))
+    for words in ("- **Large unsourced deposits** (audit round 3, R3-B24: R3-16; §9.1, §9.2, §20).",
+                  "one section `large_unsourced_deposit_<n>` per served item follows the Zelle rows",
+                  "after the `debit_flag_<n>` sections, through `_escaped_rows`"):
+        assert words in exports, words
+    consumers = re.sub(r"\s+", " ", _section(text, "\n## 13. ", "\n## 14. "))
+    for words in ("the columns `large_unsourced_deposit_count` and `large_unsourced_deposit_total` right after "
+                  "`non_revenue_count`", "\"Large deposits to source: N, $X (each $10,000 or more and over 25% of "
+                  "True; information only)\""):
+        assert words in consumers, words
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("**Large unsourced deposits: the information flag's defaults (audit round 3, R3-16; standard G7, "
+                  "P22).**", "Default implemented (D1, audit round 3, R3-B24", "(b) every counted reason",
+                  "(c) Ocrolus's test", "(d) also send the statement to review: contradicts T7",
+                  "(e) a package-month share instead of the statement's", "(f) no flag (before the batch)",
+                  "It sits beside, and is not merged into, R2-OW12's default (3) above",
+                  "in 196 of them one is more than half of the True an advance is sized on, and 285 of the 415 carry "
+                  "no review signal at all"):
+        assert words in still_open, words
+    assert still_open.index("**Wires with no sender: the funding aid's defaults") < still_open.index(
+        "**Large unsourced deposits: the information flag's defaults")
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **A large counted deposit whose source the statement does not prove is "
+                                       "flagged for information**")
+    for word in ("audit round 3, R3-B24 (R3-16", *R3_B24_COMMITS, "an owner size-flag question",
+                 "under Yes, 496 rows, $17,982,934.08 (9.54% of True), in 415 statements",
+                 "the served flag leaves out the 3 rows ($206,607.13) of 3 statements whose revenue is not established",
+                 "its statements are served and downloaded byte for byte as at the base"):
+        assert word in line, word
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B24 in all**")
+    for words in ("the head snapshots equal the base's in every key", "G7 not run", "no stored output",
+                  "no version bump"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    entry = ("Audit round 3, R3-B24 (R3-16; d2f209e, 9a5e610): a large counted deposit whose source the statement does "
+             "not prove is flagged for information, beside R2-OW15's served debit flags, and no classification moves")
+    assert entry in contract
+    # Beside R2-OW15's entry, as the brief places it.
+    assert contract.index("Owner ruling 2026-10-02, R2-OW15 (the underwriter's Q6") < contract.index(entry) < (
+        contract.index("Owner ruling 2026-10-02, R2-OW16 (the underwriter's Q4"))
+
+
+def test_r3_b24_the_code_names_its_rules():
+    """Audit round 3, R3-B24: the flag's constants, its served place, the package's reading, the currency sets, the CLI
+    columns and the dashboard's helpers."""
+    import batch
+    from analysis import revenue_view
+    from webapp import app as appmod
+
+    assert (revenue_view.LARGE_UNSOURCED_DEPOSIT_FLOOR, revenue_view.LARGE_UNSOURCED_DEPOSIT_SHARE) == (10_000, 25)
+    assert len(revenue_view.LARGE_UNSOURCED_DEPOSIT_REASONS) == 8
+    served = re.sub(r"\s+", " ", inspect.getsource(revenue_view._served_account))
+    assert ("if metrics[\"revenue_established\"] is True and tiered: metrics.update(large_unsourced_deposit_metrics( "
+            "large_unsourced_deposits(rows, metrics.get(\"true_revenue_total\"))))") in served
+    package = re.sub(r"\s+", " ", inspect.getsource(appmod._package_analysis))
+    assert ("if ready and tiered and revenue_established: for large_item in large_unsourced_deposits( "
+            "tier_rows[\"counted_flagged\"], round(tier_totals[\"verified\"] + tier_totals[\"counted_flagged\"], 2)):"
+            ) in package
+    assert "large_unsourced_deposit_total" in appmod._CROSS_CURRENCY_TOTAL_KEYS & appmod._PACKAGE_MATCH_TOTAL_KEYS
+    start = batch.FIELDS.index("non_revenue_count") + 1
+    assert batch.FIELDS[start:start + 2] == ["large_unsourced_deposit_count", "large_unsourced_deposit_total"]
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    for words in ("function largeDepositFacts(source = {}, currency = \"USD\", { package: isPackage = false } = {}) {",
+                  "function largeDepositEvidenceRowHtml(", "function largeDepositNotes(tx, debitFlags = null) {",
+                  "function largeDepositSummary(source = {}, currency = \"USD\", { package: isPackage = false } = {}) {"):
+        assert words in script, words
+
+
+def test_the_spec_and_the_contract_record_r3_b24_review_round_1():
+    """Audit round 3, R3-B24, review round 1 (findings 1 to 3): the package memo's space restored; a package share
+    is of the member's True as the package counts it (§9.2, §10.1, §10.6, §17.1 with alternative (e)'s narrower
+    variant, the contract); §9.3 names the refused total on packages without a flag; the §20 line, its commit and
+    its measurement."""
+    text = SPEC.read_text(encoding="utf-8")
+    package = re.sub(r"\s+", " ", _section(text, "\n### 9.2 ", "\n### 9.3 "))
+    assert ("each share its own statement's (the package-month share is §17.1's alternative (e)): of the member's "
+            "True as the package counts it, its holds applied, the True Deposits its row shows on the package "
+            "page") in package
+    assert "so the package can list a deposit its statement alone does not" in package
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("every refused (cross-currency) package's `currency.refused_total_fields`, which gains "
+            "`large_unsourced_deposit_total` with or without a flag") in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    assert "(each share is its member statement's True as the package counts it" in cards
+    assert "keeps the space 9a5e610 had dropped" in cards
+    ledger = re.sub(r"\s+", " ", _section(text, "\n### 10.6 ", "\n### 10.7 "))
+    assert ("\"of its statement's True revenue\" (the True Deposits that statement's row shows on the package "
+            "page") in ledger
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    for words in ("each share of the member's True as the package counts it, its holds applied",
+                  "(e) a package-month share instead of the statement's (a narrower variant: a package member's share "
+                  "of the True its statement shows alone, before the package's holds"):
+        assert words in still_open, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **R3-B24 review round 1:")
+    for word in ("audit round 3, R3-B24, review round 1 (findings 1 to 3)", "c57d5c8", "(finding 1)",
+                 "(finding 2)", "(finding 3)", "is AST-identical (comments only)", "0 debit moves",
+                 "No stored output, no version bump"):
+        assert word in line, word
+    assert amendments.index("- **Audit round 3, R3-B24 in all**") < amendments.index("- **R3-B24 review round 1:")
+    assert ("each share its own statement's True as the package counts it (its holds applied, the True Deposits its "
+            "row shows on the package page; R3-B24 review round 1)") in _flat(CONTRACT)
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    assert ("average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average "
+            "monthly cash flow, ") in script
+    assert "gross credits,${" not in script
+
+
+#: Audit round 3, R3-B25: the round's owner decisions, one per issue, with the batch that shipped its default.
+R3_B25_OWNER_DECISIONS = {"R3-86": "R3-B19", "R3-21": "R3-B02", "R3-73": "R3-B02", "R3-20": "R3-B03",
+                          "R3-79": "R3-B03", "R3-25": "R3-B05", "R3-84": "R3-B05", "R3-51": "R3-B20",
+                          "R3-78": "R3-B21", "R3-92": "R3-B08", "R3-16": "R3-B24", "R3-62": "R3-B23",
+                          "R3-26": "R3-B01"}
+
+
+def test_the_spec_and_the_handoff_record_r3_b25_s_round_3_documents():
+    """Audit round 3, R3-B25 (D1 to D5; documentation only): §17.1's round-3 owner packet (each decision with its batch,
+    no figure repeated), R3-28's and R3-76's evidence (owner items, no fix), R3-79's same-day payoff as point (31) of
+    the lender payment changes, and the handoff's round-3 state (the run, the hosting line, what is left, the open
+    owner items, the round-3 folder)."""
+    text = SPEC.read_text(encoding="utf-8")
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    [packet] = [line for line in still_open.split(" - **")
+                if line.startswith("Audit round 3 (2026-10-07): the owner decisions.**")]
+    assert ("Each default is in the code (or, for Q3b, in the held patch); the owner may change it.") in packet
+    for issue, batch in R3_B25_OWNER_DECISIONS.items():
+        assert f"{issue} ({batch})" in packet, issue
+    for words in ("answered by the owner on 2026-10-07, \"Count it once (Recommended)\"",
+                  "answered by the owner on 2026-10-07, \"Exclude worded payoffs (Recommended)\"",
+                  "answered by the owner on 2026-10-07, \"Add a 'Caught up' line\" (§19.1), so the brief's default "
+                  "(no line of its own) no longer applies",
+                  "the lender payment changes' point (24)", "point (30)", "the Zelle setting's default (10)",
+                  "the returned funder payments' default (4)", "the returned funder payments' default (9)",
+                  "the withholding basis follow-ups' default (1)", "so no patch is held",
+                  "R3-07's history rewrite is a git question, not a reading: it is in the handoff only."):
+        assert words in packet, words
+    assert not re.search(r"\$\d{1,3},\d{3}", packet)  # the batches' own entries carry their figures
+    # The lender payment changes bullet precedes the packet, and the G7 bullet follows it.
+    assert (still_open.index("- **Lender payment changes: the defaults") < still_open.index(
+        "- **Audit round 3 (2026-10-07): the owner decisions.**") < still_open.index(
+        "- **Debit readings waiting on a G7 admission:**"))
+    for words in ("(31) a known shape: a lump sum dated the same day as the last regular payment carries no "
+                  "\"(possible payoff)\" note, since the payoff test reads only a one-off dated after the last "
+                  "payment (audit round 3, R3-79's side observation, recorded by R3-B25; alternative: read a same-day "
+                  "one-off too)",
+                  "Audit round 3 (R3-28) measured what that counts on the daily core-processor template: of about "
+                  "$296K of counted unread credits (re-parsed, both Zelle readings), about $47K to $50K sits under "
+                  "blocks the MCA standard excludes",
+                  "so holding those rows, or widening the unread screen to these forms, is a reading change the owner "
+                  "can now take; default: unchanged",
+                  "and P18 (audit round 3, R3-76, adds evidence to P18: a tax-preparation business's `TAX REFUND PROC "
+                  "DES:RE DISB` credits, two statements, are excluded as refunds with no review path",
+                  "whether `RE DISB` is the preparer's fee is unconfirmed; default: unchanged"):
+        assert words in still_open, words
+    handoff = _flat(HANDOFF)
+    for words in ("# True revenue: handoff (2026-10-10)",
+                  "The audit round-3 fix run (R3-B01 to R3-B25, on top of `1a761de`) is complete",
+                  "| Audit round 3 | re-audit on `1a761de`: 91 issues verified; 89 fixed or recorded in R3-B01..R3-B24, "
+                  "2 owner items (R3-28, R3-76); 14 owner decisions",
+                  "| Acceptance of round 3 (the Accept phase) |", "| pending |",
+                  "| round-3 fix run head (before acceptance) | 67.73% | 28.11% | 17.25% | 15.03% | 147 |",
+                  "| the same under the Zelle setting No | 66.91% | 28.11% | 16.62% | 16.48% | 170 |",
+                  "`fix/boa-nsf` = `f2e9ae1`", "`fix/capone-daily-ledger` `6c2eadb`", "`ui/5.7-dashboard-clarity` `a858647`",
+                  "**The Accept phase**", "**The final review** of `1a761de..HEAD`",
+                  "**Merge the hosting line back** before any release of `true-revenue`",
+                  "**Audit round 3's owner decisions**", "`a93aedc` and `949b9e1`", "R3-28", "R3-76",
+                  "`round3/held/R3-B21_q3b_no_sender_zelle.patch`", "**R3-75's parser re-orientation**",
+                  "**R3-90 parts B and C**", "**R3-89's person-named company holder**", "**Found (not in scope):**",
+                  "`platform_unconfirmed`", "`PMT INFO:`", "`audit/round3/`", "`tests/test_l1s3_census.py`"):
+        assert words in handoff, words
+    for issue in R3_B25_OWNER_DECISIONS:
+        assert issue in handoff, issue
+
+
+#: Audit round 3, R3-B25: the words §20's "Audit round 3 in all" line carries: this batch alone, then the round's True
+#: and Verified moves, each the sum of the batches' recorded moves in run order, and the declared demotion. Review
+#: round 1 (finding 1): a batch whose rows sit in few statements, and the Verified move (one row), read in rows and
+#: points, as R3-B07's own line records them; the per-batch sums reconcile to the cent in the private report only.
+R3_B25_IN_ALL_WORDS = ("**this batch alone, 0 credits change**",
+                       "`classification_version` 5.7 → 5.8 and `analysis_stage_version` 33 → 36",
+                       "+$419,550.25 under Yes", "+$430,640.25 under No",
+                       "R3-B07's 3 rows, +0.05 points", "R3-B09's 13 rows, −0.002 points",
+                       "R3-B10's 11 rows, +0.016 points",
+                       "R3-B12's 86 rows under Yes and 33 under No, −$28,590.00 under Yes and −$17,500.00 under No, "
+                       "as its line records", "R3-B16's 59 rows, +$268,447.94, as its line records",
+                       "the per-batch sums reconcile to the cent in R3-B25's private report",
+                       "Verified 28.1145% → 28.1084% (−0.006 points) in both readings, the round's one verified "
+                       "demotion, 1 row, declared (`q5_q6_relayed_customer`, R3-B07)",
+                       "True 70.0419% → 70.1648% (+0.12 points: R3-B16's 57 rows, R3-B07's 3, R3-B09's 7 and R3-B12's 84",
+                       "G18 finds no parse move", "no row leaves or enters `non_revenue`", "G7")
+
+#: Audit round 3, R3-B25 review round 1 (finding 1): the only cent figures the round's lines may carry are corpus
+#: totals and the round's True moves (many statements each), and the moves of R3-B12 and R3-B16, which their own §20
+#: lines already record. Any other cent figure there would be a few statements' money, or derive one by subtraction.
+R3_B25_ROUND_FIGURES = {"188,066,963.97", "278,307,943.20", "188,486,514.22", "419,550.25", "430,640.25",
+                        "28,590.00", "17,500.00", "268,447.94"}
+
+
+def _cent_figures(text: str) -> set:
+    return set(re.findall(r"\$(\d[\d,]*\.\d\d)\b", text))
+
+
+#: Audit round 3, R3-MERGE: round 3's 33 -> 36 stage note ends where the hosting line's notes and the merge's
+#: 36 -> 37 note begin (it ended at `ANALYSIS_STAGE_VERSION = 36` before the merge-back).
+STAGE_NOTE_36_END = "# The hosting line (`fix/boa-nsf`, served on the Fly demo) moved the stage on"
+
+
+def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
+    """Audit round 3, R3-B25 (V1 to V5): the code reads 5.8 and stage 36; §9.3's 5.8 line (33 → 36, the skipped stages
+    named) and its closing paragraph; §20's two lines (the 5.7 notice with the cache-bust value `true-revenue-9`, and
+    the round in all, each batch's recorded move summing to the round's); the contract's version line; the handoff's
+    versions words and round-3 row. R2-B16's lines stay as they were (pinned above)."""
+    from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
+
+    # Audit round 3, R3-MERGE: the hosting line's merge-back moved the stage on to 37 (no classification change); R3-B25's
+    # own move (33 -> 36) stays recorded below.
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 37)
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    for words in ("- 5.8 (audit round 3, R3-B25: §20): `CLASSIFICATION_VERSION = \"5.8\"`, and `ANALYSIS_STAGE_VERSION` "
+                  "33 → 36 in the same commit, the last of the run.",
+                  "Stages 34 and 35 are skipped: the hosting line (`fix/boa-nsf`, deployed on the Fly demo) used them for "
+                  "its Capital One carry-in fix (34) and its Bank of America daily-ledger table (35)",
+                  "So an analysis saved at 5.7 gets the re-analyze notice, and its Re-analyze misses the stage-33 cache "
+                  "entry",
+                  "and 5.7 sets it on every analysis saved at 5.6 or earlier (audit round 2, R2-B16: R56), and 5.8 sets "
+                  "it on every analysis saved at 5.7 or earlier (audit round 3, R3-B25)."):
+        assert words in versions, words
+    # The stage note names the skip and the round's stored output, batch by batch.
+    note = (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8")
+    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split(STAGE_NOTE_36_END, 1)[0])
+    for words in ("TRUE-REVENUE audit round 3, batch R3-B25", "Stages 34 and 35 are skipped",
+                  "A warm cache keyed on 33 would serve each of them as the round-2 reading",
+                  "computed when served or exported, never stored", "Nothing of this branch's between 33 and 36 was "
+                  "released"):
+        assert words in note, words
+    for batch in ("R3-B01", "R3-B02", "R3-B03", "R3-B04", "R3-B05", "R3-B06", "R3-B07", "R3-B08", "R3-B09", "R3-B10",
+                  "R3-B11", "R3-B12", "R3-B15", "R3-B17", "R3-B18", "R3-B19", "R3-B20", "R3-B22", "R3-B23", "R3-B24"):
+        assert batch in note, batch
+    notice = _amendment_line(amendments, "- **A 5.7 analysis gets the re-analyze notice, and its button recomputes it** (")
+    for words in ("audit round 3, R3-B25", "§9.3", "`ANALYSIS_STAGE_VERSION` 33 → 36", "`app.js?v=true-revenue-9`",
+                  "`true-revenue-7` and `true-revenue-8` are skipped", "`fix/boa-nsf` `f2e9ae1`",
+                  "R2-B16's line keeps its `true-revenue-6`", "the census tests' \"5.7\" snapshot rows are data and stay",
+                  "the job stores on this machine hold no 5.7 job"):
+        assert words in notice, words
+    in_all = _amendment_line(amendments, "- **Audit round 3 in all** (")
+    for words in R3_B25_IN_ALL_WORDS:
+        assert words in in_all, words
+    assert amendments.index("- **A 5.7 analysis gets the re-analyze notice") < amendments.index(
+        "- **Audit round 3 in all** (")
+    contract = _flat(CONTRACT)
+    assert ("Audit round 3, R3-B25: classification 5.8 (`CLASSIFICATION_VERSION`), with `ANALYSIS_STAGE_VERSION` 36 in "
+            "the same commit, the run's last") in contract
+    assert contract.index("Audit round 2, R2-B16 (R56): classification 5.7") < contract.index(
+        "Audit round 3, R3-B25: classification 5.8")
+    handoff = _flat(HANDOFF)
+    # Audit round 3, R3-MERGE: the stage the handoff names is the merge-back's 37; R3-B25's 5.8 and 36 stay recorded.
+    for words in ("classification **5.8**, analysis stage **37**", "set 5.8 and stage 36 once for the whole round",
+                  "done (R3-B01..R3-B24); R3-B25 made the single version move (5.8 / 36)"):
+        assert words in handoff, words
+    for stale in ("classification **5.7**, analysis stage **33**", "R3-B25 makes the single version move"):
+        assert stale not in handoff, stale
+    html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
+    # Audit round 3, final review (R3-FF), F6: the floor's unit moved app.js again, past the -9 the Accept run served.
+    # Audit round 3, R3-MERGE: the hosting line's merge-back moved it past both lines' values, to -11.
+    assert "app.js?v=true-revenue-11" in html
+    assert all(f"true-revenue-{value}\"" not in html for value in (7, 8, 9, 10))
+
+
+def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_and_every_served_batch():
+    """Audit round 3, R3-B25 review round 1. Finding 1: §20's round line and the handoff's round paragraph carry no
+    cent figure but corpus totals, the round's True moves and the moves R3-B12's and R3-B16's own lines record; the
+    Verified move and R3-B07's, R3-B09's and R3-B10's steps read in rows and points. Finding 2: stage 36 and
+    `true-revenue-9` are reserved for this branch, and the hosting line's merge-back moves both past both lines'
+    values in its own commit (the merge changes analysis output and app.js). Finding 3: the stage note's and §9.3's
+    served/exported sentence names R3-B05's, R3-B06's and R3-B20's downloads and CLI output. §20 records the round."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    in_all = _amendment_line(amendments, "- **Audit round 3 in all** (")
+    assert _cent_figures(in_all) <= R3_B25_ROUND_FIGURES, _cent_figures(in_all) - R3_B25_ROUND_FIGURES
+    assert "Verified $" not in in_all
+    handoff = _flat(HANDOFF)
+    round_paragraph = handoff.split("Corpus figures (re-parsed basis", 1)[1].split("## 2. Owner instructions", 1)[0]
+    assert _cent_figures(round_paragraph) == {"419,550.25", "430,640.25"}, _cent_figures(round_paragraph)
+    assert ("Verified by −0.006 points (28.1145% → 28.1084%: one declared demotion, 1 row, R3-B07); the per-batch sums "
+            "reconcile to the cent in R3-B25's LOCAL report") in round_paragraph
+    # Finding 2: the merge-back takes the next free values above both lines; 36 and -9 stay this branch's.
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    note = (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8")
+    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split(STAGE_NOTE_36_END, 1)[0])
+    for text in (versions, note):
+        for words in ("never back to 34 or 35", "36 is reserved for this branch (a further hosting-line change takes 37 "
+                      "or above)", "the merge commit moves the stage", "the next free", "above both lines",
+                      "(37 if neither line has moved by then)"):
+            assert words in text, words
+        assert "keeping 36" not in text
+    assert "`true-revenue-10`" in versions
+    item_5 = handoff.split("5. **Merge the hosting line back**", 1)[1].split("6. **The round-4 re-audit**", 1)[0]
+    # Audit round 3, final review (R3-FF), F6: this branch took `true-revenue-10` itself, so the reservation and the
+    # merge-back's values move one step (the merge to `-11` while neither line moves; the hosting line to `-11` or above).
+    for words in ("Never resolve the versions toward the hosting line's values",
+                  "the merge commit itself moves the analysis stage and the cache-bust value to the next free values "
+                  "above both lines (stage 37 and `true-revenue-11` while neither line has moved past 36 and `-10`; it "
+                  "read `true-revenue-10` and `-9` until R3-FF's F6 took `-10`)",
+                  "Until then stage 36 and `true-revenue-10` are this branch's (and `-9`, which it served): a further "
+                  "hosting-line change takes stage 37 and `true-revenue-11` or above"):
+        assert words in item_5, words
+    assert "keeping this branch's" not in handoff
+    assert ("this branch's stage 36 and `true-revenue-9` and `-10` (R3-FF's F6) are reserved: a further hosting-line "
+            "change takes 37 and `-11` or above, and the merge-back commit takes the next free values above both lines "
+            "(§4, item 5)") in handoff
+    notice = _amendment_line(amendments, "- **A 5.7 analysis gets the re-analyze notice, and its button recomputes it** (")
+    assert "keeping its own values" not in notice
+    assert "never back to those values (the merge commit moves the stage and the cache-bust value past both lines'" in notice
+    # Finding 3: the served/exported sentence names every batch whose download, CLI or batch output changed.
+    served_note = note.split("A warm cache keyed on 33 would serve each of them as the round-2 reading.", 1)[1].split(
+        "computed when served or exported, never stored", 1)[0]
+    served_spec = versions.split("What the batches changed where a statement or a package is served, downloaded or "
+                                 "summarised (", 1)[1].split("is computed then and needs no bump", 1)[0]
+    for served in (served_note, served_spec):
+        for words in ("R3-B05's", "R3-B06's", "R3-B20's", "R3-B22's", "R3-B23's", "R3-B24's",
+                      "`lender_payment_catch_ups`", "stop line", "`zelle_in_true_revenue_total`"):
+            assert words in served, words
+    line = _amendment_line(amendments, "- **R3-B25 review round 1: the round's lines carry no single statement's "
+                                       "figure, the merge-back moves the versions past both lines, and the served list "
+                                       "names every batch** (")
+    for words in ("audit round 3, R3-B25, review round 1 (findings 1 to 3)", "§9.3", "this commit",
+                  "R3-B07's own line", "the private report", "AST-identical", "no census"):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.index("- **Audit round 3 in all** (") < amendments.index("- **R3-B25 review round 1: ")
+
+
+#: Audit round 3, final review (R3-FF): each finding's code commit, which §20 and the contract name.
+R3_FF_COMMITS = {"F1": "64dc273", "F3": "0d751bb", "F5": "1a5702e", "F2": "2207172", "F4": "06cc808", "F6": "3e2a08a"}
+
+
+def test_the_spec_the_contract_and_the_handoff_record_r3_ff():
+    """Audit round 3, final review (R3-FF): §6.2's pass 7c (F3), §8.5's Held (F4), §9.1's formula (F5), §9.2's member
+    rows (F2), §9.3's folded line, §10.1's and §13's floor (F6), one §20 line per finding with its commit and one for
+    the final review in all; the contract's formula, member-row sentence and entry; the handoff's cache-bust value; and
+    the code's names they cite."""
+    from analysis import represented_payments, true_revenue
+    from analysis.metrics import WITHHOLDING_FORMULA
+    import analyze
+    from tools import l1s3_surface_census
+
+    formula = ("abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / "
+               "withholding basis * 100")
+    assert WITHHOLDING_FORMULA == formula
+    assert "webapp/app.py::_account_analysis_rows" in l1s3_surface_census.EXCUSED
+    assert callable(represented_payments.out_of_rate_payment) and callable(analyze._unit_money)
+    assert "SELECT" in true_revenue._WIRE_COMPANY_NAME_WORDS and "BUSINESS" not in true_revenue._WIRE_COMPANY_NAME_WORDS
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    flat = {name: re.sub(r"\s+", " ", _section(sections, start, end)) for name, start, end in (
+        ("6.2", "\n### 6.2 ", "\n### 6.3 "), ("8.5", "\n### 8.5 ", "\n### 8.6 "), ("9.1", "\n### 9.1 ", "\n### 9.2 "),
+        ("9.2", "\n### 9.2 ", "\n### 9.3 "), ("9.3", "\n### 9.3 ", "\n## 10. "), ("10.1", "\n### 10.1 ", "\n### 10.2 "),
+        ("13", "\n## 13. ", "\n## 14. "))}
+    for section, words in (
+        ("6.2", "Audit round 3, final review (R3-FF), F3 (§20): a paid debit the rate leaves out "
+                "(`out_of_rate_payment`: R3-79's worded lump-sum payoff) is never the re-debit, here and in the "
+                "package's pass 5"),
+        ("8.5", "audit round 3, final review (R3-FF), F4 (§20; Q5 of 2026-09-28): a company named only with R3-40's "
+                "product and holder-noise words (`_WIRE_COMPANY_NAME_WORDS`"),
+        ("8.5", "unless its name words are all words of the holder's own name"),
+        ("9.1", f"(audit round 3, final review (R3-FF), F5, §20: it now reads \"{formula}\""),
+        ("9.2", "Audit round 3, final review (R3-FF), F2 (§20): the package also moves a member's NUMERATOR without "
+                "its basis"),
+        ("9.3", "- The final review of round 3 (R3-FF: F1 to F6, §20): no bump; folded into 5.8 and stage 36, which no "
+                "release carries"),
+        ("9.3", "The app.js cache-bust moves to `true-revenue-10` (F6)"),
+        ("9.3", "this branch's app.js moved to `true-revenue-10` itself, so the merge's next free value is "
+                "`true-revenue-11`"),
+        ("10.1", "(audit round 3, final review (R3-FF), F6, §20: the floor is written in the unit it is compared in"),
+        ("13", "(audit round 3, final review (R3-FF), F6: the total and the floor in the statement's unit, "
+               "`_unit_money`"),
+    ):
+        assert words in flat[section], (section, words)
+    for finding, start, words in (
+        ("F1", "- **The L1-S3 surface census excuses R3-B23's title filter** (", ("`EXCUSED`", "Tool only")),
+        ("F3", "- **A worded payoff is never a returned payment's re-debit** (", ("`out_of_rate_payment`", "G7")),
+        ("F5", "- **The withholding formula names what its numerator sums** (", (formula, "Words only")),
+        ("F2", "- **A package member row's rate is its own numerator over its own basis** (",
+         ("R3-72", "the census reads no package")),
+        ("F4", "- **A wire from a company named only with generic words names its sender** (",
+         ("`_WIRE_COMPANY_NAME_WORDS`", "revenue census")),
+        ("F6", "- **The large-deposit floor is written in the statement's unit** (",
+         ("`true-revenue-10`", "`_unit_money`")),
+    ):
+        line = _amendment_line(amendments, start)
+        assert f"audit round 3, final review (R3-FF), {finding}; {R3_FF_COMMITS[finding]}" in line, finding
+        for word in words:
+            assert word in line, (finding, word)
+    in_all = _amendment_line(amendments, "- **The final review of round 3 in all** (")
+    for words in ("audit round 3, final review (R3-FF)", "c49a0a8", "Zelle", "G7", "F7"):
+        assert words in in_all, words
+    assert not _cent_figures(in_all)
+    assert amendments.index("- **R3-B25 review round 1: ") < amendments.index(
+        "- **The L1-S3 surface census excuses R3-B23's title filter** (") < amendments.index(
+        "- **The final review of round 3 in all** (")
+    contract = _flat(CONTRACT)
+    for words in (f"`withholding_rate = {formula}`",
+                  "and (audit round 3, final review, R3-FF's F2) so is each where the package moved its numerator alone",
+                  "- The final review of audit round 3, R3-FF (F1 to F6; " + ", ".join(
+                      R3_FF_COMMITS[key] for key in ("F1", "F3", "F5", "F2", "F4", "F6")) + "), folded into 5.8 and "
+                  "stage 36 (unreleased)"):
+        assert words in contract, words
+    assert contract.index("Audit round 3, R3-B25: classification 5.8") < contract.index(
+        "- The final review of audit round 3, R3-FF (")
+    handoff = _flat(HANDOFF)
+    # Audit round 3, R3-MERGE: since the merge-back the page asks for `true-revenue-11`.
+    assert ("the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asked for `true-revenue-10`; "
+            "since the merge-back it asks for `true-revenue-11`") in handoff
+
+
+def test_the_spec_and_the_contract_record_r3_ff_review_round_1():
+    """Audit round 3, final review (R3-FF), review round 1 (findings 1 and 2): §8.5's Held names the two-word rule and
+    the held lone-word and product-only shapes; the F4 and R3-40 lines of §20 are marked in place; §9.3's folded line
+    names it; §20 gains its line with its commit after the final review in all; the contract's R3-FF entry says the
+    same; and the code's name they cite."""
+    from analysis import true_revenue
+
+    commit = "9ec8e60"
+    assert true_revenue._WIRE_HOLDER_NOISE_NAME_WORDS == {"GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT",
+                                                          "ENTERPRISES"}
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    held = re.sub(r"\s+", " ", _section(sections, "\n### 8.5 ", "\n### 8.6 "))
+    for words in ("two or more different ones and at least one of them a holder-noise word "
+                  "(`_WIRE_HOLDER_NOISE_NAME_WORDS`",
+                  "review round 1: so does a lone name word with a legal form or behind a label (R3-40's own shapes: "
+                  "`WIRE TRANSFER IN <ref> GROUP LLC`",
+                  "held once and on a repeat, never Verified",
+                  "and so do product words alone (`ORG PLATINUM SELECT`"):
+        assert words in held, words
+    folded = re.sub(r"\s+", " ", _section(sections, "\n### 9.3 ", "\n## 10. "))
+    assert "two or more of them, one a holder-noise word, since its review round 1" in folded
+    f4 = _amendment_line(amendments, "- **A wire from a company named only with generic words names its sender** (")
+    assert "(narrowed by its review round 1, below: two or more different name words, one of them a holder-noise word" in (
+        f4)
+    r340 = _amendment_line(amendments, "- **A wire region of designation words names no sender** (")
+    assert "(amended by audit round 3, final review (R3-FF), F4 and its review round 1, below:" in r340
+    line = _amendment_line(amendments, "- **R3-FF review round 1: a generic wire name needs two name words, one a "
+                                       "holder-noise word** (")
+    for words in (f"audit round 3, final review (R3-FF), review round 1: findings 1 and 2; the underwriter's Q1 of "
+                  f"2026-10-02, a wire with no sender is held; {commit}", "`_WIRE_HOLDER_NOISE_NAME_WORDS`",
+                  "`04559a2`", "Zelle Yes and under No", "revenue census", "0 differing leaf paths"):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.index("- **The final review of round 3 in all** (") < amendments.index(
+        "- **R3-FF review round 1: a generic wire name needs two name words")
+    contract = _flat(CONTRACT)
+    assert (f"(F4; its review round 1, {commit}: the name prints two or more different name words, one of them a "
+            "holder-noise word, `_WIRE_HOLDER_NOISE_NAME_WORDS`") in contract
+
+
+#: Audit round 3, R3-MERGE: the merge commit and the tests commit the merge's documents name.
+R3_MERGE_COMMITS = ("7e254cf", "71a6150")
+
+
+def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
+    """Audit round 3, R3-MERGE: the hosting line's merge-back. The code reads 5.8 and stage 37 and the page asks for
+    `true-revenue-11`; the stage note carries the hosting line's 34 and 35 notes and the merge's 36 -> 37; §9.3's merge
+    line; the §10 head's merge paragraph; §20 keeps the hosting line's three lines in date order among round 3's, marks
+    the dashboard-clarity line's review round 3 reading in place and ends with the merge line (its commits, no statement
+    figure); the contract's version line after R3-FF's; the handoff's versions, hosting-line, table and merge-back words."""
+    from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
+
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 37)
+    html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
+    note = re.sub(r"\s*#\s*", " ", (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8"))
+    for words in ("33 -> 34 (owner report 2026-10-08, Capital One daily ledger)",
+                  "34 -> 35 (owner report 2026-10-08, Bank of America NSF)",
+                  "36 -> 37: TRUE-REVENUE audit round 3, R3-MERGE, the merge-back of the hosting line (`fix/boa-nsf` "
+                  "f2e9ae1) into this branch, in the merge commit itself", "CLASSIFICATION_VERSION stays 5.8"):
+        assert words in note, words
+    assert note.index("# 33 -> 36:".replace("# ", " ")) < note.index(" 36 -> 37: TRUE-REVENUE") < note.index(
+        "ANALYSIS_STAGE_VERSION = 37")
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    for words in ("- Audit round 3, R3-MERGE (§20): the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`",
+                  "moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit itself (7e254cf)",
+                  "the app.js cache-bust to `true-revenue-11`", "`CLASSIFICATION_VERSION` stays 5.8",
+                  "`Statement.pre_period_carry_in_count`", "`stated_daily_balances`",
+                  "the package downloads' returned funder payment words (R3-B23)"):
+        assert words in versions, words
+    assert versions.index("- 5.8 (audit round 3, R3-B25: §20)") < versions.index("- Audit round 3, R3-MERGE (§20)")
+    head = sections.split("\n## 10. Metrics and UI", 1)[1].split("\n### 10.1 ", 1)[0]
+    for words in ("*Audit round 3, R3-MERGE (§20;", "It was taken again on <day> (<its statement>).",
+                  "<funder>: a lump-sum payoff.", "<lender>: missed payments caught up.",
+                  "this may be the lender collecting under another name.",
+                  "The Withholding Rate cell reads each row's served `withholding_rate`"):
+        assert words in head, words
+    order = [amendments.index(start) for start in (
+        "- **Re-presented payments: a 2x level on either side of a candidate",
+        "- **Owner request 2026-10-07, dashboard clarity; display only**",
+        "- **A True or Verified withholding basis under 500 publishes no rate**",
+        "- **Audit round 3, R3-B09 in all**", "- **Owner report 2026-10-08, Capital One daily ledger**",
+        "- **R3-B09 review round 1:", "- **Audit round 3, R3-B10 in all**",
+        "- **Owner report 2026-10-08, Bank of America NSF**", "- **R3-B10 review round 1:",
+        "- **R3-FF review round 1:", "- **The hosting line merged back** (")]
+    assert order == sorted(order)
+    dashboard = _amendment_line(amendments, "- **Owner request 2026-10-07, dashboard clarity; display only** (")
+    assert ("the Withholding Rate cell divides the row's own served figures (amended by R3-MERGE, below: the merged cell "
+            "reads the row's served `withholding_rate`") in dashboard
+    line = _amendment_line(amendments, "- **The hosting line merged back** (")
+    for words in ("audit round 3, R3-MERGE", "§9.3", "\"Merge, then audit\"", *R3_MERGE_COMMITS, "`--no-ff`",
+                  "stage 37, `true-revenue-11`", "R3-67's rule", "RED against the hosting line's app.js",
+                  "no test that reads real statements moved", "the corpus extraction gate GREEN",
+                  "equals the base in every key but `analysis_stage_version`", "G7, re-parsed and cached",
+                  "exactly two statements move, both from withheld to validated", "0 console errors"):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.rstrip().endswith(line.rstrip())
+    contract = _flat(CONTRACT)
+    assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
+            "7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit") in contract
+    assert contract.index("- The final review of audit round 3, R3-FF (") < contract.index("- Audit round 3, R3-MERGE:")
+    handoff = _flat(HANDOFF)
+    for words in ("classification **5.8**, analysis stage **37**",
+                  "moved the stage to 37 and the cache-bust to `true-revenue-11`",
+                  "**Merged** with the owner's approval of 2026-10-10", "| Hosting line merge-back (R3-MERGE) |",
+                  "**Done** (R3-MERGE, 2026-10-10): merge commit `7e254cf`, stage 37 and `true-revenue-11`"):
+        assert words in handoff, words

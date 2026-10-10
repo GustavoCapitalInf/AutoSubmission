@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import true_revenue as tr
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import _debit_first_distinctive_word, classify_statement_transactions
@@ -501,6 +502,37 @@ def test_the_floor_overrules_every_rule_that_verifies_a_credit_under_one_dollar(
                     or record.contributes_to_counted_flagged)
 
 
+#: Audit round 3, R3-B15 (R3-63): rows a remittance descriptor verifies and a pass-7 demotion overrules at $1 or more: a
+#: builder's progress draw (Q11 (a)) and a public factoring payer's payout (A3-H; LOVES SOLUTIONS is the registry's
+#: FACTORING_PAYOUT_PAYERS entry).
+R3_63_DEMOTIONS = [
+    ("CONTOSO BUILDERS INC DES:A P PMT DRAW 3 ID:0001 INDN:NORTHWIND SOLAR LLC CO ID:0000000001 CCD", 0.50,
+     ("counted_flagged", "construction_progress_draw"), "construction_progress_draw"),
+    ("LOVES SOLUTIONS DES:A P PMT ID:0001 INDN:NORTHWIND SOLAR LLC CO ID:0000000001 CCD", 0.55,
+     ("counted_flagged", "factoring_payout"), "factoring_payout_payer"),
+]
+
+
+@pytest.mark.parametrize(("text", "micro", "demoted", "demoted_method"), R3_63_DEMOTIONS)
+def test_r3_63_the_floor_overrules_a_demotion_of_a_credit_under_one_dollar(text, micro, demoted, demoted_method):
+    """Audit round 3, R3-B15 (R3-63; §8.10, §20's $1-floor line): every pass-7 demotion leaves a credit under $1 to the
+    floor, so the floor holds it with its own method, rule and sentence naming the rule it overruled (today the row kept
+    the demotion's method, rule and "counted and flagged, never verified" sentence); at $1 and above the demotion reads
+    as before."""
+    record = _one(text, micro, holder="NORTHWIND SOLAR LLC")
+    assert _tier(record) == MICRO
+    assert (record.revenue_match_method, record.revenue_matched_rule) == (
+        "micro_deposit_floor", "credit_under_micro_deposit_floor")
+    assert "payer_remittance_descriptor" in record.revenue_reason
+    assert "counted and flagged" not in record.revenue_reason
+    assert record.revenue_classification == "unverified_deposit" and record.revenue_review_required
+    for amount in (1.0, 12500.0):
+        control = _one(text, amount, holder="NORTHWIND SOLAR LLC")
+        assert _tier(control) == demoted
+        assert control.revenue_match_method == demoted_method
+        assert "counted and flagged, never verified" in control.revenue_reason
+
+
 def test_a_statement_s_figures_never_carry_a_credit_under_one_dollar():
     from analysis.metrics import compute_metrics
 
@@ -918,6 +950,14 @@ INTERAC_VIREMENTS = [
     "VIREMENT INTERAC FABRIKAM LTEE", "VIREMENT INTERAC 123456789012 JOHN SMITH", "VIREMENT INTERAC RECU 1234",
     "VIREMENT AUTODEPOSIT JOHN SMITH", "VIREMENT E TRANSFER JOHN SMITH", "VIREMENT ETRANSFER JOHN SMITH",
     "VIREMENT E TFR JOHN SMITH",
+    # Audit round 3, R3-29 (R3-B12): Interac's French name, virement par courriel, is an Interac form (Banque Royale's
+    # autodeposit prints 'DEPOT AUTO VIREMENTS PAR COURRIEL <sender> <reference>').
+    "DEPOT AUTO VIREMENT PAR COURRIEL FABRIKAM LTEE C1AX23X", "VIREMENT PAR COURRIEL FABRIKAM LTEE",
+]
+#: Audit round 3, R3-29 (R3-B12): the plural, which pass 7 reads as the rail (_INTERAC_COURRIEL) and the classifier's
+#: VIREMENT never reads (the 5.5 channel gate's residual, §8.4).
+INTERAC_COURRIEL_PLURAL = [
+    "DEPOT AUTO VIREMENTS PAR COURRIEL FABRIKAM LTEE C1AX23X", "VIREMENTS PAR COURRIEL FABRIKAM LTEE",
 ]
 
 
@@ -943,10 +983,22 @@ def test_a_virement_in_the_holder_s_name_is_still_held_as_the_holder_s():
     assert _tier(_one("VIREMENT EN LIGNE CONTOSO BAKERY LLC", 250.0)) == ("excluded_pending_review", "holder_name")
 
 
-@pytest.mark.parametrize("text", INTERAC_VIREMENTS)
+@pytest.mark.parametrize("text", INTERAC_VIREMENTS + INTERAC_COURRIEL_PLURAL)
 def test_an_interac_virement_keeps_its_person_to_person_reading(text):
     # §8.4: Interac prints VIREMENT INTERAC; with the e-transfer or autodeposit words a VIREMENT is the rail too.
     assert _tier(_one(text, 250.0)) == P2P
+
+
+@pytest.mark.parametrize("text", INTERAC_COURRIEL_PLURAL)
+def test_r3_29_the_plural_courriel_form_is_the_rail_in_pass_7_only(text):
+    # Audit round 3, R3-29 (R3-B12): pass 7 reads it, with the round-sum repeat; the classifier's rail is unchanged.
+    from analysis import transaction_classifier as classifier
+    from analysis.description_text import normalize_transaction_description
+
+    normalized = classifier.revenue_text(normalize_transaction_description(text))
+    assert classifier._CONSUMER_P2P_RAIL.search(normalized) is None
+    rows = _records([(text, 500.0), (text.replace("C1AX23X", "C1AX24X"), 600.0), (text, 123.0)])
+    assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
 
 
 @pytest.mark.parametrize("name", ["FABRIKAM LTEE", "123456789012 JOHN SMITH"])
@@ -977,7 +1029,10 @@ def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
 
     for text, held in [("VIREMENT EN LIGNE TF 1234567", True), ("VIREMENT ENTRE COMPTES 1234567", True),
                        ("VIREMENT EN LIGNE FABRIKAM LTEE", False), ("VIREMENT INTERAC FABRIKAM LTEE", False),
-                       ("VIREMENT INTERAC RECU 1234", False)]:
+                       ("VIREMENT INTERAC RECU 1234", False),
+                       # Audit round 3, R3-29 (R3-B12): the COURRIEL form is the rail, no transfer.
+                       ("DEPOT AUTO VIREMENT PAR COURRIEL C1AX23X", False),
+                       ("DEPOT AUTO VIREMENTS PAR COURRIEL C1AX23X", False)]:
         record = _one(text, 250.0)
         facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         assert facts["transfer_no_counterparty"] is held
@@ -3216,6 +3271,100 @@ def test_a_funder_block_printed_alone_under_its_row_is_still_financing_proceeds(
     assert compute_metrics(statement, classifications=records).lender_credits > 0
 
 
+@pytest.mark.parametrize("name", ["CASH ARC LLC EDI PYMNTS", "CASH-ARC LLC EDI PYMNTS", "CASHARC LLC EDI PYMNTS"])
+def test_r3_87_a_lender_whose_name_holds_a_class_code_word_holds_its_welded_run(name):
+    """Audit round 3, R3-B09 (R3-87): a class-code word before a legal form (CashArc's 'CASH ARC LLC') is part of a
+    name, never a block's end, so the run's lender block is read and both rows of its flush are held."""
+    tiers, lender_credits, toward = _welded_tiers(first_line=_blocks(*_CUSTOMERS),
+                                                  second_line=_blocks("CONTOSO INC PAYABLES", name))
+    assert tiers == [("verified", None)] + [("counted_flagged", "payer_text_not_read")] * 4 + [
+        ("excluded_pending_review", UNREAD_FINANCING)] * 2
+    assert (lender_credits, toward) == (0.0, False)
+
+
+@pytest.mark.parametrize("name", ["CASH ARC LLC EDI PYMNTS", "CASH-ARC LLC EDI PYMNTS"])
+def test_r3_87_a_lender_block_holding_a_class_code_word_alone_under_its_row_is_financing_proceeds(name):
+    from analysis.metrics import compute_metrics
+    from tests import test_core_processor_counted as counted
+
+    statement = counted.published(credits=(
+        "ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n"
+        f"{name} 0000001 {counted.RECEIVER} CCD\n"
+    ))
+    records = classify_statement_transactions(statement)
+    credit = next(record for record in records if record.amount > 0)
+    assert not statement.transactions[[t.amount > 0 for t in statement.transactions].index(True)].payer_text_unread
+    assert (credit.revenue_tier, credit.contributes_to_lender_credit_exclusion) == ("non_revenue", True)
+    assert credit.revenue_canonical_entity == "CashArc LLC"
+    assert compute_metrics(statement, classifications=records).lender_credits > 0
+
+
+@pytest.mark.parametrize(("text", "blocks"), [
+    ("CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD",
+     ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "CASH ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD"]),
+    ("CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD CASH-ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD",
+     ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "CASH ARC LLC EDI PYMNTS 2 NORTHWIND BAKERY CCD"]),
+    # A real ARC entry (no legal form after the code) still closes its block.
+    ("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD", ["CONTOSO SUPPLY ARC", "0001 NORTHWIND CCD"]),
+    ("CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD KAPITUS LLC FUNDING 2 NORTHWIND BAKERY CCD",
+     ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "KAPITUS LLC FUNDING 2 NORTHWIND BAKERY CCD"]),
+])
+def test_r3_87_an_unread_run_splits_after_a_class_code_never_before_a_legal_form(text, blocks):
+    assert tr.unread_run_blocks(text) == blocks
+
+
+@pytest.mark.parametrize(("line", "expected"), [
+    # R3-B09 review round 1: two blocks welded under one outstanding row, the second opening on a legal-form word
+    # other than the LLC family. The row stays unread, as before R3-87: a customer's weld is counted and flagged as
+    # unread (never Verified, never non_revenue), and a weld printing a lender holds the row with no lender credit.
+    ("FABRIKAM INC. PAYABLES 2200000001 {R} CCD INC VILLAGE OF SAMPLE AP 0000000009 {R} CCD", "unread"),
+    ("FABRIKAM INC. PAYABLES 2200000001 {R} CCD CO DEPT REVENUE TAX REFUND 0000000009 {R} PPD", "unread"),
+    ("FABRIKAM INC. PAYABLES 2200000001 {R} CCD CO-OP POWER PAYMENT 2200000002 {R} CCD", "unread"),
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD CO-OP POWER PAYMENT 2200000001 {R} CCD", "held"),
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD COMPANY STORE SALES 2200000001 {R} CCD", "held"),
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD INC VILLAGE OF SAMPLE AP 0000000009 {R} CCD", "held"),
+    # The control: a second block opening on a plain name word.
+    ("KAPITUS LLC FUNDING 5500000005 {R} CCD CONTOSO SUPPLY 2200000001 {R} CCD", "held"),
+])
+def test_r3_87_review_a_weld_whose_next_block_opens_on_a_legal_form_word_keeps_its_unread_reading(line, expected):
+    from analysis.metrics import compute_metrics
+    from tests import test_core_processor_counted as counted
+
+    line = line.format(R=counted.RECEIVER)
+    statement = counted.published(credits=(
+        f"ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n{line}\n"
+    ))
+    records = classify_statement_transactions(statement)
+    [index] = [i for i, t in enumerate(statement.transactions) if t.amount > 0]
+    assert (statement.transactions[index].description, statement.transactions[index].payer_text_unread) == (
+        "Preauthorized Credit", True)
+    reading = {"unread": ("counted_flagged", "payer_text_not_read"),
+               "held": ("excluded_pending_review", UNREAD_FINANCING)}[expected]
+    assert _tier(records[index]) == reading
+    assert compute_metrics(statement, classifications=records).lender_credits == 0.0
+
+
+@pytest.mark.parametrize(("text", "blocks"), [
+    ("FABRIKAM PAYABLES 1 NORTHWIND CCD CO OP POWER 2 NORTHWIND CCD",
+     ["FABRIKAM PAYABLES 1 NORTHWIND CCD", "CO OP POWER 2 NORTHWIND CCD"]),
+    ("KAPITUS LLC FUNDING 1 NORTHWIND CCD INC VILLAGE OF SAMPLE 2 NORTHWIND CCD",
+     ["KAPITUS LLC FUNDING 1 NORTHWIND CCD", "INC VILLAGE OF SAMPLE 2 NORTHWIND CCD"]),
+    ("FABRIKAM PAYABLES 1 NORTHWIND PPD COMPANY STORE 2 NORTHWIND CCD",
+     ["FABRIKAM PAYABLES 1 NORTHWIND PPD", "COMPANY STORE 2 NORTHWIND CCD"]),
+    ("CONTOSO PAYABLES 1 NORTHWIND CCD L L C SAMPLE 2 NORTHWIND CCD",
+     ["CONTOSO PAYABLES 1 NORTHWIND CCD L L C SAMPLE 2 NORTHWIND CCD"]),
+])
+def test_r3_87_review_the_run_split_joins_a_code_only_to_the_llc_family(text, blocks):
+    """The run split reads the counted template's narrowed rule: only LLC, L L C, LLP or PLLC after a class-code word
+    makes it a name word (the last case is the disclosed residual: no ACH originator name opens on the LLC family)."""
+    assert tr.unread_run_blocks(text) == blocks
+
+
+def test_r3_87_a_run_naming_casharc_names_financing_and_a_customer_s_arc_entry_does_not():
+    assert tr.unread_run_names_financing("CONTOSO INC PAYABLES 1 NORTHWIND CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND CCD")
+    assert not tr.unread_run_names_financing("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD FABRIKAM INC 2 NORTHWIND CCD")
+
+
 def _marked(text: str, unread_text: str, *, marked: bool = True):
     return classify_statement_transactions(Statement(account_name=HOLDER, transactions=[
         Transaction(date="2054-03-02", description=text, amount=1234.0, direction="credit",
@@ -3344,6 +3493,19 @@ def test_q9_c_the_hidden_loan_guard_holds_a_payables_credit_whose_lender_also_de
     assert record.revenue_matched_rule == "q7_payables_without_dealer_evidence"
     # The lender's debit keeps its reading.
     assert rows[1].classification == "vehicle_financing"
+    # Audit round 3, R3-B15 (R3-53; §5.3): a held row's reason sentence never says it is counted; the hold names
+    # itself by its own label. The counted twin (no debit) keeps "counted and flagged, never verified".
+    assert "counted and flagged" not in record.revenue_reason
+    assert f"never verified, and held for review ({REVENUE_TIER_REASONS['financing_named_payer'][1]})" in (
+        record.revenue_reason)
+    assert "auto_lender_dealer_funding" in record.revenue_reason
+    counted = _one("WESTLAKE FINANCI DES:PAYABLES ID:1", 1500.0, holder=AGENCY)
+    assert _q7_reading(counted)[:2] == ("counted_flagged", "lender_paid_for_services")
+    assert "counted and flagged, never verified" in counted.revenue_reason
+    assert counted.revenue_reason.replace(
+        "counted and flagged, never verified",
+        f"never verified, and held for review ({REVENUE_TIER_REASONS['financing_named_payer'][1]})",
+    ) == record.revenue_reason
 
 
 def test_q9_c_the_demotion_never_moves_a_debit_or_a_lender_reading():
@@ -3416,6 +3578,118 @@ def test_q9_c_the_payables_only_reading_and_the_dealer_evidence_arms():
     assert evidence([payables], holder="SAMPLE REPOSSESSIONS AUTO GROUP LLC") == (False, False)
     assert evidence([payables], holder="SAMPLE COLLATERAL MOTORS INC") == (False, False)
     assert evidence([payables], holder=AGENCY) == (False, False)
+    # Audit round 3, R3-B14 (R3-52): a card purchase in an auction's town, a floor-plan financier's service credit and
+    # a word that only starts like a floor plan are no dealer evidence; the floor-plan forms still read.
+    assert evidence([payables, ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA 0000", -38.50)]) == (False, False)
+    assert evidence([payables, ("POS PURCHASE 0302 NORTHWIND FUEL MANHEIM PA", -61.20)]) == (False, False)
+    assert evidence([payables, ("NEXTGEAR CAPITAL DES:VENDOR PAY ID:1", 475.0)]) == (False, False)
+    assert evidence([payables, ("CONTOSO FLOORPLANNER DES:SUBSCRIPT ID:1", -19.99)]) == (False, False)
+    assert evidence([payables, ("FPX FLOORPLAN XPRESS ADVANCE VIN 1FAKE0000000000001", 18000.0)]) == (True, True)
+    assert evidence([payables, ("FLOOR PLAN PAYOFF", -9000.0)]) == (True, True)
+    for form, read in (("FLOORPLAN", True), ("FLOOR PLAN", True), ("FLOORPLANS", True), ("FLOOR PLANNING", True),
+                       ("FLOORPLAN INT", True), ("FLOORPLANNER", False), ("FLOOR PLANKS", False),
+                       ("FLOOR PLANER", False), ("SUBFLOOR PLAN", False)):
+        assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
+    for words, read in (("VENDOR PAY", True), ("VENDORPMT", True), ("VENDOR PAYMENT", True), ("REPO FEE", True),
+                        ("REPOS", True), ("REPOSSESSION", True), ("RECOVERY", True), ("TOWING", True), ("TOW", True),
+                        ("TRANSPORT", True), ("INSPECTION", True), ("COMMISSION", True),
+                        ("ADVANCE", False), ("PAYMENT", False), ("CURTAILMNT", False), ("FLOOR PLAN", False)):
+        assert bool(true_revenue._FLOOR_PLAN_SERVICE_CREDIT.search(words)) is read, words
+
+
+# Audit round 3, R3-B14 (R3-52; the underwriter's Q9 (c), "a lender paying a business for services counts as 'lender
+# paid for services', never verified. The hidden-loan guard stays"): a row that is no dealer evidence never keeps a
+# repossession agency's Westlake PAYABLES Verified: a card purchase in the auction's town (Manheim, PA), a floor-plan
+# financier's service credit, a FLOORPLANNER subscription and a FLOOR PLANKS purchase. Fabricated rows, Bank of
+# America's DES layout.
+_R3_52_AGENCY = "CONTOSO RECOVERY LLC"
+_R3_52_PAYABLES = (
+    "WESTLAKE FINANCI DES:PAYABLES ID:EFT0000001 INDN:CONTOSO RECOVERY LLC CO ID:0000000001 CCD", 3150.0)
+_R3_52_AUTO_PAY = ("WESTLAKE FINANCI DES:AUTO PAY ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -455.0)
+_R3_52_NO_EVIDENCE = (
+    ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA 0000", -38.50),
+    ("POS PURCHASE 0302 NORTHWIND FUEL MANHEIM PA", -61.20),
+    ("NEXTGEAR CAPITAL DES:VENDOR PAY ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", 475.00),
+    ("AFC FUNDING CORP DES:REPO FEE ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", 390.00),
+    ("CONTOSO FLOORPLANNER DES:SUBSCRIPT ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -19.99),
+    ("NORTHWIND HARDWARE DES:FLOOR PLANKS ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -310.00),
+)
+_R3_52_EVIDENCE = (
+    ("MANHEIM US DES:ACH PAYMNT ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -8400.00),
+    # A NextGear debit the classifier reads as floor_plan_financing.
+    ("NEXTGEAR CAPITAL DES:PAYMENT ID:2 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -9000.00),
+    ("FPX FLOORPLAN XPRESS ADVANCE VIN 1FAKE0000000000001", 18000.00),
+    ("FLOOR PLAN PAYOFF", -9000.00),
+)
+
+
+@pytest.mark.parametrize("row", _R3_52_NO_EVIDENCE, ids=[row[0][:32] for row in _R3_52_NO_EVIDENCE])
+def test_r3_52_a_row_that_is_no_dealer_evidence_never_keeps_payables_verified(row):
+    # Today each is Verified (auto_lender_dealer_funding).
+    record = _records([_R3_52_PAYABLES, row], holder=_R3_52_AGENCY)[0]
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    # The hidden-loan guard: where the lender also collects from the account, the row is held, never Verified.
+    held = _records([_R3_52_PAYABLES, row, _R3_52_AUTO_PAY], holder=_R3_52_AGENCY)[0]
+    assert _q7_reading(held) == (
+        "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
+    assert not held.contributes_to_true_revenue
+
+
+@pytest.mark.parametrize("row", _R3_52_EVIDENCE, ids=[row[0][:32] for row in _R3_52_EVIDENCE])
+def test_r3_52_dealer_evidence_still_keeps_payables_verified(row):
+    records = _records([_R3_52_PAYABLES, row], holder=_R3_52_AGENCY)
+    assert _q7_reading(records[0]) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+    if row[0].startswith("NEXTGEAR"):
+        assert records[1].classification == "floor_plan_financing"
+
+
+# Audit round 3, R3-B14 review round 1 (findings 4 to 6): the narrowed arms read no more than their own words. A
+# floor-plan financier's VIN-bearing advance whose unlabelled receiver is the holder's own name printing a service word
+# (RECOVERY, TRANSPORT, COMMISSIONS: the service wording is read without the holder's names too); a wire or ACH
+# purchase at the auction that prints the beneficiary's state and country (the card form's '<ST> USA|CAN' tail is no
+# card purchase on a wire, ACH or check row); and a glued floor-plan word (FLOORPLANINT, FLOORPLANPAYOFF,
+# FLOORPLANXPRESS, FLOORPLANADV). At 3939f5c each left the payables counted as lender_paid_for_services.
+_R1_EVIDENCE = (
+    ("CONTOSO AUTO RECOVERY LLC", ("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO AUTO RECOVERY", 18000.0)),
+    ("CONTOSO AUTO TRANSPORT LLC",
+     ("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO AUTO TRANSPORT", 18000.0)),
+    ("CONTOSO VEHICLE COMMISSIONS LLC",
+     ("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO VEHICLE COMMISSIONS", 18000.0)),
+    (_R3_52_AGENCY, ("OUTGOING WIRE MANHEIM REMARKETING ATLANTA GA USA", -12000.0)),
+    (_R3_52_AGENCY, ("ACH DEBIT MANHEIM AUCTIONS ATLANTA GA USA", -12000.0)),
+    (_R3_52_AGENCY, ("CHECK 1234 MANHEIM REMARKETING ATLANTA GA USA", -12000.0)),
+    (_R3_52_AGENCY, ("FLOORPLANINT", -90.0)),
+    (_R3_52_AGENCY, ("FLOORPLANPAYOFF 1FAKE0000000000001", -9000.0)),
+    (_R3_52_AGENCY, ("FLOORPLANXPRESS DES:CURTAIL ID:1", -900.0)),
+)
+
+
+@pytest.mark.parametrize(("holder", "row"), _R1_EVIDENCE, ids=[row[0][:32] for _holder, row in _R1_EVIDENCE])
+def test_r3_b14_r1_the_narrowed_arms_still_read_a_dealer_s_own_evidence(holder, row):
+    payables = (WESTLAKE_PAYABLES.format(holder=holder), 3150.0)
+    record = _records([payables, row], holder=holder)[0]
+    assert _q7_reading(record) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+
+
+def test_r3_b14_r1_the_arms_controls():
+    from analysis import true_revenue
+
+    # A card charge in Found's or Bluevine's form (no wire, ACH or check word) is still a card purchase in the town.
+    payables = (WESTLAKE_PAYABLES.format(holder=_R3_52_AGENCY), 3150.0)
+    for row in (("CONTOSO DINER MANHEIM PA USA", -38.50), ("DEBIT CARD PURCHASE MANHEIM SIMULCAST GA USA", -120.0)):
+        record = _records([payables, row], holder=_R3_52_AGENCY)[0]
+        assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None), row
+    # A floor-plan financier's service word outside the holder's names still takes the credit out.
+    holder = "CONTOSO AUTO RECOVERY LLC"
+    service = ("NEXTGEAR CAPITAL REPO FEE 1FAKE0000000000001 CONTOSO AUTO RECOVERY", 475.0)
+    record = _records([(WESTLAKE_PAYABLES.format(holder=holder), 3150.0), service], holder=holder)[0]
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    for form, read in (("FLOORPLANINT", True), ("FLOORPLANPAYOFF", True), ("FLOORPLANXPRESS", True),
+                       ("FLOORPLANADV", True), ("FLOORPLANNER", False), ("FLOORPLANNERS", False),
+                       ("FLOOR PLANKS", False), ("FLOORPLANK", False), ("FLOOR PLANER", False)):
+        assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
 
 
 def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():

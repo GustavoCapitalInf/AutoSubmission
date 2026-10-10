@@ -15,21 +15,29 @@ The model (the brief's parts A and B):
 * A **series** is one lender's paid debits: a confirmed funder's (`canonical_entity`) or a potential lender's payee
   (`potential_payee_key`, the classifier's amount-free payee digest). Its **payments** are posted debits with the paid
   flag and no duplicate, reversal or returned-unpaid mark; its **attempts** (a bounced or reversed debit of the series)
-  are presence, never an amount.
+  are presence, never an amount or a payment; since audit round 3 (R3-23) an attempt at a level's amount also keeps
+  its schedule, when that reads a faster regular schedule than the payments alone and keeps its cycle (a daily one
+  fills 4 of 5 business days, more than one debit's NACHA re-presentments do; R3-B04 review round 1).
 * Payments of one amount (equal cents, near-equal amounts within LEVEL_MERGE_PERCENT merged) seen twice or more form a
-  **level**, with a cadence (`payment_cadence`); a payment seen once is a **one-off**. Levels that run at the same time
-  with both beats kept are separate **positions** (two streams with one funder); a position far smaller than the
-  series' largest on the weekly total is a **fee stream** and is dropped.
+  **level**, with a cadence (`payment_cadence`); a payment seen once is a **one-off**. A level far smaller than a
+  heavier, schedule-confirmed level whose beat it keeps is a **fee level** and is dropped (R3-24). Levels that run at
+  the same time with both beats kept are separate **positions** (two streams with one funder); a position far smaller
+  than the series' largest on the weekly total is a **fee stream** and is dropped.
 * Inside a position the payments form **regimes** (runs of one regular level held for 2 or more payments, catch-up
-  multiples and one-offs set aside, a short regime at another schedule dropped). Each regime is compared with the last
-  REPORTED level of its position (the orchestrator's choice of 2026-10-06, the brief's § Still open 23): a decrease or
-  an increase of 10% or more, compared on the weekly equivalent when the schedule differs, or a schedule change. A
-  change at a new schedule held 2 payments but not yet the 3 (5 if daily) that confirm the schedule is a "possible"
-  change, "new schedule not yet confirmed" (the orchestrator's choice of 2026-10-06, § Still open 18).
+  multiples on the schedule or faster (R3-70) and one-offs set aside, a short regime at another schedule dropped).
+  Each regime is compared with the last REPORTED level of its position (the orchestrator's choice of 2026-10-06, the
+  brief's § Still open 23): a decrease or an increase of 10% or more, compared on the weekly equivalent when the
+  schedule differs, or a schedule change. A change at a new schedule held 2 payments but not yet the 3 (5 if daily)
+  that confirm the schedule is a "possible" change, "new schedule not yet confirmed" (the orchestrator's choice of
+  2026-10-06, § Still open 18).
 * A **pause** is a gap inside one regime longer than the schedule's grace window; a **new stream** is a second position
   that starts while another keeps paying and raises the funder's weekly total by 10% or more; a **stop** is a position
-  of 3 or more payments followed by no presence (a payment, a payment-sized debit or a bounced attempt) for longer than
-  the grace window before the covered period ends.
+  of 3 or more payments followed by no presence (a payment, a payment-sized debit, a catch-up or a bounced attempt) for
+  longer than the grace window before the covered period ends.
+* Since audit round 3 (R3-25), a one-off within 2% of exactly 2 to 6 times the payment is a **catch-up**: presence,
+  named on the pause or stop line that shows it, never a payoff; where it follows a missed scheduled payment and no
+  such line names it, it is its own **catch-up** item ("Caught up", the owner's answer of 2026-10-07). Debits no rule
+  claimed at the series' exact cents on its schedule inside a pause or after a stop are named (R3-84), never presence.
 
 Business days follow the statement's calendar: the Federal Reserve's holidays (`analysis.adb.federal_bank_holidays`),
 or Payments Canada's non-processing days on a CAD statement (`_canadian_bank_holidays`).
@@ -64,6 +72,13 @@ FEE_STREAM_PERCENT = 5
 CATCH_UP_TOLERANCE_PERCENT = 2
 CATCH_UP_MULTIPLES = (2, 3)
 CATCH_UP_MAX_RUN = 2
+#: Audit round 3, R3-25: a one-off within CATCH_UP_TOLERANCE_PERCENT of exactly one of these multiples of the reference
+#: amount is a catch-up (presence, named, never a payoff); the owner's answer of 2026-10-07 gives it its own line
+#: where it follows a missed scheduled payment.
+CATCH_UP_PRESENCE_MULTIPLES = (2, 3, 4, 5, 6)
+#: A due date of a schedule slower than daily (and of an irregular daily one) is missed only when the catch-up comes
+#: more than this many business days after it: a debit posted the next business day is on time.
+CATCH_UP_LATE_BUSINESS_DAYS = 1
 #: Two levels are concurrent when at least this share of the minor's dates inside the major's span keep its beat.
 BEAT_KEPT_PERCENT = 60
 #: A regime spanning under this share of one cycle is short (A8); later statements covering this share of one cycle
@@ -75,6 +90,12 @@ CADENCE_CHANGE_MIN_DAILY = 5
 #: The days a major payment may stand from a minor one and still keep the major's beat (A7).
 BEAT_TOLERANCE_DAYS = {"daily": 0, "daily_irregular": 1, "weekly": 3, "biweekly": 7, "semimonthly": 7, "monthly": 16}
 BEAT_TOLERANCE_OTHER_DAYS = 3
+#: NACHA lets a debit returned unpaid be presented at most this many times (the original entry and two
+#: re-presentments), so one debit never fills more than this many of DAILY_STRETCH_BUSINESS_DAYS consecutive business
+#: days, and a chain that ends paid holds fewer than this many returned presentments before its paid one; a daily
+#: schedule read through attempts must go past both bounds (R3-B04 review rounds 1 and 2).
+NACHA_MAX_PRESENTMENTS = 3
+DAILY_STRETCH_BUSINESS_DAYS = 5
 #: The grace windows, in business days, of a stop and a pause (B4, B7).
 STOP_GRACE_BUSINESS_DAYS = {"daily": 5, "daily_irregular": 6, "weekly": 10, "biweekly": 15, "semimonthly": 15,
                             "monthly": 25}
@@ -84,6 +105,10 @@ WEEKLY_EQUIVALENT = {"daily": Fraction(5), "weekly": Fraction(1), "biweekly": Fr
 #: The funding note's window around the new amount's first payment, in calendar days (B3).
 FUNDING_NOTE_DAYS_BEFORE = 20
 FUNDING_NOTE_DAYS_AFTER = 5
+#: Audit round 3, R3-82: a credit within LEVEL_MERGE_PERCENT of a payment or an attempt of the series dated 0 to this
+#: many calendar days before it returns that payment (R2-OW13's rule D window,
+#: `transaction_classifier.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS`), and the funding note never cites it.
+FUNDING_NOTE_RETURN_DAYS = 7
 #: A one-off at this multiple of the regular amount or more is a payoff, never presence (A3b, B5).
 PAYOFF_MULTIPLE = 2
 #: Another series that starts at an amount within this many percent of the stopped one continues it (B5).
@@ -93,8 +118,9 @@ DEBT_RELIEF_GRACE_MULTIPLE = 2
 #: A potential series' item under this weekly equivalent, in cents, is not produced (A10).
 POTENTIAL_MIN_WEEKLY_CENTS = 10000
 
-#: The item kinds, in the order the items are listed within one date.
-PAYMENT_CHANGE_KINDS = ("decrease", "increase", "cadence_change", "pause", "new_stream", "stop")
+#: The item kinds, in the order the items are listed within one date (`catch_up`: the owner's answer of 2026-10-07 to
+#: audit round 3's R3-25, "Add a 'Caught up' line").
+PAYMENT_CHANGE_KINDS = ("decrease", "increase", "cadence_change", "pause", "catch_up", "new_stream", "stop")
 _REGULAR = ("daily", "weekly", "biweekly", "semimonthly", "monthly")
 _UNNAMED_ENTITIES = frozenset({UNIDENTIFIED_LENDER_OBLIGATION, UNIDENTIFIED_MCA_SERVICER})
 _DEBT_RELIEF_GROUP = "debt_relief"
@@ -256,7 +282,9 @@ def _cents(value: object) -> int | None:
 
 @dataclass(frozen=True)
 class _Row:
-    """The row view (A1): the fields this module reads, from a record or its serialized dict."""
+    """The row view (A1): the fields this module reads, from a record or its serialized dict. Audit round 3, R3-82: a
+    credit's R2-OW13 marks, `returns_payment` (`returns_funder_payment`) and `reversal` (`reversal_of`), which the
+    funding note reads."""
 
     statement: int
     position: int
@@ -276,6 +304,8 @@ class _Row:
     revenue_entity: str | None
     location: str
     flagged_group: str | None
+    returns_payment: bool
+    reversal: bool
 
 
 def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
@@ -301,6 +331,7 @@ def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
         revenue_entity=_field(record, "revenue_canonical_entity"),
         location=_field(record, "source_location") or f"transaction:{position + 1}",
         flagged_group=_field(record, "flagged_group"),
+        returns_payment=bool(_field(record, "returns_funder_payment")), reversal=bool(_field(record, "reversal_of")),
     )
 
 
@@ -349,7 +380,9 @@ class _Series:
 
 @dataclass
 class _Chain:
-    """The rows of a statement or of a package chain, read once."""
+    """The rows of a statement or of a package chain, read once. `other_debits` (audit round 3, R3-84): the posted,
+    non-duplicate, unreversed debits no rule claimed (`classification` 'other'), read only for a pause's or a stop's
+    note (`_same_amount_debits`), never presence or a payment."""
 
     series: dict[tuple[str, str], _Series]
     credits: list[_Row]
@@ -358,6 +391,7 @@ class _Chain:
     last_day: date | None
     periods: list[tuple[date | None, date | None]]
     calendar: str
+    other_debits: list[_Row] = field(default_factory=list)
 
 
 def _pay(row: _Row) -> _Pay:
@@ -367,10 +401,12 @@ def _pay(row: _Row) -> _Pay:
 def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
     """Every statement's rows, with part F4's overlap de-duplication: inside an overlap, a later statement's payment or
     attempt dated on or before the earlier statement's period end that equals one of the earlier statement's (series
-    key, day, cents) is dropped, each earlier row consumed once."""
+    key, day, cents) is dropped, each earlier row consumed once; an unclaimed debit (R3-84) the same way on ('other',
+    day, cents)."""
     series: dict[tuple[str, str], _Series] = {}
     credits: list[_Row] = []
     debt_relief: list[_Row] = []
+    other_debits: list[_Row] = []
     first_day: date | None = None
     last_day: date | None = None
     periods = [(parse_date(item.period_start), parse_date(item.period_end)) for item in statements]
@@ -394,6 +430,13 @@ def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
                 debt_relief.append(row)
             key = _series_key(row)
             if key is None:
+                if row.classification == "other" and row.posted and not row.duplicate and not row.reversed:
+                    signature = ("other", None, row.day, row.cents)
+                    if overlap and row.day <= boundary and row.day in previous.get(signature, ()):
+                        previous[signature].remove(row.day)
+                        continue
+                    current.setdefault(signature, []).append(row.day)
+                    other_debits.append(row)
                 continue
             kind = "payment" if _is_payment(row, key) else "attempt" if _is_attempt(row) else None
             if kind is None:
@@ -411,15 +454,22 @@ def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
         entry.attempts.sort(key=lambda pay: pay.order)
     currencies = [item.currency for item in statements]
     calendar = calendar_for(next((currency for currency in currencies if currency), None))
-    return _Chain(series, credits, debt_relief, first_day, last_day, periods, calendar)
+    return _Chain(series, credits, debt_relief, first_day, last_day, periods, calendar,
+                  sorted(other_debits, key=lambda row: (row.day, row.statement, row.position)))
 
 
 # ----------------------------------------------------------------------------------------- levels and positions
 @dataclass
 class _Level:
+    """A level (A4): its representative amount, its payments and its cadence. Since R3-B04 review round 1, a level whose
+    cadence its attempts set (`_beat_cadence`, R3-23) also keeps the cadence of its payments alone (`paid_cadence`) and
+    those attempts' dates (`attempt_days`): the beat tests read the dates its cadence was read from (`beat_dates`)."""
+
     amount: int
     pays: list[_Pay]
     cadence: str
+    paid_cadence: str | None = None
+    attempt_days: tuple[date, ...] = ()
 
     @property
     def first(self) -> date:
@@ -437,11 +487,117 @@ class _Level:
     def dates(self) -> list[date]:
         return sorted({pay.day for pay in self.pays})
 
+    @property
+    def beat_dates(self) -> list[date]:
+        """The dates its cadence was read from: its payments', and its attempts' when they set the cadence."""
+        return sorted({*self.dates, *self.attempt_days})
 
-def _levels(payments: list[_Pay], calendar: str) -> tuple[list[_Level], list[_Pay]]:
+    @property
+    def paid_schedule(self) -> str:
+        """The cadence of its payments alone."""
+        return self.paid_cadence or self.cadence
+
+
+def _near(cents: int, amount: int) -> bool:
+    """`cents` is within LEVEL_MERGE_PERCENT of `amount` (A4's merge test)."""
+    return 100 * abs(cents - amount) <= LEVEL_MERGE_PERCENT * amount
+
+
+def _fills_daily_stretches(days: list[date], calendar: str) -> bool:
+    """R3-B04 review round 1: at least BEAT_KEPT_PERCENT of the distinct `days` sit in a stretch of
+    DAILY_STRETCH_BUSINESS_DAYS consecutive business days holding more than NACHA_MAX_PRESENTMENTS of them. One debit
+    and its NACHA re-presentments (3 presentments at most, before the next debit of a weekly or slower schedule) never
+    do, whatever their days (a Monday debit returned and re-presented on the Wednesday, then paid on the Friday, fills 3
+    of 5); a daily debit whose payments mostly bounce fills every business day."""
+    ordered = sorted(set(days))
+    if not ordered:
+        return False
+    index = [business_days_between(ordered[0], day, calendar) for day in ordered]
+    dense: set[int] = set()
+    start = 0
+    for end in range(len(ordered)):
+        while index[end] - index[start] >= DAILY_STRETCH_BUSINESS_DAYS:
+            start += 1
+        if end - start + 1 > NACHA_MAX_PRESENTMENTS:
+            dense.update(range(start, end + 1))
+    return 100 * len(dense) >= BEAT_KEPT_PERCENT * len(ordered)
+
+
+def _outnumbers_re_presentments(paid_dates: Iterable[date], attempt_dates: Iterable[date], calendar: str) -> bool:
+    """R3-B04 review round 2: the attempts outnumber one debit's re-presentments between payments. Of the intervals
+    between consecutive distinct paid dates with room for NACHA_MAX_PRESENTMENTS attempts (that many business days or
+    more strictly inside), at least one, and at least BEAT_KEPT_PERCENT of them, hold NACHA_MAX_PRESENTMENTS or more
+    attempt dates (not paid dates) strictly inside. Between two paid presentments of a weekly or slower debit lie the
+    returned presentments of the later one's chain, 2 at most (NACHA's original entry and two re-presentments, the
+    last paid), and those of any chain between them returned all three times (a missed cycle) or re-presented past
+    the later one's entry. So the chains of adjacent weeks that each end paid before the next entry never qualify,
+    however they fall (a Thursday and a Friday ending one week's chain and a Monday and a Tuesday opening the next fill
+    4 of 5 business days); a daily debit paid only on Fridays holds 4 attempts in each interval. A shorter interval
+    tells neither apart and is not counted; a level with no interval that has room gives no daily reading."""
+    paid = sorted(set(paid_dates))
+    tried = sorted(set(attempt_dates) - set(paid))
+    filled = room = 0
+    for earlier, later in zip(paid, paid[1:]):
+        if business_days_between(earlier, later, calendar) - 1 < NACHA_MAX_PRESENTMENTS:
+            continue
+        room += 1
+        if sum(1 for day in tried if earlier < day < later) >= NACHA_MAX_PRESENTMENTS:
+            filled += 1
+    return filled > 0 and 100 * filled >= BEAT_KEPT_PERCENT * room
+
+
+def _keeps_cycle(days: list[date], cadence: str, calendar: str) -> bool:
+    """The distinct `days` keep the cycle of `cadence`: a daily schedule's when they fill its stretches of business
+    days (`_fills_daily_stretches`, R3-B04 review round 1); another schedule's when at least BEAT_KEPT_PERCENT of the
+    gaps between them are its cycle's calendar days within BEAT_TOLERANCE_DAYS."""
+    if _regular(cadence) == "daily":
+        return _fills_daily_stretches(days, calendar)
+    ordered = sorted(set(days))
+    pairs = list(zip(ordered, ordered[1:]))
+    tolerance = BEAT_TOLERANCE_DAYS.get(cadence, BEAT_TOLERANCE_OTHER_DAYS)
+    cycle = _cycle_days(cadence)
+    kept = sum(1 for earlier, later in pairs if abs((later - earlier).days - cycle) <= tolerance)
+    return bool(pairs) and 100 * kept >= BEAT_KEPT_PERCENT * len(pairs)
+
+
+def _beat_cadence(paid_cadence: str, paid_dates: Iterable[date], attempt_dates: Iterable[date], calendar: str) -> str:
+    """Audit round 3, R3-23: the schedule of a level (or a regime) read through its bounced attempts. The attempts at
+    its amount are dated beside its payments; their dates together give the schedule only when it is regular and
+    strictly faster than the payments' own (a daily level whose debits mostly bounce reads daily, not weekly, and a
+    weekly one whose every other debit bounces reads weekly, not biweekly), and only when the dates together keep the
+    faster schedule's cycle (`_keeps_cycle`). A daily reading needs BEAT_KEPT_PERCENT of the dates in stretches of 4 or
+    more presented business days of 5, more than NACHA's 3 presentments of one debit fill (R3-B04 review round 1), and
+    one at least, and BEAT_KEPT_PERCENT, of the intervals between paid dates with room for 3 attempts holding 3 or
+    more, more than one debit's 2 returned presentments before its paid one (`_outnumbers_re_presentments`, R3-B04
+    review round 2): the first test alone let the chains of two adjacent weeks, or a holiday week, fill a stretch. A
+    weekly debit whose chains each end paid before the next week's entry, re-presented once or twice on any days, so
+    stays weekly. Known shapes the dates cannot tell apart (spec §17.1 (20)): a biweekly or monthly debit re-presented
+    at weekly steps presents the dates of a weekly debit whose other presentments bounce, and reads weekly as it does;
+    a weekly debit can still read daily where a chain returned all three times (a missed week) or re-presented past
+    the next week's entry puts 3 attempts between two paid dates in most of its intervals (in the only one, on a short
+    level). Attempts never set an amount and never count as payments."""
+    attempts = list(attempt_dates)
+    if not attempts:
+        return paid_cadence
+    paid = list(paid_dates)
+    dates = [*paid, *attempts]
+    candidate = payment_cadence(dates, calendar)
+    faster = _regular(candidate) is not None and (
+        _regular(paid_cadence) is None or _cycle_days(candidate) < _cycle_days(paid_cadence))
+    if not faster or not _keeps_cycle(dates, candidate, calendar):
+        return paid_cadence
+    if _regular(candidate) == "daily" and not _outnumbers_re_presentments(paid, attempts, calendar):
+        return paid_cadence
+    return candidate
+
+
+def _levels(payments: list[_Pay], calendar: str, attempts: Sequence[_Pay] = ()) -> tuple[list[_Level], list[_Pay]]:
     """A4: payments grouped by exact cents; amounts visited by (-count, amount), each joining the first cluster whose
     representative (its first, most frequent amount) is within LEVEL_MERGE_PERCENT. A cluster of 2 or more payments is
-    a level; one payment is a one-off. Levels come in (first date, -payments) order."""
+    a level; one payment is a one-off. Levels come in (first date, -payments) order. A level's cadence reads the
+    series' attempts within LEVEL_MERGE_PERCENT of its representative, at any date, beside its payments when that gives
+    a faster regular schedule (`_beat_cadence`; audit round 3, R3-23), and such a level keeps its payments' own cadence
+    and those attempts' dates (R3-B04 review round 1); attempts never form or join a level."""
     by_cents: dict[int, list[_Pay]] = {}
     for pay in payments:
         by_cents.setdefault(pay.cents, []).append(pay)
@@ -458,7 +614,11 @@ def _levels(payments: list[_Pay], calendar: str) -> tuple[list[_Level], list[_Pa
     for cluster in clusters:
         pays = sorted((pay for cents in cluster for pay in by_cents[cents]), key=lambda pay: pay.order)
         if len(pays) >= 2:
-            levels.append(_Level(cluster[0], pays, payment_cadence((pay.day for pay in pays), calendar)))
+            days = [pay.day for pay in pays]
+            paid = payment_cadence(days, calendar)
+            tried = tuple(sorted({pay.day for pay in attempts if _near(pay.cents, cluster[0])}))
+            cadence = _beat_cadence(paid, days, tried, calendar)
+            levels.append(_Level(cluster[0], pays, cadence, paid, tried if cadence != paid else ()))
         else:
             singles.extend(pays)
     levels.sort(key=lambda level: (level.first, -level.n))
@@ -467,13 +627,15 @@ def _levels(payments: list[_Pay], calendar: str) -> tuple[list[_Level], list[_Pa
 
 def _concurrent(one: _Level, other: _Level) -> bool:
     """A7: the minor level (fewer distinct dates, then fewer payments) has 2 or more distinct dates inside the major's
-    span, and at least BEAT_KEPT_PERCENT of them have a major payment within the major cadence's beat tolerance."""
+    span, and at least BEAT_KEPT_PERCENT of them have a major payment within the major cadence's beat tolerance. A
+    major whose attempts set its cadence (R3-23) is read on those attempts' dates too, as its cadence was (R3-B04
+    review round 1: a daily level paid only on Fridays keeps a Wednesday on its beat)."""
     major, minor = (one, other) if (len(one.dates), one.n) >= (len(other.dates), other.n) else (other, one)
     inside = [day for day in minor.dates if major.first <= day <= major.last]
     if len(inside) < 2:
         return False
     tolerance = BEAT_TOLERANCE_DAYS.get(major.cadence, BEAT_TOLERANCE_OTHER_DAYS)
-    major_dates = major.dates
+    major_dates = major.beat_dates
     kept = sum(1 for day in inside if any(abs((other_day - day).days) <= tolerance for other_day in major_dates))
     return 100 * kept >= BEAT_KEPT_PERCENT * len(inside)
 
@@ -526,10 +688,55 @@ def _positions(levels: list[_Level]) -> list[_Position]:
     return positions
 
 
+def _confirms_schedule(level: _Level) -> bool:
+    """A level whose regular schedule its payments confirm: CADENCE_CHANGE_MIN_PAYMENTS, CADENCE_CHANGE_MIN_DAILY if
+    daily (a short, high-frequency level is never a fee test's reference)."""
+    regular = _regular(level.cadence)
+    needed = CADENCE_CHANGE_MIN_DAILY if regular == "daily" else CADENCE_CHANGE_MIN_PAYMENTS
+    return regular is not None and level.n >= needed
+
+
+def _outweighs(reference: _Level, level: _Level) -> bool:
+    """`level` is under FEE_STREAM_PERCENT of `reference`: on the weekly equivalents when both are regular, else on the
+    raw amounts (A7's fallback)."""
+    weekly, reference_weekly = _weekly(level.amount, level.cadence), _weekly(reference.amount, reference.cadence)
+    if weekly is not None and reference_weekly is not None:
+        return 100 * weekly < FEE_STREAM_PERCENT * reference_weekly
+    return 100 * level.amount < FEE_STREAM_PERCENT * reference.amount
+
+
+def _fee_levels(levels: list[_Level]) -> list[_Level]:
+    """Audit round 3, R3-24 (§17.1 (8), amending R2-OW18's A7, which tested positions only): §17.1 (8)'s 5% test per
+    LEVEL, before positions are formed. A level is a fee level, dropped, when the levels that outweigh it
+    (`_outweighs`) and confirm their schedule (`_confirms_schedule`; never itself) have a payment within their beat
+    tolerance (BEAT_TOLERANCE_DAYS, BEAT_TOLERANCE_OTHER_DAYS otherwise) of at least 2 of its distinct dates and at
+    least BEAT_KEPT_PERCENT of them: it runs ALONGSIDE a heavier, schedule-confirmed level and keeps its beat. A token
+    payment that REPLACES the main level keeps no date on its beat, so it is kept (a change, never a stop). A fee level
+    becomes neither a position nor a one-off, as a dropped fee position; the others keep their order. The per-position
+    test (`_paying_positions`) still runs after it. A reference whose attempts set its cadence is read on those
+    attempts' dates too (`beat_dates`, R3-B04 review round 1)."""
+    references = [level for level in levels if _confirms_schedule(level)]
+
+    def fee(level: _Level) -> bool:
+        heavier = [reference for reference in references if reference is not level and _outweighs(reference, level)]
+        if not heavier:
+            return False
+        dates = level.dates
+        kept = sum(1 for day in dates if any(
+            any(abs((beat - day).days) <= BEAT_TOLERANCE_DAYS.get(reference.cadence, BEAT_TOLERANCE_OTHER_DAYS)
+                for beat in reference.beat_dates)
+            for reference in heavier))
+        return kept >= 2 and 100 * kept >= BEAT_KEPT_PERCENT * len(dates)
+
+    return [level for level in levels if not fee(level)]
+
+
 def _paying_positions(positions: list[_Position]) -> list[_Position]:
     """A7's fee test: a position whose weight (its largest regular weekly equivalent) is under FEE_STREAM_PERCENT of
     the series' largest weight is dropped; a position with no regular level compares its largest raw level amount
-    with the series' largest raw level amount. The others are numbered 1..n by first payment date."""
+    with the series' largest raw level amount. The others are numbered 1..n by first payment date. Since audit round
+    3, R3-24, a fee level that runs alongside a heavier level is dropped before positions are formed (`_fee_levels`);
+    this test still drops a whole fee position."""
     weights = [weight for position in positions if (weight := position.weight()) is not None]
     largest_weight = max(weights) if weights else None
     largest_raw = max(level.amount for position in positions for level in position.levels)
@@ -571,11 +778,18 @@ class _Regime:
         return (self.last - self.first).days
 
 
-def _regimes(position: _Position, calendar: str) -> list[_Regime]:
+def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) -> list[_Regime]:
     """A8: the position's payments in date order (ties by level) compressed into runs of one level; a run of an
     irregular or single level, of under MIN_PAYMENTS_HELD payments, or of a catch-up multiple is noise, which neither
     forms nor breaks a regime; consecutive non-noise runs of one level merge. A regime's cadence is its own when
-    regular, else its level's."""
+    regular, else its level's; since audit round 3, R3-23, the own cadence reads the series' attempts within
+    LEVEL_MERGE_PERCENT of the regime's amount dated inside its span beside its payments (`_beat_cadence`). Since audit
+    round 3, R3-70, a 2x or 3x level is no catch-up when one of its runs of MIN_PAYMENTS_HELD or more payments reads a
+    regular schedule slower than the dominant level's (a catch-up pulls debits together on the schedule or faster):
+    it is then § Still open 18's change at a new schedule. The dominant level's schedule there is its payments' own
+    while it is still presented, paid or returned, through the run (R3-B04 review round 1: a 2x run on the paying
+    weekday of a daily level whose other days bounce keeps that beat), else its cadence, read through its attempts
+    (R3-B04 review round 2: a weekly level whose every other debit bounced, then a biweekly 3x run, is a change)."""
     levels = position.levels
     tagged = sorted(((pay, index) for index, level in enumerate(levels) for pay in level.pays),
                     key=lambda item: (item[0].day, item[1], item[0].order))
@@ -589,11 +803,32 @@ def _regimes(position: _Position, calendar: str) -> list[_Regime]:
     longest: dict[int, int] = {}
     for index, pays in runs:
         longest[index] = max(longest.get(index, 0), len(pays))
+    main_level = levels[dominant]
+    presented = sorted({*main_level.dates, *(pay.day for pay in attempts if _near(pay.cents, main_level.amount))})
+
+    def main_schedule(pays: list[_Pay]) -> str | None:
+        # R3-B04 review round 2: the payments' own schedule while the main level is still presented (paid or
+        # returned) through the run, as a catch-up on its paying weekday is; else the schedule its cadence reads.
+        first, last = pays[0].day, pays[-1].day
+        still = any(first <= day <= last for day in presented)
+        return _regular(main_level.paid_schedule if still else main_level.cadence)
+
+    def slower(index: int) -> bool:
+        for run_index, pays in runs:
+            if run_index != index or len(pays) < MIN_PAYMENTS_HELD:
+                continue
+            main = main_schedule(pays)
+            own = _regular(payment_cadence((pay.day for pay in pays), calendar))
+            if main is not None and own is not None and _cycle_days(own) > _cycle_days(main):
+                return True
+        return False
+
     catch_up = {
         index for index, level in enumerate(levels)
         if index != dominant and longest.get(index, 0) <= CATCH_UP_MAX_RUN
         and any(100 * abs(level.amount - multiple * levels[dominant].amount) <= CATCH_UP_TOLERANCE_PERCENT * level.amount
                 for multiple in CATCH_UP_MULTIPLES)
+        and not slower(index)
     }
     regimes: list[_Regime] = []
     for index, pays in runs:
@@ -605,7 +840,12 @@ def _regimes(position: _Position, calendar: str) -> list[_Regime]:
         else:
             regimes.append(_Regime(index, levels[index].amount, cadence, list(pays)))
     for regime in regimes:
-        own = _regular(payment_cadence((pay.day for pay in regime.pays), calendar))
+        days = [pay.day for pay in regime.pays]
+        own = _regular(payment_cadence(days, calendar))
+        extra = [pay.day for pay in attempts
+                 if _near(pay.cents, regime.amount) and regime.first <= pay.day <= regime.last]
+        if extra:
+            own = _regular(_beat_cadence(own or regime.cadence, days, extra, calendar))
         if own is not None:
             regime.cadence = own
     return regimes
@@ -663,7 +903,8 @@ def _at_level(regime: _Regime, reference: _Regime) -> bool:
 # ------------------------------------------------------------------------------------------------------ the series
 @dataclass(frozen=True)
 class _Mark:
-    """One presence date of a position (A3b): a payment, an attempt or a payment-sized one-off of the series."""
+    """One presence date of a position (A3b): a payment, an attempt, a payment-sized one-off of the series or, since
+    audit round 3 (R3-25), a catch-up one-off (an exact 2x to 6x multiple)."""
 
     day: date
     kind: str
@@ -671,7 +912,7 @@ class _Mark:
 
     @property
     def order(self) -> tuple:
-        return (self.day, ("one_off", "attempt", "payment").index(self.kind), self.pay.order)
+        return (self.day, ("one_off", "catch_up", "attempt", "payment").index(self.kind), self.pay.order)
 
 
 @dataclass
@@ -722,12 +963,23 @@ def _band(pay: _Pay, reference: int) -> bool:
     return FEE_STREAM_PERCENT * reference <= 100 * pay.cents < 100 * PAYOFF_MULTIPLE * reference
 
 
+def _catch_up_multiple(pay: _Pay, reference: int) -> int | None:
+    """Audit round 3, R3-25: the first k of CATCH_UP_PRESENCE_MULTIPLES whose k times the reference amount the one-off
+    is within CATCH_UP_TOLERANCE_PERCENT of (A8's tolerance form, on the one-off's own amount); None when it is no such
+    exact multiple. Disjoint from `_band`, which ends under 2x."""
+    return next((multiple for multiple in CATCH_UP_PRESENCE_MULTIPLES
+                 if 100 * abs(pay.cents - multiple * reference) <= CATCH_UP_TOLERANCE_PERCENT * pay.cents), None)
+
+
 def _presence(reading: _Reading, position: _Position, reference: int) -> list[_Mark]:
     """A3b, the one presence definition: the position's payments, the series' attempts and the series' payment-sized
-    one-offs (`_band` of the reference amount), in date order."""
+    one-offs (`_band` of the reference amount), in date order. Since audit round 3, R3-25, also the series' catch-ups:
+    a one-off within 2% of exactly 2 to 6 times the reference amount (`_catch_up_multiple`), for pauses, restarts and
+    stops alike: a merchant catching up missed payments in one debit is paying, not stopped."""
     marks = [_Mark(pay.day, "payment", pay) for pay in position.pays]
     marks += [_Mark(pay.day, "attempt", pay) for pay in reading.series.attempts]
     marks += [_Mark(pay.day, "one_off", pay) for pay in reading.singles if _band(pay, reference)]
+    marks += [_Mark(pay.day, "catch_up", pay) for pay in reading.singles if _catch_up_multiple(pay, reference)]
     return sorted(marks, key=lambda mark: mark.order)
 
 
@@ -762,16 +1014,31 @@ def _common(kind: str, reading: _Reading, position: _Position, positions: int, s
     }
 
 
-def _after_funding(reading: _Reading, scope: _Scope, first: date) -> dict | None:
+def _after_funding(reading: _Reading, scope: _Scope, first: date, *, after_day: date,
+                   amounts: Sequence[int]) -> dict | None:
     """B3: the latest posted, non-duplicate credit of the series' entity (canonical or revenue entity) dated from
     FUNDING_NOTE_DAYS_BEFORE days before to FUNDING_NOTE_DAYS_AFTER days after the new amount's first payment; for a
-    confirmed series, or a potential series whose entity is named."""
+    confirmed series, or a potential series whose entity is named. Audit round 3, R3-82: never (a) a credit that
+    returns or reverses a payment (R2-OW13's `returns_funder_payment` or `reversal_of`); (b) one within
+    LEVEL_MERGE_PERCENT of one of the change's own payment `amounts` (the reference regime's, the regime just before's
+    and the new regime's); (c) one within LEVEL_MERGE_PERCENT of a payment or an attempt of the series dated 0 to
+    FUNDING_NOTE_RETURN_DAYS days before it (a return of that payment); (d) one dated on or before `after_day`, the
+    first payment of the regime just before the new one (the old level's own funding). No size floor: a revolving
+    product's genuine draws can be payment-sized."""
     if not reading.named:
         return None
     entity = reading.series.entity
     window = (first - timedelta(days=FUNDING_NOTE_DAYS_BEFORE), first + timedelta(days=FUNDING_NOTE_DAYS_AFTER))
+    debits = [*reading.series.payments, *reading.series.attempts]
+
+    def returned(row: _Row) -> bool:
+        return any(_near(row.cents, pay.cents) and 0 <= (row.day - pay.day).days <= FUNDING_NOTE_RETURN_DAYS
+                   for pay in debits)
+
     credits = [row for row in scope.chain.credits
-               if (row.entity == entity or row.revenue_entity == entity) and window[0] <= row.day <= window[1]]
+               if (row.entity == entity or row.revenue_entity == entity) and window[0] <= row.day <= window[1]
+               and not (row.returns_payment or row.reversal) and row.day > after_day
+               and not any(_near(row.cents, amount) for amount in amounts) and not returned(row)]
     if not credits:
         return None
     latest = max(credits, key=lambda row: (row.day, row.statement, row.position))
@@ -862,7 +1129,9 @@ def _change(reading: _Reading, position: _Position, positions: int, scope: _Scop
                         "change_percent": _step_percent(steps[index], regime)}
                        for index, regime in enumerate(via)]
         item["last_step_percent"] = _step_percent(via[-1], new)
-    funding = _after_funding(reading, scope, new.first)
+    # R3-82: in the dropped-regime path `previous` is the kept regime cut before the dropped one (its own first).
+    funding = _after_funding(reading, scope, new.first, after_day=previous.first,
+                             amounts=(before.amount, previous.amount, new.amount))
     if funding is not None:
         item["after_funding"] = funding
     item["locations"] = {"last_before": before.pays[-1].location, "first_after": new.pays[0].location}
@@ -876,7 +1145,7 @@ def _transitions(reading: _Reading, position: _Position, positions: int, scope: 
     confirmed change reports (§ Still open 23's alternative: steps under 10% add up against it); a regime at the
     reference's level takes its place. The regimes A8 dropped are read afterwards, each against the reference in force
     after the kept regime before it, and give at most a possible change (§ Still open 18's alternative)."""
-    regimes = _regimes(position, scope.chain.calendar)
+    regimes = _regimes(position, scope.chain.calendar, reading.series.attempts)
     kept, dropped = _drop_short(regimes)
     if not kept:
         return []
@@ -921,14 +1190,45 @@ def _transitions(reading: _Reading, position: _Position, positions: int, scope: 
     return items
 
 
-def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scope) -> list[dict]:
+def _same_amount_debits(scope: _Scope, cents: set[int], cadence: str, after: date, until: date) -> dict | None:
+    """Audit round 3, R3-84: the statement's (chain's) debits no rule claimed (`_Chain.other_debits`) at one of the
+    series' exact `cents`, dated after `after` up to and including `until`, one per (day, cents), when there are 2 or
+    more, their dates read the series' regular schedule (`payment_cadence`) and they cover at least BEAT_KEPT_PERCENT
+    of the payments that schedule expects in the gap (its business days times the schedule's weekly payments over 5):
+    {'count', 'first_date', 'last_date'}; else None. A note only: never presence, a payment or paid to lenders (the
+    registry refuses processor rails as aliases, since one processor collects for several funders)."""
+    regular = _regular(cadence)
+    if regular is None:
+        return None
+    found = sorted({(row.day, row.cents) for row in scope.chain.other_debits
+                    if row.cents in cents and after < row.day <= until})
+    if len(found) < 2:
+        return None
+    days = [day for day, _cents in found]
+    if _regular(payment_cadence(days, scope.chain.calendar)) != regular:
+        return None
+    expected = Fraction(scope.business_days(after, until)) * WEEKLY_EQUIVALENT[regular] / 5
+    if 100 * len(found) < BEAT_KEPT_PERCENT * expected:
+        return None
+    return {"count": len(found), "first_date": _iso(days[0]), "last_date": _iso(days[-1])}
+
+
+def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scope,
+            covered: set[tuple] | None = None) -> list[dict]:
     """B7: inside one regime (after A8), a gap from a payment to the next presence (the regime's amount the band's
     reference) longer than the regime cadence's grace window, with no chain coverage hole between them. The item names
     what ended it (R2-OW18 review round 1): `first_after_kind` 'payment' (the regime's next payment), 'attempt' (a
     bounced or reversed debit of the series) or 'other_amount' (a payment of the series at another amount), and
-    `resumed_date`, the regime's next payment."""
+    `resumed_date`, the regime's next payment. Audit round 3, R3-25: or 'catch_up', an exact 2x to 6x one-off, with
+    its `first_after_amount` and `first_after_multiple` (a catch-up on the day the regime's next payment posts still
+    ends the pause as a catch-up, so the line names it: one line per gap); the pause's catch-up joins `covered`, so no
+    Caught up item repeats it. R3-B05 review round 1: so do the catch-ups after the presence that ended the pause, up
+    to and including the day the regime's next payment posts (`catch_ups_inside`: a bounced attempt or a payment at
+    another amount ended it, then the merchant caught up before payments resumed). Every other one-off of 2x or more
+    dated inside the gap, before the regime's next payment, is named (`larger_debits_inside`). Audit round 3, R3-84:
+    unclaimed debits of the regime's cents on its schedule inside the gap are named (`same_amount_debits`)."""
     items: list[dict] = []
-    kept, _dropped = _drop_short(_regimes(position, scope.chain.calendar))
+    kept, _dropped = _drop_short(_regimes(position, scope.chain.calendar, reading.series.attempts))
     for regime in kept:
         grace = _grace(regime.cadence)
         if grace is None or _under_floor(reading, regime.amount * WEEKLY_EQUIVALENT[regime.cadence]):
@@ -945,14 +1245,39 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
             pause = scope.business_days(first, resume.day)
             if pause <= grace or any(first <= end and start <= resume.day for end, start in scope.holes):
                 continue
-            ended_by = ("payment" if resume.day == second else "attempt" if resume.kind == "attempt"
-                        else "other_amount")
+            ended_by = ("catch_up" if resume.kind == "catch_up" else "payment" if resume.day == second
+                        else "attempt" if resume.kind == "attempt" else "other_amount")
             item = _common("pause", reading, position, positions, scope, _label(last_on[first], reading))
             item.update({
                 "cadence": regime.cadence, "last_payment_amount": _money(regime.amount),
                 "last_before_date": _iso(first), "first_after_date": _iso(resume.day),
                 "first_after_kind": ended_by, "resumed_date": _iso(second),
-                "pause_business_days": pause, "grace_business_days": grace,
+            })
+            if ended_by == "catch_up":
+                item["first_after_amount"] = _money(resume.pay.cents)
+                item["first_after_multiple"] = _catch_up_multiple(resume.pay, regime.amount)
+                if covered is not None:
+                    covered.add(resume.pay.order)
+            item.update({"pause_business_days": pause, "grace_business_days": grace})
+            # Review round 1 (finding 2): the catch-ups after the presence that ended the pause (a bounced attempt, a
+            # payment at another amount or an earlier catch-up), up to the day payments resumed, are this line's too.
+            inside = [mark.pay for mark in marks
+                      if mark.kind == "catch_up" and mark.order > resume.order and mark.day <= second]
+            if inside:
+                item["catch_ups_inside"] = [{"date": _iso(pay.day), "amount": _money(pay.cents),
+                                             "multiple": _catch_up_multiple(pay, regime.amount)} for pay in inside]
+                if covered is not None:
+                    covered.update(pay.order for pay in inside)
+            larger = [pay for pay in reading.singles
+                      if first < pay.day < second and pay.cents >= PAYOFF_MULTIPLE * regime.amount
+                      and _catch_up_multiple(pay, regime.amount) is None]
+            if larger:
+                item["larger_debits_inside"] = [{"date": _iso(pay.day), "amount": _money(pay.cents)} for pay in larger]
+            same = _same_amount_debits(scope, {pay.cents for pay in regime.pays}, regime.cadence, first,
+                                       resume.day - timedelta(days=1))
+            if same is not None:
+                item["same_amount_debits"] = same
+            item.update({
                 "locations": {"last_before": last_on[first].location, "first_after": resume.pay.location},
                 "_source_statement": resume.pay.statement,
             })
@@ -990,9 +1315,15 @@ def _series_note(other: _Reading, position: _Position) -> dict:
             "first_date": _iso(position.first)}
 
 
-def _stops(reading: _Reading, positions: list[_Position], scope: _Scope) -> list[dict]:
+def _stops(reading: _Reading, positions: list[_Position], scope: _Scope,
+           covered: set[tuple] | None = None) -> list[dict]:
     """B4 and B5: a position of MIN_STOP_PAYMENTS or more payments whose last-paying level is regular, followed by no
-    presence for more than its grace window before the coverage end."""
+    presence for more than its grace window before the coverage end. Audit round 3, R3-25: the one-offs after the last
+    payment that are presence, payment-sized or a catch-up, are counted in `other_debits_after` (with `catch_ups`, the
+    exact multiples among them, which join `covered`: the stop's line names them, so no Caught up item repeats them);
+    the payoff note reads only a one-off of 2x or more that is no exact multiple and counts the earlier ones
+    (`earlier`). Audit round 3, R3-84: unclaimed debits of the last level's cents on its schedule after the last
+    presence are named (`same_amount_debits`), and such a stop is never confirmed."""
     items: list[dict] = []
     if scope.coverage_end is None:
         return items
@@ -1015,9 +1346,11 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope) -> list
         if scope.scope == "package" and later < statements and scope.coverage_source == "period_end":
             later_start = scope.chain.periods[later][0]
             if later_start is not None:
-                covered = (scope.coverage_end - later_start).days + 1
+                # The calendar days the later statements cover (named apart from `covered`, the catch-ups a line
+                # names: audit round 3, R3-B05, review round 1).
+                later_days = (scope.coverage_end - later_start).days + 1
                 factor = WEEKLY_EQUIVALENT[_regular(level.cadence)]
-                confirmed = 100 * covered * factor >= SHORT_REGIME_CYCLE_PERCENT * 7
+                confirmed = 100 * later_days * factor >= SHORT_REGIME_CYCLE_PERCENT * 7
         item.update({
             "cadence": level.cadence, "last_payment_date": _iso(last_pay.day),
             "last_payment_amount": _money(last_pay.cents), "payments": position.n,
@@ -1026,12 +1359,26 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope) -> list
             "stop_confirmed": confirmed,
         })
         after_last = [pay for pay in reading.singles if pay.day > last_pay.day]
-        band_after = [pay for pay in after_last if _band(pay, reference)]
-        if band_after:
-            item["other_debits_after"] = {"count": len(band_after), "last_date": _iso(band_after[-1].day)}
-        payoffs = [pay for pay in after_last if pay.cents >= PAYOFF_MULTIPLE * reference]
+        presence_after = [pay for pay in after_last if _band(pay, reference) or _catch_up_multiple(pay, reference)]
+        if presence_after:
+            note = {"count": len(presence_after), "last_date": _iso(presence_after[-1].day)}
+            catch_ups = [pay for pay in presence_after if _catch_up_multiple(pay, reference)]
+            if catch_ups:
+                note["catch_ups"] = len(catch_ups)
+                if covered is not None:
+                    covered.update(pay.order for pay in catch_ups)
+            item["other_debits_after"] = note
+        payoffs = [pay for pay in after_last
+                   if pay.cents >= PAYOFF_MULTIPLE * reference and _catch_up_multiple(pay, reference) is None]
         if payoffs:
             item["payoff"] = {"date": _iso(payoffs[-1].day), "amount": _money(payoffs[-1].cents)}
+            if len(payoffs) >= 2:
+                item["payoff"]["earlier"] = len(payoffs) - 1
+        same = _same_amount_debits(scope, {pay.cents for pay in level.pays}, level.cadence, last_mark.day,
+                                   scope.coverage_end)
+        if same is not None:
+            item["same_amount_debits"] = same
+            item["stop_confirmed"] = False
         handoff = [(other, found) for other, found in _starting_series(scope, reading, last_pay.day, grace)
                    if 100 * abs(_first_level(found).amount - reference) <= HANDOFF_PERCENT * reference]
         if handoff:
@@ -1060,6 +1407,104 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope) -> list
     return items
 
 
+def _open_day(day: date, calendar: str) -> date:
+    """`day`, or the next business day of the calendar when it falls on a weekend or a holiday."""
+    while day.weekday() >= 5 or day in _holidays(calendar, day.year):
+        day += timedelta(days=1)
+    return day
+
+
+def _months_after(day: date, months: int) -> date:
+    """The same day of the month `months` later, the month's last day where it has no such day."""
+    year, month = divmod(day.month - 1 + months, 12)
+    year, month = day.year + year, month + 1
+    following = date(year + month // 12, month % 12 + 1, 1)
+    return date(year, month, min(day.day, (following - timedelta(days=1)).day))
+
+
+def _missed_payments(last: date, catch_up: date, cadence: str, late: int, calendar: str) -> list[date]:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-25: the payments of `cadence` scheduled after `last` (the
+    series' last payment before the catch-up) that were missed before `catch_up`. A daily schedule's are the business
+    days in between; another schedule's are its due dates, each moved to the next business day: a monthly one's the
+    same day of each following month (the month's last day where it has none), a weekly, biweekly or semi-monthly
+    one's `last` plus each whole cycle rounded up to a day (7, 14 and 16 days). A date counts when the catch-up comes
+    more than `late` business days after it (CATCH_UP_LATE_BUSINESS_DAYS, or 0 on a daily schedule)."""
+    regular = _regular(cadence)
+    if regular is None:
+        return []
+    candidates: list[date] = []
+    if regular == "daily":
+        day = last + timedelta(days=1)
+        while day < catch_up:
+            if _open_day(day, calendar) == day:
+                candidates.append(day)
+            day += timedelta(days=1)
+    else:
+        cycle = _cycle_days(regular)
+        step = 1
+        while True:
+            span = step * cycle
+            due = (_months_after(last, step) if regular == "monthly"
+                   else last + timedelta(days=-(-span.numerator // span.denominator)))
+            due = _open_day(due, calendar)
+            if due >= catch_up:
+                break
+            candidates.append(due)
+            step += 1
+    return [day for day in candidates if business_days_between(day, catch_up, calendar) > late]
+
+
+def _catch_ups(reading: _Reading, positions: list[_Position], scope: _Scope, covered: set[tuple]) -> list[dict]:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-25 ("Add a 'Caught up' line"): a catch-up one-off (an
+    exact 2x to 6x multiple of the amount of the regime in force, the last kept regime of a position paid before it,
+    `_catch_up_multiple`) that follows one or more missed scheduled payments of that regime (`_missed_payments`, from
+    the position's last paid presence before it: a payment, a payment-sized one-off or a catch-up; a bounced attempt
+    is no payment) is one `catch_up` item, information only. None where a pause or a stop line already names it
+    (`covered`: one line per event), where a coverage hole falls between the last payment and the catch-up, or under
+    a potential series' floor (A10); a multiple with no missed payment before it gives none. A daily regime's business
+    days are each due; an irregular daily one's, and another schedule's due dates, are missed only when the catch-up
+    comes more than CATCH_UP_LATE_BUSINESS_DAYS after them. Each one-off gives one item at most."""
+    items: list[dict] = []
+    done = set(covered)
+    calendar = scope.chain.calendar
+    for position in positions:
+        kept, _dropped = _drop_short(_regimes(position, calendar, reading.series.attempts))
+        for pay in reading.singles:
+            if pay.order in done:
+                continue
+            regime = None
+            for candidate in kept:
+                if candidate.first < pay.day:
+                    regime = candidate
+            if regime is None:
+                continue
+            multiple = _catch_up_multiple(pay, regime.amount)
+            if multiple is None or _under_floor(reading, regime.amount * WEEKLY_EQUIVALENT[regime.cadence]):
+                continue
+            paid = [mark for mark in _presence(reading, position, regime.amount)
+                    if mark.kind != "attempt" and mark.day < pay.day]
+            if not paid or scope.uncovered_business_days(paid[-1].day, pay.day):
+                continue
+            last = paid[-1]
+            irregular = payment_cadence([each.day for each in regime.pays], calendar) == "daily_irregular"
+            late = 0 if regime.cadence == "daily" and not irregular else CATCH_UP_LATE_BUSINESS_DAYS
+            missed = _missed_payments(last.day, pay.day, regime.cadence, late, calendar)
+            if not missed:
+                continue
+            done.add(pay.order)
+            item = _common("catch_up", reading, position, len(positions), scope, _label(pay, reading))
+            item.update({
+                "cadence": regime.cadence, "last_payment_amount": _money(regime.amount),
+                "last_before_date": _iso(last.day), "missed_payments": len(missed),
+                "missed_first_date": _iso(missed[0]), "missed_last_date": _iso(missed[-1]), "multiple": multiple,
+                "catch_up_date": _iso(pay.day), "catch_up_amount": _money(pay.cents),
+                "locations": {"last_before": last.pay.location, "catch_up": pay.location},
+                "_source_statement": pay.statement,
+            })
+            items.append(item)
+    return items
+
+
 def _previous_cycle_days(first: date, cadence: str) -> list[date]:
     """The days one cycle of `cadence` before `first` falls on: from `first` less the cycle rounded up to `first` less
     the cycle rounded down (weekly: the day 7 days before; monthly: 31 and 30 days before; daily: 2 and 1 days
@@ -1069,37 +1514,50 @@ def _previous_cycle_days(first: date, cadence: str) -> list[date]:
     return [first - timedelta(days=days) for days in range(shortest, longest + 1)]
 
 
+def _level_at(position: _Position, day: date) -> _Level:
+    """Audit round 3, R3-81: the level the position was paying on `day`: among its levels with a regular cadence that
+    have a payment dated on or before `day`, the one holding the latest such payment (by `_Pay.order`); else its last
+    level."""
+    paying = [(max(pay.order for pay in level.pays if pay.day <= day), level) for level in position.levels
+              if _regular(level.cadence) is not None and any(pay.day <= day for pay in level.pays)]
+    return max(paying, key=lambda entry: entry[0])[1] if paying else position.last_level
+
+
 def _new_streams(reading: _Reading, positions: list[_Position], scope: _Scope) -> list[dict]:
     """B8: a position P (3 or more payments, a regular last cadence) that starts at least one grace window after
     another such position Q began, while Q still pays 3 or more times on or after P's first payment, and raises the
     funder's weekly total by CHANGE_THRESHOLD_PERCENT or more. R2-OW18 review round 1: P's payment one cycle of its
     schedule before its first one (`_previous_cycle_days`) must fall inside the coverage, so a position that may have
-    been paying before the statement (chain) starts, or during a hole between two members, is never a new stream."""
+    been paying before the statement (chain) starts, or during a hole between two members, is never a new stream.
+    Audit round 3, R3-81: each Q is read at the level it was paying on P's first payment (`_level_at`), for the grace
+    test, the gate, `alongside` and the weekly totals; P's own `amount_after` and `cadence_after` stay its last level
+    (B8)."""
     items: list[dict] = []
     real = [position for position in positions
             if position.n >= MIN_STOP_PAYMENTS and _grace(position.last_level.cadence) is not None]
     for stream in real:
         if not all(scope.covered(day) for day in _previous_cycle_days(stream.first, stream.last_level.cadence)):
             continue
+        start = {id(other): _level_at(other, stream.first) for other in real}
         alongside = [
             other for other in real
             if other is not stream and other.first < stream.first
-            and scope.business_days(other.first, stream.first) >= _grace(other.last_level.cadence)
+            and scope.business_days(other.first, stream.first) >= _grace(start[id(other)].cadence)
             and sum(1 for pay in other.pays if pay.day >= stream.first) >= MIN_STOP_PAYMENTS
         ]
         if not alongside:
             continue
         level = stream.last_level
         weekly = _weekly(level.amount, level.cadence)
-        before = sum(_weekly(other.last_level.amount, other.last_level.cadence) for other in alongside)
+        before = sum(_weekly(start[id(other)].amount, start[id(other)].cadence) for other in alongside)
         if _under_floor(reading, weekly) or 100 * weekly < CHANGE_THRESHOLD_PERCENT * before:
             continue
         item = _common("new_stream", reading, stream, len(positions), scope, _label(stream.pays[-1], reading))
         item.update({
             "cadence_after": _regular(level.cadence), "amount_after": _money(level.amount),
             "first_after_date": _iso(stream.first), "payments_after": stream.n,
-            "alongside": [{"position": other.number, "cadence": _regular(other.last_level.cadence),
-                           "amount": _money(other.last_level.amount)} for other in alongside],
+            "alongside": [{"position": other.number, "cadence": _regular(start[id(other)].cadence),
+                           "amount": _money(start[id(other)].amount)} for other in alongside],
             "weekly_total_before": _money(before), "weekly_total_after": _money(before + weekly),
             "change_percent": round(((before + weekly) / before - 1) * 100),
             "locations": {"first_after": stream.pays[0].location},
@@ -1110,7 +1568,11 @@ def _new_streams(reading: _Reading, positions: list[_Position], scope: _Scope) -
 
 
 def _read_series(series: _Series, calendar: str) -> _Reading:
-    levels, singles = _levels(series.payments, calendar)
+    """A4 to A7: the series' levels (their cadence read through its attempts, R3-23), its fee levels dropped (R3-24),
+    then its positions and the per-position fee test."""
+    levels, singles = _levels(series.payments, calendar, series.attempts)
+    if levels:
+        levels = _fee_levels(levels)
     positions = _paying_positions(_positions(levels)) if levels else []
     return _Reading(series, singles, positions)
 
@@ -1119,7 +1581,7 @@ _KIND_RANK = {kind: rank for rank, kind in enumerate(PAYMENT_CHANGE_KINDS)}
 
 
 def _item_order(item: dict) -> tuple:
-    day = item.get("first_after_date") or item.get("last_payment_date") or ""
+    day = item.get("first_after_date") or item.get("catch_up_date") or item.get("last_payment_date") or ""
     key = item.get("_series_key") or ("", "")
     return (item["lender_state"] != "confirmed", item["lender"] or "", key[1], item["position"], day,
             _KIND_RANK[item["kind"]])
@@ -1127,10 +1589,11 @@ def _item_order(item: dict) -> tuple:
 
 def payment_changes(statements: Sequence[StatementRows | tuple], *, scope: str = "package") -> list[dict]:
     """The lender payment changes of a chain: the statements of one account in period order, each (rows,
-    period_start, period_end, currency). One dict per signal (decrease, increase, cadence_change, pause, new_stream,
-    stop), ordered by (confirmed first, lender, series, position, date, kind). Part F4's overlap de-duplication is
-    applied here. Each item also carries internal keys, each starting with '_': the module statement indexes
-    (`_source_statement`: the first payment at the new amount, the resuming presence or the last presence;
+    period_start, period_end, currency). One dict per signal (decrease, increase, cadence_change, pause, catch_up,
+    new_stream, stop), ordered by (confirmed first, lender, series, position, date, kind). Part F4's overlap
+    de-duplication is applied here. Each item also carries internal keys, each starting with '_': the module statement
+    indexes (`_source_statement`: the first payment at the new amount, the resuming presence, the catch-up or the last
+    presence;
     `_from_statement` and `_to_statement` on a change: the last old payment and the new regime's second payment), the
     series key (`_series_key`) and, on a stop, `_last_presence`; the package turns them into its source fields and
     drops them (statement_payment_changes drops them too). The coverage end is the last statement's printed period
@@ -1152,11 +1615,14 @@ def payment_changes(statements: Sequence[StatementRows | tuple], *, scope: str =
     for key, reading in readings.items():
         positions = reading.positions
         found: list[dict] = []
+        # The catch-ups a pause or a stop line names (R3-25): no Caught up item repeats them.
+        covered: set[tuple] = set()
         for position in positions:
             found.extend(_transitions(reading, position, len(positions), context))
-            found.extend(_pauses(reading, position, len(positions), context))
+            found.extend(_pauses(reading, position, len(positions), context, covered))
         found.extend(_new_streams(reading, positions, context))
-        found.extend(_stops(reading, positions, context))
+        found.extend(_stops(reading, positions, context, covered))
+        found.extend(_catch_ups(reading, positions, context, covered))
         for item in found:
             item["_series_key"] = key
         items.extend(found)
@@ -1191,3 +1657,27 @@ def series_activity_after(statements: Sequence[StatementRows | tuple], series_ke
     if not later:
         return None
     return {"statement": later[0].statement, "date": _iso(later[0].day), "amount": _money(later[0].cents)}
+
+
+def covered_business_days(first: str | date, second: str | date,
+                          periods: Iterable[tuple[str | date | None, str | date | None]], calendar: str = "US") -> int:
+    """Audit round 3, R3-83 (F5's window): the business days of `calendar` strictly after `first`, up to and including
+    `second`, that lie inside at least one (start, end) of `periods`, each day once; a period with a missing or
+    unreadable bound is skipped. The package passes the printed periods of the stop's chain and of the other account's
+    chain: a day neither prints could not show the funder debiting either account. 0 when `second` is not later."""
+    start_day, end_day = parse_date(first), parse_date(second)
+    if start_day is None or end_day is None or end_day <= start_day:
+        return 0
+    spans = sorted((begin, end) for begin, end in ((parse_date(begin), parse_date(end)) for begin, end in periods)
+                   if begin is not None and end is not None and begin <= end)
+    merged: list[list[date]] = []
+    for begin, end in spans:
+        if merged and begin <= merged[-1][1] + timedelta(days=1):
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([begin, end])
+    total = 0
+    for begin, end in merged:
+        low, high = max(start_day, begin - timedelta(days=1)), min(end_day, end)
+        total += business_days_between(low, high, calendar)
+    return total

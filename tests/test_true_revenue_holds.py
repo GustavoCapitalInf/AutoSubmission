@@ -273,6 +273,42 @@ def test_an_advance_still_holds_a_lender_s_wire_and_an_ach_entry():
     assert _one("CONTOSO GROUP DES:ADVANCE PMT ID:1", 7000.0) == FINANCING
 
 
+# Audit round 3, R3-B07 (R3-18; §8.1, T4): a buyer's advance payment printed cut or abbreviated on a wire's purpose
+# (ADV PAYM, ADV PAYMENT, ADV PMT, ADV PYMT, ADVANCE PYMT) is no financing either, never after MERCHANT, CASH or MCA.
+R318_BOFA = ("WIRE TYPE:WIRE IN DATE:000000 TIME:0000 ET TRN:0000000000000001 ORIG:{orig} ID:AE0000000000000000000 "
+             "SND BK:SAMPLE BANK LIMITED ID:0000 PMT DET:WIRES 000000000 ROUTING 000000000 {purpose}")
+
+
+@pytest.mark.parametrize("purpose", [
+    "ADV PAYM", "ADV PAYMENT FOR PO 1234", "ADV PMT", "ADV PYMT", "ADV PMT INV 1234", "ADVANCE PYMT",
+])
+def test_r3_18_a_buyer_s_abbreviated_advance_payment_wire_is_counted(purpose):
+    text = R318_BOFA.format(orig="FABRIKAM SEAFOOD TRADING", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == WIRE
+
+
+@pytest.mark.parametrize("purpose", ["MERCHANT ADV PMT", "CASH ADV PMT", "MERCHANT ADVANCE PAYMENT"])
+def test_r3_18_a_merchant_or_cash_advance_payment_on_a_wire_still_holds(purpose):
+    text = R318_BOFA.format(orig="FABRIKAM SEAFOOD TRADING", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == FINANCING
+
+
+def test_r3_18_controls_a_funder_s_wire_an_ach_entry_and_an_mca_advance():
+    # The payer region's financing name comes first; the purpose removal is wire-only.
+    assert _one(R318_BOFA.format(orig="CONTOSO CAPITAL FUNDING LLC", purpose="ADV PMT"), 23456.78,
+                bank="Bank of America") == FINANCING
+    assert _one("CONTOSO GROUP DES:ADV PMT ID:1", 23456.78, bank="Bank of America") == FINANCING
+    assert _one(R318_BOFA.format(orig="FABRIKAM SEAFOOD TRADING", purpose="MCA ADV PMT"), 23456.78,
+                bank="Bank of America")[0] == "non_revenue"
+
+
+def test_r3_18_the_pattern_is_shared_with_the_payer_less_deposit_reading():
+    assert _one("MOBILE DEPOSIT ADV PMT", 2345.67, bank="Bank of America") == CHECK
+    assert _one("ATM CASH DEPOSIT 1234 ADV PMT", 2345.67, bank="Bank of America") == NO_PAYER
+    assert _one("MOBILE DEPOSIT CONTOSO FUNDING LLC", 2345.67, bank="Bank of America") == FINANCING
+    assert tr._WIRE_TRADE_PURPOSE.search("ADV PAYM") and not tr._WIRE_TRADE_PURPOSE.search("MERCHANT ADV PMT")
+
+
 def test_a_fundraising_purpose_is_no_financing():
     text = ("WIRE TYPE WIRE IN DATE 540102 TIME 1234 ET TRN 1234567890123456 SEQ 1234567890123456 123456 ORIG CONTOSO "
             "FOR SAMPLE ID 1234567890 SND BK FABRIKAM BANK ID 123456789 PMT DET 12345 1234567890 INVOICE "
@@ -508,19 +544,20 @@ def _q11_wire(orig: str, purpose: str) -> str:
             f"{orig} ID:1234 SND BK:SAMPLE BANK ID:123456789 PMT DET:{purpose}")
 
 
-def _q11_records(rows, holder: str = SOLAR):
-    """One Bank of America month: a mobile deposit, then `rows`; the records of the credits after the deposit."""
-    records = classify_statement_transactions(Statement(account_name=holder, bank="Bank of America", transactions=[
+def _q11_records(rows, holder: str = SOLAR, *, bank: str = "Bank of America", zelle_true_revenue: bool = False):
+    """One month (Bank of America unless `bank` says otherwise; the Zelle setting `zelle_true_revenue`, No by
+    default): a mobile deposit, then `rows`; the records of the credits after the deposit."""
+    records = classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
         Transaction(date="2054-03-01", description="MOBILE DEPOSIT", amount=500.0, direction="credit"),
         *(Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
                       direction="credit" if amount > 0 else "debit")
           for index, (text, amount) in enumerate(rows)),
-    ]))
+    ]), zelle_true_revenue=zelle_true_revenue)
     return [record for record in records[1:] if record.amount > 0]
 
 
-def _q11(rows, holder: str = SOLAR):
-    return [rules_reading(record, method=True) for record in _q11_records(rows, holder)]
+def _q11(rows, holder: str = SOLAR, **statement):
+    return [rules_reading(record, method=True) for record in _q11_records(rows, holder, **statement)]
 
 
 @pytest.mark.parametrize(("rows", "holder"), [
@@ -683,6 +720,315 @@ def test_a_builder_s_progress_draw_spares_draw_alone_in_the_non_sale_test():
     refund = revenue_text(normalize_transaction_description(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3 REFUND")))
     assert tr.non_sale_purpose(refund, "CONTOSO BUILDERS INC", progress_draw=True)
     assert tr.REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
+
+
+# Audit round 3, R3-B15 (R3-08; the underwriter's Q11 (a) of 2026-10-02, "a builder's progress draw (ACME BUILDERS DRAW
+# 3) counts, flagged, when the payer is a builder, not a lender and not the business's own loan"; §2.1's Q11 row, "a
+# DRAW printed only inside the payer's own name ... keep(s) today's reading"): a row that prints no payer-name field (no
+# DES, ORIG CO NAME, wire or FROM label: Wells Fargo, Citizens, TD Bank and Huntington print the originator and the
+# entry in one run, Truist the receiver too) prints its entry inside the payer region. There the entry's CONST DRAW or
+# CONSTRUCTION DRAW is the draw's purpose, never the payer's builder word; DRAW is read only after the builder word (one
+# printed before it is inside the payer's name); and the holder's own builder word is never the payer's. A row these
+# refuse keeps its reading before the ruling, held non_sale_purpose as its Bank of America DES twin is. The lender names
+# are fabricated: a root-less lender's cut name (FABRIKAM AMERICA), a private-money lender's (SAMPLE PRIVATE M).
+
+R3_08_BANKS = ("Wells Fargo", "Citizens Bank", "TD Bank", "Huntington National Bank", "Truist", "Sample Community Bank")
+R3_08_AMOUNT = 31750.0
+
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    # A root-less lender, a private-money lender, a developer, a property firm and a county, each with the entry CONST
+    # DRAW in a sixteen-character name field's row (§17.1: a developer's and a county's draws are held).
+    "FABRIKAM AMERICA CONST DRAW 540503 7788 NORTHWIND SOLAR",
+    "SAMPLE PRIVATE M CONST DRAW 540503 7788 NORTHWIND SOLAR",
+    "CONTOSO DEVELOPM CONST DRAW 540503 7788 NORTHWIND SOLAR",
+    "CONTOSO PROPERTI CONST DRAW 540503 7788 NORTHWIND SOLAR",
+    "SAMPLE COUNTY CONST DRAW 540503 7788 NORTHWIND SOLAR",
+    # The entry printed whole (TD prints CONSTRUCTION DRAW), and TD's own layout.
+    "FABRIKAM AMERICA CONSTRUCTION DRAW 540503 7788 NORTHWIND SOLAR",
+    "CCD DEPOSIT, FABRIKAM AMERICA CONST DRAW 7788",
+])
+def test_r3_08_a_label_less_construction_draw_names_no_builder(text, bank):
+    # Today counted as construction_progress_draw: the entry's CONST or CONSTRUCTION made any payer a builder.
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [NON_SALE]
+
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize(("label_less", "des_twin"), [
+    # A DRAW printed before the builder word is inside the payer's name: the row reads as its Bank of America DES twin.
+    ("QUICK DRAW CONST PAYMENT 540503 7788 NORTHWIND SOLAR", _q11_bofa("QUICK DRAW CONST", "PAYMENT")),
+    ("SURE DRAW CONTRACTORS INC PAYMENT 540503 7788 NORTHWIND SOLAR",
+     _q11_bofa("SURE DRAW CONTRACTORS INC", "PAYMENT")),
+])
+def test_r3_08_a_draw_inside_a_label_less_payer_s_name_reads_as_its_des_twin(label_less, des_twin, bank):
+    assert _q11([(des_twin, R3_08_AMOUNT)]) == [NON_SALE]
+    assert _q11([(label_less, R3_08_AMOUNT)], bank=bank) == [NON_SALE]
+
+
+def test_r3_08_the_holder_s_own_builder_word_is_never_the_payer_s():
+    # Truist prints the entry, the originator and the receiver in one run: the holder's CONSTRUCTION names no builder.
+    text = "DRAW FABRIKAM AMERICA NORTHWIND CONSTRUCTION LLC CUSTOMER ID 0000"
+    assert _q11([(text, R3_08_AMOUNT)], "NORTHWIND CONSTRUCTION LLC", bank="Truist") == [NON_SALE]
+    assert not tr.construction_progress_draw(
+        revenue_text(normalize_transaction_description(text)), "DRAW FABRIKAM AMERICA NORTHWIND CONSTRUCTION LLC",
+        "NORTHWIND CONSTRUCTION LLC")
+
+
+@pytest.mark.parametrize("bank", (*R3_08_BANKS, "Mission Valley Bank"))
+@pytest.mark.parametrize("text", [
+    # Controls: a builder named before its DRAW on a label-less row still counts.
+    "CONTOSO BUILDERS INC DRAW 4 540503 7788 NORTHWIND SOLAR",
+    "CONTOSO HOMEBUILDERS DRAW 2 540503 7788 NORTHWIND SOLAR",
+    "CONTOSO CONSTRUCTION LLC CONST DRAW 540503 7788 NORTHWIND SOLAR",
+    # The corpus pin (A5): the builder's BUILD GROUP name, its DRAW after it.
+    "DRAW12 FABRIKAM BUILD GROUP INC PROJECT NAME CONTOSO HOUSING PHASE B DRAW 12",
+])
+def test_r3_08_a_label_less_builder_s_draw_still_counts(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [DRAW_COUNTED]
+
+
+def test_r3_08_a_lender_the_account_also_debits_stays_held_as_one():
+    rows = [("FABRIKAM AMERICA CONST DRAW 540503 7788 NORTHWIND SOLAR", R3_08_AMOUNT),
+            ("FABRIKAM AMERICA LOAN PMT 540601 7788 NORTHWIND SOLAR", -2100.0)]
+    assert _q11(rows, bank="Wells Fargo") == [("excluded_pending_review", "payer_debited_as_lender")]
+
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize(("name", "entry"), [
+    ("CONTOSO CONSTRUCTION", "DRAW 3"),
+    # R3-B15 review round 1 (finding 3): the cut spellings a sixteen-character originator field prints.
+    ("CONTOSO CONST", "DRAW 2"), ("CONTOSO CONSTR", "DRAW 2"),
+    # R3-B15 review round 1 (finding 4): BUILD before DRAW is the entry's purpose phrase too.
+    ("CONTOSO BUILD", "DRAW 2"),
+])
+def test_r3_08_residual_a_label_less_builder_named_with_a_phrase_word_and_a_bare_draw_is_held(name, entry, bank):
+    # Recorded residual (§8.1, §20; 0 corpus rows): on a label-less row '<NAME> CONSTRUCTION', '<NAME> CONST',
+    # '<NAME> CONSTR' or '<NAME> BUILD' with no company form before a bare DRAW cannot be told from the entry's purpose
+    # phrase, so it is held (conservative, reviewable); its Bank of America DES twin, which prints the name field,
+    # counts.
+    assert _q11([(f"{name} {entry} 540503 7788 NORTHWIND SOLAR", R3_08_AMOUNT)], bank=bank) == [NON_SALE]
+    assert _q11([(_q11_bofa(name, entry), R3_08_AMOUNT)]) == [DRAW_COUNTED]
+
+
+# R3-B15 review round 1 (finding 2; Q11 (a), "Count as true revenue and flag it"): Truist prints the entry first
+# ('<entry> <company field> <receiver> CUSTOMER ID'), so a builder's entry CONST DRAW prints before the builder's name.
+# The DRAW of a purpose phrase printed before the builder word is the entry's, never inside the payer's name, so the
+# builder's draw counts, as it did before R3-08; a payer with no builder word of its own stays held.
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    "CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+    "CONSTRUCTION DRAW CONTOSO HOMEBUILDERS NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+    "CONSTR DRAW CONTOSO CONSTRUCTION LLC NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+    "BUILD DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC CUSTOMER ID 0000",
+])
+def test_r3_08_review_round_1_a_builder_s_draw_on_the_entry_first_layout_counts(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [DRAW_COUNTED]
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    # A root-less lender's entry-first draw: the holder's own builder word, whole or cut, is never the payer's.
+    ("CONST DRAW FABRIKAM AMERICA NORTHWIND CONSTRUCTION LLC CUSTOMER ID 0000", "NORTHWIND CONSTRUCTION LLC"),
+    ("CONST DRAW FABRIKAM AMERICA NORTHWIND CONSTR CUSTOMER ID 0000", "NORTHWIND CONSTRUCTION LLC"),
+    # A county names no builder.
+    ("CONST DRAW SAMPLE COUNTY NORTHWIND SOLAR LLC CUSTOMER ID 0000", SOLAR),
+])
+def test_r3_08_review_round_1_an_entry_first_draw_with_no_builder_stays_held(text, holder):
+    assert _q11([(text, R3_08_AMOUNT)], holder, bank="Truist") == [NON_SALE]
+
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    # R3-B15 review round 1 (finding 4): a root-less lender's entry BUILD DRAW names no builder either.
+    "FABRIKAM AMERICA BUILD DRAW 540503 7788 NORTHWIND SOLAR",
+    "FABRIKAM AMERICA BUILD DRAWS 540503 7788 NORTHWIND SOLAR",
+])
+def test_r3_08_review_round_1_a_label_less_build_draw_names_no_builder(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [NON_SALE]
+
+
+@pytest.mark.parametrize(("region", "builder"), [
+    ("FABRIKAM AMERICA CONST DRAW", None),
+    ("FABRIKAM AMERICA CONSTRUCTION DRAWS", None),
+    ("CONTOSO CONSTR DRAW", None),
+    ("CONTOSO CONSTRUCTION LLC CONST DRAW", "CONSTRUCTION"),
+    ("CONTOSO BUILDERS INC DRAW", "BUILDERS"),
+    ("QUICK DRAW CONST PAYMENT", "CONST"),
+    # R3-B15 review round 1 (findings 2 and 4).
+    ("FABRIKAM AMERICA BUILD DRAW", None),
+    ("CONTOSO BUILD GROUP INC DRAW", "BUILD"),
+    ("BUILD DRAW CONTOSO BUILDERS INC", "BUILDERS"),
+    ("CONST DRAW CONTOSO BUILDERS INC", "BUILDERS"),
+])
+def test_r3_08_the_label_less_builder_word(region, builder):
+    found = tr._label_less_builder_word(region)
+    assert (found.group(0) if found is not None else None) == builder
+
+
+@pytest.mark.parametrize(("row", "draw"), [
+    # R3-B15 review round 1 (finding 2): the purpose reads a DRAW after the builder word, or one of a purpose phrase
+    # printed before it; never one inside the payer's name.
+    ("CONTOSO BUILDERS INC DRAW 4", True),
+    ("CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC", True),
+    ("CONSTRUCTION DRAWS CONTOSO HOMES NORTHWIND SOLAR LLC", True),
+    ("QUICK DRAW CONST PAYMENT", False),
+    ("SURE DRAW CONTRACTORS INC PAYMENT", False),
+    ("DRAW FABRIKAM CONTOSO BUILDERS INC", False),
+    # R3-B15 review round 2 (finding 2): only a phrase that starts the region is the entry-first entry; one printed
+    # after the payer's name lends no DRAW to a later builder word.
+    ("  CONST DRAW CONTOSO BUILDERS INC NORTHWIND SOLAR LLC", True),
+    ("FABRIKAM AMERICA CONST DRAW CONTRACTOR PMT", False),
+    ("SAMPLE COUNTY CONST DRAW BUILDER PMT", False),
+    ("FABRIKAM AMERICA BUILD DRAW CONTRACTOR", False),
+])
+def test_r3_08_the_label_less_draw_purpose(row, draw):
+    builder = tr._label_less_builder_word(row)
+    assert (tr._DRAW_WORD.search(tr._label_less_draw_purpose(row, row, builder)) is not None) is draw
+
+
+# R3-B15 review round 2 (finding 2; R3-08's own target payers): the entry-first reading of review round 1 reads only a
+# draw's purpose phrase that starts the payer region (Truist's '<entry> <company field> <receiver> CUSTOMER ID'). A
+# root-less lender's, a county's or a developer's '<NAME> CONST DRAW' followed by any later builder word in the payer
+# region names no builder: the phrase is that payer's entry, the later word no builder's name, so the row keeps its
+# reading before the ruling, held non_sale_purpose, as its Bank of America DES twin does.
+
+@pytest.mark.parametrize("bank", R3_08_BANKS)
+@pytest.mark.parametrize("text", [
+    "FABRIKAM AMERICA CONST DRAW CONTRACTOR PMT 540503 7788 NORTHWIND SOLAR",
+    "SAMPLE COUNTY CONST DRAW BUILDER PMT 540503 7788 NORTHWIND SOLAR",
+    "CONTOSO DEVELOPM CONST DRAW BUILDERS 540503 7788 NORTHWIND SOLAR",
+    "FABRIKAM AMERICA CONST DRAW NORTHWIND HOMES 540503 7788 NORTHWIND SOLAR",
+    "FABRIKAM AMERICA BUILD DRAW CONTRACTOR 540503 7788 NORTHWIND SOLAR",
+])
+def test_r3_08_review_round_2_a_phrase_after_the_payer_s_name_lends_no_draw_to_a_later_builder_word(text, bank):
+    assert _q11([(text, R3_08_AMOUNT)], bank=bank) == [NON_SALE]
+
+
+# Audit round 3, R3-B15 (R3-59; the underwriter's Q11 (b) of 2026-10-02, "Don't count as true revenue and go straight to
+# non-revenue"; standard G6 and §4.2, deposits arrive net of fees): a fee or a commission printed beside a sale with a
+# netting word (withheld, deducted, netted; net of, less, after, minus) is what the seller's proceeds are net of, never
+# a broker's earned fee, so a non-dealer's printed sale is non_revenue / asset_sale_proceeds as its plain twin is. A
+# bare commission or fee next to the sale stays a broker's revenue (R2-OW06 review round 1).
+
+FLORIST = "NORTHWIND FLORIST LLC"
+ASSET_SALE = ("non_revenue", "asset_sale_proceeds")
+R3_59_AMOUNT = 27500.0
+
+
+def _r3_59_chase_wire(purpose: str, holder: str = FLORIST) -> str:
+    return ("FEDWIRE CREDIT VIA CONTOSO BANK/123456789 B/O: FABRIKAM FREIGHT LLC SAMPLEVILLE CA 12345 REF: CHASE NYC/"
+            f"CTR/BNF={holder} SAMPLEVILLE WA 12345-1234 US/AC-000000001234 RFB=NOTPROVIDED "
+            f"OBI={purpose} IMAD: 0102ABCDEF12000123 TRN: 1234567890FF")
+
+
+def _r3_59(purpose: str, layout: str, zelle: bool, holder: str = FLORIST):
+    """A one-credit month (a florist's unless `holder` says otherwise): FABRIKAM FREIGHT LLC's wire printing `purpose`,
+    on Bank of America's PMT DET or Chase's Fedwire OBI layout, under the Zelle setting `zelle`."""
+    if layout == "bofa":
+        return _q11([(_q11_wire("FABRIKAM FREIGHT LLC", purpose), R3_59_AMOUNT)], holder, zelle_true_revenue=zelle)
+    return _q11([(_r3_59_chase_wire(purpose, holder), R3_59_AMOUNT)], holder, bank="Chase", zelle_true_revenue=zelle)
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", [
+    "TRUCK SALE FEES WITHHELD", "TRAILER SALE FEES DEDUCTED", "TRUCK SALE FEES NETTED", "LESS FEES TRUCK SALE",
+    "NET OF FEES TRUCK SALE", "NET FEES TRUCK SALE", "AFTER FEES TRUCK SALE", "TRUCK SALE COMMISSION DEDUCTED",
+    "TRUCK SALE COMM WITHHELD", "LESS COMMISSION TRUCK SALE", "NET OF COMMISSION TRUCK SALE",
+])
+def test_r3_59_a_sale_printed_net_of_a_fee_or_commission_is_still_a_sale(purpose, layout, zelle):
+    # Today counted (named_payer_purpose_refused, or wire_named_sender for COMM WITHHELD).
+    assert _r3_59(purpose, layout, zelle) == [ASSET_SALE]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize(("purpose", "expected"), [
+    # A broker's or an agent's commission or fee next to the sale stays its earned revenue.
+    ("TRUCK SALE COMMISSION", REFUSED), ("COMMISSION ON TRUCK SALE", REFUSED), ("TRUCK SALE FEE", REFUSED),
+    ("FEE FOR TRUCK SALE", REFUSED),
+    # A fee or a commission printed apart, and the plain sale, stay asset-sale proceeds.
+    ("TRUCK SALE NET OF FEES", ASSET_SALE), ("TRUCK SALE LESS COMMISSION", ASSET_SALE), ("TRUCK SALE", ASSET_SALE),
+])
+def test_r3_59_a_broker_s_commission_and_a_fee_printed_apart_keep_their_readings(purpose, expected, layout, zelle):
+    assert _r3_59(purpose, layout, zelle) == [expected]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", [
+    # R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a broker's or an
+    # agent's net commission is its own earned commission after splits, never what a seller's proceeds are net of, and
+    # so is a bare NET FEE.
+    "NET COMMISSION ON TRUCK SALE", "NET COMMISSION TRUCK SALE", "NET COMMISSIONS FOR EQUIPMENT SALE",
+    "AGENT NET COMMISSION TRUCK SALE", "BROKER NET COMMISSION ON EQUIPMENT SALE",
+    "NET COMMISSION ON SALE OF 2050 TRUCK", "NET COMMISSION CAR SALE", "NET FEE FOR TRUCK SALE",
+])
+def test_r3_59_review_round_1_a_net_commission_stays_a_broker_s_revenue(purpose, layout, zelle):
+    assert _r3_59(purpose, layout, zelle) == [REFUSED]
+
+
+def test_r3_59_a_platform_seller_payout_printing_net_of_fees_stays_asset_sale_proceeds():
+    assert _q11([(_q11_bofa("RITCHIE BROS", "SELLER PMT NET OF FEES", holder=FLORIST), R3_59_AMOUNT)], FLORIST) == [
+        ASSET_SALE]
+
+
+@pytest.mark.parametrize(("after", "before", "vetoed"), [
+    (" FEES WITHHELD", "", False), (" COMMISSION DEDUCTED", "", False), (" COMM WITHHELD", "", False),
+    (" FEES DEDUCTIONS", "", False), (" FEES NETTED", "", False),
+    ("", "LESS FEES ", False), ("", "NET OF COMMISSION ", False), ("", "MINUS FEES ON ", False),
+    (" COMMISSION", "", True), (" FEE", "", True), (" FEES PAID", "", True),
+    ("", "COMMISSION ON ", True), ("", "FEE FOR ", True), ("", "NETWORK FEES ", True),
+    # R3-B15 review round 1 (finding 1): a bare NET reads only before FEES.
+    ("", "NET FEES ", False), ("", "NET FEES FOR ", False),
+    ("", "NET COMMISSION ON ", True), ("", "NET COMMISSION ", True), ("", "NET COMMISSIONS FOR ", True),
+    ("", "AGENT NET COMMISSION ", True), ("", "NET FEE FOR ", True), ("", "NET FEE ", True),
+    # R3-B15 review round 2 (finding 1): a commission word directly before the netting phrase, or the fees taken from
+    # or off a commission, is a broker's own commission; a commission that is itself netted is not.
+    ("", "COMMISSION LESS FEES ON ", True), ("", "COMMISSION NET OF FEES ", True), ("", "COMM LESS FEES ", True),
+    ("", "AGENT COMMISSION AFTER FEES FOR ", True), ("", "NET COMMISSION LESS FEES ", True),
+    ("", "COMMISSIONS MINUS FEES ", True), ("", "COMMISSION NET FEES ", True),
+    (" FEES WITHHELD FROM COMMISSION", "", True), (" FEES DEDUCTED FROM COMMISSION", "", True),
+    (" FEE DEDUCTED OFF COMM", "", True), (" FEES NETTED FROM AGENT COMMISSION", "", True),
+    ("", "NET OF COMMISSION LESS FEES ", False), ("", "LESS COMMISSION AFTER FEES ", False),
+    ("", "MINUS COMMISSIONS NET OF FEES ", False), (" FEES WITHHELD FROM PROCEEDS", "", False),
+])
+def test_r3_59_the_netting_words(after, before, vetoed):
+    assert tr._asset_sale_commission(after, before) is vetoed
+
+
+R3_59_AGENCY = "NORTHWIND SALES AGENCY LLC"
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("holder", [FLORIST, R3_59_AGENCY])
+@pytest.mark.parametrize("purpose", [
+    # R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a seller's proceeds
+    # never lead with or come out of a commission. A commission word printed directly before the netting phrase (a
+    # broker's or an agent's commission less its fees) or the fees taken from a commission is the broker's own earned
+    # commission, so the veto stays, as for the mirrors printed after the sale.
+    "COMMISSION LESS FEES ON TRUCK SALE", "COMMISSION NET OF FEES TRUCK SALE", "COMM LESS FEES TRUCK SALE",
+    "AGENT COMMISSION AFTER FEES FOR TRUCK SALE", "NET COMMISSION LESS FEES TRUCK SALE",
+    "TRUCK SALE FEES WITHHELD FROM COMMISSION", "TRUCK SALE FEES DEDUCTED FROM COMMISSION",
+    "TRUCK SALE COMMISSION LESS FEES", "TRUCK SALE COMMISSION NET OF FEES",
+])
+def test_r3_59_review_round_2_a_commission_the_fees_come_out_of_stays_a_broker_s_revenue(
+        purpose, holder, layout, zelle):
+    assert _r3_59(purpose, layout, zelle, holder) == [REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", [
+    # Controls: a commission that is itself netted, and fees withheld from the proceeds, are what a seller's proceeds
+    # are net of, so the sale is read.
+    "NET OF COMMISSION LESS FEES TRUCK SALE", "LESS COMMISSION AFTER FEES TRUCK SALE",
+    "TRUCK SALE FEES WITHHELD FROM PROCEEDS",
+])
+def test_r3_59_review_round_2_a_netted_commission_is_still_a_seller_s_sale(purpose, layout, zelle):
+    assert _r3_59(purpose, layout, zelle) == [ASSET_SALE]
 
 
 @pytest.mark.parametrize(("text", "bank"), [
@@ -1041,8 +1387,9 @@ def test_a_northeast_bank_credit_is_held_as_financing_and_gates_its_statement():
      ("non_revenue", "financing_proceeds_credit")),
     ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHEAST BANK SAMPLEVILLE ME 12345 US REF SAMPLE NYC CTR BNF "
      "NORTHWIND PLUMBING LLC OBI 1234", FINANCING),
-    # A payer whose name only starts like the lending bank is no lending bank.
-    ("NORTHEAST BANKING SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", COMPANY),
+    # A payer whose name only starts like the lending bank is no lending bank. Audit round 3, R3-B07 (R3-14): its
+    # BANKING is one of §8.5's bank words, so Q6 never verifies it by its company form: counted once.
+    ("NORTHEAST BANKING SUPPLY LLC DES:PAYMENT ID:1 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 CCD", ONE_OFF),
 ])
 def test_northeast_bank_s_other_spellings_keep_their_readings(text, expected):
     [record] = _records([(text, 50000.0)], holder=_PLUMBER, bank="Bank of America")
@@ -1584,6 +1931,46 @@ def test_r23_review_the_holder_arm():
         assert business(indn, ROUTES), indn
     assert business("NORTHWIND TRANSPORTAT", "NORTHWIND TRANSPORTATION LLC")
     assert business("NORTHWIND AND SONS", "NORTHWIND & SONS LLC")
+    # Audit round 3, R3-B10 (R3-89): a cut form is read only as one of the holder's own forms, and a one-word holder's
+    # name is never read cut.
+    assert not business("JOHN SAMPLE L", "JOHN SAMPLE CORP")
+    assert not business("NORTHWIND ROUTES C", ROUTES)
+    assert not business("NORT", "NORTHWIND LLC")
+    for indn in ("NORTHWIND ROUTES LL", "NORTHWIND ROUTES INC"):
+        assert business(indn, ROUTES), indn
+    assert business("JOHN SAMPLE C", "JOHN SAMPLE CORP")
+    assert business("JOHN SAMPLE CO", "JOHN SAMPLE CORP")
+
+
+# Audit round 3, R3-B10 (R3-89): a receiver whose cut last word starts no form the holder prints ('L' on '<NAME>
+# CORP', 'C' on '<NAME> LLC'), or a one-word holder's name cut ('NORT' on 'NORTHWIND LLC'), is no business: the
+# employer's consumer direct deposit keeps its pay reading (Q8).
+
+@pytest.mark.parametrize(("layout", "sec"), [(_R23_BOFA, "PPD"), (_R23_BOFA, "WEB"), (_R23_CHASE, "PPD")])
+@pytest.mark.parametrize(("holder", "indn"), [
+    ("JOHN SAMPLE CORP", "JOHN SAMPLE L"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES C"),
+    ("NORTHWIND LLC", "NORT"),
+])
+def test_r3_89_a_cut_form_the_holder_never_prints_or_a_cut_one_word_holder_stays_pay(layout, sec, holder, indn):
+    assert _r23(layout, holder=holder, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec=sec) == [PAY] * 2
+
+
+@pytest.mark.parametrize(("holder", "indn"), [
+    # The holder's own cut form, and its name's last word cut (two name words or more).
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES L"),
+    ("NORTHWIND ROUTES LLC", "NORTHWIND ROUTES LL"),
+    ("NORTHWIND TRANSPORTATION LLC", "NORTHWIND TRANSPORTAT"),
+    # The widened recorded residual, an owner item beside Q8 (§17.1): a holder whose formed name is a person's name
+    # with a form reads as the business when the receiver prints that name whole, with its own form cut, or with its
+    # last word cut.
+    ("JOHN SAMPLE CORP", "JOHN SAMPLE C"),
+    ("JOHN SAMPLESON LLC", "JOHN SAMP"),
+    ("JOHN SAMPLESON LLC", "JOHN SAMPLE"),
+])
+def test_r3_89_the_holder_s_own_cut_form_and_cut_name_are_still_the_business(holder, indn):
+    assert _r23(_R23_BOFA, holder=holder, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD") == [ONE_OFF] * 2
 
 
 @pytest.mark.parametrize(("indn", "holder", "fact"), [
@@ -2041,3 +2428,250 @@ def test_q9_b_the_lessor_reading_arm_by_arm():
     assert not _lessor([("TRANSFER IN RENT", 1200.0), ("TRANSFER IN RENT", 1300.0)])
     # A Zelle deposit (the underwriter's Q3) never counts, whatever its reading at that step.
     assert not _lessor([(_CAFE_LEASE, 5200.0), ("ZELLE FROM CONTOSO TENANT LLC RENT", 1100.0)], unverify=(1,))
+    # Audit round 3, R3-B14 (R3-60): an own-account transfer whose region is an account designation (an empty payer
+    # key) is no rent payer, nor is a payer whose own name prints RENTALS; rent words outside the payer's name still
+    # read (a DES entry, a memo after the payer's company form, a wire's REF).
+    designation = ("ONLINE BANKING TRANSFER FROM CHK 0000 CONFIRMATION# 0000000000 RENT", 1450.0)
+    assert not _lessor([(_CAFE_LEASE, 5200.0), designation])
+    assert not _lessor([designation, ("ONLINE BANKING TRANSFER FROM SAV 0000 CONFIRMATION# 0000000000 RENT", 1450.0)])
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:1", 900.0)])
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("SAMPLE AUTO RENTALS INC ACH PAYMNT 000000", 900.0)],
+                       bank="Wells Fargo")
+    assert not _lessor([(_CAFE_LEASE, 5200.0), ("PAYMENT SAMPLE RENTALS 0000AMI EQUIPMENT AND CUSTOMER ID 000000000",
+                                                900.0)], bank="Truist")
+    assert _lessor([(_CAFE_LEASE, 5200.0), ("BLUEJAY PARTY RENTALS INC DES:RENT ID:1", 900.0)])
+    assert _lessor([("CONTOSO CAFE LLC LEASE PMT 123456", 5200.0), ("FABRIKAM TENANT LLC DES:RENT ID:2", 2400.0)],
+                   bank="Wells Fargo")
+    assert _lessor([(_CAFE_LEASE, 5200.0), (_R3_60_TENANT_WIRE, 2400.0)], bank="Chase")
+
+
+def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
+    from analysis import transaction_classifier as classifier
+
+    def name(raw, bank=None):
+        text = revenue_text(normalize_transaction_description(raw))
+        channel = tr._channel(text, bank)
+        return tr._rent_payer_name(text, tr._facts_region(text, channel, bank))
+
+    # A payer-name field: the name proper (an ACH originator's or a wire's whole region).
+    assert name("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:1") == "BLUEJAY PARTY RENTALS INC"
+    # No payer-name field: the region up to the end of its first company form, or the whole region with none.
+    assert name("SAMPLE AUTO RENTALS INC ACH PAYMNT 000000", "Wells Fargo") == "SAMPLE AUTO RENTALS INC"
+    assert name("CONTOSO CAFE LLC LEASE PMT 123456", "Wells Fargo") == "CONTOSO CAFE LLC"
+    assert name("PAYMENT SAMPLE RENTALS 0000AMI EQUIPMENT AND CUSTOMER ID 000000000", "Truist") == (
+        "PAYMENT SAMPLE RENTALS")
+    # A payer-less row names nobody.
+    assert name("MOBILE DEPOSIT RENT UNIT 1", "Wells Fargo") == ""
+    assert classifier._payer_key("CHK") == ()
+
+
+#: Audit round 3, R3-B14 (R3-60): a tenant's book transfer whose REF memo prints the rent.
+_R3_60_TENANT_WIRE = "BOOK TRANSFER CREDIT B/O: FABRIKAM TENANT LLC SAMPLEVILLE NY 12345 US REF: APRIL RENTALS"
+_R3_60_LEASE = ("CONTOSO CAFE LLC DES:LEASE PMT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD", 4100.0)
+
+
+@pytest.mark.parametrize(("row", "bank"), [
+    (("ONLINE BANKING TRANSFER FROM CHK 0000 CONFIRMATION# 0000000000 RENT", 1450.0), None),
+    (("ONLINE BANKING TRANSFER FROM SAV 0000 CONFIRMATION# 0000000000 RENT", 1450.0), None),
+    (("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD", 900.0), None),
+    (("PAYMENT SAMPLE RENTALS 0000AMI EQUIPMENT AND CUSTOMER ID 000000000", 900.0), "Truist"),
+    (("SAMPLE AUTO RENTALS INC ACH PAYMNT 000000", 900.0), "Wells Fargo"),
+])
+def test_r3_60_an_own_transfer_or_a_rentals_name_never_makes_a_lessor(row, bank):
+    # Today the LEASE row is counted as lessor_rent: the second row made the bakery a lessor.
+    lease = _q9_credits([_R3_60_LEASE, row], bank=bank)[0]
+    assert rules_reading(lease) == FINANCING
+
+
+@pytest.mark.parametrize(("rows", "bank", "holder"), [
+    # Two tenants whose rent words print outside their names.
+    ([_R3_60_LEASE, ("FABRIKAM TENANT LLC DES:RENT ID:0002 INDN:NORTHWIND BAKERY LLC CO ID:1 CCD", 1500.0),
+      ("CONTOSO TENANT INC DES:RENT ID:0003 INDN:NORTHWIND BAKERY LLC CO ID:1 CCD", 1600.0)], None, HOLDER),
+    # A tenant's wire whose REF memo prints the rent.
+    ([_R3_60_LEASE, (_R3_60_TENANT_WIRE, 2400.0)], "Chase", HOLDER),
+    # A label-less LEASE PMT memo after the payer's company form, with a named tenant's RENT.
+    ([("CONTOSO CAFE LLC LEASE PMT 123456", 5200.0), ("FABRIKAM TENANT LLC DES:RENT ID:2", 2400.0)], "Wells Fargo",
+     HOLDER),
+    # The holder's property-management name (the first arm).
+    ([_R3_60_LEASE], None, "SAMPLE PROPERTY MANAGEMENT LLC"),
+])
+def test_r3_60_the_controls_still_make_a_lessor(rows, bank, holder):
+    _released(_q9_credits(rows, bank=bank, holder=holder)[0], LESSOR)
+
+
+# Audit round 3, R3-B14 (R3-52, the Q11 (b) side): the narrowed dealer evidence feeds _dealer_statement too, so a
+# non-dealer's asset sale beside a row that is no dealer evidence is asset-sale proceeds (the owner's Q11 (b)).
+@pytest.mark.parametrize("row", [
+    ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA 0000", -38.50),
+    ("CONTOSO FLOORPLANNER DES:SUBSCRIPT ID:1 INDN:NORTHWIND LANDSCAPING LLC CO ID:1 CCD", -19.99),
+])
+def test_r3_52_a_non_dealer_s_asset_sale_beside_no_dealer_evidence_is_non_revenue(row):
+    # Today counted (named_payer_purpose_refused): the row read as dealer evidence.
+    sale = ("RITCHIE BROS DES:SELLER PAYOUT ID:1 INDN:NORTHWIND LANDSCAPING LLC CO ID:1 CCD", 24000.0)
+    record = _q9_credits([sale, row], holder="NORTHWIND LANDSCAPING LLC")[0]
+    assert (record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method) == (
+        "non_revenue", "asset_sale_proceeds", "asset_sale_proceeds")
+    # Beside a dealer's own evidence (an auction purchase by ACH) the sale keeps its reading.
+    dealer = _q9_credits([sale, ("MANHEIM US DES:ACH PAYMNT ID:1", -8400.0)], holder="NORTHWIND LANDSCAPING LLC")[0]
+    assert rules_reading(dealer) == ("counted_flagged", "named_payer_purpose_refused")
+
+
+# Audit round 3, R3-B14 review round 1 (finding 3): on a row that prints no payer-name field the payer region swallows
+# the entry description, so the third arm reads the rent words outside the payer's name proper: Truist's leading entry
+# word, a rent memo after a name with no company form and a RENTAL INCOME memo still read; only a rent word inside a
+# company-formed name, or RENTAL(S) used as a trade noun after a name word, is the payer's own name.
+@pytest.mark.parametrize(("rows", "bank"), [
+    # Truist prints the entry description first: '<entry> <company field> <receiver> CUSTOMER ID <id>'.
+    ([("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", 1500.0)], "Truist"),
+    ([("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", 1500.0),
+      ("RENT CONTOSO DELI INC 0000AMI CUSTOMER ID 000000001", 1600.0)], "Truist"),
+    ([("PAYMENT FABRIKAM TENANT RENT 0000AMI CUSTOMER ID 000000000", 1500.0)], "Truist"),
+    # Tenants with no company form, the rent memo after the name (Wells Fargo, TD, a generic ACH CREDIT).
+    ([("FABRIKAM DELI RENT 540301 1234 NORTHWIND BAKERY", 1500.0),
+      ("CONTOSO DELI RENT 540301 1234 NORTHWIND BAKERY", 1600.0)], "Wells Fargo"),
+    ([("JOHN SAMPLE RENT 540301 1234 NORTHWIND BAKERY", 1500.0)], "Wells Fargo"),
+    ([("ACH DEPOSIT FABRIKAM TENANT RENT", 1500.0)], "TD Bank"),
+    ([("ACH CREDIT FABRIKAM TENANT RENT PAYMENT", 1500.0)], None),
+    ([("ACH CREDIT FABRIKAM TENANT RENTAL PAYMENT", 1500.0)], None),
+    ([("RENTAL INCOME FABRIKAM TENANT", 1500.0)], None),
+])
+def test_r3_b14_r1_a_label_less_tenant_s_rent_memo_still_makes_a_lessor(rows, bank):
+    # At 3939f5c each LEASE row was held financing_named_payer: the whole region, memo included, was removed.
+    _released(_q9_credits([_R3_60_LEASE, *rows], bank=bank)[0], LESSOR)
+
+
+@pytest.mark.parametrize(("row", "bank"), [
+    # A payer named RENTALS with no company form, on a label-less row: the trade noun is its name.
+    (("SAMPLE AUTO RENTALS ACH PAYMNT 000000", 900.0), "Wells Fargo"),
+    (("SAMPLE AUTO RENTALS 540301 1234 NORTHWIND BAKERY", 900.0), "Wells Fargo"),
+    (("ACH CREDIT SAMPLE PARTY RENTALS PAYMENT", 900.0), None),
+])
+def test_r3_b14_r1_a_payer_named_rentals_with_no_form_still_makes_no_lessor(row, bank):
+    lease = _q9_credits([_R3_60_LEASE, row], bank=bank)[0]
+    assert rules_reading(lease) == FINANCING
+
+
+def test_r3_b14_r1_the_rent_reading_names_only_the_payer_s_name_proper():
+    def name(raw, bank=None):
+        text = revenue_text(normalize_transaction_description(raw))
+        return tr._rent_payer_name(text, tr._facts_region(text, tr._channel(text, bank), bank))
+
+    # A leading rent word is the entry description a label-less layout printed first (Truist's), never the name.
+    assert name("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "FABRIKAM DELI LLC"
+    assert name("LEASE PMT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "PMT FABRIKAM DELI LLC"
+    # No company form: no name is removed unless RENTAL(S) is a trade noun after a name word (RENTALS anywhere,
+    # RENTAL at the region's end).
+    assert name("FABRIKAM DELI RENT 540301 1234 NORTHWIND BAKERY", "Wells Fargo") == ""
+    assert name("RENTAL INCOME FABRIKAM TENANT") == ""
+    assert name("ACH CREDIT FABRIKAM TENANT RENTAL PAYMENT") == ""
+    assert name("ACH CREDIT FABRIKAM TENANT RENTAL") == "FABRIKAM TENANT RENTAL"
+    assert name("SAMPLE AUTO RENTALS ACH PAYMNT 000000", "Wells Fargo") == "SAMPLE AUTO RENTALS"
+    assert name("DEPOSIT RENT") == ""
+    # A payer-name field keeps the name proper.
+    assert name("SAMPLE RENTALS DES:PAYMENT ID:1") == "SAMPLE RENTALS"
+
+
+# Audit round 3, R3-B14 review round 1 (findings 4 and 5, the Q11 (b) side): a VIN-bearing floor-plan advance whose
+# unlabelled receiver is the holder's own name printing a service word, and a wire or ACH purchase at the auction that
+# prints the beneficiary's state and country, are still dealer evidence, so a non-dealer's asset sale beside one keeps
+# its reading (at 3939f5c each was non_revenue / asset_sale_proceeds).
+@pytest.mark.parametrize(("row", "holder"), [
+    (("NEXTGEAR CAPITAL FLOORPLAN ADV 1FAKE0000000000001 CONTOSO AUTO RECOVERY", 18000.0), "CONTOSO AUTO RECOVERY LLC"),
+    (("OUTGOING WIRE MANHEIM REMARKETING ATLANTA GA USA", -12000.0), "NORTHWIND LANDSCAPING LLC"),
+    (("ACH DEBIT MANHEIM AUCTIONS ATLANTA GA USA", -12000.0), "NORTHWIND LANDSCAPING LLC"),
+])
+def test_r3_b14_r1_a_dealer_s_evidence_keeps_an_asset_sale_beside_it_counted(row, holder):
+    sale = (f"RITCHIE BROS DES:SELLER PAYOUT ID:1 INDN:{holder} CO ID:1 CCD", 24000.0)
+    record = _q9_credits([sale, row], holder=holder, bank="Wells Fargo")[0]
+    assert rules_reading(record) == ("counted_flagged", "named_payer_purpose_refused")
+
+
+# Audit round 3, R3-B09 (R3-75; standard D1, D3, A8; the owner's "refunds and owner money never become revenue"): a
+# credit printing an outgoing e-Transfer label (TD Canada Trust's SEND E-TFR, EQ Bank's 'e-Transfer sent', any bank
+# printing a sent transfer as a credit), the French send, its reversal or its redeposit (TD's Envoi, Contr. and
+# Redepot - VFC) or a French fee adjustment is the holder's own money coming back, whichever leg the parser signed: held
+# as a possible return, never counted. Fabricated rows in the banks' formats, every row of a case on one day.
+POSSIBLE_RETURN = ("excluded_pending_review", "possible_return")
+REVERSAL_PAIR = ("non_revenue", "matched_reversal_pair")
+
+
+def _same_day(rows, bank):
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=amount, direction="credit" if amount > 0 else "debit")
+        for text, amount in rows
+    ]))
+    return [rules_reading(record, method=True) for record in records if record.amount > 0]
+
+
+@pytest.mark.parametrize(("bank", "rows", "expected"), [
+    # TD Canada Trust: the send leg signed as the credit beside its reclaim.
+    ("TD Canada Trust", [("SEND E-TFR ***ABC", 1200.0), ("RECLAIM E-TFR ***ABC", -1200.0)], [POSSIBLE_RETURN]),
+    # TD's French reader: the send beside its reversal, the send fee, the send beside its redeposit.
+    ("TD Canada Trust", [("Envoi-VFC *KLM SAMPLE", 150.0), ("Contr. - VFC ***KLM", -150.0),
+                         ("Envoi - FRAIS - VFC", 2.0), ("Contr.- FRAIS - VFC", -2.0),
+                         ("Envoi - VFC ***RST", 40.0), ("Redepot - VFC ***RST", -40.0)], [POSSIBLE_RETURN] * 3),
+    # A lone French fee reversal and a French fee adjustment.
+    ("TD Canada Trust", [("Contr.- FRAIS - VFC", 2.0), ("AJUST FRAIS SERVICE", 12.0)], [POSSIBLE_RETURN] * 2),
+    ("TD Canada Trust", [("AJUSTEMENT DE FRAIS", 12.0), ("Redepot - VFC ***RST", 40.0)], [POSSIBLE_RETURN] * 2),
+    # EQ Bank: the reversal of a sent transfer, printed with the same wording, between two equal sends.
+    ("EQ Bank", [("Interac e-Transfer sent to SAMPLE", -900.0), ("Interac e-Transfer sent to SAMPLE", 900.0),
+                 ("Interac e-Transfer sent to SAMPLE", -900.0)], [POSSIBLE_RETURN]),
+    ("Royal Bank of Canada", [("E-TRANSFER SENT SAMPLE 1234", 50.0), ("SEND ETFR 1234", 60.0)], [POSSIBLE_RETURN] * 2),
+])
+def test_r3_75_a_credit_printing_an_outgoing_e_transfer_label_is_a_possible_return(bank, rows, expected):
+    assert _same_day(rows, bank) == expected
+
+
+@pytest.mark.parametrize(("bank", "rows", "expected"), [
+    # An incoming e-Transfer stays a counted push, 'SENT BY' (an incoming wording) included.
+    ("TD Canada Trust", [("INTERAC E-TRANSFER RECEIVED CONTOSO CAFE", 300.0)], [P2P]),
+    ("TD Canada Trust", [("E-TRANSFER FROM CONTOSO CAFE", 310.0)], [P2P]),
+    ("CIBC", [("E-TRANSFER SENT BY CONTOSO CAFE", 320.0)], [P2P]),
+    # A customer whose name holds the French fee words keeps its reading (no legal-form word later on the row).
+    ("TD Canada Trust", [("CONTOSO AJUSTEMENT FRAIS INC", 340.0)], [UNLABELLED]),
+    # A TD RECLAIM E-TFR credit stays non_revenue (R2-B08); a CANCEL or Annul. pair stays pass 4's reversal pair.
+    ("TD Canada Trust", [("RECLAIM E-TFR ***XYZ", 330.0)], [("non_revenue", "reversal_cancellation_exclusion")]),
+    ("TD Canada Trust", [("SEND E-TFR ***QQQ", 2500.0), ("CANCEL E-TFR ***QQQ", -2500.0)], [REVERSAL_PAIR]),
+    ("TD Canada Trust", [("Envoi-VFC *KKK", 90.0), ("Annul. - VFC ***KKK", -90.0)], [REVERSAL_PAIR]),
+    # A word holding the letters is no send: SENDER, RESEND, ENVOIS, CONTRAT.
+    ("TD Canada Trust", [("E-TRANSFER FROM SENDER E TFR CO", 70.0)], [P2P]),
+    ("TD Canada Trust", [("CONTRAT VFC CONTOSO", 80.0)], [P2P]),
+])
+def test_r3_75_the_controls_keep_their_readings(bank, rows, expected):
+    assert _same_day(rows, bank) == expected
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("bank", "text", "expected"), [
+    # R3-B09 review round 1: an incoming e-Transfer whose memo prints the send wording after its incoming wording
+    # (RECEIVED, FROM, AUTODEPOSIT, the French RECEPT and DEPOT) stays a counted push.
+    ("Scotiabank", "INTERAC E-TRANSFER RECEIVED CONTOSO CAFE MEMO E-TRANSFER SENT FOR INV 12", P2P),
+    ("Scotiabank", "INTERAC E-TRANSFER RECEIVED CONTOSO SEND E-TRANSFER CO", P2P),
+    ("Royal Bank of Canada", "E-TRANSFER - AUTODEPOSIT CONTOSO CAFE SEND E-TFR REMINDER", P2P),
+    ("TD Canada Trust", "E-TRANSFER FROM CONTOSO CAFE E-TRANSFER SENT FOR ORDER 12", P2P),
+    ("TD Canada Trust", "Recept - VFC ***ABC CONTOSO E-TRANSFER SENT", P2P),
+    ("TD Canada Trust", "Depot - VFC ***ABC CONTOSO SEND E-TFR", P2P),
+    # An ACH originator's name holding the send or fee-adjustment words is a payer's name, never the bank's label.
+    ("Chase", "ORIG CO NAME:SEND ETRANSFER LLC ORIG ID:1234 DESC DATE: CO ENTRY DESCR:PAYMENT", P2P),
+    ("Chase", "ORIG CO NAME:AJUST FRAIS CONSEIL ORIG ID:1234 CO ENTRY DESCR:PAYMENT", ONE_OFF),
+])
+def test_r3_75_review_an_incoming_wording_keeps_the_send_words_counted(bank, text, expected, zelle):
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=320.0, direction="credit"),
+    ]), zelle_true_revenue=zelle)
+    assert [rules_reading(record) for record in records] == [expected]
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("bank", "text"), [
+    # The send labels at the row's head (after a printed date) still hold, in both Zelle readings.
+    ("TD Canada Trust", "03-02 SEND E-TFR ***ABC"),
+    ("EQ Bank", "Interac e-Transfer sent to SAMPLE"),
+    ("Royal Bank of Canada", "E-TRANSFER SENT SAMPLE 1234"),
+    ("TD Canada Trust", "SEND E-TFR ***ABC SAMPLE"),
+])
+def test_r3_75_review_the_send_labels_still_hold_in_both_zelle_readings(bank, text, zelle):
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2054-03-02", description=text, amount=320.0, direction="credit"),
+    ]), zelle_true_revenue=zelle)
+    assert [rules_reading(record) for record in records] == [POSSIBLE_RETURN]
