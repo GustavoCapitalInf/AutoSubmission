@@ -485,6 +485,26 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
     + `${held}non-revenue ${nonRevenue}${zelleNote}.`;
 }
 
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1; standard G7, P22): the copied memo's clause after the revenue
+// sentence, only where the served payload flags a large unsourced deposit. A statement: "1 large deposit to source: $X,
+// S% of True revenue (counted, not verified). " or "N large deposits to source: $X (each over 25% of True revenue;
+// counted, not verified). "; a package: "N large deposits to source: $X (each over 25% of its statement's True revenue;
+// counted, not verified). ", the count alone where it refuses its money. "" otherwise.
+function largeDepositSummary(source = {}, currency = "USD", { package: isPackage = false } = {}) {
+  const count = numberOrNull(source && source.large_unsourced_deposit_count);
+  if (!count) return "";
+  const total = numberOrNull(source.large_unsourced_deposit_total);
+  const head = `${formatNumber(count)} ${count === 1 ? "large deposit" : "large deposits"} to source`
+    + (total === null ? "" : `: ${formatMoney(total, currency)}`);
+  const items = Array.isArray(source.large_unsourced_deposits) ? source.large_unsourced_deposits : [];
+  const share = count === 1 && items.length === 1 ? numberOrNull(items[0] && items[0].share_of_true_percent) : null;
+  if (!isPackage && share !== null) {
+    return `${head}, ${share.toFixed(1)}% of True revenue (counted, not verified). `;
+  }
+  const of = isPackage ? "its statement's True revenue" : "True revenue";
+  return `${head} (${count === 1 ? "" : "each "}over 25% of ${of}; counted, not verified). `;
+}
+
 // Audit B11 (I31): whether a statement's revenue reads "Balanced": its own rows reconcile to the bank's printed figures
 // (`reconciliation.ok`) and its revenue is established. The four tiers summing to the posted credits
 // (`revenue_tiers_sum_to_posted`, formerly read here as `revenue_reconciles`) holds on every tiered statement, so it
@@ -531,7 +551,22 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
   // rows only where the statement's revenue is not established.
   const zelle = zelleFact(metrics, currency, { established: metrics.revenue_established === true });
   if (zelle) facts.push(zelle);
-  return [...facts, ...debitFlagFacts(metrics, currency)];
+  // Audit round 3, R3-B24 (R3-16): the large unsourced deposits, before the debit flags.
+  return [...facts, ...largeDepositFacts(metrics, currency), ...debitFlagFacts(metrics, currency)];
+}
+
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §17.1's default D1; standard G7, "COUNT+FLAG, and source them
+// when large", P22): the True card's line for the counted credits whose source the statement does not prove that are
+// $10,000 or more and over 25% of True, from a statement's served metrics or a package's totals, only where the count
+// is: "Large deposits to source: N · $X (each $10,000 or more and over 25% of True; counted, not verified)", a package's
+// share being each statement's own, and the count alone where a package refuses its money. Information only: no
+// figure, badge, gate or decision reads it.
+function largeDepositFacts(source = {}, currency = "USD", { package: isPackage = false } = {}) {
+  const count = numberOrNull(source && source.large_unsourced_deposit_count);
+  if (!count) return [];
+  const total = numberOrNull(source.large_unsourced_deposit_total);
+  return [`${LARGE_DEPOSIT_WORDS}: ${formatNumber(count)}${total === null ? "" : ` · ${formatMoney(total, currency)}`} `
+    + `(each $10,000 or more and over 25% of ${isPackage ? "its statement's True" : "True"}; counted, not verified)`];
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6, "Flag, but do not deduct, returns that cannot be matched and processor
@@ -565,7 +600,8 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   // Audit round 3, R3-B20 (R3-48): the captured rows only where the package's revenue is not established.
   const zelle = zelleFact(totals, currency, { package: true, established: packageRevenueFlags(totals).established });
   if (zelle) facts.push(zelle);
-  return [...facts, ...debitFlagFacts(totals, currency)];
+  // Audit round 3, R3-B24 (R3-16): the members' large unsourced deposits, before the debit flags.
+  return [...facts, ...largeDepositFacts(totals, currency, { package: true }), ...debitFlagFacts(totals, currency)];
 }
 
 // A package's two revenue flags (§10.4). The server nulls its True, Counted and Held counts only when a completed
@@ -1646,6 +1682,10 @@ const DEBIT_FLAG_WORDS = Object.freeze({
   unmatched_deposit_return: "Returned deposits not matched",
   processor_chargeback: "Processor chargebacks and adjustments",
 });
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §10.6; standard G7, P22): the large unsourced deposits' words,
+// on the True card, the Revenue evidence table and the ledger's header, and their ledger filter (information only).
+const LARGE_DEPOSIT_WORDS = "Large deposits to source";
+const LARGE_DEPOSIT_FILTER = "largeDeposit";
 const PACKAGE_MATCH_WORDS = Object.freeze({
   returned_deposit: "bounced deposits matched across statements",
   // R2-OW16 (the underwriter's Q4): both legs of each transfer between the business's accounts.
@@ -1654,13 +1694,19 @@ const PACKAGE_MATCH_WORDS = Object.freeze({
 
 // The debit flags of the rows on screen: a statement's, from its served metrics (`<kind>_locations`), or a package's,
 // from its `debit_flags` (each naming its statement, account and location). `has(tx, kind, position)` and `entry(tx)`.
+// Audit round 3, R3-B24 (R3-16): and `largeDeposit(tx, position)`, the served large unsourced deposit a credit row is (a
+// statement's `metrics.large_unsourced_deposits` by location, a package's `large_unsourced_deposits` by statement,
+// account and location), or null.
 function statementDebitFlags(metrics) {
   const m = metrics || {};
   const locations = Object.fromEntries(Object.keys(DEBIT_FLAG_WORDS)
     .map((kind) => [kind, new Set(Array.isArray(m[`${kind}_locations`]) ? m[`${kind}_locations`] : [])]));
+  const large = new Map((Array.isArray(m.large_unsourced_deposits) ? m.large_unsourced_deposits : [])
+    .filter((item) => item && typeof item === "object").map((item) => [item.source_location, item]));
   return {
     has: (tx, kind, position = null) => Boolean(locations[kind]) && locations[kind].has(rowSourceLocation(tx, position)),
     entry: () => null,
+    largeDeposit: (tx, position = null) => (txAmount(tx) > 0 && large.get(rowSourceLocation(tx, position))) || null,
   };
 }
 
@@ -1674,7 +1720,14 @@ function packageDebitFlags(pkg) {
     if (flag && typeof flag === "object") flags.set(debitFlagKey(flag.source_job, flag.source_account, flag.source_location), flag);
   });
   const entry = (tx) => flags.get(debitFlagKey(tx.source_job, tx.source_account, transactionClassification(tx).source_location)) || null;
-  return { has: (tx, kind) => (entry(tx) || {}).kind === kind, entry };
+  // R3-B24 (R3-16): the members' large unsourced deposits, keyed as the debit flags are.
+  const large = new Map();
+  (Array.isArray(pkg && pkg.large_unsourced_deposits) ? pkg.large_unsourced_deposits : []).forEach((item) => {
+    if (item && typeof item === "object") large.set(debitFlagKey(item.source_job, item.source_account, item.source_location), item);
+  });
+  const largeDeposit = (tx) => (txAmount(tx) > 0
+    && large.get(debitFlagKey(tx.source_job, tx.source_account, transactionClassification(tx).source_location))) || null;
+  return { has: (tx, kind) => (entry(tx) || {}).kind === kind, entry, largeDeposit };
 }
 
 // T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
@@ -1706,6 +1759,10 @@ function revenueFilterLabel(filter, count) {
   if (matchKind) return PACKAGE_MATCH_WORDS[matchKind] || "rows matched across statements";
   const flagKind = debitFlagFilter(filter);
   if (flagKind) return lower(DEBIT_FLAG_WORDS[flagKind] || "flagged debits");
+  // Audit round 3, R3-B24 (R3-16): "large deposits to source", one "large deposit to source".
+  if (filter === LARGE_DEPOSIT_FILTER) {
+    return count === 1 ? lower(LARGE_DEPOSIT_WORDS).replace("deposits", "deposit") : lower(LARGE_DEPOSIT_WORDS);
+  }
   const tier = CREDIT_MIX.find(([state]) => state === filter);
   return tier ? lower(tier[1]) : null;
 }
@@ -1823,6 +1880,11 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
   const flagKind = debitFlagFilter(filter);
   if (flagKind) {
     matched = debitFlags ? transactions.filter((tx, position) => debitFlags.has(tx, flagKind, position)) : [];
+  }
+  // Audit round 3, R3-B24 (R3-16): the large unsourced deposits the statement or package serves.
+  if (filter === LARGE_DEPOSIT_FILTER) {
+    matched = debitFlags && typeof debitFlags.largeDeposit === "function"
+      ? transactions.filter((tx, position) => Boolean(debitFlags.largeDeposit(tx, position))) : [];
   }
   if (filter === "nsf") matched = nsfDays ? transactions.filter((tx, position) => nsfDays.has(tx, position)) : [];
   if (filter === "nsf_fees") {
@@ -2144,6 +2206,19 @@ function packageMatchNotes(tx, debitFlags = null) {
   return notes;
 }
 
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.6; standard G7, P22): a credit the served payload flags as a large
+// unsourced deposit asks for its source under its reason, on the statement page, the statement window and the package
+// ledger: "Large deposit: S% of True revenue, counted without proof of the sale. Ask for its source." (a package's
+// share is its statement's, and says so). Information only: its tier, tag and review controls are unchanged.
+function largeDepositNotes(tx, debitFlags = null) {
+  const item = debitFlags && typeof debitFlags.largeDeposit === "function" ? debitFlags.largeDeposit(tx) : null;
+  if (!item) return [];
+  const share = numberOrNull(item.share_of_true_percent);
+  const of = "source_job" in item ? "its statement's True revenue" : "True revenue";
+  return [`Large deposit: ${share === null ? "N/A" : `${share.toFixed(1)}%`} of ${of}, counted without proof of the `
+    + "sale. Ask for its source."];
+}
+
 function runningBalanceValue(tx) {
   return numberOrNull(tx && tx.running_balance);
 }
@@ -2268,7 +2343,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         .map((line) => `<div class="tx-reason tx-returned">${escapeHtml(line)}</div>`).join("")
       // R2-OW15 (the underwriter's Q6): the package passes' notes.
       + packageMatchNotes(tx, debitFlags)
-        .map((line) => `<div class="tx-reason tx-package-match">${escapeHtml(line)}</div>`).join("");
+        .map((line) => `<div class="tx-reason tx-package-match">${escapeHtml(line)}</div>`).join("")
+      // Audit round 3, R3-B24 (R3-16): a large unsourced deposit asks for its source.
+      + largeDepositNotes(tx, debitFlags)
+        .map((line) => `<div class="tx-reason tx-large-deposit">${escapeHtml(line)}</div>`).join("");
     const balance = runningBalanceValue(tx);
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
@@ -3337,8 +3415,27 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
         <td>${escapeHtml(formatMoney(total, currency))}</td>
         <td></td>
       </tr>
-    `).join("");
+    `).join("")
+      // Audit round 3, R3-B24 (R3-16): after the counted and held reasons, the large unsourced deposits' row.
+      + (filter === "excluded_pending_review" ? largeDepositEvidenceRowHtml(metrics, currency, filterAttribute) : "");
   }).join("") + debitFlagEvidenceRowsHtml(metrics, currency, filterAttribute);
+}
+
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §10.6, §10.7; standard G7, P22): one row, where a statement or
+// package serves a large unsourced deposit, whose button filters the ledger to the flagged rows ("largeDeposit"); its
+// count, its total (N/A where a package refuses its money) and a "Source it" chip. The reviewer's path to them: the
+// badge, the Held for Review view and the decisions never read it.
+function largeDepositEvidenceRowHtml(source = {}, currency = "USD", filterAttribute = "data-revenue-filter") {
+  const count = numberOrNull(source && source.large_unsourced_deposit_count);
+  if (!count) return "";
+  return `
+      <tr class="evidence-flag-row">
+        <td><button class="evidence-link" type="button" ${filterAttribute}="${LARGE_DEPOSIT_FILTER}" aria-label="Show the ${escapeHtml(LARGE_DEPOSIT_WORDS.toLowerCase())}">${escapeHtml(LARGE_DEPOSIT_WORDS)}</button></td>
+        <td>${escapeHtml(formatNumber(count))}</td>
+        <td>${escapeHtml(formatMoney(source.large_unsourced_deposit_total, currency))}</td>
+        <td>${glassChip("!", "Source it", "amber")}</td>
+      </tr>
+    `;
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §10.1, §10.6; R2-OW15): after the credits, a row per
@@ -5832,7 +5929,9 @@ function generateSummary() {
         verifiedMonthly: totals.avg_monthly_verified_revenue,
         nonRevenueMonthly: totals.avg_monthly_non_revenue,
       }, { package: true })} ` +
-      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
+      // Audit round 3, R3-B24 (R3-16): the members' large unsourced deposits, after the revenue sentence.
+      largeDepositSummary(totals, currency, { package: true }) +
+      `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits,${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
       `${formatNumber(totals.nsf_count)} NSF events, ${returnedSummary}${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       // Audit round 3, R3-B22 (R3-68): the basis the rates divide by, the label the package serves.
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure (${withholdingBasisWords(totals)}). ` +
@@ -5869,6 +5968,8 @@ function generateSummary() {
       trueMonthly: perMonth(m.true_revenue_total), verifiedMonthly: perMonth(m.verified_revenue_total),
       nonRevenueMonthly: perMonth(m.non_revenue_total),
     })} ` +
+    // Audit round 3, R3-B24 (R3-16): the statement's large unsourced deposits, after the revenue sentence.
+    largeDepositSummary(m, currency) +
     `Average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
