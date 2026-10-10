@@ -3209,3 +3209,66 @@ def test_the_spec_records_r3_b21():
     # Held back: the code carries neither the reason code nor the predicate.
     assert "p2p_round_repeat_no_sender" not in REVENUE_TIER_REASONS
     assert not hasattr(true_revenue, "_no_sender_p2p") and not hasattr(true_revenue, "NO_SENDER_ROUND_REPEAT")
+
+
+#: Audit round 3, R3-B22: the code commits §20 and the contract name, one per issue.
+R3_B22_COMMITS = {"R3-01": "f0cec80", "R3-67": "84196a5", "R3-68": "88e430f"}
+
+
+def test_the_spec_and_the_contract_record_r3_b22():
+    """Audit round 3, R3-B22 (R3-01, R3-67, R3-68): §9.3's no-bump line, §10.1's copied summaries (the statement memo's
+    decision, the held clause, the package memo's returned payments, the basis words), §13's `batch.py` row, the
+    three §20 lines with their commits, the batch's measured line, and the contract's entry."""
+    text = SPEC.read_text(encoding="utf-8")
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert ("- Audit round 3, R3-B22 (§20): no bump in a fix batch either, and no stored-output change: the batch "
+            "changes the copied summaries (`generateSummary`, dashboard text) and the batch CLI's CSV only") in versions
+    cards = re.sub(r"\s+", " ", _section(text, "\n### 10.1 ", "\n### 10.2 "))
+    for words in ("Audit round 3, R3-B22 (the copied summaries, `generateSummary`; §4's T7, §11, §20):",
+                  "**The statement memo's decision (R3-01)** is the pill's: `accountDecision`",
+                  "\"True revenue $T ($t a month), verified revenue $V ($v a month), held for review $H (n credit(s)), "
+                  "non-revenue $N ($n a month)\", only where the revenue is established and a credit is held",
+                  "\"ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding "
+                  "rate)\"", "reads \"re-debited: counted once in the withholding rate\"",
+                  "\"$P confirmed lender debits paid (N returned funder payments, $R), <rate> confirmed withholding\"",
+                  "\"… potential lender debits at <x>% exposure (withholding basis: true revenue).\"",
+                  "\"(withholding basis: true revenue, not established)\""):
+        assert words in cards, words
+    consumers = re.sub(r"\s+", " ", _section(text, "\n## 13. ", "\n## 14. "))
+    assert ("audit round 3, R3-B22 (R3-68, §11): the columns `withholding_denominator_mode` and "
+            "`withholding_denominator_label` immediately before `withholding_numerator`") in consumers
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, issue, words in (
+            ("- **The copied statement memo reads the pill's decision, and both memos name the money held for review**",
+             "R3-01", ("amends the final review of round 2's F1 line above", "759 of the 874 gated re-parsed "
+                       "statements")),
+            ("- **The copied package memo names returned funder payments**", "R3-67",
+             ("the download half is R3-B23's", "Beside the brief: R3-B02 (the owner's \"Count it once\")")),
+            ("- **The copied memos and the batch CSV name the withholding basis**", "R3-68",
+             ("which settled the basis, not its labels", "empty on the error row"))):
+        line = _amendment_line(amendments, start)
+        for word in (f"audit round 3, R3-B22 ({issue}", R3_B22_COMMITS[issue], *words):
+            assert word in line, (issue, word)
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B22 in all**")
+    for words in ("the head snapshots equal the base's in every key", "G7 not run", "no stored output",
+                  "no version bump"):
+        assert words in measured, words
+    contract = _flat(CONTRACT)
+    assert ("Audit round 3, R3-B22 (R3-01, R3-67, R3-68; f0cec80, 84196a5, 88e430f): the copied memos and the batch CSV "
+            "say what the dashboard says, and no classification moves") in contract
+
+
+def test_r3_b22_the_code_names_its_rules():
+    """Audit round 3, R3-B22: the memo's decision, the held clause, the funder line, the warning lines and the basis
+    words, in the code."""
+    import batch
+
+    script = (ROOT / "webapp" / "static" / "app.js").read_text(encoding="utf-8")
+    for words in ("const decision = idleNote || unverifiedNote ? \"review_required\" : accountDecision(currentAnalysis);",
+                  "function packageFunderSummaryLine(funder, currency = \"USD\", returnedPayments = []) {",
+                  "function withholdingBasisWords(source = {}) {",
+                  "${held}non-revenue ${nonRevenue}${zelleNote}.",
+                  "${lenderSummary}${returnedLines}${paymentChangeLines}"):
+        assert words in script, words
+    start = batch.FIELDS.index("withholding_numerator")
+    assert batch.FIELDS[start - 2:start] == ["withholding_denominator_mode", "withholding_denominator_label"]
