@@ -66,8 +66,10 @@ CASES = {
 
 
 def statement(rows, *, holder=HOLDER, title=None, bank=BANK, number=ACCOUNT, opening=1000.0, month=3,
-              currency="USD", year=2054):
-    """The fabricated statement of `rows`, each row with its running balance."""
+              currency="USD", year=2054, stated_credits=None):
+    """The fabricated statement of `rows`, each row with its running balance. `stated_credits` (audit round 3, R3-B20)
+    is the credit total the bank's summary prints: above the rows' credits, the statement's revenue is not established
+    (the captured credits are not the money its Total counts)."""
     from analysis.schema import Statement, Transaction
 
     transactions, balance = [], opening
@@ -82,6 +84,8 @@ def statement(rows, *, holder=HOLDER, title=None, bank=BANK, number=ACCOUNT, ope
                   currency=currency, currency_source="printed", transactions=transactions)
     if title:
         fields["account_title"] = title
+    if stated_credits is not None:
+        fields["stated_total_credits"] = stated_credits
     return Statement(**fields)
 
 

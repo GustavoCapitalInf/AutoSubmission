@@ -897,6 +897,86 @@ def test_a_welded_runs_marked_credits_keep_the_flushs_text_beside_their_label():
     assert [t.unread_payer_text for t in credits] == ["", first, first, first, first, second, second]
 
 
+#: Audit round 3, R3-B09 (R3-87): a registry lender whose ACH company name holds a class-code word (CashArc's
+#: 'CASH-ARC LLC', the spelling its own ACH entries print; the registry's alias 'CASH ARC LLC').
+CASHARC_BLOCKS = (f"CASH ARC LLC EDI PYMNTS 0000001 {RECEIVER} CCD", f"CASH-ARC LLC EDI PYMNTS 0000001 {RECEIVER} CCD",
+                  f"CASH ARC L.L.C. EDI PYMNTS 0000001 {RECEIVER} CCD")
+
+
+@pytest.mark.parametrize("block", CASHARC_BLOCKS)
+def test_r3_87_a_class_code_word_before_a_legal_form_is_a_name_word_not_a_second_code(block):
+    assert cpc._block_below_is_one([block])
+    credits = f"ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n{block}\n"
+    statement = published(credits=credits)
+    [credit] = [t for t in statement.transactions if t.amount > 0]
+    assert (credit.description, credit.payer_text_unread, credit.unread_payer_text) == (
+        f"Preauthorized Credit {block}", False, "")
+
+
+@pytest.mark.parametrize("line", [
+    # A real ARC entry (no legal form after the code) closes its block: two codes, never one row's.
+    f"CONTOSO SUPPLY ARC 0001 {RECEIVER} CCD",
+    f"CONTOSO SUPPLY CCD {RECEIVER} FABRIKAM TOOLS PPD {RECEIVER}",
+    # A legal form after the LAST code does not join two blocks into one.
+    f"CASH ARC LLC EDI PYMNTS 0000001 {RECEIVER} CCD CONTOSO INC. PAYABLES 0000002 {RECEIVER} CCD",
+])
+def test_r3_87_the_controls_still_count_two_codes(line):
+    assert not cpc._block_below_is_one([line])
+
+
+#: Audit round 3, R3-B09 review round 1: two blocks welded under ONE outstanding row whose SECOND block's originator
+#: opens with a legal-form word other than the LLC family (a cooperative, a state's revenue department, a village, a
+#: company store, an LP gas dealer). The code closing the first block is still a code, so the line holds two codes and
+#: the row is marked unread with the whole flush, as before R3-87: the weld never becomes one row's description.
+LOOKALIKE_WELDS = tuple(
+    f"{first} 2200000001 {RECEIVER} CCD {second} 2200000002 {RECEIVER} {code}" for first, second, code in (
+    ("FABRIKAM INC. PAYABLES", "CO-OP POWER PAYMENT", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "Co-op Power Payment", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "CO DEPT REVENUE TAX REFUND", "PPD"),
+    ("FABRIKAM INC. PAYABLES", "INC VILLAGE OF SAMPLE AP", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "INCORPORATED VILLAGE OF SAMPLE", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "CORPORATION SAMPLE SERVICES", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "CORP SAMPLE PAYABLES", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "COMPANY STORE SALES", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "LP GAS SAMPLE", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "LIMITED SAMPLE BRANDS", "CCD"),
+    ("FABRIKAM INC. PAYABLES", "LTD SAMPLE COMMODITIES", "CCD"),
+    ("KAPITUS LLC FUNDING", "CO-OP POWER PAYMENT", "CCD"),
+    ("KAPITUS LLC FUNDING", "COMPANY STORE SALES", "CCD"),
+    ("KAPITUS LLC FUNDING", "INC VILLAGE OF SAMPLE AP", "CCD"),
+    )
+)
+
+
+@pytest.mark.parametrize("line", LOOKALIKE_WELDS)
+def test_r3_87_review_a_weld_whose_next_block_opens_on_a_legal_form_word_still_counts_two_codes(line):
+    assert not cpc._block_below_is_one([line])
+    credits = f"ELECTRONIC CREDITS\nDate Description Credits\n2-3 Preauthorized Credit 300.00\n{line}\n"
+    statement = published(credits=credits)
+    [credit] = [t for t in statement.transactions if t.amount > 0]
+    assert (credit.description, credit.payer_text_unread, credit.unread_payer_text) == (
+        "Preauthorized Credit", True, line)
+
+
+def test_r3_87_review_only_the_llc_family_joins_a_class_code_word_to_a_name():
+    """The narrowed rule: a class-code word is a name word only before LLC, L.L.C., L L C, LLP or PLLC (no ACH
+    originator name opens on one of them). Before INC, CORP, CO, LTD or LP it is still a code (a name like that
+    stays unread: the safe direction); no registry alias prints a class-code word before one of them."""
+    for form in ("LLC", "llc", "L.L.C.", "L L C", "LLP", "PLLC"):
+        assert cpc._block_below_is_one([f"CASH ARC {form} EDI PYMNTS 0000001 {RECEIVER} CCD"]), form
+    for form in ("INC", "INCORPORATED", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP"):
+        assert not cpc._block_below_is_one([f"CASH ARC {form} EDI PYMNTS 0000001 {RECEIVER} CCD"]), form
+
+
+def test_r3_87_a_welded_run_holding_casharc_still_marks_its_rows_and_keeps_the_flush():
+    second = (f"CONTOSO INC. PAYABLES 2200000001 {RECEIVER} CCD", CASHARC_BLOCKS[1])
+    statement = welded(second_line=second)
+    credits = [t for t in statement.transactions if t.amount > 0]
+    assert [t.payer_text_unread for t in credits] == [False] + [True] * 6
+    assert [t.unread_payer_text for t in credits][5:] == [" ".join(second)] * 2
+    assert [t.description for t in credits][5:] == ["Preauthorized Credit"] * 2
+
+
 def test_the_unread_text_is_kept_out_of_the_schema_and_written_only_where_set():
     from analysis.schema import Statement, Transaction
 

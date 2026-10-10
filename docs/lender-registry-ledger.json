@@ -13448,7 +13448,8 @@
    "group": "confirmed_lender",
    "business_type": "online_business_term_lender",
    "aliases": [
-    "ONDECK"
+    "ONDECK",
+    "ODKRAOD"
    ],
    "status": "admitted",
    "short_alias_reason": null,
@@ -13476,11 +13477,24 @@
     {
      "source": "https://www.enova.com/brands/",
      "note": "'OnDeck offers a wide range of term loans and lines of credit customized for the needs of small business owners.'"
+    },
+    {
+     "source": "https://www.ondeck.com/terms",
+     "note": "Audit round 3 (R3-26), fetched 2026-10-07: the terms of use say the OnDeck service and website 'are operated by On Deck Capital, Inc., ODK Capital, LLC, and its parents, subsidiaries, and affiliates doing business under the OnDeck brand', and the text-message terms read 'ODK Capital, LLC's (\"OnDeck\")': ODK Capital, LLC is OnDeck's lending entity, an Enova brand (the privacy policy names the same entities)."
+    },
+    {
+     "source": "https://www.sec.gov/Archives/edgar/data/1983685/000119312523185761/d510135dex991.htm",
+     "note": "Audit round 3 (R3-26), fetched 2026-10-07: Deloitte's agreed-upon-procedures report on the small business loans of the OnDeck Asset Securitization IV offering, addressed to Enova International, Inc.: an OnDeck term loan carries a scheduled daily or weekly payment amount and an ACH collection indicator (the weekly ACH beat the ODKRAOD debits keep). It prints neither ODK Capital nor ODKRAOD."
     }
    ],
    "verdicts": [
     {
      "round": "r1",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "audit-r3",
      "verdict": "upheld",
      "confirmed": true
     }
@@ -13501,9 +13515,11 @@
     "https://debanked.com/smallbusinessfinancerankings/",
     "https://www.journeycapital.ca/ondeck-canada-forges-a-new-path-as-journey-capital/",
     "https://www.ondeck.com/privacy",
-    "https://www.ondeck.ca/"
+    "https://www.ondeck.ca/",
+    "https://www.ondeck.com/terms",
+    "https://www.sec.gov/Archives/edgar/data/1983685/000119312523185761/d510135dex991.htm"
    ],
-   "notes": "Move: ENOVA is dropped (spec section 5): it is the parent company's name and reaches only the Ontario utility Enova Power and Headway Capital draws, never an OnDeck debit; ON DECK is dropped too: no row prints it and the phrase names unrelated businesses. OnDeck (On Deck Capital, Inc. / ODK Capital, LLC; an Enova brand): small-business term loans and lines of credit repaid daily, weekly or monthly, a lender under spec section 2. Journey Capital (the former OnDeck Canada, another candidate) prints ONDECK inside its own name; its longer aliases win those rows, so ONDECK keeps only Enova's OnDeck."
+   "notes": "Move: ENOVA is dropped (spec section 5): it is the parent company's name and reaches only the Ontario utility Enova Power and Headway Capital draws, never an OnDeck debit; ON DECK is dropped too: no row prints it and the phrase names unrelated businesses. OnDeck (On Deck Capital, Inc. / ODK Capital, LLC; an Enova brand): small-business term loans and lines of credit repaid daily, weekly or monthly, a lender under spec section 2. Journey Capital (the former OnDeck Canada, another candidate) prints ONDECK inside its own name; its longer aliases win those rows, so ONDECK keeps only Enova's OnDeck. ODKRAOD, rejected in research round 4 as an unidentified originator, is an OnDeck spelling (audit round 3, R3-26): in the cached corpus every ODKRAOD debit has the cents of the same account's ONDECK payment, falls on a missed week of its weekly beat at three unrelated banks, and carries an ACH entry counter in the ONDECK sequence; ODK Capital, LLC is OnDeck's lending entity. It reads credits too (an ODKRAOD credit is OnDeck funding); the corpus prints none. No public source prints the string ODKRAOD. The audit-r3 verdict records the round-3 verify (three independent verifiers reproduced the cents, beat and counter evidence) and the collision check re-run before the render; the debit-side admission is the orchestrator's sign-off of 2026-10-07 under the owner's delegation of lender-ledger conflicts and G7 gates."
   },
   {
    "entity": "One Park Financial LLC",
@@ -35712,7 +35728,7 @@
     "https://katapult.com/",
     "https://www.katapultengineering.com/"
    ],
-   "notes": "Katapult (Katapult Group, Inc.; Katapult Holdings), a lease-to-own programme at 200+ retailers, collecting lease instalments directly (the rows are an ACH pull). Katapult sells no goods itself, so the bare name is not a retail brand; it reaches only these rows. Namesake: Katapult Engineering (KatapultPro), pole-attachment software sold to utilities, fiber and OSP engineering firms, uses the same word; a subscription printed KATAPULT ENGINEERING would be read as this lessor. No corpus row shows it, and the one-word alias is the whole printed payee name, so it is kept; the S1 collision audit reviews any other KATAPULT key. Decision 2026-09-25 (owner delegated to the orchestrator): KATAPULT stays: its only corpus rows are one same-day ACH PULL debit and ACH IN credit of equal amount (two analyses of what looks like the same statement), no other payee prints the word, and the engineering-software namesake does not appear; the lease group never reads the credit, and an equal same-day pair is what the statement-level reversal-pair pass clears. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings."
+   "notes": "Katapult (Katapult Group, Inc.; Katapult Holdings), a lease-to-own programme at 200+ retailers, collecting lease instalments directly (the rows are an ACH pull). Katapult sells no goods itself, so the bare name is not a retail brand; it reaches only these rows. Namesake: Katapult Engineering (KatapultPro), pole-attachment software sold to utilities, fiber and OSP engineering firms, uses the same word; a subscription printed KATAPULT ENGINEERING would be read as this lessor. No corpus row shows it, and the one-word alias is the whole printed payee name, so it is kept; the S1 collision audit reviews any other KATAPULT key. Decision 2026-09-25 (owner delegated to the orchestrator): KATAPULT stays: its only corpus rows are one same-day ACH PULL debit and ACH IN credit of equal amount (two analyses of what looks like the same statement), no other payee prints the word, and the engineering-software namesake does not appear; the lease group never reads the credit, and an equal same-day pair is what the statement-level reversal-pair pass clears. Decision 2026-10-02 (owner, Q8): its payouts to a merchant for a customer's financed purchase are the merchant's sales, counted and flagged as customer_financing_payout and never verified (CUSTOMER_FINANCING_PAYERS); a one-off lump sum is held until sourced; its consumer-side credits and its debits keep their readings. Audit round 3, R3-B14 (R3-54): the cut forms of its name, KATAPULT ENG... (KATAPULT ENGINEE, the 16-character ACH company field, KATAPULT ENG, KATAPULT ENGIN, KATAPULT ENGINEERIN), are the namesake too: the true-revenue pass's CUSTOMER_FINANCING_PAYERS and CUSTOMER_FINANCING_NAMES read KATAPULT only when no ENG... word or PRO follows it. No corpus row prints a cut form; the alias, its group and every debit reading are unchanged."
   },
   {
    "entity": "Koalafi",
@@ -50430,26 +50446,6 @@
    "notes": "Held for an owner ruling until the decision below. Fedwire credits from NVR Capital Real Estate Services LLC, an unidentified real-estate services company (not tied to NVR, Inc.). Round 3 read it as probably a customer receipt, deposit refund or property proceeds rather than an advance, but a real-estate lender's proceeds could not be ruled out and it asked for owner review. A review alias would make these credits non-revenue, so it is not rendered. The alias is kept as evidence only. Decision 2026-09-25 (owner delegated to the orchestrator): Not flagged: large Fedwire credits from a real-estate services company fit customer receipts or property proceeds; they stay revenue."
   },
   {
-   "entity": "ODKRAOD",
-   "group": "potential_lender",
-   "business_type": "unknown",
-   "aliases": [
-    "ODKRAOD"
-   ],
-   "status": "rejected",
-   "short_alias_reason": null,
-   "evidence": [],
-   "verdicts": [
-    {
-     "round": "r4",
-     "verdict": "unresolved",
-     "confirmed": false
-    }
-   ],
-   "where_looked": [],
-   "notes": "Rejected, kept as evidence: an unidentified ACH originator printed ODKRAOD (round 4 unresolved, no public match). No lending word and no daily/weekly fixed signature; the alias reaches no other payee."
-  },
-  {
    "entity": "OGF Capital LLC",
    "group": "potential_lender",
    "business_type": "unknown",
@@ -54474,7 +54470,7 @@
     "https://www.elavon.com/company-news/2025/liberis-elavon-partner.html",
     "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
    ],
-   "notes": "Liberis US Inc (the US entity of the Liberis group, London), an embedded revenue-based financing provider: it buys a merchant's future card receivables through white-label programmes on software and payment platforms (Vagaro Capital among them; the Parafin precedent), and is repaid by a percentage of the merchant's sales taken before the platform pays out, so no debit names it. Its US fundings are paid out through Airwallex US, LLC, so a bank prints them under Liberis's name ('LIBERIS <reference> ACH IN') or as an Airwallex instant payment naming Liberis US Inc. LIBERIS is the company's coined name, read only as a whole word; LIBERIS US INC is the legal name. AIRWALLEX is never an alias (a payments company paying many senders), and VAGARO stays the operating registry's platform (its payouts are the merchant's sales). Collision check (audit round 2, R2-B03: R43): in the corpus walk (every cached analysis, duplicates included) LIBERIS prints as a whole word only on funding credits (the Mercury 'LIBERIS <reference> ACH IN' form and the Airwallex instant payment naming LIBERIS US INC), never glued inside another word and on no debit, and no registry alias contains either spelling or is contained in it. The r2 verdict records the independent verify round of 2026-10-06 (audit round 2, R2-L01), which re-fetched the four sources, added two independent ones (Elavon's announcement and Virginia's register of sales-based financing providers) and reproduced the collision check before the entity was rendered (the Idea Financial r8 precedent): LIBERIS prints only on those funding credits, no row prints the LIBERI stem otherwise, AIRWALLEX prints only beside LIBERIS US INC, no debit prints either, and no registry value contains either spelling or is contained in it. The group follows Parafin's (white-label platform capital, an alternative position), although Liberis US Inc is also a registered sales-based financing provider; its fundings are financing proceeds under either group."
+   "notes": "Liberis US Inc (the US entity of the Liberis group, London), an embedded revenue-based financing provider: it buys a merchant's future card receivables through white-label programmes on software and payment platforms (Vagaro Capital among them; the Parafin precedent), and is repaid by a percentage of the merchant's sales taken before the platform pays out, so no debit names it. Its US fundings are paid out through Airwallex US, LLC, so a bank prints them under Liberis's name ('LIBERIS <reference> ACH IN') or as an Airwallex instant payment naming Liberis US Inc. LIBERIS, the company's name and also a rare surname, is read only as a whole word; LIBERIS US INC is the legal name. AIRWALLEX is never an alias (a payments company paying many senders), and VAGARO stays the operating registry's platform (its payouts are the merchant's sales). Collision check (audit round 2, R2-B03: R43): in the corpus walk (every cached analysis, duplicates included) LIBERIS prints as a whole word only on funding credits (the Mercury 'LIBERIS <reference> ACH IN' form and the Airwallex instant payment naming LIBERIS US INC), never glued inside another word and on no debit, and no registry alias contains either spelling or is contained in it. The r2 verdict records the independent verify round of 2026-10-06 (audit round 2, R2-L01), which re-fetched the four sources, added two independent ones (Elavon's announcement and Virginia's register of sales-based financing providers) and reproduced the collision check before the entity was rendered (the Idea Financial r8 precedent): LIBERIS prints only on those funding credits, no row prints the LIBERI stem otherwise, AIRWALLEX prints as a whole word only beside LIBERIS US INC (it prints glued to other payees on some Chase same-day ACH rows, which no alias reads), no debit prints either whole word, and no registry value contains either spelling or is contained in it. The group follows Parafin's (white-label platform capital, an alternative position), although Liberis US Inc is also a registered sales-based financing provider; its fundings are financing proceeds under either group. Residual, for the owner (audit round 3, R3-50; true revenue spec section 17.1): the matcher reads the whole row, so a holder named '... LIBERIS ...' in another originator's receiver field, a customer company or a P2P sender with the surname, or a deposit memo printing it, is read as Liberis US Inc (financing proceeds); no corpus row prints it."
   }
  ]
 }

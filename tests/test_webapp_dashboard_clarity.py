@@ -649,7 +649,8 @@ def test_the_page_s_default_hero_label_and_table_header():
     assert re.findall(r"<th>([^<]*)</th>", head) == [
         "Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
         "True Deposits Per Month", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
-    assert '<script src="/static/app.js?v=true-revenue-8"></script>' in html
+    # Audit round 3, R3-MERGE: the merged app.js asks for the next free value above both lines (-8 the hosting line's).
+    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
 
 
 # ---------------------------------------------------------------------------------- C: the Monthly Statements
@@ -675,6 +676,8 @@ def _row(job, month, **fields):
 def test_the_monthly_table_shows_each_statement_s_withholding_rate_and_no_verified_column():
     # Review round 3 (the orchestrator's ruling): the cell is the row's own figures, its served withholding_numerator
     # over its withholding_denominator (x 100, two decimals), never the statement-alone withholding_rate beside them.
+    # Audit round 3, R3-MERGE: the server now serves that figure as the row's withholding_rate (round 3's R3-72 and the
+    # final review's F2), so the cell reads it, guarded by the row's own figures; the cells expected are unchanged.
     rows = [_row("contoso", 1, withholding_rate=76.4912, withholding_numerator=45894.72,
                  withholding_denominator=60000.0),
             _row("fabrikam", 2, withholding_rate=None, withholding_numerator=500.0, withholding_denominator=0.0,
@@ -682,8 +685,9 @@ def test_the_monthly_table_shows_each_statement_s_withholding_rate_and_no_verifi
             _row("northwind", 3, withholding_rate=None, withholding_numerator=1000.0, withholding_denominator=60000.0,
                  withholding_basis_unestablished=True, revenue_established=False),
             # The package passes took 20,000 out of this member's True: its row reads 6,000 over 40,000, not the 10%
-            # its statement alone published over 60,000.
-            _row("sample", 4, true_revenue_total=40000.0, withholding_rate=10.0, withholding_numerator=6000.0,
+            # its statement alone published over 60,000. Audit round 3, R3-MERGE: the merged server serves this row's
+            # own rate, 15.0 (the hosting line's served the statement-alone 10.0 here).
+            _row("sample", 4, true_revenue_total=40000.0, withholding_rate=15.0, withholding_numerator=6000.0,
                  withholding_denominator=40000.0),
             _row("stale", 5, withholding_rate=12.5, withholding_numerator=7500.0, withholding_denominator=60000.0,
                  withholding_basis_unestablished=True),
@@ -740,7 +744,10 @@ def test_a_member_whose_true_the_package_reduced_shows_the_package_s_rate(monkey
     returned, transfer = _moved_packages()
     docs = {doc["id"]: doc for package in (returned, transfer) for doc in package["documents"]}
     assert docs["mar"]["withholding_denominator_mode"] == docs["b"]["withholding_denominator_mode"] == "true_revenue"
-    assert round(docs["mar"]["withholding_rate"], 2) == 1.67 and round(docs["b"]["withholding_rate"], 2) == 4.88
+    # Audit round 3, R3-MERGE: round 3's R3-72 (and the final review's F2) has the server serve each member row's own
+    # numerator over its own basis wherever the package moved either, so the rows serve 5.0 and 35.0 (on the hosting
+    # line they served the statement-alone 1.67 and 4.88, which the cell no longer read); the cells below are unchanged.
+    assert round(docs["mar"]["withholding_rate"], 2) == 5.0 and round(docs["b"]["withholding_rate"], 2) == 35.0
     assert (docs["mar"]["withholding_numerator"], docs["mar"]["withholding_denominator"]) == (2500.0, 50000.0)
     assert (docs["b"]["withholding_numerator"], docs["b"]["withholding_denominator"]) == (700.0, 2000.0)
     assert docs["mar"]["true_revenue_total"] == 50000.0 and docs["b"]["true_revenue_total"] == 2000.0
@@ -784,6 +791,71 @@ console.log(JSON.stringify(views({json.dumps(package)})));
     shown = [row[6] for row in result["both"]["rows"]]
     rates = [docs[key]["withholding_rate"] for key in ("mar", "apr")]
     assert shown == ["N/A" if rate is None else f"{rate:.2f}%" for rate in rates]
+
+
+# ---------------------------- Audit round 3, R3-MERGE: the Withholding Rate column reads the rate the server serves
+@needs_node
+def test_r3_merge_the_cell_prints_the_served_rate_where_it_and_the_row_s_figures_disagree():
+    """Audit round 3, R3-MERGE: the cell is the row's served `withholding_rate`, the rule the server owns (R3-72 and the
+    final review's F2: a member row's own numerator over its own basis wherever the package moved either; R3-20's basis
+    floor; F1's unestablished basis; R3-73's and R3-79's numerator), never a division the page makes itself. Fabricated
+    rows where the served rate and the row's two figures disagree, which the merged server never serves (the hosting
+    line's row did, beside figures the passes had moved): the cell prints the served 9.50%, not the 10.00% the two figures
+    give; a basis under R3-20's floor publishes no rate whatever its figures; a served rate keeps its own digits."""
+    rows = [_row("contoso", 1, withholding_rate=9.5, withholding_numerator=6000.0, withholding_denominator=60000.0),
+            _row("fabrikam", 2, withholding_rate=None, withholding_numerator=40.0, withholding_denominator=400.0,
+                 withholding_basis_below_floor=True),
+            _row("northwind", 3, withholding_rate=28.0, withholding_numerator=8400.0, withholding_denominator=30000.0)]
+    package = {"documents": rows, "totals": {}, "currency": {"currencies": ["USD"]}}
+    result = run_dashboard(MONTHLY + f"console.log(JSON.stringify(views({json.dumps(package)})));")
+    assert [row[6] for row in result["both"]["rows"]] == ["9.50%", "N/A", "28.00%"]
+    assert [row[4] for row in result["true"]["rows"]] == [row[4] for row in result["total"]["rows"]] == [
+        "9.50%", "N/A", "28.00%"]
+
+
+def _r3_merge_packages():
+    """The final review's F2 probes (tests/test_represented_funder_payments.py and tests/test_lump_sum_payoffs.py; their
+    fabricated CONTOSO BAKERY LLC months of 2031, KAPITUS paid weekly): `redebit`, March 25's payment returned and
+    re-debited on April 3 (R3-73: the package's pass 5 takes it out of March's numerator, 2,550.00 over 30,000.00);
+    `payoff`, a 5,000.00 payoff paid in March and returned on April 1 (R3-79 with Q5: it rejoins March's numerator,
+    8,400.00 over 30,000.00); `floor`, a March basis of 400.00, under R3-20's floor."""
+    from tests import test_represented_funder_payments as rp
+    from tests.test_package_matching import _closing, _package, _payload
+
+    april = ([(2, rp.NW_APRIL, 30000.0), (3, rp.KAPITUS_BAKERY, -850.0)]
+             + [(day, rp.KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)])
+    redebit = _package(*zip(("mar", "apr"), rp._months([*rp.MARCH, (28, rp.BARE_BOUNCE, 850.0)], april)))
+    floor_march = [(3, rp.NW_MARCH, 400.0)] + [(day, rp.KAPITUS_BAKERY, -850.0) for day in (4, 11, 18, 25)]
+    floor = _package(*zip(("mar", "apr"), rp._months([*floor_march, (28, rp.BARE_BOUNCE, 850.0)], april)))
+    march_rows = sorted([(3, rp.NW_MARCH, 30000.0)] + [(day, rp.KAPITUS_BAKERY, -850.0) for day in (4, 11, 18, 25)]
+                        + [(27, rp.KAPITUS_BAKERY_PAYOFF, -5000.0)], key=lambda row: row[0])
+    april_rows = sorted([(1, rp.BARE_BOUNCE, 5000.0), (2, rp.NW_APRIL, 30000.0)]
+                        + [(day, rp.KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)], key=lambda row: row[0])
+    payoff = _package(("mar", _payload(march_rows, month=3, opening=5000.0)),
+                      ("apr", _payload(april_rows, month=4, opening=_closing(march_rows, 5000.0))))
+    return {"redebit": redebit, "payoff": payoff, "floor": floor}
+
+
+@needs_node
+def test_r3_merge_each_member_s_cell_follows_round_3_s_withholding_rules():
+    """Audit round 3, R3-MERGE, the real path: each package's March row prints the rate its own figures publish under
+    round 3's rules, R3-73's re-debit counted once (8.50%, not March's stored 11.33%), R3-79's returned payoff back in
+    the rate (28.00%) and R3-20's floor (N/A); every cell, in every view, is the row's served rate."""
+    packages = _r3_merge_packages()
+    served = {name: {doc["id"]: doc["withholding_rate"] for doc in pkg["documents"]} for name, pkg in packages.items()}
+    assert round(served["redebit"]["mar"], 2) == 8.5 and round(served["payoff"]["mar"], 2) == 28.0
+    assert served["floor"]["mar"] is None
+    script = MONTHLY + "const out = {};\n" + "".join(
+        f"currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(pkg)}); "
+        f"out[{json.dumps(name)}] = views({json.dumps(pkg)});\n" for name, pkg in packages.items())
+    result = run_dashboard(script + "console.log(JSON.stringify(out));")
+    for name in packages:
+        expected = ["N/A" if served[name][key] is None else f"{served[name][key]:.2f}%" for key in ("mar", "apr")]
+        both = [row[6] for row in result[name]["both"]["rows"]]
+        assert both == expected, name
+        assert [row[4] for row in result[name]["true"]["rows"]] == both, name
+        assert [row[4] for row in result[name]["total"]["rows"]] == both, name
+    assert [result[name]["both"]["rows"][0][6] for name in ("redebit", "payoff", "floor")] == ["8.50%", "28.00%", "N/A"]
 
 
 # ------------------------------------------------------------- D: the follow-up (the Monthly Statements and its chart)

@@ -214,6 +214,14 @@ const WITHHOLDING_BASIS_LABELS = Object.freeze({
   verified_revenue: "Verified revenue",
   true_revenue: "True revenue",
 });
+// Audit round 3, R3-B03 (R3-20; true revenue spec §10.1, §11): a True or Verified withholding basis under this many
+// units of the statement's own currency publishes no rate (analysis/revenue.py WITHHOLDING_BASIS_FLOOR, which a test
+// pins equal to this mirror). The note names the floor; nothing that decides a review reads it.
+const WITHHOLDING_BASIS_FLOOR = 500;
+// Audit round 3, final review (R3-FF), F6: the large unsourced deposits' floor, compared in the statement's own unit
+// (analysis/revenue_view.py LARGE_UNSOURCED_DEPOSIT_FLOOR, which a test pins equal to this mirror); largeDepositFacts
+// writes it in that unit, never "$" on a CAD statement.
+const LARGE_UNSOURCED_DEPOSIT_FLOOR = 10000;
 const WITHHOLDING_BASIS_DEFINITIONS = Object.freeze({
   verified_revenue: "verified classified revenue",
   true_revenue: "verified plus counted credits",
@@ -335,6 +343,8 @@ function zelleDeposits(source = {}) {
     counted: figures.counted_as_true_revenue === true,
     applied: figures.setting_applied !== false,
     count: numberOrNull(figures.count) || 0,
+    // Audit round 3, R3-B20 (R3-48): the captured Zelle rows' total, null where the package refuses its currencies.
+    total: numberOrNull(figures.total),
     inTrue: part("verified", "counted_flagged"),
     verified: part("verified"),
     countedFlagged: part("counted_flagged"),
@@ -346,14 +356,19 @@ function zelleDeposits(source = {}) {
 // The True card's Zelle fact (R2-OW17), every non-zero part, the count alone where the money is refused. Yes: "Zelle
 // deposits in True revenue: $C (n)" always, then the held and non-revenue parts; No: "Zelle deposits excluded: $N (k)"
 // then the parts a review or an older analysis left counted or held. A statement or a package member analysed before the
-// setting says it is shown as analysed. Without served figures, today's fact.
-function zelleFact(source, currency, { package: isPackage = false } = {}) {
+// setting says it is shown as analysed. Without served figures, today's fact. Audit round 3, R3-B20 (R3-48; §10.4's
+// I51): where the revenue is not `established`, the captured rows only: "Zelle deposits captured: $T (n), captured rows
+// only", then the non-revenue part where there is some, never a part in True revenue, counted or held.
+function zelleFact(source, currency, { package: isPackage = false, established = true } = {}) {
   const zelle = zelleDeposits(source);
   if (!zelle) return zelleExcludedFact(source, currency);
   const money = (part) => (part.total === null ? formatNumber(part.count)
     : `${formatMoney(part.total, currency)} (${formatNumber(part.count)})`);
   const parts = [];
-  if (zelle.counted) {
+  if (established === false) {
+    parts.push(`Zelle deposits captured: ${money({ count: zelle.count, total: zelle.total })}, captured rows only`);
+    if (zelle.out.count > 0) parts.push(`non-revenue: ${money(zelle.out)}`);
+  } else if (zelle.counted) {
     parts.push(`Zelle deposits in True revenue: ${money(zelle.inTrue)}`);
     if (zelle.held.count > 0) parts.push(`held for review: ${money(zelle.held)}`);
     if (zelle.out.count > 0) parts.push(`non-revenue: ${money(zelle.out)}`);
@@ -372,7 +387,7 @@ function zelleFact(source, currency, { package: isPackage = false } = {}) {
 
 // R2-OW17 (§10.5): whether the served account or package says its Zelle deposits count in True revenue (Yes, with
 // Zelle). The Non-Revenue note then no longer says Zelle deposits are among it; a payload without the figures cannot
-// say the mode and keeps today's note.
+// say the mode and keeps today's note. Audit round 3, R3-B20 (R3-19): a package's flag is its members' served reading.
 function zelleCountedInTrue(source = {}) {
   const figures = source && source.zelle_deposits;
   return Boolean(figures) && figures.counted_as_true_revenue === true;
@@ -419,10 +434,22 @@ function revenueCardItems(source, currency, {
 
 // Audit B11 (I07): the revenue sentence of a copied summary (the credit-memo artefact): True revenue (the headline, Q1),
 // Verified beside it and Non-revenue, each in total and per calendar month (`monthly`: {trueMonthly, verifiedMonthly,
-// nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there.
-function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {}) {
+// nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there. Audit
+// round 3, R3-B20 (R3-19; §10.5): `package` picks the notice's words for a package's memo. Audit round 3, R3-B22 (R3-01;
+// §10.1): and the money held for review, between the verified pair and non-revenue.
+function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {},
+  { package: isPackage = false } = {}) {
   const pair = (total, perMonth, shown) => (shown
     ? `${formatMoney(total, currency)} (${formatMoney(perMonth, currency)} a month)` : "N/A");
+  // R3-01: the credits held for review, which the average daily balance, the ending balance and the cash flow include
+  // and True does not: "held for review $H (n credits)", the count alone where a package refuses its money; only where
+  // the revenue is established (the Held card reads N/A otherwise, as True does) and something is held.
+  const heldCount = numberOrNull(source.excluded_pending_review_count);
+  const heldTotal = numberOrNull(source.excluded_pending_review_total);
+  const heldCredits = heldCount === null ? "" : `${formatNumber(heldCount)} ${heldCount === 1 ? "credit" : "credits"}`;
+  const held = established === true && heldCount !== null && heldCount > 0
+    ? `held for review ${heldTotal === null ? heldCredits : `${formatMoney(heldTotal, currency)} (${heldCredits})`}, `
+    : "";
   const nonRevenue = `${formatMoney(source.non_revenue_total, currency)} `
     + `(${formatMoney(monthly.nonRevenueMonthly, currency)} a month${established ? "" : ", captured rows only"})`;
   // R2-OW03 (the underwriter's Q3): the memo states the Zelle deposits the owner's policy excluded. R2-OW17 (the owner's
@@ -431,18 +458,55 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
   const served = zelleDeposits(source);
   const excluded = zelleExcluded(source);
   let zelleNote = excluded ? `, of which Zelle deposits excluded ${formatMoney(excluded.total, currency)}` : "";
-  if (served && served.counted) {
+  if (served && established !== true) {
+    // Audit round 3, R3-B20 (R3-48; §10.4's I51): where the revenue is not established, the captured Zelle rows only,
+    // and their non-revenue part where there is some; no part in True revenue or held for review.
+    zelleNote = `; Zelle deposits captured ${formatMoney(served.total, currency)} (captured rows only)`
+      + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
+  } else if (served && served.counted) {
     zelleNote = `; Zelle deposits counted as True revenue ${formatMoney(served.inTrue.total, currency)}`
       + (served.held.count > 0 ? `, held for review ${formatMoney(served.held.total, currency)}` : "")
       + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
   } else if (served) {
+    // Audit round 3, R3-B20 (R3-19): every part zelleFact names, so a package mixing members served counted and
+    // excluded, or a legacy member under No, says where each part sits: the part a review counted, then the parts
+    // counted and held.
+    const parts = [
+      ...(served.verified.count > 0 ? [`counted after review ${formatMoney(served.verified.total, currency)}`] : []),
+      ...(served.countedFlagged.count > 0 ? [`counted ${formatMoney(served.countedFlagged.total, currency)}`] : []),
+      ...(served.held.count > 0 ? [`held for review ${formatMoney(served.held.total, currency)}`] : []),
+    ];
     zelleNote = `, of which Zelle deposits excluded ${formatMoney(served.out.total, currency)}`
-      + (served.verified.count > 0 ? `; Zelle deposits counted after review ${formatMoney(served.verified.total, currency)}`
-        : "");
+      + (parts.length ? `; Zelle deposits ${parts.join(", ")}` : "");
+  }
+  // R3-19: a statement or a member analysed before the setting says it is shown as analysed, as the True card does.
+  if (served && !served.applied) {
+    zelleNote += isPackage ? "; a statement analysed before the Zelle setting is shown as analysed"
+      : "; analysed before the Zelle setting: shown as analysed";
   }
   return `True revenue ${pair(source.true_revenue_total, monthly.trueMonthly, established === true)}, `
     + `verified revenue ${pair(source.verified_revenue_total, monthly.verifiedMonthly, verifiedEstablished === true)}, `
-    + `non-revenue ${nonRevenue}${zelleNote}.`;
+    + `${held}non-revenue ${nonRevenue}${zelleNote}.`;
+}
+
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1; standard G7, P22): the copied memo's clause after the revenue
+// sentence, only where the served payload flags a large unsourced deposit. A statement: "1 large deposit to source: $X,
+// S% of True revenue (counted, not verified). " or "N large deposits to source: $X (each over 25% of True revenue;
+// counted, not verified). "; a package: "N large deposits to source: $X (each over 25% of its statement's True revenue;
+// counted, not verified). ", the count alone where it refuses its money. "" otherwise.
+function largeDepositSummary(source = {}, currency = "USD", { package: isPackage = false } = {}) {
+  const count = numberOrNull(source && source.large_unsourced_deposit_count);
+  if (!count) return "";
+  const total = numberOrNull(source.large_unsourced_deposit_total);
+  const head = `${formatNumber(count)} ${count === 1 ? "large deposit" : "large deposits"} to source`
+    + (total === null ? "" : `: ${formatMoney(total, currency)}`);
+  const items = Array.isArray(source.large_unsourced_deposits) ? source.large_unsourced_deposits : [];
+  const share = count === 1 && items.length === 1 ? numberOrNull(items[0] && items[0].share_of_true_percent) : null;
+  if (!isPackage && share !== null) {
+    return `${head}, ${share.toFixed(1)}% of True revenue (counted, not verified). `;
+  }
+  const of = isPackage ? "its statement's True revenue" : "True revenue";
+  return `${head} (${count === 1 ? "" : "each "}over 25% of ${of}; counted, not verified). `;
 }
 
 // Audit B11 (I31): whether a statement's revenue reads "Balanced": its own rows reconcile to the bank's printed figures
@@ -471,10 +535,13 @@ function packageRevenueBalanced(pkg = {}) {
 // read (the holds that keep the holder's own money out cannot see it), and the share of credits whose printed payer
 // no parser read. R2-OW03 (the underwriter's Q3): and the Zelle deposits the owner's policy excluded, so True can be
 // read against the Monthly Statements' total deposits. R2-OW11 (the underwriter's Q10): and a premium trust account,
-// whose deposits that would count are held.
+// whose deposits that would count are held. Audit round 3, R3-B11 (R3-30): a statement with no holder line read
+// publishes no account title either, so its premium-trust title is not read (a title in its account name still is).
 function statementRevenueFacts(metrics = {}, currency = "USD") {
   const facts = [];
-  if (metrics.holder_unscreened === true) facts.push("No holder name read: the holder's own deposits are not screened");
+  if (metrics.holder_unscreened === true) {
+    facts.push("No holder name read: the holder's own deposits are not screened, nor is a premium-trust account title read");
+  }
   if (metrics.payer_text_unread === true) {
     const count = numberOrNull(metrics.payer_text_unread_count);
     facts.push(`${count === null ? "Many" : formatNumber(count)} credits' payer text not read`);
@@ -484,10 +551,30 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
   if (metrics.premium_trust_account === true) {
     facts.push("Premium trust account: deposits that would count are held (insureds' premiums, not revenue); non-revenue deposits stay excluded");
   }
-  // R2-OW17: where the Zelle money sits, in the reading served (zelleFact).
-  const zelle = zelleFact(metrics, currency);
+  // R2-OW17: where the Zelle money sits, in the reading served (zelleFact). Audit round 3, R3-B20 (R3-48): the captured
+  // rows only where the statement's revenue is not established.
+  const zelle = zelleFact(metrics, currency, { established: metrics.revenue_established === true });
   if (zelle) facts.push(zelle);
-  return [...facts, ...debitFlagFacts(metrics, currency)];
+  // Audit round 3, R3-B24 (R3-16): the large unsourced deposits, before the debit flags.
+  return [...facts, ...largeDepositFacts(metrics, currency), ...debitFlagFacts(metrics, currency)];
+}
+
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §17.1's default D1; standard G7, "COUNT+FLAG, and source them
+// when large", P22): the True card's line for the counted credits whose source the statement does not prove that are
+// 10,000 or more of the statement's unit and over 25% of True, from a statement's served metrics or a package's totals,
+// only where the count is: "Large deposits to source: N · $X (each $10,000.00 or more and over 25% of True; counted,
+// not verified)", a package's share being each statement's own True as the package counts it (the True Deposits its row shows on the package page,
+// its holds applied; R3-B24 review round 1), and the count alone where a package refuses its money. Information only:
+// no figure, badge, gate or decision reads it. Audit round 3, final review (R3-FF), F6: the floor is written in the
+// unit it is compared in, as the withholding floor's note writes its floor (formatMoney): the statement's, a package's
+// where its members share one, none where they differ ("$10,000.00", "CA$10,000.00", "10,000.00").
+function largeDepositFacts(source = {}, currency = "USD", { package: isPackage = false } = {}) {
+  const count = numberOrNull(source && source.large_unsourced_deposit_count);
+  if (!count) return [];
+  const total = numberOrNull(source.large_unsourced_deposit_total);
+  return [`${LARGE_DEPOSIT_WORDS}: ${formatNumber(count)}${total === null ? "" : ` · ${formatMoney(total, currency)}`} `
+    + `(each ${formatMoney(LARGE_UNSOURCED_DEPOSIT_FLOOR, currency)} or more and over 25% of `
+    + `${isPackage ? "its statement's True" : "True"}; counted, not verified)`];
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6, "Flag, but do not deduct, returns that cannot be matched and processor
@@ -509,15 +596,20 @@ function packageRevenueFacts(totals = {}, currency = "USD") {
   const noun = (n) => (n === 1 ? "statement" : "statements");
   const facts = [];
   const unscreened = statements(totals.holder_unscreened_documents);
-  if (unscreened) facts.push(`${formatNumber(unscreened)} ${noun(unscreened)} with no holder name read`);
+  // Audit round 3, R3-B11 (R3-30): nor a premium-trust title read from them.
+  if (unscreened) {
+    facts.push(`${formatNumber(unscreened)} ${noun(unscreened)} with no holder name read (nor a premium-trust title)`);
+  }
   const unread = statements(totals.payer_text_unread_documents);
   if (unread) facts.push(`${formatNumber(unread)} ${noun(unread)} with payer text not read`);
   // Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
   const premiumTrust = statements(totals.premium_trust_documents);
   if (premiumTrust) facts.push(`${formatNumber(premiumTrust)} ${noun(premiumTrust)} of a premium trust account: deposits that would count are held`);
-  const zelle = zelleFact(totals, currency, { package: true });
+  // Audit round 3, R3-B20 (R3-48): the captured rows only where the package's revenue is not established.
+  const zelle = zelleFact(totals, currency, { package: true, established: packageRevenueFlags(totals).established });
   if (zelle) facts.push(zelle);
-  return [...facts, ...debitFlagFacts(totals, currency)];
+  // Audit round 3, R3-B24 (R3-16): the members' large unsourced deposits, before the debit flags.
+  return [...facts, ...largeDepositFacts(totals, currency, { package: true }), ...debitFlagFacts(totals, currency)];
 }
 
 // A package's two revenue flags (§10.4). The server nulls its True, Counted and Held counts only when a completed
@@ -811,6 +903,12 @@ function withholdingBasisLabel(metrics = {}) {
   return WITHHOLDING_BASIS_LABELS[mode] || "Withholding basis";
 }
 
+// Audit round 3 (R3-68): the basis the copied memos' rates divide by, as the Withholding Basis card names it.
+function withholdingBasisWords(source = {}) {
+  return `withholding basis: ${withholdingBasisLabel(source).toLowerCase()}`
+    + (withholdingBasisUnestablished(source) ? ", not established" : "");
+}
+
 // The final review of round 2, F1 (true revenue spec §10.1, §10.4, §11): the basis the withholding mode divides by is
 // not established (True revenue where the revenue is not, Verified where Verified is not; the server publishes the
 // flag only where it is set), so no rate is published over it and the basis reads N/A, as True does.
@@ -818,19 +916,61 @@ function withholdingBasisUnestablished(metrics = {}) {
   return metrics.withholding_basis_unestablished === true;
 }
 
-// The Withholding Basis card's value: the basis the rates divide by, N/A where it is not established (F1).
+// Audit round 3, R3-B03 (R3-27; true revenue spec §10.1, §11): a package whose statements were analysed under
+// different withholding bases (the server publishes the flag only there) publishes no rate over their sum.
+function withholdingBasisMixed(metrics = {}) {
+  return metrics.withholding_basis_mixed === true;
+}
+
+// R3-27: "1 on legacy eligible deposits, 1 on true revenue", the members counted per basis, in the bases' own order.
+function withholdingBasisMembersWords(metrics = {}) {
+  const members = Array.isArray(metrics.withholding_basis_by_member) ? metrics.withholding_basis_by_member : [];
+  const counts = new Map();
+  for (const member of members) {
+    if (member && typeof member === "object") counts.set(member.mode, (counts.get(member.mode) || 0) + 1);
+  }
+  const order = Object.keys(WITHHOLDING_BASIS_LABELS);
+  return [...counts.entries()]
+    .sort(([left], [right]) => (order.indexOf(left) + 1 || order.length + 1) - (order.indexOf(right) + 1 || order.length + 1))
+    .map(([mode, count]) => `${formatNumber(count)} on ${(WITHHOLDING_BASIS_LABELS[mode] || String(mode)).toLowerCase()}`)
+    .join(", ");
+}
+
+// Audit round 3, R3-B03 (R3-20): the basis is above $0 and under the floor (the server's flag), so no rate is published.
+function withholdingBasisBelowFloor(metrics = {}) {
+  return metrics.withholding_basis_below_floor === true;
+}
+
+// R3-20: "true revenue, $1.00", the basis and its amount, as the floor's notes name them.
+function withholdingBasisWithAmount(metrics = {}, currency = "USD") {
+  const amount = metrics.potential_withholding_denominator ?? metrics.withholding_denominator ?? metrics.eligible_deposits;
+  return `${withholdingBasisLabel(metrics).toLowerCase()}, ${formatMoney(amount, currency)}`;
+}
+
+// The Withholding Basis card's value: the basis the rates divide by, N/A where it is not established (F1) or where a
+// package sums members analysed under different bases (R3-27).
 function withholdingBasisAmount(metrics = {}) {
-  if (withholdingBasisUnestablished(metrics)) return null;
+  if (withholdingBasisUnestablished(metrics) || withholdingBasisMixed(metrics)) return null;
   return metrics.potential_withholding_denominator ?? metrics.eligible_deposits;
 }
 
 function withholdingAuditNote(metrics = {}, currency = "USD") {
+  // Audit round 3, R3-B03 (R3-27): a package whose statements were analysed under different bases names them.
+  if (withholdingBasisMixed(metrics)) {
+    return `The statements were analysed on different withholding bases (${withholdingBasisMembersWords(metrics)}), so `
+      + "no package rate is published; re-analyze them on one basis; analyst review is required";
+  }
   // F1 (final review of round 2): say why no rate is published: a statement's basis, or a package member's, is not
   // established.
   if (withholdingBasisUnestablished(metrics)) {
     const scope = Object.prototype.hasOwnProperty.call(metrics, "package_withholding_rate") ? " on every statement" : "";
     return `The withholding basis (${withholdingBasisLabel(metrics).toLowerCase()}) is not established${scope}, so no `
       + "rate is published; analyst review is required";
+  }
+  // Audit round 3, R3-B03 (R3-20): a revenue basis under the floor publishes no rate, as $0 does.
+  if (withholdingBasisBelowFloor(metrics)) {
+    return `The withholding basis (${withholdingBasisWithAmount(metrics, currency)}) is under `
+      + `${formatMoney(WITHHOLDING_BASIS_FLOOR, currency)}, so no rate is published; analyst review is required`;
   }
   // Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the note names the basis, True revenue by default.
   if (metrics.withholding_review_required) {
@@ -840,9 +980,80 @@ function withholdingAuditNote(metrics = {}, currency = "USD") {
   const denominator = formatMoney(metrics.withholding_denominator ?? metrics.eligible_deposits, currency);
   const label = withholdingBasisLabel(metrics);
   // Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the numerator keeps the funder payments returned unpaid.
+  // The owner's answer of 2026-10-07 to audit round 3's R3-73 (R3-B02): except those the same funder re-debited, which
+  // the re-debit counts once (the numerator is paid plus the returned payments still standing).
   const returned = returnedFunderPaymentTotal(metrics);
-  const included = returned === null ? "" : ` (incl. ${formatMoney(returned, currency)} returned unpaid)`;
+  const standing = returnedStandingTotal(metrics);
+  const parts = [];
+  if (standing !== null && Math.abs(standing) > 0) parts.push(`incl. ${formatMoney(standing, currency)} returned unpaid`);
+  const reDebited = returned === null || standing === null ? 0 : Math.round((returned - standing) * 100) / 100;
+  if (reDebited > 0) parts.push(`${formatMoney(reDebited, currency)} returned and re-debited, counted once`);
+  // The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): the lump sums in paid
+  // to lenders and out of the numerator.
+  const lumpSum = lumpSumPayoffTotal(metrics);
+  if (lumpSum !== null) {
+    const count = numberOrNull(metrics.lump_sum_payoff_count) ?? 1;
+    parts.push(`${formatMoney(lumpSum, currency)} lump-sum ${count === 1 ? "payoff" : "payoffs"} not included`);
+  }
+  const included = parts.length ? ` (${parts.join("; ")})` : "";
   return `${numerator} confirmed lender debits${included} divided by ${denominator} ${label.toLowerCase()}`;
+}
+
+// The returned funder payments still in the withholding numerator (R2-OW13), null when there is none: the numerator less
+// paid to lenders (audit round 3, R3-B02: a returned payment its funder re-debited is no longer in it; R3-B03: paid
+// counts the lump-sum payoffs the numerator leaves out), else the whole returned total where either figure is missing
+// (a payload analysed before the numerator).
+function returnedStandingTotal(metrics = {}) {
+  const returned = returnedFunderPaymentTotal(metrics);
+  if (returned === null) return null;
+  const numerator = numberOrNull(metrics.withholding_numerator);
+  const paid = numberOrNull(metrics.lender_debits);
+  if (numerator === null || paid === null) return returned;
+  const standing = Math.round((numerator - paid + (lumpSumPayoffTotal(metrics) ?? 0)) * 100) / 100;
+  return standing >= 0 && standing <= returned ? standing : returned;
+}
+
+// The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue spec
+// §10.1, §11; R3-B03): the paid payoff-worded debits to confirmed funders, in paid to lenders and out of the withholding
+// numerator, null when there is none (or the package refused the money across currencies).
+function lumpSumPayoffTotal(metrics = {}) {
+  const total = numberOrNull(metrics.lump_sum_payoff_total);
+  return total !== null && Math.abs(total) > 0 ? total : null;
+}
+
+// R3-79: one information note per lump-sum payoff, its money in its own statement's unit (a package item's
+// source_currency, R2-OW13's rule), quoting the payoff word as the bank printed it. Audit round 3, R3-MERGE: in the
+// plain voice and layout of the owner's request of 2026-10-07 (lenderNote): a headline, its sentences and, on a package
+// page, the statement it comes from (`sources`, paymentChangeSources), never a job id.
+function lumpSumPayoffNote(item, currency = "USD", sources = null) {
+  const unit = "source_currency" in item ? item.source_currency : currency;
+  const amount = numberOrNull(item.amount);
+  const words = item.words ? ` (the bank printed: "${item.words}")` : "";
+  return lenderNote(`${item.funder || "Confirmed lender"}: a lump-sum payoff`, [
+    `The ${formatMoney(amount === null ? null : Math.abs(amount), unit)} payment on ${readableDate(item.date)} is worded `
+      + `as a payoff${words}.`,
+    "It counts in paid to lenders, but not in the withholding rate.",
+  ], [], paymentChangeSourceLine(item, sources));
+}
+
+// R3-79: the note as one line of text, as the copied summaries carry it.
+function lumpSumPayoffLine(item, currency = "USD", sources = null) {
+  return lenderNoteText(lumpSumPayoffNote(item, currency, sources));
+}
+
+// R3-79: the lines the copied summaries carry, one per item.
+function lumpSumPayoffLines(items, currency = "USD", sources = null) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => lumpSumPayoffLine(item, currency, sources));
+}
+
+// R3-79: the lender table's notes (statement page, package page, statement modal), each with its "Lump sum" chip.
+function lumpSumPayoffRowsHtml(items, currency = "USD", sources = null) {
+  return (Array.isArray(items) ? items : [])
+    .filter((item) => item && typeof item === "object")
+    .map((item) => lenderNoteRowHtml(glassChip("Σ", "Lump sum", "blue"), lumpSumPayoffNote(item, currency, sources)))
+    .join("");
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q5, "take the bounced amount out of "paid to lenders" but keep it in the
@@ -884,14 +1095,15 @@ function readableDate(value) {
   return `${SHORT_MONTH_NAMES[day.getUTCMonth()]} ${day.getUTCDate()}, ${day.getUTCFullYear()}`;
 }
 
-// "Mar 20 and Apr 1, 2026": the first day names its year only where the two years differ.
-function readableDateRange(first, last) {
+// "Mar 20 and Apr 1, 2026": the first day names its year only where the two years differ. Audit round 3, R3-MERGE:
+// `joiner` "to" reads a span ("Mar 3 to Mar 17, 2054", the missed payments of a Caught up note).
+function readableDateRange(first, last, joiner = "and") {
   const start = isoDay(first);
   const end = isoDay(last);
   if (start && end && start.getUTCFullYear() === end.getUTCFullYear()) {
-    return `${SHORT_MONTH_NAMES[start.getUTCMonth()]} ${start.getUTCDate()} and ${readableDate(last)}`;
+    return `${SHORT_MONTH_NAMES[start.getUTCMonth()]} ${start.getUTCDate()} ${joiner} ${readableDate(last)}`;
   }
-  return `${readableDate(first)} and ${readableDate(last)}`;
+  return `${readableDate(first)} ${joiner} ${readableDate(last)}`;
 }
 
 // "1 business day", "8 business days".
@@ -1002,15 +1214,54 @@ function returnedFunderPaymentNote(item, currency = "USD", sources = null) {
   const unit = "source_currency" in item ? item.source_currency : currency;
   const amount = numberOrNull(item.amount);
   const words = item.credit_description ? ` (the bank printed: "${item.credit_description}")` : "";
-  return lenderNote(`${item.funder || "Confirmed lender"}: a payment was returned`, [
+  const details = [
     `The ${formatMoney(amount === null ? null : Math.abs(amount), unit)} payment on ${readableDate(item.debit_date)} `
       + `was returned unpaid on ${readableDate(item.credit_date)}${words}.`,
-    "It isn't counted as paid, but it still counts in the withholding rate.",
-  ], [], paymentChangeSourceLine(item, sources, item.cross_statement === true ? ["source", "credit"] : null));
+  ];
+  // The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02), in the plain voice of the
+  // owner's request of 2026-10-07 (R3-MERGE): a payment the same funder re-debited (the same cents off its cycle, or an
+  // exact 2x catch-up) is out of the withholding rate, its re-debit counting the obligation once; a package's re-debit
+  // in another statement names that statement (its month, as the source line names statements).
+  if (item.represented_date) {
+    const where = item.represented_job || item.represented_document
+      ? ` (${paymentChangeMember(item, "represented", sources).label})` : "";
+    const caughtUp = item.represented_kind === "caught_up";
+    details.push(caughtUp
+      ? `It was caught up on ${readableDate(item.represented_date)}${where}, by one debit of twice the payment.`
+      : `It was taken again on ${readableDate(item.represented_date)}${where}.`);
+    details.push("It isn't counted as paid; it is counted once in the withholding rate, by the "
+      + `${caughtUp ? "catch-up" : "second debit"}.`);
+  } else {
+    details.push("It isn't counted as paid, but it still counts in the withholding rate.");
+  }
+  return lenderNote(`${item.funder || "Confirmed lender"}: a payment was returned`, details, [],
+    paymentChangeSourceLine(item, sources, item.cross_statement === true ? ["source", "credit"] : null));
 }
 
+// The note as one line of text: the copied package memo's line (R3-B22's R3-67).
 function returnedFunderPaymentWarning(item, currency = "USD", sources = null) {
   return lenderNoteText(returnedFunderPaymentNote(item, currency, sources));
+}
+
+// Audit round 3, R3-B22 (R3-67; §10.1's R2-OW13 copy line, the owner's Q5): a package memo's funder line, its paid
+// total and statements, then its payments returned unpaid, which paid leaves out and the withholding rate keeps, so the
+// line explains the rate ("ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding
+// rate)"). R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it once"): a return the funder re-debited (its
+// served item names the re-debit) is out of the rate, the re-debit in paid counting it once, so the line says so.
+function packageFunderSummaryLine(funder, currency = "USD", returnedPayments = []) {
+  const line = `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across `
+    + `${formatNumber(funder.documents)} statement(s)`;
+  const count = numberOrNull(funder.returned_payment_count) ?? 0;
+  if (count <= 0) return line;
+  const money = formatMoney(funder.returned_payment_total, currency);
+  const reDebited = Math.min(count, (Array.isArray(returnedPayments) ? returnedPayments : [])
+    .filter((item) => item && typeof item === "object" && item.funder === funder.funder && item.represented_date)
+    .length);
+  const rate = reDebited === 0 ? `${money}, still in the withholding rate`
+    : reDebited === count ? `${money}, re-debited: counted once in the withholding rate`
+      : `${money}; ${formatNumber(reDebited)} re-debited, counted once in the withholding rate; `
+        + `${formatNumber(count - reDebited)} still in it`;
+  return `${line}, ${formatNumber(count)} returned unpaid (${rate})`;
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
@@ -1057,6 +1308,17 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
   const also = [];
   let headline = "payment changed";
   let across = null;
+  // Audit round 3, R3-84: debits no rule claimed at the series' exact cents, on its schedule, inside a pause's gap or
+  // after a stop's last presence (a processor rail the registry refuses as an alias): named, never counted. R3-MERGE:
+  // an "Also:" sentence, in the plain voice of the owner's request of 2026-10-07.
+  const sameAmount = (amount) => {
+    const same = item.same_amount_debits;
+    if (!same || typeof same !== "object") return [];
+    const when = same.first_date && same.last_date && same.first_date !== same.last_date
+      ? `from ${readableDateRange(same.first_date, same.last_date, "to")}` : `on ${day(same.first_date || same.last_date)}`;
+    return [`Also: ${countWords(same.count, "debit")} of exactly ${money(amount)} came on the same ${cadence(item.cadence)} `
+      + `schedule under another description, ${when}; this may be the lender collecting under another name.`];
+  };
   if (["decrease", "increase", "cadence_change"].includes(item.kind)) {
     if (item.cross_statement === true) across = ["from", "to"];
     const before = cadence(item.cadence_before);
@@ -1127,7 +1389,10 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     }
   } else if (item.kind === "pause") {
     // R2-OW18 review round 1: a bounced attempt or a payment at another amount can end the pause before the regular
-    // payment resumes; the note then says so and names the date payments resumed.
+    // payment resumes; the note then says so and names the date payments resumed. Audit round 3, R3-25: so can a
+    // catch-up (an exact 2x to 6x debit), named with its multiple, and every other debit of 2x or more inside the gap
+    // is named (R3-B05 review round 1: a catch-up after the presence that ended the pause, before payments resumed, is
+    // this note's too, one note per event); R3-84's same-amount debits too. R3-MERGE: each in the plain voice.
     headline = "payments paused, then resumed";
     const attempt = item.first_after_kind === "attempt";
     const same = `at the same ${cadence(item.cadence)} ${money(item.last_payment_amount)}`;
@@ -1139,12 +1404,36 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     if (attempt) {
       details.push(`The attempt on ${day(item.first_after_date)} was returned unpaid, and payments resumed ${same} on `
         + `${day(item.resumed_date)}.`);
+    } else if (item.first_after_kind === "catch_up") {
+      details.push(`A debit of ${money(item.first_after_amount)} on ${day(item.first_after_date)}, `
+        + `${formatNumber(item.first_after_multiple)} times the payment, may be a catch-up, and payments resumed ${same} `
+        + `on ${day(item.resumed_date)}.`);
     } else if (item.first_after_kind === "other_amount") {
       details.push(`A payment of another amount came on ${day(item.first_after_date)}, and payments resumed ${same} `
         + `on ${day(item.resumed_date)}.`);
     } else {
       details.push(`Payments then resumed ${same}.`);
     }
+    const entries = (list) => (Array.isArray(list) ? list : []).filter((entry) => entry && typeof entry === "object");
+    entries(item.catch_ups_inside).forEach((entry) => also.push(`Also: a debit of ${money(entry.amount)} on `
+      + `${day(entry.date)}, ${formatNumber(entry.multiple)} times the payment, came before payments resumed; this may `
+      + "be a catch-up."));
+    entries(item.larger_debits_inside).forEach((entry) => also.push(`Also: a debit of ${money(entry.amount)} on `
+      + `${day(entry.date)}, inside the gap, was more than twice the payment.`));
+    also.push(...sameAmount(item.last_payment_amount));
+  } else if (item.kind === "catch_up") {
+    // The owner's answer of 2026-10-07 to audit round 3's R3-25 ("Add a 'Caught up' line"): an exact multiple of the
+    // payment after one or more missed scheduled payments, where no pause or stop note names it; its amber "Caught up"
+    // chip (lenderPaymentChangeChip). R3-MERGE: in the plain voice of the owner's request of 2026-10-07.
+    headline = "missed payments caught up";
+    const missed = numberOrNull(item.missed_payments) ?? 0;
+    const every = cadence(item.cadence);
+    const span = item.missed_last_date && item.missed_first_date && item.missed_last_date !== item.missed_first_date
+      ? readableDateRange(item.missed_first_date, item.missed_last_date, "to") : day(item.missed_first_date);
+    details.push(`${countWords(missed, `scheduled ${every} payment`)} ${missed === 1 ? "was" : "were"} missed `
+      + `(${span}).`);
+    details.push(`Then one debit of ${money(item.catch_up_amount)} on ${day(item.catch_up_date)} came to `
+      + `${formatNumber(item.multiple)} times the ${every} ${money(item.last_payment_amount)} payment.`);
   } else if (item.kind === "new_stream") {
     const position = numberOrNull(item.position);
     const ordinal = position !== null && position >= 2 ? ORDINAL_WORDS[position - 1] : null;
@@ -1169,7 +1458,15 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     const single = others && numberOrNull(others.count) === 1;
     const later = !others ? "" : single ? "1 debit at another amount"
       : `${countWords(others.count, "debit")} at other amounts`;
-    const lastOther = !others ? "" : `${single ? "on" : "the last on"} ${day(others.last_date)}`;
+    // Audit round 3, R3-25: the later debits that are exact multiples of the payment (2x to 6x) are possible
+    // catch-ups, presence like a payment-sized debit; R3-MERGE: named after them, in the plain voice.
+    const catchUps = others ? numberOrNull(others.catch_ups) : null;
+    const multiples = !catchUps ? ""
+      : `; ${single ? "it is" : `${formatNumber(catchUps)} of them ${catchUps === 1 ? "is" : "are"}`} `
+        + `${catchUps === 1 ? "an exact multiple" : "exact multiples"} of the payment, which may be a catch-up`;
+    const lastOther = !others ? "" : `${single ? "on" : "the last on"} ${day(others.last_date)}${multiples}`;
+    // Audit round 3, R3-85: the quiet business days are counted from the last presence, which the note names where it
+    // is not the last payment ("after <day>"), as the hosting line's plain voice already reads.
     if (item.stop_confirmed === true) {
       headline = "payments stopped";
       details.push(`Last ${others ? "regular " : ""}${schedule} payment: ${money(item.last_payment_amount)} on `
@@ -1203,8 +1500,14 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       if (!others) details.push(`Last payment: ${money(item.last_payment_amount)} on ${day(item.last_payment_date)}.`);
     }
     if (item.payoff) {
-      also.push(`Also: a final debit of ${money(item.payoff.amount)} on ${day(item.payoff.date)} may be a payoff.`);
+      // Audit round 3, R3-25: the payoff note reads only a debit of 2x or more that is no exact multiple, and counts
+      // the earlier ones (R3-MERGE: in the same "Also:" sentence).
+      const earlier = numberOrNull(item.payoff.earlier);
+      const count = earlier
+        ? `, after ${countWords(earlier, "earlier debit")} of twice the payment or more` : "";
+      also.push(`Also: a final debit of ${money(item.payoff.amount)} on ${day(item.payoff.date)} may be a payoff${count}.`);
     }
+    also.push(...sameAmount(item.last_payment_amount));
     if (item.continues_as) {
       const next = item.continues_as;
       also.push(`Also: payments of ${money(next.amount)} continue under `
@@ -1226,6 +1529,16 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       also.push(`Also: payments to ${label} continue from another account `
         + `(${paymentChangeMember(other, "source", sources).label}) from ${day(other.first_date)} at `
         + `${money(other.amount)}.`);
+    }
+    if (item.reappears_in_other_account) {
+      // Audit round 3, R3-83: the funder's first payment or attempt in another account of the deal comes after the
+      // stop's grace window, counted in the business days the two accounts' statements cover: named, the stop kept.
+      // R3-MERGE: the other account's statement named as continues_in_other_account names it (its month or file).
+      const other = item.reappears_in_other_account;
+      also.push(`Also: payments to ${label} reappear in another account `
+        + `(${paymentChangeMember(other, "source", sources).label}) from ${day(other.first_date)} at `
+        + `${money(other.amount)}, after ${countWords(other.covered_business_days, "business day")} without one in the `
+        + "statements provided.");
     }
     if (item.other_stream_continues) {
       also.push(`Also: another ${label} payment of ${money(item.other_stream_continues.amount)} `
@@ -1260,6 +1573,7 @@ function lenderPaymentChangeChip(item) {
     increase: ["↑", possible ? "Possible increase" : "Increased", "blue"],
     cadence_change: ["↻", "Schedule", "blue"],
     pause: ["‖", "Paused", "amber"],
+    catch_up: ["↺", "Caught up", "amber"],
     new_stream: ["+", "New stream", "blue"],
     stop: ["■", item.stop_confirmed === true ? "No payments" : "Possible stop", "amber"],
   };
@@ -1304,6 +1618,7 @@ function lenderPaymentChangesSummary(items) {
     ["possible_increase", (item) => item.kind === "increase" && item.schedule_confirmed === false, "possible increase", "possible increases"],
     ["cadence_change", (item) => item.kind === "cadence_change", "schedule change", "schedule changes"],
     ["pause", (item) => item.kind === "pause", "pause", "pauses"],
+    ["catch_up", (item) => item.kind === "catch_up", "catch-up", "catch-ups"],
     ["new_stream", (item) => item.kind === "new_stream", "new stream", "new streams"],
     ["stop", (item) => item.kind === "stop" && item.stop_confirmed !== true, "possible stop", "possible stops"],
     ["confirmed_stop", (item) => item.kind === "stop" && item.stop_confirmed === true, "stop with no payments", "stops with no payments"],
@@ -1349,10 +1664,21 @@ function potentialWithholdingAuditNote(metrics = {}, currency = "USD") {
   const reviewSuffix = hasMaterialPotentialLenderDebits(metrics) ? "; analyst review is required" : "";
   // R2-OW14 (Q7): the note names the basis, True revenue by default.
   const label = withholdingBasisLabel(metrics).toLowerCase();
+  // Audit round 3, R3-B03 (R3-27): no exposure over the sum of members analysed under different bases.
+  if (withholdingBasisMixed(metrics)) {
+    return `${formatMoney(total, currency)} potential lender debits; the statements were analysed on different `
+      + "withholding bases, so no exposure is published; analyst review is required";
+  }
   // F1 (final review of round 2): no exposure over a basis that is not established.
   if (withholdingBasisUnestablished(metrics)) {
     return `${formatMoney(total, currency)} potential lender debits; the withholding basis (${label}) is not `
       + "established, so no exposure is published; analyst review is required";
+  }
+  // Audit round 3, R3-B03 (R3-20): nor over a revenue basis under the floor.
+  if (withholdingBasisBelowFloor(metrics)) {
+    return `${formatMoney(total, currency)} potential lender debits; the withholding basis `
+      + `(${withholdingBasisWithAmount(metrics, currency)}) is under ${formatMoney(WITHHOLDING_BASIS_FLOOR, currency)}, so `
+      + "no exposure is published; analyst review is required";
   }
   if ((numberOrNull(denominator) ?? 0) <= 0) {
     return `${formatMoney(total, currency)} potential lender debits; the withholding basis (${label}) is unavailable${reviewSuffix}`;
@@ -1573,6 +1899,10 @@ const DEBIT_FLAG_WORDS = Object.freeze({
   unmatched_deposit_return: "Returned deposits not matched",
   processor_chargeback: "Processor chargebacks and adjustments",
 });
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §10.6; standard G7, P22): the large unsourced deposits' words,
+// on the True card, the Revenue evidence table and the ledger's header, and their ledger filter (information only).
+const LARGE_DEPOSIT_WORDS = "Large deposits to source";
+const LARGE_DEPOSIT_FILTER = "largeDeposit";
 const PACKAGE_MATCH_WORDS = Object.freeze({
   returned_deposit: "bounced deposits matched across statements",
   // R2-OW16 (the underwriter's Q4): both legs of each transfer between the business's accounts.
@@ -1581,13 +1911,19 @@ const PACKAGE_MATCH_WORDS = Object.freeze({
 
 // The debit flags of the rows on screen: a statement's, from its served metrics (`<kind>_locations`), or a package's,
 // from its `debit_flags` (each naming its statement, account and location). `has(tx, kind, position)` and `entry(tx)`.
+// Audit round 3, R3-B24 (R3-16): and `largeDeposit(tx, position)`, the served large unsourced deposit a credit row is (a
+// statement's `metrics.large_unsourced_deposits` by location, a package's `large_unsourced_deposits` by statement,
+// account and location), or null.
 function statementDebitFlags(metrics) {
   const m = metrics || {};
   const locations = Object.fromEntries(Object.keys(DEBIT_FLAG_WORDS)
     .map((kind) => [kind, new Set(Array.isArray(m[`${kind}_locations`]) ? m[`${kind}_locations`] : [])]));
+  const large = new Map((Array.isArray(m.large_unsourced_deposits) ? m.large_unsourced_deposits : [])
+    .filter((item) => item && typeof item === "object").map((item) => [item.source_location, item]));
   return {
     has: (tx, kind, position = null) => Boolean(locations[kind]) && locations[kind].has(rowSourceLocation(tx, position)),
     entry: () => null,
+    largeDeposit: (tx, position = null) => (txAmount(tx) > 0 && large.get(rowSourceLocation(tx, position))) || null,
   };
 }
 
@@ -1601,7 +1937,14 @@ function packageDebitFlags(pkg) {
     if (flag && typeof flag === "object") flags.set(debitFlagKey(flag.source_job, flag.source_account, flag.source_location), flag);
   });
   const entry = (tx) => flags.get(debitFlagKey(tx.source_job, tx.source_account, transactionClassification(tx).source_location)) || null;
-  return { has: (tx, kind) => (entry(tx) || {}).kind === kind, entry };
+  // R3-B24 (R3-16): the members' large unsourced deposits, keyed as the debit flags are.
+  const large = new Map();
+  (Array.isArray(pkg && pkg.large_unsourced_deposits) ? pkg.large_unsourced_deposits : []).forEach((item) => {
+    if (item && typeof item === "object") large.set(debitFlagKey(item.source_job, item.source_account, item.source_location), item);
+  });
+  const largeDeposit = (tx) => (txAmount(tx) > 0
+    && large.get(debitFlagKey(tx.source_job, tx.source_account, transactionClassification(tx).source_location))) || null;
+  return { has: (tx, kind) => (entry(tx) || {}).kind === kind, entry, largeDeposit };
 }
 
 // T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
@@ -1633,6 +1976,10 @@ function revenueFilterLabel(filter, count) {
   if (matchKind) return PACKAGE_MATCH_WORDS[matchKind] || "rows matched across statements";
   const flagKind = debitFlagFilter(filter);
   if (flagKind) return lower(DEBIT_FLAG_WORDS[flagKind] || "flagged debits");
+  // Audit round 3, R3-B24 (R3-16): "large deposits to source", one "large deposit to source".
+  if (filter === LARGE_DEPOSIT_FILTER) {
+    return count === 1 ? lower(LARGE_DEPOSIT_WORDS).replace("deposits", "deposit") : lower(LARGE_DEPOSIT_WORDS);
+  }
   const tier = CREDIT_MIX.find(([state]) => state === filter);
   return tier ? lower(tier[1]) : null;
 }
@@ -1751,11 +2098,23 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
   if (flagKind) {
     matched = debitFlags ? transactions.filter((tx, position) => debitFlags.has(tx, flagKind, position)) : [];
   }
+  // Audit round 3, R3-B24 (R3-16): the large unsourced deposits the statement or package serves.
+  if (filter === LARGE_DEPOSIT_FILTER) {
+    matched = debitFlags && typeof debitFlags.largeDeposit === "function"
+      ? transactions.filter((tx, position) => Boolean(debitFlags.largeDeposit(tx, position))) : [];
+  }
   if (filter === "nsf") matched = nsfDays ? transactions.filter((tx, position) => nsfDays.has(tx, position)) : [];
   if (filter === "nsf_fees") {
     matched = transactions.filter((tx) => transactionClassification(tx).classification === "nsf_or_return");
   }
-  if (filter === "lender") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true);
+  // The withholding flag, and (audit round 3, R3-B02: R3-73) a returned funder payment its funder re-debited, which
+  // left the rate but is still a lender row, and (R3-B03: R3-79) a lump-sum payoff, paid and out of the rate.
+  if (filter === "lender") {
+    matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_withholding_rate === true
+      || Boolean(transactionClassification(tx).returned_funder_payment_by)
+      || (Boolean(transactionClassification(tx).lump_sum_payoff)
+        && transactionClassification(tx).contributes_to_lender_totals === true));
+  }
   if (filter === "potential") matched = transactions.filter(contributesToPotentialTotals);
   if (filter === "insurance") matched = transactions.filter((tx) => transactionClassification(tx).contributes_to_insurance_totals === true);
   if (filter === "pos") matched = transactions.filter((tx) => transactionClassification(tx).classification === "pos");
@@ -1817,6 +2176,9 @@ function reviewAccountOf(tx, fallbackAccount = null) {
 function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return null;
+  // Audit round 3, R3-B02 (R3-21; spec §10.7): a credit that returns a confirmed funder's payment is never confirmed,
+  // so it has no multi-select box: a bulk Confirm never carries it, and the all-or-nothing batch never refuses on it.
+  if (record.returns_funder_payment) return null;
   if (record.revenue_review_status === "confirmed" || record.revenue_review_status === "rejected") return null;
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
@@ -1829,6 +2191,15 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
 // a credit left unverified is reviewed. R2-OW03 (the underwriter's Q3, "I can review"): "confirm" (Confirm Revenue only)
 // for a Zelle deposit the owner's policy excluded; the server refuses a reject on it, the row being non-revenue already.
 function revenueReviewKind(record) {
+  // Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment (rule D's pair) is the business's
+  // own payment coming back: the server refuses its Confirm, so a held or counted one shows Mark Non-Revenue only and a
+  // Zelle deposit the policy excluded, whose only control is Confirm, shows none. Any other keeps its kind (review
+  // round 1: a credit a rule verified keeps Mark Non-Revenue).
+  if (record.returns_funder_payment) {
+    if (record.revenue_initial_classification === "unverified_deposit") return "reject";
+    if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
+      && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "";
+  }
   if (record.revenue_initial_classification === "unverified_deposit") return "both";
   if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
   if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
@@ -1873,17 +2244,64 @@ function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null)
   `;
 }
 
+// Audit round 3, R3-B20 (R3-51; true revenue spec §10.6, §10.7): the context signal that keeps the rules' own
+// reading of a Zelle deposit the policy excluded ('zelle_prior:<tier>:<reason>'); analysis/true_revenue.py
+// `_ZELLE_PRIOR`.
+const ZELLE_PRIOR_SIGNAL = "zelle_prior:";
+
+// R3-51: the tier and reason the rules gave a Zelle deposit the policy excluded, {tier, reason} (reason null where none
+// was recorded), or null for any other row. It mirrors analysis/true_revenue.py `zelle_prior_reading`: the first signal
+// with the prefix, split at its first colon.
+function zellePriorReading(record) {
+  const signals = record && Array.isArray(record.revenue_context_signals) ? record.revenue_context_signals : [];
+  const signal = signals.find((entry) => typeof entry === "string" && entry.startsWith(ZELLE_PRIOR_SIGNAL));
+  if (signal === undefined) return null;
+  const rest = signal.slice(ZELLE_PRIOR_SIGNAL.length);
+  const colon = rest.indexOf(":");
+  if (colon < 0) return { tier: rest, reason: null };
+  return { tier: rest.slice(0, colon), reason: rest.slice(colon + 1) || null };
+}
+
+// R3-51: under No, the sentence an excluded Zelle deposit adds on the reading the rules give it with Zelle counted,
+// so a reviewer sees a hold before the one-click Confirm releases it (in both settings, §17.1 default (4)); "" without
+// a prior. The label is the reason's (REVENUE_TIER_REASONS), or the code itself where the table lacks it, as
+// true_revenue `_zelle_excluded` names it.
+function zellePriorSentence(record) {
+  const prior = zellePriorReading(record);
+  if (!prior) return "";
+  const entry = REVENUE_TIER_REASONS[prior.reason];
+  const label = entry ? entry[1] : (prior.reason || prior.tier);
+  if (prior.tier === "excluded_pending_review") {
+    return ` With Zelle counted (Yes), the rules hold it for review: ${label}.`
+      + " Confirm Revenue releases it in both settings.";
+  }
+  if (prior.tier === "counted_flagged") return ` With Zelle counted (Yes), it counts as: ${label}.`;
+  if (prior.tier === "verified") return " With Zelle counted (Yes), it is Verified revenue.";
+  return "";
+}
+
 function revenueReviewReason(tx) {
   const record = transactionClassification(tx);
   if (txAmount(tx) <= 0) return "";
   // 5.6 (true revenue spec §10.6): a counted or held credit names its reason, and one sentence on it.
   const entry = REVENUE_TIER_REASONS[record.revenue_tier_reason];
   // R2-OW03: so does a non_revenue row that carries a non-revenue code (the Zelle policy's, Q12's display reason).
-  if (entry && record.revenue_tier === "non_revenue" && entry[0] === "non_revenue") return `${entry[1]}. ${entry[2]}`;
+  // Audit round 3, R3-B20 (R3-51): a Zelle deposit the policy excluded adds the rules' reading with Zelle counted.
+  if (entry && record.revenue_tier === "non_revenue" && entry[0] === "non_revenue") {
+    const prior = record.revenue_tier_reason === "zelle_excluded" ? zellePriorSentence(record) : "";
+    return `${entry[1]}. ${entry[2]}${prior}`;
+  }
   if (entry && (record.revenue_tier === "counted_flagged" || record.revenue_tier === "excluded_pending_review")) {
     // Audit round 2, R2-B07 (R07): a credit the reader marked unread carries the payer blocks it could not attribute
     // to one row (unread_payer_text), printed so a reviewer can release a customer's row a lender's block held.
     const unread = typeof tx.unread_payer_text === "string" ? tx.unread_payer_text.trim() : "";
+    // Audit round 3, R3-B09 (R3-91): a held wire or bare transfer whose reader kept a payer line it could not
+    // attribute says so, never that no sender was printed; the reason code, its tag and the hold are unchanged.
+    const unattributed = {wire_no_sender: "Wire", transfer_no_counterparty: "Transfer"}[record.revenue_tier_reason];
+    if (unread && unattributed && record.revenue_tier === "excluded_pending_review") {
+      return `${unattributed}, payer line not read. The statement prints a payer line under this row that the reader `
+        + `could not attribute to it; it stays held for review. Unread payer text: ${unread}`;
+    }
     return unread ? `${entry[1]}. ${entry[2]} Unread payer blocks: ${unread}` : `${entry[1]}. ${entry[2]}`;
   }
   if (typeof record.revenue_tier === "string" || record.revenue_classification !== "unverified_deposit") return "";
@@ -1936,7 +2354,13 @@ function returnedFunderNotes(tx, rows = []) {
   const debit = rows.find((row) => row && transactionClassification(row).source_location === location
     && (row.source_job ?? null) === (tx.source_job ?? null) && (row.source_account ?? null) === (tx.source_account ?? null));
   if (!debit) return [`Returns a confirmed funder's payment (${location})`];
-  return [`Returns the ${debit.date || "undated"} payment to ${transactionClassification(debit).canonical_entity || "a confirmed funder"}`];
+  const line = `Returns the ${debit.date || "undated"} payment to ${transactionClassification(debit).canonical_entity || "a confirmed funder"}`;
+  // Audit round 3, R3-B02 (R3-21): a credit a reviewer could otherwise confirm (left unverified, or a Zelle deposit the
+  // policy excluded) says why its Confirm is gone; a credit a non-revenue rule decided reads as before.
+  const reviewable = record.revenue_initial_classification === "unverified_deposit"
+    || (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
+      && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason));
+  return [reviewable ? `${line}: the business's own payment coming back, so it cannot be confirmed as revenue` : line];
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §10.6, §10.7; R2-OW15): what the package passes say on
@@ -1980,8 +2404,12 @@ function packageMatchNotes(tx, debitFlags = null) {
   // in the next statement names the return, and the return names the payment.
   if (match && match.kind === "returned_funder_payment") {
     if (match.credit && txAmount(tx) < 0) {
+      // Audit round 3, R3-B02 (review round 1): one the package's pass 5 found re-debited is out of the rate, its
+      // re-debit counting the obligation once.
+      const rate = transactionClassification(tx).represented_by
+        ? "counted once in the withholding rate, by its re-debit." : "still in the withholding rate.";
       notes.push(`Returned unpaid on ${match.credit.date || "an unknown date"} (${match.credit.filename || "the next statement"}): `
-        + "out of paid to lenders, still in the withholding rate.");
+        + `out of paid to lenders, ${rate}`);
     } else if (match.debit && txAmount(tx) > 0) {
       notes.push(`Returns the ${match.debit.date || "undated"} payment to ${match.debit.funder || "a confirmed funder"} in `
         + `${match.debit.filename || "the previous statement"}.`);
@@ -1993,6 +2421,20 @@ function packageMatchNotes(tx, debitFlags = null) {
     notes.push(`Matches the ${decided.date || "undated"} deposit you confirmed in ${decided.filename || "another statement"}; review.`);
   }
   return notes;
+}
+
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.6; standard G7, P22): a credit the served payload flags as a large
+// unsourced deposit asks for its source under its reason, on the statement page, the statement window and the package
+// ledger: "Large deposit: S% of True revenue, counted without proof of the sale. Ask for its source." (a package's
+// share is of its statement's True as the package counts it, the True Deposits its row shows on the package page, and
+// says so). Information only: its tier, tag and review controls are unchanged.
+function largeDepositNotes(tx, debitFlags = null) {
+  const item = debitFlags && typeof debitFlags.largeDeposit === "function" ? debitFlags.largeDeposit(tx) : null;
+  if (!item) return [];
+  const share = numberOrNull(item.share_of_true_percent);
+  const of = "source_job" in item ? "its statement's True revenue" : "True revenue";
+  return [`Large deposit: ${share === null ? "N/A" : `${share.toFixed(1)}%`} of ${of}, counted without proof of the `
+    + "sale. Ask for its source."];
 }
 
 function runningBalanceValue(tx) {
@@ -2119,7 +2561,10 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         .map((line) => `<div class="tx-reason tx-returned">${escapeHtml(line)}</div>`).join("")
       // R2-OW15 (the underwriter's Q6): the package passes' notes.
       + packageMatchNotes(tx, debitFlags)
-        .map((line) => `<div class="tx-reason tx-package-match">${escapeHtml(line)}</div>`).join("");
+        .map((line) => `<div class="tx-reason tx-package-match">${escapeHtml(line)}</div>`).join("")
+      // Audit round 3, R3-B24 (R3-16): a large unsourced deposit asks for its source.
+      + largeDepositNotes(tx, debitFlags)
+        .map((line) => `<div class="tx-reason tx-large-deposit">${escapeHtml(line)}</div>`).join("");
     const balance = runningBalanceValue(tx);
     const runningBalance = showRunningBalance
       ? `<td class="amount-cell tx-balance${balance !== null && balance < 0 ? " balance-negative" : ""}">${escapeHtml(formatMoney(balance, rowCurrency))}</td>`
@@ -2993,7 +3438,7 @@ function lenderRowHtml(funder, currency = "USD") {
 }
 
 function renderLenders(funders, potentialLenders = [], currency = "USD", returnedPayments = [], paymentChanges = null,
-  unchecked = [], isPackage = false, documents = null) {
+  unchecked = [], isPackage = false, documents = null, lumpSums = []) {
   const confirmed = Array.isArray(funders) ? funders : [];
   const potential = Array.isArray(potentialLenders) ? potentialLenders : [];
   const lenders = [
@@ -3009,7 +3454,10 @@ function renderLenders(funders, potentialLenders = [], currency = "USD", returne
   const warnings = (Array.isArray(returnedPayments) ? returnedPayments : [])
     .filter((item) => item && typeof item === "object")
     .map((item) => lenderNoteRowHtml(glassChip("!", "Returned", "amber"), returnedFunderPaymentNote(item, currency, sources)))
-    .join("") + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage, sources);
+    .join("")
+    // Audit round 3, R3-B03 (R3-79): one information note per lump-sum payoff, after the returned notes.
+    + lumpSumPayoffRowsHtml(lumpSums, currency, sources)
+    + lenderPaymentChangeRowsHtml(paymentChanges, unchecked, currency, lenders.length > 0, isPackage, sources);
   if (!lenders.length) {
     els.lenderTable.innerHTML = warnings + `
       <tr>
@@ -3184,8 +3632,27 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
         <td>${escapeHtml(formatMoney(total, currency))}</td>
         <td></td>
       </tr>
-    `).join("");
+    `).join("")
+      // Audit round 3, R3-B24 (R3-16): after the counted and held reasons, the large unsourced deposits' row.
+      + (filter === "excluded_pending_review" ? largeDepositEvidenceRowHtml(metrics, currency, filterAttribute) : "");
   }).join("") + debitFlagEvidenceRowsHtml(metrics, currency, filterAttribute);
+}
+
+// Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §10.6, §10.7; standard G7, P22): one row, where a statement or
+// package serves a large unsourced deposit, whose button filters the ledger to the flagged rows ("largeDeposit"); its
+// count, its total (N/A where a package refuses its money) and a "Source it" chip. The reviewer's path to them: the
+// badge, the Held for Review view and the decisions never read it.
+function largeDepositEvidenceRowHtml(source = {}, currency = "USD", filterAttribute = "data-revenue-filter") {
+  const count = numberOrNull(source && source.large_unsourced_deposit_count);
+  if (!count) return "";
+  return `
+      <tr class="evidence-flag-row">
+        <td><button class="evidence-link" type="button" ${filterAttribute}="${LARGE_DEPOSIT_FILTER}" aria-label="Show the ${escapeHtml(LARGE_DEPOSIT_WORDS.toLowerCase())}">${escapeHtml(LARGE_DEPOSIT_WORDS)}</button></td>
+        <td>${escapeHtml(formatNumber(count))}</td>
+        <td>${escapeHtml(formatMoney(source.large_unsourced_deposit_total, currency))}</td>
+        <td>${glassChip("!", "Source it", "amber")}</td>
+      </tr>
+    `;
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6; true revenue spec §10.1, §10.6; R2-OW15): after the credits, a row per
@@ -4199,7 +4666,8 @@ function renderAccount(report) {
   renderAccountSummary(accountFieldRows(statement, currentMarkdown));
   renderRevenueEvidence(metrics, currency);
   // R2-OW13 (the underwriter's Q5): the returned funder payments' warning lines; R2-OW18: the lender payment changes.
-  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments, detection.lender_payment_changes);
+  renderLenders(funders, potentialLenders, currency, detection.returned_funder_payments, detection.lender_payment_changes,
+    [], false, null, detection.lump_sum_payoffs);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(detection.flagged_positions, currency, false);
   renderMainTransactions();
@@ -4664,9 +5132,15 @@ const DUPLICATE_KEPT_BECAUSE_WORDS = Object.freeze({
 });
 
 // Audit round 2, R2-B14 (R14): a pair of overlapping statements of one account and the credits both print, counted in
-// both (the package downloads print the same words, webapp/app.py _overlap_words).
+// both (the package downloads print the same words, webapp/app.py _overlap_words). Audit round 3, R3-B18 (R3-04): a
+// pair named although it shares no credit (a period inside the other, or more than three common days) reads the days
+// the two cover.
 function overlappingStatementWords(pair, nameOf, money) {
   const count = numberOrNull(pair.shared_credit_count) || 0;
+  if (!count) {
+    return `${nameOf(pair.job)} and ${nameOf(pair.other)} cover ${formatNumber(numberOrNull(pair.days_shared))} `
+      + "of the same days of one account";
+  }
   return `${nameOf(pair.job)} and ${nameOf(pair.other)} share ${formatNumber(count)} `
     + `${count === 1 ? "credit" : "credits"} (${money}) in the days both cover, counted in both`;
 }
@@ -4721,9 +5195,14 @@ function renderDuplicateNotice(pkg = {}) {
         : member && member.currency !== undefined ? member.currency : packageCurrencyInfo(pkg).currency;
       return overlappingStatementWords(pair, nameOf, formatMoney(pair.shared_credit_total, currency));
     });
-    parts.push(`<strong>${escapeHtml(formatNumber(overlaps.length))} `
-      + `${overlaps.length === 1 ? "pair of overlapping statements shares" : "pairs of overlapping statements share"} `
-      + `credits.</strong> ${escapeHtml(overlapLines.join("; "))}.`);
+    // R3-B18 (R3-04): the header says the pairs share credits only when every pair does.
+    const allShare = overlaps.every((pair) => (numberOrNull(pair.shared_credit_count) || 0) > 0);
+    const header = allShare
+      ? `${overlaps.length === 1 ? "pair of overlapping statements shares" : "pairs of overlapping statements share"} `
+        + "credits."
+      : `${overlaps.length === 1 ? "pair" : "pairs"} of overlapping statements of one account.`;
+    parts.push(`<strong>${escapeHtml(formatNumber(overlaps.length))} ${header}</strong> `
+      + `${escapeHtml(overlapLines.join("; "))}.`);
   }
   els.duplicateNoticeText.innerHTML = `${parts.join(" ")} The package needs review.`;
 }
@@ -5104,7 +5583,7 @@ function renderPackageTables(pkg) {
   // R2-OW13: each warning line names its own statement's unit. R2-OW18: the lender payment changes across the
   // package's statements, and the members not checked across them.
   renderLenders(funders, potentialLenders, currency, pkg.returned_funder_payments, pkg.lender_payment_changes,
-    pkg.lender_payment_changes_unchecked, true, Array.isArray(pkg.documents) ? pkg.documents : []);
+    pkg.lender_payment_changes_unchecked, true, Array.isArray(pkg.documents) ? pkg.documents : [], pkg.lump_sum_payoffs);
   renderInsurance(insuranceProviders, currency);
   renderFlaggedPositions(pkg.flagged_positions, currency, true);
   renderRevenueEvidence(packageRevenueFlags(pkg.totals || {}), currency);
@@ -5174,20 +5653,23 @@ function monthlyDepositColumns(view) {
 }
 
 // The owner's request of 2026-10-07 ("add witholding rate"), review round 3: a statement's confirmed withholding rate on
-// the figures its row shows, the package row's served `withholding_numerator` (R2-OW13: paid plus returned, pass 4's
-// matched payments kept) over its served `withholding_denominator` (the basis after the package passes: R2-OW15's
-// returned deposits, R2-OW16's own-account transfers, R-d's pairs, as its True Deposits are), x 100. The value never
-// comes from the row's `withholding_rate` (the statement viewed alone, which the passes do not reach); that key only
-// says whether the package publishes a rate for the member. Null (shown N/A) for a statement that did not complete,
-// where the package publishes no rate for the member (F1's flag, or no served rate), where either figure is not served
-// and where the basis is 0 or less.
+// the figures its row shows. Audit round 3, R3-MERGE: the row's served `withholding_rate`, which the server owns: since
+// round 3 (R3-72, and the final review's F2) a package member row's rate is its own served `withholding_numerator` over
+// its own served `withholding_denominator` (the basis after the package passes, as its True Deposits are) wherever the
+// package moved either, else the statement's stored rate over the same figures; it carries R3-20's basis floor (a
+// near-zero True publishes no rate), F1's unestablished basis, R3-73's re-debited bounce counted once and R3-79's worded
+// payoff out of the numerator, so the page never recomputes a rule the server owns (the hosting line divided the two
+// figures itself, before the server's member row read them). Null (shown N/A) for a statement that did not complete,
+// where the package publishes no rate for the member (F1's flag, or no served rate), and, as a guard on the row's own
+// figures, where either figure is not served or the basis is 0 or less.
 function monthlyWithholdingRate(doc) {
   if (monthFigure(doc, true) === null || doc.withholding_basis_unestablished === true) return null;
-  if (numberOrNull(doc.withholding_rate) === null) return null;
+  const rate = numberOrNull(doc.withholding_rate);
+  if (rate === null) return null;
   const numerator = numberOrNull(doc.withholding_numerator);
   const basis = numberOrNull(doc.withholding_denominator);
   if (numerator === null || basis === null || basis <= 0) return null;
-  return (Math.abs(numerator) / basis) * 100;
+  return rate;
 }
 
 // "76.49%", always two decimals; N/A for none.
@@ -5557,8 +6039,9 @@ function renderStatementModal(jobId, report, markdown) {
 
   // R2-OW18 (G4): the statement's own lender payment change lines, above its lender rows (R2-OW13's returned lines stay
   // absent here, as before).
-  const paymentChangeRows = lenderPaymentChangeRowsHtml(detection.lender_payment_changes, [], currency,
-    lenderRows.length > 0, false);
+  // Audit round 3, R3-B03 (R3-79): and the lump-sum payoffs' information lines above them.
+  const paymentChangeRows = lumpSumPayoffRowsHtml(detection.lump_sum_payoffs, currency)
+    + lenderPaymentChangeRowsHtml(detection.lender_payment_changes, [], currency, lenderRows.length > 0, false);
   if (!lenderRows.length) {
     els.statementModalLenders.innerHTML = paymentChangeRows + `
       <tr>
@@ -5649,15 +6132,30 @@ function generateSummary() {
     // so it must carry the package's real denomination — or none at all when
     // the package has no single one (CURRENCY DOCTRINE §D/§F).
     const currency = packageCurrencyInfo(pkg).currency;
+    const returnedPayments = (Array.isArray(pkg.returned_funder_payments) ? pkg.returned_funder_payments : [])
+      .filter((item) => item && typeof item === "object");
+    // Audit round 3, R3-B22 (R3-67): each funder line names its payments returned unpaid.
     const lenderSummary = funders.length
-      ? funders.map((funder) => `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across ${formatNumber(funder.documents)} statement(s)`).join("\n")
+      ? funders.map((funder) => packageFunderSummaryLine(funder, currency, returnedPayments)).join("\n")
       : "No lenders detected across the package.";
+    // The owner's request of 2026-10-07: the memo's notes name their statements from the package's rows, as the lender
+    // table's notes do.
+    const sources = paymentChangeSources(pkg.documents);
+    // R3-67 (the owner's Q5, "show a 'returned funder payment' warning"): one "- <note>" line per returned funder
+    // payment, in served order, as the Lenders tab words it (its own unit; a cross-statement match names both
+    // statements; R3-MERGE: in the lender table's plain words), before the payment changes.
+    const returnedLines = returnedPayments.map((item) => `\n- ${returnedFunderPaymentWarning(item, currency, sources)}`)
+      .join("");
+    // R3-67: the sentence names the returned payments before the rate that keeps them, as the statement's memo does.
+    const returnedSummary = (numberOrNull(totals.returned_funder_payment_count) ?? 0) > 0
+      ? `${lenderDebitsSummary(totals, currency)}, ` : "";
     // R2-OW18 (G5): one "- <note>" line per lender payment change across the package's statements, in the lender
     // table's words (the owner's request of 2026-10-07).
-    const sources = paymentChangeSources(pkg.documents);
     const paymentChangeLines = (Array.isArray(pkg.lender_payment_changes) ? pkg.lender_payment_changes : [])
       .filter((item) => item && typeof item === "object")
-      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency, sources)}`).join("");
+      .map((item) => `\n- ${lenderPaymentChangeWarning(item, currency, sources)}`).join("")
+      // Audit round 3, R3-B03 (R3-79): one "- <note>" per lump-sum payoff, each in its own statement's unit.
+      + lumpSumPayoffLines(pkg.lump_sum_payoffs, currency, sources).map((line) => `\n- ${line}`).join("");
     const counted = countedDocuments(pkg.documents);
     const repeats = duplicateDocuments(pkg.documents).length;
     // Audit round 2, R2-B15 (R50): a package holding an account of a document says how many of its accounts completed.
@@ -5675,18 +6173,20 @@ function generateSummary() {
         trueMonthly: totals.avg_monthly_true_revenue,
         verifiedMonthly: totals.avg_monthly_verified_revenue,
         nonRevenueMonthly: totals.avg_monthly_non_revenue,
-      })} ` +
+      }, { package: true })} ` +
+      // Audit round 3, R3-B24 (R3-16): the members' large unsourced deposits, after the revenue sentence.
+      largeDepositSummary(totals, currency, { package: true }) +
       `${formatMoney(totals.avg_monthly_credits, currency)} average monthly gross credits, ${formatMoney(totals.avg_monthly_cash_flow, currency)} average monthly cash flow, ` +
-      `${formatNumber(totals.nsf_count)} NSF events, ${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
-      `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure. ` +
+      `${formatNumber(totals.nsf_count)} NSF events, ${returnedSummary}${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
+      // Audit round 3, R3-B22 (R3-68): the basis the rates divide by, the label the package serves.
+      `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure (${withholdingBasisWords(totals)}). ` +
       `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
-      `\n\nPackage lender summary:\n${lenderSummary}${paymentChangeLines}`;
+      `\n\nPackage lender summary:\n${lenderSummary}${returnedLines}${paymentChangeLines}`;
     return;
   }
   const s = currentAnalysis.statement || {};
   const m = currentAnalysis.metrics || {};
   const d = currentAnalysis.detection || {};
-  const q = currentAnalysis.quality || {};
   const currency = s.currency || "USD";
   const lenders = Array.isArray(d.known_funders) ? d.known_funders.length : 0;
   // The statement's main account printed no activity: the summary an analyst pastes says so, and whose figures follow;
@@ -5694,11 +6194,9 @@ function generateSummary() {
   const idleNote = idleMainNote(currentDocument, currency);
   // Likewise when the main account was not verified and another, verified, account was picked (All accounts).
   const unverifiedNote = idleNote ? "" : unverifiedMainNote(currentDocument, currency);
-  // F1 (review round 1 of its fix run): a withholding basis that is not established sends the statement to review here
-  // too, as its pill says (withholdingReviewDecision).
-  const decision = withholdingReviewDecision(idleNote || unverifiedNote || hasMaterialPotentialLenderDebits(m)
-    ? "review_required"
-    : q.corporate_use || q.level || "review_required", m);
+  // Audit round 3 (R3-01): the memo's decision is the pill's (accountDecision: T7's revenue gate, material potential
+  // lender debits, the quality word and F1's basis flag); an idle or unverified main account still sends it to review.
+  const decision = idleNote || unverifiedNote ? "review_required" : accountDecision(currentAnalysis);
   const lead = idleNote ? `${idleNote}Figures for the active account, ${accountDisplayName(s, null)}: `
     : unverifiedNote ? `${unverifiedNote}Figures for the selected account, ${accountDisplayName(s, null)}: ` : "";
   // Audit round 2, R2-B15 (R13): the statement's monthly figures are its totals over the calendar months its period
@@ -5715,12 +6213,17 @@ function generateSummary() {
       trueMonthly: perMonth(m.true_revenue_total), verifiedMonthly: perMonth(m.verified_revenue_total),
       nonRevenueMonthly: perMonth(m.non_revenue_total),
     })} ` +
+    // Audit round 3, R3-B24 (R3-16): the statement's large unsourced deposits, after the revenue sentence.
+    largeDepositSummary(m, currency) +
     `Average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
     `${lenderDebitsSummary(m, currency)}, and ` +
-    `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure. ` +
+    // Audit round 3, R3-B22 (R3-68): the basis the rates divide by.
+    `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure (${withholdingBasisWords(m)}). ` +
     (lenderPaymentChangesSummary(d.lender_payment_changes) ? `${lenderPaymentChangesSummary(d.lender_payment_changes)} ` : "") +
+    // Audit round 3, R3-B03 (R3-79): each lump-sum payoff's line.
+    lumpSumPayoffLines(d.lump_sum_payoffs, currency).map((line) => `${line} `).join("") +
     `Status: ${labelize(decision)}.`;
 }
 

@@ -470,25 +470,44 @@ def _no_pair_package():
 #: (`potential_payee_key`), every account's detection (`lender_payment_changes`) and a package
 #: (`lender_payment_changes`, `lender_payment_changes_unchecked`).
 R2_OW18_KEYS = frozenset({"potential_payee_key", "lender_payment_changes", "lender_payment_changes_unchecked"})
+#: Audit round 3, R3-B02 (the owner's answer of 2026-10-07 to R3-73): the record field every record gains
+#: (`represented_by`, null on every row of these fixtures).
+R3_B02_KEYS = frozenset({"represented_by"})
+#: Audit round 3, R3-B03: the metrics flag of R3-20's floor (`withholding_basis_below_floor`, false on these fixtures)
+#: and the owner's answer of 2026-10-07 to R3-79's keys (the record field `lump_sum_payoff`, null on every row; the
+#: metrics `lump_sum_payoff_total` and `_count`, 0; the detection list `lump_sum_payoffs`, empty).
+R3_B03_KEYS = frozenset({"withholding_basis_below_floor", "lump_sum_payoff", "lump_sum_payoff_total",
+                         "lump_sum_payoff_count", "lump_sum_payoffs"})
 
 
 def _without_r2_ow18(node):
-    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds. `_canonical` applies it,
-    and the golden comparisons read both sides through `_canonical`, as they read every classification_version as one
-    placeholder. The pinned fixtures are never rewritten."""
+    """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds (and, audit round 3,
+    R3-B02, the record field `represented_by`, and R3-B03's keys). `_canonical` applies it, and the golden comparisons
+    read both sides through `_canonical`, as they read every classification_version as one placeholder. The pinned
+    fixtures are never rewritten."""
     if isinstance(node, dict):
-        return {key: _without_r2_ow18(value) for key, value in node.items() if key not in R2_OW18_KEYS}
+        return {key: _without_r2_ow18(value) for key, value in node.items()
+                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS and key not in R3_B03_KEYS}
     if isinstance(node, list):
         return [_without_r2_ow18(value) for value in node]
     return node
 
 
+#: Audit round 3, final review (R3-FF), F5: the withholding formula's words as the pinned fixtures recorded them (R2-OW13).
+#: `_canonical` reads today's words (analysis.metrics.WITHHOLDING_FORMULA, which tests/test_returned_funder_payments.py
+#: pins) as these, so the pinned fixtures stay as recorded: only the words moved, no figure.
+R2_OW13_WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+
+
 def _canonical(payload):
     """The payload as JSON, every record's classification_version read as one placeholder (R2-B16 moves it), without
-    R2-OW18's keys (part N)."""
+    R2-OW18's keys (part N), R3-FF F5's withholding formula read as the R2-OW13 words the fixtures recorded."""
+    from analysis.metrics import WITHHOLDING_FORMULA
+
     payload = _without_r2_ow18(payload)
-    return re.sub(r'"classification_version": "[^"]*"', '"classification_version": "<version>"',
+    text = re.sub(r'"classification_version": "[^"]*"', '"classification_version": "<version>"',
                   json.dumps(payload, sort_keys=True, indent=1))
+    return text.replace(json.dumps(WITHHOLDING_FORMULA), json.dumps(R2_OW13_WITHHOLDING_FORMULA))
 
 
 def test_a_package_without_a_qualifying_pair_is_byte_identical_to_the_pinned_payload():
@@ -858,9 +877,10 @@ def test_t9_an_already_held_deposit_that_pairs_is_annotated_only(credit, reason,
 @pytest.mark.parametrize("amount", [4200.00, 4213.57])
 def test_t9_a_zelle_deposit_held_as_the_holder_s_name_is_never_annotated(amount):
     """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): under Yes (this file's settings={}) a
-    Zelle deposit from the holder's own name is held as holder_name, and PNC's 'ZEL FROM' escapes the consumer rail;
-    pass 2 still never matches it (Q4 (2026-10-02): never P2P; true_revenue.zelle_deposit). 4,200.00 is the brief's
-    case (a round sum, refused anyway); 4,213.57 is refused by the Zelle test alone."""
+    Zelle deposit from the holder's own name is held as holder_name, and PNC's 'ZEL FROM', which the classifier's
+    consumer rail does not read (pass 7 reads it as its 'ZELLE FROM' twin since audit round 3, R3-12:
+    true_revenue.pass_text); pass 2 still never matches it (Q4 (2026-10-02): never P2P; true_revenue.zelle_deposit).
+    4,200.00 is the brief's case (a round sum, refused anyway); 4,213.57 is refused by the Zelle test alone."""
     package = _package(("a", _account_a("ONLINE BANKING TRANSFER TO CHK 2020 CONF 5521", amount=-amount, day=2)),
                        ("b", _account_b("ZEL FROM CONTOSO BAKERY LLC", amount=amount)))
     record = _ledger_row(package, "b", "transaction:1")["classification"]
@@ -1061,3 +1081,87 @@ def test_q4_s_matches_download_with_the_package():
     assert cells[("package_match_1", "moved")] == "True"
     assert json.loads(cells[("package_match_1", "credit")])["reason_before"] == "no_payer_printed"
     assert cells[("totals", "own_account_transfer_held_total")] == str(SENT)
+
+
+# ---------------------------------------------------------------- audit round 3, R3-B03 (R3-72): member rows
+# A member's document row printed the package-adjusted basis (`withholding_denominator`, after R-d's internal-transfer
+# deduction, the 5.6 counted-pair deduction and R2-OW15/16's moved credits) beside the statement's own rate and
+# potential exposure, so the CSV and XLSX row contradicted itself and the package's own per-match exposure. A member row
+# now divides by the basis it prints: where the package moved the basis, its rate and exposure are its own numerators
+# over that basis (none under R3-20's floor or where F1 refuses the basis); elsewhere the stored figures, as before.
+
+R3_72_KAPITUS = "KAPITUS DES:PAYMENT ID:000000003 INDN:CONTOSO BAKERY LLC CO ID:0000000004 CCD"
+R3_72_POTENTIAL = "NORTHWIND FUNDING WEB PMT"
+
+
+def _r3_72_pass_1():
+    feb = [(4, "FABRIKAM STORES INC DES:PAYMENT ID:7", 30000.0), (20, "DEPOSIT", 60000.0)]
+    feb += [(day, R3_72_KAPITUS, -1500.0) for day in (6, 13, 20, 27)]
+    feb += [(day, R3_72_POTENTIAL, -750.0) for day in (7, 14, 21, 28)]
+    mar = [(2, "DEPOSITED ITEM RETURNED", -60000.0), (6, "FABRIKAM STORES INC DES:PAYMENT ID:8", 30000.0)]
+    mar += [(day, R3_72_KAPITUS, -1500.0) for day in (6, 13, 20, 27)]
+    february = _payload(feb, month=2, opening=2500.0)
+    march = _payload(mar, month=3, opening=_closing(feb, 2500.0))
+    return february, march
+
+
+def test_r3_72_pass_1_a_member_row_divides_by_the_basis_it_prints():
+    february, march = _r3_72_pass_1()
+    assert february["metrics"]["withholding_rate"] == pytest.approx(6000.0 / 90000.0 * 100)
+    package = _package(("feb", february), ("mar", march))
+    row = _doc(package, "feb")
+    assert (row["withholding_numerator"], row["withholding_denominator"]) == (6000.0, 30000.0)
+    assert row["withholding_rate"] == pytest.approx(20.0)  # was 6.6667
+    assert row["potential_withholding_exposure"] == pytest.approx(10.0)  # was 3.3333
+    (match,) = [item for item in package["detection"]["potential_lenders"] if item["source_job"] == "feb"]
+    assert match["potential_withholding_exposure"] == pytest.approx(row["potential_withholding_exposure"])
+    assert match["eligible_deposit_denominator"] == row["potential_withholding_denominator"] == 30000.0
+
+
+def test_r3_72_pass_2_a_member_row_divides_by_the_basis_it_prints():
+    a_rows = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:5", 15000.0),
+              (3, "ONLINE BANKING TRANSFER TO CHK 2020 CONF 7788", -9876.54)]
+    b_rows = [(3, "DEPOSIT", 9876.54), (9, "FABRIKAM STORES INC DES:PAYMENT ID:6", 3000.0)]
+    b_rows += [(day, R3_72_KAPITUS, -400.0) for day in (6, 13, 20, 27)]
+    b_rows += [(day, R3_72_POTENTIAL, -200.0) for day in (7, 14, 21, 28)]
+    a = _payload(a_rows, month=3, opening=40000.0)
+    b = _payload(b_rows, month=3, opening=1500.0, number=ACCOUNT_B)
+    assert b["metrics"]["withholding_rate"] == pytest.approx(1600.0 / 12876.54 * 100)
+    package = _package(("a", a), ("b", b))
+    row = _doc(package, "b")
+    assert row["withholding_denominator"] == 3000.0
+    assert row["withholding_rate"] == pytest.approx(1600.0 / 3000.0 * 100)  # was 12.4257
+    assert row["potential_withholding_exposure"] == pytest.approx(800.0 / 3000.0 * 100)  # was 6.2128
+    # A member the passes did not move keeps its stored figures, byte for byte.
+    before = _package(("a", a))
+    assert _doc(package, "a") == {**_doc(before, "a"), **{key: _doc(package, "a")[key] for key in (
+        "package_match_count",) if key in _doc(package, "a")}}
+
+
+def test_r3_72_the_legacy_r_d_deduction_recomputes_the_row(monkeypatch):
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "legacy_eligible_deposits")
+    a_rows = [(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:5", 15000.0), (3, "ONLINE TRANSFER TO CHK 2020", -9876.54)]
+    b_rows = [(3, "ONLINE TRANSFER FROM CHK 1010", 9876.54), (9, "FABRIKAM STORES INC DES:PAYMENT ID:6", 3000.0),
+              (10, R3_72_KAPITUS, -600.0)]
+    document = _two_account_document(a_rows, b_rows)
+    assert document["document"]["internal_transfers"]
+    package = _package(("d", document))
+    (row,) = [item for item in package["documents"] if item.get("account_index") == 2]
+    assert row["withholding_denominator"] == 3000.0
+    assert row["withholding_rate"] == pytest.approx(20.0)  # was 4.6596
+
+
+def test_r3_72_the_downloads_carry_the_recomputed_rate():
+    import zipfile
+
+    from webapp.app import _package_csv, _package_xlsx
+
+    february, march = _r3_72_pass_1()
+    package = _package(("feb", february), ("mar", march))
+    rows = list(csv.reader(io.StringIO(_package_csv(package))))
+    cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
+    assert float(cells[("document_1", "withholding_rate")]) == pytest.approx(20.0)
+    assert float(cells[("document_1", "potential_withholding_exposure")]) == pytest.approx(10.0)
+    with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as archive:
+        sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert "<v>20.0</v>" in sheet and "<v>10.0</v>" in sheet

@@ -33,15 +33,25 @@ from .revenue import (
     _TIER_DISAGREES,
     non_revenue_reason,
     normalize_withholding_denominator_mode,
+    potential_withholding_unavailable_note,
     revenue_review_gate,
+    withholding_basis_below_floor,
+    withholding_basis_publishable,
+    withholding_unavailable_note,
 )
 from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_title
 
 #: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §11; R2-OW13): the withholding rate's
 #: numerator is the confirmed lender debits paid plus the funder payments returned unpaid (the scheduled obligation
 #: stands), divided by the withholding basis the statement selected (legacy eligible deposits, Verified or True
-#: revenue). The package and the funder rows publish the same words.
-WITHHOLDING_FORMULA = "abs(paid lender debits + returned funder payments) / withholding basis * 100"
+#: revenue). The package and the funder rows publish the same words. Audit round 3, final review (R3-FF), F5: the words
+#: name what compute_metrics sums since R3-B02 and R3-B03: the paid debits less the worded lump-sum payoffs (R3-79, in
+#: paid to lenders and out of the rate), plus the returned payments their funder did not re-debit (R3-73's re-debited
+#: ones leave the rate); folded into classification 5.8 and stage 36, which no release carries yet.
+WITHHOLDING_FORMULA = (
+    "abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / withholding basis "
+    "* 100"
+)
 POTENTIAL_WITHHOLDING_FORMULA = "abs(potential_lender_debit_total) / withholding basis * 100"
 
 
@@ -179,8 +189,19 @@ class Metrics:
     withholding_denominator: float = 0.0
     # R2-OW13 (the underwriter's Q5): the numerator is the confirmed lender debits paid plus the returned funder
     # payments, every row marked contributes_to_withholding_rate; the basis is the selected withholding denominator.
+    # Audit round 3 (R3-B02, R3-B03; the formula's words, R3-FF F5): less the worded lump-sum payoffs and the returned
+    # payments their funder re-debited.
     withholding_formula: str = WITHHOLDING_FORMULA
     withholding_review_required: bool = False
+    # Audit round 3, R3-B03 (R3-20; true revenue spec §9.1, §11): the True or Verified basis is above $0 and under
+    # WITHHOLDING_BASIS_FLOOR, so no rate and no potential exposure is published over it (never on the legacy basis).
+    withholding_basis_below_floor: bool = False
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+    # spec §9.1, §11; R3-B03): the paid payoff-worded debits to confirmed funders (`lump_sum_payoff`), in lender_debits
+    # and out of withholding_numerator: lender_debits + the standing returned payments - lump_sum_payoff_total is the
+    # numerator, to the cent.
+    lump_sum_payoff_total: float = 0.0
+    lump_sum_payoff_count: int = 0
     potential_withholding_exposure: float | None = None
     potential_withholding_numerator: float = 0.0
     potential_withholding_denominator: float = 0.0
@@ -405,6 +426,11 @@ def compute_metrics(
             m.lender_evidence.append(classification)
         if classification.contributes_to_withholding_rate:
             withholding_numerator += abs(t.amount)
+        if classification.lump_sum_payoff and classification.contributes_to_lender_totals:
+            # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): a paid
+            # payoff-worded debit, in the paid figure above and out of the withholding numerator.
+            m.lump_sum_payoff_total += abs(t.amount)
+            m.lump_sum_payoff_count += 1
         if classification.returned_funder_payment_by:
             # R2-OW13 (the underwriter's Q5): a funder payment returned unpaid, out of the paid figure above.
             m.returned_funder_payment_total += abs(t.amount)
@@ -716,37 +742,63 @@ def compute_metrics(
         m.eligible_deposit_definition = "effective total deposits minus recognized lender funding credits"
         m.withholding_denominator_label = "Legacy eligible deposits"
     # R2-OW13 (the underwriter's Q5): every row the rate reads, the paid lender debits and the returned funder payments
-    # (equal to lender_debits + returned_funder_payment_total to the cent).
+    # still standing (lender_debits + returned_funder_payment_total, less the returned payments their funder re-debited
+    # (`represented_by`; audit round 3, R3-B02, "Count it once"), to the cent).
     m.withholding_numerator = round(withholding_numerator, 2)
     if m.returned_funder_payment_count:
         # The money in the statement's own unit (CURRENCY DOCTRINE: never a '$' on a CAD statement).
         unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+        # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned payment the
+        # same funder re-debited is out of the withholding rate, its re-debit counting the obligation once.
+        re_debited = [record for record in m.returned_funder_payment_evidence
+                      if getattr(record, "represented_by", None)]
+        payments = f"{'payment' if m.returned_funder_payment_count == 1 else 'payments'}"
+        if re_debited:
+            re_debited_total = round(sum(abs(record.amount) for record in re_debited), 2)
+            standing = m.returned_funder_payment_count - len(re_debited)
+            m.notes.append(
+                f"{m.returned_funder_payment_count} returned funder {payments} "
+                f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders; {len(re_debited)} re-debited "
+                f"by its funder ({re_debited_total:,.2f}{unit}), counted once by the re-debit"
+                + (f"; {standing} kept in the withholding rate" if standing else "")
+            )
+        else:
+            m.notes.append(
+                f"{m.returned_funder_payment_count} returned funder {payments} "
+                f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
+            )
+    m.lump_sum_payoff_total = round(m.lump_sum_payoff_total, 2)
+    if m.lump_sum_payoff_count:
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; R3-B03): the
+        # lump sums out of the withholding rate, in the statement's own unit.
+        unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+        payments = "payment" if m.lump_sum_payoff_count == 1 else "payments"
         m.notes.append(
-            f"{m.returned_funder_payment_count} returned funder "
-            f"{'payment' if m.returned_funder_payment_count == 1 else 'payments'} "
-            f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
+            f"{m.lump_sum_payoff_count} lump-sum {payments} to confirmed lenders ({m.lump_sum_payoff_total:,.2f}{unit}): "
+            "in paid to lenders, not in the withholding rate"
         )
     m.withholding_denominator = m.eligible_deposits
     m.potential_withholding_numerator = m.potential_lender_debit_total
     m.potential_withholding_denominator = m.eligible_deposits
     m.potential_withholding_review_required = m.potential_lender_debit_count > 0
     # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the notes name the basis the rate divides by, True revenue
-    # by default.
-    if m.withholding_denominator <= 0:
+    # by default. Audit round 3, R3-B03 (R3-20): a True or Verified basis under WITHHOLDING_BASIS_FLOOR is read as $0 is
+    # (no rate, no exposure, the review flag and a note naming the basis and the floor); the legacy basis bypasses it.
+    basis_unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+    m.withholding_basis_below_floor = withholding_basis_below_floor(
+        m.withholding_denominator, withholding_denominator_mode)
+    if not withholding_basis_publishable(m.withholding_denominator, withholding_denominator_mode):
         m.withholding_review_required = True
-        m.notes.append(
-            f"withholding rate is unavailable because {m.withholding_denominator_label} is zero or missing"
-        )
+        m.notes.append(withholding_unavailable_note(m.withholding_denominator_label, m.withholding_denominator,
+                                                    basis_unit))
     else:
         m.withholding_rate = (
             abs(m.withholding_numerator) / m.withholding_denominator
         ) * 100
-    if m.potential_withholding_denominator <= 0:
+    if not withholding_basis_publishable(m.potential_withholding_denominator, withholding_denominator_mode):
         if m.potential_lender_debit_count:
-            m.notes.append(
-                "potential withholding exposure is unavailable because "
-                f"{m.withholding_denominator_label} is zero or missing"
-            )
+            m.notes.append(potential_withholding_unavailable_note(
+                m.withholding_denominator_label, m.potential_withholding_denominator, basis_unit))
     else:
         m.potential_withholding_exposure = (
             abs(m.potential_withholding_numerator) / m.potential_withholding_denominator

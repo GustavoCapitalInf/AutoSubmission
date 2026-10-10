@@ -51,7 +51,7 @@ def _series(text: str, amount: float, *days: int) -> list[tuple[int, str, float]
     return [(day, text, amount) for day in days]
 
 
-def _statement(rows, *, bank=BANK, start=START, balances=False, account_title=None) -> Statement:
+def _statement(rows, *, bank=BANK, start=START, balances=False, account_title=None, holder=HOLDER) -> Statement:
     """The rows (day, description, amount) in their order; `balances` prints a running balance on each row, and a row
     given as (day, description, amount, balance) prints that balance (a proven duplicate repeats its original's)."""
     transactions, balance = [], 100000.0
@@ -61,7 +61,7 @@ def _statement(rows, *, bank=BANK, start=START, balances=False, account_title=No
         transactions.append(Transaction(date=_day(day), description=text, amount=amount,
                                         direction="credit" if amount > 0 else "debit",
                                         running_balance=balance if balances or len(row) > 3 else None))
-    return Statement(account_name=HOLDER, bank=bank, period_start=start, period_end="2054-03-31",
+    return Statement(account_name=holder, bank=bank, period_start=start, period_end="2054-03-31",
                      account_title=account_title, transactions=transactions)
 
 
@@ -356,3 +356,88 @@ def test_the_rebuild_and_the_review_writer_keep_the_aid():
         assert record["revenue_funding_series"] == aid
         rebuild_serialized_revenue_views(payload)
     assert payload["statement"]["transactions"][0]["classification"]["revenue_tier"] == "excluded_pending_review"
+
+
+# --- Audit round 3, R3-B02 (R3-66): an attempt before the deposit means the series was already running -------------
+#
+# A potential lender's payment that bounced before a held no-sender wire leaves the pool (the reversal pass cleared its
+# counts), so "every date after the deposit" passed and the wire read "Recurring payments start after this deposit:
+# possible funding" while the statement shows the series attempted before it. A settlement-reversed attempt is no
+# payment of the series, but one dated on or before the deposit's day keeps the aid off, as a paid one does. Fabricated
+# rows: CONTOSO DELI LLC at Fifth Third Bank; NORTHWIND CAPITAL GROUP, a D6 payee; KAPITUS, a registry funder.
+
+DELI = "CONTOSO DELI LLC"
+NORTHWIND_GROUP = "NORTHWIND CAPITAL GROUP"
+NO_SENDER_WIRE = "INCOMING WIRE TRANSFER"
+KAPITUS_DELI = "KAPITUS DES:PAYMENT ID:000000001 INDN:CONTOSO DELI LLC CO ID:0000000002 CCD"
+
+
+def _bounced_before(return_text, payee=NORTHWIND_GROUP, *, returned=True):
+    """A payment on the 4th (returned on the 5th by `return_text` when `returned`), the held wire on the 10th, then the
+    payee's weekly payments on the 11th, 18th and 25th."""
+    rows = [(4, payee, -2000.0)]
+    if returned:
+        rows.append((5, return_text, 2000.0))
+    return rows + [(10, NO_SENDER_WIRE, 60000.0)] + _series(payee, -2000.0, 11, 18, 25)
+
+
+def _deli(rows):
+    return _run(rows, holder=DELI)
+
+
+def _wire(records):
+    [wire] = [record for record in records if record.original_description == NO_SENDER_WIRE]
+    return wire
+
+
+R3_66_RETURNS = {
+    "named_return": "ACH RETURN NORTHWIND CAPITAL GROUP 0000000",
+    "bare_return": "ACH RETURN ITEM NSF",
+    "reversal": "REVERSAL ACH DEBIT NORTHWIND CAPITAL GROUP",
+}
+
+
+@pytest.mark.parametrize("name", sorted(R3_66_RETURNS))
+def test_r3_66_a_bounced_attempt_before_the_wire_keeps_the_aid_off(name):
+    records = _deli(_bounced_before(R3_66_RETURNS[name]))
+    wire = _wire(records)
+    assert (wire.revenue_tier, wire.revenue_tier_reason) == HELD_WIRE
+    assert wire.revenue_funding_series == ()
+    # The weekly series after the wire is a potential lender's (D6), and the return's pairing is the reversal pass's.
+    assert {record.classification for record in records if record.amount < 0} == {"potential_lender"}
+
+
+def test_r3_66_the_named_return_zeroes_the_attempt_before_the_wire():
+    """The case the aid read: the reversal pass zeroes the 4th's attempt (its counts cleared), so the pool holds only
+    the payments after the wire."""
+    records = _deli(_bounced_before(R3_66_RETURNS["named_return"]))
+    attempt = records[0]
+    assert attempt.reversed_by == "transaction:2"
+    assert not (attempt.contributes_to_lender_count or attempt.contributes_to_potential_lender_count)
+
+
+def test_r3_66_controls_read_as_before():
+    # A paid payment before the wire: no aid, as today.
+    assert _wire(_deli(_bounced_before("", returned=False))).revenue_funding_series == ()
+    # No payment before the wire: the series is recorded, its start observed.
+    fresh = _wire(_deli([(10, NO_SENDER_WIRE, 60000.0)] + _series(NORTHWIND_GROUP, -2000.0, 11, 18, 25)))
+    [series] = fresh.revenue_funding_series
+    assert (series.lender_state, series.amount, series.cadence, series.first_date, series.start_observed) == (
+        "potential_lender", 2000.0, "weekly", "2054-03-11", True)
+    # The confirmed twin: KAPITUS's payment returned before the wire (R2-OW13 keeps its count): no aid, as today.
+    twin = _deli(_bounced_before("RETURNED ITEM KAPITUS 0001", KAPITUS_DELI))
+    assert _wire(twin).revenue_funding_series == ()
+    assert twin[0].contributes_to_lender_count is True
+    # A return after the wire of a payment after it is no attempt before the deposit: the series is recorded.
+    late = _wire(_deli([(10, NO_SENDER_WIRE, 60000.0)] + _series(NORTHWIND_GROUP, -2000.0, 11, 18, 25)
+                       + [(26, R3_66_RETURNS["named_return"], 2000.0)]))
+    assert [series.first_date for series in late.revenue_funding_series] == ["2054-03-11"]
+
+
+@pytest.mark.parametrize("name", sorted(R3_66_RETURNS))
+def test_r3_66_moves_no_tier_reason_or_lender_reading(monkeypatch, name):
+    rows = _bounced_before(R3_66_RETURNS[name])
+    on = _deli(rows)
+    monkeypatch.setattr(tr, "funding_series_after", lambda records, duplicate_indexes, statement_start: records)
+    off = _deli(rows)
+    assert [replace(record, revenue_funding_series=()) for record in on] == off

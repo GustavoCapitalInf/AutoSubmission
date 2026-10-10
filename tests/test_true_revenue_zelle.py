@@ -85,8 +85,9 @@ MOVES = [
     ("Bank of America", [("ZELLE PAYMENT FROM FABRIKAM LANDSCAPING LLC CONF# A1B2C3D4E", 2000.0),
                          ("ZELLE PAYMENT FROM FABRIKAM LANDSCAPING LLC CONF# B1B2C3D4E", 2000.0)], None,
      [(HELD, "p2p_round_repeat")] * 2),
-    # PNC prints the rail as ZEL, which the classifier's rail does not read (named_payer_unlabelled).
-    ("PNC Bank", [("Zel From Pat Sample WFCT0ABCDE12", 500.0)], None, [(COUNTED, "named_payer_unlabelled")]),
+    # PNC prints the rail as ZEL, which the classifier's rail does not read. Audit round 3, R3-12 (R3-B12): pass 7 reads
+    # it as its ZELLE twin (true_revenue.pass_text), a person-to-person credit (it was named_payer_unlabelled).
+    ("PNC Bank", [("Zel From Pat Sample WFCT0ABCDE12", 500.0)], None, [(COUNTED, "p2p")]),
     ("Wells Fargo", [("ZELLE FROM NORTHWIND SUPPLY LLC ON 03/02 REF # BAC0A1B2C3D4", 750.0)], None, [(COUNTED, "p2p")]),
     ("U.S. Bank", [("ZELLE INSTANT PMT FROM PAT SAMPLE", 300.0)], None, [(COUNTED, "p2p")]),
     ("Truist", [("ZELLE BUSINESS PAYMENT FROM SAMPLE CATERING PAYMENT ID BAC1X2Y3Z", 410.25)], None, [(COUNTED, "p2p")]),
@@ -248,6 +249,12 @@ def test_q3_a_sender_s_zelle_round_sum_still_completes_its_named_group():
     ("ZELDA SAMPLE", False),
     # The rail read only before the receiver fields.
     ("NORTHWIND SUPPLY DES:PAYMENT ID:1 INDN:ZELLE SAMPLE CO ID:1234567890 CCD", False),
+    # Audit round 3, R3-56 (R3-B12): a wire is never a Zelle deposit, whatever its memo prints.
+    ("WIRE TYPE:WIRE IN DATE: 540302 TIME:1200 ET TRN:2054030200001 ORIG:NORTHWIND TRADING INC ID:0001 "
+     "PMT DET:INVOICE 1234 PAID BY WIRE INSTEAD OF ZELLE", False),
+    ("DEPOSIT WIRE IN 000123 ORG NORTHWIND TRADING INC OBI INVOICE 1234 NOT VIA ZELLE", False),
+    # The ACH entry-description form is kept (an entry its sender wrote as ZELLE).
+    ("NORTHWIND TRADING INC DES:ZELLE PMT ID:0001 INDN:CONTOSO BAKERY LLC", True),
 ])
 def test_q3_the_zelle_reader(text, zelle):
     assert true_revenue.zelle_deposit(revenue_text(normalize_transaction_description(text))) is zelle

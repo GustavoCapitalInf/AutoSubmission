@@ -147,7 +147,9 @@ def test_the_strip_lists_read_no_further_than_their_forms(bank, text, reading):
     ("Brex", "BANK OF AMERICA SAVINGS 1234 ACH", (HELD, "transfer_no_counterparty")),
     # A company's ACH keeps Q6's company-form verification; a person's one-off payment stays counted.
     ("Brex", "CONTOSO SEAFOOD CORP ACH", ("verified", None)),
-    ("Brex", "FABRIKAM BANKING SOLUTIONS LLC ACH", ("verified", None)),
+    # Audit round 3, R3-B07 (R3-14; §8.5's bank words): a payer whose name holds BANKING is no bank's name here (the
+    # payer keeps its reading), but Q6 never verifies it by its company form: counted once.
+    ("Brex", "FABRIKAM BANKING SOLUTIONS LLC ACH", (COUNTED, "named_payer_one_off")),
     ("Brex", "PAT SAMPLE ACH", (COUNTED, "named_payer_one_off")),
     # A company's own savings account is no bank's name: the payer keeps its reading.
     ("Brex", "CONTOSO SEAFOOD SAVINGS 1234 ACH", (COUNTED, "named_payer_one_off")),
@@ -500,6 +502,52 @@ def test_r28_the_helper_reads_a_phrase_or_a_town_s_des_as_transfer_wording(row, 
     assert (found.group(0) if found is not None else None) == wording
 
 
+# Audit round 3, R3-B08 (R3-88 (i); T13, Q4 of 2026-09-28; amends R2-B09's R28 line): a town's DES never opens the
+# originator field, whatever field word follows the town within five words (DES MOINES, DES PLAINES, DES PERES, DES
+# ALLEMANDS, DES LACS): a named transfer from a company in such a town keeps its transfer reading, counted and flagged,
+# never verified, and held as a repeated round sum.
+R388_TOWNS = (
+    "TRANSFER CONTOSO LLC DES MOINES IA TEL 5150000000",
+    "TRANSFER CONTOSO LLC DES MOINES IA ID 4711",
+    "XFER CONTOSO INC DES PLAINES IL WEB 84700000",
+)
+
+
+@pytest.mark.parametrize("text", R388_TOWNS)
+def test_r3_88_a_town_s_des_before_a_field_word_keeps_the_transfer_reading(text):
+    [record] = _rows([(text, 1234.56)], holder=R28_HOLDER)
+    assert _reading(record) == (COUNTED, "p2p")
+    records = _rows([(text, 3000.0), (text, 3000.0)], holder=R28_HOLDER)
+    assert [_reading(record) for record in records] == [(HELD, "p2p_round_repeat")] * 2
+
+
+@pytest.mark.parametrize(("row", "field"), [
+    ("TRANSFER CONTOSO LLC DES MOINES IA TEL 5150000000", False),
+    ("XFER CONTOSO INC DES PLAINES IL WEB 84700000", False),
+    ("TRANSFER CONTOSO LLC DES PERES MO ID 1", False),
+    ("TRANSFER CONTOSO LLC DES ALLEMANDS LA ID 1", False),
+    ("TRANSFER CONTOSO LLC DES LACS ND ID 1", False),
+    # Bank of America's own DES fields are still read.
+    ("CONTOSO TRF LLC DES PAYMENT ID 1", True),
+    ("CONTOSO TRF LLC DES PAYMENT CCD", True),
+    ("CONTOSO TRF LLC DES MOINESCO PAYMENT ID 1", True),
+])
+def test_r3_88_the_originator_field_never_opens_on_a_town_s_des(row, field):
+    from analysis import transaction_classifier
+
+    assert (transaction_classifier._ORIGINATOR_NAME_FIELD.search(row) is not None) is field
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    (R28_BOFA.format(name="CONTOSO TRF LLC", entry="PAYMENT"), VERIFIED_COMPANY),
+    ("TRANSFER FROM CONTOSO LLC DES MOINES IA TEL 5150000000", (COUNTED, "p2p")),
+])
+def test_r3_88_the_town_controls_keep_their_readings(text, reading):
+    bank = "Bank of America" if " INDN " in text else "Fabrikam Bank"
+    [record] = _rows([(text, 1234.56)], bank=bank, holder=R28_HOLDER)
+    assert _reading(record) == reading
+
+
 # Audit round 2, R2-B09 (R25): a teller, branch or counter transfer that prints no explicit deposit form names its
 # counterparty only by FROM and a sender, or by a company form; a reference and a town (the booking branch) name nobody
 # (M4, Q2: held).
@@ -682,12 +730,99 @@ def test_r24_a_zelle_transfer_from_a_company_named_with_a_short_source_s_letters
     "ONLINE TRANSFER FROM CL",
     "TRANSFER FROM SHARES CONTOSO",
     "OVERDRAFT XFER FROM CREDIT CARD OR LINE",
-    # LN reads LOAN before any pattern (description_text), a separate path R24 leaves as it is.
+    # LN reads LOAN before any pattern (description_text); audit round 3, R3-B07 (R3-46) reads a company name that
+    # holds LN only on a row with no transfer wording, so this own-account designation stays non_revenue.
     "ONLINE TRANSFER FROM LN CONTOSO LLC",
 ])
 def test_r24_the_own_account_designations_stay_non_revenue(text):
     record = _one(text, holder=R24_HOLDER)
     assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
+
+
+def _r346(rows, *, bank="Bank of America", holder="NORTHWIND LABS INC"):
+    return classify_statement_transactions(Statement(bank=bank, account_name=holder, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ]))
+
+
+# Audit round 3, R3-B07 (R3-46; §7.11, the owner's standing rule that loans never become revenue): a company whose
+# name holds LN ('LN TRUCKING LLC', 'CONTOSO LN HOLDINGS LLC'), with no loan word around it and no transfer wording, is
+# held for review as a finance-named payer (financing_named_payer), never counted or verified on its own, where the
+# normalizer's LOAN made it unreviewable non-revenue.
+R346_CHASE = ("ORIG CO NAME:LN TRUCKING LLC ORIG ID:0000000001 DESC DATE: CO ENTRY DESCR:PAYMENT SEC:CCD "
+              "TRACE#:0000001 EED:000000 IND ID: IND NAME:NORTHWIND LABS INC TRN: 0000000001TC")
+R346_BOFA = "{name} DES:{entry} ID:0001 INDN:NORTHWIND LABS INC CO ID:0000000001 CCD"
+
+
+@pytest.mark.parametrize(("bank", "text"), [
+    ("Fabrikam Bank", "ACH CREDIT LN TRUCKING LLC"),
+    ("Chase", R346_CHASE),
+    ("Bank of America", R346_BOFA.format(name="LN TRUCKING LLC", entry="PAYMENT")),
+    ("Chase", "FEDWIRE CREDIT VIA FABRIKAM BANK B/O LN TRUCKING LLC REF 1234"),
+    ("Fabrikam Bank", "INCOMING WIRE ORG LN TRUCKING LLC REF 123456"),
+    ("Bank of America", R346_BOFA.format(name="CONTOSO LN HOLDINGS LLC", entry="PAYMENT")),
+])
+def test_r3_46_a_company_named_ln_is_held_for_review_as_a_finance_named_payer(bank, text):
+    [record] = _r346([(text, 2345.67)], bank=bank)
+    assert _tier(record) == (HELD, "financing_named_payer")
+    # A held credit is reviewable (revenue.record_serialized_revenue_review reads an unverified deposit).
+    assert record.revenue_classification == "unverified_deposit"
+
+
+def test_r3_46_a_company_named_ln_paying_three_times_stays_held_never_verified():
+    text = R346_BOFA.format(name="LN TRUCKING LLC", entry="PAYMENT")
+    records = _r346([(text, 2345.67), (text, 3456.78), (text, 4567.89)])
+    assert [_tier(record) for record in records] == [(HELD, "financing_named_payer")] * 3
+
+
+@pytest.mark.parametrize("entry", ["VENDOR PMT", "INVOICE PMT"])
+def test_r3_46_with_accounts_payable_wording_the_q9_release_counts_it_flagged_never_verified(entry):
+    # The underwriter's Q9 (2026-10-02): a finance-named customer paying an invoice is counted and flagged; LOAN is a
+    # lender's name word, so the release's label is lender_paid_for_services (R2-OW09's label rule).
+    text = R346_BOFA.format(name="LN TRUCKING LLC", entry=entry)
+    records = _r346([(text, 2345.67), (text, 3456.78)])
+    assert [_tier(record) for record in records] == [(COUNTED, "lender_paid_for_services")] * 2
+
+
+@pytest.mark.parametrize("text", [
+    "ONLINE TRANSFER FROM LN CONTOSO LLC",
+    "COMMERCIAL LN PMT",
+    "CONTOSO BANK LN ADV",
+    "AUTO LN 0001",
+    "ACH CREDIT LOAN STAR LOGISTICS LLC",
+    "WIRE TRANSFER FROM LN TRUCKING LLC",
+])
+def test_r3_46_controls_a_loan_and_a_transfer_stay_non_revenue(text):
+    [record] = _r346([(text, 2345.67)], bank="Fabrikam Bank")
+    assert _tier(record)[0] == "non_revenue"
+
+
+def test_r3_46_controls_an_sba_disbursement_and_a_street_lane_keep_their_reading():
+    [sba] = _r346([("SBA LN DISB", 2345.67)], bank="Fabrikam Bank")
+    assert (sba.revenue_tier, sba.revenue_match_method) == ("non_revenue", "financing_proceeds_credit")
+    [lane] = _r346([("DEPOSIT 1234 OAK LN", 2345.67)], bank="Fabrikam Bank")
+    assert lane.normalized_description == "DEPOSIT 1234 OAK LN"
+    assert _tier(lane) == (COUNTED, "named_payer_unlabelled")
+
+
+def test_r3_46_the_helper_reads_names_only_and_the_normalizer_never_moves():
+    from analysis.description_text import ln_name_spans, ln_name_word
+
+    assert ln_name_word("ACH CREDIT LN TRUCKING LLC")
+    assert ln_name_spans("CONTOSO LN HOLDINGS LLC DES:PAYMENT") == (("LOAN HOLDINGS LLC", "     HOLDINGS LLC"),)
+    assert ln_name_spans("CONTOSO LN LLC") == (("CONTOSO LOAN LLC", "CONTOSO      LLC"),)
+    for text in ("ONLINE TRANSFER FROM LN CONTOSO LLC", "COMMERCIAL LN PMT", "CONTOSO BANK LN ADV", "SBA LN DISB",
+                 "AUTO LN 0001", "1234 OAK LN", "STUDENT LN CONTOSO LLC", "LN PMT CONTOSO LLC", "LN 1234 CONTOSO LLC"):
+        assert not ln_name_word(text), text
+    assert normalize_transaction_description("LN TRUCKING LLC DES:PAYMENT") == "LOAN TRUCKING LLC DES PAYMENT"
+
+
+def test_r3_46_a_debit_to_a_company_named_ln_keeps_its_reading():
+    [debit] = _r346([(R346_BOFA.format(name="LN TRUCKING LLC", entry="PAYMENT"), -2345.67)])
+    assert debit.normalized_description.startswith("LOAN TRUCKING LLC")
+    assert (debit.classification, debit.revenue_tier) == ("other", None)
 
 
 def test_r24_the_named_sender_layouts_after_a_designation_stay_held():

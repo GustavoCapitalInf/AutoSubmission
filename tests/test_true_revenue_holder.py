@@ -461,6 +461,288 @@ def test_the_settlement_words_are_read_outside_the_holder_s_own_name():
     assert not tr.merchant_settlement(_revenue(_own_rows("FABRIKAM MERCHANT SERVICES")[2]))
 
 
+# Audit round 3, R3-B10 (R3-90 part A): a bare SETTLEMENT (SETTLMT, STLMT) under the merchant's own name is a
+# processor's, a carrier's or an operating settlement, never the holder's own push: the holder holds skip it and it
+# takes its own reading, counted, never verified (a verification-only word). Never on a transfer or a person-to-person
+# row, and read outside the holder's own names.
+
+R3_90_HAULING = "ACH SETTLEMENT CONTOSO HAULING CONTRACTOR MGMT ACHDD"
+R3_90_WELLS = "CONTOSO DESI SETTLEMENT 54011{n} 123456789012345 NORTHWIND PRESS SAMPLEVI"
+R3_90_WELLS_HOLDER = "CONTOSO DESIGN INC DBA NORTHWIND PRESS"
+R3_90_BALANCE = "SETTLEMENT NORTHWIND FLOWERS 123456789012345CCD"
+R3_90_ALONE = "CONTOSO HAULING LLC DES:SETTLEMENT ID:{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
+
+
+def _in_true_never_verified(tiers):
+    return all(tier[0] == "counted_flagged" for tier in tiers)
+
+
+def test_r3_90_a_settlement_under_the_holder_s_own_name_is_counted_never_verified():
+    assert _in_true_never_verified(_tiers([(R3_90_HAULING, 1500.0)], holder_name="CONTOSO HAULING LLC"))
+    wells = [(R3_90_WELLS.format(n=5), 1500.0), (R3_90_WELLS.format(n=6), 1750.0)]
+    tiers = _tiers(wells, holder_name=R3_90_WELLS_HOLDER, bank="Wells Fargo")
+    assert len(tiers) == 2 and _in_true_never_verified(tiers)
+    assert _in_true_never_verified(_tiers([(R3_90_BALANCE, 1500.0)], holder_name="NORTHWIND FLOWERS LLC"))
+
+
+def test_r3_90_a_later_hold_still_reads_a_settlement_under_the_holder_s_own_name():
+    # The exemption lifts the holder hold only: a statement whose holder also pays its own name (a transfer to its own
+    # other account) holds the settlement by the counter-debit hold, as every other payer debited by name.
+    own_transfer = "ONLINE TRANSFER TO CONTOSO DESIGN INC BUSINESS CHECKING XXXXXX1234 REF IB0ABCDEF ON 05/02/54"
+    rows = [(R3_90_WELLS.format(n=5), 1500.0), (own_transfer, -900.0)]
+    assert _tiers(rows, holder_name=R3_90_WELLS_HOLDER, bank="Wells Fargo") == [
+        ("excluded_pending_review", "payer_also_debited")
+    ]
+
+
+def test_r3_90_a_settlement_pushed_under_its_own_name_is_no_own_push_on_the_row_alone():
+    rows = [(R3_90_ALONE.format(n=1), 1500.0), (R3_90_ALONE.format(n=2), 1750.0)]
+    tiers = _tiers(rows)
+    assert len(tiers) == 2 and _in_true_never_verified(tiers)
+    revenue = _revenue(R3_90_ALONE.format(n=1))
+    assert not tr.self_originated(revenue, tc.payer_region(revenue))
+
+
+@pytest.mark.parametrize("text", [
+    "ONLINE TRANSFER FROM CONTOSO HAULING LLC SETTLEMENT",
+    "ZELLE PAYMENT FROM CONTOSO HAULING LLC SETTLEMENT CONF 1234567890",
+])
+def test_r3_90_a_transfer_or_a_person_to_person_row_printing_settlement_stays_the_holder_s(text):
+    assert _tiers([(text, 1500.0)], holder_name="CONTOSO HAULING LLC") == [HOLDER_NAME]
+    assert not tr.merchant_settlement(_revenue(text), ("CONTOSO HAULING LLC",))
+    assert not tr.merchant_settlement(_revenue(text))
+
+
+def test_r3_90_a_holder_whose_name_prints_settlement_keeps_its_own_money_held():
+    holder = "NORTHWIND SETTLEMENT SERVICES LLC"
+    zelle, push, wire = _own_rows(holder)
+    assert _tiers([(zelle, 900.0)], holder_name=holder) == [HOLDER_NAME]
+    assert _twice(push, 900.0, holder_name=holder) == [HOLDER_NAME, HOLDER_NAME]
+    assert _twice(wire, 9000.0, holder_name=holder) == [HOLDER_NAME, HOLDER_NAME]
+    # On the row alone: the word is read outside the row's own receiver and originator names.
+    assert _twice(push, 900.0) == [HOLDER_NAME, HOLDER_NAME]
+    for text in (zelle, push, wire):
+        assert not tr.merchant_settlement(_revenue(text), (holder,))
+
+
+def test_r3_90_a_claims_administrator_s_settlement_naming_the_holder_stays_held():
+    text = "SAMPLE SETTLEMENT ADMINISTRATION DES:CLAIM ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
+    assert _tiers([(text, 1500.0)], holder_name="CONTOSO HAULING LLC") == [
+        ("excluded_pending_review", "non_sale_purpose")
+    ]
+    # The holder's own name printed before a claims administrator's word: the exemption lifts the holder hold only,
+    # and the later holds still read the row.
+    led = "CONTOSO HAULING SETTLEMENT ADMIN 540115 1234567"
+    [tier] = _tiers([(led, 1500.0)], holder_name="CONTOSO HAULING LLC", bank="Wells Fargo")
+    assert tier[0] == "excluded_pending_review"
+
+
+@pytest.mark.parametrize(("text", "names"), [
+    (R3_90_HAULING, ("CONTOSO HAULING LLC",)),
+    (R3_90_WELLS.format(n=5), (R3_90_WELLS_HOLDER,)),
+    (R3_90_BALANCE, ("NORTHWIND FLOWERS LLC",)),
+    ("CONTOSO HAULING DES:SETTLMT ID:1 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD", ("CONTOSO HAULING LLC",)),
+    ("CONTOSO HAULING DES:STLMT ID:1 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD", ("CONTOSO HAULING LLC",)),
+])
+def test_r3_90_merchant_settlement_reads_a_bare_settlement_word(text, names):
+    assert tr.merchant_settlement(_revenue(text), names)
+    assert tr.merchant_settlement(_revenue(text))
+
+
+# Audit round 3, R3-B10 review round 1 (finding 1): a row the exemption releases is counted and never verified in each
+# of the three spellings it reads, with or without a holder name read. Review round 2 (findings 1 and 2): by the pass's
+# own release flag (CreditFacts.settlement_released), not by §8.6's verification-only words, which read SETTLEMENT alone
+# again, so a third party printing a short spelling reads as before the batch.
+
+R3_90_SPELLINGS = ("SETTLEMENT", "SETTLMT", "STLMT")
+R3_90_REFUSED = ("counted_flagged", "named_payer_purpose_refused")
+R3_90_BOFA = "{orig} DES:{word} ID:{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
+R3_90_CHASE = (
+    "ORIG CO NAME:{orig} ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:{word}SEC:CCD TRACE#:11100002000000{n} "
+    "EED:540302 IND ID:1 IND NAME:CONTOSO HAULING LLC TRN: 123456789{n}TC"
+)
+
+
+def _r3_90_pair(layout, **fields):
+    return [(layout.format(n=n, **fields), amount) for n, amount in ((1, 1500.0), (2, 1750.0))]
+
+
+@pytest.mark.parametrize("holder_name", [None, "CONTOSO HAULING LLC"])
+@pytest.mark.parametrize(("layout", "bank"), [(R3_90_BOFA, "Bank of America"), (R3_90_CHASE, "Chase")])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_90_a_the_holder_s_own_settlement_push_is_counted_never_verified_in_each_spelling(
+    word, layout, bank, holder_name
+):
+    rows = _r3_90_pair(layout, orig="CONTOSO HAULING LLC", word=word)
+    assert _tiers(rows, holder_name=holder_name, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
+
+
+R3_90_MERCHANT_LAYOUTS = (
+    ("ACH {word} CONTOSO HAULING CONTRACTOR MGMT ACHDD {n}", "Woodforest"),
+    ("CONTOSO HAULI {word} 54011{n} 123456789012345 CONTOSO HAULING", "Wells Fargo"),
+    ("{word} CONTOSO HAULING 12345678901234{n}CCD", None),
+)
+
+
+@pytest.mark.parametrize(("layout", "bank"), R3_90_MERCHANT_LAYOUTS)
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_90_a_a_settlement_under_the_merchant_s_name_reads_alike_in_each_spelling(word, layout, bank):
+    rows = _r3_90_pair(layout, word=word)
+    assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
+
+
+# Review round 2 (finding 2): with no holder name read and no receiver field, no hold reads these rows, so the exemption
+# releases nothing and each reads as before the batch: SETTLEMENT refused as proof (§8.6), a short spelling as a payer.
+@pytest.mark.parametrize(("layout", "bank", "short"), [
+    (*R3_90_MERCHANT_LAYOUTS[0], REPEATS),
+    (*R3_90_MERCHANT_LAYOUTS[1], ("counted_flagged", "named_payer_unlabelled")),
+    (*R3_90_MERCHANT_LAYOUTS[2], ("counted_flagged", "named_payer_unlabelled")),
+])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_b10_r2_a_merchant_named_settlement_with_no_holder_read_reads_as_before_the_batch(word, layout, bank, short):
+    reading = R3_90_REFUSED if word == "SETTLEMENT" else short
+    assert _tiers(_r3_90_pair(layout, word=word), bank=bank) == [reading, reading]
+
+
+@pytest.mark.parametrize(("layout", "bank"), [(R3_90_BOFA, "Bank of America"), (R3_90_CHASE, "Chase")])
+@pytest.mark.parametrize(("word", "reading"), [("SETTLEMENT", R3_90_REFUSED), ("SETTLMT", REPEATS), ("STLMT", REPEATS)])
+def test_r3_b10_r2_a_third_party_s_repeated_settlement_reads_as_before_the_batch(word, reading, layout, bank):
+    # Review round 2 (finding 2): §8.6's verification-only words read SETTLEMENT alone again; a third party's short
+    # spelling, which no hold reads, verifies by repetition as it did before the batch.
+    rows = _r3_90_pair(layout, orig="FABRIKAM FREIGHT INC", word=word)
+    assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank=bank) == [reading, reading]
+
+
+def test_r3_b10_r2_a_card_form_s_short_spelling_keeps_its_reading():
+    # The bankcard form reads STLMT and keeps its own verified reading; SETTLMT, which it does not read, verifies by
+    # repetition as before the batch (review round 1's verification-only short spellings counted it, flagged).
+    rows = _r3_90_pair(R3_90_BOFA, orig="SAMPLE BANKCARD", word="STLMT")
+    assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank="Bank of America") == [NET_SETTLE, NET_SETTLE]
+    rows = _r3_90_pair(R3_90_BOFA, orig="SAMPLE BANKCARD", word="SETTLMT")
+    assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank="Bank of America") == [REPEATS, REPEATS]
+    assert tr._VERIFICATION_ONLY.search("SAMPLE BANKCARD SETTLMT 0001") is None
+    assert tr._VERIFICATION_ONLY.search("SAMPLE BANKCARD STLMT 0001") is None
+
+
+# Audit round 3, R3-B10 review round 2 (finding 1): the exemption reads the settlement word anywhere before the receiver
+# outside the holder's names, digits glued on or not, where §8.6's verification-only words read only the entry fields
+# and the payer region, before a non-word character. A row the bare settlement word alone releases, from the pass-7
+# holder hold or the row-alone own-push guard, is never verified and never a repeat, whatever slot or boundary the word
+# sits in, with or without a holder name read, in each Zelle reading; one an earlier rule verified leaves verification.
+
+R3_B10_R2_HOLDER = "CONTOSO HAULING LLC"
+R3_B10_R2_CHASE = (
+    "ORIG CO NAME:{orig} ORIG ID:1234567890 DESC DATE:540302 CO ENTRY DESCR:{entry} SEC:CCD TRACE#:11100002000000{n} "
+    "EED:540302 IND ID:1 IND NAME:CONTOSO HAULING LLC TRN: 123456789{n}TC"
+)
+#: The holder's own push, the settlement word in each slot the exemption reads: (name, layout, bank). Each layout pairs
+#: its originator with a receiver field, so the row-alone own-push guard reads it with no holder name too.
+R3_B10_R2_OWN_PUSH = (
+    ("bofa_id_spaced",
+     "CONTOSO HAULING LLC DES:PAYMENT ID:{word} 000{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("bofa_id_glued",
+     "CONTOSO HAULING LLC DES:PAYMENT ID:{word}000{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("bofa_des_glued",
+     "CONTOSO HAULING LLC DES:{word}0{n} ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD", "Bank of America"),
+    ("bofa_after_id",
+     "CONTOSO HAULING LLC DES:PAYMENT ID:000{n} {word} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("bofa_originator_digit",
+     "CONTOSO HAULING 0412 {word} DES:PAYMENT ID:000{n} INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD",
+     "Bank of America"),
+    ("chase_entry_glued", R3_B10_R2_CHASE.replace("{orig}", "CONTOSO HAULING LLC").replace("{entry}", "{word}0{n}"),
+     "Chase"),
+)
+#: Layouts that print no receiver field: only the pass-7 holder hold reads them, so only with a holder name read.
+R3_B10_R2_HOLDER_ONLY = (
+    ("fifth_third_glued", "ACH CREDIT CONTOSO HAULING LLC {word}00{n}", "Fifth Third"),
+    ("capital_one_glued", "ACH DEPOSIT CONTOSO HAULING {word}0{n} 1234567{n} CONTOSO HAULING LLC", "Capital One"),
+    ("huntington_glued", "ACH DEPOSIT CONTOSO HAULING LLC {word}041{n} CCD", "Huntington"),
+)
+
+
+def _tiers_in(rows, zelle, **kwargs):
+    statement = _statement(rows, **kwargs)
+    return [rules_reading(record, method=True)
+            for record in classify_statement_transactions(statement, zelle_true_revenue=zelle) if record.amount > 0]
+
+
+def _records_in(rows, zelle, **kwargs):
+    statement = _statement(rows, **kwargs)
+    return [record for record in classify_statement_transactions(statement, zelle_true_revenue=zelle)
+            if record.amount > 0]
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize("holder_name", [None, R3_B10_R2_HOLDER])
+@pytest.mark.parametrize(("name", "layout", "bank"), R3_B10_R2_OWN_PUSH, ids=[shape[0] for shape in R3_B10_R2_OWN_PUSH])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_b10_r2_the_holder_s_own_settlement_push_never_verifies_in_any_slot(word, name, layout, bank, holder_name,
+                                                                                zelle):
+    rows = _r3_90_pair(layout, word=word)
+    assert _tiers_in(rows, zelle, holder_name=holder_name, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize(("name", "layout", "bank"), R3_B10_R2_HOLDER_ONLY,
+                         ids=[shape[0] for shape in R3_B10_R2_HOLDER_ONLY])
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+def test_r3_b10_r2_a_glued_settlement_the_holder_hold_releases_never_verifies(word, name, layout, bank, zelle):
+    rows = _r3_90_pair(layout, word=word)
+    assert _tiers_in(rows, zelle, holder_name=R3_B10_R2_HOLDER, bank=bank) == [R3_90_REFUSED, R3_90_REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize("holder_name", [None, R3_B10_R2_HOLDER])
+@pytest.mark.parametrize("entry", [
+    "CARD SALES SETTLEMENT", "MARKETPLACE SETTLEMENT", "SETTLEMENT EDIRPAY", "SETTLEMENT MTOT DEP",
+    "HCCLAIMPMT SETTLEMENT", "STLMT0001 MTOT DEP",
+])
+def test_r3_b10_r2_a_settlement_an_earlier_rule_verified_under_the_merchant_s_own_name_leaves_verification(
+    entry, holder_name, zelle
+):
+    # An operating-income descriptor verified the holder's own push before pass 7; the bare settlement word alone lifts
+    # the own-push guard, so the pass overrules the verification: counted and flagged, refused as proof.
+    rows = [(R3_90_BOFA.format(orig="CONTOSO HAULING LLC", word=entry, n=1), 1500.0)]
+    [record] = _records_in(rows, zelle, holder_name=holder_name, bank="Bank of America")
+    assert (record.revenue_tier, record.revenue_tier_reason) == R3_90_REFUSED
+    assert record.revenue_classification == "unverified_deposit"
+    assert record.revenue_match_method == "holder_named_settlement"
+    assert record.revenue_matched_rule == "holder_named_settlement_never_verified"
+    assert "operating_income_descriptor" in record.revenue_reason
+
+
+@pytest.mark.parametrize("zelle", [False, True])
+@pytest.mark.parametrize("holder_name", [None, "CONTOSO HAULING"])
+@pytest.mark.parametrize("own", [
+    "CONTOSO HAULING DES:SETTLEMENT ID:0001 INDN:CONTOSO HAULING CO ID:1234567890 CCD",
+    "CONTOSO HAULING DES:PAYMENT ID:STLMT0001 INDN:CONTOSO HAULING CO ID:1234567890 CCD",
+])
+def test_r3_b10_r2_a_released_settlement_is_never_a_repeat(own, holder_name, zelle):
+    # The holder's own push, released by its settlement word, never counts toward a repeat (as the own push it was held
+    # as never did): the same name's lone payment stays one-off, or held as the holder's name where one is read.
+    other = "CONTOSO HAULING DES:PAYMENT ID:0009 CO ID:1234567890 CCD"
+    expected = ONE_OFF if holder_name is None else HOLDER_NAME
+    tiers = _tiers_in([(own, 1500.0), (other, 1750.0)], zelle, holder_name=holder_name, bank="Bank of America")
+    assert tiers == [R3_90_REFUSED, expected]
+
+
+@pytest.mark.parametrize("word", R3_90_SPELLINGS)
+@pytest.mark.parametrize("form", ["{word}", "{word}01", "{word}-01", "{word}/01", "01{word}"])
+def test_r3_b10_r2_every_spelling_and_boundary_the_exemption_reads_is_never_verified(word, form):
+    # In step: wherever and however the exemption reads the word (merchant_settlement), the row it releases is refused
+    # as proof; B9's own settlement words alone do not read it.
+    printed = form.format(word=word)
+    text = f"CONTOSO HAULING LLC DES:{printed} ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
+    assert tr._HOLDER_NAMED_SETTLEMENT_ENTRY.search(printed) is not None
+    assert tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,))
+    assert not tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,), bare_settlement=False)
+    rows = [(text, 1500.0), (text.replace("ID:0001", "ID:0002"), 1750.0)]
+    assert _tiers(rows, bank="Bank of America") == [R3_90_REFUSED, R3_90_REFUSED]
+
+
 # Truist prints '<entry> <company field> <receiver> CUSTOMER ID <id>': the holder's name in the receiver slot after a
 # one-word originator is the receiver, never the payer.
 
@@ -860,16 +1142,40 @@ WF_UNLABELLED = "CONTOSO PTO PAYMENT 540115 1234567 {receiver}"
     ("NORTHWIND DISTRIBUTION LLC", "NORTHWIND DISTRIBUTIO", UNLABELLED),
     ("NORTHWIND DISTRIBUTION LLC", "NORTHWIND DISTRIB", UNLABELLED),
     ("SAMPLE PERSON DBA NORTHWIND DISTRIBUTION", "NORTHWIND DISTRIBUTION", UNLABELLED),
+    # Audit round 3, R3-B10 (R3-37): the row-end cut is tried before the whole-word runs, so a name of three words or
+    # more cut in its third word or later is stripped; a leading THE is no word of a run, read with and without it.
+    ("FABRIKAM COASTAL DISTRIBUTION LLC", "FABRIKAM COASTAL DISTRIBUT", UNLABELLED),
+    ("FABRIKAM COASTAL DISTRIBUTORS INC", "FABRIKAM COASTAL DISTRIBUTO", UNLABELLED),
+    ("NORTHWIND HARBOR RETIREMENT PLANNING LLC", "NORTHWIND HARBOR RETIREM", UNLABELLED),
+    ("NORTHWIND SAMPLE INVESTMENTS LLC", "NORTHWIND SAMPLE INVESTMEN", UNLABELLED),
+    ("THE NORTHWIND DISTRIBUTION CO", "NORTHWIND DISTRIBUTION", UNLABELLED),
+    ("THE NORTHWIND DISTRIBUTION CO", "NORTHWIND DISTRIBUTIO", UNLABELLED),
+    ("THE NORTHWIND DISTRIBUTION CO", "THE NORTHWIND DISTRIBUTION", UNLABELLED),
     # A third party's own hold word is no holder's name; a cut name followed by another word is not at the row's end.
     ("NORTHWIND PLUMBING LLC", "CONTOSO DISTRIBUTION", NON_SALE),
     ("NORTHWIND PLUMBING CO", "CONTOSO PAYROLL", PAY),
     ("NORTHWIND DISTRIBUTION LLC", "NORTHWIND DISTRIBUTIO SAMPLE", NON_SALE),
+    ("NORTHWIND PLUMBING LLC", "CONTOSO COASTAL DISTRIBUT", NON_SALE),
+    ("FABRIKAM COASTAL DISTRIBUTION LLC", "FABRIKAM COASTAL DISTRIBUTIO SAMPLE", NON_SALE),
 ])
 def test_r19_the_holder_s_own_name_never_holds_a_customer_s_unlabelled_payment(holder, receiver, tier, parser):
     kwargs = (
         {"account_name": "Business Checking", "holder_name": holder} if parser else {"account_name": holder}
     )
     assert _tiers([(WF_UNLABELLED.format(receiver=receiver), 4000.0)], bank="Wells Fargo", **kwargs) == [tier]
+
+
+def test_r3_37_a_leading_the_is_no_word_of_a_holder_run():
+    runs = tr._holder_runs("THE NORTHWIND DISTRIBUTION CO", False)
+    # No 'THE <one word>' run: a third party printed 'THE NORTHWIND …' keeps its words.
+    assert runs.match("THE NORTHWIND PAYROLL") is None
+    assert runs.sub(" ", "THE NORTHWIND PAYROLL").split() == ["THE", "NORTHWIND", "PAYROLL"]
+    for printed in ("NORTHWIND DISTRIBUTION", "THE NORTHWIND DISTRIBUTION", "NORTHWIND DISTRIBUTION CO"):
+        assert runs.search(printed) is not None, printed
+    # The row-end cut is tried first at each word: the third word's cut leaves nothing behind.
+    cut = tr._holder_runs("FABRIKAM COASTAL DISTRIBUTION LLC", False)
+    assert cut.sub(" ", "CONTOSO PTO PAYMENT FABRIKAM COASTAL DISTRIBUT").split() == ["CONTOSO", "PTO", "PAYMENT"]
+    assert cut.sub(" ", "FABRIKAM COASTAL DISTRIBUTIO SAMPLE").split() == ["DISTRIBUTIO", "SAMPLE"]
 
 
 # --- Audit round 2, R2-B04 (R20): two shared trade words, or a person's given name, are not the holder ------------
@@ -893,8 +1199,10 @@ PERSON_HELD = [
 
 
 @pytest.mark.parametrize(("text", "tier"), [
-    ("Zel From First Sample Yacht Service WFCT0A0B0C01", UNLABELLED),
-    ("Zel From Contoso Yacht Service WFCT0A0B0C02", UNLABELLED),
+    # Audit round 3, R3-12 (R3-B12): pass 7 reads PNC's ZEL as its ZELLE twin, a person-to-person credit (counted
+    # p2p; it was counted named_payer_unlabelled): still a customer, never the holder.
+    ("Zel From First Sample Yacht Service WFCT0A0B0C01", P2P),
+    ("Zel From Contoso Yacht Service WFCT0A0B0C02", P2P),
 ])
 def test_r20_another_company_sharing_two_trade_words_is_a_customer(text, tier):
     assert _tiers([(text, 600.0)], bank="PNC", holder_name=YACHT) == [tier]
@@ -945,6 +1253,108 @@ def test_r20_the_holder_s_own_name_words_still_hold(text, bank, holder):
 ])
 def test_r20_the_person_name_reading(text, person):
     assert tc._person_name_reading(text) is person
+
+
+# Audit round 3, R3-B10 (R3-38): two shared trade words name the holder only when the payer's own printed lead word (a
+# name-starter, a short word or an initialism included) is a holder word or the holder's abbreviation, or when they
+# include the holder's lead; and a holder whose name leads with a name-starter or a two-letter initialism is named,
+# by those words or by its brand word, only by a payer that prints that lead.
+
+@pytest.mark.parametrize("lead", ["GOLDEN", "ACE", "ROYAL", "PREMIER", "UNITED", "NORTH", "JB", "AAA", "BAY"])
+def test_r3_38_a_payer_leading_with_a_starter_or_a_short_word_is_a_customer(lead):
+    text = f"ZELLE PAYMENT FROM {lead} YACHT SERVICE CONF 1234567890"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=YACHT) == [P2P]
+
+
+@pytest.mark.parametrize("lead", ["ACE", "GREAT", "PREMIER", "AAA"])
+def test_r3_38_a_ccd_from_a_company_leading_with_a_starter_or_a_short_word_is_a_customer(lead):
+    text = CHASE_ACH.format(orig=f"{lead} AUTO REPAIR", entry="PAYMENT ", receiver="NORTHWIND AUTO REPAIR INC")
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name="NORTHWIND AUTO REPAIR INC") == [ONE_OFF]
+
+
+@pytest.mark.parametrize(("text", "holder", "tier"), [
+    ("ZELLE PAYMENT FROM CONTOSO YACHT SERVICE CONF 1234567890", "GOLDEN YACHT SERVICE LLC", P2P),
+    ("ZELLE PAYMENT FROM FABRIKAM YACHT SERVICE CONF 1234567890", "GOLDEN YACHT SERVICE LLC", P2P),
+    ("ZELLE PAYMENT FROM ROYAL YACHT SERVICE CONF 1234567890", "GOLDEN YACHT SERVICE LLC", P2P),
+    ("ZELLE PAYMENT FROM CONTOSO MARINE REPAIR CONF 1234567890", "JB MARINE REPAIR LLC", P2P),
+    (CHASE_ACH.format(orig="CONTOSO AUTO REPAIR", entry="PAYMENT ", receiver="GREAT AUTO REPAIR INC"),
+     "GREAT AUTO REPAIR INC", ONE_OFF),
+])
+def test_r3_38_a_holder_leading_with_a_starter_or_an_initialism_is_named_only_by_a_payer_printing_it(
+    text, holder, tier,
+):
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=holder) == [tier]
+
+
+@pytest.mark.parametrize(("text", "holder"), [
+    ("ZELLE PAYMENT FROM GOLDEN YACHT SERVICE CONF 1234567890", "GOLDEN YACHT SERVICE LLC"),
+    ("ZELLE PAYMENT FROM SAMPLE PERSON GOLDEN YACHT SERVICE LLC CONF 1234567890", "GOLDEN YACHT SERVICE LLC"),
+    # A brand affiliate printing the holder's starter lead.
+    ("ZELLE PAYMENT FROM GOLDEN YACHT CHARTERS CONF 1234567890", "GOLDEN YACHT SERVICE LLC"),
+    ("ZELLE PAYMENT FROM JB MARINE REPAIR CONF 1234567890", "JB MARINE REPAIR LLC"),
+    # The holder's own name with its lead abbreviated.
+    ("ZELLE PAYMENT FROM NW YACHT SERVICE CONF 1234567890", YACHT),
+    ("ZELLE PAYMENT FROM NWD YACHT SERVICE CONF 1234567890", YACHT),
+    # The holder's own name without its starter lead.
+    ("ZELLE PAYMENT FROM CHOICE PLUMBING CONF 1234567890", "FIRST CHOICE PLUMBING LLC"),
+])
+def test_r3_38_the_holder_s_own_lead_or_its_abbreviation_still_holds(text, holder):
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=holder) == [HOLDER_NAME]
+
+
+def test_r3_38_the_narrowed_arm_never_newly_holds():
+    text = "ZELLE PAYMENT FROM FIRST RATE PLUMBING SUPPLY CONF 1234567890"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name="FIRST CHOICE PLUMBING LLC") == [P2P]
+
+
+def test_r3_38_the_printed_lead_and_the_holder_s_abbreviation():
+    assert tc._printed_lead(["ACH", "CREDIT", "JB", "YACHT"]) == "JB"
+    assert tc._printed_lead(["THE", "GOLDEN", "YACHT"]) == "GOLDEN"
+    assert tc._printed_lead(["DEL", "NORTHWIND"]) == "NORTHWIND"
+    assert tc._printed_lead(["ACH", "CREDIT"]) is None
+    holder = ["NORTHWIND", "YACHT", "SERVICE"]
+    for word in ("NW", "NWD", "NYS", "NY"):
+        assert tc._holder_abbreviation(word, holder), word
+    for word in ("ACE", "AAA", "JB", "NORTHWIND", "NORTH", "WN"):
+        assert not tc._holder_abbreviation(word, holder), word
+
+
+# Audit round 3, R3-B10 (R3-39): a DBA holder whose name leads with a person ('<owner> DBA <trade>') is read whole as
+# that person's name against a payer that reads as a person, so another person sharing only the owner's given name is
+# counted, whatever the trade side prints; a company payer leading with the given name keeps the brand-word arm.
+
+R3_39_HOLDER = "JORDAN SAMPLEMAN DBA CONTOSO PLUMBING"
+
+
+@pytest.mark.parametrize(("text", "bank", "tier"), [
+    ("ZELLE PAYMENT FROM JORDAN NORTHWINDER CONF 1234567890", "Chase", P2P),
+    ("ZELLE PAYMENT FROM JORDAN NORTHWINDER PAYMENT ID 1234", "Truist", P2P),
+    (CHASE_ACH.format(orig="JORDAN NORTHWINDER", entry="PAYMENT ", receiver="CONTOSO PLUMBING"), "Chase", ONE_OFF),
+])
+@pytest.mark.parametrize("holder", [
+    R3_39_HOLDER, "JORDAN SAMPLEMAN D/B/A CONTOSO PLUMBING", "JORDAN SAMPLEMAN DBA CONTOSO PLUMBING LLC",
+])
+@pytest.mark.parametrize("field", ["holder_name", "account_name"])
+def test_r3_39_a_person_sharing_only_a_dba_owner_s_given_name_is_another_person(text, bank, tier, holder, field):
+    assert _tiers([(text, 900.0)], bank=bank, **{field: holder}) == [tier]
+
+
+def test_r3_39_a_short_given_name_is_read_the_same_way():
+    text = "ZELLE PAYMENT FROM ANA NORTHWINDER CONF 1234567890"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name="ANA SAMPLEMAN DBA CONTOSO PLUMBING") == [P2P]
+
+
+@pytest.mark.parametrize("payer", [
+    "JORDAN SAMPLEMAN", "SAMPLEMAN JORDAN", "JORDAN SAMPL", "CONTOSO PLUMBING", "JORDAN FABRIKAM INC",
+])
+def test_r3_39_the_dba_holder_s_own_names_and_a_company_leading_with_the_given_name_stay_held(payer):
+    text = f"ZELLE PAYMENT FROM {payer} CONF 1234567890"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=R3_39_HOLDER) == [HOLDER_NAME]
+
+
+def test_r3_39_the_reversed_dba_holder_still_counts_another_person():
+    text = "ZELLE PAYMENT FROM JORDAN NORTHWINDER CONF 1234567890"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name="CONTOSO PLUMBING DBA JORDAN SAMPLEMAN") == [P2P]
 
 
 # --- Audit round 2, R2-B04 (R04 parts 1 and 3): a processor's credit printing the holder's name, Capital One's tails -
@@ -1117,3 +1527,200 @@ def test_r2b05_a_page_that_prints_only_a_product_leaves_the_holder_unread():
     assert bofa._holder_reading(_page_one("Your Business Advantage Fundamentals Banking\nAccount summary\n")) == (
         None, None
     )
+
+
+# --- Audit round 3, R3-B10 (R3-17): the holder's name read as the payer's -------------------------------------------
+# The normaliser turns a possessive's apostrophe into a space ('SAMPLE'S' reads 'SAMPLE S'), and the payer reading
+# drops a single letter and a digit token (payer_name): the holder's name is read the same way, so a possessive's S
+# never stops the receiver-block strip, nor the run of a two-letter initialism's one-word holder.
+
+R3_17_TRUIST = "EFT FABRIKAM INSURANCE SAMPLE S INSURANCE IN CUSTOMER ID 0000"
+R3_17_FIFTH_THIRD = "ACH CREDIT NORTHWIND SUPPLY CO PAYMENT CONTOSO S FLOWER SHOP"
+R3_17_JB_PUSH = "JB S TRUCKING LLC DES:SALE ID:{n} INDN:JB S TRUCKING LLC CO ID:0000000001 CCD"
+INSURER_FOR_WORK = ("counted_flagged", "insurer_paid_for_services")
+
+
+def test_r3_17_a_possessive_holder_in_truist_s_receiver_slot_is_the_receiver():
+    tiers = _tiers([(R3_17_TRUIST, 1000.0)], holder_name="SAMPLE'S INSURANCE INC", bank="Truist")
+    assert tiers == [INSURER_FOR_WORK]
+    assert tiers == _tiers([(R3_17_TRUIST, 1000.0)], holder_name="SAMPLES INSURANCE INC", bank="Truist")
+
+
+def test_r3_17_a_possessive_holder_printed_after_another_payer_is_the_receiver():
+    tiers = _tiers([(R3_17_FIFTH_THIRD, 600.0)], holder_name="CONTOSO'S FLOWER SHOP LLC", bank="Fifth Third")
+    assert tiers == [ONE_OFF]
+    assert tiers == _tiers([(R3_17_FIFTH_THIRD, 600.0)], holder_name="CONTOSOS FLOWER SHOP LLC", bank="Fifth Third")
+    assert tc._without_trailing_holder_run(
+        "NORTHWIND SUPPLY PAYMENT CONTOSO FLOWER SHOP", ["CONTOSO S FLOWER SHOP LLC"]
+    ) == "NORTHWIND SUPPLY PAYMENT"
+
+
+def test_r3_17_a_labelled_sender_printing_the_possessive_holder_stays_held():
+    text = "ONLINE TRANSFER FROM CONTOSO S FLOWER SHOP LLC REF 0001"
+    assert _tiers([(text, 600.0)], holder_name="CONTOSO'S FLOWER SHOP LLC", bank="Wells Fargo") == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize("holder", ["JB'S TRUCKING LLC", "JB TRUCKING LLC"])
+def test_r3_17_a_two_letter_possessive_holder_s_own_rows_are_held(holder):
+    rows = [(R3_17_JB_PUSH.format(n="0001"), 800.0), (R3_17_JB_PUSH.format(n="0002"), 900.0)]
+    assert _tiers(rows, holder_name=holder, bank="Bank of America") == [HOLDER_NAME, HOLDER_NAME]
+    transfer = "ONLINE TRANSFER FROM JB S TRUCKING LLC"
+    assert _tiers([(transfer, 700.0)], holder_name=holder, bank="Bank of America") == [HOLDER_NAME]
+
+
+def test_r3_17_a_customer_leading_with_the_industry_word_is_never_the_possessive_holder():
+    text = "TRUCKING PARTNERS INC DES:PAYMENT ID:0001 INDN:JB S TRUCKING LLC CO ID:0000000001 CCD"
+    assert HOLDER_NAME not in _twice(text, holder_name="JB'S TRUCKING LLC", bank="Bank of America")
+    assert tc.holder_named("TRUCKING PARTNERS INC", "JB'S TRUCKING LLC") is False
+    assert tc.holder_named("JB TRUCKING LLC", "JB'S TRUCKING LLC") is True
+
+
+@pytest.mark.parametrize(("name", "words"), [
+    ("CONTOSO S FLOWER SHOP LLC", ["CONTOSO", "FLOWER", "SHOP"]),
+    ("JOHN Q SAMPLE LLC", ["JOHN", "SAMPLE"]),
+    ("A1 NORTHWIND PLUMBING LLC", ["NORTHWIND", "PLUMBING"]),
+    ("NORTHWIND HARBOR AGENCY INC", ["NORTHWIND", "HARBOR", "AGENCY"]),
+])
+def test_r3_17_the_holder_s_run_words_are_the_payer_reading_s(name, words):
+    assert tc._holder_run_words(name) == words
+
+
+@pytest.mark.parametrize(("holder", "receiver"), [
+    ("JOHN Q SAMPLE LLC", "JOHN Q SAMPLE"),
+    ("A1 NORTHWIND PLUMBING LLC", "A1 NORTHWIND PLUMBING"),
+])
+def test_r3_17_a_middle_initial_or_a_digit_token_never_stops_the_strip(holder, receiver):
+    payer = tc.payer_name(f"FABRIKAM SUPPLY PAYMENT {receiver}")
+    assert tc._without_trailing_holder_run(payer, [holder]) == "FABRIKAM SUPPLY PAYMENT"
+
+
+def test_r3_17_the_dropped_lead_run_skips_a_single_letter():
+    assert tc._dropped_lead_run("JB S TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
+    assert tc._dropped_lead_run("JB TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
+
+
+# --- Audit round 3, R3-B10 review round 1 (finding 2): the classifier readers of the holder test ------------------
+# Beside pass 7's hold, three classifier readers read the holder test: §6.3 narrowing 4 (a book or funds transfer is
+# own-account only when its third-party originator is the holder), narrowing 8 (a named sender after an own-account
+# designation that is no holder refuses the own-account reading) and steps 11 to 14's holder veto. The batch's test
+# moves rows through them both ways: a released customer leaves non_revenue (narrowing 4 counts it as a wire sender,
+# narrowing 8 holds it for review) and verifies by its own reading where the veto refused it; the possessive holder's
+# own transfer enters non_revenue and its own invoice entry is held.
+
+R3_B10_RELEASED = [
+    ("GOLDEN YACHT SERVICE LLC", "CONTOSO YACHT SERVICE"),
+    ("NORTHWIND YACHT SERVICE LLC", "ACE YACHT SERVICE"),
+    ("JORDAN SAMPLEMAN DBA CONTOSO PLUMBING", "JORDAN NORTHWINDER"),
+]
+R3_B10_FUNDS_TRANSFER = "FUNDS TRANSFER CREDIT TT {sender}"
+R3_B10_DESIGNATION = "ONLINE TRANSFER FROM CHK 1234 CONFIRMATION 1234{n} {sender}"
+R3_B10_OWN_ACCOUNT = ("non_revenue", "strong_non_revenue_rule")
+R3_B10_DESIGNATED = ("excluded_pending_review", "transfer_account_designation")
+
+
+def _r3_b10_designations(sender):
+    return [(R3_B10_DESIGNATION.format(n=n, sender=sender), amount) for n, amount in ((1, 1500.0), (2, 1750.0))]
+
+
+def _r3_b10_invoices(orig):
+    return [(CHASE_ACH.format(orig=orig, entry=f"INVOICE 1234{n} ", receiver="CONTOSO"), amount)
+            for n, amount in ((1, 900.0), (2, 950.0))]
+
+
+@pytest.mark.parametrize(("holder", "sender"), R3_B10_RELEASED)
+def test_r3_b10_r1_a_released_sender_leaves_the_own_account_readings(holder, sender):
+    funds = [(R3_B10_FUNDS_TRANSFER.format(sender=sender), 2500.0)]
+    assert _tiers(funds, holder_name=holder, bank="Royal Bank of Canada") == [WIRE]
+    designations = _r3_b10_designations(sender)
+    assert _tiers(designations, holder_name=holder, bank="Wells Fargo") == [R3_B10_DESIGNATED, R3_B10_DESIGNATED]
+
+
+@pytest.mark.parametrize("sender", ["JB S TRUCKING LLC", "JB S TRUCKING"])
+def test_r3_b10_r1_the_possessive_holder_s_own_transfer_enters_the_own_account_readings(sender):
+    holder = "JB'S TRUCKING LLC"
+    funds = [(R3_B10_FUNDS_TRANSFER.format(sender=sender), 2500.0)]
+    assert _tiers(funds, holder_name=holder, bank="Royal Bank of Canada") == [R3_B10_OWN_ACCOUNT]
+    designations = _r3_b10_designations(sender)
+    assert _tiers(designations, holder_name=holder, bank="Wells Fargo") == [R3_B10_OWN_ACCOUNT, R3_B10_OWN_ACCOUNT]
+
+
+@pytest.mark.parametrize(("holder", "orig"), R3_B10_RELEASED)
+def test_r3_b10_r1_a_released_customer_verifies_by_its_own_reading(holder, orig):
+    assert _tiers(_r3_b10_invoices(orig), holder_name=holder, bank="Chase") == [REMITTANCE, REMITTANCE]
+
+
+def test_r3_b10_r1_the_veto_refuses_the_possessive_holder_s_own_invoice_entry():
+    tiers = _tiers(_r3_b10_invoices("JB S TRUCKING LLC"), holder_name="JB'S TRUCKING LLC", bank="Chase")
+    assert tiers == [HOLDER_NAME, HOLDER_NAME]
+
+
+# --- Audit round 3, R3-B10 review round 1 (finding 3): the THE-led strip reads as the name without THE -------------
+# R3-37 builds no 'THE <one word>' run and reads a THE-led name's runs bare too, so a THE-led holder's strip is the
+# strip of the same name printed without THE. Two recorded effects (0 corpus rows): a receiver printing the holder as
+# THE and one word, or cut under four letters into its second word, is not stripped, so a hold word of the holder's
+# own name holds the customer's row; and a third party printing the two words after THE loses them, as it does for a
+# holder named by those words alone.
+
+@pytest.mark.parametrize(("holder", "receiver"), [
+    ("DISTRIBUTION CENTER LLC", "DISTRIBUTION"),
+    ("DISTRIBUTION CENTER LLC", "DISTRIBUTION CEN"),
+    ("PAYROLL COMPANY INC", "PAYROLL CO"),
+    ("RETIREMENT PLANNING GROUP LLC", "RETIREMENT"),
+])
+def test_r3_b10_r1_a_the_led_holder_s_short_receiver_reads_as_the_name_without_the(holder, receiver):
+    def rows(printed):
+        return [(WF_UNLABELLED.format(receiver=printed), 4000.0)]
+
+    the = _tiers(rows(f"THE {receiver}"), holder_name=f"THE {holder}", bank="Wells Fargo")
+    assert the == _tiers(rows(receiver), holder_name=holder, bank="Wells Fargo")
+    assert the[0][0] == "excluded_pending_review"
+
+
+def test_r3_b10_r1_a_the_led_holder_s_bare_run_strips_a_third_party_as_the_name_without_the():
+    text = "FABRIKAM CAPITAL GROUP DES:PAYMENT ID:{n} INDN:{receiver} CO ID:1234567890 CCD"
+
+    def tiers(holder):
+        rows = [(text.format(n=n, receiver=holder), amount) for n, amount in ((1, 1500.0), (2, 1750.0))]
+        return _tiers(rows, holder_name=holder, bank="Bank of America")
+
+    assert tiers("THE CAPITAL GROUP LLC") == tiers("CAPITAL GROUP LLC")
+    assert tr._without_holder_name("FABRIKAM CAPITAL GROUP", "THE CAPITAL GROUP LLC", whole_name=True).split() == [
+        "FABRIKAM"
+    ]
+
+
+# --- Audit round 3, R3-B17 (R3-15): the holder's own number after an accounts-payable label -------------------------
+# RBC's 'ACCOUNT PAYABLE PMT' and Scotiabank's 'ACCOUNTS PAYABLE' printed before a numbered company's number are
+# removed before the payer region is read (as 'MISC PAYMENT' is), so the holder test's digit arm reads the holder's own
+# number; a word-named payer after a reference keeps its region. Fabricated numbers and names, 2054 dates.
+
+NUMBERED_HOLDER = "1234567 ONTARIO INC"
+NUMBERED = ("counted_flagged", "numbered_company_payer")
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("ACCOUNT PAYABLE PMT 1234567 ONTARIO", "Royal Bank of Canada"),
+    ("ACCOUNTS PAYABLE 1234567 ONTARIO", "Scotiabank"),
+    ("ACCOUNTS PAYABLE PMT 1234567 ONTARIO INC", "Scotiabank"),
+    ("ACCTS PAYABLE 1234567 ONTARIO", "Scotiabank"),
+    # Already held: the MISC PAYMENT template is removed before the region.
+    ("MISC PAYMENT 1234567 ONTARIO", "Royal Bank of Canada"),
+])
+def test_r3_15_the_holder_s_own_number_after_an_accounts_payable_label_is_held(text, bank):
+    # Today the region was the label alone ('ACCOUNT PAYABLE PMT'), so the credit was counted numbered_company_payer.
+    assert _tiers([(text, 12000.0)], holder_name=NUMBERED_HOLDER, bank=bank) == [HOLDER_NAME]
+    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))).startswith("1234567 ONTARIO")
+
+
+def test_r3_15_another_numbered_company_after_the_label_stays_counted():
+    assert _tiers([("ACCOUNT PAYABLE PMT 7654321 ONTARIO", 12000.0)], holder_name=NUMBERED_HOLDER,
+                  bank="Royal Bank of Canada") == [NUMBERED]
+
+
+@pytest.mark.parametrize(("text", "region"), [
+    ("ACCOUNTS PAYABLE 123456 NORTHWIND SUPPLY INC", "ACCOUNTS PAYABLE NORTHWIND SUPPLY INC"),
+    ("ACCOUNTS PAYABLE 123456 NORTH MOUNTAIN PAVING", "ACCOUNTS PAYABLE NORTH MOUNTAIN PAVING"),
+])
+def test_r3_15_a_word_named_payer_after_the_label_keeps_its_region_and_reading(text, region):
+    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))) == region
+    assert _tiers([(text, 12000.0)], holder_name="NORTHWIND BAKERY LTD", bank="Scotiabank") == [REMITTANCE]

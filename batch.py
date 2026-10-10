@@ -25,7 +25,7 @@ from pathlib import Path
 
 from analysis import zelle_view
 from analysis.pipeline import analyze_document, DocumentReport, Report
-from analysis.revenue_view import revenue_flags, withholding_basis_unestablished
+from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
 from telemetry import (
     DispatchCollector,
@@ -47,6 +47,9 @@ FIELDS = [
     "verified_revenue_total", "verified_revenue_count",
     "unverified_deposit_total", "unverified_deposit_count", "non_revenue_total",
     "non_revenue_count",
+    # Audit round 3, R3-B24 (R3-16; standard G7, P22): the counted credits whose source the statement does not prove
+    # that are $10,000 or more and over 25% of True, information only (needs_review does not read them).
+    "large_unsourced_deposit_count", "large_unsourced_deposit_total",
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the reading shown and its Zelle figures,
     # a fixed header in both modes.
     "zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total",
@@ -58,7 +61,10 @@ FIELDS = [
     "lender_debit_count", "returned_funder_payment_count", "returned_funder_payment_total",
     "lenders_detected", "potential_lenders_detected",
     "potential_lender_debit_count", "potential_lender_debit_total",
-    "insurance_count", "insurance_total", "withholding_numerator",
+    # Audit round 3, R3-B22 (R3-68; the owner's Q7): the basis the withholding columns divide by, which each run reads
+    # from WITHHOLDING_DENOMINATOR_MODE, written on every account row.
+    "insurance_count", "insurance_total", "withholding_denominator_mode", "withholding_denominator_label",
+    "withholding_numerator",
     "withholding_denominator", "withholding_rate", "potential_withholding_numerator",
     "potential_withholding_denominator", "potential_withholding_exposure",
     "potential_withholding_review_required", "pos_count", "pos_credit_count",
@@ -67,7 +73,9 @@ FIELDS = [
     # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the statement's items by kind, and each as
     # kind:lender_label (information only).
     "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
-    "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops", "lender_payment_changes",
+    "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
+    # Audit round 3, R3-B05 (the owner's answer of 2026-10-07 to R3-25, "Add a 'Caught up' line"): the catch-ups.
+    "lender_payment_catch_ups", "lender_payment_changes",
     "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
     "model", "error",
 ]
@@ -120,7 +128,8 @@ def _content_sha256(data: bytes) -> str:
 
 
 def _payment_change_columns(items: list[dict]) -> dict:
-    """The owner's request of 2026-10-06 (R2-OW18, I2): the seven lender payment change columns of one account."""
+    """The owner's request of 2026-10-06 (R2-OW18, I2): the lender payment change columns of one account (eight since
+    audit round 3, R3-B05: the catch-ups)."""
     def count(kind: str) -> int:
         return sum(1 for item in items if item.get("kind") == kind)
 
@@ -137,6 +146,7 @@ def _payment_change_columns(items: list[dict]) -> dict:
         "lender_payment_pauses": count("pause"),
         "lender_payment_possible_stops": sum(1 for item in items
                                              if item.get("kind") == "stop" and item.get("stop_confirmed") is not True),
+        "lender_payment_catch_ups": count("catch_up"),
         "lender_payment_changes": "; ".join(named(item) for item in items),
     }
 
@@ -151,7 +161,11 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     # Audit round 2, R2-B16 (R52; true revenue spec §10.4): the account's revenue flags in the reading shown, from its
     # serialized payload (the flags the dashboard and the downloads read), published through the document entry point
     # as a document of its one account (RULE S: that account's payload; the L1-S3 seam rule).
-    verified_established, established = revenue_flags(document_report_to_dict(DocumentReport(accounts=[report])))
+    payload = document_report_to_dict(DocumentReport(accounts=[report]))
+    verified_established, established = revenue_flags(payload)
+    # Audit round 3, R3-B24 (R3-16; §13): the account served once (analysis/revenue_view.py apply_revenue_view, in the
+    # reading shown) for its large unsourced deposits; the flag is served only where the revenue is established.
+    served = apply_revenue_view(payload).get("metrics") or {}
     # A statement needs human review when the bank's own summary doesn't reconcile
     # (mis-extracted or internally inconsistent) — the figures can't be trusted —
     # when its revenue gate is set (5.6, T7: a direction conflict, or held credits
@@ -201,9 +215,15 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "unverified_deposit_count": m.unverified_deposit_count,
         "non_revenue_total": f"{m.non_revenue_total:.2f}",
         "non_revenue_count": m.non_revenue_count,
+        # R3-B24 (R3-16): 0 and 0.00 where none is flagged, both empty where the revenue is not established (R52).
+        "large_unsourced_deposit_count": int(served.get("large_unsourced_deposit_count") or 0) if established else "",
+        "large_unsourced_deposit_total": established_figure(
+            float(served.get("large_unsourced_deposit_total") or 0.0), established),
         "zelle_true_revenue": "yes" if zelle_true_revenue else "no",
         "zelle_deposit_total": f"{zelle['total'] if zelle is not None else 0.0:.2f}",
-        "zelle_in_true_revenue_total": f"{zelle_parts['in_true']:.2f}",
+        # Audit round 3, R3-B20 (R3-48; §10.4's I51): the Zelle part of True is empty where True is; the Zelle total
+        # stays (the captured Zelle rows, as total_posted_credits is kept).
+        "zelle_in_true_revenue_total": established_figure(zelle_parts["in_true"], established),
         "maximum_revenue": established_figure(m.maximum_revenue, established),
         "revenue_tiers_sum_to_posted": "yes" if m.revenue_tiers_sum_to_posted else "NO",
         "revenue_reconciliation_delta": f"{m.revenue_reconciliation_delta:.2f}",
@@ -223,6 +243,10 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "potential_lender_debit_total": f"{m.potential_lender_debit_total:.2f}",
         "insurance_count": m.insurance_count,
         "insurance_total": f"{m.insurance_total:.2f}",
+        # Audit round 3, R3-B22 (R3-68): the basis, written where it is not established too (the label says which basis
+        # the empty cells belong to).
+        "withholding_denominator_mode": m.withholding_denominator_mode,
+        "withholding_denominator_label": m.withholding_denominator_label,
         "withholding_numerator": f"{m.withholding_numerator:.2f}",
         "withholding_denominator": established_figure(m.withholding_denominator, basis_shown),
         "withholding_rate": rate(m.withholding_rate),

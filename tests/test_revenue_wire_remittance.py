@@ -411,3 +411,138 @@ def test_an_invoice_descriptor_on_a_wire_answers_to_the_wire_vetoes(holder, prin
 def test_a_plain_invoice_payment_wire_still_verifies():
     record = _credit("WIRE FROM CONTOSO SUPPLY LLC INVOICE PAYMENT 1234", holder=HOLDER)
     assert record.revenue_classification == "verified_revenue"
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 3, R3-B07 (R3-14; §8.5, §20 A3-G): a relaying bank that prints BANKING ('<X> BANKING CORP') or a
+# non-English bank word (BANCO, BANCA, BANQUE, BANCAIRE, SPARKASSE) is a bank by its form, so the customer it relays
+# after ORG is the wire's sender (the holder test, the financing roots and Q5 read that customer); a numbered company
+# relayed after ORG is read too ('1234567 B C LTD'). Holder NORTHWIND LABS INC on Chase; fabricated banks, customers and
+# references.
+# ---------------------------------------------------------------------------------------------------------------------
+R314_HOLDER = "NORTHWIND LABS INC"
+R314_RELAY = "BOOK TRANSFER CREDIT B/O: {bank} ORG:/0000000000000001 {customer} OGB: {ogb} TRN 000{n}"
+R314_BANKING = "NORDKAPP BANKING CORPORATION LIMITED SYDNEY"
+R314_NAMED = ("counted_flagged", "wire_named_sender")
+R314_REPEAT = ("verified", "repeat_wire_sender")
+R314_FINANCING = ("excluded_pending_review", "financing_named_payer")
+R314_HOLDER_HELD = ("excluded_pending_review", "holder_name")
+R314_NON_ENGLISH = [
+    "BANCO SOLARIEGO SA", "BANCA ALPINA DI TRENTO SPA", "BANQUE LACUSTRE SA", "UNION BANCAIRE DU LAC SA",
+    "SPARKASSE RHEINTAL",
+]
+R314_BOFA = ("WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:20540302001234 ORIG:{orig} ID:0001 SND BK:{bank} ID:0002 "
+             "PMT DET:SAMPLE {n}")
+
+
+def _r314(rows, *, bank="Chase", holder=R314_HOLDER):
+    records = classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(rows)
+    ]))
+    return [(record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method) for record in records]
+
+
+def _r314_text(printed: str) -> str:
+    return transaction_classifier.revenue_text(transaction_classifier.normalize_transaction_description(printed))
+
+
+def _banking_relay(customer: str, n: int = 1) -> str:
+    return R314_RELAY.format(bank=R314_BANKING, customer=customer, ogb="NORDKAPP BANKING CORP", n=n)
+
+
+def test_r3_14_a_banking_corporation_s_relayed_customer_is_the_sender_and_verifies_on_repeat():
+    rows = [(_banking_relay("CONTOSO TIMBER LLC", 1), 12345.67), (_banking_relay("CONTOSO TIMBER LLC", 2), 9876.54)]
+    assert _r314(rows) == [R314_REPEAT, R314_REPEAT]
+    assert transaction_classifier.wire_relayed_customer(_r314_text(rows[0][0])) == "CONTOSO TIMBER LLC"
+    assert transaction_classifier.payer_region(_r314_text(rows[0][0])) == "CONTOSO TIMBER LLC"
+
+
+def test_r3_14_the_holder_relayed_by_a_banking_corporation_is_held_as_the_holder_s_name():
+    assert _r314([(_banking_relay(R314_HOLDER), 12345.67)]) == [R314_HOLDER_HELD]
+
+
+def test_r3_14_a_funder_relayed_by_a_banking_corporation_is_held_as_financing():
+    assert _r314([(_banking_relay("FABRIKAM CAPITAL FUNDING LLC"), 12345.67)]) == [R314_FINANCING]
+
+
+def test_r3_14_two_customers_of_one_banking_relay_are_read_each_on_its_own_name():
+    rows = [(_banking_relay("SAMPLE CONTOSO", 1), 12345.67), (_banking_relay("FABRIKAM HOLDINGS LLC", 2), 9876.54)]
+    # Each is its own sender: the person-shaped one is counted, never verified with the other.
+    assert _r314(rows) == [R314_NAMED, R314_NAMED]
+    assert [transaction_classifier.payer_region(_r314_text(text)) for text, _amount in rows] == [
+        "SAMPLE CONTOSO", "FABRIKAM HOLDINGS LLC"]
+
+
+@pytest.mark.parametrize("bank", R314_NON_ENGLISH)
+def test_r3_14_a_non_english_bank_s_relayed_customer_is_read(bank):
+    from analysis.transaction_classifier import bank_by_form
+
+    printed = R314_RELAY.format(bank=bank, customer="CONTOSO TIMBER LLC", ogb=bank, n=1)
+    assert bank_by_form(bank)
+    assert transaction_classifier.payer_region(_r314_text(printed)) == "CONTOSO TIMBER LLC"
+    assert _r314([(printed, 12345.67)]) == [R314_NAMED]
+    # The holder relayed by such a bank is the holder's own money, held.
+    assert _r314([(R314_RELAY.format(bank=bank, customer=R314_HOLDER, ogb=bank, n=1), 12345.67)]) == [
+        R314_HOLDER_HELD]
+
+
+@pytest.mark.parametrize("bank", [*R314_NON_ENGLISH, "NORDKAPP BANKING CORP", "FIRST HARBOR BANK"])
+def test_r3_14_a_bank_that_names_no_customer_is_held_as_a_bank_originated_wire(bank):
+    assert _r314([(f"BOOK TRANSFER CREDIT B/O: {bank} REF: 1234 TRN 0001", 12345.67)]) == [R314_FINANCING]
+
+
+R314_RBC = ("BOOK TRANSFER CREDIT B/O: ROYAL BANK OF CANADA PAYMENT CENTRE TORONTO ON CANADA ORG: 000000000001 "
+            "{customer} REF: RFB GOODS AND SERVICES TRN 000{n}")
+
+
+@pytest.mark.parametrize(("customer", "region"), [("1234567 B.C. LTD.", "1234567 B C LTD"),
+                                                  ("1234567 BC LTD", "1234567 BC LTD")])
+def test_r3_14_a_numbered_company_relayed_by_a_bank_is_the_sender_counted_never_verified(customer, region):
+    rows = [(R314_RBC.format(customer=customer, n=1), 2345.67), (R314_RBC.format(customer=customer, n=2), 3456.78)]
+    assert transaction_classifier.payer_region(_r314_text(rows[0][0])) == region
+    assert transaction_classifier.numbered_company(_r314_text(rows[0][0]))
+    assert _r314(rows) == [R314_NAMED, R314_NAMED]
+
+
+def test_r3_14_banking_after_a_company_name_is_no_bank_and_q5_never_reads_it_as_one_company():
+    from analysis.transaction_classifier import bank_by_form
+
+    assert not bank_by_form("CONTOSO BANKING SOLUTIONS LLC")
+    assert bank_by_form("WESTPAC BANKING CORP") and bank_by_form("NORDKAPP BANKING CORPORATION LIMITED")
+    rows = [(R314_BOFA.format(orig="CONTOSO BANKING SOLUTIONS LLC", bank="SAMPLE BANK", n=n), amount)
+            for n, amount in ((1, 4321.09), (2, 5432.10))]
+    assert _r314(rows[:1], bank="Bank of America") == [R314_NAMED]
+    # §8.5: a sender that names a bank word (BANKING among them now) never verifies by repetition.
+    assert _r314(rows, bank="Bank of America") == [R314_NAMED, R314_NAMED]
+
+
+@pytest.mark.parametrize(("bank", "printed"), [
+    ("Santander Bank", "USD WIRE IN FROM BANCO SAMPLE ACCT 0001 CONTOSO TIMBER LLC REF SAMPLE {n}"),
+    ("Bank of America", R314_BOFA.replace("{orig}", "CONTOSO TIMBER LLC").replace("{bank}", "BANCO SAMPLE")),
+])
+def test_r3_14_controls_a_sending_bank_s_word_is_no_originator(bank, printed):
+    # Santander's sending bank after WIRE IN FROM and Bank of America's SND BK: unchanged readings.
+    assert _r314([(printed.format(n=1), 4321.09)], bank=bank) == [R314_NAMED]
+    assert _r314([(printed.format(n=1), 4321.09), (printed.format(n=2), 5432.10)], bank=bank) == [
+        R314_REPEAT, R314_REPEAT]
+
+
+def test_r3_14_control_a_company_whose_name_holds_bank_keeps_its_reading():
+    printed = R314_BOFA.replace("{orig}", "LEFT BANK BAKERY LLC").replace("{bank}", "SAMPLE BANK")
+    assert _r314([(printed.format(n=1), 4321.09)], bank="Bank of America") == [R314_NAMED]
+
+
+def test_r3_14_control_a_broker_dealer_relay_stays_held():
+    # Standard G2 and §7.5: a clearing broker's wire is the owner's brokerage money until reviewed (not changed here).
+    printed = ("BOOK TRANSFER CREDIT B/O: NATIONAL FINANCIAL SERVICES LLC ORG: Z00000001 SAMPLE CONTOSO OGB: NATIONAL "
+               "FINANCIAL SERVICES LLC REF: TUITION TRN 0001")
+    assert _r314([(printed, 4321.09)]) == [R314_FINANCING]
+
+
+def test_r3_14_control_a_q6_payer_named_banking_counts_once_and_verifies_only_by_repetition():
+    printed = "CONTOSO BANKING SERVICES INC DES:PAYMENT ID:000{n} INDN:NORTHWIND LABS INC CO ID:0000000001 CCD"
+    assert _r314([(printed.format(n=1), 1234.56)], bank="Bank of America") == [
+        ("counted_flagged", "named_payer_one_off")]
+    assert _r314([(printed.format(n=1), 1234.56), (printed.format(n=2), 2345.67)], bank="Bank of America") == [
+        ("verified", "named_payer_repeats")] * 2

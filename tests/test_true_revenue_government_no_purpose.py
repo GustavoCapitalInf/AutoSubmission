@@ -93,6 +93,17 @@ MOVES = (
     ("nd bare", "Sample Bank", ["WORKFORCE SAFETY 1234"], None, "nd_workforce_safety"),
     ("nd insurance", "Sample Credit Union", ["DESCRIPTIVE DEPOSIT WORKFORCE SAFETY & INSURANCE 1234"], None,
      "nd_workforce_safety"),
+    # Audit round 3, R3-B13 (R3-55): a digit run glued before a letter-led form's first letter is a reference (a
+    # glued date), as the GST form's glued lead is (today each counted, the form missed).
+    ("qc glued", "TD Canada Trust", ["0102GOUV QUEBEC MSP"], None, "quebec_government"),
+    ("wsib board glued", "Royal Bank of Canada", ["0102WORK COMP BOARD WSIB EME"], None, "ontario_wsib"),
+    ("wsib glued", "Royal Bank of Canada", ["0102WSIB EME"], None, "ontario_wsib"),
+    ("mn glued", "U.S. Bank", ["ELECTRONIC DEPOSIT FROM 0102MN STATE MMB"], None, "mn_mmb"),
+    ("wi glued", "Bank of America",
+     ["0102WI DCF DES:WIDCF DD ID:E000000 01 INDN:NORTHWIND CLINIC LLC CO ID:1234567890 CCD"], None, "wi_dcf"),
+    ("bc glued", "Scotiabank", ["0102PROVINCE OF BC"], None, "bc_provincial"),
+    ("qc glued after a template", "TD Canada Trust", ["ACH CREDIT 0102GOUV QUEBEC MSP"], None, "quebec_government"),
+    ("nd glued", "Sample Bank", ["0102NORTH DAKOTA WORKFORCE SAFETY"], None, "nd_workforce_safety"),
 )
 
 
@@ -232,6 +243,12 @@ CONTROLS = (
     ("county vendor pay", "Bank of America", HOLDER,
      [_BOFA.format(payer="COUNTY OF CONTOSO", entry="VENDOR PAY", id="1", sec="CCD")],
      (VERIFIED, None, "payer_remittance_descriptor")),
+    # Audit round 3, R3-B13 (R3-55): the VA's Treasury form is not read glued (a glued agency code is unreadable);
+    # letters glued before a form are another word; the GST form's glued lead is read as before.
+    ("va glued", "Sample Bank", HOLDER, ["010236 TREAS 310 MISC PAY"],
+     (COUNTED, "named_payer_unlabelled", UNIDENTIFIED)),
+    ("letters glued", "Sample Bank", HOLDER, ["ABCMN STATE MMB"], (COUNTED, "named_payer_unlabelled", UNIDENTIFIED)),
+    ("gst glued", "TD Canada Trust", HOLDER, ["0102GST CANADA"], ("non_revenue", None, "strong_non_revenue_rule")),
 )
 
 
@@ -278,6 +295,27 @@ def test_the_reader_names_the_form_of_each_move(text, alias):
 ] + ["WSIB FORWARD FINANCING 1234"])
 def test_the_reader_names_no_form_on_a_control(text):
     assert _read(text) is None
+
+
+@pytest.mark.parametrize(("text", "alias"), [
+    ("0102WSIB EME", "ontario_wsib"), ("0102PROVINCE OF BC", "bc_provincial"),
+    ("0102GOUV QUEBEC MSP", "quebec_government"), ("0102MN STATE MMB", "mn_mmb"), ("0102WI DCF", "wi_dcf"),
+    ("0102WORKFORCE SAFETY", "nd_workforce_safety"),
+    # The optional leads take the glued digits too.
+    ("0102PROVINCIAL PAYMENT PROVINCE OF BC", "bc_provincial"), ("0102ND WORKFORCE SAFETY", "nd_workforce_safety"),
+    # Not read: the VA's form glued, letters glued before a form.
+    ("010236 TREAS 310 MISC PAY", None), ("ABCMN STATE MMB", None), ("XWSIB EME", None),
+])
+def test_r3_55_the_reader_reads_a_form_after_a_glued_digit_run(text, alias):
+    """Audit round 3, R3-B13 (R3-55; the underwriter's Q12 of 2026-10-02, "Let's just change to Exclude"): the six
+    letter-led forms take the left boundary (?<![A-Z]); the VA's 36 TREAS keeps (?<![A-Z0-9])."""
+    assert _read(text) == alias
+
+
+def test_r3_55_the_left_boundaries():
+    boundaries = {name: form.pattern.split(")", 1)[0] + ")" for name, form in GOVERNMENT_NO_PURPOSE_FORMS}
+    assert boundaries.pop("va_treasury") == "(?<![A-Z0-9])"
+    assert set(boundaries.values()) == {"(?<![A-Z])"}
 
 
 def test_the_seven_forms_are_the_owner_s():

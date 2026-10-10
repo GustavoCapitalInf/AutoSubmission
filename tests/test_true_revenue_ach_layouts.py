@@ -8,6 +8,7 @@ ACH template (I19); TD Canada Trust's trailing CPA code is an electronic-payment
 banks' printed formats; public names only where a bank prints its own or a registry lists them (Intuit)."""
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 import pytest
@@ -315,9 +316,74 @@ def test_r33_a_genuine_numbered_company_keeps_its_number(text, bank):
     ("ONTARIO REF 1", True),
     ("ONTA AP CC", True),
     ("CAN DO PLUMBING LTD", True),
+    # Audit round 3, R3-B08 (R3-88 (n)): BMO's two-word CPA code pairs and Scotiabank's BPY and PAY.
+    ("ONTARIO BPY FAC", True),
+    ("ONTARIO CLN PEE", True),
+    ("ONTARIO GST TPS", True),
+    ("BPY FAC", True),
+    ("ONTARIO BPY", True),
+    ("ONTARIO PAY", True),
+    # BUS, CAP and INS are read only as pairs: alone they start a name word.
+    ("ONTARIO BUS LINES", False),
+    ("ONTARIO CAPITAL GROUP", False),
 ])
 def test_r33_the_guard_reads_the_token_after_the_province(text, keeps):
     assert (tc._KEEPS_ITS_NUMBER.match(text) is not None) is keeps
+
+
+# Audit round 3, R3-B08 (R3-88 (n); §5.2 numbered company, T11, OQ3; amends R2-B11's R33 line): BMO prints a two-word
+# CPA code (English, French) after a numbered company's province on 'DIRECT DEPOSIT <n> ONTARIO|ONTA <code pair>', and
+# Scotiabank prints BPY or PAY after it ('MISC PAYMENT|BILL PAYMENT <n> ONTARIO BPY|PAY'): the company keeps its number,
+# so it is counted and flagged as a numbered company, never verified. TD prints '<n> ONTARIO BPY' with no template
+# prefix, which the payer region already reads numbered.
+
+R388_PAIRS = ("BPY FAC", "CLN PEE", "GST TPS", "LNS PRE", "BUS ENT", "RLS LOY", "TFS CLI", "RIT RIF")
+
+
+@pytest.mark.parametrize("text", [
+    "DIRECT DEPOSIT 1234567 ONTARIO BPY FAC",
+    "DIRECT DEPOSIT 1234567 ONTA BPY FAC",
+    "DIRECT DEPOSIT 1234567 BPY FAC",
+    *(f"DIRECT DEPOSIT 1234567 ONTARIO {pair}" for pair in R388_PAIRS[1:]),
+])
+def test_r3_88_bmo_s_code_pair_after_a_numbered_company_keeps_its_number(text):
+    bank = "BMO Bank of Montreal"
+    assert _tiers([(text, 1234.56), (text, 1234.57)], bank=bank) == [NUMBERED] * 2
+    assert _tiers([(text, 1234.56)], bank=bank) == [NUMBERED]
+    assert tc.numbered_company(text)
+
+
+@pytest.mark.parametrize("text", ["MISC PAYMENT 1234567 ONTARIO BPY", "BILL PAYMENT 1234567 ONTARIO PAY"])
+def test_r3_88_scotiabank_s_bpy_and_pay_after_a_numbered_company_keep_its_number(text):
+    assert _tiers([(text, 1234.56), (text, 1234.57)], bank="Scotiabank") == [NUMBERED] * 2
+
+
+@pytest.mark.parametrize(("text", "bank", "expected"), [
+    # BMO's older codes keep their reading.
+    ("DIRECT DEPOSIT 1234567 ONTARIO MSP DIV", "BMO Bank of Montreal", [NUMBERED] * 2),
+    ("DIRECT DEPOSIT 1234567 ONTA AP CC", "BMO Bank of Montreal", [NUMBERED] * 2),
+    # A payer named with a province word after Scotiabank's reference is still read.
+    ("MISC PAYMENT 123456 NOVA SCOTIA POWER", "Scotiabank", [REPEATS] * 2),
+    ("MISC PAYMENT 123456 NORTH MOUNTAIN PAVING", "Scotiabank", [REPEATS] * 2),
+    # A named payer before BMO's code pair is still a named payer (R3-88's side observation is not fixed here).
+    ("DIRECT DEPOSIT FABRIKAM SUPPLY BPY FAC", "BMO Bank of Montreal", [REPEATS] * 2),
+    # TD's numbered company printed with no template prefix is unchanged.
+    ("1234567 ONTARIO BPY", "TD Canada Trust", [NUMBERED] * 2),
+])
+def test_r3_88_the_numbered_company_controls_keep_their_readings(text, bank, expected):
+    assert _tiers([(text, 1234.56), (text, 1234.57)], bank=bank, holder="NORTHWIND PLUMBING LLC") == expected
+
+
+def test_r3_88_the_code_tail_and_the_tail_words_keep_their_names_and_hold_the_pairs_longest_first():
+    # R3-B17 builds on both names; the pairs come before the single codes.
+    assert tc._BMO_CODE_TAIL.startswith("(?:BPY FAC|")
+    for pair in (*R388_PAIRS, "CAP CDE", "INS ASS", "INV PLA"):
+        assert pair in tc._BMO_CODE_TAIL
+        assert pair in tc._NUMBERED_TAIL_WORDS
+    for code in ("BPY", "PAY"):
+        assert f"|{code}|" in tc._NUMBERED_TAIL_WORDS or tc._NUMBERED_TAIL_WORDS.endswith(f"|{code})")
+    for word in ("BUS", "CAP", "INS"):
+        assert f"|{word}|" not in tc._NUMBERED_TAIL_WORDS and f"|{word}|" not in tc._BMO_CODE_TAIL
 
 
 # I19: American Express's incoming ACH template.
@@ -519,6 +585,12 @@ def test_the_bank_only_reading_leaves_customers_settlements_and_named_banks_as_t
     ("ALLY BANK", "", RELAY, "sending"),
     ("MSPBNA", "ACH TRNSFR", "Bank of America", "sending"),
     ("CHASE ONLINE", "ONLINE PMT", "Chase", "own"),
+    # Audit round 3, R3-B08 (R3-31): the statement's own bank is read first, as a whole region, by its full name and
+    # its printed short forms.
+    ("WELLS FARGO", "", "Wells Fargo", "own"),
+    ("BOFA", "", "Bank of America", "own"),
+    ("US BANK", "", "U.S. Bank", "own"),
+    ("JPMORGAN CHASE", "", "Chase", "own"),
     ("FABRIKAM BANK ACH", "", "Brex", "form"),
     ("SAMPLE STATE BANK N A", "", RELAY, "form"),
     ("MOUNTAIN SAMPLE CREDIT UNION", "", RELAY, "form"),
@@ -541,6 +613,126 @@ def test_bank_only_payer(region, entry, bank, kind):
 def test_a_row_printing_a_p2p_label_names_no_bank_only_payer():
     assert tr._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA P2P AB12345CD DEPOSIT") is None
     assert tr._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA AB12345CD") == "sending"
+    # Audit round 3, R3-B08 (R3-32 (2)): the label counts only after the bank's name, inside the payer region; an
+    # entry field's P2P no longer refuses the bank-only reading.
+    row = "ORIG CO NAME JPMORGAN CHASE ORIG ID 0000000001 DESC DATE CO ENTRY DESCR P2P SEC CCD TRACE 0001"
+    assert tr._bank_only_payer("JPMORGAN CHASE", "P2P", "Chase", row=row) == "own"
+    assert tr._bank_only_payer("JPMORGAN CHASE", "P2P", RELAY, row=row) == "sending"
+
+
+# Audit round 3, R3-B08 (R3-31, R3-32; §8.2, §8.6, Q2 of 2026-09-28, standard A4): the statement's own bank is read
+# first, as a whole payer region, by its full name and its printed short forms (OWN_BANK_SENDING_SPELLINGS: BOFA, US
+# BANK, JPMORGAN CHASE, CHASE BANK); every Chase bank field reads CHASE as its own name (STATEMENT_BANK_PRINTED_NAMES);
+# a P2P label counts only inside the payer region; a sperm, eye, tissue, milk, bone or cord-blood bank is no bank.
+
+R331_HOLDER = "NORTHWIND PLUMBING LLC"
+
+
+@pytest.mark.parametrize(("text", "bank"), [
+    ("WELLS FARGO ACH", "Wells Fargo"),
+    ("ELECTRONIC DEPOSIT FROM US BANK", "U.S. Bank"),
+    ("BOFA 0001", "Bank of America"),
+    ("ACH CREDIT BANK OF AMERICA", "Bank of America"),
+    ("ACH CREDIT JPMORGAN CHASE", "Chase"),
+    ("TD BANK ACH", "TD Bank"),
+])
+def test_r3_31_the_statement_s_own_bank_alone_is_counted_with_no_payer_never_held(text, bank):
+    assert _tiers([(text, 1500.0)], holder=R331_HOLDER, bank=bank) == [NO_PAYER]
+    assert _tiers([(text, 1500.0), (text, 2500.0)], holder=R331_HOLDER, bank=bank) == [NO_PAYER] * 2
+
+
+@pytest.mark.parametrize("name", ["SAMPLE SPERM BANK", "CONTOSO EYE BANK", "FABRIKAM TISSUE BANK", "SAMPLE MILK BANK",
+                                  "SAMPLE BONE BANK", "SAMPLE CORD BLOOD BANK"])
+def test_r3_31_a_tissue_bank_paying_by_ach_is_a_customer(name):
+    assert not tc.bank_by_form(name)
+    assert tr._bank_only_payer(name, "", RELAY) is None
+    assert _tiers([(f"ACH CREDIT {name}", 1500.0)], holder=R331_HOLDER, bank="Fabrikam Bank") == [ONE_OFF]
+    ccd = f"{name} DES:PAYMENT ID:0001 INDN:NORTHWIND PLUMBING LLC CO ID:0000000001 CCD"
+    assert _tiers([(ccd, 1500.0), (ccd, 2500.0)], holder=R331_HOLDER, bank="Bank of America") == [REPEATS] * 2
+
+
+def test_r3_31_a_tissue_bank_with_a_company_form_is_counted():
+    text = "SAMPLE SPERM BANK INC DES:PAYMENT ID:0001 INDN:NORTHWIND PLUMBING LLC CO ID:0000000001 CCD"
+    assert _tiers([(text, 1500.0)], holder=R331_HOLDER, bank="Bank of America")[0][0] == "counted_flagged"
+    assert _tiers([(text, 1500.0), (text, 2500.0)], holder=R331_HOLDER, bank="Bank of America") == [REPEATS] * 2
+
+
+CHASE_ONLINE_R332 = ("ORIG CO NAME:CHASE ONLINE ORIG ID:0000000001 DESC DATE: CO ENTRY DESCR:{entry}SEC:CTX "
+                     "TRACE#:000{n} EED:540305 IND ID:1234 IND NAME:NORTHWIND PLUMBING LLC TRN: 000{n}")
+
+
+@pytest.mark.parametrize("bank", ["Chase", "Chase Savings", "Chase Transaction Export", "JPMorgan Chase Bank"])
+def test_r3_32_chase_s_bill_pay_channel_is_its_own_on_every_chase_bank_field(bank):
+    rows = [(CHASE_ONLINE_R332.format(entry="ONLINE PMT", n=n), 1500.0 + n) for n in (1, 2)]
+    assert _tiers(rows, holder=R331_HOLDER, bank=bank) == [NO_PAYER] * 2
+    transfers = [(CHASE_ONLINE_R332.format(entry="TRANSFER", n=n), 1500.0 + n) for n in (1, 2)]
+    assert _tiers(transfers, holder=R331_HOLDER, bank=bank) == [NO_COUNTERPARTY] * 2
+    assert "CHASE" in tr._statement_bank_forms(bank)
+
+
+def test_r3_32_an_entry_field_s_p2p_never_lifts_the_bank_only_reading():
+    text = ("ORIG CO NAME:JPMORGAN CHASE ORIG ID:0000000001 DESC DATE: CO ENTRY DESCR:P2P SEC:CCD TRACE#:000{n} "
+            "EED:540305 IND ID:1234 IND NAME:NORTHWIND PLUMBING LLC TRN: 000{n}")
+    rows = [(text.format(n=n), 1500.0 + n) for n in (1, 2)]
+    assert _tiers(rows, holder=R331_HOLDER, bank="Chase") == [NO_PAYER] * 2
+
+
+@pytest.mark.parametrize(("bank", "texts", "expected"), [
+    # Another bank's statement: R2-B03's pulls stay held.
+    (RELAY, ["ACH CREDIT JPMORGAN CHASE"] * 2, [NO_COUNTERPARTY] * 2),
+    ("Wells Fargo", ["ACH CREDIT ALLY BANK"], [NO_COUNTERPARTY]),
+    ("Ally Bank", ["ACH CREDIT ALLY BANK"], [NO_PAYER]),
+    ("Bank of America", ["MSPBNA DES:ACH TRNSFR ID:1234 INDN:NORTHWIND PLUMBING LLC CO ID:1234567890 PPD"],
+     [NO_COUNTERPARTY]),
+    # A bare USAA stays held as a sending bank's pull (the owner's own USAA account, standard B1, B7, F1).
+    ("Wells Fargo", ["ACH CREDIT USAA"], [NO_COUNTERPARTY]),
+    # First Citizens is not Citizens Bank: the sending bank's pull stays held.
+    ("First Citizens Bank", ["ACH CREDIT CITIZENS BANK"], [NO_COUNTERPARTY]),
+    ("Citizens Bank", ["ACH CREDIT CITIZENS BANK"], [NO_PAYER]),
+    # A person's payment through another bank's P2P service keeps its reading.
+    ("Wells Fargo", ["BANK OF AMERICA P2P AB12345CD DEPOSIT", "BANK OF AMERICA P2P 1AB23CD45E PAT SAMPLE"],
+     [UNLABELLED] * 2),
+    # A food bank is still no bank; a named customer of another bank still verifies.
+    (RELAY, ["ACH CREDIT SAMPLE FOOD BANK"] * 2, [REPEATS] * 2),
+    ("Wells Fargo", ["ACH CREDIT CONTOSO SUPPLY LLC"] * 2, [REPEATS] * 2),
+], ids=["relay-jpmc-x2", "ally-on-wells", "ally-on-ally", "bofa-mspbna", "usaa-on-wells", "citizens-on-first-citizens",
+        "citizens-on-citizens", "wells-bofa-p2p", "food-bank-x2", "customer-x2"])
+def test_r3_31_the_controls_keep_their_readings(bank, texts, expected):
+    amounts = (5200.0, 1100.0)
+    rows = [(text, amounts[index]) for index, text in enumerate(texts)]
+    assert _tiers(rows, holder=R331_HOLDER, bank=bank) == expected
+
+
+@pytest.mark.parametrize(("bank", "markers"), [
+    ("Bank of America", ("BANK OF AMERICA", "BK OF AMERICA", "BOFA")),
+    ("Bank of America, N.A.", ("BANK OF AMERICA", "BOFA")),
+    ("U.S. Bank", ("US BANK", "U S BANK")),
+    ("Chase", ("JPMORGAN CHASE", "JP MORGAN CHASE", "CHASE BANK")),
+    ("Chase Savings", ("JPMORGAN CHASE", "CHASE BANK")),
+    ("Wells Fargo", ("WELLS FARGO",)),
+    ("Citizens Bank", ("CITIZENS BANK",)),
+    ("TD Canada Trust", ("TD CANADA TRUST",)),
+])
+def test_r3_31_the_own_bank_spellings_read_the_statement_s_bank_field(bank, markers):
+    spellings = tr._own_bank_sending_spellings(bank)
+    for marker in markers:
+        assert marker in spellings
+
+
+@pytest.mark.parametrize("bank", ["First Citizens Bank", "Thread Bank (Relay)", "Fabrikam Bank", "TD Bank"])
+def test_r3_31_a_marker_never_matches_inside_another_bank_s_name(bank):
+    spellings = tr._own_bank_sending_spellings(bank)
+    assert "CITIZENS BANK" not in spellings
+    assert "TD CANADA TRUST" not in spellings
+    assert "JPMORGAN CHASE" not in spellings
+
+
+def test_r3_31_every_own_spelling_is_a_listed_sending_bank_name():
+    from analysis import classification_registry as registry
+
+    for _, spellings in registry.OWN_BANK_SENDING_SPELLINGS:
+        for spelling in spellings:
+            assert spelling in registry.P2P_SENDING_BANK_NAMES
 
 
 def test_a_claimed_or_verified_row_never_takes_the_bank_only_pull():
@@ -836,3 +1028,123 @@ def test_r31_the_label_followed_by_from_keeps_its_transfer_wording():
     text = "ONLINE TRANSFER PAYMENT CREDIT FROM CONTOSO"
     assert tc._TRANSFER_WORDING.search(text)
     assert not tc._REVENUE_TEMPLATE_PREFIX.match(text)
+
+
+# Audit round 3, R3-B08 (R3-41; standard A4, Q2 of 2026-09-28; amends R2-B09's R31 line): R31's originator gate reads
+# only a row the full American Express incoming-ACH template does not match; on the full template ('... <originator>
+# <entry> <id> [<receiver block>] EXTERNAL <bank> ID <trace>') any originator keeps the ACH reading, a digit-, TO-,
+# FROM-, ID- or account-word-led name included, as before R31. A cut row keeps its transfer reading.
+
+R341_HOLDER = "NORTHWIND PLUMBING LLC"
+R341_TEMPLATE = ("ONLINE TRANSFER PAYMENT CREDIT {orig} {entry} 1234 XXXX5678 NORTHWIND PLUMBING LLC EXTERNAL FABRIKAM "
+                 "BANK ID 000000000000001")
+
+
+def _r341(orig, entry="PAYMENT", amounts=(3000.0,)):
+    text = R341_TEMPLATE.format(orig=orig, entry=entry)
+    return _tiers([(text, amount) for amount in amounts], holder=R341_HOLDER, bank="American Express")
+
+
+@pytest.mark.parametrize(("orig", "once"), [
+    ("1ST CHOICE SUPPLY LLC", COMPANY),
+    # The readings before R31 (b95beec's parent): the digit token is no name word, so '3M COMPANY' prints no company
+    # form after its first name word, and CO is never a form (D11): counted once, never a P2P flag.
+    ("3M COMPANY", ONE_OFF),
+    ("84 LUMBER CO", ONE_OFF),
+])
+def test_r3_41_a_digit_led_originator_on_the_full_template_keeps_its_ach_reading(orig, once):
+    assert _r341(orig) == [once]
+    assert _r341(orig, amounts=(3000.0, 3000.0)) == [REPEATS] * 2
+
+
+def test_r3_41_an_id_led_originator_reads_as_before_r31():
+    # ID is a field word that ends the payer region: no payer is printed (as before R31), never a P2P flag.
+    assert _r341("ID SOFTWARE INC") == [NO_PAYER]
+    assert _r341("ID SOFTWARE INC", amounts=(3000.0, 3000.0)) == [NO_PAYER] * 2
+
+
+def test_r3_41_a_to_or_from_led_originator_is_an_ach_payer_never_a_p2p_round_repeat():
+    assert _r341("TO GO FOODS LLC", amounts=(3000.0, 3000.0)) == [REPEATS] * 2
+    assert _r341("FROM THE HEART CATERING LLC") == [COMPANY]
+
+
+@pytest.mark.parametrize("orig", ["ACCT PRO SERVICES INC", "CHECKING POINT LLC", "MMA GLOBAL INC", "DDA SYSTEMS INC"])
+def test_r3_41_an_account_word_led_originator_is_never_an_account_designation(orig):
+    assert _r341(orig) == [COMPANY]
+    assert _r341(orig, amounts=(3000.0, 3000.0)) == [REPEATS] * 2
+
+
+def test_r3_41_a_savings_led_originator_reads_as_before_r31():
+    assert _r341("SAVINGS CATALYST INC") == [ONE_OFF]
+    assert _r341("SAVINGS CATALYST INC", amounts=(3000.0, 3000.0)) == [REPEATS] * 2
+
+
+def test_r3_41_a_remittance_entry_still_verifies():
+    assert _r341("3M COMPANY", entry="AP PAYMENT") == [("verified", "payer_remittance_descriptor")]
+
+
+@pytest.mark.parametrize(("text", "expected"), [
+    # A cut row with no EXTERNAL keeps R31's gate: the label before digits stays a transfer, held.
+    ("ONLINE TRANSFER PAYMENT CREDIT 1234 NORTHWIND PLUMBING LLC", HOLDER_HELD),
+    # The VA's benefit payment stays non-revenue; a letter-led template is unchanged; the holder's own push is held.
+    (R341_TEMPLATE.format(orig="36 TREAS 310", entry="MISC PAY"), ("non_revenue", "government_no_purpose")),
+    (R341_TEMPLATE.format(orig="CONTOSO SUPPLY LLC", entry="PAYMENT"), COMPANY),
+    (R341_TEMPLATE.format(orig="NORTHWIND PLUMBING LLC", entry="PAYMENT"), HOLDER_HELD),
+])
+def test_r3_41_the_controls_keep_their_readings(text, expected):
+    assert _tiers([(text, 3000.0)], holder=R341_HOLDER, bank="American Express") == [expected]
+
+
+@pytest.mark.parametrize("text", [
+    R341_TEMPLATE.format(orig="3M COMPANY", entry="PAYMENT"),
+    R341_TEMPLATE.format(orig="TO GO FOODS LLC", entry="PAYMENT"),
+    R341_TEMPLATE.format(orig="ACCT PRO SERVICES INC", entry="PAYMENT"),
+    R341_TEMPLATE.format(orig="ID SOFTWARE INC", entry="PAYMENT"),
+    _amex("CONTOSO SRE INC", "EFT"),
+])
+def test_r3_41_the_three_label_exceptions_exempt_the_full_template_whatever_its_originator(text):
+    assert tc._AMEX_ACH_CREDIT.match(text)
+    assert tc._TRANSFER_WORDING.search(text) is None
+    assert tc._REVENUE_TEMPLATE_PREFIX.match(text)
+    assert tc._ELECTRONIC_PAYMENT_FORM.search(text)
+
+
+@pytest.mark.parametrize("text", [
+    R341_TEMPLATE.format(orig="3M COMPANY", entry="PAYMENT"),
+    _amex("CONTOSO SRE INC", "EFT"),
+    "ONLINE TRANSFER PAYMENT CREDIT 1234 NORTHWIND PLUMBING LLC",
+    "ONLINE TRANSFER PAYMENT CREDIT CONTOSO SRE INC EFT 1234",
+    "ONLINE TRANSFER PAYMENT CREDIT ID 123456789012345",
+    "ONLINE TRANSFER PAYMENT CREDIT 1234 EXTERNAL FABRIKAM BANK",
+    "ONLINE TRANSFER PAYMENT CREDIT 3M COMPANY 1234 5678 EXTERNAL FABRIKAM BANK",
+])
+def test_r3_41_the_row_before_the_receiver_block_keeps_the_template_s_external(text):
+    # The readers of the label's three exceptions read the row before the receiver block, so on the full template it
+    # keeps EXTERNAL after the id (the receiver block cut out, the sending bank and trace dropped); a cut row is as
+    # printed. The payer region still ends at the id, and the cut is stable.
+    row = tc._before_receiver(text)
+    template = tc._AMEX_ACH_CREDIT.match(text)
+    if template:
+        assert row == text[: template.end("id")] + " EXTERNAL"
+        assert "NORTHWIND" not in row and "FABRIKAM BANK" not in row
+        assert tc._TRANSFER_WORDING.search(row) is None and tc._REVENUE_TEMPLATE_PREFIX.match(row)
+    else:
+        assert row == text
+    assert tc._before_receiver(row) == row
+    assert "EXTERNAL" not in tc.payer_region(text)
+
+
+@pytest.mark.parametrize("text", [
+    R341_TEMPLATE.format(orig="3M COMPANY", entry="PAYMENT"),
+    _amex("CONTOSO SRE INC", "EFT"),
+    "ONLINE TRANSFER PAYMENT CREDIT 1234 NORTHWIND PLUMBING LLC",
+    "ONLINE TRANSFER PAYMENT CREDIT CONTOSO SRE INC EFT 1234",
+    "ONLINE TRANSFER PAYMENT CREDIT ID 123456789012345",
+    "ONLINE TRANSFER PAYMENT CREDIT 1234 EXTERNAL FABRIKAM BANK",
+    "ONLINE TRANSFER PAYMENT CREDIT 3M COMPANY 1234 5678 EXTERNAL FABRIKAM BANK",
+])
+def test_r3_41_the_gate_s_template_tail_and_the_template_are_one_source(text):
+    # _AMEX_ACH_CREDIT is built from _AMEX_TEMPLATE_TAIL's pieces, so the gate's template arm and the template never
+    # drift: the label followed by the tail matches exactly where the template does.
+    tail = re.match(r"^ONLINE TRANSFER PAYMENT CREDIT(?=" + tc._AMEX_TEMPLATE_TAIL + ")", text)
+    assert (tail is not None) is (tc._AMEX_ACH_CREDIT.match(text) is not None)

@@ -102,6 +102,61 @@ def test_the_batch_row_reads_the_chosen_reading():
     assert {"zelle_true_revenue", "zelle_deposit_total", "zelle_in_true_revenue_total"} <= set(batch.FIELDS)
 
 
+# --- Audit round 3, R3-B20 (R3-48; true revenue spec §10.4's I51 and R52): where the revenue is not established, the
+# Zelle figures keep what the captured rows say (the count and total, the non-revenue part) and drop every part of True
+# or Held. Z1 printed with a bank-summary credit total $30.00 above its rows: a tied ledger, revenue not established.
+
+#: Z1's rows' credits: 10,000.00 + 1,234.56 + 2,000.00 + 2,000.00 + 2,500.00 + 300.00.
+_Z1_CREDITS = 18034.56
+
+
+def _unestablished(name="Z1", credits=_Z1_CREDITS):
+    from tests import zelle_setting_fixtures as fx
+    return fx.case_document(name, stated_credits=round(credits + 30.0, 2)).accounts[0]
+
+
+def test_render_of_an_unestablished_statement_prints_the_captured_zelle_rows_only():
+    import analyze
+
+    report = _unestablished()
+    assert report.metrics.deposits_source == "bank_stated_unverified"
+    lines = analyze._render(report).splitlines()
+    assert "  True revenue          : N/A (not established)" in lines
+    assert ("  Zelle deposits: $7,734.56 (4), captured rows only; in True revenue and held for review: N/A (not "
+            "established) (Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no excludes them)") in lines
+    assert not any("in True revenue," in line or "held for review (" in line for line in lines)
+
+
+def test_render_of_an_unestablished_statement_keeps_the_zelle_non_revenue_part():
+    import analyze
+
+    lines = analyze._render(_unestablished("Z4_TRUCK", 9000.0)).splitlines()
+    assert ("  Zelle deposits: $9,000.00 (1), captured rows only; in True revenue and held for review: N/A (not "
+            "established), $9,000.00 non-revenue (Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no "
+            "excludes them)") in lines
+
+
+def test_render_of_an_established_statement_keeps_today_s_zelle_line():
+    """The established line is byte-identical to the one
+    test_render_prints_the_yes_figures_and_the_zelle_line_by_default pins."""
+    import analyze
+
+    assert ("  Zelle deposits: $7,734.56 (4): $1,234.56 in True revenue, $6,500.00 held for review "
+            "(Mark Zelle Payments as True Revenue: Yes; --zelle-true-revenue no excludes them)") in analyze._render(
+        _z1().accounts[0]).splitlines()
+
+
+def test_the_batch_row_of_an_unestablished_statement_leaves_the_zelle_in_true_cell_empty():
+    from pathlib import Path
+
+    row = batch._row(Path("fabricated.md"), _unestablished())
+    assert (row["zelle_in_true_revenue_total"], row["zelle_deposit_total"], row["true_revenue_total"]) == (
+        "", "7734.56", "")
+    assert row["revenue_established"] == "NO"
+    established = batch._row(Path("fabricated.md"), _z1().accounts[0])
+    assert (established["zelle_in_true_revenue_total"], established["zelle_deposit_total"]) == ("1234.56", "7734.56")
+
+
 def test_a_zelle_free_row_carries_the_fixed_columns():
     from pathlib import Path
 
@@ -151,13 +206,14 @@ def test_the_batch_csv_carries_the_lender_payment_change_columns():
 
     from tests import zelle_setting_fixtures as fx
 
+    # Audit round 3, R3-B05 (the owner's answer of 2026-10-07 to R3-25): and the catch-up count, before the items.
     start = batch.FIELDS.index("recurring_debit_groups") + 1
-    assert batch.FIELDS[start:start + 7] == [
+    assert batch.FIELDS[start:start + 8] == [
         "lender_payment_decreases", "lender_payment_increases", "lender_payment_cadence_changes",
         "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
-        "lender_payment_changes"]
+        "lender_payment_catch_ups", "lender_payment_changes"]
     row = batch._row(Path("fabricated.md"), fx.document(fx.FREE).accounts[0])
-    assert [row[name] for name in batch.FIELDS[start:start + 7]] == [0, 0, 0, 0, 0, 0, ""]
+    assert [row[name] for name in batch.FIELDS[start:start + 8]] == [0, 0, 0, 0, 0, 0, 0, ""]
     columns = batch._payment_change_columns([
         {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed"},
         {"kind": "decrease", "lender_label": "KAPITUS", "lender_state": "confirmed", "schedule_confirmed": False},
@@ -246,3 +302,91 @@ def test_the_error_row_carries_only_the_file_the_review_and_the_class_name(monke
         [row] = list(csv.DictReader(handle))
     assert {key for key, value in row.items() if value} == {"file", "needs_review", "error"}
     assert (row["needs_review"], row["error"]) == ("REVIEW", "RuntimeError")
+
+
+# --- Audit round 3, R3-B22 (R3-68; the owner's Q7 of 2026-10-02: True revenue the default withholding basis, the others
+# selectable; true revenue spec §11, §13): the row names the basis its withholding columns divide by, which each run
+# reads from WITHHOLDING_DENOMINATOR_MODE, so two CSVs with the same header no longer read alike on different bases.
+# Fabricated rows (tests/test_copied_memos.py's BASIS_ROWS: CONTOSO BAKERY LLC, March 2031).
+
+
+def test_r3_68_the_basis_columns_sit_before_the_withholding_figures():
+    start = batch.FIELDS.index("insurance_total") + 1
+    assert batch.FIELDS[start:][:5] == [
+        "withholding_denominator_mode", "withholding_denominator_label", "withholding_numerator",
+        "withholding_denominator", "withholding_rate"]
+
+
+def test_r3_68_the_row_names_its_basis_beside_its_denominator_and_rate(monkeypatch):
+    from pathlib import Path
+
+    from tests.test_copied_memos import basis_report
+
+    rows = {mode: batch._row(Path("contoso.md"), basis_report(monkeypatch, mode))
+            for mode in ("true_revenue", "legacy_eligible_deposits", "verified_revenue")}
+    read = {mode: (row["withholding_denominator_mode"], row["withholding_denominator_label"],
+                   row["withholding_denominator"], row["withholding_rate"]) for mode, row in rows.items()}
+    assert read == {
+        "true_revenue": ("true_revenue", "True revenue", "25000.00", "13.60"),
+        "legacy_eligible_deposits": ("legacy_eligible_deposits", "Legacy eligible deposits", "30000.00", "11.33"),
+        "verified_revenue": ("verified_revenue", "Verified revenue", "20000.00", "17.00")}
+    # needs_review reads as before on every basis.
+    assert {row["needs_review"] for row in rows.values()} == {""}
+
+
+def test_r3_68_an_unestablished_basis_names_its_basis_and_leaves_its_figures_empty(monkeypatch):
+    from pathlib import Path
+
+    from tests.test_withholding_basis_unestablished import _report
+
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "true_revenue")
+    row = batch._row(Path("contoso.md"), _report())
+    assert (row["withholding_denominator_mode"], row["withholding_denominator_label"]) == (
+        "true_revenue", "True revenue")
+    assert (row["withholding_denominator"], row["withholding_rate"]) == ("", "")
+    assert row["needs_review"] == "REVIEW"
+
+
+def test_r3_68_the_error_row_leaves_the_basis_cells_empty(monkeypatch, tmp_path):
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    monkeypatch.setattr(batch, "analyze_document", boom)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        [row] = list(csv.DictReader(handle))
+    assert (row["withholding_denominator_mode"], row["withholding_denominator_label"]) == ("", "")
+
+
+# --- Audit round 3, R3-B24 (R3-16; standard G7, P22; true revenue spec §13): the large unsourced deposits' count and
+# total, information only, right after the non-revenue count (tests/test_large_unsourced_deposits.py pins the values).
+
+
+def test_r3_16_the_large_deposit_columns_follow_the_non_revenue_count():
+    start = batch.FIELDS.index("non_revenue_count")
+    assert batch.FIELDS[start:start + 4] == [
+        "non_revenue_count", "large_unsourced_deposit_count", "large_unsourced_deposit_total", "zelle_true_revenue"]
+    assert batch.FIELDS.count("large_unsourced_deposit_count") == 1
+
+
+def test_r3_16_the_error_row_leaves_the_large_deposit_cells_empty(monkeypatch, tmp_path):
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    monkeypatch.setattr(batch, "analyze_document", boom)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        [row] = list(csv.DictReader(handle))
+    assert (row["large_unsourced_deposit_count"], row["large_unsourced_deposit_total"]) == ("", "")
