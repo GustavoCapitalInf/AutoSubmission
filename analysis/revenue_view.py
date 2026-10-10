@@ -87,6 +87,7 @@ def unestablished_zelle_figures(figures: object, *, established: bool, verified_
     return {**figures, "by_tier": dict(sorted(slots.items(), key=lambda item: (order.get(item[0], len(order)),
                                                                               item[0])))}
 
+
 #: The final review of round 2, F1 (§10.4, §11; the owner's ruling of 2026-10-02 on the underwriter's Q7, R2-OW14, beside
 #: B11's I51 and the final review's M10): where the basis an account's withholding mode divides by is not established
 #: (`withholding_basis_unestablished`), the served copy publishes no rate over it: these are None, its
