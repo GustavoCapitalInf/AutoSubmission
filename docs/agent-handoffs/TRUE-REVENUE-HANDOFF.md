@@ -23,7 +23,8 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
   5.7) plus the owner's reports of 2026-10-07 and 2026-10-08: analysis stages 34 (the Capital One carry-in fix) and 35
   (the Bank of America daily-ledger table), and the app.js cache-bust values `true-revenue-7` and `true-revenue-8` (the
   dashboard-clarity and monthly-chart changes). This branch never reuses those values: R3-B25 skips them. The hosting
-  line is merged into `true-revenue` after this run, keeping this branch's values (§4).
+  line is merged into `true-revenue` after this run, never back to those values: the merge commit moves the stage and
+  the cache-bust value past both lines' (§4, item 5).
 - **Main checkout** (the OneDrive folder) is on `lender-detection` and must stay untouched: `git -C <main> status` prints only `## lender-detection`.
 - Nothing is running.
 
@@ -55,8 +56,10 @@ Corpus figures (re-parsed basis, 2,513 accounts; shares of posted credits; Zelle
 At round 2's acceptance the cached basis read True 70.04% and Verified 28.06%; G7 held from `c106634` on both bases
 (lenders gained 0, lost 0; the only lender-side moves were R2-OW13's declared returned-payment moves); the full suite
 failed only the 16 known tests of `lender-research/census/failed-ld-final.txt`. Round 3 moved True by +$419,550.25
-under Yes and +$430,640.25 under No and Verified by −$17,000.00 (one declared demotion, R3-B07), each the sum of the
-batches' recorded moves (spec §20, "Audit round 3 in all"); on the debit and lender side its declared moves are
+under Yes and +$430,640.25 under No, each the sum of the batches' recorded moves (spec §20, "Audit round 3 in all"),
+and Verified by −0.006 points (28.1145% → 28.1084%: one declared demotion, 1 row, R3-B07); the per-batch sums
+reconcile to the cent in R3-B25's LOCAL report (`round3/reports/R3-B25-report.md`), and no single statement's figure
+is written here; on the debit and lender side its declared moves are
 R3-B01's (the ODKRAOD alias, ONDECK under the R3-26 sign-off, and the bank charges naming a funder read as charges),
 R3-B02's re-debited returned payments and R3-B03's worded lump-sum payoffs. The round-3 head's figures above are
 R3-B25's measurement, before the Accept phase.
@@ -107,8 +110,15 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
 3. **Push** after scanning the new commit messages for statement values (fast-forward only).
 4. **The owner report** with the three headings (Blocked on me / Changed / Found), carrying §6.
 5. **Merge the hosting line back** before any release of `true-revenue`, with the owner's OK: `fix/boa-nsf` = `f2e9ae1`
-   (it holds `fix/capone-daily-ledger` `6c2eadb` and `ui/5.7-dashboard-clarity` `a858647`), keeping this branch's
-   analysis stage and cache-bust value; then ask the owner about the Fly release.
+   (it holds `fix/capone-daily-ledger` `6c2eadb` and `ui/5.7-dashboard-clarity` `a858647`). Never resolve the versions
+   toward the hosting line's values (stage 35, `true-revenue-8`). The merge changes analysis output (the Capital One
+   carry-in and Bank of America daily-ledger parsers) and app.js (the dashboard-clarity and monthly-chart changes), so
+   the merge commit itself moves the analysis stage and the cache-bust value to the next free values above both lines
+   (stage 37 and `true-revenue-10` while neither line has moved past 36 and `-9`): an entry cached at 36, or a `-9`
+   app.js, served before the merge (the Accept phase's real-browser run serves both locally) must never be read as the
+   merged code's. Until then stage 36 and `true-revenue-9` are this branch's: a further hosting-line change takes
+   stage 37 and `true-revenue-10` or above (and the merge then goes above those). Then ask the owner about the Fly
+   release.
 6. **The round-4 re-audit** of the branch (Opus), then fix and repeat until a round has no surviving non-owner issue.
    Templates: LOCAL `round2/handoff/templates/` and the round-3 workflow in `round3/handoff/`.
 
@@ -130,7 +140,7 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   - The PowerShell/Bash tools time out at 2 minutes in the foreground; use background runs for census work.
   - Stop orphaned census processes (`tools.revenue_census` / `tools.lender_census`) after a killed agent.
   - Snapshots written before the Zelle setting are compared as copies marked `zelle_true_revenue: true` (LOCAL `work/plan/accept2/mark_yes.py`).
-  - Version values used on another line (the hosting line's stages 34 and 35, its `true-revenue-7` and `-8`) are never reused here: a browser or a cache entry holding them would be served as this branch's.
+  - Version values used on another line (the hosting line's stages 34 and 35, its `true-revenue-7` and `-8`) are never reused here: a browser or a cache entry holding them would be served as this branch's. The reverse holds too: this branch's stage 36 and `true-revenue-9` are reserved: a further hosting-line change takes 37 and `-10` or above, and the merge-back commit takes the next free values above both lines (§4, item 5).
 
 ## 6. Open owner items
 
@@ -159,7 +169,10 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
     and in spec §19.1, not in `round2/owner/answers.md` (R3-B02's and R3-B03's concern 1); confirm them.
 - **History, owner only (a force-push):** R3-07, commits `a93aedc` and `949b9e1` (on `origin/true-revenue`) carry copied
   test values and a single statement's figure; R3-B14 landed the forward fix. R3-B12's review round 1 asked the same
-  about `9871cdf`'s spec text (per-statement figures, fixed forward). Rewriting either needs the owner's OK. (R3-B15's
+  about `9871cdf`'s spec text (per-statement figures, fixed forward), and R3-B25's review round 1 about `f72e1d9` and
+  `e7d9737` (this handoff's round paragraph, §20's round line and a docs pin wrote one row's and one small batch's
+  figures; fixed forward; unpushed when found, so whether history keeps them is the orchestrator's call before the
+  push and the owner's after it). Rewriting a pushed commit needs the owner's OK. (R3-B15's
   review round 2 left the round-2 spec lines of `5ecb620` with their copy of one statement's figure, as its finding
   allowed; a forward fix can drop it.)
 - **Owner items with evidence, no fix:** R3-28 (the daily core-processor template's unread credits counted in True:

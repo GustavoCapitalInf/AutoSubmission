@@ -3590,14 +3590,31 @@ def test_the_spec_and_the_handoff_record_r3_b25_s_round_3_documents():
 
 
 #: Audit round 3, R3-B25: the words §20's "Audit round 3 in all" line carries: this batch alone, then the round's True
-#: and Verified moves, each the sum of the batches' recorded moves in run order, and the declared demotion.
+#: and Verified moves, each the sum of the batches' recorded moves in run order, and the declared demotion. Review
+#: round 1 (finding 1): a batch whose rows sit in few statements, and the Verified move (one row), read in rows and
+#: points, as R3-B07's own line records them; the per-batch sums reconcile to the cent in the private report only.
 R3_B25_IN_ALL_WORDS = ("**this batch alone, 0 credits change**",
                        "`classification_version` 5.7 → 5.8 and `analysis_stage_version` 33 → 36",
-                       "+$419,550.25 under Yes", "+$430,640.25 under No", "−$17,000.00",
-                       "R3-B07 +$141,030.87", "R3-B09 −$6,025.01", "R3-B10 +$44,686.45",
-                       "R3-B12 −$28,590.00 under Yes and −$17,500.00 under No", "R3-B16 +$268,447.94",
-                       "`q5_q6_relayed_customer`", "G18 finds no parse move", "no row leaves or enters `non_revenue`",
-                       "G7")
+                       "+$419,550.25 under Yes", "+$430,640.25 under No",
+                       "R3-B07's 3 rows, +0.05 points", "R3-B09's 13 rows, −0.002 points",
+                       "R3-B10's 11 rows, +0.016 points",
+                       "R3-B12's 86 rows under Yes and 33 under No, −$28,590.00 under Yes and −$17,500.00 under No, "
+                       "as its line records", "R3-B16's 59 rows, +$268,447.94, as its line records",
+                       "the per-batch sums reconcile to the cent in R3-B25's private report",
+                       "Verified 28.1145% → 28.1084% (−0.006 points) in both readings, the round's one verified "
+                       "demotion, 1 row, declared (`q5_q6_relayed_customer`, R3-B07)",
+                       "True 70.0419% → 70.1648% (+0.12 points: R3-B16's 57 rows, R3-B07's 3, R3-B09's 7 and R3-B12's 84",
+                       "G18 finds no parse move", "no row leaves or enters `non_revenue`", "G7")
+
+#: Audit round 3, R3-B25 review round 1 (finding 1): the only cent figures the round's lines may carry are corpus
+#: totals and the round's True moves (many statements each), and the moves of R3-B12 and R3-B16, which their own §20
+#: lines already record. Any other cent figure there would be a few statements' money, or derive one by subtraction.
+R3_B25_ROUND_FIGURES = {"188,066,963.97", "278,307,943.20", "188,486,514.22", "419,550.25", "430,640.25",
+                        "28,590.00", "17,500.00", "268,447.94"}
+
+
+def _cent_figures(text: str) -> set:
+    return set(re.findall(r"\$(\d[\d,]*\.\d\d)\b", text))
 
 
 def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
@@ -3628,8 +3645,8 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
                   "computed when served or exported, never stored", "Nothing of this branch's between 33 and 36 was "
                   "released"):
         assert words in note, words
-    for batch in ("R3-B01", "R3-B02", "R3-B03", "R3-B04", "R3-B06", "R3-B07", "R3-B08", "R3-B09", "R3-B10", "R3-B11",
-                  "R3-B12", "R3-B15", "R3-B17", "R3-B18", "R3-B19", "R3-B20", "R3-B22", "R3-B23", "R3-B24"):
+    for batch in ("R3-B01", "R3-B02", "R3-B03", "R3-B04", "R3-B05", "R3-B06", "R3-B07", "R3-B08", "R3-B09", "R3-B10",
+                  "R3-B11", "R3-B12", "R3-B15", "R3-B17", "R3-B18", "R3-B19", "R3-B20", "R3-B22", "R3-B23", "R3-B24"):
         assert batch in note, batch
     notice = _amendment_line(amendments, "- **A 5.7 analysis gets the re-analyze notice, and its button recomputes it** (")
     for words in ("audit round 3, R3-B25", "§9.3", "`ANALYSIS_STAGE_VERSION` 33 → 36", "`app.js?v=true-revenue-9`",
@@ -3656,3 +3673,64 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
     assert "app.js?v=true-revenue-9" in html
     assert "true-revenue-7" not in html and "true-revenue-8" not in html
+
+
+def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_and_every_served_batch():
+    """Audit round 3, R3-B25 review round 1. Finding 1: §20's round line and the handoff's round paragraph carry no
+    cent figure but corpus totals, the round's True moves and the moves R3-B12's and R3-B16's own lines record; the
+    Verified move and R3-B07's, R3-B09's and R3-B10's steps read in rows and points. Finding 2: stage 36 and
+    `true-revenue-9` are reserved for this branch, and the hosting line's merge-back moves both past both lines'
+    values in its own commit (the merge changes analysis output and app.js). Finding 3: the stage note's and §9.3's
+    served/exported sentence names R3-B05's, R3-B06's and R3-B20's downloads and CLI output. §20 records the round."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    in_all = _amendment_line(amendments, "- **Audit round 3 in all** (")
+    assert _cent_figures(in_all) <= R3_B25_ROUND_FIGURES, _cent_figures(in_all) - R3_B25_ROUND_FIGURES
+    assert "Verified $" not in in_all
+    handoff = _flat(HANDOFF)
+    round_paragraph = handoff.split("Corpus figures (re-parsed basis", 1)[1].split("## 2. Owner instructions", 1)[0]
+    assert _cent_figures(round_paragraph) == {"419,550.25", "430,640.25"}, _cent_figures(round_paragraph)
+    assert ("Verified by −0.006 points (28.1145% → 28.1084%: one declared demotion, 1 row, R3-B07); the per-batch sums "
+            "reconcile to the cent in R3-B25's LOCAL report") in round_paragraph
+    # Finding 2: the merge-back takes the next free values above both lines; 36 and -9 stay this branch's.
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    note = (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8")
+    note = re.sub(r"\s*#\s*", " ", note.split("# 33 -> 36:", 1)[1].split("ANALYSIS_STAGE_VERSION = 36", 1)[0])
+    for text in (versions, note):
+        for words in ("never back to 34 or 35", "36 is reserved for this branch (a further hosting-line change takes 37 "
+                      "or above)", "the merge commit moves the stage", "the next free", "above both lines",
+                      "(37 if neither line has moved by then)"):
+            assert words in text, words
+        assert "keeping 36" not in text
+    assert "`true-revenue-10`" in versions
+    item_5 = handoff.split("5. **Merge the hosting line back**", 1)[1].split("6. **The round-4 re-audit**", 1)[0]
+    for words in ("Never resolve the versions toward the hosting line's values",
+                  "the merge commit itself moves the analysis stage and the cache-bust value to the next free values "
+                  "above both lines (stage 37 and `true-revenue-10` while neither line has moved past 36 and `-9`)",
+                  "Until then stage 36 and `true-revenue-9` are this branch's: a further hosting-line change takes "
+                  "stage 37 and `true-revenue-10` or above"):
+        assert words in item_5, words
+    assert "keeping this branch's" not in handoff
+    assert ("this branch's stage 36 and `true-revenue-9` are reserved: a further hosting-line change takes 37 and "
+            "`-10` or above, and the merge-back commit takes the next free values above both lines (§4, item 5)"
+            ) in handoff
+    notice = _amendment_line(amendments, "- **A 5.7 analysis gets the re-analyze notice, and its button recomputes it** (")
+    assert "keeping its own values" not in notice
+    assert "never back to those values (the merge commit moves the stage and the cache-bust value past both lines'" in notice
+    # Finding 3: the served/exported sentence names every batch whose download, CLI or batch output changed.
+    served_note = note.split("A warm cache keyed on 33 would serve each of them as the round-2 reading.", 1)[1].split(
+        "computed when served or exported, never stored", 1)[0]
+    served_spec = versions.split("What the batches changed where a statement or a package is served, downloaded or "
+                                 "summarised (", 1)[1].split("is computed then and needs no bump", 1)[0]
+    for served in (served_note, served_spec):
+        for words in ("R3-B05's", "R3-B06's", "R3-B20's", "R3-B22's", "R3-B23's", "R3-B24's",
+                      "`lender_payment_catch_ups`", "stop line", "`zelle_in_true_revenue_total`"):
+            assert words in served, words
+    line = _amendment_line(amendments, "- **R3-B25 review round 1: the round's lines carry no single statement's "
+                                       "figure, the merge-back moves the versions past both lines, and the served list "
+                                       "names every batch** (")
+    for words in ("audit round 3, R3-B25, review round 1 (findings 1 to 3)", "§9.3", "this commit",
+                  "R3-B07's own line", "the private report", "AST-identical", "no census"):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.index("- **Audit round 3 in all** (") < amendments.index("- **R3-B25 review round 1: ")

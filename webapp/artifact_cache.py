@@ -741,11 +741,16 @@ OCR_STAGE_VERSION = 5
 # stage from the cached reading). Stages 34 and 35 are skipped: the hosting
 # line (fix/boa-nsf, deployed on the Fly demo) used them for its Capital One
 # carry-in fix (34) and its Bank of America daily-ledger table (35), code this
-# branch merges after the run keeping 36, so no entry cached under 34 or 35 is
-# served as this branch's reading. The round-3 fix batches (R3-B01 to R3-B24)
-# changed stored output under 5.7 and stage 33 with no bump of their own:
-# R3-B01, the classification of a bank's stop-payment and item charges that
-# name a funder (`fee` or `nsf_or_return`, no lender row; R3-80) and of
+# branch merges after the run, never back to 34 or 35, so no entry cached under
+# 34 or 35 is served as this branch's reading. 36 is reserved for this branch
+# (a further hosting-line change takes 37 or above), and since the merge
+# changes the analysis output (those two parsers), the merge commit moves the
+# stage again, to the next free stage above both lines (37 if neither line has
+# moved by then), so no entry cached at 36 before the merge is served as the
+# merged code's (R3-B25 review round 1). The round-3 fix batches (R3-B01 to
+# R3-B24) changed stored output under 5.7 and stage 33 with no bump of their
+# own: R3-B01, the classification of a bank's stop-payment and item charges
+# that name a funder (`fee` or `nsf_or_return`, no lender row; R3-80) and of
 # ODKRAOD's debits as ONDECK's (R3-26: paid to lenders, the withholding
 # numerator and rates, the funder rollup); R3-B02, the record field
 # `represented_by` and, on a returned funder payment the funder re-debited, its
@@ -782,8 +787,14 @@ OCR_STAGE_VERSION = 5
 # reading. The package (R3-B03's mixed basis, R3-B06's reappearance, R3-B18's
 # `days_shared`, R3-B19's gate on the sums, R3-B20's Zelle `setting`, R3-B24's
 # large-deposit totals), the served flags (R3-B20's unestablished Zelle
-# parts, R3-B24's `large_unsourced_deposit_*`), the downloads (R3-B23), the
-# copied memos (R3-B22), the batch and CLI columns (R3-B22, R3-B24) and the
+# parts, R3-B24's `large_unsourced_deposit_*`), the downloads (R3-B05's
+# catch-up fields and notes, R3-B06's `reappears_in_other_account` cells,
+# R3-B20's empty Zelle cells and the package's `setting` row, R3-B23's
+# sections, empty cells and title filter, R3-B24's metric rows and sections),
+# the CLI and batch output (R3-B05's catch-up line and
+# `lender_payment_catch_ups` column, R3-B06's stop line, R3-B20's N/A Zelle
+# line and empty `zelle_in_true_revenue_total`, R3-B22's basis columns,
+# R3-B24's columns and line), the copied memos (R3-B22's, R3-B24's) and the
 # census tools are computed when served or exported, never stored. Nothing of
 # this branch's between 33 and 36 was released. OCR stays cached. Pinned in
 # the same change (`tests/test_artifact_cache.py`).

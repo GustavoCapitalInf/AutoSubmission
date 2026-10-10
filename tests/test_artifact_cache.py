@@ -525,7 +525,9 @@ def test_analysis_stage_version_is_pinned_at_36():
     stamped 5.7: 33 -> 36. Stages 34 and 35 are skipped: the hosting line
     (fix/boa-nsf, deployed on the Fly demo) used them for its Capital One
     carry-in fix (34) and Bank of America daily-ledger table (35), code this
-    branch merges after the run keeping 36. This is that pin."""
+    branch merges after the run, never back to 34 or 35; 36 is reserved for
+    this branch, and the merge commit moves the stage past both lines' values
+    (R3-B25 review round 1). This is that pin."""
     assert ANALYSIS_STAGE_VERSION == 36
 
 
