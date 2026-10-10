@@ -3165,3 +3165,47 @@ def test_r3_b20_the_code_names_its_rules():
     for words in ("const ZELLE_PRIOR_SIGNAL = \"zelle_prior:\";", "function zellePriorReading(record) {",
                   "function zellePriorSentence(record) {", "}, { package: true })} ` +"):
         assert words in script, words
+
+
+def test_the_spec_records_r3_b21():
+    """Audit round 3, R3-B21 (R3-78; documentation and a held patch only): §17.1's Q3b bullet widens the owner's
+    question to Zelle deposits that print no sender, with the default and both alternatives; §2.1's Q3b row points at
+    it; §20 records the batch. Nothing reaches the code: the hold stays held back (no reason code, no predicate)."""
+    from analysis import true_revenue
+    from analysis.revenue import REVENUE_TIER_REASONS
+
+    text = SPEC.read_text(encoding="utf-8")
+    still_open = re.sub(r"\s+", " ", _section(text, "\n### 17.1 ", "\n## 18. "))
+    [q3b] = [line for line in still_open.split(" - **") if line.startswith("No-sender e-Transfers' round-sum repeats")]
+    for words in ("leaves Q3b as it is: still held back from the code, the round-repeat hold for no-sender e-Transfers "
+                  "unchanged. Since the amendment counts Zelle by default, the same question reaches Zelle deposits "
+                  "that print no sender (Bank of America's 'ZELLE PAYMENT FROM CONF <reference>', Chase's transaction "
+                  "export 'ZELLE CREDIT', U.S. Bank's 'ZELLE INSTANT PMT TO <name>').",
+                  "Under Yes, 78 such rows, $47,363.14, in 21 statements are counted `p2p` today; 7 rows, $2,500.00, "
+                  "in 1 statement repeat an equal round sum.",
+                  "Default (audit round 3, R3-78): the held patch covers them too (`_no_sender_p2p`), so they are held "
+                  "with the e-Transfers when Q3b lands; alternative: e-Transfers only.",
+                  "Keyless Venmo and Cash App cash-outs, RTP and push rails stay outside the hold (default); "
+                  "alternative: include them (an approximate probe found equal round repeats in 8 statements, 16 rows, "
+                  "$159,600.00).",
+                  "`R3-B21_q3b_no_sender_zelle.patch`"):
+        assert words in q3b, words
+    rulings = _section(text, "\n## 2. Owner rulings (2026-09-28)", "\n## 3. ")
+    [row] = [line for line in rulings.splitlines() if line.startswith("| Q3b (2026-10-02, round-2 R09) |")]
+    assert "(scope: §17.1, R3-78)" in row and "**Not yet in the code**" in row
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **No-sender Zelle deposits join Q3b's question and its saved patch**")
+    for words in ("audit round 3, R3-B21 (documentation and a held patch only)", "R3-78",
+                  "`R3-B21_q3b_no_sender_zelle.patch`", "`_no_sender_p2p`", "nothing reaches the code",
+                  "fail on the port as saved (6 tests: the Zelle rows stay counted) and pass on the widened patch",
+                  "under Yes, 458 rows, $1,015,100.00 (0.539% of True), in 89 statements",
+                  "the e-Transfer part as saved, 451 rows, $1,012,600.00 (0.537%), in 88 statements",
+                  "the Zelle widening, 7 rows, $2,500.00, in 1 statement", "only their `zelle_prior` changing"):
+        assert words in line, words
+    measured = _amendment_line(amendments, "- **Audit round 3, R3-B21 in all**")
+    for words in ("the tip carries the base's code", "equal the base's in every key in both Zelle readings",
+                  "No G7 and no parser gate", "no stored output and no version bump"):
+        assert words in measured, words
+    # Held back: the code carries neither the reason code nor the predicate.
+    assert "p2p_round_repeat_no_sender" not in REVENUE_TIER_REASONS
+    assert not hasattr(true_revenue, "_no_sender_p2p") and not hasattr(true_revenue, "NO_SENDER_ROUND_REPEAT")
