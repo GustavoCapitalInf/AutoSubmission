@@ -16,7 +16,8 @@ Everything below marked LOCAL lives only on the owner's office PC and holds mask
   deployed: the Fly demo runs the hosting line below.
 - **Versions:** classification **5.8**, analysis stage **36** (`webapp/artifact_cache.py`), set by R3-B25's versions
   commit, the run's last, once for the whole round (spec §9.3); stages 34 and 35 and the cache-bust values
-  `true-revenue-7` and `-8` are skipped (the hosting line below used them), so the page asks for `true-revenue-9`.
+  `true-revenue-7` and `-8` are skipped (the hosting line below used them), so the page asked for `true-revenue-9`;
+  the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asks for `true-revenue-10`.
   Neither is released.
 - **The hosting line:** `fix/boa-nsf` = `f2e9ae1` (it holds `fix/capone-daily-ledger` `6c2eadb` and
   `ui/5.7-dashboard-clarity` `a858647`) is live on the Fly demo as release v21. It is round 2's code (classification
@@ -114,11 +115,11 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
    toward the hosting line's values (stage 35, `true-revenue-8`). The merge changes analysis output (the Capital One
    carry-in and Bank of America daily-ledger parsers) and app.js (the dashboard-clarity and monthly-chart changes), so
    the merge commit itself moves the analysis stage and the cache-bust value to the next free values above both lines
-   (stage 37 and `true-revenue-10` while neither line has moved past 36 and `-9`): an entry cached at 36, or a `-9`
-   app.js, served before the merge (the Accept phase's real-browser run serves both locally) must never be read as the
-   merged code's. Until then stage 36 and `true-revenue-9` are this branch's: a further hosting-line change takes
-   stage 37 and `true-revenue-10` or above (and the merge then goes above those). Then ask the owner about the Fly
-   release.
+   (stage 37 and `true-revenue-11` while neither line has moved past 36 and `-10`; it read `true-revenue-10` and `-9`
+   until R3-FF's F6 took `-10`): an entry cached at 36, or a `-9` or `-10` app.js, served before the merge (the Accept
+   phase's real-browser run serves 36 and `-9` locally) must never be read as the merged code's. Until then stage 36
+   and `true-revenue-10` are this branch's (and `-9`, which it served): a further hosting-line change takes stage 37
+   and `true-revenue-11` or above (and the merge then goes above those). Then ask the owner about the Fly release.
 6. **The round-4 re-audit** of the branch (Opus), then fix and repeat until a round has no surviving non-owner issue.
    Templates: LOCAL `round2/handoff/templates/` and the round-3 workflow in `round3/handoff/`.
 
@@ -140,7 +141,7 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   - The PowerShell/Bash tools time out at 2 minutes in the foreground; use background runs for census work.
   - Stop orphaned census processes (`tools.revenue_census` / `tools.lender_census`) after a killed agent.
   - Snapshots written before the Zelle setting are compared as copies marked `zelle_true_revenue: true` (LOCAL `work/plan/accept2/mark_yes.py`).
-  - Version values used on another line (the hosting line's stages 34 and 35, its `true-revenue-7` and `-8`) are never reused here: a browser or a cache entry holding them would be served as this branch's. The reverse holds too: this branch's stage 36 and `true-revenue-9` are reserved: a further hosting-line change takes 37 and `-10` or above, and the merge-back commit takes the next free values above both lines (§4, item 5).
+  - Version values used on another line (the hosting line's stages 34 and 35, its `true-revenue-7` and `-8`) are never reused here: a browser or a cache entry holding them would be served as this branch's. The reverse holds too: this branch's stage 36 and `true-revenue-9` and `-10` (R3-FF's F6) are reserved: a further hosting-line change takes 37 and `-11` or above, and the merge-back commit takes the next free values above both lines (§4, item 5).
 
 ## 6. Open owner items
 

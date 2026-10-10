@@ -798,6 +798,11 @@ OCR_STAGE_VERSION = 5
 # census tools are computed when served or exported, never stored. Nothing of
 # this branch's between 33 and 36 was released. OCR stays cached. Pinned in
 # the same change (`tests/test_artifact_cache.py`).
+# The round's final review (R3-FF) is folded into 36, still unreleased: the
+# stored `metrics.withholding_formula` words (F5) and, latent in the corpus, a
+# returned payment whose only re-debit was a worded payoff (F3) and a wire from
+# a company named only with R3-40's words (F4); its member-row rates (F2) and
+# large-deposit floor (F6) are computed when served.
 ANALYSIS_STAGE_VERSION = 36
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1

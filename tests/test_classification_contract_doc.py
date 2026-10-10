@@ -928,7 +928,12 @@ def test_the_spec_and_the_contract_state_the_returned_funder_payments():
     for words in (f"Owner ruling 2026-10-02, R2-OW13 (the underwriter's Q5, \"Match the return to the funder payment it "
                   f"reverses\"; {R2_OW13_CODE_COMMIT})", "`RETURNED_FUNDER_PAYMENT_WINDOW_DAYS = 7`",
                   "the returned funder payment pass (above, R2-OW13)", "`returned_funder_payment_count` and `returned_funder_payment_total`",
-                  "`withholding_rate = abs(paid lender debits + returned funder payments) / withholding basis * 100`"):
+                  # Audit round 3, final review (R3-FF), F5: the formula's words name what the numerator sums; the old
+                  # words stay quoted as what it read.
+                  "`withholding_rate = abs(paid lender debits - worded lump-sum payoffs + returned funder payments not "
+                  "re-debited) / withholding basis * 100`",
+                  "(It read `abs(paid lender debits + returned funder payments) / withholding basis * 100` until the "
+                  "final review of audit round 3, R3-FF's F5"):
         assert words in contract, words
     assert "abs(total_qualifying_lender_debits)" not in contract
     assert ("Statement passes run in this order: duplicates (proven by a repeated printed running balance); recurrence "
@@ -3705,16 +3710,19 @@ def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_
         assert "keeping 36" not in text
     assert "`true-revenue-10`" in versions
     item_5 = handoff.split("5. **Merge the hosting line back**", 1)[1].split("6. **The round-4 re-audit**", 1)[0]
+    # Audit round 3, final review (R3-FF), F6: this branch took `true-revenue-10` itself, so the reservation and the
+    # merge-back's values move one step (the merge to `-11` while neither line moves; the hosting line to `-11` or above).
     for words in ("Never resolve the versions toward the hosting line's values",
                   "the merge commit itself moves the analysis stage and the cache-bust value to the next free values "
-                  "above both lines (stage 37 and `true-revenue-10` while neither line has moved past 36 and `-9`)",
-                  "Until then stage 36 and `true-revenue-9` are this branch's: a further hosting-line change takes "
-                  "stage 37 and `true-revenue-10` or above"):
+                  "above both lines (stage 37 and `true-revenue-11` while neither line has moved past 36 and `-10`; it "
+                  "read `true-revenue-10` and `-9` until R3-FF's F6 took `-10`)",
+                  "Until then stage 36 and `true-revenue-10` are this branch's (and `-9`, which it served): a further "
+                  "hosting-line change takes stage 37 and `true-revenue-11` or above"):
         assert words in item_5, words
     assert "keeping this branch's" not in handoff
-    assert ("this branch's stage 36 and `true-revenue-9` are reserved: a further hosting-line change takes 37 and "
-            "`-10` or above, and the merge-back commit takes the next free values above both lines (§4, item 5)"
-            ) in handoff
+    assert ("this branch's stage 36 and `true-revenue-9` and `-10` (R3-FF's F6) are reserved: a further hosting-line "
+            "change takes 37 and `-11` or above, and the merge-back commit takes the next free values above both lines "
+            "(§4, item 5)") in handoff
     notice = _amendment_line(amendments, "- **A 5.7 analysis gets the re-analyze notice, and its button recomputes it** (")
     assert "keeping its own values" not in notice
     assert "never back to those values (the merge commit moves the stage and the cache-bust value past both lines'" in notice
@@ -3735,3 +3743,85 @@ def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_
         assert words in line, words
     assert not _cent_figures(line)
     assert amendments.index("- **Audit round 3 in all** (") < amendments.index("- **R3-B25 review round 1: ")
+
+
+#: Audit round 3, final review (R3-FF): each finding's code commit, which §20 and the contract name.
+R3_FF_COMMITS = {"F1": "64dc273", "F3": "0d751bb", "F5": "1a5702e", "F2": "2207172", "F4": "06cc808", "F6": "3e2a08a"}
+
+
+def test_the_spec_the_contract_and_the_handoff_record_r3_ff():
+    """Audit round 3, final review (R3-FF): §6.2's pass 7c (F3), §8.5's Held (F4), §9.1's formula (F5), §9.2's member
+    rows (F2), §9.3's folded line, §10.1's and §13's floor (F6), one §20 line per finding with its commit and one for
+    the final review in all; the contract's formula, member-row sentence and entry; the handoff's cache-bust value; and
+    the code's names they cite."""
+    from analysis import represented_payments, true_revenue
+    from analysis.metrics import WITHHOLDING_FORMULA
+    import analyze
+    from tools import l1s3_surface_census
+
+    formula = ("abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / "
+               "withholding basis * 100")
+    assert WITHHOLDING_FORMULA == formula
+    assert "webapp/app.py::_account_analysis_rows" in l1s3_surface_census.EXCUSED
+    assert callable(represented_payments.out_of_rate_payment) and callable(analyze._unit_money)
+    assert "SELECT" in true_revenue._WIRE_COMPANY_NAME_WORDS and "BUSINESS" not in true_revenue._WIRE_COMPANY_NAME_WORDS
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    flat = {name: re.sub(r"\s+", " ", _section(sections, start, end)) for name, start, end in (
+        ("6.2", "\n### 6.2 ", "\n### 6.3 "), ("8.5", "\n### 8.5 ", "\n### 8.6 "), ("9.1", "\n### 9.1 ", "\n### 9.2 "),
+        ("9.2", "\n### 9.2 ", "\n### 9.3 "), ("9.3", "\n### 9.3 ", "\n## 10. "), ("10.1", "\n### 10.1 ", "\n### 10.2 "),
+        ("13", "\n## 13. ", "\n## 14. "))}
+    for section, words in (
+        ("6.2", "Audit round 3, final review (R3-FF), F3 (§20): a paid debit the rate leaves out "
+                "(`out_of_rate_payment`: R3-79's worded lump-sum payoff) is never the re-debit, here and in the "
+                "package's pass 5"),
+        ("8.5", "audit round 3, final review (R3-FF), F4 (§20; Q5 of 2026-09-28): a company named only with R3-40's "
+                "product and holder-noise words (`_WIRE_COMPANY_NAME_WORDS`"),
+        ("8.5", "unless its name words are all words of the holder's own name"),
+        ("9.1", f"(audit round 3, final review (R3-FF), F5, §20: it now reads \"{formula}\""),
+        ("9.2", "Audit round 3, final review (R3-FF), F2 (§20): the package also moves a member's NUMERATOR without "
+                "its basis"),
+        ("9.3", "- The final review of round 3 (R3-FF: F1 to F6, §20): no bump; folded into 5.8 and stage 36, which no "
+                "release carries"),
+        ("9.3", "The app.js cache-bust moves to `true-revenue-10` (F6)"),
+        ("9.3", "this branch's app.js moved to `true-revenue-10` itself, so the merge's next free value is "
+                "`true-revenue-11`"),
+        ("10.1", "(audit round 3, final review (R3-FF), F6, §20: the floor is written in the unit it is compared in"),
+        ("13", "(audit round 3, final review (R3-FF), F6: the total and the floor in the statement's unit, "
+               "`_unit_money`"),
+    ):
+        assert words in flat[section], (section, words)
+    for finding, start, words in (
+        ("F1", "- **The L1-S3 surface census excuses R3-B23's title filter** (", ("`EXCUSED`", "Tool only")),
+        ("F3", "- **A worded payoff is never a returned payment's re-debit** (", ("`out_of_rate_payment`", "G7")),
+        ("F5", "- **The withholding formula names what its numerator sums** (", (formula, "Words only")),
+        ("F2", "- **A package member row's rate is its own numerator over its own basis** (",
+         ("R3-72", "the census reads no package")),
+        ("F4", "- **A wire from a company named only with generic words names its sender** (",
+         ("`_WIRE_COMPANY_NAME_WORDS`", "revenue census")),
+        ("F6", "- **The large-deposit floor is written in the statement's unit** (",
+         ("`true-revenue-10`", "`_unit_money`")),
+    ):
+        line = _amendment_line(amendments, start)
+        assert f"audit round 3, final review (R3-FF), {finding}; {R3_FF_COMMITS[finding]}" in line, finding
+        for word in words:
+            assert word in line, (finding, word)
+    in_all = _amendment_line(amendments, "- **The final review of round 3 in all** (")
+    for words in ("audit round 3, final review (R3-FF)", "c49a0a8", "Zelle", "G7", "F7"):
+        assert words in in_all, words
+    assert not _cent_figures(in_all)
+    assert amendments.index("- **R3-B25 review round 1: ") < amendments.index(
+        "- **The L1-S3 surface census excuses R3-B23's title filter** (") < amendments.index(
+        "- **The final review of round 3 in all** (")
+    contract = _flat(CONTRACT)
+    for words in (f"`withholding_rate = {formula}`",
+                  "and (audit round 3, final review, R3-FF's F2) so is each where the package moved its numerator alone",
+                  "- The final review of audit round 3, R3-FF (F1 to F6; " + ", ".join(
+                      R3_FF_COMMITS[key] for key in ("F1", "F3", "F5", "F2", "F4", "F6")) + "), folded into 5.8 and "
+                  "stage 36 (unreleased)"):
+        assert words in contract, words
+    assert contract.index("Audit round 3, R3-B25: classification 5.8") < contract.index(
+        "- The final review of audit round 3, R3-FF (")
+    handoff = _flat(HANDOFF)
+    assert "the final review's fixes (R3-FF, folded into 5.8 and 36) changed app.js, so it asks for `true-revenue-10`" in (
+        handoff)
