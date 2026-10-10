@@ -1928,13 +1928,53 @@ function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null)
   `;
 }
 
+// Audit round 3, R3-B20 (R3-51; true revenue spec §10.6, §10.7): the context signal that keeps the rules' own
+// reading of a Zelle deposit the policy excluded ('zelle_prior:<tier>:<reason>'); analysis/true_revenue.py
+// `_ZELLE_PRIOR`.
+const ZELLE_PRIOR_SIGNAL = "zelle_prior:";
+
+// R3-51: the tier and reason the rules gave a Zelle deposit the policy excluded, {tier, reason} (reason null where none
+// was recorded), or null for any other row. It mirrors analysis/true_revenue.py `zelle_prior_reading`: the first signal
+// with the prefix, split at its first colon.
+function zellePriorReading(record) {
+  const signals = record && Array.isArray(record.revenue_context_signals) ? record.revenue_context_signals : [];
+  const signal = signals.find((entry) => typeof entry === "string" && entry.startsWith(ZELLE_PRIOR_SIGNAL));
+  if (signal === undefined) return null;
+  const rest = signal.slice(ZELLE_PRIOR_SIGNAL.length);
+  const colon = rest.indexOf(":");
+  if (colon < 0) return { tier: rest, reason: null };
+  return { tier: rest.slice(0, colon), reason: rest.slice(colon + 1) || null };
+}
+
+// R3-51: under No, the sentence an excluded Zelle deposit adds on the reading the rules give it with Zelle counted,
+// so a reviewer sees a hold before the one-click Confirm releases it (in both settings, §17.1 default (4)); "" without
+// a prior. The label is the reason's (REVENUE_TIER_REASONS), or the code itself where the table lacks it, as
+// true_revenue `_zelle_excluded` names it.
+function zellePriorSentence(record) {
+  const prior = zellePriorReading(record);
+  if (!prior) return "";
+  const entry = REVENUE_TIER_REASONS[prior.reason];
+  const label = entry ? entry[1] : (prior.reason || prior.tier);
+  if (prior.tier === "excluded_pending_review") {
+    return ` With Zelle counted (Yes), the rules hold it for review: ${label}.`
+      + " Confirm Revenue releases it in both settings.";
+  }
+  if (prior.tier === "counted_flagged") return ` With Zelle counted (Yes), it counts as: ${label}.`;
+  if (prior.tier === "verified") return " With Zelle counted (Yes), it is Verified revenue.";
+  return "";
+}
+
 function revenueReviewReason(tx) {
   const record = transactionClassification(tx);
   if (txAmount(tx) <= 0) return "";
   // 5.6 (true revenue spec §10.6): a counted or held credit names its reason, and one sentence on it.
   const entry = REVENUE_TIER_REASONS[record.revenue_tier_reason];
   // R2-OW03: so does a non_revenue row that carries a non-revenue code (the Zelle policy's, Q12's display reason).
-  if (entry && record.revenue_tier === "non_revenue" && entry[0] === "non_revenue") return `${entry[1]}. ${entry[2]}`;
+  // Audit round 3, R3-B20 (R3-51): a Zelle deposit the policy excluded adds the rules' reading with Zelle counted.
+  if (entry && record.revenue_tier === "non_revenue" && entry[0] === "non_revenue") {
+    const prior = record.revenue_tier_reason === "zelle_excluded" ? zellePriorSentence(record) : "";
+    return `${entry[1]}. ${entry[2]}${prior}`;
+  }
   if (entry && (record.revenue_tier === "counted_flagged" || record.revenue_tier === "excluded_pending_review")) {
     // Audit round 2, R2-B07 (R07): a credit the reader marked unread carries the payer blocks it could not attribute
     // to one row (unread_payer_text), printed so a reviewer can release a customer's row a lender's block held.
