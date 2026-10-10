@@ -4553,15 +4553,27 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # moved credits), its rate and potential exposure are its own numerators over that basis; elsewhere they are the
         # stored figures, as before. Neither is published under R3-20's floor (`withholding_basis_publishable`) or where
         # F1 refuses the member's basis.
+        # Audit round 3, final review (R3-FF), F2: the package can move the NUMERATOR without the basis too (pass 5's
+        # cross-statement re-debit, R3-73, takes a returned payment out of it; pass 4's returned payoff, R3-79 with Q5,
+        # puts one back), so each figure is its own numerator over the row's basis wherever that numerator or the basis
+        # moved from the stored figures; the N/A rules above are unchanged.
         member_rate_published = (
             withholding_basis_publishable(eligible_deposits, denominator_mode) and not member_basis_unestablished)
-        if round(eligible_deposits, 2) != round(stored_eligible_deposits, 2):
+        basis_moved = round(eligible_deposits, 2) != round(stored_eligible_deposits, 2)
+        stored_numerator = _num(metrics.get("withholding_numerator"), float("nan"))
+        stored_potential_numerator = _num(metrics.get("potential_withholding_numerator"),
+                                          _num(metrics.get("potential_lender_debit_total"), float("nan")))
+        if basis_moved or (isfinite(stored_numerator)
+                           and round(withholding_numerator, 2) != round(stored_numerator, 2)):
             member_withholding_rate = (
                 abs(withholding_numerator) / eligible_deposits * 100 if member_rate_published else None)
+        else:
+            member_withholding_rate = metrics.get("withholding_rate") if member_rate_published else None
+        if basis_moved or (isfinite(stored_potential_numerator)
+                           and round(potential_lender_debit_total, 2) != round(stored_potential_numerator, 2)):
             member_potential_exposure = (
                 abs(potential_lender_debit_total) / eligible_deposits * 100 if member_rate_published else None)
         else:
-            member_withholding_rate = metrics.get("withholding_rate") if member_rate_published else None
             member_potential_exposure = metrics.get("potential_withholding_exposure") if member_rate_published else None
         doc_row = {
             # One row per MEMBER. An account of a multi-account document is

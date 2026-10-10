@@ -242,6 +242,29 @@ def test_the_package_keeps_it_in_paid_and_out_of_the_numerator():
     assert "lump_sum_payoff_total" not in plain["totals"] and "lump_sum_payoffs" not in plain
 
 
+def test_ff_f2_a_member_row_s_rate_counts_the_returned_payoff_it_prints():
+    """The final review's F2 (probe p2): a 5,000.00 payoff paid in March and returned at the start of April rejoins the
+    rate (R3-79 with Q5, the package's pass 4): March's member row prints a numerator of 8,400.00 over 30,000.00, so its
+    rate is 28.0, not the 11.33 March alone publishes (the payoff out). The package rate is unchanged."""
+    from tests.test_package_matching import _closing, _package as _matched_package, _payload as _month_payload
+    from tests.test_represented_funder_payments import (
+        BARE_BOUNCE, KAPITUS_BAKERY, KAPITUS_BAKERY_PAYOFF, NW_APRIL, NW_MARCH)
+
+    march_rows = sorted([(3, NW_MARCH, 30000.0)] + [(day, KAPITUS_BAKERY, -850.0) for day in (4, 11, 18, 25)]
+                        + [(27, KAPITUS_BAKERY_PAYOFF, -5000.0)], key=lambda row: row[0])
+    april_rows = sorted([(1, BARE_BOUNCE, 5000.0), (2, NW_APRIL, 30000.0)]
+                        + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)], key=lambda row: row[0])
+    march = _month_payload(march_rows, month=3, opening=5000.0)
+    april = _month_payload(april_rows, month=4, opening=_closing(march_rows, 5000.0))
+    assert (march["metrics"]["withholding_numerator"], march["metrics"]["lump_sum_payoff_total"]) == (3400.0, 5000.0)
+    package = _matched_package(("mar", march), ("apr", april))
+    assert package["totals"]["package_withholding_rate"] == pytest.approx(11800.0 / 60000.0 * 100, abs=0.01)
+    rows = {row["id"]: row for row in package["documents"]}
+    assert (rows["mar"]["withholding_numerator"], rows["mar"]["withholding_denominator"]) == (8400.0, 30000.0)
+    assert rows["mar"]["withholding_rate"] == pytest.approx(28.0)  # was 11.33
+    assert rows["apr"]["withholding_rate"] == april["metrics"]["withholding_rate"]
+
+
 def test_the_downloads_carry_it():
     from webapp.app import _account_analysis_rows, _displayed, _package_csv
 

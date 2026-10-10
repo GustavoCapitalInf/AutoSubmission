@@ -520,6 +520,57 @@ def test_package_a_statement_s_returned_payment_re_debited_in_the_next_statement
     assert _package(("mar", march))["totals"]["withholding_numerator"] == 3400.0
 
 
+def _member_rates(package):
+    """{member id: (numerator, basis, rate, potential exposure)} of the package's document rows."""
+    return {row["id"]: (row["withholding_numerator"], row["withholding_denominator"], row["withholding_rate"],
+                        row["potential_withholding_exposure"]) for row in package["documents"]}
+
+
+def test_ff_f2_a_member_row_s_rate_is_its_own_numerator_over_its_own_basis():
+    """The final review's F2 (probe p1, this file's own package case): the package's pass 5 takes March 25's payment
+    out of March's numerator (re-debited on April 3), not its basis; the member row printed March's stored rate,
+    3,400.00 over 30,000.00, beside a numerator of 2,550.00. A member row divides the numerator it prints by the basis
+    it prints (R3-72's ruling), whichever of the two the package moved."""
+    from tests.test_package_matching import _package
+    from webapp.app import _package_rows
+
+    march, april = _months([*MARCH, (28, BARE_BOUNCE, 850.0)],
+                           [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0)]
+                           + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)])
+    assert march["metrics"]["withholding_rate"] == pytest.approx(3400.0 / 30000.0 * 100)
+    package = _package(("mar", march), ("apr", april))
+    rates = _member_rates(package)
+    numerator, basis, rate, exposure = rates["mar"]
+    assert (numerator, basis) == (2550.0, 30000.0)
+    assert rate == pytest.approx(8.5)  # was 11.33, March's stored rate
+    assert exposure == pytest.approx(0.0)
+    # April's figures are its stored ones, unchanged.
+    assert rates["apr"] == (4250.0, 30000.0, april["metrics"]["withholding_rate"],
+                            april["metrics"]["potential_withholding_exposure"])
+    # The package rate and each statement alone are unchanged.
+    assert package["totals"]["package_withholding_rate"] == pytest.approx(6800.0 / 60000.0 * 100, abs=0.01)
+    assert _package(("mar", march))["documents"][0]["withholding_rate"] == march["metrics"]["withholding_rate"]
+    # The download's document row prints the same.
+    cells = {(section, field): value for section, field, value in _package_rows(package)}
+    document = next(section for (section, field), value in cells.items() if field == "id" and value == "mar")
+    assert cells[(document, "withholding_rate")] == pytest.approx(8.5)
+    assert cells[(document, "withholding_numerator")] == 2550.0
+
+
+def test_ff_f2_a_member_whose_basis_publishes_no_rate_still_prints_none():
+    """The N/A rules stay as they are: a basis under R3-20's floor publishes no rate, whatever the package moved."""
+    from tests.test_package_matching import _package
+
+    march_rows = [(3, NW_MARCH, 400.0)] + [(day, KAPITUS_BAKERY, -850.0) for day in (4, 11, 18, 25)]
+    march, april = _months([*march_rows, (28, BARE_BOUNCE, 850.0)],
+                           [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0)]
+                           + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)])
+    assert march["metrics"]["withholding_rate"] is None
+    package = _package(("mar", march), ("apr", april))
+    numerator, basis, rate, exposure = _member_rates(package)["mar"]
+    assert (numerator, basis, rate, exposure) == (2550.0, 400.0, None, None)
+
+
 def test_package_a_payment_pass_4_matched_and_re_debited_leaves_the_numerator():
     """Pass 4 matches April 1's bare bounce to March 25's payment; the funder re-debits it on Thursday April 3."""
     from tests.test_package_matching import _package
