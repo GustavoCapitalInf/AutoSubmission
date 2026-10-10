@@ -3090,9 +3090,11 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
     `represented_by` (the re-debit's location in its statement); paid to lenders, the lender count, the funder rollups
     and revenue never move, and each statement viewed alone keeps its own figures. Returns {(member key, the payment's
     location): the warning item's represented fields (`represented_date`, `_location`, `_kind`, `_job`, `_document`, and
-    `_account` for a statement of several accounts)}."""
+    `_account` for a statement of several accounts)}. Audit round 3, final review (R3-FF), F3: as in pass 7c, a paid
+    debit the rate leaves out (`out_of_rate_payment`: R3-79's worded lump-sum payoff, as its package copy reads after
+    pass 4) is never the re-debit; it stays in the series."""
     from analysis.lender_payment_changes import calendar_for
-    from analysis.represented_payments import Attempt, Returned, re_debits
+    from analysis.represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
 
     def record_of(entry: dict, position: int, row: dict) -> dict:
         overlay = (overlays.get(entry["key"]) or {}).get(position)
@@ -3107,6 +3109,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
     by_member: dict[tuple, list] = {}
     known: dict[tuple, list] = {}
     used: set[tuple] = set()
+    out_of_rate: set[tuple] = set()
     returns: list[tuple] = []
     for entry in matchable:
         rows_at = {location_of(row, position): (position, row) for position, row in entry["rows"]}
@@ -3121,6 +3124,9 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
             attempt = Attempt((entry["key"], position), record["canonical_entity"], day, abs(_row_cents(row)),
                               (day.toordinal(), entry["order"], position))
             by_member.setdefault(entry["key"], []).append(attempt)
+            if out_of_rate_payment(record.get("returned_funder_payment_by"),
+                                   record.get("contributes_to_withholding_rate")):
+                out_of_rate.add(attempt.key)  # R3-FF F3: never the re-debit
             taken = rows_at.get(record.get("represented_by") or "")
             if taken is not None:
                 used.add((entry["key"], taken[0]))  # a re-debit its own statement already took
@@ -3152,7 +3158,9 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
             continue
         series = [candidate for key in {entry["key"], *allowed} for candidate in by_member.get(key, [])]
         found = re_debits([Returned(attempt, credit_day)], series, calendar_for(entry["currency"]),
-                          may_re_debit=lambda _returned, candidate: candidate.key[0] in allowed, taken=list(used),
+                          may_re_debit=lambda _returned, candidate: (candidate.key[0] in allowed
+                                                                     and candidate.key not in out_of_rate),
+                          taken=list(used),
                           returns=[known_return for key in {entry["key"], *allowed}
                                    for known_return in known.get(key, [])])
         if attempt.key not in found:

@@ -713,4 +713,76 @@ def test_g7_the_snapshot_records_the_represented_rows(tmp_path, fake_payees):  #
     assert account["withholding_numerator"] == account["lender_debits"] == 4000.0
 
 
+# ------------------------------------------------- audit round 3, final review (R3-FF), F3: a payoff is no re-debit
+
+#: A confirmed funder's 2x debit printing a payoff word: R3-79's lump sum, out of the withholding rate.
+KAPITUS_PAYOFF = "KAPITUS DES:PAYOFF ID:000000001 INDN:CONTOSO PLUMBING LLC CO ID:0000000002 CCD"
+KAPITUS_BAKERY_PAYOFF = "KAPITUS DES:PAYOFF ID:000000001 INDN:CONTOSO BAKERY LLC CO ID:0000000002 CCD"
+
+
+def test_ff_f3_a_worded_payoff_never_catches_up_a_returned_payment():
+    """The final review's F3 (probe p4): the 13th's payment, returned on the 15th, and an exact 2x on the 20th that
+    prints PAYOFF. R3-79 takes the payoff out of the rate; were it the catch-up, R3-73 would take the returned attempt
+    out too and the obligation would count zero times. A paid debit out of the rate is never a re-debit: the returned
+    attempt stands (Q5), the payoff stays a lump sum."""
+    rows = _weekly(days=(6, 13, 27)) + [(20, KAPITUS_PAYOFF, -2000.0)]
+    statement = _statement(rows)
+    records = tc.classify_statement_transactions(statement)
+    assert _represented(records) == {}
+    returned = next(record for record in records if record.returned_funder_payment_by)
+    assert (returned.date, returned.contributes_to_withholding_rate, returned.represented_by) == (
+        "2054-03-13", True, None)
+    payoff = next(record for record in records if record.lump_sum_payoff)
+    assert (payoff.date, payoff.lump_sum_payoff, payoff.contributes_to_withholding_rate,
+            payoff.contributes_to_lender_totals) == ("2054-03-20", "PAYOFF", False, True)
+    metrics = compute_metrics(statement, classifications=records)
+    # Paid 6th, 20th and 27th; the numerator the 6th, the 27th and the standing returned 13th (the payoff out).
+    assert (metrics.lender_debits, metrics.withholding_numerator, metrics.lump_sum_payoff_total) == (
+        4000.0, 3000.0, 2000.0)
+    # The warning item names no re-debit.
+    [item] = detect(statement, classifications=records).returned_funder_payments
+    assert "represented_date" not in item
+
+
+def test_ff_f3_control_the_same_2x_without_a_payoff_word_still_catches_up():
+    rows = _weekly(days=(6, 13, 27)) + [(20, KAPITUS, -2000.0)]
+    records = tc.classify_statement_transactions(_statement(rows))
+    assert _represented(records) == {"13": ("20", "caught_up")}
+    assert not any(record.lump_sum_payoff for record in records)
+
+
+def test_ff_f3_the_package_never_takes_a_payoff_as_the_re_debit():
+    """The package pass reads the same candidates: March 25's payment, returned on the 28th, and an exact 2x on
+    Thursday April 3 that prints PAYOFF. The payment stands in the package's numerator; the payoff stays out of it."""
+    from tests.test_package_matching import _package
+
+    april = [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY_PAYOFF, -1700.0)] + [
+        (day, KAPITUS_BAKERY, -850.0) for day in (8, 15, 22)]
+    march, april = _months([*MARCH, (28, BARE_BOUNCE, 850.0)], april)
+    assert _numerators(march, april) == [3400.0, 2550.0]
+    assert april["metrics"]["lump_sum_payoff_total"] == 1700.0
+    package = _package(("mar", march), ("apr", april))
+    totals = package["totals"]
+    # Paid: March's three standing payments and April's four debits; the numerator March's four (the returned one
+    # standing) and April's three, the payoff out.
+    assert (totals["lender_debits"], totals["withholding_numerator"]) == (6800.0, 5950.0)
+    [item] = package["returned_funder_payments"]
+    assert item["debit_date"] == "2031-03-25" and "represented_date" not in item
+    debit = next(row for row in package["transactions"] if row["source_job"] == "mar"
+                 and row["date"] == "2031-03-25")["classification"]
+    assert (debit["contributes_to_withholding_rate"], debit.get("represented_by")) == (True, None)
+
+
+def test_ff_f3_control_the_package_s_plain_2x_still_catches_up():
+    from tests.test_package_matching import _package
+
+    april = [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -1700.0)] + [
+        (day, KAPITUS_BAKERY, -850.0) for day in (8, 15, 22)]
+    march, april = _months([*MARCH, (28, BARE_BOUNCE, 850.0)], april)
+    package = _package(("mar", march), ("apr", april))
+    [item] = package["returned_funder_payments"]
+    assert (item["represented_date"], item["represented_kind"]) == ("2031-04-03", "caught_up")
+    assert package["totals"]["withholding_numerator"] == 3400.0 - 850.0 + 4250.0
+
+
 from tests.flag_group_fixtures import fake_payees  # noqa: E402,F401  (fixture)

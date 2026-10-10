@@ -105,6 +105,16 @@ class Returned:
     returned_on: date
 
 
+def out_of_rate_payment(returned_funder_payment_by: object, contributes_to_withholding_rate: object) -> bool:
+    """Audit round 3, final review (R3-FF), F3: a PAID attempt (no return took it) that the withholding rate leaves out,
+    today exactly R3-79's worded lump-sum payoff (`lump_sum_payoff`, out of the rate, in paid to lenders). It is never a
+    returned payment's re-debit: the returned attempt would leave the numerator by R3-73 beside the payoff leaving it by
+    R3-79, so the bounced obligation would count zero times. It stays an attempt of the series (its schedule and its 2x
+    level read it). A returned attempt is never one, whatever its rate: a re-presentment that bounced again, and was
+    re-debited in its turn, still re-presents the payment before it."""
+    return not returned_funder_payment_by and contributes_to_withholding_rate is not True
+
+
 def _schedule(days: Sequence[date], calendar: str) -> str | None:
     cadence = payment_cadence(days, calendar)
     cadence = "daily" if cadence == "daily_irregular" else cadence

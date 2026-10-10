@@ -6462,8 +6462,11 @@ def _apply_represented_funder_payments(
     `represented_by` names the re-debit and its reason gains a sentence; nothing else moves (paid to lenders, the lender
     count, `reversed_by`, the re-debit itself and every revenue field stay as they were). Until such a re-debit exists
     the returned attempt stays in the numerator, as Q5 rules. It runs after pass 7b, which makes the last returned
-    payments, and before the duplicate finalisation."""
-    from .represented_payments import Attempt, Returned, re_debits
+    payments, and before the duplicate finalisation. Audit round 3, final review (R3-FF), F3: a paid debit the rate
+    leaves out (`out_of_rate_payment`: R3-79's worded lump-sum payoff) is never the re-debit, since the returned attempt
+    would then leave the numerator beside it and the obligation would count zero times; it stays in the series the
+    schedule and the 2x level are read from."""
+    from .represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
 
     def location(index: int) -> str:
         return records[index].source_location or f"transaction:{index + 1}"
@@ -6471,6 +6474,7 @@ def _apply_represented_funder_payments(
     by_location = {location(index): index for index in range(len(records))}
     attempts: list[Attempt] = []
     returned: list[Returned] = []
+    out_of_rate: set[int] = set()
     for index, record in enumerate(records):
         if (index in duplicate_indexes or record.amount >= 0 or not record.is_posted
                 or record.classification != "confirmed_lender" or not record.canonical_entity):
@@ -6482,13 +6486,16 @@ def _apply_represented_funder_payments(
             continue
         attempt = Attempt(index, record.canonical_entity, day, round(abs(record.amount) * 100), (day, index))
         attempts.append(attempt)
+        if out_of_rate_payment(record.returned_funder_payment_by, record.contributes_to_withholding_rate):
+            out_of_rate.add(index)
         credit = by_location.get(record.returned_funder_payment_by or "")
         credit_day = parse_date(records[credit].date) if credit is not None else None
         if record.returned_funder_payment_by and record.contributes_to_withholding_rate and credit_day is not None:
             returned.append(Returned(attempt, credit_day))
     if not returned:
         return records
-    found = re_debits(returned, attempts, calendar)
+    found = re_debits(returned, attempts, calendar,
+                      may_re_debit=lambda _returned, candidate: candidate.key not in out_of_rate)
     if not found:
         return records
     updated = list(records)
