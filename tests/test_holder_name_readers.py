@@ -654,8 +654,8 @@ def test_every_parser_that_publishes_a_holder_name_publishes_its_title_beside_it
                     unpaired.append(f"{path.name}:{node.lineno}")
     assert not unpaired
     # The 22 readers' parsers: their constructors and assignments (RBC's two issues, CIBC's and TD Canada Trust's two
-    # entry points each count twice).
-    assert sites == 25
+    # entry points each count twice). Audit round 4, R4-68: and Symitar's Primary Owner(s) reader, one assignment.
+    assert sites == 26
 
 
 # --- Audit round 4, batch R4-B08 ---

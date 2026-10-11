@@ -72,6 +72,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import parse_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -187,6 +188,32 @@ DETECTION_MARKERS = (
 )
 
 detect = make_detector(DETECTION_MARKERS)
+
+
+#: Audit round 4, R4-68 (the underwriter's Q2 of 2026-10-02, "when the business is a repair shop"; the R2-B05 reader
+#: convention): the line page 1 of the `Free Business Checking ( ID nnnn )` issue prints under the account's heading,
+#: 'Primary Owner(s): <holder> Business Owner(s): <persons>', the business owners on the same line or the next. The
+#: label's spacing is read loosely (`Owner (s) :`). The name never starts with the Business Owner(s) label.
+_PRIMARY_OWNER_LINE = re.compile(
+    r"\bPrimary\s+Owner\s*\(\s*s\s*\)\s*:\s*(?P<name>(?!Business\s+Owner)\S.*?)"
+    r"(?:\s+Business\s+Owner\s*\(\s*s\s*\)\s*:.*)?$",
+    re.IGNORECASE,
+)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 4, R4-68 (the underwriter's Q2 of 2026-10-02; R2-B05's reader convention, as bluevine's): the
+    holder's name page 1 prints after its Primary Owner(s) label (_PRIMARY_OWNER_LINE), read by read_name (with the
+    account title it drops, if any); NO_READING when page 1 prints no such line or the label names nobody. The persons
+    printed after the Business Owner(s) label are the business's owners, never the Business Owner(s) as the holder
+    (privacy and correctness), and a later page is never read. The issue that prints `Business Checking (Account
+    #...)` prints no such line and reads no holder."""
+    for line in page_lines(first_page(markdown)):
+        found = _PRIMARY_OWNER_LINE.search(line)
+        if found is not None:
+            reading = read_name(found.group("name"))
+            return reading if reading.name else NO_READING
+    return NO_READING
 
 
 def _money(token: str) -> float | None:
@@ -488,6 +515,9 @@ def parse_symitar_statement(markdown: str, base: Statement | None = None) -> Sta
     stmt = base.model_copy(deep=True) if base is not None else Statement()
     stmt.bank = "Symitar Credit Union"
     stmt.account_name = section.name
+    # Audit round 4, R4-68: the holder page 1 prints after its Primary Owner(s) label (_holder_reading), with the
+    # account title it drops beside it (R2-OW10's convention: one reading, both fields).
+    stmt.holder_name, stmt.account_title = _holder_reading(markdown)
     stmt.account_number = section.key or None
     stmt.period_start = start.isoformat()
     stmt.period_end = end.isoformat()

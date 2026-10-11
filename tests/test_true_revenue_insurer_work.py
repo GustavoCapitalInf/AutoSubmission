@@ -1761,6 +1761,70 @@ def test_r4_69_the_strong_text_is_unchanged():
     assert only("FABRIKAM INS PAYMENT 0001") is False
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 (R4-68; the underwriter's Q2 of 2026-10-02, "when the business is a repair shop"): Symitar's
+# parser reads the holder page 1 prints ('Primary Owner(s): <holder> Business Owner(s): <persons>'), so Q2's
+# holder-trade ground reads a body shop's name there. Fabricated statement, names and amounts.
+# ---------------------------------------------------------------------------------------------------------------------
+
+SYMITAR_ROWS = (
+    ("05/02/54", "4,217.36", "5,217.36", "ACH Deposit FABRIKAM MUTUAL INS 0000000001 CONTOSO AUTO REBODY"),
+    ("05/05/54", "812.37", "6,029.73", "ACH Deposit TAILSPIN MUTUA PAYMENTS CONTOSO AUTO REBODY"),
+    ("05/12/54", "640.19", "6,669.92", "ACH Deposit TAILSPIN MUTUA PAYMENTS CONTOSO AUTO REBODY"),
+    ("05/19/54", "1,290.53", "7,960.45", "ACH Deposit TAILSPIN MUTUA PAYMENTS CONTOSO AUTO REBODY"),
+)
+
+
+def _symitar_statement(owner_line: str):
+    from analysis.symitar import parse_symitar_statement
+
+    rows = " ".join(f"{day} {amount} {balance} {text}" for day, amount, balance, text in SYMITAR_ROWS)
+    markdown = (
+        "--- Page 1 ---\n"
+        "Statement of Account\n"
+        "Account Number Statement Period Page\n"
+        "05/01/54 thru 05/31/54 ***8010 1 of 2\n"
+        "ACCOUNT SUMMARY\n"
+        "0210 Free Business Checking $ 7,960.45 0000 Money Market $ 5.19\n"
+        "Free Business Checking ( ID 0210 )\n"
+        f"{owner_line}"
+        "Posting Date Deposit Withdrawal Balance Description\n"
+        f"05/01/54 $ 1,000.00 Beginning Balance {rows}\n"
+        "--- Page 2 ---\n"
+        "Money Market ( ID 0000 )\n"
+        "Posting Date Deposit Withdrawal Balance Description\n"
+        "05/01/54 $ 5.19 Beginning Balance No Transactions This Period 05/31/54 $ 5.19 Ending Balance\n"
+    )
+    statement = parse_symitar_statement(markdown)
+    assert statement is not None
+    return statement
+
+
+def test_r4_68_a_symitar_body_shop_s_one_off_claim_counts_on_its_printed_holder():
+    """Audit round 4, R4-68: with page 1's Primary Owner(s) line the parser publishes the holder, whose REBODY names a
+    repair shop, so a one-off insurer claim counts on the holder's trade (today held insurer_named_payer, the reading
+    without the line); the frequent insurer counts in both."""
+    with_line = _symitar_statement("Primary Owner(s): CONTOSO AUTO REBODY LLC Business Owner(s): SAMPLE OWNER\n")
+    without = _symitar_statement("")
+    assert with_line.holder_name == "CONTOSO AUTO REBODY LLC" and without.holder_name is None
+    assert with_line.account_name == without.account_name == "Free Business Checking"
+    # The one-off's payer is read as an insurer on either statement.
+    for statement in (with_line, without):
+        record = classify_statement_transactions(statement)[0]
+        row = revenue_text(record.normalized_description)
+        assert true_revenue.insurer_payer_reading(record, row, payer_region(row), entry_fields(row)) is not None
+    counted = [record for record in classify_statement_transactions(with_line) if record.amount > 0]
+    held = [record for record in classify_statement_transactions(without) if record.amount > 0]
+    assert [rules_reading(record) for record in counted] == [COUNTED] * 4
+    assert f"({GROUND_WORDS['holder_trade:repair shop']})" in counted[0].revenue_reason
+    assert [rules_reading(record) for record in held] == [HELD, COUNTED, COUNTED, COUNTED]
+    for record in held[1:]:
+        assert f"({GROUND_WORDS['same_insurer_3_in_31_days']})" in record.revenue_reason
+    # With the holder read, the frequent insurer's credits name the first ground that applies, the holder's trade.
+    for record in counted[1:]:
+        assert f"({GROUND_WORDS['holder_trade:repair shop']})" in record.revenue_reason
+
+
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)
                for n, day in ((1, "03-02"), (2, "03-09"), (3, "03-16"))]
 ROUND_ZEL = [(f"ZEL FROM SAMPLE INSURANCE CO WFCT0ABCDE1{n}", 1000.0, day)

@@ -356,3 +356,76 @@ def test_a_non_zero_credits_deposits_column_refuses():
     which is exactly the outside-party shape the anchor cannot see."""
     text = HEAD + ACTIVE + _money_market_with_equation("$ 0.01", credits="$ 250.00")
     assert parse_symitar_statement(text) is None
+
+
+# ------------------------------------------- the printed holder (R4-68)
+#
+# Audit round 4, R4-68 (the underwriter's Q2 of 2026-10-02, "when the business
+# is a repair shop"; the R2-B05 reader convention): page 1 of the issue that
+# prints `Free Business Checking ( ID nnnn )` also prints
+# `Primary Owner(s): <holder> Business Owner(s): <persons>`. The primary owner
+# is the holder; the business owners are persons and never the holder. The
+# other issue prints no such line and reads no holder. Fabricated names only.
+
+PRIMARY = "Primary Owner(s): CONTOSO AUTO REBODY LLC Business Owner(s): SAMPLE OWNER\n"
+
+
+def _page_one(owner_lines: str) -> str:
+    """The issue's page 1 as its reading prints it: the head, the account's
+    heading, the owner line(s), then the grid."""
+    return (
+        "--- Page 1 ---\n"
+        + HEAD
+        + "Free Business Checking ( ID 0210 )\n"
+        + owner_lines
+        + GRID
+        + "05/01/54 $ 1,000.00 Beginning Balance "
+        "05/02/54 -300.00 700.00 Card purchase LES SCHWAB "
+        "05/03/54 500.00 1,200.00 ACH Deposit MERCHANT SERVICE\n"
+        + DORMANT
+    )
+
+
+def test_the_primary_owner_line_is_the_holder():
+    stmt = parse_symitar_statement(_page_one(PRIMARY))
+    assert stmt.holder_name == "CONTOSO AUTO REBODY LLC"
+    assert stmt.account_name == "Free Business Checking"
+    assert stmt.account_title is None
+    # The business owners printed on the next line, and in the head before the account's heading.
+    nextline = parse_symitar_statement(_page_one(
+        "Primary Owner(s): CONTOSO AUTO REBODY LLC\nBusiness Owner(s): SAMPLE OWNER\n"))
+    assert nextline.holder_name == "CONTOSO AUTO REBODY LLC"
+    head = parse_symitar_statement("--- Page 1 ---\n" + PRIMARY + SIMPLE)
+    assert head.holder_name == "CONTOSO AUTO REBODY LLC"
+    # The label's spacing as a reading may print it.
+    spaced = parse_symitar_statement(_page_one(
+        "Primary  Owner (s) : CONTOSO AUTO REBODY LLC  Business Owner (s) : SAMPLE OWNER\n"))
+    assert spaced.holder_name == "CONTOSO AUTO REBODY LLC"
+
+
+def test_the_business_owners_are_never_the_holder():
+    assert parse_symitar_statement(_page_one("Business Owner(s): SAMPLE OWNER\n")).holder_name is None
+    assert parse_symitar_statement(_page_one("Primary Owner(s):\nBusiness Owner(s): SAMPLE OWNER\n")).holder_name is None
+    assert parse_symitar_statement(_page_one("Primary Owner(s): Business Owner(s): SAMPLE OWNER\n")).holder_name is None
+
+
+def test_a_statement_with_no_primary_owner_line_reads_no_holder():
+    """The issue that prints `Business Checking (Account #...)` prints no owner line."""
+    stmt = parse_symitar_statement(SIMPLE)
+    assert stmt.holder_name is None
+    assert stmt.account_title is None
+
+
+def test_only_page_one_names_the_holder():
+    text = _page_one("") + "--- Page 2 ---\n" + PRIMARY
+    assert parse_symitar_statement(text).holder_name is None
+
+
+def test_the_holder_line_moves_nothing_else():
+    """The published transactions, balances, period and account are byte-identical with and without the line."""
+    with_line = parse_symitar_statement(_page_one(PRIMARY))
+    without = parse_symitar_statement(_page_one(""))
+    assert with_line.holder_name == "CONTOSO AUTO REBODY LLC" and without.holder_name is None
+    assert with_line.model_dump(exclude={"holder_name", "account_title"}) == without.model_dump(
+        exclude={"holder_name", "account_title"})
+    assert without.model_dump() == parse_symitar_statement(SIMPLE).model_dump()
