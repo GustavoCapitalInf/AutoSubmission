@@ -94,7 +94,7 @@ def test_correct_password_reaches_the_dashboard(monkeypatch):
     monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "intern-secret")
     resp = app.test_client().get("/", headers=_basic("intern", "intern-secret"))
     assert resp.status_code == 200
-    assert "Unlimited-OCR" in resp.get_data(as_text=True)
+    assert "<title>Capital Infusion</title>" in resp.get_data(as_text=True)
 
 
 def test_auth_user_override_is_honoured(monkeypatch):
