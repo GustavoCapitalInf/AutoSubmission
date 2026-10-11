@@ -1231,9 +1231,17 @@ function returnedFunderPaymentNote(item, currency = "USD", sources = null) {
     const multiple = typeof item.represented_multiple === "number" && Number.isInteger(item.represented_multiple)
       ? item.represented_multiple : 2;
     const times = multiple === 2 ? "twice the payment" : `${multiple} times the payment`;
+    const day = readableDate(item.represented_date);
+    // Audit round 4, R4-76: a note never states a collection the statement does not show. Where the bank returned the
+    // re-debit too (`represented_returned`, read when served by withReDebitReturns), the note says so; it still counts
+    // the obligation once, by the bounced re-debit's own attempt (§17.1's R2-OW13 default (9)). The paid case keeps
+    // R3-MERGE's words ("taken again" is the owner's, R3-MERGE owner item 2).
+    const returnedToo = item.represented_returned === true;
     details.push(caughtUp
-      ? `It was caught up on ${readableDate(item.represented_date)}${where}, by one debit of ${times}.`
-      : `It was taken again on ${readableDate(item.represented_date)}${where}.`);
+      ? (returnedToo ? `A catch-up of ${times} was debited on ${day}${where}, and that debit was also returned.`
+        : `It was caught up on ${day}${where}, by one debit of ${times}.`)
+      : (returnedToo ? `It was debited again on ${day}${where}, and that debit was also returned.`
+        : `It was taken again on ${day}${where}.`));
     details.push("It isn't counted as paid; it is counted once in the withholding rate, by the "
       + `${caughtUp ? "catch-up" : "second debit"}.`);
   } else {
@@ -1246,6 +1254,28 @@ function returnedFunderPaymentNote(item, currency = "USD", sources = null) {
 // The note as one line of text: the copied package memo's line (R3-B22's R3-67).
 function returnedFunderPaymentWarning(item, currency = "USD", sources = null) {
   return lenderNoteText(returnedFunderPaymentNote(item, currency, sources));
+}
+
+// Audit round 4, R4-76: the served returned funder payments, each item whose re-debit the bank returned too copied with
+// `represented_returned: true`, read wherever the list's notes are written (the lender table of a statement and of a
+// package, the copied package memo). Computed when served, never stored: the re-debit is another item of the same
+// list printing this item's `represented_location` as its `debit_location`, in the re-debit's statement (the item's
+// `represented_job` and `represented_account` where it names them, else its own `source_job` and `source_account`; on
+// a statement's page, where no item names a source, the location alone). webapp/app.py _re_debit_returned reads the
+// same for the package downloads.
+function withReDebitReturns(items) {
+  const list = Array.isArray(items) ? items : [];
+  const isItem = (value) => Boolean(value) && typeof value === "object";
+  const returned = (item) => {
+    if (!item.represented_date || !item.represented_location) return false;
+    const named = item.represented_job !== undefined && item.represented_job !== null;
+    const job = (named ? item.represented_job : item.source_job) ?? null;
+    const account = (named ? item.represented_account : item.source_account) ?? null;
+    return list.some((other) => isItem(other) && other !== item
+      && other.debit_location === item.represented_location
+      && (other.source_job ?? null) === job && (other.source_account ?? null) === account);
+  };
+  return list.map((item) => (isItem(item) && returned(item) ? { ...item, represented_returned: true } : item));
 }
 
 // Audit round 3, R3-B22 (R3-67; §10.1's R2-OW13 copy line, the owner's Q5): a package memo's funder line, its paid
@@ -3456,7 +3486,8 @@ function renderLenders(funders, potentialLenders = [], currency = "USD", returne
   // render above "No lenders detected" too (the early return used to drop R2-OW13's lines). The owner's request of
   // 2026-10-07: a package's notes name their statements from its rows (`documents`).
   const sources = Array.isArray(documents) ? paymentChangeSources(documents) : null;
-  const warnings = (Array.isArray(returnedPayments) ? returnedPayments : [])
+  // Audit round 4, R4-76: each note reads whether its re-debit was returned too (withReDebitReturns).
+  const warnings = withReDebitReturns(returnedPayments)
     .filter((item) => item && typeof item === "object")
     .map((item) => lenderNoteRowHtml(glassChip("!", "Returned", "amber"), returnedFunderPaymentNote(item, currency, sources)))
     .join("")
@@ -6137,7 +6168,8 @@ function generateSummary() {
     // so it must carry the package's real denomination — or none at all when
     // the package has no single one (CURRENCY DOCTRINE §D/§F).
     const currency = packageCurrencyInfo(pkg).currency;
-    const returnedPayments = (Array.isArray(pkg.returned_funder_payments) ? pkg.returned_funder_payments : [])
+    // Audit round 4, R4-76: each warning line reads whether its re-debit was returned too (withReDebitReturns).
+    const returnedPayments = withReDebitReturns(pkg.returned_funder_payments)
       .filter((item) => item && typeof item === "object");
     // Audit round 3, R3-B22 (R3-67): each funder line names its payments returned unpaid.
     const lenderSummary = funders.length

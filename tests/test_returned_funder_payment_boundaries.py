@@ -650,3 +650,58 @@ def test_r4_75_the_download_words_name_a_catch_up_s_multiple():
             "paid; it is counted once in the withholding rate, by the catch-up.") in _returned_funder_payment_words(four)
     assert "by one debit of twice the payment." in _returned_funder_payment_words(two)
     assert "by one debit of twice the payment." in _returned_funder_payment_words({**four, "represented_multiple": 2})
+
+
+def _bounced_re_debit_package():
+    """R3-B02's package (March 25's payment, returned on the 28th, re-debited on Thursday April 3), whose April re-debit
+    the bank returned on Friday April 4 (a bare bounce)."""
+    from tests.test_package_matching import _package
+    from tests.test_represented_funder_payments import MARCH as TUESDAYS
+    from tests.test_represented_funder_payments import _months as _tuesday_months
+
+    march, april = _tuesday_months([*TUESDAYS, (28, BARE_BOUNCE, 850.0)],
+                                   [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0), (4, BARE_BOUNCE, 850.0)]
+                                   + [(day, KAPITUS_BAKERY, -850.0) for day in (1, 8, 15, 22)])
+    return _package(("mar", march), ("apr", april))
+
+
+def _package_page(package):
+    """The package page opened on `package` (its lender table) and its copied memo."""
+    import json
+
+    ids = sorted({row["id"].split("#")[0] for row in package["documents"]})
+    return run_dashboard(f"""
+const pkg = {json.dumps(package)};
+currentJobIds = {json.dumps(ids)}; renderPackageAnalysis(pkg); generateSummary();
+console.log(JSON.stringify({{table: els.lenderTable.innerHTML, memo: els.summaryBox.textContent}}));
+""")
+
+
+@needs_node
+def test_r4_76_the_download_words_a_bounced_re_debit_as_the_page_does():
+    """Audit round 4, R4-76: the section's words, the package page's note and the copied memo say the April re-debit
+    was returned too; the download names the statement by its file where the page names its month (R3-MERGE owner item
+    1). Base: "It was taken again on Apr 3, 2031 (apr.pdf).", a collection the statements do not show."""
+    package = _bounced_re_debit_package()
+    items = package["returned_funder_payments"]
+    assert [(item["debit_date"], item.get("represented_job")) for item in items] == [
+        ("2031-03-25", "apr"), ("2031-04-03", None)]
+    assert items[0]["represented_location"] == items[1]["debit_location"]
+    # Counted once: the bounced re-debit's own attempt stands in the rate (§17.1's R2-OW13 default (9)).
+    assert (package["totals"]["withholding_numerator"], package["totals"]["lender_debits"]) == (6800.0, 5950.0)
+    sections, _order = _returned_sections(package)
+    assert sections[1]["words"] == (
+        'KAPITUS: a payment was returned. The 850.00 USD payment on Mar 25, 2031 was returned unpaid on Mar 28, 2031 (the '
+        'bank printed: "ACH RETURN ITEM NSF"). It was debited again on Apr 3, 2031 (apr.pdf), and that debit was also '
+        'returned. It isn\'t counted as paid; it is counted once in the withholding rate, by the second debit. From: '
+        'mar.pdf.')
+    assert sections[2]["words"] == (
+        'KAPITUS: a payment was returned. The 850.00 USD payment on Apr 3, 2031 was returned unpaid on Apr 4, 2031 (the '
+        'bank printed: "ACH RETURN ITEM NSF"). It isn\'t counted as paid, but it still counts in the withholding rate. '
+        'From: apr.pdf.')
+    page = _package_page(package)
+    sentence = "It was debited again on Apr 3, 2031 (April 2031 statement), and that debit was also returned."
+    assert sentence in page["table"] and sentence in page["memo"]
+    assert "taken again" not in page["table"] and "taken again" not in page["memo"]
+    # The section, the table and the memo carry the payment's other words unchanged.
+    assert "From: March 2031 statement" in page["table"]

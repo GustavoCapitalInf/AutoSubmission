@@ -3364,8 +3364,10 @@ def test_r3_b23_the_code_names_its_rules():
     assert "no_analysis = isinstance(totals, dict) and totals.get(\"completed\") == 0" in export
     # The source with its comments' line breaks read as spaces.
     rows = re.sub(r"\s+", " ", re.sub(r"\n\s*# ", " ", inspect.getsource(appmod._package_rows)))
+    # Audit round 4, R4-76: the words read the package's list (`items`), so a re-debit returned too is said.
     for words in ("rows.append((f\"repeated_account_{idx}\", \"words\", _repeated_account_words(entry, filenames)))",
-                  "rows.append((f\"returned_funder_payment_{idx}\", \"words\", _returned_funder_payment_words(item)))",
+                  "rows.append((f\"returned_funder_payment_{idx}\", \"words\", _returned_funder_payment_words(item, "
+                  "items=returned)))",
                   "a repeated account of a document, a B11 repeat or an R14 superseded printout, has its own "
                   "`repeated_account_<n>` section below, and a whole repeated job its document row and duplicate group "
                   "above"):

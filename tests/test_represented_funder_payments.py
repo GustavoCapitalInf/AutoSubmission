@@ -1159,4 +1159,140 @@ console.log(JSON.stringify(items.map((item) => returnedFunderPaymentWarning(item
     ]
 
 
+# ------------------------------------------- audit round 4, R4-76: a re-debit the bank returned too (fabricated)
+# §17.1's R2-OW13 default (9), "a re-debit that itself bounced still counts as the re-debit", counts the obligation once
+# through the bounced re-debit's own returned attempt; the note never says the funder took the money ("taken again")
+# where the statement shows that debit returned. The fact is computed when served or exported, from the list's own
+# items (another item's `debit_location` is this item's `represented_location`, in the re-debit's statement); nothing
+# is stored.
+
+def _served_items(rows):
+    statement = _statement(sorted(rows, key=lambda row: row[0]))
+    return detect(statement, classifications=tc.classify_statement_transactions(statement)).returned_funder_payments
+
+
+def _statement_page_notes(items):
+    """The statement page's lender table (`renderLenders`) and its notes as one line each, read the way the table
+    reads its served items (`withReDebitReturns`), and the download's words for each item with that list."""
+    from webapp.app import _returned_funder_payment_words
+
+    result = run_dashboard(f"""
+const items = {json.dumps(items)};
+renderLenders([], [], 'USD', items);
+console.log(JSON.stringify({{table: els.lenderTable.innerHTML,
+  notes: withReDebitReturns(items).map((item) => returnedFunderPaymentWarning(item, 'USD'))}}));
+""")
+    result["words"] = [_returned_funder_payment_words(item, items=items) for item in items]
+    return result
+
+
+#: The head of a 1,000.00 KAPITUS note whose payment was returned two days later.
+def _head(debit_day, credit_day, money="$1,000.00"):
+    return (f"KAPITUS: a payment was returned. The {money} payment on Mar {debit_day}, 2054 was returned unpaid on Mar "
+            f'{credit_day}, 2054 (the bank printed: "RETURN OF POSTED CHECK ITEM"). ')
+
+
+STANDING = "It isn't counted as paid, but it still counts in the withholding rate."
+BY_THE_SECOND_DEBIT = "It isn't counted as paid; it is counted once in the withholding rate, by the second debit."
+BY_THE_CATCH_UP = "It isn't counted as paid; it is counted once in the withholding rate, by the catch-up."
+
+
+def _download_money(note):
+    """The download writes money as `1,000.00` (no unit on an item that names none), the page as `$1,000.00`."""
+    return note.replace("$", "")
+
+
+@needs_node
+def test_r4_76_a_re_debit_that_bounced_too_reads_debited_again():
+    """`CASES["bounced_again"]`: the 13th's payment returned on the 15th, re-debited on Monday the 16th, which the bank
+    returned on the 18th. The first note said "It was taken again on Mar 16, 2054." (base), a collection the
+    statement does not show; the 16th's own note is unchanged."""
+    items = _served_items(CASES["bounced_again"][0])
+    assert [(item["debit_date"], item.get("represented_location")) for item in items] == [
+        ("2054-03-13", items[1]["debit_location"]), ("2054-03-16", None)]
+    result = _statement_page_notes(items)
+    assert result["notes"] == [
+        f"{_head(13, 15)}It was debited again on Mar 16, 2054, and that debit was also returned. {BY_THE_SECOND_DEBIT}",
+        f"{_head(16, 18)}{STANDING}"]
+    assert "It was debited again on Mar 16, 2054, and that debit was also returned." in result["table"]
+    assert "taken again" not in result["table"]
+    # The download's words are the page's, the money as the downloads write it.
+    assert result["words"] == [_download_money(note) for note in result["notes"]]
+    # The served items are untouched (the fact is read when served, never stored).
+    assert all("represented_returned" not in item for item in items)
+
+
+@needs_node
+def test_r4_76_a_caught_up_debit_that_bounced_too():
+    """A 2x catch-up on Friday the 20th of the 13th's bounce, itself returned the next day; and R4-B03's 3x on the 27th
+    of the 13th's and the 20th's bounces, itself returned on the 30th."""
+    two = _served_items(_weekly(days=(6, 13, 27)) + [(20, KAPITUS, -2000.0), (21, BOFA_RETURN, 2000.0)])
+    result = _statement_page_notes(two)
+    assert result["notes"] == [
+        f"{_head(13, 15)}A catch-up of twice the payment was debited on Mar 20, 2054, and that debit was also returned. "
+        f"{BY_THE_CATCH_UP}",
+        f"{_head(20, 21, '$2,000.00')}{STANDING}"]
+    assert result["words"] == [_download_money(note) for note in result["notes"]]
+    three = _served_items(MULTIPLE_CASES["weekly_3x_on_cycle"][0] + [(30, BOFA_RETURN, 3000.0)])
+    result = _statement_page_notes(three)
+    caught_up = ("A catch-up of 3 times the payment was debited on Mar 27, 2054, and that debit was also returned. "
+                 f"{BY_THE_CATCH_UP}")
+    assert result["notes"] == [f"{_head(13, 15)}{caught_up}", f"{_head(20, 22)}{caught_up}",
+                               f"{_head(27, 30, '$3,000.00')}{STANDING}"]
+    assert result["words"] == [_download_money(note) for note in result["notes"]]
+    assert "caught up on" not in result["table"] and "A catch-up of 3 times the payment was debited on" in result["table"]
+
+
+@needs_node
+def test_r4_76_controls_a_paid_re_debit_reads_as_before():
+    """The paid re-debits keep today's words through the same path (R3-MERGE owner item 2: "taken again" is the
+    owner's)."""
+    presented = _statement_page_notes(_served_items(CASES["re_presented"][0]))
+    assert presented["notes"] == [f"{_head(13, 15)}It was taken again on Mar 16, 2054. {BY_THE_SECOND_DEBIT}"]
+    caught_up = _statement_page_notes(_served_items(CASES["weekly_catch_up"][0]))
+    assert caught_up["notes"] == [
+        f"{_head(13, 15)}It was caught up on Mar 20, 2054, by one debit of twice the payment. {BY_THE_CATCH_UP}"]
+    multiple = _statement_page_notes(_served_items(MULTIPLE_CASES["weekly_3x_on_cycle"][0]))
+    assert all(note.endswith(f"It was caught up on Mar 27, 2054, by one debit of 3 times the payment. "
+                             f"{BY_THE_CATCH_UP}") for note in multiple["notes"])
+    for result in (presented, caught_up, multiple):
+        assert result["words"] == [_download_money(note) for note in result["notes"]]
+
+
+#: Fabricated package items: A's re-debit sits in its own account 1 of mar (no `represented_job`); B prints A's
+#: re-debit's location in account 2, C in account 1 (A's re-debit, returned); D's re-debit is named in apr, where E
+#: prints its location (D's re-debit, returned); F prints D's location in mar (another statement).
+PACKAGE_ITEMS = [
+    {"funder": "KAPITUS", "debit_location": "transaction:2", "represented_date": "2031-03-12",
+     "represented_location": "transaction:5", "represented_kind": "re_presented", "source_job": "mar",
+     "source_account": 1},
+    {"funder": "KAPITUS", "debit_location": "transaction:5", "source_job": "mar", "source_account": 2},
+    {"funder": "KAPITUS", "debit_location": "transaction:5", "source_job": "mar", "source_account": 1},
+    {"funder": "KAPITUS", "debit_location": "transaction:9", "represented_date": "2031-04-03",
+     "represented_location": "transaction:3", "represented_kind": "re_presented", "represented_job": "apr",
+     "source_job": "mar", "source_account": 1},
+    {"funder": "KAPITUS", "debit_location": "transaction:3", "source_job": "apr"},
+    {"funder": "KAPITUS", "debit_location": "transaction:3", "source_job": "mar", "source_account": 1},
+]
+
+
+@needs_node
+def test_r4_76_a_re_debit_is_read_in_its_own_statement():
+    """A package's locations repeat across statements and accounts: an item's re-debit is the item printing its
+    `represented_location` in the re-debit's statement (its `represented_job` and `represented_account` where it names
+    them, else its own `source_job` and `source_account`), on the page and in the download alike."""
+    from webapp.app import _re_debit_returned
+
+    flags = run_dashboard(f"""
+console.log(JSON.stringify(withReDebitReturns({json.dumps(PACKAGE_ITEMS)}).map((item) => item.represented_returned === true)));
+""")
+    assert flags == [True, False, False, True, False, False]
+    assert [_re_debit_returned(item, PACKAGE_ITEMS) for item in PACKAGE_ITEMS] == flags
+    # D names its re-debit in apr: E is it once E is listed; F (the same location in mar) never is.
+    assert _re_debit_returned(PACKAGE_ITEMS[3], [PACKAGE_ITEMS[3], PACKAGE_ITEMS[5]]) is False
+    assert _re_debit_returned(PACKAGE_ITEMS[3], PACKAGE_ITEMS[3:5]) is True
+    # Without C, nothing names A's re-debit in A's account.
+    assert _re_debit_returned(PACKAGE_ITEMS[0], PACKAGE_ITEMS[:2]) is False
+
+
 from tests.flag_group_fixtures import fake_payees  # noqa: E402,F401  (fixture)

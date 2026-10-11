@@ -955,7 +955,24 @@ def _returned_funder_payment_source(item: dict) -> str:
     return f"From: {label('source')}"
 
 
-def _returned_funder_payment_words(item: dict) -> str:
+def _re_debit_returned(item: dict, items) -> bool:
+    """Audit round 4, R4-76 (app.js withReDebitReturns): whether the bank returned this item's re-debit too, read when
+    exported, never stored: another item of the same list (`items`, the package's `returned_funder_payments`) prints
+    this item's `represented_location` as its `debit_location`, in the re-debit's statement (the item's
+    `represented_job` and `represented_account` where it names them, else its own `source_job` and `source_account`;
+    where no item names a source, the location alone)."""
+    location = item.get("represented_location")
+    if not item.get("represented_date") or not location:
+        return False
+    named = item.get("represented_job") is not None
+    job = item.get("represented_job") if named else item.get("source_job")
+    account = item.get("represented_account") if named else item.get("source_account")
+    return any(isinstance(other, dict) and other is not item and other.get("debit_location") == location
+               and other.get("source_job") == job and other.get("source_account") == account
+               for other in items or ())
+
+
+def _returned_funder_payment_words(item: dict, *, items=()) -> str:
     """Audit round 3, R3-B23 (R3-67): a returned funder payment as the dashboard's warning reads it (app.js
     returnedFunderPaymentWarning, §10.1), its money as the downloads write money: the amount, then the item's own unit
     where it names one (the overlapping statements' words; no unit when it is unknown). A payment matched to its return
@@ -963,7 +980,11 @@ def _returned_funder_payment_words(item: dict) -> str:
     once in the withholding rate. Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 that
     the dashboard now writes (a headline, its sentences, the statements it comes from), so R3-67's rule holds. Audit
     round 4, R4-75: a catch-up of 3 to 6 times the payment (`represented_multiple`; an item without it reads 2) says
-    "by one debit of <k> times the payment", a 2x "of twice the payment", as before."""
+    "by one debit of <k> times the payment", a 2x "of twice the payment", as before. Audit round 4, R4-76: where the
+    bank returned the re-debit too (`_re_debit_returned` against the list's `items`, or an item copied with
+    `represented_returned`, as app.js withReDebitReturns marks it), "It was debited again on <day>, and that debit was
+    also returned." (a catch-up: "A catch-up of <twice / k times> the payment was debited on <day>, and that debit was
+    also returned."); the paid case reads as before."""
     amount = item.get("amount")
     money = (f"{abs(float(amount)):,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
              if _is_money_value(amount) else "N/A")
@@ -980,8 +1001,12 @@ def _returned_funder_payment_words(item: dict) -> str:
         multiple = int(multiple) if (isinstance(multiple, (int, float)) and not isinstance(multiple, bool)
                                      and float(multiple).is_integer()) else 2
         times = "twice the payment" if multiple == 2 else f"{multiple} times the payment"
-        sentences.append(f"It was caught up on {day}{where}, by one debit of {times}." if caught_up
-                         else f"It was taken again on {day}{where}.")
+        if item.get("represented_returned") is True or _re_debit_returned(item, items):
+            debited = f"A catch-up of {times} was debited" if caught_up else "It was debited again"
+            sentences.append(f"{debited} on {day}{where}, and that debit was also returned.")
+        else:
+            sentences.append(f"It was caught up on {day}{where}, by one debit of {times}." if caught_up
+                             else f"It was taken again on {day}{where}.")
         sentences.append("It isn't counted as paid; it is counted once in the withholding rate, by the "
                          f"{'catch-up' if caught_up else 'second debit'}.")
     else:
@@ -1098,12 +1123,13 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     # Audit round 3, R3-B23 (R3-67; the owner's Q5 of 2026-10-02, "show a 'returned funder payment' warning"; R2-OW13):
     # each funder payment the bank returned unpaid, as the package serves it, its fields and then the dashboard's
     # warning line, each in its own statement's unit (a refused package sums none of them).
+    # Audit round 4, R4-76: each item's words read the package's list, so a re-debit the bank returned too is said.
     returned = [item for item in package.get("returned_funder_payments") or [] if isinstance(item, dict)]
     for idx, item in enumerate(returned, start=1):
         for key in _RETURNED_FUNDER_PAYMENT_FIELDS:
             value = item.get(key)
             rows.append((f"returned_funder_payment_{idx}", key, "" if value is None else value))
-        rows.append((f"returned_funder_payment_{idx}", "words", _returned_funder_payment_words(item)))
+        rows.append((f"returned_funder_payment_{idx}", "words", _returned_funder_payment_words(item, items=returned)))
     for idx, funder in enumerate(package.get("potential_lenders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"potential_lender_{idx}", key, "" if value is None else value))
