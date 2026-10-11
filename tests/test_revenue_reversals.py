@@ -810,6 +810,34 @@ def test_a_return_item_charged_back_in_two_words_still_undoes_its_deposit():
     assert records[0].revenue_match_method == "matched_reversal_pair"
 
 
+@pytest.mark.parametrize("undo", ["RETURNED ITEM CHG BACK", "UNPAID ITEM CHARGE BACK"])
+def test_r4_05_a_spaced_charge_back_pairs_with_its_deposit_whatever_its_tokens(undo):
+    # Audit round 4, R4-05 (B3's rule: CHARGE BACK is the chargeback, never the fee): CHG is guarded like CHARGE, and an
+    # UNPAID ITEM CHARGE BACK is a deposit-return wording, so the bounced deposit pairs with no shared word and the
+    # debit raises no processor flag. Base: the deposit counted (check_deposit) and the debit read as a chargeback.
+    from analysis.transaction_classifier import processor_chargeback_debit
+
+    records = _classify([("2054-03-02", "MOBILE DEPOSIT", 1200.0), ("2054-03-05", undo, -1200.0)])
+    assert (records[0].revenue_classification, records[0].revenue_match_method) == (
+        "non_revenue", "matched_reversal_pair")
+    assert not records[0].contributes_to_true_revenue
+    assert processor_chargeback_debit(records[1].normalized_description) is None
+
+
+@pytest.mark.parametrize(("undo", "chargeback"), [
+    ("NSF CHG", None), ("RETURN ITEM CHRG", None), ("CHBK CHRG", None), ("CHBK", "chargeback"),
+])
+def test_r4_05_control_the_fee_words_still_veto_a_deposit_return(undo, chargeback):
+    # The bank's charge for a return (NSF CHG, RETURN ITEM CHRG) never undoes a deposit; CHBK CHRG stays the processor's
+    # fee (no flag), a bare CHBK the processor's chargeback.
+    from analysis.transaction_classifier import _deposit_return_debit, processor_chargeback_debit
+
+    records = _classify([("2054-03-02", "MOBILE DEPOSIT", 35.0), ("2054-03-04", undo, -35.0)])
+    assert records[0].revenue_match_method != "matched_reversal_pair"
+    assert _deposit_return_debit(records[1].normalized_description) is False
+    assert processor_chargeback_debit(records[1].normalized_description) == chargeback
+
+
 @pytest.mark.parametrize(("rows", "paired"), [
     # Undated rows (or one undated row) read the row order, as pass 4 does: the deposit must come first.
     ([("", "RETURNED ITEM", -2400.0), ("", "MOBILE DEPOSIT", 2400.0)], False),

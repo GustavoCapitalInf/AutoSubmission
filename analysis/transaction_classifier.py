@@ -404,10 +404,11 @@ _NSF_PATTERNS = (
 #: Audit round 3, R3-B01 (R3-80; completes the owner's rule of 2026-09-25 on the bank's item charges): a returned or
 #: unpaid item's charge printed with CHARGE/CHG rather than FEE, read with _NSF_PATTERNS on a DEBIT only (a credit keeps
 #: today's reading), so a charge that prints the item's payee is never that payee's payment. A bare 'UNPAID ITEM
-#: <payee>' may be the payee's own debit and is not read.
+#: <payee>' may be the payee's own debit and is not read. Audit round 4, R4-04 and R4-05: the CHRG spellings too, and
+#: never a spaced CHARGE BACK (the chargeback of a bounced deposit, B3's rule; the glued CHARGEBACK is a reversal).
 _DEBIT_ITEM_CHARGE_NSF_PATTERNS = (
-    re.compile(r"\b(?:RETURNED|RETURN) ITEM (?:CHARGES?|CHGS?)\b"),
-    re.compile(r"\bUNPAID ITEM (?:CHARGES?|CHGS?)\b"),
+    re.compile(r"\b(?:RETURNED|RETURN) ITEM (?:CHARGES?|CHGS?|CHRGS?)\b(?! ?BACK)"),
+    re.compile(r"\bUNPAID ITEM (?:CHARGES?|CHGS?|CHRGS?)\b(?! ?BACK)"),
 )
 _REFUND_REVERSAL_PATTERNS = (
     re.compile(r"\bREFUND(?:ED)?\b"),
@@ -495,11 +496,13 @@ _FEE_PATTERNS = (
 #: Audit round 3, R3-B01 (R3-80; completes the owner's rule of 2026-09-25 above): the bank's stop-payment and OD item
 #: charges printed without FEE, read with _FEE_PATTERNS on a DEBIT only (a credit keeps today's reading). A stop word is
 #: a bank instruction, never a payment, so a bare stop-payment row is a charge too; it is read only at the row's start,
-#: so a payee whose name holds STOP is never read.
+#: so a payee whose name holds STOP is never read. Audit round 4, R4-04: every spelling a bank prints (PYMT, CHRG, the
+#: glued STOPPAY, STOPPAYMENT, STOPPMT and ODITEM before a charge word, a mid-row DDA stop charge); a bare glued STOPPAY
+#: stays unread (R3-B01's lookalike).
 _DEBIT_BANK_CHARGE_FEE_PATTERNS = (
-    re.compile(r"\bSTOP (?:PAY(?:MENT|MT|T)?|PMT)(?: (?:REQUEST|REQ|ORDER))? (?:CHARGES?|CHGS?)\b"),
-    re.compile(r"\bOD ITEM (?:CHARGES?|CHGS?)\b"),
-    re.compile(r"^(?:ACH )?STOP (?:PAY(?:MENT|MT|T)?|PMT)\b"),
+    re.compile(r"\bSTOP ?(?:PAY(?:MENT|MT|T)?|PMT|PYMT)(?: (?:REQUEST|REQ|ORDER))? (?:CHARGES?|CHGS?|CHRGS?)\b"),
+    re.compile(r"\bOD ?ITEM (?:CHARGES?|CHGS?|CHRGS?)\b"),
+    re.compile(r"^(?:ACH )?STOP (?:PAY(?:MENT|MT|T)?|PMT|PYMT)\b"),
 )
 _TRANSFER_PATTERNS = (
     re.compile(r"\b(?:INTERNAL|ONLINE|ACCOUNT|BOOK|FUNDS?) TRANSFER\b"),
@@ -5773,9 +5776,13 @@ _DEPOSIT_RETURN_DEBIT_PATTERNS = (
         r"^(?:\d{1,2} \d{1,2} )?CHARGE ?BACK (?:ITEMS?\b|SIGNATURE|ENDORSE|NSF\b|INSUFFICIENT|UNCOLLECTED"
         r"|ACC(?:OUN)?T CLOSED|STOP PAY|REFER TO MAKER)"
     ),
+    # Audit round 4, R4-05: an unpaid deposited item charged back (UNPAID ITEM is otherwise no return wording).
+    re.compile(r"\bUNPAID ITEMS? (?:CHARGE ?BACKS?|CHG ?BACK)\b"),
 )
-#: B3 review round 1: and the CHARGE (never CHARGE BACK, the chargeback) and CHRG wordings of the fee.
-_DEPOSIT_UNDO_FEE = re.compile(r"\b(?:FEES?|FRAIS|SVC|CHG|CHRG|SERVICE CHARGE)\b|\bCHARGES?\b(?! ?BACK)")
+#: B3 review round 1: and the CHARGE (never CHARGE BACK, the chargeback) and CHRG wordings of the fee. Audit round 4,
+#: R4-05: CHG and CHRG are guarded as CHARGE is (CHG BACK is the chargeback, as _PROCESSOR_CHARGEBACK_FEE reads it).
+_DEPOSIT_UNDO_FEE = re.compile(
+    r"\b(?:FEES?|FRAIS|SVC|CHG(?! ?BACK)|CHRG(?! ?BACK)|SERVICE CHARGE)\b|\bCHARGES?\b(?! ?BACK)")
 #: B3 review round 1: a paid check printed first with its number (the holder's own check, whatever its memo says).
 _PAID_CHECK_FIRST = re.compile(r"^(?:\d{1,2} \d{1,2} )?(?:CHECK|CHEQUE|CHK|CHQ) ?#? ?\d")
 #: 5.6 (audit B3: I03): a returned deposit pairs with a deposit up to this many days before it, the same day included.

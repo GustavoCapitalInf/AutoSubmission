@@ -8,9 +8,14 @@ the row's start, `fee`). A credit keeps today's reading, so no revenue reading m
 own debit (`ACH DEBIT RETURNED <funder>`, a bare `UNPAID ITEM <funder>`, `OVERDRAFT ITEM <funder> DES:PAYMENT`) keep
 today's reading, a recorded residual (true revenue spec §20).
 
+Audit round 4, R4-04 and R4-05: every spelling a bank prints (CHRG, PYMT, the glued STOPPAY, STOPPAYMENT, STOPPMT and
+ODITEM before a charge word, a mid-row stop charge), and never a spaced CHARGE BACK (the chargeback, B3's rule).
+
 Fabricated rows only (CONTOSO BAKERY LLC; FABRIKAM SUPPLY INC sales; KAPITUS, ONDECK CAPITAL, FORA FINANCIAL and FORWARD
 FINANCING, public funders of the registry; 2054 dates; neutral whole amounts)."""
 from __future__ import annotations
+
+import re
 
 import pytest
 
@@ -35,6 +40,15 @@ FEE_CHARGES = (
     "OD ITEM CHARGE ONDECK CAPITAL",
     "STOP PAY CHARGE",
     "STOP PAYMENT CHARGE 0000",
+    # Audit round 4, R4-04: every spelling a bank prints (PYMT, CHRG, the glued STOPPAY and ODITEM before a charge
+    # word, a mid-row DDA stop charge). Base: each read `confirmed_lender`.
+    "STOP PYMT CHG FORWARD FINANCING",
+    "STOP PYMT KAPITUS",
+    "STOPPAY CHARGE KAPITUS",
+    "STOPPAYMENT CHARGE ONDECK CAPITAL",
+    "ODITEM CHARGE ONDECK CAPITAL",
+    "OD ITEM CHRG KAPITUS",
+    "DDA STOP PAYMENT CHRG KAPITUS",
 )
 #: Read as a returned item's charge (`nsf_or_return`), never a lender.
 NSF_CHARGES = (
@@ -42,6 +56,12 @@ NSF_CHARGES = (
     "RETURN ITEM CHARGE KAPITUS",
     "UNPAID ITEM CHARGE FORA FINANCIAL",
     "RETURNED ITEM CHARGE",
+    # Audit round 4, R4-04: the CHRG spellings. Base: the funder forms `confirmed_lender`, the payee-less `other`.
+    "RETURN ITEM CHRG KAPITUS",
+    "RETURNED ITEM CHRG FORA FINANCIAL",
+    "UNPAID ITEM CHRG FORA FINANCIAL",
+    "RETURN ITEM CHRGS",
+    "RETURN ITEM CHRG",
 )
 
 
@@ -103,6 +123,57 @@ def test_a_stop_payment_charge_after_a_funder_s_last_payment_keeps_its_possible_
         ("KAPITUS", False, "2054-03-23")]
 
 
+def _weekly_kapitus(extra=()):
+    """Eight weekly KAPITUS payments of 400.00 from 2054-03-02, two sales, and the `extra` rows, in date order."""
+    rows = [("2054-03-02", SALE, 12000.0), ("2054-03-30", SALE, 12000.0)]
+    rows += [(f"2054-{month:02d}-{day:02d}", KAPITUS, -400.0)
+             for month, day in ((3, 2), (3, 9), (3, 16), (3, 23), (3, 30), (4, 6), (4, 13), (4, 20))]
+    rows += list(extra)
+    rows.sort(key=lambda row: row[0])
+    return _statement(rows, period_end="2054-04-30")
+
+
+def test_r4_04_a_charge_beside_a_paying_funder_moves_no_lender_figure():
+    # Audit round 4, R4-04: the bank's returned-item charge and its glued stop-payment charge, each naming the funder
+    # already paying. Base: both read `confirmed_lender`, paid +70.00 and the numerator +70.00.
+    alone = _weekly_kapitus()
+    charged = _weekly_kapitus([("2054-03-17", "RETURN ITEM CHRG KAPITUS", -35.0),
+                               ("2054-04-21", "STOPPAY CHARGE KAPITUS", -35.0)])
+    figures = []
+    for statement in (alone, charged):
+        metrics = compute_metrics(statement, classifications=tc.classify_statement_transactions(statement))
+        figures.append((metrics.lender_debits, metrics.withholding_numerator, metrics.lenders_detected))
+    assert figures[0] == figures[1] == (3200.0, 3200.0, 1)
+    records = tc.classify_statement_transactions(charged)
+    metrics = compute_metrics(charged, classifications=records)
+    assert metrics.nsf_count == 1
+    assert sorted(record.classification for record in records if record.amount == -35.0) == ["fee", "nsf_or_return"]
+
+
+#: Audit round 4, R4-05: a bank's spaced charge-back of a bounced deposit is the chargeback (B3's rule: CHARGE BACK is the
+#: chargeback, never the fee), never the bank's NSF charge.
+SPACED_CHARGE_BACKS = ("RETURNED ITEM CHARGE BACK 0001", "RETURN ITEM CHARGE BACK", "RETURNED ITEM CHG BACK",
+                       "RETURNED ITEM CHARGES BACK", "UNPAID ITEM CHARGE BACK", "UNPAID ITEM CHG BACK")
+
+
+@pytest.mark.parametrize("bank", BANKS)
+@pytest.mark.parametrize("printed", SPACED_CHARGE_BACKS)
+def test_r4_05_a_spaced_charge_back_is_the_chargeback_never_an_nsf_charge(printed, bank):
+    # Base: `nsf_or_return` (R3-80's arm had no BACK guard).
+    record = tc.classify_transaction(printed, -1200.0, bank=bank)
+    assert record.classification != "nsf_or_return"
+    assert record.is_nsf_event is False
+
+
+@pytest.mark.parametrize(("printed", "state"), [
+    ("RETURN ITEM CHARGEBACK", "refund_or_reversal"),
+    ("RETURNED ITEM CHARGE", "nsf_or_return"),
+    ("RETURNED ITEM FEE", "nsf_or_return"),
+])
+def test_r4_05_control_the_glued_chargeback_and_the_charge_read_as_before(printed, state):
+    assert tc.classify_transaction(printed, -1200.0).classification == state
+
+
 # ---------------------------------------------------------------------------------------------------- controls
 
 
@@ -141,12 +212,36 @@ def test_a_payee_whose_name_holds_stop_is_never_read_as_a_stop():
     assert (record.classification, record.matched_rule) == ("other", "no_classification_rule")
 
 
+@pytest.mark.parametrize(("printed", "state", "entity"), [
+    # Audit round 4, R4-04: a bare glued STOPPAY (R3-B01's lookalike) and a glued STOPPAY with no charge word keep
+    # today's reading; so does a truck stop's payment.
+    ("STOPPAY", "other", None),
+    ("STOPPAY KAPITUS", "confirmed_lender", "KAPITUS"),
+    ("TRUCK STOP PAYMENT", "other", None),
+    # The other lookalikes: no stop or OD item form before a charge word.
+    ("STOP & SHOP 0001", "other", None),
+    ("STOP N GO 0001", "other", None),
+    ("STOP PAYING KAPITUS", "confirmed_lender", "KAPITUS"),
+    ("GOOD ITEM CHARGE", "other", None),
+    ("GOOD ITEM CHRG KAPITUS", "confirmed_lender", "KAPITUS"),
+])
+def test_r4_04_control_the_glued_stoppay_without_a_charge_word_keeps_its_reading(printed, state, entity):
+    record = tc.classify_transaction(printed, -400.0)
+    assert (record.classification, record.canonical_entity) == (state, entity)
+
+
 def _without_the_new_words(monkeypatch):
     monkeypatch.setattr(tc, "_DEBIT_ITEM_CHARGE_NSF_PATTERNS", ())
     monkeypatch.setattr(tc, "_DEBIT_BANK_CHARGE_FEE_PATTERNS", ())
+    # Audit round 4, R4-05: and the deposit side's fee veto and return wordings as R3-B01 left them.
+    monkeypatch.setattr(tc, "_DEPOSIT_UNDO_FEE", re.compile(
+        r"\b(?:FEES?|FRAIS|SVC|CHG|CHRG|SERVICE CHARGE)\b|\bCHARGES?\b(?! ?BACK)"))
+    monkeypatch.setattr(tc, "_DEPOSIT_RETURN_DEBIT_PATTERNS", tuple(
+        pattern for pattern in tc._DEPOSIT_RETURN_DEBIT_PATTERNS if "UNPAID ITEM" not in pattern.pattern))
 
 
-@pytest.mark.parametrize("printed", [*FEE_CHARGES, *NSF_CHARGES, "ACH RETURN KAPITUS STOP PAYMENT"])
+@pytest.mark.parametrize("printed", [*FEE_CHARGES, *NSF_CHARGES, *SPACED_CHARGE_BACKS,
+                                     "ACH RETURN KAPITUS STOP PAYMENT"])
 def test_a_credit_keeps_today_s_reading(monkeypatch, printed):
     # The tuples are debit-only: a credit printing the same words reads exactly as without them.
     after = tc.classify_transaction(printed, 35.0)

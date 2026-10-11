@@ -578,6 +578,8 @@ bank's name.
 - Audit round 3, R3-B22 (R3-01, R3-67, R3-68; f0cec80, 84196a5, 88e430f): the copied memos and the batch CSV say what the dashboard says, and no classification moves. The statement memo's decision is the pill's, T7's revenue gate included, and both memos name the money held for review where the revenue is established (R3-01); the package memo names each funder's payments returned unpaid, a warning line per returned payment and the returned payments before the rate, a payment the funder re-debited read as counted once (R3-67); the memos and the batch CSV name the withholding basis the rates divide by (R3-68). No stored output moves (true revenue spec §9.3, §10.1, §13, §20).
 - Audit round 3, R3-B23 (R3-49, R3-47, R3-67, R3-62; e482ed4, 47288fb, 686912a, 897d136): the downloads say what the dashboard says, and no classification moves. A package that analyses no statement downloads its counted-plus-held figures, its held count and its revenue counts as empty cells beside its empty True, never 0.0 or 0, the served totals unchanged (R3-49); the package CSV/XLSX name each account of a kept document left out as a repeat or a superseded printout in a `repeated_account_<n>` section with the duplicate notice's words (R3-47), and each returned funder payment in a `returned_funder_payment_<n>` section with the warning's words, in its own unit, a re-debited payment read as counted once (R3-67); the statement CSV/XLSX write the printed account title only where it reads as a bank's designation, an owner's name or a legal-form fragment left out, the JSON download and the payload keeping it as read, the owner-decision default (R3-62). No stored output moves (true revenue spec §9.3, §10.4, §10.8, §17.1, §20).
 
+- Audit round 4, R4-B02 (R4-04, R4-05): on a debit, a bank's returned-item, unpaid-item, stop-payment and OD item charge is a charge in every spelling it prints (`CHRG`, `PYMT`, the glued `STOPPAY`, `STOPPAYMENT`, `STOPPMT` and `ODITEM` before a charge word, a stop charge inside the row), even when it names a funder; a spaced `CHARGE BACK` or `CHG BACK` after a returned or unpaid item is the chargeback of a bounced deposit, never the bank's NSF charge: pass 4 pairs it with its deposit whatever its words (the fee veto guards `CHG` and `CHRG` as it guards `CHARGE`, and `UNPAID ITEM CHARGE BACK` is a return wording), and it raises no processor flag. A credit keeps its reading.
+
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
 stores the related source location, revenue source type, context signals, match
@@ -626,7 +628,11 @@ Classification is applied in this order; the first match wins:
    charge printed with CHARGE or CHG rather than FEE (`RETURNED ITEM CHARGE`,
    `RETURN ITEM CHG`, `UNPAID ITEM CHARGE`) is a returned item too, even when it
    prints the item's payee; a bare `UNPAID ITEM <payee>` is not read (it may be
-   the payee's own debit). A credit keeps its reading.
+   the payee's own debit). A credit keeps its reading. Since audit round 4
+   (R4-B02: R4-04, R4-05), the CHRG spellings too (`RETURN ITEM CHRG`,
+   `UNPAID ITEM CHRGS`), and never a spaced CHARGE BACK (`RETURNED ITEM CHARGE
+   BACK`, `UNPAID ITEM CHG BACK`: the chargeback of a bounced deposit, which
+   pass 4 pairs with its deposit, never the bank's NSF charge).
 2. Insurance, by registry or by term. Premium-finance payees are looked up
    first; they stay insurance and a debit also carries the premium-financing
    flag. On the owner's ruling a premium-finance alias may repeat a hand-kept
@@ -660,7 +666,11 @@ Classification is applied in this order; the first match wins:
      payment. A payee whose name holds STOP is never read (the bare form is
      anchored at the row's start), a credit keeps its reading, and
      `ACH DEBIT RETURNED <funder>` and `OVERDRAFT ITEM <funder> DES:PAYMENT`
-     keep their lender reading (each may be the funder's own debit);
+     keep their lender reading (each may be the funder's own debit). Since
+     audit round 4 (R4-B02: R4-04), every spelling a bank prints: `PYMT`,
+     `CHRG`, the glued `STOPPAY`, `STOPPAYMENT`, `STOPPMT` and `ODITEM` before a
+     charge word, and a stop charge inside the row (`DDA STOP PAYMENT CHRG`); a
+     bare glued `STOPPAY` with no charge word is not read;
    - payroll includes `PAYROLL` glued to an entry-description suffix
      (`PAYROLLTAX`, `PAYROLLDD`…), the payroll providers the corpus prints
      (Patriot Software, DataPay, Paycor, OnPay, PayWorks, Paycom, Paylocity),
