@@ -78,6 +78,33 @@ def test_r3_92_debits_keep_today_s_text_by_default():
     assert not card.is_nsf_event and not pos.is_nsf_event
 
 
+@pytest.mark.parametrize(("furniture", "bank"), [(TD_PANEL, "TD Bank"), (SYMITAR_SUMMARY, "Sample Federal Credit Union")])
+def test_r4_24_recorded_residual_a_funder_debit_with_td_s_back_panel_reads_fee_under_default_b(furniture, bank):
+    """Audit round 4, R4-24: the lender stake of §17.1's open R3-92 question ("Debit readings waiting on a G7
+    admission"), pinned as the code reads it under the shipped default (b). A confirmed funder's debit with TD's back
+    panel or a Symitar fee summary glued on reads as a bank fee (the fee rule runs before the known payee on the debit's
+    full text): out of paid to lenders, the withholding rate and the payment changes. This pin changes only with the
+    owner's answer to R3-92 (option (a) or (c) would read it as the funder's payment)."""
+    [glued] = _records([("CCD DEBIT ONDECK CAPITAL " + furniture, -500.0)], bank)
+    [clean] = _records([("CCD DEBIT ONDECK CAPITAL", -500.0)], bank)
+    assert (glued.classification, glued.matched_rule, glued.canonical_entity) == ("fee", "bank_or_processing_fee", None)
+    assert not glued.contributes_to_lender_totals and not glued.contributes_to_withholding_rate
+    assert (clean.classification, clean.canonical_entity) == ("confirmed_lender", "ONDECK")
+    # Citizens' continued-page header holds no fee word: the funder's debit keeps its reading.
+    [citizens] = _records([("CCD DEBIT ONDECK CAPITAL " + CITIZENS_HEADER, -500.0)], "Citizens Bank")
+    assert (citizens.classification, citizens.canonical_entity) == ("confirmed_lender", "ONDECK")
+
+
+def test_r4_24_recorded_residual_td_s_fdic_footer_reads_a_registry_less_loan_payment_as_td_s_loan():
+    """Audit round 4, R4-24: the residual neither (a) nor (c) closes: TD's FDIC footer on a registry-less LOAN PMT debit
+    names TD Bank, so the bank-loan reader (which reads the full row) reads it as TD's own loan; without the footer
+    it is an unidentified lender obligation."""
+    [footer] = _records([("LOAN PMT FABRIKAM EQUIPMENT BANK DEPOSITS FDIC INSURED TD BANK N A", -500.0)], "TD Bank")
+    [clean] = _records([("LOAN PMT FABRIKAM EQUIPMENT", -500.0)], "TD Bank")
+    assert (footer.classification, footer.canonical_entity) == ("bank_loan", "TD Bank")
+    assert clean.classification == "potential_lender"
+
+
 @pytest.mark.parametrize(("text", "amount", "classification"), [
     ("SERVICE CHARGE REFUND", 15.0, "refund_or_reversal"),
     ("MONTHLY SERVICE FEE", -15.0, "fee"),
