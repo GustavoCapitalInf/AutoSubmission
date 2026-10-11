@@ -1833,6 +1833,113 @@ def test_r3_17_the_dropped_lead_run_skips_a_single_letter():
     assert tc._dropped_lead_run("JB TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
 
 
+# --- Audit round 4, batch R4-B08 (R4-58) ---
+# Audit round 4, R4-58 (standard B1 and B7: the holder's own name is excluded, held and releasable; the owner's
+# 2026-10-06 Zelle amendment, "Zelle from the business owner's own name ... held for review"): a name printed with its
+# apostrophe is read both as printed (the normalizer's space: 'JOE S PIZZA') and glued ('JOES PIZZA'), on the holder's
+# side (_apostrophe_glued, one more name of the holder's) and on the payer's (_possessive_glued: a lone S glued onto the
+# word before it, a lone O or D onto the word after it, read when a glued word is a word of the holder's names and only
+# with §5.2's shared-word minimum), and the row-alone self test reads both spellings. The strips read the glued name
+# too, so a third party printing the holder glued as its receiver stays counted. Fabricated rows only.
+
+#: (the holder's name as printed, the name glued, the name as the normalizer spaces it).
+R4_58_NAMES = [
+    ("JOE'S PIZZA LLC", "JOES PIZZA LLC", "JOE S PIZZA LLC"),
+    ("O'BRIEN ELECTRIC INC", "OBRIEN ELECTRIC INC", "O BRIEN ELECTRIC INC"),
+    ("D'ARCY ROOFING INC", "DARCY ROOFING INC", "D ARCY ROOFING INC"),
+    ("BETTY'S HOME BAKERY LLC", "BETTYS HOME BAKERY LLC", "BETTY S HOME BAKERY LLC"),
+]
+
+
+def _r4_58_rows(originator, receiver):
+    """The holder's own money in each layout: (rows, bank) by layout, the originator or sender printed one way and the
+    receiver field (where the layout prints one) the other."""
+    receiver_words = receiver.rsplit(" ", 1)[0]
+    return {
+        "bofa_push": ([(f"{originator} DES:PAYMENT ID:000{n} INDN:{receiver} CO ID:0000000001 CCD", amount)
+                       for n, amount in ((1, 1212.40), (2, 1187.15))], "Bank of America"),
+        "chase_push": ([(CHASE_ACH.format(orig=originator, entry="PAYMENT ", receiver=receiver), amount)
+                        for amount in (1212.40, 1187.15)], "Chase"),
+        "chase_zelle": ([(f"ZELLE PAYMENT FROM {originator} CONF 0000000000", 2985.60)], "Chase"),
+        "chase_wire": ([(FEDWIRE.replace("B/O: NORTHWIND MARINE LLC", f"B/O: {originator}").format(
+            bnf="SAMPLE PERSON"), 6012.40)], "Chase"),
+        "wells_unlabelled": ([(f"{originator} PAYMENT 540115 0000000 {receiver_words}", 1500.40)], "Wells Fargo"),
+    }
+
+
+@pytest.mark.parametrize("layout", ["bofa_push", "chase_push", "chase_zelle", "chase_wire", "wells_unlabelled"])
+@pytest.mark.parametrize(("holder", "glued", "spaced"), R4_58_NAMES)
+def test_r4_58_the_holder_s_apostrophe_name_printed_glued_is_the_holder_s(holder, glued, spaced, layout):
+    rows, bank = _r4_58_rows(glued, spaced)[layout]
+    assert _tiers(rows, bank=bank, holder_name=holder) == [HOLDER_NAME] * len(rows)
+
+
+@pytest.mark.parametrize("layout", ["bofa_push", "chase_push", "chase_zelle"])
+def test_r4_58_a_glued_holder_s_name_printed_spaced_is_the_holder_s(layout):
+    rows, bank = _r4_58_rows("JOE S PIZZA LLC", "JOE S PIZZA LLC")[layout]
+    assert _tiers(rows, bank=bank, holder_name="JOES PIZZA LLC") == [HOLDER_NAME] * len(rows)
+
+
+def test_r4_58_the_self_test_reads_both_spellings_with_no_holder_name():
+    rows, bank = _r4_58_rows("JOE S PIZZA LLC", "JOE S PIZZA LLC")["bofa_push"]
+    assert _tiers(rows, bank=bank) == [HOLDER_NAME, HOLDER_NAME]
+    rows, bank = _r4_58_rows("JOES PIZZA LLC", "JOE S PIZZA LLC")["bofa_push"]
+    assert _tiers(rows, bank=bank) == [HOLDER_NAME, HOLDER_NAME]
+    rows, bank = _r4_58_rows("JOE S PIZZA LLC", "JOES PIZZA LLC")["bofa_push"]
+    assert _tiers(rows, bank=bank) == [HOLDER_NAME, HOLDER_NAME]
+    # Another business's push to the holder stays a customer's.
+    rows, bank = _r4_58_rows("FABRIKAM SUPPLY LLC", "JOE S PIZZA LLC")["bofa_push"]
+    assert _tiers(rows, bank=bank) == [REPEATS, REPEATS]
+
+
+def test_r4_58_a_third_party_printing_the_possessive_holder_glued_as_its_receiver_stays_counted():
+    truist = "EFT FABRIKAM INSURANCE SAMPLES INSURANCE IN CUSTOMER ID 0000"
+    bare = "EFT FABRIKAM INSURANCE SAMPLE INSURANCE IN CUSTOMER ID 0000"
+    for text in (R3_17_TRUIST, truist, bare):
+        tiers = _tiers([(text, 1000.0)], holder_name="SAMPLE'S INSURANCE INC", bank="Truist")
+        assert tiers == [INSURER_FOR_WORK]
+        assert tiers == _tiers([(text, 1000.0)], holder_name="SAMPLES INSURANCE INC", bank="Truist")
+    fifth_third = "ACH CREDIT NORTHWIND SUPPLY CO PAYMENT CONTOSOS FLOWER SHOP"
+    assert _tiers([(fifth_third, 600.0)], holder_name="CONTOSO'S FLOWER SHOP LLC", bank="Fifth Third") == [ONE_OFF]
+
+
+@pytest.mark.parametrize(("payer", "holder", "tier"), [
+    # A middle initial is no possessive: the glued reading needs two shared words.
+    ("ROBERT S SMITH", "ROBERTS PLUMBING LLC", P2P),
+    ("JOHN Q SAMPLE", "JOHN SAMPLE LLC", HOLDER_NAME),
+    # A one-word glued name needs its one word.
+    ("JOE S LLC", "JOES LLC", HOLDER_NAME),
+])
+def test_r4_58_the_glued_payer_reading_keeps_the_shared_word_minimum(payer, holder, tier):
+    text = f"ZELLE PAYMENT FROM {payer} CONF 0000000000"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=holder) == [tier]
+
+
+def test_r4_58_a_hold_word_inside_the_holder_s_glued_name_never_holds_a_third_party():
+    text = "FABRIKAM INC PAYMENT 540115 0000000 JOES DISTRIBUTION"
+    assert _tiers([(text, 1500.40)], holder_name="JOE'S DISTRIBUTION LLC", bank="Wells Fargo") == [UNLABELLED]
+    assert tr._holder_strip_names_of(None, "JOE'S DISTRIBUTION LLC") == ("JOES DISTRIBUTION LLC",)
+
+
+def test_r4_58_the_glued_readings():
+    assert tc._apostrophe_glued("JOE'S PIZZA LLC") == "JOES PIZZA LLC"
+    assert tc._apostrophe_glued("JOE’S PIZZA LLC") == "JOES PIZZA LLC"
+    assert tc._apostrophe_glued("JOE‘S PIZZA LLC") == "JOES PIZZA LLC"
+    assert tc._apostrophe_glued("JOE`S PIZZA LLC") == "JOES PIZZA LLC"
+    assert tc._apostrophe_glued("O'BRIEN ELECTRIC INC") == "OBRIEN ELECTRIC INC"
+    assert tc._apostrophe_glued("D'ARCY ROOFING") == "DARCY ROOFING"
+    assert tc._apostrophe_glued("CONTOSO LLC") is None
+    assert tc._apostrophe_glued("CONTOSO ' LLC") is None
+    assert tc._apostrophe_glued(None) is None
+    assert tc._possessive_glued("JOE S PIZZA LLC") == "JOES PIZZA LLC"
+    assert tc._possessive_glued("O BRIEN ELECTRIC") == "OBRIEN ELECTRIC"
+    assert tc._possessive_glued("D ARCY ROOFING") == "DARCY ROOFING"
+    assert tc._possessive_glued("CONTOSO PIZZA LLC") is None
+    assert tr._same_name("JOE S PIZZA LLC", "JOES PIZZA LLC")
+    assert tr._same_name("JOES PIZZA LLC", "JOE S PIZZA LLC")
+    assert not tr._same_name("JOE S PIZZA LLC", "JOES BAKERY LLC")
+
+
 # --- Audit round 3, R3-B10 review round 1 (finding 2): the classifier readers of the holder test ------------------
 # Beside pass 7's hold, three classifier readers read the holder test: §6.3 narrowing 4 (a book or funds transfer is
 # own-account only when its third-party originator is the holder), narrowing 8 (a named sender after an own-account

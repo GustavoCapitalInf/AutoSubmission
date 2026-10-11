@@ -1416,6 +1416,13 @@ _HOLDER_TRADE_NAME = _HOLDER_NAME_MARKER
 _SLASH_TRADE_MARKER = re.compile(r"(?<=\S) +[OT] ?/ ?A:? +(?=\S)", re.IGNORECASE)
 #: Audit round 4, R4-31: the words of a name a slash marker must follow.
 _SLASH_TRADE_MARKER_NAME_WORDS = 2
+#: Audit round 4, R4-58: an apostrophe printed between two letters of a holder's name (', ’, ‘ or `), which the
+#: normalizer turns into a space ("JOE'S" reads 'JOE S'); _apostrophe_glued reads the name with it deleted too.
+_NAME_APOSTROPHE = re.compile(r"(?<=[^\W\d_])['’‘`](?=[^\W\d_])")
+#: Audit round 4, R4-58: the lone tokens a payer reading prints for an apostrophe the normalizer spaced: a possessive's
+#: S, glued onto the word before it, and an O or a D, glued onto the word after it ('O BRIEN', 'D ARCY').
+_POSSESSIVE_S = "S"
+_APOSTROPHE_PREFIXES = frozenset({"O", "D"})
 #: Audit B9 (I58): a word of fewer letters is a short initialism when a name leads with it.
 _INITIALISM_LETTERS = 3
 #: §5.2: a legal-form word after the payer name's first word, or an institution word. CO is never one (Colorado's
@@ -2349,6 +2356,42 @@ def account_name_text(account_name: str | None) -> str:
     return normalize_transaction_description(_SLASH_TRADE_MARKER.sub(trade_marker, account_name))
 
 
+def _apostrophe_glued(account_name: str | None) -> str | None:
+    """Audit round 4, R4-58: the holder's name read with its apostrophes glued: when the printed name prints an
+    apostrophe between two letters (_NAME_APOSTROPHE), the name normalized as account_name_text normalizes it with those
+    apostrophes deleted ("JOE'S PIZZA LLC" reads 'JOES PIZZA LLC', "O'BRIEN ELECTRIC INC" 'OBRIEN ELECTRIC INC'); None
+    when it prints none. The normalizer itself keeps turning an apostrophe into a space ('JOE S PIZZA LLC'): this is one
+    more name of the holder's, never a replacement."""
+    if not account_name or _NAME_APOSTROPHE.search(account_name) is None:
+        return None
+    return account_name_text(_NAME_APOSTROPHE.sub("", account_name)) or None
+
+
+def _possessive_glued(region: str) -> str | None:
+    """Audit round 4, R4-58: a payer reading with the lone tokens a spaced apostrophe leaves glued back: a lone S onto
+    the word of letters before it ('JOE S PIZZA' reads 'JOES PIZZA') and a lone O or D onto the word of letters after
+    it ('O BRIEN' reads 'OBRIEN', 'D ARCY' 'DARCY'); None when nothing glues."""
+    tokens = region.split()
+    glued: list[str] = []
+    changed = False
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        after = tokens[index + 1] if index + 1 < len(tokens) else ""
+        if token in _APOSTROPHE_PREFIXES and len(after) > 1 and after.isalpha():
+            glued.append(token + after)
+            changed = True
+            index += 2
+            continue
+        if token == _POSSESSIVE_S and glued and len(glued[-1]) > 1 and glued[-1].isalpha():
+            glued[-1] += token
+            changed = True
+        else:
+            glued.append(token)
+        index += 1
+    return " ".join(glued) if changed else None
+
+
 def holder_reading(account_name: str | None, holder_name: str | None = None) -> str | None:
     """Audit B9 (I13): the name the holder tests read: the holder's own name when the parser read it from the header
     or the mailing block (Statement.holder_name), else the account-name field (a product, a nickname or, on some
@@ -2687,6 +2730,52 @@ def _prints_run(words: Sequence[str], run: Sequence[str]) -> bool:
     return any(tuple(words[index:index + len(run)]) == tuple(run) for index in range(len(words) - len(run) + 1))
 
 
+def _holder_test_names(printed: str, glued: str | None) -> list[tuple[str, str]]:
+    """Audit B9 (I38) and audit round 4, R4-58: the names holder_named reads, each with the name its person reading
+    reads: the holder's normalized name and, when it splits on a trade-name marker (_HOLDER_TRADE_NAME), its two sides
+    (the whole name reads as a person's when its first side does: audit round 3, R3-39; each side reads as itself),
+    then the name with its apostrophes glued (_apostrophe_glued) and its own sides, when it differs."""
+    names: list[tuple[str, str]] = []
+    for whole in (printed, glued) if glued and glued != printed else (printed,):
+        if _HOLDER_TRADE_NAME.search(whole):
+            sides = _HOLDER_TRADE_NAME.split(whole, maxsplit=1)
+            names.append((whole, sides[0].strip()))
+            names.extend((side, side) for side in sides)
+        else:
+            names.append((whole, whole))
+    return names
+
+
+def _reading_names_holder(
+    reading: str, names: Sequence[tuple[str, str]], *, shared_minimum: bool = False,
+) -> bool:
+    """§5.2's holder test's name arms (holder_named) on one payer reading (`reading`: the payer's words, the receiver
+    block already read off) against each of the holder's names (_holder_test_names): a one-word holder left by a dropped
+    lead word must print with it (_dropped_lead_run, I58), any other name is read by _holder_name_words_match with both
+    names as printed (R3-38) and both read as a person's where both are (R20, R3-39). Audit round 4, R4-58: with
+    `shared_minimum` (the glued payer reading), a name is read only when the reading shares at least min(2, its test
+    words) words with it."""
+    payer = _holder_test_words(reading.split())
+    printed_payer = [word for word in reading.split() if word.isalpha()]
+    person_payer = _person_name_reading(reading)
+    for name, person_side in names:
+        holder = _holder_test_words(name.split())
+        if shared_minimum and len(set(payer) & set(holder)) < min(2, len(holder)):
+            continue
+        run = _dropped_lead_run(name, holder)
+        if run is not None:
+            if _prints_run(printed_payer, run):
+                return True
+            continue
+        holder_printed = [word for word in name.split() if word.isalpha()]
+        if _holder_name_words_match(
+            payer, holder, people=person_payer and _person_name_reading(person_side), printed_payer=printed_payer,
+            holder_printed=holder_printed,
+        ):
+            return True
+    return False
+
+
 def holder_named(
     region: str, account_name: str | None, *, receiver_block: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
 ) -> bool:
@@ -2706,35 +2795,29 @@ def holder_named(
     is one ('<owner> DBA <trade>', R3-39), so another person sharing only the owner's given name is counted. Audit
     round 4, R4-31: every trade-name marker splits the name alike (_HOLDER_TRADE_NAME: DBA, D B A, AKA, OPERATING AS,
     TRADING AS, DOING BUSINESS AS, and a printed O/A or T/A, which account_name_text reads as DBA). R4-32: the receiver
-    strip reads a THE-led name's run with and without THE (_without_trailing_holder_run)."""
+    strip reads a THE-led name's run with and without THE (_without_trailing_holder_run). R4-58: a name printed with an
+    apostrophe is read both as printed and glued: on the holder's side, the glued name (_apostrophe_glued) is one more
+    name of the holder's, with its own DBA sides, read by every arm and by the receiver strip; on the payer's side, the
+    region with its lone S, O or D glued (_possessive_glued) is read too when a glued word is a word of one of the
+    holder's names, by the same arms, and names the holder only where it also shares with that name at least min(2,
+    the name's test words) words (§5.2's base rule), so a middle initial ('ROBERT S SMITH') never names 'ROBERTS
+    PLUMBING LLC'. The cut-name and digit-run arms read the names as printed."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)
     if not printed or _summary_grid_header(printed) or account_product(printed):
         return False
-    names: tuple[str, ...] = (printed,)
-    if _HOLDER_TRADE_NAME.search(printed):
-        names = (printed, *_HOLDER_TRADE_NAME.split(printed, maxsplit=1))
-    reading = _without_trailing_holder_run(payer_name(region), names, receiver_block)
-    payer = _holder_test_words(reading.split())
-    printed_payer = [word for word in reading.split() if word.isalpha()]
-    person_payer = _person_name_reading(reading)
-    for index, name in enumerate(names):
-        holder = _holder_test_words(name.split())
-        run = _dropped_lead_run(name, holder)
-        if run is not None:
-            if _prints_run(printed_payer, run):
+    names = _holder_test_names(printed, _apostrophe_glued(account_name))
+    runs = [name for name, _person_side in names]
+    if _reading_names_holder(_without_trailing_holder_run(payer_name(region), runs, receiver_block), names):
+        return True
+    glued = _possessive_glued(region)
+    if glued is not None:
+        new_words = set(glued.split()) - set(region.split())
+        if any(word in name.split() for name in runs for word in new_words):
+            reading = _without_trailing_holder_run(payer_name(glued), runs, receiver_block)
+            if _reading_names_holder(reading, names, shared_minimum=True):
                 return True
-            continue
-        # Audit round 3, R3-B10 (R3-39): the whole DBA name (names[0] beside its two sides) reads as a person's when its
-        # first side does; each side keeps its own reading.
-        person_side = names[1].strip() if index == 0 and len(names) > 1 else name
-        holder_printed = [word for word in name.split() if word.isalpha()]
-        if _holder_name_words_match(
-            payer, holder, people=person_payer and _person_name_reading(person_side), printed_payer=printed_payer,
-            holder_printed=holder_printed,
-        ):
-            return True
     if _holder_cut_name(payer_name(region), printed):
         return True
     return any(

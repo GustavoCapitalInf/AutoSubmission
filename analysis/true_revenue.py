@@ -1843,7 +1843,10 @@ def _holder_strip_names(record: TransactionClassification) -> tuple[str, ...]:
 
 def _holder_strip_names_of(account_name: str | None, holder_name: str | None) -> tuple[str, ...]:
     """_holder_strip_names on a statement's account-name field and holder name (audit round 3, R3-B14 review round 1:
-    finding 1, so the classifier's Cherry veto reads the names before a record exists)."""
+    finding 1, so the classifier's Cherry veto reads the names before a record exists). Audit round 4, R4-58: and each
+    name's apostrophe-glued reading (classifier._apostrophe_glued: "JOE'S DISTRIBUTION LLC" read 'JOES DISTRIBUTION
+    LLC'), under the same rules (a DBA trade side always, a legal side with a company form, never a person's name, two
+    words or more), the holder's own name's included, since the holder's own strip reads its name only as printed."""
     classifier = _classifier()
     names = _holder_names_of(account_name, holder_name)
     stripped: list[str] = []
@@ -1857,6 +1860,16 @@ def _holder_strip_names_of(account_name: str | None, holder_name: str | None) ->
                 stripped.append(legal)
         elif index > 0 and not _p2p_person_name(printed):
             stripped.append(printed)
+        glued = classifier._apostrophe_glued(name)
+        if glued is not None:
+            glued_sides = classifier._HOLDER_TRADE_NAME.split(glued, maxsplit=1)
+            if len(glued_sides) == 2:
+                legal, trade = (side.strip() for side in glued_sides)
+                stripped.append(trade)
+                if classifier.company_form(legal):
+                    stripped.append(legal)
+            elif not _p2p_person_name(glued):
+                stripped.append(glued)
     return tuple(dict.fromkeys(name for name in stripped if len(name.split()) >= 2))
 
 
@@ -3688,10 +3701,13 @@ _SELF_TEST_LEGAL_FORMS = frozenset({"LLC", "INC", "CORP", "LTD", "LIMITED", "LP"
 _SELF_TEST_CUT_CHARACTERS = 15
 
 
-def _self_test_name(name: str) -> str:
+def _self_test_name(name: str, *, glued: bool = False) -> str:
     """§8.1 (audit B9: I13): a name as the self test compares it: its words of letters, the legal forms at its end
-    left off."""
+    left off. Audit round 4, R4-58: with `glued`, its words of letters with a spaced apostrophe's lone S, O or D glued
+    back (classifier._possessive_glued: 'JOE S PIZZA' reads 'JOES PIZZA'), then the legal forms at its end left off."""
     words = [word for word in name.split() if word.isalpha()]
+    if glued:
+        words = (_classifier()._possessive_glued(" ".join(words)) or " ".join(words)).split()
     while words and words[-1] in _SELF_TEST_LEGAL_FORMS:
         words.pop()
     return " ".join(words)
@@ -3700,8 +3716,15 @@ def _self_test_name(name: str) -> str:
 def _same_name(originator: str, receiver: str) -> bool:
     """§8.1 (audit B9: I13): two fields print one name: equal, or one starts the other at a word with two words or more,
     or as a cut of _SELF_TEST_CUT_CHARACTERS characters or more (the census's class B reading). One shared first word
-    is not one name ('NORTHWIND' and 'NORTHWIND MARINE')."""
-    ours, theirs = _self_test_name(originator), _self_test_name(receiver)
+    is not one name ('NORTHWIND' and 'NORTHWIND MARINE'). Audit round 4, R4-58: or the two names' glued readings
+    (_self_test_name's `glued`) compare as one name by the same rule, so 'JOE S PIZZA LLC' and 'JOES PIZZA LLC' are one
+    name."""
+    return _same_self_test_name(_self_test_name(originator), _self_test_name(receiver)) or _same_self_test_name(
+        _self_test_name(originator, glued=True), _self_test_name(receiver, glued=True))
+
+
+def _same_self_test_name(ours: str, theirs: str) -> bool:
+    """§8.1 (audit B9: I13): _same_name's rule on two names as the self test reads them (_self_test_name)."""
     if len(ours.replace(" ", "")) < 3 or len(theirs.replace(" ", "")) < 3:
         return False
     shorter, longer = sorted((ours, theirs), key=len)
@@ -3912,7 +3935,10 @@ def self_originated(text: str, region: str, bank: str | None = None, *, bare_set
     that name; audit round 2, R2-B02: R18, a platform's payout id, processor_payout) is no own push. Held as
     holder_name. Audit round 2, R2-B04: American Express's unlabelled receiver block is paired too (R41), and Capital
     One's pair is read without Mercury's MERCURYACH and MRCR tails (R04 part 3). Audit round 3, R3-B10 review round 2:
-    `bare_settlement` is merchant_settlement's (False: B9's settlement words alone)."""
+    `bare_settlement` is merchant_settlement's (False: B9's settlement words alone). Audit round 4, R4-58: the receiver
+    fields are also paired with the originator read with its single letters kept (a spaced apostrophe's S, O or D), and
+    _same_name reads both names glued too, so 'JOE S PIZZA LLC' in both fields, or 'JOES PIZZA LLC' in one and 'JOE S
+    PIZZA LLC' in the other, is one name."""
     classifier = _classifier()
     if classifier._is_wire_row(text):
         return _wire_sent_by_its_beneficiary(text, region)
@@ -3920,10 +3946,14 @@ def self_originated(text: str, region: str, bank: str | None = None, *, bare_set
         return False
     pairs: list[tuple[str, str]] = []
     if region:
-        originator = classifier.payer_name(region)
+        originators = [classifier.payer_name(region)]
+        letters_kept = " ".join(token for token in region.split() if not any(ch.isdigit() for ch in token))
+        if letters_kept != originators[0]:
+            originators.append(letters_kept)
         pairs.extend(
             (originator, _RECEIVER_LABEL.sub("", found.group(0), count=1))
             for found in classifier._RECEIVER_FIELD_VALUE.finditer(text)
+            for originator in originators
         )
     # Audit round 2, R2-B04 (R41): American Express's receiver block (B5's _AMEX_ACH_CREDIT, read on the regex, so a
     # TRANSFER entry is paired too, on any statement's bank): the originator, and, when the payer region holds two
