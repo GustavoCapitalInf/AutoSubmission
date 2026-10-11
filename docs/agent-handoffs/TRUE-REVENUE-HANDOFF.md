@@ -194,7 +194,13 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   `dfab213` (R06's Verified move, one row once its two wires are taken off) and `f2756ab` (R2-B11's Verified totals,
   one row apart; `35524b0`, `2dcbe9c`, `3725e7f` and `c169e67` print the same totals) give single rows back, each on
   origin/true-revenue, origin/hosting/true-revenue-5.8, the Fly deploy branch and eight older hosting and fix branches;
-  a rewrite needs the owner's OK (default: no rewrite).
+  a rewrite needs the owner's OK (default: no rewrite). R4-B01's review round 2 found more, fixed forward in
+  `65479f7`: the spec commits `7cb7242` (the dealer funding's Verified sum, I18's parts and B7's Verified move),
+  `7b79ac6` (the plural `TRANSFERS` line's total) and `c4b969f` (R2-OW12's cached aid sums and the card's held-wire
+  total), each on the same eleven branches, `8c4bb91` (the large-deposit brief's total; on origin/true-revenue,
+  origin/hosting/true-revenue-5.8 and the Fly deploy branch only) and `70ebdd6` (R2-OW01's Verified sums, listed
+  above) print two figures whose difference, or a total and its other parts, give one row back; a rewrite needs the
+  owner's OK (default: no rewrite).
 - **Owner items with evidence, no fix:** R3-28 (the daily core-processor template's unread credits counted in True:
   about $47K to $50K of $296K under blocks the MCA standard excludes; the block is stored since R3-B09; §17.1's
   "Readings the owner may convert") and R3-76 (a tax preparer's `TAX REFUND PROC DES:RE DISB` credits excluded as
