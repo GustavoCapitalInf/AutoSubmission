@@ -1376,6 +1376,104 @@ def test_r3_38_the_printed_lead_and_the_holder_s_abbreviation():
         assert not tc._holder_abbreviation(word, holder), word
 
 
+# --- Audit round 4, batch R4-B08 (R4-30) ---
+# Audit round 4, R4-30 (§5.2's and R20's stated intent, R3-38's rule for every dropped lead; standard B6, B7 need
+# affiliation or the holder's own name, which shared trade words never prove): the printed lead skips only layout and
+# channel labels, legal filler and the bank and account words (_PRINTED_LEAD_SKIP), so a name led by a name-like noise
+# word (AMERICAN, NATIONAL, ELITE, PREMIUM, ...) keeps that word as its printed lead. A payer led by such a word is a
+# customer of a holder that prints another lead; a holder led by one is named, in the shared-word, brand-word and (with a
+# company form) one-word arms, only by a payer that prints it. The holder's own name with its lead dropped stays held
+# through the payer's own lead (the P arm). The new reading can only release (the abbreviation arm reads the printed
+# lead, so the holder's own lead abbreviated stays held).
+
+R4_30_LEADS = ["AMERICAN", "NATIONAL", "GENERAL", "ELITE", "TOTAL", "USA", "AMERICA", "PREMIUM", "STANDARD", "SELECT",
+               "COMMERCIAL", "ADVANTAGE", "GROUP", "SOLUTIONS"]
+R4_30_NOISE_HOLDERS = ["AMERICAN", "NATIONAL", "GENERAL", "ELITE", "TOTAL", "USA", "AMERICA"]
+R4_30_ZELLE = "ZELLE PAYMENT FROM {payer} CONF 0000000000"
+R4_30_REPAIR = "NORTHWIND AUTO REPAIR INC"
+
+
+@pytest.mark.parametrize("lead", R4_30_LEADS)
+def test_r4_30_a_payer_led_by_a_name_like_noise_word_is_a_customer(lead):
+    zelle = R4_30_ZELLE.format(payer=f"{lead} YACHT SERVICE")
+    assert _tiers([(zelle, 900.0)], bank="Chase", holder_name=YACHT) == [P2P]
+    ccd = CHASE_ACH.format(orig=f"{lead} AUTO REPAIR", entry="PAYMENT ", receiver=R4_30_REPAIR)
+    assert _tiers([(ccd, 900.0)], bank="Chase", holder_name=R4_30_REPAIR) == [ONE_OFF]
+
+
+def test_r4_30_two_ccds_from_a_noise_led_customer_verify_as_a_starter_led_one_does():
+    def rows(orig):
+        return [(CHASE_ACH.format(orig=orig, entry="PAYMENT ", receiver=R4_30_REPAIR), amount)
+                for amount in (1210.40, 1187.15)]
+
+    assert _tiers(rows("AMERICAN AUTO REPAIR"), bank="Chase", holder_name=R4_30_REPAIR) == [REPEATS, REPEATS]
+    assert _tiers(rows("GOLDEN AUTO REPAIR"), bank="Chase", holder_name=R4_30_REPAIR) == [REPEATS, REPEATS]
+
+
+@pytest.mark.parametrize("payer", ["CONTOSO YACHT SERVICE", "FABRIKAM YACHT SERVICE", "ROYAL YACHT SERVICE"])
+@pytest.mark.parametrize("noise", R4_30_NOISE_HOLDERS)
+def test_r4_30_a_holder_led_by_a_name_like_noise_word_is_named_only_by_a_payer_printing_it(noise, payer):
+    holder = f"{noise} YACHT SERVICE LLC"
+    assert _tiers([(R4_30_ZELLE.format(payer=payer), 900.0)], bank="Chase", holder_name=holder) == [P2P]
+
+
+def test_r4_30_a_ccd_from_another_company_into_a_noise_led_holder_is_a_customer():
+    text = CHASE_ACH.format(orig="CONTOSO AUTO REPAIR", entry="PAYMENT ", receiver="AMERICAN AUTO REPAIR INC")
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name="AMERICAN AUTO REPAIR INC") == [ONE_OFF]
+
+
+@pytest.mark.parametrize("payer", ["PLUMBING SUPPLY", "ROYAL ROOFING", "ROOFING SUPPLY"])
+@pytest.mark.parametrize("holder", ["AMERICAN PLUMBING LLC", "NATIONAL ROOFING LLC", "ELITE ROOFING LLC",
+                                    "TOTAL ROOFING LLC"])
+def test_r4_30_a_one_word_holder_led_by_a_name_like_noise_word_with_a_form_must_print_with_it(holder, payer):
+    assert _tiers([(R4_30_ZELLE.format(payer=payer), 900.0)], bank="Chase", holder_name=holder) == [P2P]
+
+
+@pytest.mark.parametrize(("payer", "holder", "field"), [
+    # The holder's own name, printed whole, with its lead dropped, or abbreviated (the P arm and R3-38's abbreviation).
+    ("AMERICAN YACHT SERVICE", "AMERICAN YACHT SERVICE LLC", "holder_name"),
+    ("YACHT SERVICE", "AMERICAN YACHT SERVICE LLC", "holder_name"),
+    ("AM YACHT SERVICE", "AMERICAN YACHT SERVICE LLC", "holder_name"),
+    # A brand affiliate printing the holder's lead.
+    ("AMERICAN YACHT CHARTERS", "AMERICAN YACHT SERVICE LLC", "holder_name"),
+    # The one-word holder's own run.
+    ("AMERICAN PLUMBING", "AMERICAN PLUMBING LLC", "holder_name"),
+    ("ELITE ROOFING", "ELITE ROOFING LLC", "holder_name"),
+    # A form-less account-name field keeps the one-word reading (a product word before a nickname): recorded residual.
+    ("CONTOSO", "PLATINUM CONTOSO", "account_name"),
+    ("CONTOSO LLC", "ELITE CONTOSO", "account_name"),
+])
+def test_r4_30_the_holder_s_own_names_stay_held(payer, holder, field):
+    assert _tiers([(R4_30_ZELLE.format(payer=payer), 900.0)], bank="Chase", **{field: holder}) == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize(("payer", "holder"), [
+    ("FIRST RATE PLUMBING SUPPLY", "FIRST CHOICE PLUMBING LLC"),
+    ("AMERICAN RATE PLUMBING SUPPLY", "AMERICAN CHOICE PLUMBING LLC"),
+    ("NATIONAL RATE PLUMBING SUPPLY", "ELITE CHOICE PLUMBING LLC"),
+    ("ELITE PLUMBING SUPPLY", "AMERICAN PLUMBING LLC"),
+])
+def test_r4_30_the_narrowed_arms_never_newly_hold(payer, holder):
+    assert _tiers([(R4_30_ZELLE.format(payer=payer), 900.0)], bank="Chase", holder_name=holder) == [P2P]
+
+
+def test_r4_30_the_printed_lead_skips_labels_filler_and_account_words_only():
+    assert tc._printed_lead(["AMERICAN", "YACHT", "SERVICE"]) == "AMERICAN"
+    assert tc._printed_lead(["ONLINE", "BUSINESS", "CONTOSO"]) == "CONTOSO"
+    assert tc._printed_lead(["DEPOSIT", "ACH", "INTERNATIONAL", "CONTOSO"]) == "CONTOSO"
+    assert tc._printed_lead(["THE", "ELITE", "ROOFING"]) == "ELITE"
+    assert tc._printed_lead(["BMO", "BUS", "CKG", "NORTHWIND"]) == "NORTHWIND"
+    # Every skipped word is a holder-test noise word; the name-like noise words are read.
+    assert tc._PRINTED_LEAD_SKIP <= tc._HOLDER_TEST_NOISE | tc._HOLDER_RUN_LEGAL_FORMS
+    for word in ("AMERICAN", "AMERICA", "NATIONAL", "USA", "CANADA", "GENERAL", "ELITE", "TOTAL", "PREMIUM", "PLATINUM",
+                 "SELECT", "ADVANTAGE", "GROUP", "SOLUTIONS", "ONTARIO"):
+        assert word in tc._HOLDER_TEST_NOISE and word not in tc._PRINTED_LEAD_SKIP, word
+    for word in ("INTERNATIONAL", "DIRECT", "NEW", "BUSINESS", "CHECKING", "BANK", "THE", "LLC", "USD"):
+        assert word in tc._PRINTED_LEAD_SKIP, word
+    assert tc._dropped_lead_run("AMERICAN PLUMBING LLC", ["PLUMBING"]) == ("AMERICAN", "PLUMBING")
+    assert tc._dropped_lead_run("PLATINUM CONTOSO", ["CONTOSO"]) is None
+
+
 # Audit round 3, R3-B10 (R3-39): a DBA holder whose name leads with a person ('<owner> DBA <trade>') is read whole as
 # that person's name against a payer that reads as a person, so another person sharing only the owner's given name is
 # counted, whatever the trade side prints; a company payer leading with the given name keeps the brand-word arm.

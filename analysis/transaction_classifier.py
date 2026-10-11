@@ -1388,6 +1388,8 @@ _NAME_STARTERS = frozenset({
 #: both the holder's and the payer's side of the holder test (holder_words, holder_named). The payer, debit and lender
 #: readers keep HOLDER_NOISE, so no payer key, debit reading or lender name moves.
 _HOLDER_TEST_NOISE: frozenset[str] = HOLDER_NOISE | frozenset({"BMO", "ADV", "BUS", "CKG", "GENERAL"})
+# Audit round 4, R4-30: the printed lead (_printed_lead) skips only part of this noise, _PRINTED_LEAD_SKIP (defined
+# after _HOLDER_RUN_LEGAL_FORMS, which it reads): the name-like noise words lead a name as printed.
 #: Audit B9 review round 2 (I13): the words the holder readers' published products print beyond the holder test's noise:
 #: PNC's product lines (analysis/pnc.py _PRODUCTS: 'PNC Core Commercial Checking', 'Virtual Wallet With Performance
 #: Spend', 'Treasury Enterprise Plan'). Every other product those readers publish ('Checking', 'TD Business Simple
@@ -2412,10 +2414,12 @@ def _printed_lead(words: Sequence[str]) -> str | None:
     """§5.2 (audit round 3, R3-B10: R3-38): the word a name leads with as printed: its first word of letters, two
     letters or more, that is no holder-test noise word (_HOLDER_TEST_NOISE: a layout's labels, the generic words) and
     no particle (_NAME_PARTICLES). Unlike _lead_word, a name-starter and a two- or three-letter word are kept ('GOLDEN',
-    'ACE', 'JB')."""
+    'ACE', 'JB'). Audit round 4, R4-30: only the layout and channel labels, the legal filler and the bank and account
+    words are skipped (_PRINTED_LEAD_SKIP), so a name-like noise word leads a name as printed ('AMERICAN' for
+    'AMERICAN YACHT SERVICE', 'ELITE' for 'ELITE ROOFING')."""
     return next((
         word for word in words
-        if word.isalpha() and len(word) >= 2 and word not in _HOLDER_TEST_NOISE and word not in _NAME_PARTICLES
+        if word.isalpha() and len(word) >= 2 and word not in _PRINTED_LEAD_SKIP and word not in _NAME_PARTICLES
     ), None)
 
 
@@ -2516,7 +2520,10 @@ def _brand_word_match(
     leads with a short initialism, the two lead words as printed; otherwise the first distinctive words. Audit round 3,
     R3-B10 (R3-38): when the holder's printed lead (`holder_printed_lead`) is a name-starter or a two-letter word, which
     the first distinctive word skips, a first-distinctive match also needs the payer to print it (`printed_payer`), so
-    'ROYAL YACHT SERVICE' never matches 'GOLDEN YACHT SERVICE LLC' on YACHT; the initialism arm is unchanged."""
+    'ROYAL YACHT SERVICE' never matches 'GOLDEN YACHT SERVICE LLC' on YACHT; the initialism arm is unchanged. Audit
+    round 4, R4-30: any printed lead the holder test dropped or skipped (one that is not the holder's lead: a
+    name-starter, a two-letter word, or a name-like noise word such as AMERICAN) needs the payer to print it, so 'ROYAL
+    YACHT SERVICE' never matches 'AMERICAN YACHT SERVICE LLC' either."""
     if holder_lead is not None and payer_lead is not None and (
         len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
     ):
@@ -2524,9 +2531,7 @@ def _brand_word_match(
     holder_first = _first_distinctive_word(holder)
     if holder_first is None or _first_distinctive_word(payer) != holder_first:
         return False
-    if printed_payer is not None and holder_printed_lead is not None and (
-        holder_printed_lead in _NAME_STARTERS or len(holder_printed_lead) == _DROPPED_INITIALISM_LETTERS
-    ):
+    if printed_payer is not None and holder_printed_lead is not None and holder_printed_lead != holder_lead:
         return holder_printed_lead in printed_payer
     return True
 
@@ -2535,6 +2540,19 @@ def _brand_word_match(
 #: trailing run of the holder's name is looked for.
 _HOLDER_RUN_LEGAL_FORMS = frozenset({
     "LLC", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "PLC", "DBA",
+})
+#: Audit round 4, R4-30 (R3-38's rule for every dropped lead): the words the printed lead (_printed_lead) skips, read
+#: beside the holder test's noise (_HOLDER_TEST_NOISE): the layout and channel labels and the generic words
+#: (REVENUE_GENERIC_WORDS: INTERNATIONAL, DIRECT, INSTANT, REAL, ONLINE, MOBILE, ELECTRONIC, NEW and MONEY among them),
+#: the legal filler (_HOLDER_RUN_LEGAL_FORMS, INCORPORATED, THE, OF, AND), the bank and product abbreviations, and the
+#: bank and account words. Every other holder-test noise word is name-like (AMERICAN, AMERICA, NATIONAL, USA, CANADA,
+#: GENERAL, ELITE, TOTAL, PREMIUM, PLATINUM, STANDARD, SELECT, PREFERRED, ADVANTAGE, COMMERCIAL, SIMPLE, BASIC, PLUS,
+#: FREE, EVERYDAY, SMALL, COMPLETE, ANALYZED, PERFORMANCE, FUNDAMENTALS, ESSENTIALS, TRUST, GROUP, HOLDINGS, SERVICES,
+#: SOLUTIONS, MANAGEMENT, ENTERPRISES, OPERATIONS, the province and territory words) and leads a name as printed.
+_PRINTED_LEAD_SKIP: frozenset[str] = REVENUE_GENERIC_WORDS | _HOLDER_RUN_LEGAL_FORMS | frozenset({
+    "INCORPORATED", "THE", "OF", "AND", "BMO", "ADV", "BUS", "CKG", "BANK", "BANKING", "BANQUE", "CAISSE", "CU", "FCU",
+    "BUSINESS", "CHECKING", "CHECK", "ACCOUNT", "SAVINGS", "OPERATING", "MARKET", "INTEREST", "COMPTE", "DIVERS",
+    "ENTREPRISE", "AFFAIRES", "USD", "CAD",
 })
 
 
@@ -2643,7 +2661,10 @@ def _dropped_lead_run(name: str, holder: Sequence[str]) -> tuple[str, ...] | Non
     company leading with the industry word is never the holder. None for any other holder (a one-word holder printed
     alone, or after a bank's or a product's abbreviation, keeps the one-word reading). Audit round 3, R3-B10 (R3-17): a
     single letter is no word of the run, as the payer reading drops it (payer_name), so 'JB'S TRUCKING LLC' (normalized
-    'JB S TRUCKING LLC') runs 'JB TRUCKING'."""
+    'JB S TRUCKING LLC') runs 'JB TRUCKING'. Audit round 4, R4-30: a name-like noise word (a holder-test noise word the
+    printed lead reads: in _HOLDER_TEST_NOISE, not in _PRINTED_LEAD_SKIP) starts the run too when the name prints a
+    company form ('AMERICAN PLUMBING' for 'AMERICAN PLUMBING LLC'); a form-less name keeps the one-word reading
+    ('PLATINUM CONTOSO', an account-name field's product word before a nickname, whose own push must stay held)."""
     if len(holder) != 1:
         return None
     words = [
@@ -2652,9 +2673,11 @@ def _dropped_lead_run(name: str, holder: Sequence[str]) -> tuple[str, ...] | Non
     if holder[0] not in words:
         return None
     end = words.index(holder[0])
+    formed = company_form(name)
     start = next((
         index for index, word in enumerate(words[:end])
         if word in _DROPPED_NAME_LEADS or len(word) == _DROPPED_INITIALISM_LETTERS
+        or (formed and word in _HOLDER_TEST_NOISE and word not in _PRINTED_LEAD_SKIP)
     ), None)
     return None if start is None else tuple(words[start:end + 1])
 
