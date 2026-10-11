@@ -772,6 +772,22 @@ def test_g7_fails_any_other_returned_row_leaving_the_numerator(tmp_path, change)
     assert _g7_exit(tmp_path, before, after) == 1
 
 
+def test_g7_r4_02_a_represented_row_back_in_the_rate_fails(tmp_path):
+    """Audit round 4, R4-02: the reverse of the declared move. Row 2, counted once by row 4's re-debit, rejoins the rate
+    while row 4 is still paid: no Q5 join (returned_funder_moves stays 0); it fails unless Quillon is allowlisted."""
+    from tools import lender_census as census
+
+    before, after = _g7(_g7_account(withholding=(1, 4), represented=[(2, "transaction:5")], numerator=200.0),
+                        _g7_account(withholding=(1, 2, 4), numerator=300.0))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["represented_rows_rejoining_withholding"] == {"analyses": 1, "rows": 1}
+    assert report["represented_rows_rejoining_outside_the_allowlist"] == 1
+    assert report["returned_funder_moves"] == {"analyses": 0, "rows": 0}
+    assert _g7_exit(tmp_path, before, after) == 1
+    allowed = census.compare(before, after, admitted=frozenset(), allowlisted=frozenset({"Quillon Funding"}))
+    assert allowed["represented_rows_rejoining_outside_the_allowlist"] == 0
+
+
 def test_g7_the_snapshot_records_the_represented_rows(tmp_path, fake_payees):  # noqa: F811
     from tools import lender_census as census
     from webapp.artifact_cache import ArtifactCache

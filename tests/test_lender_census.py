@@ -622,6 +622,83 @@ def test_r3_22_the_numerator_moving_with_no_withholding_row_move_fails(tmp_path,
     assert census.compare(before, after, admitted=frozenset())["withholding_numerator_unexplained"] == {"analyses": 0}
 
 
+# ------------------------------------------------------------------------------------------------- Audit round 4, R4-02
+# (the owner's answer of 2026-10-07 to R3-73, "Count it once"; true revenue spec §14.3 G7): a returned row the earlier
+# snapshot counted once (listed in `represented_rows`, out of the withholding rows) that the later one puts back in the
+# rate, or a row the later snapshot still lists as represented while it sits in the rate, is no Q5 join: it fails unless
+# its entity is allowlisted. Fabricated snapshots: "Contoso Capital" pays rows 1 and 4 of a six-row statement; row 2,
+# its payment of the 9th, is returned by the credit at row 3 (transaction:4) on the 10th; row 4 is the 16th's re-debit.
+
+CONTOSO_CAPITAL, FABRIKAM_FUNDING, NORTHWIND_ADVANCE = "Contoso Capital", "Fabrikam Funding", "Northwind Advance"
+R4_02_DATES = ["2054-03-02", "2054-03-02", "2054-03-09", "2054-03-10", "2054-03-16", "2054-03-18"]
+
+
+def _rejoin_account(*, withholding, represented=False, lenders=(1, 4), returned=((2, "transaction:4"),)):
+    states = ["other", "confirmed_lender", "confirmed_lender", "other", "confirmed_lender", "other"]
+    return {**_account(states, [[index, CONTOSO_CAPITAL, CONTOSO_CAPITAL.upper()] for index in lenders], {}, 10.0),
+            "lender_debits": 100.0 * len(lenders), "withholding_rows": list(withholding),
+            "withholding_numerator": 100.0 * len(withholding), "lender_count_entities": [CONTOSO_CAPITAL],
+            "returned_funder_rows": [list(row) for row in returned],
+            "represented_rows": [[2, "transaction:5"]] if represented else [],
+            "potential_lender_rows": [], "potential_withholding_rows": [], "reversed_by": [], "row_dates": R4_02_DATES,
+            "row_entities": {"1": CONTOSO_CAPITAL, "2": CONTOSO_CAPITAL, "4": CONTOSO_CAPITAL}}
+
+
+def test_r4_02_a_counted_once_row_rejoining_the_rate_fails_unless_allowlisted(tmp_path, capsys):
+    # Case U: counted once before (represented by row 4, out of the rate); after, back in the rate, represented_rows
+    # empty, row 4 still paid. Base: exit 0, booked as R2-OW13's join (returned_funder_moves 1).
+    before, after = _q5_snapshots(_rejoin_account(withholding=(1, 4), represented=True),
+                                  _rejoin_account(withholding=(1, 2, 4)))
+    report = census.compare(before, after, admitted=frozenset({CONTOSO_CAPITAL}))
+    assert report["represented_rows_rejoining_withholding"] == {"analyses": 1, "rows": 1}
+    assert report["represented_rows_rejoining_outside_the_allowlist"] == 1
+    assert report["returned_funder_moves"] == {"analyses": 0, "rows": 0}
+    assert report["row_flag_moves_outside_the_allowlist"] == 0
+    assert census.failed_on_lender_losses(report)
+    assert _main_exit(tmp_path, before, after, admitted=(CONTOSO_CAPITAL,)) == 1
+    assert ("returned rows rejoining the withholding rows after being counted once: 1 analyses/1 rows; outside the "
+            "allowlist: 1") in capsys.readouterr().out
+    # Case U2: the later snapshot still lists the row as represented AND as a withholding row.
+    still = _q5_snapshots(_rejoin_account(withholding=(1, 4), represented=True),
+                          _rejoin_account(withholding=(1, 2, 4), represented=True))
+    assert census.compare(*still, admitted=frozenset())["represented_rows_rejoining_withholding"] == {
+        "analyses": 1, "rows": 1}
+    assert _main_exit(tmp_path, *still, admitted=(CONTOSO_CAPITAL,)) == 1
+    # Allowlisted: exit 0, the figure still counted and printed.
+    allowed = census.compare(before, after, admitted=frozenset(), allowlisted=frozenset({CONTOSO_CAPITAL}))
+    assert allowed["represented_rows_rejoining_withholding"] == {"analyses": 1, "rows": 1}
+    assert allowed["represented_rows_rejoining_outside_the_allowlist"] == 0
+    assert _main_exit(tmp_path, before, after, allowlisted=(CONTOSO_CAPITAL,), admitted=(CONTOSO_CAPITAL,)) == 0
+    assert ("returned rows rejoining the withholding rows after being counted once: 1 analyses/1 rows; outside the "
+            "allowlist: 0") in capsys.readouterr().out
+    assert _main_exit(tmp_path, *still, allowlisted=(CONTOSO_CAPITAL,), admitted=(CONTOSO_CAPITAL,)) == 0
+
+
+def test_r4_02_control_a_q5_join_never_counted_once_stays_declared(tmp_path):
+    # A returned row joining the rate that neither snapshot lists as represented: R2-OW13's join, declared.
+    before, after = _q5_snapshots(_rejoin_account(withholding=(1, 4)), _rejoin_account(withholding=(1, 2, 4)))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["returned_funder_moves"] == {"analyses": 1, "rows": 1}
+    assert report["represented_rows_rejoining_withholding"] == {"analyses": 0, "rows": 0}
+    assert report["represented_rows_rejoining_outside_the_allowlist"] == 0
+    assert _main_exit(tmp_path, before, after) == 0
+
+
+def test_r4_02_control_the_zions_shaped_narrowing_passes_on_the_allowlist(tmp_path):
+    # Before: row 2 counted once by row 4, a paid 2x. After (a deliberate narrowing of R3-73's rule, as round 3's Zions
+    # re-join was): row 2 back in the rate, row 4 now a RETURNED row of the same funder (returned by transaction:6),
+    # dated after the return, in the rate as Q5 keeps it. Only the orchestrator's allowlist admits it.
+    before, after = _q5_snapshots(
+        _rejoin_account(withholding=(1, 4), represented=True),
+        _rejoin_account(withholding=(1, 2, 4), lenders=(1,), returned=((2, "transaction:4"), (4, "transaction:6"))))
+    report = census.compare(before, after, admitted=frozenset())
+    assert report["represented_rows_rejoining_withholding"] == {"analyses": 1, "rows": 1}
+    assert report["returned_funder_moves"] == {"analyses": 0, "rows": 0}  # row 4 was already in the rate
+    assert report["paid_rows"] == {"left_returned": 1, "left_other": 0, "joined": 0}
+    assert _main_exit(tmp_path, before, after) == 1
+    assert _main_exit(tmp_path, before, after, allowlisted=(CONTOSO_CAPITAL,)) == 0
+
+
 # ---------------------------------------------------------------- The owner's amendment of 2026-10-06 to the
 # underwriter's Q3 (R2-OW17, J3; true revenue spec §14.3 G7): the snapshot reads one Zelle reading (Yes by default); a
 # compare of the two readings is refused unless declared, and then only rule D's move on a Zelle return credit
