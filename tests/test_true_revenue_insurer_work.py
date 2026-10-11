@@ -1179,6 +1179,9 @@ def _weekly(entry: str, payer: str = "SAMPLE MUTUAL INS", holder: str = "NORTHWI
             for day in ("03-02", "03-09", "03-16")]
 
 
+#: Audit round 4, R4-33: Bank of America's DES and Chase's CO ENTRY DESCR are 10-character fields, so the 11- and
+#: 12-character entries below and in LIFE_POLICY_ENTRIES are a shape no real row of those layouts prints; they stay as
+#: the whole words a wire's purpose or a wider field prints. CUT_BENEFIT_ENTRIES holds the cut and abbreviated forms.
 PERSONAL_BENEFIT_ENTRIES = ("STD BENEFIT", "STD PMT", "WEEKLY BEN", "INCOME BNFT", "WC BENEFIT", "WORKERS COMP",
                             "BENEFITS")
 LIFE_POLICY_ENTRIES = ("DEATH BENEFIT", "DEATH CLAIM", "SURVIVOR BEN", "CSV SURR", "SURRENDER", "CASH VALUE",
@@ -1353,6 +1356,117 @@ def test_r3_b13_r1_a_benefit_word_in_the_carrier_s_name_is_no_benefit(rows, hold
 ])
 def test_r3_b13_r1_the_non_provider_benefit_reading(own, purpose, read):
     assert true_revenue._non_provider_benefit(own, purpose) is read
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 (R4-33; the underwriter's Q2 of 2026-10-02 and §17.1 Q2 (5)'s ruled default; the MCA principle,
+# personal benefits are never revenue): the refusals read a benefit word however a 10-character entry field cuts it or
+# a carrier abbreviates it. Never a bare BNF (a wire's beneficiary label) and never a bare BEN, DI, DIS or LTD on the
+# payer region, where they are names or legal forms.
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: Audit round 4, R4-33: each 10 characters or fewer, as Bank of America's DES and Chase's CO ENTRY DESCR print them.
+CUT_BENEFIT_ENTRIES = ("STD BENEFI", "LTD BENEFI", "WORKERS CO", "INCOME BNF", "WEEKLY BNF", "STD BENEFT", "LTD BENEFT",
+                       "STD PAYMNT", "WORKERSCMP", "WKRS COMP", "WRKRS COMP", "WRK COMP", "DIS BENEFT", "DIS BEN",
+                       "DI CLAIM", "BEN PMT")
+
+
+def _chase_three(entry: str, holder: str = NORTHWIND_BAKERY):
+    """Chase's CO ENTRY DESCR layout, three credits within 31 days."""
+    return [(f"ORIG CO NAME:SAMPLE MUTUAL INS ORIG ID:0000000001 DESC DATE: CO ENTRY DESCR:{entry} SEC:PPD "
+             f"TRACE#:00000000000000{n} EED:5403{day[-2:]} IND ID:0001 IND NAME:{holder} TRN: 000000000{n}TC",
+             amount, day) for n, (day, amount) in enumerate((("03-02", 812.37), ("03-09", 640.19), ("03-16", 1290.53)),
+                                                            start=1)]
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # Three weekly in Bank of America's DES at a bakery (today counted on the 3-in-31 ground).
+    *(pytest.param(_weekly(entry), {"holder": NORTHWIND_BAKERY}, [HELD] * 3, id=f"weekly-{entry}")
+      for entry in CUT_BENEFIT_ENTRIES),
+    # The same in Chase's CO ENTRY DESCR (today counted).
+    *(pytest.param(_chase_three(entry), {"holder": NORTHWIND_BAKERY, "bank": "Chase"}, [HELD] * 3,
+                   id=f"chase-{entry}")
+      for entry in ("STD BENEFI", "WORKERS CO", "INCOME BNF")),
+    # One credit at a repair shop and at an agency (today counted on the holder's trade).
+    *(pytest.param(_one_off(entry, holder), {"holder": holder}, [HELD], id=f"{label}-{entry}")
+      for entry in ("STD BENEFI", "LTD BENEFI", "WORKERS CO", "INCOME BNF")
+      for label, holder in (("repair", REPAIR_SHOP), ("agency", AGENCY))),
+    # A Wells-style row with no entry field, the cut printed after the carrier's name (today counted).
+    pytest.param(_three("SAMPLE MUTUAL INS STD BENEFI 000N"), {"holder": NORTHWIND_BAKERY}, [HELD] * 3,
+                 id="no-entry-std-benefi-x3"),
+    # At a clinic: disability by any name refuses everywhere (today counted).
+    *(pytest.param(_weekly(entry, holder=CLINIC), {"holder": CLINIC}, [HELD] * 3, id=f"clinic-{entry}")
+      for entry in ("STD BENEFI", "DIS BEN", "DI CLAIM")),
+    # Controls. At a clinic, workers' compensation and a benefit payment are paid for treatment (a provider).
+    *(pytest.param(_weekly(entry, holder=CLINIC), {"holder": CLINIC}, [COUNTED] * 3, id=f"clinic-{entry}")
+      for entry in ("WORKERS CO", "WKRS COMP", "BEN PMT")),
+    # A plain claim payment three times within 31 days at a bakery.
+    pytest.param(_weekly("CLAIM PMT"), {"holder": NORTHWIND_BAKERY}, [COUNTED] * 3, id="weekly-claim-pmt"),
+    # LTD on the payer is a legal form; a carrier named WORKERS COOP prints no cut (the cut is read on the purpose
+    # alone); BENEFICIAL is never a benefit word (never BENEF\w*).
+    pytest.param([("SAMPLE INSURANCE CO LTD DES:CLAIM PMT ID:0001", 2450.73, "03-02")], {"holder": REPAIR_SHOP},
+                 [COUNTED], id="payer-ltd-claim-pmt"),
+    pytest.param([("SAMPLE WORKERS COOP INS DES:CLAIM PMT ID:0001", 2450.73, "03-02")], {"holder": REPAIR_SHOP},
+                 [COUNTED], id="payer-workers-coop"),
+    pytest.param([("BENEFICIAL SAMPLE LIFE INS CO DES:DRP PAYMENT ID:0001", 2450.73, "03-02")],
+                 {"holder": REPAIR_SHOP}, [COUNTED], id="payer-beneficial-drp"),
+    # DIS on the payer region is a name, read on the purpose alone.
+    pytest.param([("DIS BENEFIT LIFE INS CO DES:DRP PAYMENT ID:0001", 2450.73, "03-02")], {"holder": REPAIR_SHOP},
+                 [COUNTED], id="payer-dis-benefit-carrier-drp"),
+])
+def test_r4_33_a_cut_or_abbreviated_benefit_entry_is_never_paid_for_work(rows, statement, expected):
+    """Audit round 4, R4-33: §17.1 Q2 (5)'s refusals read the benefit words however a 10-character entry field cuts
+    them or a carrier abbreviates them (STD BENEFI, LTD BENEFI, INCOME BNF, WORKERS CO, WKRS COMP, DIS BEN, DI CLAIM,
+    BEN PMT); workers' compensation and a plain benefit payment still count at a clinic or a pharmacy."""
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
+
+
+@pytest.mark.parametrize(("words", "personal", "ltd", "abbreviation", "non_provider", "non_provider_cut"), [
+    # The cut and abbreviated forms (audit round 4, R4-33).
+    ("STD BENEFI", True, False, False, True, False), ("LTD BENEFI", False, True, False, True, False),
+    ("WORKERS CO", False, False, False, False, True), ("INCOME BNF", True, False, False, False, False),
+    ("WEEKLY BNF", True, False, False, False, False), ("STD BENEFT", True, False, False, True, False),
+    ("LTD BENEFT", False, True, False, True, False), ("STD PAYMNT", True, False, False, False, False),
+    ("STD PAYMEN", True, False, False, False, False), ("STD CLAI", True, False, False, False, False),
+    ("LTD PYMT", False, True, False, False, False), ("STD BEN", True, False, False, False, False),
+    ("WORKERSCMP", False, False, False, True, False), ("WKRS COMP", False, False, False, True, False),
+    ("WRKRS COMP", False, False, False, True, False), ("WRK COMP", False, False, False, True, False),
+    ("DIS BENEFT", False, False, True, True, False), ("DIS BEN", False, False, True, False, False),
+    ("DISBEN", False, False, True, False, False), ("DI CLAIM", False, False, True, False, False),
+    ("DI BENEFIT", False, False, True, True, False), ("BEN PMT", False, False, False, False, True),
+    ("BEN PAYMEN", False, False, False, False, True), ("BENEFI", False, False, False, True, False),
+    ("BENEFT", False, False, False, True, False),
+    # Bank of America's DES reader ends a cut WORKERS CO at its CO ID label, so the purpose prints WORKERS alone.
+    ("WORKERS", False, False, False, False, True), ("WORKER", False, False, False, False, True),
+    # The whole words, as R3-10 reads them.
+    ("STD BENEFIT", True, False, False, True, False), ("LTD BENEFIT", False, True, False, True, False),
+    ("WORKERS COMP", False, False, False, True, False), ("INCOME BNFT", True, False, False, True, False),
+    ("WC BENEFIT", False, False, False, True, False), ("DISABILITY", False, False, False, False, False),
+    # Never read: a bare BNF, BEN, DI, DIS or LTD, BENEFICIAL, a carrier named WORKERS COOP, a claim payment.
+    ("BNF", False, False, False, False, False), ("BEN", False, False, False, False, False),
+    ("DI", False, False, False, False, False), ("DIS", False, False, False, False, False),
+    ("LTD", False, False, False, False, False), ("BENEFICIAL", False, False, False, False, False),
+    ("WORKERS COOP", False, False, False, False, False), ("CLAIM PMT", False, False, False, False, False),
+    ("BNF CONTOSO LLC", False, False, False, False, False),
+])
+def test_r4_33_the_cut_benefit_forms(words, personal, ltd, abbreviation, non_provider, non_provider_cut):
+    assert (true_revenue._INSURER_PERSONAL_BENEFIT.search(words) is not None) is personal
+    assert (true_revenue._INSURER_LTD_BENEFIT.search(words) is not None) is ltd
+    assert (true_revenue._INSURER_DISABILITY_ABBREVIATION.search(words) is not None) is abbreviation
+    assert (true_revenue._INSURER_NON_PROVIDER_BENEFIT.search(words) is not None) is non_provider
+    assert (true_revenue._INSURER_NON_PROVIDER_PURPOSE_CUT.search(words) is not None) is non_provider_cut
+
+
+def test_r4_33_the_cut_words_never_read_the_payer_region_s_abbreviations():
+    """Audit round 4, R4-33 (vote 2's caution): _non_provider_benefit reads the cut WORKERS CO and BEN PMT on the
+    purpose alone; on the payer region they are a carrier's name."""
+    assert true_revenue._non_provider_benefit("SAMPLE WORKERS CO INS", "CLAIM PMT") is False
+    assert true_revenue._non_provider_benefit("SAMPLE BEN PMT INS", "CLAIM PMT") is False
+    assert true_revenue._non_provider_benefit("SAMPLE INS CO", "WORKERS CO") is True
+    assert true_revenue._non_provider_benefit("SAMPLE INS CO", "BEN PMT") is True
 
 
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)

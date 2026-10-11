@@ -6148,25 +6148,54 @@ _INSURER_NOT_FOR_WORK = re.compile(
 #: personal benefits are never revenue): a disability benefit under another name (short-term disability's STD, a
 #: weekly or income benefit) and life-policy money (a death or survivor benefit, a surrender, a policy's cash value, a
 #: maturity, a beneficiary's payment) refuse every ground, read on the payer (without the holder's names) and the
-#: purpose, as _INSURER_NOT_FOR_WORK is. A bare LIFE is never read (group health and dental claims print it).
+#: purpose, as _INSURER_NOT_FOR_WORK is. A bare LIFE is never read (group health and dental claims print it). Audit
+#: round 4, R4-33 (§17.1 Q2 (5)'s ruled default; the MCA principle; fail closed): the STD, WEEKLY and INCOME words
+#: are read however a 10-character entry field cuts them (Bank of America's DES, Chase's CO ENTRY DESCR: 'STD BENEFI',
+#: 'INCOME BNF') or a carrier abbreviates them ('STD BENEFT', 'STD PAYMNT', 'WEEKLY BNF'); explicit spellings, never
+#: BENEF\w* ('BENEFICIAL LIFE'), and never a bare BNF (a wire's beneficiary label).
 _INSURER_PERSONAL_BENEFIT = re.compile(
-    r"(?<![A-Z])(?:STD (?:BENEFITS?|BEN|BNFT|CLAIMS?|CLM|PMT|PAYMENT)|(?:WEEKLY|INCOME) (?:BENEFITS?|BEN|BNFT)|DEATH\w*"
+    r"(?<![A-Z])(?:STD (?:BENEFITS?|BENEFI|BENEFT|BENEF|BEN|BNFT?|CLAIMS?|CLAI|CLM|PMT|PMNT|PYMT|PAYMENT|PAYMEN|PAYMNT"
+    r"|PAYM)|(?:WEEKLY|INCOME) (?:BENEFITS?|BENEFI|BENEFT|BENEF|BEN|BNFT?)|DEATH\w*"
     r"|SURVIVOR\w*|SURRENDER\w*|SURR|CASH ?VALUE|MATURITY|MATURED|BENEFICIAR\w*)(?![A-Z])"
 )
 #: Audit round 3, R3-B13 (R3-10; Q2's two sentences above): long-term disability's LTD before a benefit, claim or
 #: payment word, read on the purpose alone (the entry fields or a wire's purpose fields), never on the payer region,
-#: where LTD is a carrier's legal form ('<carrier> CO LTD DES:CLAIM PMT' is no disability benefit).
-_INSURER_LTD_BENEFIT = re.compile(r"(?<![A-Z])LTD (?:BENEFITS?|BEN|BNFT|CLAIMS?|CLM|PMT|PAYMENT)(?![A-Z])")
+#: where LTD is a carrier's legal form ('<carrier> CO LTD DES:CLAIM PMT' is no disability benefit). Audit round 4,
+#: R4-33: the same cut and abbreviated tails as STD's ('LTD BENEFI', 'LTD BENEFT', 'LTD PYMT').
+_INSURER_LTD_BENEFIT = re.compile(
+    r"(?<![A-Z])LTD (?:BENEFITS?|BENEFI|BENEFT|BENEF|BEN|BNFT?|CLAIMS?|CLAI|CLM|PMT|PMNT|PYMT|PAYMENT|PAYMEN|PAYMNT"
+    r"|PAYM)(?![A-Z])"
+)
+#: Audit round 4, R4-33 (Q2's two sentences above; the MCA principle): a carrier's abbreviation of a disability
+#: benefit or claim ('DIS BEN', 'DIS BENEFT', 'DISBEN', 'DI CLAIM', 'DI BENEFIT'), read on the purpose alone and
+#: refusing every ground, as _INSURER_LTD_BENEFIT is: on the payer region a DIS or DI is a name word.
+_INSURER_DISABILITY_ABBREVIATION = re.compile(
+    r"(?<![A-Z])(?:DIS ?BEN(?:EFITS?|EFI|EFT|EF|FT|S)?|DI (?:CLAIMS?|CLAI|CLM|BEN(?:EFITS?|EFI|EFT)?))(?![A-Z])"
+)
 #: Audit round 3, R3-B13 (R3-10; Q2's two sentences above): workers' compensation and a plain BENEFIT(S) wording, read
 #: on the payer and the purpose (_non_provider_benefit), refuse every ground only where the holder is no provider
 #: (_holder_provider: the holder's first trade is no clinic or pharmacy): a workers' compensation carrier paying a
 #: clinic, a therapy practice or a pharmacy for treatment pays for its services; elsewhere it is a wage or an owner's
-#: benefit. A bare COMP is never read (Truist's 'INS COMP' commission).
-_INSURER_NON_PROVIDER_BENEFIT = re.compile(r"(?<![A-Z])(?:WC|WORKERS? ?COMP\w*|WORK ?COMP|BENEFITS?|BNFT)(?![A-Z])")
+#: benefit. A bare COMP is never read (Truist's 'INS COMP' commission). Audit round 4, R4-33: and the carriers'
+#: abbreviations of workers' compensation ('WORKERSCMP', 'WRK COMP', 'WKRS COMP', 'WRKRS COMP') and the cut plain
+#: benefit words ('BENEFI', 'BENEFT').
+_INSURER_NON_PROVIDER_BENEFIT = re.compile(
+    r"(?<![A-Z])(?:WC|WORKERS? ?COMP\w*|WORKERS? ?CMP|WORK ?COMP|WRK ?COMP\w*|WKRS ?COMP\w*|WRKRS ?COMP\w*|BENEFITS?"
+    r"|BENEFI|BENEFT|BNFT)(?![A-Z])"
+)
+#: Audit round 4, R4-33: the cut workers' compensation and the benefit payment a 10-character field prints, read by
+#: _non_provider_benefit on the purpose alone (on the payer region '<NAME> WORKERS CO' and BEN are names): 'WORKERS CO',
+#: a WORKER(S) the purpose prints alone (Bank of America's DES reader ends a cut 'WORKERS CO' at its CO ID label, so
+#: the purpose reads 'WORKERS'; never 'WORKERS COOP'), and 'BEN PMT', 'BEN PYMT', 'BEN PAYMENT', 'BEN PAYMEN', 'BEN
+#: PAYMNT'.
+_INSURER_NON_PROVIDER_PURPOSE_CUT = re.compile(
+    r"(?<![A-Z])(?:WORKERS?(?: CO)?(?! ?CO[A-Z])|BEN (?:PMT|PYMT|PAYMENT|PAYMEN|PAYMNT))(?![A-Z])"
+)
 #: R3-B13 review round 1 (finding 2): the plain benefit words of _INSURER_NON_PROVIDER_BENEFIT, and the words that,
 #: printed after one on the payer region, make it the carrier's name ('MUTUAL BENEFIT INS CO', 'SAMPLE BENEFIT LIFE INS
-#: CO', 'MUTUAL BENEFIT GROUP'): an insurer word or spelling (_INSURER_NAME, _INSURER_SPELLINGS) or a legal form.
-_INSURER_PLAIN_BENEFIT = re.compile(r"BENEFITS?|BNFT")
+#: CO', 'MUTUAL BENEFIT GROUP'): an insurer word or spelling (_INSURER_NAME, _INSURER_SPELLINGS) or a legal form. Audit
+#: round 4, R4-33: the cut plain words too ('BENEFI', 'BENEFT'), so they take the carrier-name test the whole words do.
+_INSURER_PLAIN_BENEFIT = re.compile(r"BENEFITS?|BENEFI|BENEFT|BNFT")
 _INSURER_NAME_FORM = re.compile(r"(?<![A-Z])(?:CO|COMPANY|CORP|CORPORATION|INC|LLC|LTD|GROUP)(?![A-Z])")
 #: Audit round 3, R3-B13 (R3-10): the holder trades whose insurer credits are medical claim payments to a provider.
 _PROVIDER_TRADES = frozenset({"clinic", "pharmacy"})
@@ -6250,8 +6279,10 @@ def _non_provider_benefit(own: str, purpose: str) -> bool:
     spelling or a legal form is the carrier's name (_INSURER_PLAIN_BENEFIT, _INSURER_NAME_FORM: 'MUTUAL BENEFIT INS CO
     DES:DRP PAYMENT' is no benefit), while one printed after the name (a layout with no entry field: 'SAMPLE MUTUAL INS
     BENEFIT PMT') and workers' compensation anywhere (WC, WORKERS COMP, WORK COMP: a workers' compensation carrier) are
-    read."""
-    if _INSURER_NON_PROVIDER_BENEFIT.search(purpose):
+    read. Audit round 4, R4-33: with the carriers' abbreviations and the cut words (_INSURER_NON_PROVIDER_BENEFIT,
+    _INSURER_PLAIN_BENEFIT), and the cut 'WORKERS CO' and 'BEN PMT' on the purpose alone
+    (_INSURER_NON_PROVIDER_PURPOSE_CUT: on the payer region they are names)."""
+    if _INSURER_NON_PROVIDER_BENEFIT.search(purpose) or _INSURER_NON_PROVIDER_PURPOSE_CUT.search(purpose):
         return True
     for found in _INSURER_NON_PROVIDER_BENEFIT.finditer(own):
         if not _INSURER_PLAIN_BENEFIT.fullmatch(found.group(0)):
@@ -6309,7 +6340,10 @@ def _insurer_for_work(
     reading's key frequent, _insurer_key_frequent: the registry's or the
     brand's entity, so one carrier is one key however it prints), and, only with the owner's switch
     INSURER_FOR_WORK_STATEMENT_ARM on, 'insurer_service_statement' (any key of the statement frequent). A credit with no
-    ground is not released: a listed insurer's stays non_revenue, any other the insurer holds keep."""
+    ground is not released: a listed insurer's stays non_revenue, any other the insurer holds keep. Audit round 4, R4-33
+    (§17.1 Q2 (5)): the personal-benefit refusals read the words however a 10-character entry field cuts them or a
+    carrier abbreviates them, and a disability abbreviation on the purpose alone (_INSURER_DISABILITY_ABBREVIATION:
+    'DIS BEN', 'DI CLAIM') refuses every ground beside _INSURER_LTD_BENEFIT."""
     classifier = _classifier()
     eligible: dict[int, InsurerReading] = {}
     forms: dict[int, bool] = {}
@@ -6349,6 +6383,7 @@ def _insurer_for_work(
             _INSURER_NOT_FOR_WORK.search(words)
             or _INSURER_PERSONAL_BENEFIT.search(words)
             or _INSURER_LTD_BENEFIT.search(purpose)
+            or _INSURER_DISABILITY_ABBREVIATION.search(purpose)
             or (_non_provider_benefit(own, purpose) and not _holder_provider(record, receiver_holders))
         ):
             continue
