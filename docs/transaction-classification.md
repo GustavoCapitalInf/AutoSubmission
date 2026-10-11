@@ -579,6 +579,7 @@ bank's name.
 - Audit round 3, R3-B23 (R3-49, R3-47, R3-67, R3-62; e482ed4, 47288fb, 686912a, 897d136): the downloads say what the dashboard says, and no classification moves. A package that analyses no statement downloads its counted-plus-held figures, its held count and its revenue counts as empty cells beside its empty True, never 0.0 or 0, the served totals unchanged (R3-49); the package CSV/XLSX name each account of a kept document left out as a repeat or a superseded printout in a `repeated_account_<n>` section with the duplicate notice's words (R3-47), and each returned funder payment in a `returned_funder_payment_<n>` section with the warning's words, in its own unit, a re-debited payment read as counted once (R3-67); the statement CSV/XLSX write the printed account title only where it reads as a bank's designation, an owner's name or a legal-form fragment left out, the JSON download and the payload keeping it as read, the owner-decision default (R3-62). No stored output moves (true revenue spec §9.3, §10.4, §10.8, §17.1, §20).
 
 - Audit round 4, R4-B02 (R4-04, R4-05): on a debit, a bank's returned-item, unpaid-item, stop-payment and OD item charge is a charge in every spelling it prints (`CHRG`, `PYMT`, the glued `STOPPAY`, `STOPPAYMENT`, `STOPPMT` and `ODITEM` before a charge word, a stop charge inside the row), even when it names a funder; a spaced `CHARGE BACK` or `CHG BACK` after a returned or unpaid item is the chargeback of a bounced deposit, never the bank's NSF charge: pass 4 pairs it with its deposit whatever its words (the fee veto guards `CHG` and `CHRG` as it guards `CHARGE`, and `UNPAID ITEM CHARGE BACK` is a return wording), and it raises no processor flag. A credit keeps its reading.
+- Audit round 4, R4-B02 (R4-77; the owner question filed in true revenue spec §17.1, "A funder's own fee", default (a) shipped): a confirmed funder's own charge printed without the whole word FEE (`MISCFEE`, `EXPENSE`, `PENALTY`, a `LATE` or `DEFAULT CHARGE`) is a fee (`funder_fee_charge`), as its worded FEE is (lender detection D8), on every route that returns a confirmed funder's debit, read without the receiver field and the holder's own names: out of paid to lenders, the lender count and the withholding rate, no entity attributed.
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -712,6 +713,20 @@ Classification is applied in this order; the first match wins:
    - on a debit, a debt-relief payee is `debt_relief`. It is read only after no
      known payee matched, and on the row without its receiver fields, so the
      account holder's own name never makes a row debt relief.
+   Since audit round 4 (R4-B02: R4-77; true revenue spec §17.1, "A funder's own
+   fee", default (a)): a confirmed funder's debit that prints one of its own
+   charge words without the whole word FEE (`MISCFEE` or `MISC FEE`, `EXPENSE`,
+   `PENALTY`, a `LATE` or `DEFAULT CHARGE|CHG|CHRG`) is a fee, as its worded FEE
+   already is at step 4 (lender detection D8: `ONDECK TRANSFER FEE` stays a
+   fee): `fee`, match method `strong_non_lender_exclusion`, rule
+   `funder_fee_charge`, confidence 0.97, no entity, out of paid to lenders, the
+   lender count and the withholding rate. The words are read on the row without
+   the receiver field's value and the holder's own names (a holder named
+   'NORTHWIND EXPENSE SOLUTIONS LLC' never turns its funder's payments into
+   fees), Bank of America's `PMT INFO` addenda kept, and on every route that
+   returns a confirmed funder's debit (the alias, the bank's field order and a
+   bank-specific lender rule). A potential lender's row, every other payee and a
+   credit are never read.
 6. Obligation descriptors, debits only, for rows no known payee claimed. A
    transfer between the holder's own accounts (`TRANSFER TO ... TRANSFER OUT`)
    takes none of them. In order:

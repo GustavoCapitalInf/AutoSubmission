@@ -262,3 +262,88 @@ def test_a_funder_s_return_printing_stop_payment_still_pairs(monkeypatch):
     assert debit.classification == "confirmed_lender"
     assert (debit.returned_funder_payment_by or debit.reversed_by) == "transaction:3"
     assert debit.contributes_to_withholding_rate and not debit.contributes_to_lender_totals
+
+
+# ------------------------------------------------------------------------- audit round 4, R4-77: a funder's own fee
+# The owner question filed in true revenue spec §17.1 ("A funder's own fee"), default (a): a confirmed funder's own charge
+# is a fee in every spelling, as its worded FEE already is (lender detection D8, "ONDECK TRANSFER FEE stays a fee"): out
+# of paid to lenders, the lender count and the withholding rate, no entity attributed. Registry funders only.
+
+FUNDER_FEES = (
+    "REVENUED DES:DEBIT ID:0001 INDN:CONTOSO BAKERY LLC CO ID:0000000001 CCD PMT INFO:MISCFEE:0001",
+    "LENDERO EXPENSE 0001",
+    "FORWARD FINANCING PENALTY",
+    "ONDECK CAPITAL DES:DEFAULT CHG ID:0001",
+    "KAPITUS DES:LATE CHARGE ID:0001",
+)
+
+
+@pytest.mark.parametrize("bank", BANKS)
+@pytest.mark.parametrize("printed", FUNDER_FEES)
+def test_r4_77_a_funder_s_own_fee_is_a_fee_in_every_spelling(printed, bank):
+    # Base: each read `confirmed_lender` (Revenued LLC, Lendero LLC, Forward Financing, ONDECK, KAPITUS).
+    record = tc.classify_transaction(printed, -35.0, bank=bank, account_name=HOLDER)
+    assert (record.classification, record.matched_rule, record.canonical_entity, record.match_method) == (
+        "fee", "funder_fee_charge", None, "strong_non_lender_exclusion")
+    assert record.confidence_score == 0.97
+    assert "A confirmed funder's own charge printed as a fee" in record.reason
+    assert _no_lender_contribution(record)
+
+
+@pytest.mark.parametrize(("printed", "state", "rule"), [
+    ("EXPANSIONCAP DES:FEE ID:0001 INDN:CONTOSO BAKERY LLC CO ID:0000000001 CCD", "fee", "bank_or_processing_fee"),
+    ("ONDECK TRANSFER FEE", "fee", "bank_or_processing_fee"),
+    ("KAPITUS DES:NSF FEE", "nsf_or_return", "nsf_or_return"),
+])
+def test_r4_77_control_the_worded_fee_rows_read_as_before(printed, state, rule):
+    record = tc.classify_transaction(printed, -35.0)
+    assert (record.classification, record.matched_rule) == (state, rule)
+
+
+def test_r4_77_control_a_holder_named_like_a_fee_word_never_turns_payments_into_fees():
+    holder = "NORTHWIND EXPENSE SOLUTIONS LLC"
+    printed = "KAPITUS DES:PAYMENT ID:000000001 INDN:NORTHWIND EXPENSE SOLUTIONS LLC CO ID:0000000002 CCD"
+    for name in ({"account_name": holder}, {"holder_name": holder}, {}):
+        record = tc.classify_transaction(printed, -400.0, bank="Bank of America", **name)
+        assert (record.classification, record.canonical_entity) == ("confirmed_lender", "KAPITUS"), name
+        assert record.contributes_to_lender_totals
+    # An unlabelled receiver: the holder's own name blanked where it is given.
+    unlabelled = "KAPITUS PAYMENT 0001 NORTHWIND EXPENSE SOLUTIONS LLC"
+    record = tc.classify_transaction(unlabelled, -400.0, account_name=holder)
+    assert (record.classification, record.canonical_entity) == ("confirmed_lender", "KAPITUS")
+
+
+def test_r4_77_control_a_non_funder_expense_row_is_not_read():
+    record = tc.classify_transaction("FABRIKAM EXPENSE REIMBURSEMENT", -120.0)
+    assert (record.classification, record.matched_rule) == ("other", "no_classification_rule")
+    # A potential lender's row and a credit are never read either.
+    assert tc.classify_transaction("LENDERO EXPENSE 0001", 35.0).matched_rule != "funder_fee_charge"
+
+
+def test_r4_77_every_route_to_a_confirmed_funder_s_debit_reads_the_fee(monkeypatch):
+    # The bank-specific lender rule and the field-order payee forms return a confirmed funder's debit too (both empty
+    # of funders in the registry today): each reads the fee words as step 7's alias route does.
+    from analysis.payee_matcher import PayeeMatch
+
+    monkeypatch.setattr(tc, "BANK_SPECIFIC_LENDER_ALIASES", {"FABRIKAM BANK": {"Sample Funding": ("SMPLFND",)}})
+    record = tc.classify_transaction("SMPLFND PENALTY 0001", -35.0, bank="Fabrikam Bank")
+    assert record.matched_rule == "funder_fee_charge"
+    assert tc.classify_transaction("SMPLFND PAYMENT 0001", -35.0, bank="Fabrikam Bank").classification == (
+        "confirmed_lender")
+    monkeypatch.setattr(tc, "_FIELD_ORDER_FORMS", [
+        (re.compile(r"\bORIG CO NAME SAMPLE FUNDING\b"), PayeeMatch("Sample Funding", "confirmed_lender", ""))])
+    record = tc.classify_transaction("ORIG CO NAME SAMPLE FUNDING CO ENTRY DESCR LATE CHG", -35.0)
+    assert record.matched_rule == "funder_fee_charge"
+    record = tc.classify_transaction("ORIG CO NAME SAMPLE FUNDING CO ENTRY DESCR PAYMENT", -35.0)
+    assert (record.classification, record.canonical_entity) == ("confirmed_lender", "Sample Funding")
+
+
+def test_r4_77_statement_figures():
+    # Base: lender_debits and the numerator each +105.00 (the penalty read as KAPITUS's payment).
+    alone = _weekly_kapitus()
+    fined = _weekly_kapitus([("2054-03-18", "KAPITUS PENALTY", -105.0)])
+    figures = []
+    for statement in (alone, fined):
+        metrics = compute_metrics(statement, classifications=tc.classify_statement_transactions(statement))
+        figures.append((metrics.lender_debits, metrics.withholding_numerator, metrics.lenders_detected))
+    assert figures[0] == figures[1] == (3200.0, 3200.0, 1)

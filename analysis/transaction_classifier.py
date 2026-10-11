@@ -493,6 +493,13 @@ _FEE_PATTERNS = (
     re.compile(r"\bW D SVC\b"),
     re.compile(r"^FRAIS\b(?!.*\b(?:FINANCEMENT|INTERETS?|PRET|MARGE|MCR)\b)"),
 )
+#: Audit round 4, R4-77 (true revenue spec §17.1, "A funder's own fee", default (a)): a confirmed funder's own charge
+#: printed without the whole word FEE (Revenued's MISCFEE addenda, an EXPENSE, a PENALTY, a LATE or DEFAULT CHARGE), read
+#: at step 7 on a confirmed funder's debit only (_funder_fee_record), is a fee as its worded FEE is (lender detection D8:
+#: the fee rule runs before the known payee, so 'ONDECK TRANSFER FEE' stays a fee).
+_FUNDER_FEE_WORDS = re.compile(
+    r"(?<![A-Z])(?:MISC ?FEES?|EXPENSES?|PENALT(?:Y|IES)|(?:LATE|DEFAULT) (?:CHARGES?|CHGS?|CHRGS?))(?![A-Z])"
+)
 #: Audit round 3, R3-B01 (R3-80; completes the owner's rule of 2026-09-25 above): the bank's stop-payment and OD item
 #: charges printed without FEE, read with _FEE_PATTERNS on a DEBIT only (a credit keeps today's reading). A stop word is
 #: a bank instruction, never a payment, so a bare stop-payment row is a charge too; it is read only at the row's start,
@@ -4678,16 +4685,45 @@ def _field_order_payee(text: str) -> PayeeMatch | None:
     return next((match for pattern, match in _FIELD_ORDER_FORMS if pattern.search(text)), None)
 
 
+def _funder_fee_record(common: dict[str, object], text: str) -> TransactionClassification | None:
+    """Audit round 4, R4-77 (true revenue spec §17.1, "A funder's own fee", default (a)): a confirmed funder's debit that
+    prints one of its own charge words (_FUNDER_FEE_WORDS) is a fee, as its worded FEE is (lender detection D8): out of
+    paid to lenders, the lender count and the withholding rate, no entity attributed; else None. Read on the row without
+    the receiver field's value and the holder's own names (true_revenue.without_receiver_and_holder), so a holder named
+    'NORTHWIND EXPENSE SOLUTIONS LLC' never turns its funder's payments into fees, while Bank of America's PMT INFO
+    addenda, where Revenued prints MISCFEE, is kept. Called by every route that returns a confirmed funder's debit."""
+    words = without_receiver_and_holder(text, common.get("account_name"), common.get("holder_name"))
+    if _FUNDER_FEE_WORDS.search(words) is None:
+        return None
+    return _build_record(
+        **common,
+        classification="fee",
+        match_method="strong_non_lender_exclusion",
+        matched_rule="funder_fee_charge",
+        confidence_score=0.97,
+        reason=(
+            "A confirmed funder's own charge printed as a fee (MISCFEE, EXPENSE, PENALTY, a LATE or DEFAULT CHARGE): a "
+            "fee, as its worded FEE is (lender detection D8): out of paid to lenders and the withholding rate (spec "
+            "§17.1, a funder's own fee)."
+        ),
+    )
+
+
 def _field_order_debit_record(
     common: dict[str, object],
     text: str,
     match: PayeeMatch,
 ) -> TransactionClassification:
-    """A debit to a payee read from the bank's fields: its group (D9's LOC wording still wins), with no alias."""
+    """A debit to a payee read from the bank's fields: its group (D9's LOC wording still wins), with no alias. Audit
+    round 4, R4-77: a confirmed funder's own charge is a fee (_funder_fee_record)."""
     if match.state in _LOC_OVERRIDE_STATES and _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
         state, rule = "line_of_credit", "line_of_credit_descriptor_override"
     else:
         state, rule = match.state, f"{match.state}_field_order"
+        if state == "confirmed_lender":
+            fee = _funder_fee_record(common, text)
+            if fee is not None:
+                return fee
     return _build_record(
         **common,
         classification=state,
@@ -4707,7 +4743,8 @@ def _known_payee_debit_record(
     text: str,
     match: PayeeMatch,
 ) -> TransactionClassification:
-    """Spec §4.3 step 7 and D9: a debit to a known payee takes the payee's group."""
+    """Spec §4.3 step 7 and D9: a debit to a known payee takes the payee's group. Audit round 4, R4-77: a confirmed
+    funder's own charge is a fee (_funder_fee_record)."""
     if match.state in _LOC_OVERRIDE_STATES and _matches_any(text, _LINE_OF_CREDIT_PATTERNS):
         return _build_record(
             **common,
@@ -4723,6 +4760,9 @@ def _known_payee_debit_record(
             ),
         )
     if match.state == "confirmed_lender":
+        fee = _funder_fee_record(common, text)
+        if fee is not None:
+            return fee
         return _build_record(
             **common,
             classification="confirmed_lender",
@@ -5529,6 +5569,10 @@ def classify_transaction(
     bank_match = registry_match(text, bank_registry) if bank_registry and amount < 0 else None
     if bank_match is not None:
         lender, alias = bank_match
+        # Audit round 4, R4-77: a confirmed funder's own charge is a fee here too.
+        fee = _funder_fee_record(common, text)
+        if fee is not None:
+            return fee
         return _build_record(
             **common,
             classification="confirmed_lender",
