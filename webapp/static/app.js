@@ -1466,6 +1466,10 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       + "catch-up."));
     entries(item.larger_debits_inside).forEach((entry) => also.push(`Also: a debit of ${money(entry.amount)} on `
       + `${day(entry.date)}, inside the gap, was more than twice the payment.`));
+    // Audit round 4, R4-83: a one-off the bank worded as a payoff is a payoff at any amount, never presence, so a gap
+    // can hold it; it is named apart from the larger debits.
+    entries(item.payoffs_inside).forEach((entry) => also.push(`Also: a debit of ${money(entry.amount)} on `
+      + `${day(entry.date)}, inside the gap, was worded as a payoff.`));
     also.push(...sameAmount(item.last_payment_amount));
   } else if (item.kind === "catch_up") {
     // The owner's answer of 2026-10-07 to audit round 3's R3-25 ("Add a 'Caught up' line"): an exact multiple of the
@@ -1511,6 +1515,11 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       : `; ${single ? "it is" : `${formatNumber(catchUps)} of them ${catchUps === 1 ? "is" : "are"}`} `
         + `${catchUps === 1 ? "an exact multiple" : "exact multiples"} of the payment, which may be a catch-up`;
     const lastOther = !others ? "" : `${single ? "on" : "the last on"} ${day(others.last_date)}${multiples}`;
+    // Audit round 4, R4-82: the line never says "no payment" through a debit it names. Where the payoff is dated after
+    // the last presence (ISO dates compare as strings), the count reads "no regular payment".
+    const presenceDay = item.last_presence_date || item.last_payment_date;
+    const payoffInside = Boolean(item.payoff && item.payoff.date && presenceDay && item.payoff.date > presenceDay);
+    const regular = payoffInside ? "regular " : "";
     // Audit round 3, R3-85: the quiet business days are counted from the last presence, which the note names where it
     // is not the last payment ("after <day>"), as the hosting line's plain voice already reads.
     if (item.stop_confirmed === true) {
@@ -1521,10 +1530,10 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
         ? day(item.last_presence_date) : "it";
       if (others) {
         details.push(`After it came only ${later}, ${lastOther}.`);
-        details.push(`No payment in the ${quiet} after ${presence}, through ${through}.`);
+        details.push(`No ${regular}payment in the ${quiet} after ${presence}, through ${through}.`);
       } else {
-        details.push(`No ${attempt ? "payment or payment attempt" : "payments"} in the ${quiet} after ${presence}, `
-          + `through ${through}.`);
+        details.push(`No ${regular}${attempt ? "payment or payment attempt" : "payments"} in the ${quiet} after `
+          + `${presence}, through ${through}.`);
       }
     } else {
       headline = "payments may have stopped";
@@ -1535,10 +1544,11 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
           + `${day(item.last_payment_date)}.`);
         details.push(`After it came only ${later}, ${lastOther}.`);
         const end = item.scope === "package" ? `through ${through}` : "to the end of this statement";
-        details.push(`No payment in the ${quiet} after ${day(item.last_presence_date || others.last_date)}, ${end}.`);
+        details.push(`No ${regular}payment in the ${quiet} after ${day(item.last_presence_date || others.last_date)}, `
+          + `${end}.`);
       } else {
         const span = item.scope === "package" ? `the last ${quiet}, through ${through}` : `the last ${quiet} of this statement`;
-        details.push(`No ${attempt ? "payment or payment attempt" : "payment"} in ${span}.`);
+        details.push(`No ${regular}${attempt ? "payment or payment attempt" : "payment"} in ${span}.`);
       }
       // Review round 1: the grace window is the threshold of a possible stop, not the payments' normal rhythm.
       details.push(`${sentenceCase(scheduleWords(item.cadence))} allows up to `
@@ -1547,18 +1557,30 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
     }
     if (item.payoff) {
       // Audit round 3, R3-25: the payoff note reads only a debit of 2x or more that is no exact multiple, and counts
-      // the earlier ones (R3-MERGE: in the same "Also:" sentence).
+      // the earlier ones (R3-MERGE: in the same "Also:" sentence). Audit round 4, R4-82: "a final debit" only when no
+      // presence followed it; an unworded debit under 3x on the payment's next due date may be a payoff or a new
+      // payment amount; R4-83: a debit the bank worded as a payoff says so.
       const earlier = numberOrNull(item.payoff.earlier);
       const count = earlier
         ? `, after ${countWords(earlier, "earlier debit")} of twice the payment or more` : "";
-      also.push(`Also: a final debit of ${money(item.payoff.amount)} on ${day(item.payoff.date)} may be a payoff${count}.`);
+      const final = !presenceDay || item.payoff.date >= presenceDay;
+      const onDue = "came on the payment's due date; it may be a payoff or a new payment amount";
+      const reading = item.payoff.worded === true ? "is worded as a payoff"
+        : item.payoff.on_due_date === true ? onDue : "may be a payoff";
+      also.push(`Also: ${final ? "a final debit" : "a debit"} of ${money(item.payoff.amount)} on `
+        + `${day(item.payoff.date)}${final ? "" : ", after the last regular payment,"} ${reading}${count}.`);
     }
     also.push(...sameAmount(item.last_payment_amount));
     if (item.continues_as) {
+      // Audit round 4, R4-81: the same amount on this payment's next due date under another name, one side a potential
+      // lender's payee, reads as the same payment under another name, with no buyout or refinance guess.
       const next = item.continues_as;
-      also.push(`Also: payments of ${money(next.amount)} continue under `
-        + `${nameOf(next.lender_label || next.lender || "another lender", next.lender_state)} from `
-        + `${day(next.first_date)}; this may be a buyout or refinance.`);
+      const name = nameOf(next.lender_label || next.lender || "another lender", next.lender_state);
+      also.push(next.same_payment === true
+        ? `Also: payments of ${money(next.amount)} continue at the same amount under ${name} from `
+          + `${day(next.first_date)}, on this payment's next due date; this may be the same payment under another name.`
+        : `Also: payments of ${money(next.amount)} continue under ${name} from ${day(next.first_date)}; this may be a `
+          + "buyout or refinance.");
     }
     if (item.new_lender_after) {
       const next = item.new_lender_after;

@@ -286,6 +286,31 @@ def test_p_l12_a_bounced_tail_is_no_stop():
     assert (stop["kind"], stop["quiet_business_days"], stop["grace_business_days"]) == ("stop", 16, 10)
 
 
+# ------------------------------------------- audit round 4, R4-B07 (R4-83): a worded payoff through the pipeline
+KAPITUS_PAYOFF = "KAPITUS DES:PAYOFF ID:000000004 INDN:CONTOSO PLUMBING LLC CO ID:0000000002 CCD"
+
+
+def test_r4_83_a_worded_payoff_through_the_pipeline_is_a_payoff_not_a_catch_up():
+    """KAPITUS weekly 1,000.00 on the Mondays to March 16, the 23rd missed, then 3,000.00 printing PAYOFF on the 25th
+    (exactly 3x). The classifier marks it a lump-sum payoff (R3-79) and the lender table's lump-sum line names it; the
+    payment changes read it as a payoff: a possible stop whose payoff note says it is worded, no Caught up line (before:
+    one Caught up item, "1 missed, 3x", beside the lump-sum line for the same debit)."""
+    rows = [(M(1), SALE, 10000.0), *_debits(every(M(2), M(16)), KAPITUS, 1000), (M(25), KAPITUS_PAYOFF, -3000.0)]
+    account = _account(_payload(rows))
+    record = next(row["classification"] for row in account["statement"]["transactions"]
+                  if row["description"] == KAPITUS_PAYOFF)
+    assert (record["classification"], record["canonical_entity"], record["lump_sum_payoff"]) == (
+        "confirmed_lender", "KAPITUS", "PAYOFF")
+    detection = account["detection"]
+    assert [(item["funder"], item["amount"], item["date"]) for item in detection["lump_sum_payoffs"]] == [
+        ("KAPITUS", 3000.0, "2054-03-25")]
+    assert [item["kind"] for item in detection["lender_payment_changes"]] == ["stop"]
+    [stop] = detection["lender_payment_changes"]
+    assert (stop["stop_confirmed"], stop["last_presence_date"], stop["quiet_business_days"]) == (
+        False, "2054-03-16", 11)
+    assert stop["payoff"] == {"date": "2054-03-25", "amount": 3000.0, "worded": True}
+
+
 # ------------------------------------------------------------------------------------------------- P-L13: renewal
 def test_p_l13_a_renewal_names_the_funding_credit():
     rows = [(M(1), SALE, 10000.0), *_debits(bdays(M(2), M(13)), KAPITUS, 850), (M(13), FUNDING, 25000.0),

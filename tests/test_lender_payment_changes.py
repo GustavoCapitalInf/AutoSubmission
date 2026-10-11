@@ -532,6 +532,9 @@ def test_l30_the_constants_are_named_integers_and_fractions():
     # Audit round 4, R4-84: a regime whose own dates read no schedule borrows its level's only across gaps of this many
     # cycles of it (plus its beat tolerance).
     assert lpc.SPARSE_RUN_CYCLES == 2
+    # Audit round 4, R4-82: an unworded one-off under this multiple of the payment, on the level's next due date, may be
+    # a payoff or a new payment amount and never confirms a stop on its own.
+    assert lpc.PAYOFF_OR_CHANGE_MULTIPLE == 3
 
 
 # ------------------------------------------------------------------------------------------ L31-L33: the revision
@@ -2043,3 +2046,190 @@ def test_r4_79_a_restart_counts_the_same_quiet_days():
         item = only(_rows(bdays(M(2), M(6)), 850) + _rows(bdays(first, M(31)), 600))
         assert (item["kind"], item["change_percent"], item["restart"], item["pause_business_days"]) == (
             "decrease", -29, restart, pause)
+
+
+# ------------------------------- audit round 4, R4-B07 (R4-83): a worded payoff is a payoff (fabricated rows only)
+# The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"): the bank's word marks a payoff.
+# A ONE-OFF of the series worded as a payoff (the classifier's `lump_sum_payoff`) is a payoff for the payment changes at
+# any amount: never a catch-up (no Caught up line), never presence (neither a payment-sized one-off nor a multiple),
+# named by a stop's payoff note (`payoff.worded`) whatever its multiple and by a pause whose gap holds it
+# (`payoffs_inside`). A level's own worded payments stay its payments (R3-79's default (4)).
+def _payoff(days, amount, **flags):
+    """A confirmed funder's debit worded as a payoff (the classifier's `lump_sum_payoff`, as R3-B03 sets it)."""
+    return _rows(days, amount, lump_sum_payoff="PAYOFF", **flags)
+
+
+def test_r4_83_a_worded_payoff_at_an_exact_multiple_is_no_catch_up():
+    # Weekly 1,000 on the Mondays to 03-16, the 03-23 Monday missed, a worded 3,000 on 03-25 (exactly 3x). The base read
+    # one Caught up item (1 missed, 03-23, 3x) and no stop.
+    weekly = _rows(every(M(2), M(16)), 1000)
+    found = changes(weekly + _payoff([M(25)], 3000))
+    assert _kinds(found) == ["stop"]
+    [item] = found
+    assert (item["stop_confirmed"], item["last_presence_date"], item["quiet_business_days"]) == (
+        False, "2054-03-16", 11)
+    assert item["payoff"] == {"date": "2054-03-25", "amount": 3000.0, "worded": True}
+    assert "other_debits_after" not in item
+    # Control: the same 3,000 unworded stays the Caught up line.
+    [caught] = changes(weekly + _rows([M(25)], 3000))
+    assert _catch_up_fields(caught) == ("catch_up", "weekly", 1000.0, "2054-03-16", 1, "2054-03-23", "2054-03-23", 3,
+                                        "2054-03-25", 3000.0)
+
+
+def test_r4_83_a_worded_payoff_near_the_end_never_reads_caught_up():
+    # Daily 500 to 03-13, a worded 2,500 (5x) on 03-26, 3 business days before the end. The base read a Caught up line
+    # (8 missed, 5x) in place of the possible stop.
+    daily = _rows(bdays(M(2), M(13)), 500)
+    [item] = changes(daily + _payoff([M(26)], 2500))
+    assert (item["kind"], item["stop_confirmed"], item["last_presence_date"], item["quiet_business_days"]) == (
+        "stop", False, "2054-03-13", 12)
+    assert item["payoff"] == {"date": "2054-03-26", "amount": 2500.0, "worded": True}
+    # On 03-18: the base read the stop from 03-18 (9) naming the debit as a possible catch-up, with no payoff note.
+    [item] = changes(daily + _payoff([M(18)], 2500))
+    assert (item["kind"], item["last_presence_date"], item["quiet_business_days"]) == ("stop", "2054-03-13", 12)
+    assert item["payoff"] == {"date": "2054-03-18", "amount": 2500.0, "worded": True}
+    assert "other_debits_after" not in item
+    # Control: the same 2,500 unworded on 03-26 stays the Caught up line.
+    [caught] = changes(daily + _rows([M(26)], 2500))
+    assert _catch_up_fields(caught) == ("catch_up", "daily", 500.0, "2054-03-13", 8, "2054-03-16", "2054-03-25", 5,
+                                        "2054-03-26", 2500.0)
+
+
+def test_r4_83_a_worded_payoff_under_twice_the_payment_is_no_presence():
+    # A worded 800 (1.6x) on 03-26: the base read it as a payment-sized one-off (presence), so no item.
+    daily = _rows(bdays(M(2), M(13)), 500)
+    [item] = changes(daily + _payoff([M(26)], 800))
+    assert (item["kind"], item["last_presence_date"], item["quiet_business_days"]) == ("stop", "2054-03-13", 12)
+    assert item["payoff"] == {"date": "2054-03-26", "amount": 800.0, "worded": True}
+    assert "other_debits_after" not in item
+    # Control: the same 800 unworded is presence.
+    assert changes(daily + _rows([M(26)], 800)) == []
+
+
+def test_r4_83_a_pause_names_a_worded_payoff_inside_its_gap():
+    # Weekly 1,000 on the Mondays to 03-16 and from 04-13, a worded 1,500 (1.5x) on 03-25: one pause of 19 quiet
+    # business days (R4-B06's measure) naming it. The base read the 1,500 as presence: no item.
+    weekly = _rows(every(M(2), M(16)) + every(A(13), Y(25)), 1000)
+    [item] = changes(weekly + _payoff([M(25)], 1500), end=Y(29))
+    assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
+            item["first_after_kind"], item["resumed_date"]) == (
+        "pause", "2054-03-16", "2054-04-13", 19, "payment", "2054-04-13")
+    assert item["payoffs_inside"] == [{"date": "2054-03-25", "amount": 1500.0}]
+    assert "larger_debits_inside" not in item and "catch_ups_inside" not in item
+    # A worded 2,500 (2.5x, no exact multiple) is named as a payoff, not as a larger debit (the unworded control).
+    [item] = changes(weekly + _payoff([M(25)], 2500), end=Y(29))
+    assert (item["payoffs_inside"], "larger_debits_inside" in item) == ([{"date": "2054-03-25", "amount": 2500.0}],
+                                                                        False)
+    [item] = changes(weekly + _rows([M(25)], 2500), end=Y(29))
+    assert (item["larger_debits_inside"], "payoffs_inside" in item) == ([{"date": "2054-03-25", "amount": 2500.0}],
+                                                                        False)
+    # Control: the 1,500 unworded is presence: no item.
+    assert changes(weekly + _rows([M(25)], 1500), end=Y(29)) == []
+
+
+def test_r4_83_a_level_s_own_worded_payments_stay_its_payments():
+    # Every weekly payment worded: the possible stop from 03-30 (23) exactly as unworded (R3-79's default (4)).
+    worded = only(_rows(every(M(2), M(30)), 1000, lump_sum_payoff="PAYOFF"), end=A(30))
+    assert (worded["kind"], worded["last_presence_date"], worded["quiet_business_days"]) == ("stop", "2054-03-30", 23)
+    assert "payoff" not in worded
+    assert worded == only(_rows(every(M(2), M(30)), 1000), end=A(30))
+
+
+# ------------- audit round 4, R4-B07 (R4-82): a payoff on the payment's next due date (fabricated rows only)
+# An unworded one-off under 3x the payment (PAYOFF_OR_CHANGE_MULTIPLE) dated on the level's first due date after its
+# last payment (one business day either way) may be a payoff or a new payment amount (`payoff.on_due_date`): one debit
+# on the due date never confirms a stop on its own; the coverage must also hold the following due date with no payment.
+R4_82_PERIODS = [(date(2053, 11, 1), date(2053, 11, 30)), (date(2053, 12, 1), date(2053, 12, 31)),
+                 (date(2054, 1, 1), date(2054, 1, 31)), (F(1), F(28))]
+R4_82_PAID = [date(2053, 11, 3), date(2053, 12, 2), date(2054, 1, 2), F(2)]
+
+
+def _r4_82(march, april=False):
+    """KAPITUS monthly 1,000 on 2053-11-03, 12-02, 2054-01-02 and 02-02, one statement per calendar month from
+    November 2053; then March 2054's statement with `march`, and (`april`) an April statement with no KAPITUS debit."""
+    statements = [(_rows([paid], 1000), start, end) for paid, (start, end) in zip(R4_82_PAID, R4_82_PERIODS)]
+    statements.append((march, M(1), M(31)))
+    if april:
+        statements.append(([], A(1), A(30)))
+    return _chain(*statements)
+
+
+def test_r4_82_an_on_schedule_one_off_under_three_times_confirms_no_stop():
+    # 2,610 (2.61x) on 03-02, the payment's next due date; the coverage ends 03-31, before the following due date
+    # (04-02). The base read a confirmed stop ("payments stopped") on that debit alone.
+    [item] = _r4_82(_rows([M(2)], 2610))
+    assert (item["kind"], item["scope"], item["stop_confirmed"], item["last_presence_date"],
+            item["quiet_business_days"]) == ("stop", "package", False, "2054-02-02", 40)
+    assert item["payoff"] == {"date": "2054-03-02", "amount": 2610.0, "on_due_date": True}
+    # An April statement with no KAPITUS debit holds the 04-02 due date: the stop is confirmed again.
+    [item] = _r4_82(_rows([M(2)], 2610), april=True)
+    assert (item["stop_confirmed"], item["quiet_business_days"], item["payoff"]) == (
+        True, 62, {"date": "2054-03-02", "amount": 2610.0, "on_due_date": True})
+
+
+def test_r4_82_controls_read_as_before():
+    # 3.5x on the due date, 2.61x mid-cycle, a worded 2.61x on the due date: confirmed, no `on_due_date`.
+    for march, payoff in ((_rows([M(2)], 3500), {"date": "2054-03-02", "amount": 3500.0}),
+                          (_rows([M(16)], 2610), {"date": "2054-03-16", "amount": 2610.0}),
+                          (_payoff([M(2)], 2610), {"date": "2054-03-02", "amount": 2610.0, "worded": True})):
+        [item] = _r4_82(march)
+        assert (item["kind"], item["stop_confirmed"], item["quiet_business_days"], item["payoff"]) == (
+            "stop", True, 40, payoff), payoff
+
+
+def test_r4_82_the_next_due_dates_and_the_on_due_window():
+    due = lpc._next_due_dates
+    assert due(F(2), "monthly", "US", 2) == [M(2), A(2)]
+    # A due date on a weekend or a holiday moves to the next business day (05-02 is a Saturday; Memorial Day 05-25).
+    assert due(A(2), "monthly", "US", 1) == [Y(4)]
+    assert due(Y(18), "weekly", "US", 2) == [Y(26), J(1)]
+    assert due(M(31), "weekly", "CA", 1) == [A(7)]
+    assert due(M(13), "daily", "US", 3) == [M(16), M(17), M(18)]
+    assert due(M(15), "semimonthly", "US", 1) == [M(31)]
+    # One business day either way of the due date.
+    on_due = lpc._on_due
+    assert [on_due(day, M(4), "US") for day in (M(2), M(3), M(4), M(5), M(6))] == [False, True, True, True, False]
+    assert on_due(F(27), M(2), "US") and not on_due(F(26), M(2), "US")
+
+
+# ------------- audit round 4, R4-B07 (R4-81): the same payment under another name (fabricated rows only)
+# A stop whose `continues_as` starts on the stopped level's next due date (one business day either way), within
+# LEVEL_MERGE_PERCENT of its amount, one of the two series a potential lender's, is never confirmed and carries
+# `continues_as.same_payment`. Two confirmed registry funders are two lenders: that hand-off reads as before.
+def _cad_chain(*statements):
+    """A module chain of (rows, period_start, period_end) statements, in CAD (Payments Canada's calendar)."""
+    return lpc.payment_changes([lpc.StatementRows(_located(rows), start.isoformat(), end.isoformat(), "CAD")
+                                for rows, start, end in statements])
+
+
+def _r4_81(amount=1000, first=A(7), entity="KAPITUS", stopped=None):
+    """A potential payee (`stopped`) weekly 1,000 on the Tuesdays of a March statement, then `entity` weekly `amount`
+    from `first` to 05-26 in April and May statements (each its calendar month), in CAD."""
+    stopped = _potential(every(M(3), M(31)), 1000) if stopped is None else stopped
+    days = every(first, Y(26))
+    april = _rows([day for day in days if day.month == 4], amount, entity=entity)
+    may = _rows([day for day in days if day.month == 5], amount, entity=entity)
+    return _cad_chain((stopped, M(1), M(31)), (april, A(1), A(30)), (may, Y(1), Y(31)))
+
+
+def test_r4_81_the_same_payment_under_the_funder_s_own_name_is_no_confirmed_stop():
+    # The base read a confirmed stop (42 quiet business days) and "this may be a buyout or refinance".
+    [item] = _r4_81()
+    assert (item["kind"], item["lender_state"], item["scope"], item["stop_confirmed"],
+            item["quiet_business_days"]) == ("stop", "potential", "package", False, 42)
+    assert item["continues_as"] == {"lender": "KAPITUS", "lender_label": "KAPITUS", "lender_state": "confirmed",
+                                    "amount": 1000.0, "first_date": "2054-04-07", "same_payment": True}
+    assert "new_lender_after" not in item
+
+
+def test_r4_81_controls_keep_the_confirmed_stop():
+    # KAPITUS at 1,050 (+5%), KAPITUS one cycle late (04-14), and a confirmed KAPITUS continued by ONDECK at 1,000 (two
+    # registry funders): confirmed, no `same_payment`, as on the base.
+    for found, lender, amount, first in (
+            (_r4_81(amount=1050), "KAPITUS", 1050.0, "2054-04-07"),
+            (_r4_81(first=A(14)), "KAPITUS", 1000.0, "2054-04-14"),
+            (_r4_81(entity="ONDECK", stopped=_rows(every(M(3), M(31)), 1000)), "ONDECK", 1000.0, "2054-04-07")):
+        [item] = found
+        assert (item["kind"], item["stop_confirmed"]) == ("stop", True), lender
+        assert item["continues_as"] == {"lender": lender, "lender_label": lender, "lender_state": "confirmed",
+                                        "amount": amount, "first_date": first}

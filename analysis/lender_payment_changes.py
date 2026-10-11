@@ -36,11 +36,17 @@ The model (the brief's parts A and B):
   presence, and strictly before the next presence, or through the coverage end); a **new stream** is a second position
   that starts while another keeps paying and raises the funder's weekly total by 10% or more; a **stop** is a position
   of 3 or more payments followed by no presence (a payment, a payment-sized debit, a catch-up or a bounced attempt) for
-  longer than the grace window before the covered period ends.
+  longer than the grace window before the covered period ends. Since audit round 4 (R4-82), one unworded debit under 3x
+  the payment on the payment's next due date may be a payoff or a new payment amount and never confirms a stop on its
+  own; (R4-81) a stop continued at the same amount on its next due date under another series, one of the two a
+  potential lender's, is never confirmed (the same payment under another name).
 * Since audit round 3 (R3-25), a one-off within 2% of exactly 2 to 6 times the payment is a **catch-up**: presence,
   named on the pause or stop line that shows it, never a payoff; where it follows a missed scheduled payment and no
   such line names it, it is its own **catch-up** item ("Caught up", the owner's answer of 2026-10-07). Debits no rule
   claimed at the series' exact cents on its schedule inside a pause or after a stop are named (R3-84), never presence.
+  Since audit round 4 (R4-83; the owner's answer of 2026-10-07 to R3-79, "Exclude worded payoffs"), a one-off the bank
+  words as a payoff (`lump_sum_payoff`) is a payoff at any amount: never a catch-up and never presence, named by a
+  stop's payoff note and by a pause whose gap holds it; a level's own worded payments stay its payments.
 
 Business days follow the statement's calendar: the Federal Reserve's holidays (`analysis.adb.federal_bank_holidays`),
 or Payments Canada's non-processing days on a CAD statement (`_canadian_bank_holidays`).
@@ -52,8 +58,9 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from fractions import Fraction
 from functools import lru_cache
+from itertools import islice, takewhile
 from statistics import median
-from typing import Any, Iterable, Mapping, NamedTuple, Sequence
+from typing import Any, Iterable, Iterator, Mapping, NamedTuple, Sequence
 
 from .adb import federal_bank_holidays, nth_weekday
 from .dates import parse_date
@@ -117,6 +124,9 @@ FUNDING_NOTE_DAYS_AFTER = 5
 FUNDING_NOTE_RETURN_DAYS = 7
 #: A one-off at this multiple of the regular amount or more is a payoff, never presence (A3b, B5).
 PAYOFF_MULTIPLE = 2
+#: Audit round 4, R4-82: an unworded one-off under this multiple of the payment, dated on the level's next due date, may
+#: be a payoff or a new payment amount; it never confirms a stop on its own.
+PAYOFF_OR_CHANGE_MULTIPLE = 3
 #: Another series that starts at an amount within this many percent of the stopped one continues it (B5).
 HANDOFF_PERCENT = 10
 #: A debt relief program's first debit within this multiple of the grace window after a stop is noted (B5).
@@ -291,7 +301,8 @@ class _Row:
     """The row view (A1): the fields this module reads, from a record or its serialized dict. Audit round 3, R3-82: a
     credit's R2-OW13 marks, `returns_payment` (`returns_funder_payment`) and `reversal` (`reversal_of`), which the
     funding note reads. Audit round 4, R4-75: a returned payment's `represented_by` (pass 7c's re-debit, a location in
-    its own statement), which the Caught up line reads."""
+    its own statement), which the Caught up line reads. Audit round 4, R4-83: `payoff_words`, the debit prints a payoff
+    word (`lump_sum_payoff`, R3-79; set only on a confirmed funder's paid debit)."""
 
     statement: int
     position: int
@@ -314,6 +325,7 @@ class _Row:
     returns_payment: bool
     reversal: bool
     represented_by: str | None = None
+    payoff_words: bool = False
 
 
 def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
@@ -341,6 +353,7 @@ def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
         flagged_group=_field(record, "flagged_group"),
         returns_payment=bool(_field(record, "returns_funder_payment")), reversal=bool(_field(record, "reversal_of")),
         represented_by=_field(record, "represented_by") or None,
+        payoff_words=bool(_field(record, "lump_sum_payoff")),
     )
 
 
@@ -375,6 +388,8 @@ class _Pay:
     label: str | None
     #: Audit round 4, R4-75: a returned attempt's re-debit (pass 7c's `represented_by`, in its own statement).
     represented_by: str | None = None
+    #: Audit round 4, R4-83: the debit prints a payoff word (`lump_sum_payoff`): a one-off so worded is a payoff.
+    worded: bool = False
 
     @property
     def order(self) -> tuple:
@@ -406,7 +421,8 @@ class _Chain:
 
 
 def _pay(row: _Row) -> _Pay:
-    return _Pay(row.day, row.cents, row.statement, row.position, row.location, row.label, row.represented_by)
+    return _Pay(row.day, row.cents, row.statement, row.position, row.location, row.label, row.represented_by,
+                row.payoff_words)
 
 
 def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
@@ -1025,14 +1041,21 @@ class _Scope:
 
 
 def _band(pay: _Pay, reference: int) -> bool:
-    """A3b: a one-off of at least FEE_STREAM_PERCENT and under PAYOFF_MULTIPLE times the reference amount."""
+    """A3b: a one-off of at least FEE_STREAM_PERCENT and under PAYOFF_MULTIPLE times the reference amount. Audit round
+    4, R4-83: never a one-off worded as a payoff (`_Pay.worded`), which is a payoff at any amount, never presence."""
+    if pay.worded:
+        return False
     return FEE_STREAM_PERCENT * reference <= 100 * pay.cents < 100 * PAYOFF_MULTIPLE * reference
 
 
 def _catch_up_multiple(pay: _Pay, reference: int) -> int | None:
     """Audit round 3, R3-25: the first k of CATCH_UP_PRESENCE_MULTIPLES whose k times the reference amount the one-off
     is within CATCH_UP_TOLERANCE_PERCENT of (A8's tolerance form, on the one-off's own amount); None when it is no such
-    exact multiple. Disjoint from `_band`, which ends under 2x."""
+    exact multiple. Disjoint from `_band`, which ends under 2x. Audit round 4, R4-83: None for a one-off worded as a
+    payoff (`_Pay.worded`): the bank's word decides (the owner's answer of 2026-10-07 to R3-79, "Exclude worded
+    payoffs"), so it is never a catch-up, never presence and never a Caught up line, whatever its multiple."""
+    if pay.worded:
+        return None
     return next((multiple for multiple in CATCH_UP_PRESENCE_MULTIPLES
                  if 100 * abs(pay.cents - multiple * reference) <= CATCH_UP_TOLERANCE_PERCENT * pay.cents), None)
 
@@ -1041,7 +1064,8 @@ def _presence(reading: _Reading, position: _Position, reference: int) -> list[_M
     """A3b, the one presence definition: the position's payments, the series' attempts and the series' payment-sized
     one-offs (`_band` of the reference amount), in date order. Since audit round 3, R3-25, also the series' catch-ups:
     a one-off within 2% of exactly 2 to 6 times the reference amount (`_catch_up_multiple`), for pauses, restarts and
-    stops alike: a merchant catching up missed payments in one debit is paying, not stopped."""
+    stops alike: a merchant catching up missed payments in one debit is paying, not stopped. Audit round 4, R4-83:
+    never a one-off worded as a payoff (both tests refuse it); the position's own worded payments stay payments."""
     marks = [_Mark(pay.day, "payment", pay) for pay in position.pays]
     marks += [_Mark(pay.day, "attempt", pay) for pay in reading.series.attempts]
     marks += [_Mark(pay.day, "one_off", pay) for pay in reading.singles if _band(pay, reference)]
@@ -1301,8 +1325,11 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
     (`_missed_payments`, as `_catch_ups` reads it) and no coverage hole between them and the mark before them (the
     presence that ended the pause, or the catch-up before them); another is its own Caught up line counted from that
     mark (`anchors`, by the one-off's `_Pay.order`), or none across a hole. Every other one-off of 2x or more dated
-    inside the gap, before the regime's next payment, is named (`larger_debits_inside`). Audit round 3, R3-84:
-    unclaimed debits of the regime's cents on its schedule inside the gap are named (`same_amount_debits`)."""
+    inside the gap, before the regime's next payment, is named (`larger_debits_inside`). Audit round 4, R4-83: a one-off
+    worded as a payoff is never presence or a catch-up, so it never ends the gap; each dated strictly inside it, before
+    the regime's next payment, is named apart (`payoffs_inside`, `{date, amount}`, in date order), never among the
+    larger debits. Audit round 3, R3-84: unclaimed debits of the regime's cents on its schedule inside the gap are
+    named (`same_amount_debits`)."""
     items: list[dict] = []
     calendar = scope.chain.calendar
     kept, _dropped = _drop_short(_regimes(position, calendar, reading.series.attempts))
@@ -1362,10 +1389,14 @@ def _pauses(reading: _Reading, position: _Position, positions: int, scope: _Scop
                 if covered is not None:
                     covered.update(pay.order for pay in inside)
             larger = [pay for pay in reading.singles
-                      if first < pay.day < second and pay.cents >= PAYOFF_MULTIPLE * regime.amount
+                      if first < pay.day < second and not pay.worded and pay.cents >= PAYOFF_MULTIPLE * regime.amount
                       and _catch_up_multiple(pay, regime.amount) is None]
             if larger:
                 item["larger_debits_inside"] = [{"date": _iso(pay.day), "amount": _money(pay.cents)} for pay in larger]
+            # Audit round 4, R4-83: the one-offs worded as a payoff inside the gap, at any amount.
+            payoffs = [pay for pay in reading.singles if pay.worded and first < pay.day < second]
+            if payoffs:
+                item["payoffs_inside"] = [{"date": _iso(pay.day), "amount": _money(pay.cents)} for pay in payoffs]
             same = _same_amount_debits(scope, {pay.cents for pay in regime.pays}, regime.cadence, first,
                                        resume.day - timedelta(days=1))
             if same is not None:
@@ -1417,8 +1448,16 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope,
     payment that are presence, payment-sized or a catch-up, are counted in `other_debits_after` (with `catch_ups`, the
     exact multiples among them, which join `covered`: the stop's line names them, so no Caught up item repeats them);
     the payoff note reads only a one-off of 2x or more that is no exact multiple and counts the earlier ones
-    (`earlier`). Audit round 3, R3-84: unclaimed debits of the last level's cents on its schedule after the last
-    presence are named (`same_amount_debits`), and such a stop is never confirmed."""
+    (`earlier`). Audit round 4, R4-83: and a one-off worded as a payoff, at any amount (`payoff.worded` when the named
+    one is). Audit round 4, R4-82: an unworded named payoff under PAYOFF_OR_CHANGE_MULTIPLE times the payment, dated on
+    the level's first due date after its last payment (`_on_due`), may be a payoff or a new payment amount
+    (`payoff.on_due_date`): such a stop is confirmed only when the coverage also holds the following due date, passed by
+    more than CATCH_UP_LATE_BUSINESS_DAYS business days. Audit round 3, R3-84: unclaimed debits of the last level's
+    cents on its schedule after the last presence are named (`same_amount_debits`), and such a stop is never confirmed.
+    Audit round 4, R4-81: a stop whose `continues_as` starts on the stopped level's next due date (`_on_due`) within
+    LEVEL_MERGE_PERCENT of its amount, one of the two series a potential lender's, is never confirmed and carries
+    `continues_as.same_payment` (the same payment under another name; the series are never merged); two confirmed
+    funders keep the confirmed stop."""
     items: list[dict] = []
     if scope.coverage_end is None:
         return items
@@ -1463,12 +1502,23 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope,
                 if covered is not None:
                     covered.update(pay.order for pay in catch_ups)
             item["other_debits_after"] = note
-        payoffs = [pay for pay in after_last
-                   if pay.cents >= PAYOFF_MULTIPLE * reference and _catch_up_multiple(pay, reference) is None]
+        # Audit round 4, R4-83: a one-off worded as a payoff is a payoff at any amount.
+        payoffs = [pay for pay in after_last if pay.worded or (
+            pay.cents >= PAYOFF_MULTIPLE * reference and _catch_up_multiple(pay, reference) is None)]
         if payoffs:
-            item["payoff"] = {"date": _iso(payoffs[-1].day), "amount": _money(payoffs[-1].cents)}
+            named = payoffs[-1]
+            item["payoff"] = {"date": _iso(named.day), "amount": _money(named.cents)}
             if len(payoffs) >= 2:
                 item["payoff"]["earlier"] = len(payoffs) - 1
+            if named.worded:
+                item["payoff"]["worded"] = True
+            elif named.cents < PAYOFF_OR_CHANGE_MULTIPLE * reference:
+                # Audit round 4, R4-82: one debit on the payment's due date never confirms a stop on its own.
+                first_due, second_due = _next_due_dates(last_pay.day, level.cadence, scope.chain.calendar, 2)
+                if _on_due(named.day, first_due, scope.chain.calendar):
+                    item["payoff"]["on_due_date"] = True
+                    if scope.business_days(second_due, scope.coverage_end) <= CATCH_UP_LATE_BUSINESS_DAYS:
+                        item["stop_confirmed"] = False
         same = _same_amount_debits(scope, {pay.cents for pay in level.pays}, level.cadence, last_mark.day,
                                    scope.coverage_end)
         if same is not None:
@@ -1477,9 +1527,17 @@ def _stops(reading: _Reading, positions: list[_Position], scope: _Scope,
         handoff = [(other, found) for other, found in _starting_series(scope, reading, last_pay.day, grace)
                    if 100 * abs(_first_level(found).amount - reference) <= HANDOFF_PERCENT * reference]
         if handoff:
-            note = _series_note(*handoff[0])
+            other, found = handoff[0]
+            note = _series_note(other, found)
             item["continues_as"] = {key: note[key] for key in ("lender", "lender_label", "lender_state", "amount",
                                                                "first_date")}
+            # Audit round 4, R4-81: the same payment on its next due date under another name, one side a potential
+            # lender's payee: not shown to have stopped, and no buyout or refinance guess.
+            due = _next_due_dates(last_pay.day, level.cadence, scope.chain.calendar, 1)[0]
+            if ("potential" in (reading.state, other.state) and _near(_first_level(found).amount, reference)
+                    and _on_due(found.first, due, scope.chain.calendar)):
+                item["continues_as"]["same_payment"] = True
+                item["stop_confirmed"] = False
         streams = [other for other in positions if other is not position and other.last > last_pay.day]
         if streams:
             stream_level = streams[0].last_level
@@ -1517,35 +1575,53 @@ def _months_after(day: date, months: int) -> date:
     return date(year, month, min(day.day, (following - timedelta(days=1)).day))
 
 
-def _missed_payments(last: date, catch_up: date, cadence: str, late: int, calendar: str) -> list[date]:
-    """The owner's answer of 2026-10-07 to audit round 3's R3-25: the payments of `cadence` scheduled after `last` (the
-    series' last payment before the catch-up) that were missed before `catch_up`. A daily schedule's are the business
-    days in between; another schedule's are its due dates, each moved to the next business day: a monthly one's the
-    same day of each following month (the month's last day where it has none), a weekly, biweekly or semi-monthly
-    one's `last` plus each whole cycle rounded up to a day (7, 14 and 16 days). A date counts when the catch-up comes
-    more than `late` business days after it (CATCH_UP_LATE_BUSINESS_DAYS, or 0 on a daily schedule)."""
+def _due_dates(last: date, cadence: str, calendar: str) -> Iterator[date]:
+    """The due dates of `cadence` after `last`, in order, without end (none for an irregular or single cadence): a daily
+    schedule's are the business days after it; another schedule's are moved to the next business day: a monthly one's
+    the same day of each following month (the month's last day where it has none), a weekly, biweekly or semi-monthly
+    one's `last` plus each whole cycle rounded up to a day (7, 14 and 16 days). `_missed_payments` and, since audit
+    round 4 (R4-82, R4-81), `_next_due_dates` read them."""
     regular = _regular(cadence)
     if regular is None:
-        return []
-    candidates: list[date] = []
+        return
     if regular == "daily":
         day = last + timedelta(days=1)
-        while day < catch_up:
-            if _open_day(day, calendar) == day:
-                candidates.append(day)
-            day += timedelta(days=1)
-    else:
-        cycle = _cycle_days(regular)
-        step = 1
         while True:
-            span = step * cycle
-            due = (_months_after(last, step) if regular == "monthly"
-                   else last + timedelta(days=-(-span.numerator // span.denominator)))
-            due = _open_day(due, calendar)
-            if due >= catch_up:
-                break
-            candidates.append(due)
-            step += 1
+            if _open_day(day, calendar) == day:
+                yield day
+            day += timedelta(days=1)
+    cycle = _cycle_days(regular)
+    step = 1
+    while True:
+        span = step * cycle
+        due = (_months_after(last, step) if regular == "monthly"
+               else last + timedelta(days=-(-span.numerator // span.denominator)))
+        yield _open_day(due, calendar)
+        step += 1
+
+
+def _next_due_dates(last: date, cadence: str, calendar: str, count: int) -> list[date]:
+    """Audit round 4, R4-82 and R4-81: the first `count` due dates of `cadence` after `last` (`_due_dates`, the
+    arithmetic of `_missed_payments`)."""
+    return list(islice(_due_dates(last, cadence, calendar), count))
+
+
+def _on_due(day: date, due: date, calendar: str) -> bool:
+    """Audit round 4, R4-82 and R4-81: `day` is on the due date `due`, within CATCH_UP_LATE_BUSINESS_DAYS business days
+    either way."""
+    return (business_days_between(due, day, calendar) <= CATCH_UP_LATE_BUSINESS_DAYS
+            and business_days_between(day, due, calendar) <= CATCH_UP_LATE_BUSINESS_DAYS)
+
+
+def _missed_payments(last: date, catch_up: date, cadence: str, late: int, calendar: str) -> list[date]:
+    """The owner's answer of 2026-10-07 to audit round 3's R3-25: the payments of `cadence` scheduled after `last` (the
+    series' last payment before the catch-up) that were missed before `catch_up`: its due dates (`_due_dates`) before
+    `catch_up`. A daily schedule's are the business days in between; another schedule's are its due dates, each moved
+    to the next business day: a monthly one's the same day of each following month (the month's last day where it has
+    none), a weekly, biweekly or semi-monthly one's `last` plus each whole cycle rounded up to a day (7, 14 and 16
+    days). A date counts when the catch-up comes more than `late` business days after it (CATCH_UP_LATE_BUSINESS_DAYS,
+    or 0 on a daily schedule)."""
+    candidates = list(takewhile(lambda due: due < catch_up, _due_dates(last, cadence, calendar)))
     return [day for day in candidates if business_days_between(day, catch_up, calendar) > late]
 
 
@@ -1559,7 +1635,8 @@ def _catch_ups(reading: _Reading, positions: list[_Position], scope: _Scope, cov
     (`covered`: one line per event), where a coverage hole falls between the last payment and the catch-up, or under
     a potential series' floor (A10); a multiple with no missed payment before it gives none. A daily regime's business
     days are each due; an irregular daily one's, and another schedule's due dates, are missed only when the catch-up
-    comes more than CATCH_UP_LATE_BUSINESS_DAYS after them. Each one-off gives one item at most.
+    comes more than CATCH_UP_LATE_BUSINESS_DAYS after them. Each one-off gives one item at most; since audit round 4
+    (R4-83), a one-off worded as a payoff gives none (`_catch_up_multiple` refuses it).
 
     Audit round 4, R4-75 (the owner's "Count it once"; the line names the payments the withholding rate counts once by
     the catch-up): the missed payments are the union, deduplicated in date order, of those due dates and the dates of

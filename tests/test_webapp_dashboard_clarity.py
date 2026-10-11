@@ -231,9 +231,10 @@ def test_a_stop_says_when_the_last_payment_was_and_how_long_it_has_been():
         "After it came only 3 debits at other amounts, the last on Mar 19, 2054.",
         "No payment in the 8 business days after Mar 19, 2054, to the end of this statement.",
         "A daily schedule allows up to 5 business days without a payment."]
-    # Review round 1: two concurrent streams, not two payments in all, and no amount-bearing label repeated.
+    # Review round 1: two concurrent streams, not two payments in all, and no amount-bearing label repeated. Audit
+    # round 4, R4-82: the payoff (04-20) follows the last presence (04-08), so the count reads "No regular payment".
     assert notes[3] == _note("KAPITUS: payments may have stopped", [
-        "No payment or payment attempt in the last 12 business days, through May 29, 2054.",
+        "No regular payment or payment attempt in the last 12 business days, through May 29, 2054.",
         "A weekly schedule allows up to 10 business days without a payment.",
         "Last payment: $1,000.00 on Apr 1, 2054.",
         "This lender has 2 separate payment streams; this note is about the first."], [

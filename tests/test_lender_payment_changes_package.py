@@ -543,8 +543,9 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
     [cell] = [value for _section, name, value in _lender_payment_change_rows([inside]) if name == "catch_ups_inside"]
     assert cell == "2054-03-18 1700.0 2x"
     fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
-    assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 5] == [
-        "first_after_amount", "first_after_multiple", "larger_debits_inside", "catch_ups_inside"]
+    # Audit round 4, R4-B07 (R4-83): a pause's worded payoffs inside the gap follow its larger debits.
+    assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 6] == [
+        "first_after_amount", "first_after_multiple", "larger_debits_inside", "payoffs_inside", "catch_ups_inside"]
     assert fields[-6:] == ["missed_payments", "missed_first_date", "missed_last_date", "multiple", "catch_up_date",
                            "catch_up_amount"]
 
@@ -625,6 +626,102 @@ def test_r4_75_a_package_caught_up_line_names_the_payments_pass_5_re_debited():
     assert not any(key.startswith("_") for entry in built["lender_payment_changes"] for key in entry)
     # Each statement alone: no Caught up line (the catch-up and its regime's first payment are in the later one).
     assert [entry["kind"] for entry in items_of(march) + items_of(later)] == []
+
+
+# ------------------------- audit round 4, R4-B07 (R4-83, R4-82, R4-81; fabricated statements only): stops and payoffs
+KAPITUS_PAYOFF = "KAPITUS DES:PAYOFF ID:000000004 INDN:CONTOSO PLUMBING LLC CO ID:0000000002 CCD"
+NORTHWIND_DEBIT = "NORTHWIND TRADERS DES:DEBIT ID:0001 INDN:CONTOSO PLUMBING LLC CO ID:0000000003 PPD"
+
+
+def test_r4_83_a_package_stop_names_a_worded_payoff_and_no_catch_up():
+    """KAPITUS weekly 1,000.00 on the Mondays of March to the 16th, the 23rd missed, then 3,000.00 printing PAYOFF on
+    the 25th (exactly 3x); April prints no KAPITUS debit. The classifier marks the lump sum (R3-79), and the package's
+    stop names it as a worded payoff, its count from the 16th (before: the stop counted from the 25th and named the
+    debit as a possible catch-up, "an exact multiple of the payment")."""
+    march = statement_payload(debits(every(M(2), M(16)), 1000) + debits([M(25)], 3000, KAPITUS_PAYOFF), month=3)
+    april = statement_payload([], month=4, opening=closing(march))
+    built = package(job("march", march), job("april", april))
+    assert [(item["funder"], item["amount"], item["words"]) for item in built["lump_sum_payoffs"]] == [
+        ("KAPITUS", 3000.0, "PAYOFF")]
+    [item] = built["lender_payment_changes"]
+    assert (item["kind"], item["stop_confirmed"], item["last_presence_date"], item["source_document"]) == (
+        "stop", True, "2054-03-16", "march.pdf")
+    assert item["payoff"] == {"date": "2054-03-25", "amount": 3000.0, "worded": True}
+    assert "other_debits_after" not in item
+
+
+def test_r4_82_a_package_stop_on_one_debit_on_the_due_date_is_possible():
+    """KAPITUS monthly 1,000.00 from November 2053 to February 2054, one statement a month, then 2,610.00 on March 2,
+    its next due date; the March statement ends before the April due date. Before: a confirmed stop on that debit."""
+    months = [(date(2053, 11, 3), date(2053, 11, 1), date(2053, 11, 30)),
+              (date(2053, 12, 2), date(2053, 12, 1), date(2053, 12, 31)),
+              (date(2054, 1, 2), date(2054, 1, 1), date(2054, 1, 31)),
+              (date(2054, 2, 2), date(2054, 2, 1), date(2054, 2, 28))]
+    payloads, opening = [], 50000.0
+    for paid, start, end in months:
+        payloads.append(statement_payload(debits([paid], 1000), start=start, end=end, opening=opening))
+        opening = closing(payloads[-1])
+    payloads.append(statement_payload(debits([M(2)], 2610), month=3, opening=opening))
+    names = ("november", "december", "january", "february", "march")
+    built = package(*(job(name, payload) for name, payload in zip(names, payloads)))
+    [item] = built["lender_payment_changes"]
+    assert (item["kind"], item["stop_confirmed"], item["last_presence_date"], item["quiet_business_days"],
+            item["source_document"]) == ("stop", False, "2054-02-02", 40, "february.pdf")
+    assert item["payoff"] == {"date": "2054-03-02", "amount": 2610.0, "on_due_date": True}
+
+
+def test_r4_81_a_potential_payee_continued_by_the_funder_at_the_same_amount_is_a_possible_stop():
+    """A CAD account: a payee no rule names, weekly 1,000.00 on the Tuesdays of March (a potential lender), then CanaCap
+    1,000.00 on the Tuesdays from April 7, its next due date, through May. Before: a confirmed stop, "this may be a
+    buyout or refinance"."""
+    tuesdays = every(A(7), date(2054, 5, 26))
+    march = statement_payload(debits(every(M(3), M(31)), 1000, NORTHWIND_DEBIT), month=3, bank="TD Canada Trust",
+                              currency="CAD")
+    april = statement_payload(debits([day for day in tuesdays if day.month == 4], 1000, CANACAP), month=4,
+                              bank="TD Canada Trust", currency="CAD", opening=closing(march))
+    may = statement_payload(debits([day for day in tuesdays if day.month == 5], 1000, CANACAP),
+                            start=date(2054, 5, 1), end=date(2054, 5, 31), bank="TD Canada Trust", currency="CAD",
+                            opening=closing(april))
+    built = package(job("march", march), job("april", april), job("may", may))
+    [item] = built["lender_payment_changes"]
+    assert (item["kind"], item["lender_state"], item["stop_confirmed"], item["source_currency"]) == (
+        "stop", "potential", False, "CAD")
+    assert (item["continues_as"]["lender"], item["continues_as"]["amount"], item["continues_as"]["first_date"],
+            item["continues_as"]["same_payment"]) == ("CanaCap", 1000.0, "2054-04-07", True)
+
+
+def test_r4_b07_the_downloads_carry_the_worded_payoff_the_due_date_and_the_same_payment():
+    """Audit round 4, R4-B07: a pause's worded payoffs inside the gap (`payoffs_inside`, "2054-03-25 1500.0"), a stop's
+    `payoff.worded` and `payoff.on_due_date`, and `continues_as.same_payment`, each an empty cell where the item carries
+    none (fabricated module items)."""
+    from tests import test_lender_payment_changes as pure
+    from webapp.app import (LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, LENDER_PAYMENT_CHANGE_NOTE_FIELDS,
+                            _lender_payment_change_rows)
+
+    pause = pure.only(pure._rows(pure.every(M(2), M(16)) + pure.every(A(13), Y(25)), 1000)
+                      + pure._payoff([M(25)], 1500), end=Y(29))
+    [on_due] = pure._r4_82(pure._rows([M(2)], 2610))
+    [same] = pure._r4_81()
+    worded = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._payoff([M(25)], 3000))
+    rows = {(section, name): value for section, name, value in _lender_payment_change_rows(
+        [pause, lpc.public_item(on_due), lpc.public_item(same), worded])}
+
+    def cells(number, *names):
+        return tuple(rows[(f"lender_payment_change_{number}", name)] for name in names)
+
+    assert cells(1, "kind", "payoffs_inside", "larger_debits_inside", "payoff.worded") == (
+        "pause", "2054-03-25 1500.0", "", "")
+    assert cells(2, "payoff.date", "payoff.amount", "payoff.on_due_date", "payoff.worded", "payoffs_inside") == (
+        "2054-03-02", 2610.0, True, "", "")
+    assert cells(3, "continues_as.lender_label", "continues_as.amount", "continues_as.same_payment",
+                 "payoff.on_due_date") == ("KAPITUS", 1000.0, True, "")
+    assert cells(4, "payoff.date", "payoff.worded", "payoff.on_due_date", "continues_as.same_payment") == (
+        "2054-03-25", True, "", "")
+    fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
+    assert fields[fields.index("larger_debits_inside") + 1] == "payoffs_inside"
+    notes = dict(LENDER_PAYMENT_CHANGE_NOTE_FIELDS)
+    assert notes["payoff"] == ("date", "amount", "earlier", "worded", "on_due_date")
+    assert notes["continues_as"] == ("lender_label", "amount", "first_date", "same_payment")
 
 
 def test_p13_the_package_json_download_carries_both_keys():

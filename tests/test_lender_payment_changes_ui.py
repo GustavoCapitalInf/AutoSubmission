@@ -591,3 +591,97 @@ console.log(JSON.stringify(els.lenderTable.innerHTML));
 """)
     assert '<div class="lender-note-source">From: March 2054 → April 2054 statements</div>' in html
     assert "Decreased" in html
+
+
+# --------------------------- audit round 4, R4-B07 (R4-83, R4-82, R4-81; fabricated rows only): stops and payoffs
+@needs_node
+def test_r4_82_a_stop_names_its_payoff_without_contradicting_it():
+    # (a) Where the payoff is dated after the last presence the count reads "No regular payment", and it is "a final
+    # debit" only when no presence followed it; (b) an unworded one-off under 3x on the payment's next due date may be a
+    # payoff or a new payment amount, and confirms no stop on its own (the base: "payments stopped. ... No payments in
+    # the 40 business days after it ... may be a payoff", chip "No payments").
+    [on_due] = pure._r4_82(pure._rows([M(2)], 2610))
+    on_due = {**pure.lpc.public_item(on_due), "source_document": "february.pdf"}
+    earlier = pure.only(pure._rows([F(2), M(2), A(2)], 2000) + pure._rows([A(10)], 4500) + pure._rows([A(20)], 5000)
+                        + pure._rows([Y(6)], 1500), start=F(1), end=J(30))
+    assert (earlier["payoff"]["date"], earlier["last_presence_date"]) == ("2054-04-20", "2054-05-06")
+    texts = warning_texts([on_due, L20, earlier])
+    assert texts[0] == [
+        "KAPITUS: payments may have stopped. No regular payment in the last 40 business days, through Mar 31, 2054. A "
+        "monthly schedule allows up to 25 business days without a payment. Last payment: $1,000.00 on Feb 2, 2054. "
+        "Also: a final debit of $2,610.00 on Mar 2, 2054 came on the payment's due date; it may be a payoff or a new "
+        "payment amount. From: february.pdf.", chip_html("■", "Possible stop", "amber")]
+    assert texts[1][0] == (
+        "KAPITUS: payments may have stopped. No regular payment in the last 61 business days of this statement. A "
+        "monthly schedule allows up to 25 business days without a payment. Last payment: $2,000.00 on Apr 2, 2054. "
+        "Also: a final debit of $5,000.00 on Apr 20, 2054 may be a payoff.")
+    # The payoff precedes the last presence (a payment-sized debit on 05-06): "a debit ..., after the last regular
+    # payment,", and the count keeps "No payment" (it runs from that later presence).
+    assert texts[2][0] == (
+        "KAPITUS: payments may have stopped. Last regular monthly payment: $2,000.00 on Apr 2, 2054. After it came only "
+        f"1 debit at another amount, on May 6, 2054. No payment in the {earlier['quiet_business_days']} business days "
+        "after May 6, 2054, to the end of this statement. A monthly schedule allows up to 25 business days without a "
+        "payment. Also: a debit of $5,000.00 on Apr 20, 2054, after the last regular payment, may be a payoff, after 1 "
+        "earlier debit of twice the payment or more.")
+
+
+@needs_node
+def test_r4_82_every_count_sentence_reads_regular_where_the_payoff_follows_the_last_presence():
+    # A worded 3,000 on 03-25 after weekly 1,000 to 03-16; with and without a payment-sized 500 on 03-18 (presence, so
+    # the count runs from it), confirmed by an April statement or possible inside one statement.
+    weekly = pure._rows(pure.every(M(2), M(16)), 1000)
+    payoff = pure._payoff([M(25)], 3000)
+    one_off = pure._rows([M(18)], 500)
+    [confirmed] = pure._chain((weekly + payoff, M(1), M(31)), ([], A(1), A(30)))
+    [with_other] = pure._chain((weekly + one_off + payoff, M(1), M(31)), ([], A(1), A(30)))
+    possible = pure.only(weekly + one_off + payoff, end=A(10))
+    assert [(item["stop_confirmed"], item["quiet_business_days"]) for item in (confirmed, with_other, possible)] == [
+        (True, 33), (True, 31), (False, 17)]
+    items = [{**pure.lpc.public_item(item), "source_document": "march.pdf"} for item in (confirmed, with_other)]
+    texts = [text for text, _chip in warning_texts(items + [possible])]
+    assert texts[0] == (
+        "KAPITUS: payments stopped. Last weekly payment: $1,000.00 on Mar 16, 2054. No regular payments in the 33 "
+        "business days after it, through Apr 30, 2054. Also: a final debit of $3,000.00 on Mar 25, 2054 is worded as a "
+        "payoff. From: march.pdf.")
+    assert texts[1] == (
+        "KAPITUS: payments stopped. Last regular weekly payment: $1,000.00 on Mar 16, 2054. After it came only 1 debit "
+        "at another amount, on Mar 18, 2054. No regular payment in the 31 business days after Mar 18, 2054, through Apr "
+        "30, 2054. Also: a final debit of $3,000.00 on Mar 25, 2054 is worded as a payoff. From: march.pdf.")
+    assert texts[2] == (
+        "KAPITUS: payments may have stopped. Last regular weekly payment: $1,000.00 on Mar 16, 2054. After it came only "
+        "1 debit at another amount, on Mar 18, 2054. No regular payment in the 17 business days after Mar 18, 2054, to "
+        "the end of this statement. A weekly schedule allows up to 10 business days without a payment. Also: a final "
+        "debit of $3,000.00 on Mar 25, 2054 is worded as a payoff.")
+
+
+@needs_node
+def test_r4_83_a_worded_payoff_reads_as_worded():
+    stop = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._payoff([M(25)], 3000))
+    pause = pure.only(pure._rows(pure.every(M(2), M(16)) + pure.every(A(13), Y(25)), 1000)
+                      + pure._payoff([M(25)], 1500), end=Y(29))
+    texts = warning_texts([stop, pause])
+    assert texts[0] == [
+        "KAPITUS: payments may have stopped. No regular payment in the last 11 business days of this statement. A "
+        "weekly schedule allows up to 10 business days without a payment. Last payment: $1,000.00 on Mar 16, 2054. "
+        "Also: a final debit of $3,000.00 on Mar 25, 2054 is worded as a payoff.", chip_html("■", "Possible stop",
+                                                                                              "amber")]
+    assert texts[1] == [
+        "KAPITUS: payments paused, then resumed. No payment between Mar 16 and Apr 13, 2054 (19 business days, more "
+        "than the 10 a weekly schedule allows). Payments then resumed at the same weekly $1,000.00. Also: a debit of "
+        "$1,500.00 on Mar 25, 2054, inside the gap, was worded as a payoff.", chip_html("‖", "Paused", "amber")]
+
+
+@needs_node
+def test_r4_81_the_same_payment_under_another_name_reads_so():
+    [same] = pure._r4_81()
+    same = {**pure.lpc.public_item(same), "source_document": "march.pdf", "source_currency": "CAD"}
+    texts = warning_texts([same, L21])
+    assert texts[0] == [
+        "Potential lender Unidentified lender obligation: payments may have stopped. No payment in the last 42 "
+        "business days, through May 31, 2054. A weekly schedule allows up to 10 business days without a payment. Last "
+        "payment: CA$1,000.00 on Mar 31, 2054. Also: payments of CA$1,000.00 continue at the same amount under KAPITUS "
+        "from Apr 7, 2054, on this payment's next due date; this may be the same payment under another name. From: "
+        "march.pdf.", chip_html("■", "Possible stop", "neutral")]
+    # Two registry funders keep the base's reading (L21).
+    assert texts[1][0].endswith(" Also: payments of $860.00 continue under ONDECK from Mar 17, 2054; this may be a "
+                                "buyout or refinance.")
