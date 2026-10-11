@@ -2597,11 +2597,19 @@ def _without_trailing_holder_run(
     layout sets how many name words of another payer's must print first (`payer_words`, holder_receiver_block): one on
     Truist's receiver slot, and None on a labelled sender, which is read as it is. Audit round 3, R3-B10 (R3-17): the
     holder's name is read as the payer's is (_holder_run_words), so a possessive's S ('SAMPLE'S' normalizes to 'SAMPLE
-    S'), a middle initial or a digit token never stops the strip."""
+    S'), a middle initial or a digit token never stops the strip. Audit round 4, R4-32 (R3-37's rule, "a leading THE is
+    no word of a run"): a name whose run leads with THE is read with THE and, two words or more, without it, the
+    THE-led run first, so a receiver printing 'THE NORTHWIND BAKERY' is cut with its THE and one printing 'NORTHWIND
+    BAKERY' for 'THE NORTHWIND BAKERY LLC' is cut at its first name word."""
     if payer_words is None:
         return payer
     words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
-    held_names = [held for held in (_holder_run_words(name) for name in names) if len(held) >= 2]
+    held_names: list[list[str]] = []
+    for name in names:
+        held = _holder_run_words(name)
+        for run in (held, held[1:]) if held[:1] == ["THE"] else (held,):
+            if len(run) >= 2:
+                held_names.append(run)
     for start in range(1, len(words) - 1):
         if len(_holder_test_words(words[:start])) < payer_words:
             continue
@@ -2674,7 +2682,8 @@ def holder_named(
     `printed_payer` and `holder_printed`); and a DBA holder's whole name is read as a person's when its first side
     is one ('<owner> DBA <trade>', R3-39), so another person sharing only the owner's given name is counted. Audit
     round 4, R4-31: every trade-name marker splits the name alike (_HOLDER_TRADE_NAME: DBA, D B A, AKA, OPERATING AS,
-    TRADING AS, DOING BUSINESS AS, and a printed O/A or T/A, which account_name_text reads as DBA)."""
+    TRADING AS, DOING BUSINESS AS, and a printed O/A or T/A, which account_name_text reads as DBA). R4-32: the receiver
+    strip reads a THE-led name's run with and without THE (_without_trailing_holder_run)."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)

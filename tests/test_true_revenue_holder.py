@@ -1178,6 +1178,63 @@ def test_r3_37_a_leading_the_is_no_word_of_a_holder_run():
     assert cut.sub(" ", "FABRIKAM COASTAL DISTRIBUTIO SAMPLE").split() == ["DISTRIBUTIO", "SAMPLE"]
 
 
+# --- Audit round 4, batch R4-B08 (R4-32) ---
+# Audit round 4, R4-32 (R3-37's rule, "a leading THE is no word of a run", applied to the classifier's receiver-block
+# strip; standard A4 counts a customer's ACH, B7 holds the holder's own name): the strip reads a THE-led holder's run
+# with THE and without it, so a third party printing the holder without THE as its unlabelled receiver is read by its
+# own name, as it is for the same holder printed without THE. Fabricated rows only.
+
+R4_32_HOLDER = "THE NORTHWIND BAKERY LLC"
+#: (row, bank, credits): the receiver layouts the strip reads (Fifth Third's and PNC's two-word block, Truist's slot).
+R4_32_ROWS = [
+    ("ACH CREDIT FABRIKAM SUPPLY CO PAYMENT NORTHWIND BAKERY", "Fifth Third", 1),
+    ("TRANSFER FABRIKAM INC NORTHWIND BAKERY CUSTOMER ID 0000000000", "Truist", 1),
+    ("ACH CORP DEPOSIT FABRIKAM SUPPLY NORTHWIND BAKERY CUSTOMER ID 0000000000", "Truist", 1),
+    ("ACH CREDIT FABRIKAM SUPPLY CO VENDOR PMT NORTHWIND BAKERY", "PNC", 2),
+]
+
+
+def _r4_32_tiers(text, bank, credits, holder):
+    return (_tiers([(text, 1500.40)], bank=bank, holder_name=holder) if credits == 1
+            else _twice(text, 1500.40, bank=bank, holder_name=holder))
+
+
+@pytest.mark.parametrize(("text", "bank", "credits", "tiers"), [
+    (*R4_32_ROWS[0], [ONE_OFF]),
+    (*R4_32_ROWS[1], [P2P]),
+    (*R4_32_ROWS[2], [COMPANY]),
+    (*R4_32_ROWS[3], [REMITTANCE, REMITTANCE]),
+])
+def test_r4_32_a_the_led_holder_printed_without_the_as_a_receiver_is_never_the_payer(text, bank, credits, tiers):
+    assert _r4_32_tiers(text, bank, credits, R4_32_HOLDER) == tiers
+    assert _r4_32_tiers(text, bank, credits, R4_32_HOLDER) == _r4_32_tiers(text, bank, credits,
+                                                                            "NORTHWIND BAKERY LLC")
+
+
+@pytest.mark.parametrize("receiver", ["NORTHWIND BAKERY", "THE NORTHWIND BAKERY"])
+def test_r4_32_the_strip_reads_the_the_led_run_with_and_without_the(receiver):
+    payer = f"FABRIKAM SUPPLY PAYMENT {receiver}"
+    assert tc._without_trailing_holder_run(payer, [R4_32_HOLDER]) == "FABRIKAM SUPPLY PAYMENT"
+
+
+@pytest.mark.parametrize(("text", "bank", "holder", "tier"), [
+    # The holder's own money stays held.
+    ("ONLINE TRANSFER FROM THE NORTHWIND BAKERY LLC", "Wells Fargo", R4_32_HOLDER, HOLDER_NAME),
+    ("NORTHWIND BAKERY DES:PAYMENT ID:0001 INDN:NORTHWIND BAKERY CO ID:0000000001 CCD", "Bank of America", R4_32_HOLDER,
+     HOLDER_NAME),
+    # Wells Fargo's unlabelled receiver reads as before.
+    (WF_UNLABELLED.format(receiver="NORTHWIND BAKERY"), "Wells Fargo", R4_32_HOLDER, UNLABELLED),
+    (WF_UNLABELLED.format(receiver="THE NORTHWIND BAKERY"), "Wells Fargo", R4_32_HOLDER, UNLABELLED),
+    # A THE-led holder whose bare words leave one test word reads as before.
+    ("ACH CREDIT FABRIKAM SUPPLY CO PAYMENT CONTOSO GROUP", "Fifth Third", "THE CONTOSO GROUP LLC", ONE_OFF),
+    ("TRANSFER FABRIKAM INC CONTOSO GROUP CUSTOMER ID 0000000000", "Truist", "THE CONTOSO GROUP LLC", P2P),
+    (WF_UNLABELLED.format(receiver="CONTOSO GROUP"), "Wells Fargo", "THE CONTOSO GROUP LLC", HOLDER_NAME),
+    ("ZELLE PAYMENT FROM CONTOSO GROUP CONF 1234567890", "Chase", "THE CONTOSO GROUP LLC", HOLDER_NAME),
+])
+def test_r4_32_the_controls_read_as_before(text, bank, holder, tier):
+    assert _tiers([(text, 1500.40)], bank=bank, holder_name=holder) == [tier]
+
+
 # --- Audit round 2, R2-B04 (R20): two shared trade words, or a person's given name, are not the holder ------------
 
 YACHT = "NORTHWIND YACHT SERVICE LLC"
