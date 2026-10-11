@@ -12,7 +12,8 @@ is an owner switch, OFF.
 
 Fabricated rows only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE; public carriers by their public names), in Bank of
 America's DES layout unless stated, 2054 dates. "Today" is the reading before this batch (c486fd5 and the owner
-batches before this one)."""
+batches before this one). Fabricated amounts too (audit round 4, R4-42 and its review round 1: the clinic's carrier
+credits of the R2-OW07 and R2-OW08 sections, like the R3-B16 and R3-B17 sections' premiums, match no cached row)."""
 from __future__ import annotations
 
 import re
@@ -151,16 +152,17 @@ def test_an_insurer_however_it_is_spelled_is_held(rows, statement, expected):
                  [("counted_flagged", "customer_financing_payout")], id="T20"),
     # T25: a §15 deferred carrier's health-plan row with no insurer word keeps its counted tier, at a clinic, on any
     # bank's statement.
-    pytest.param([("MISC PAYMENT SUN LIFE SUNLIFE MED ASO", 76.5)], {"holder": CLINIC},
+    pytest.param([("MISC PAYMENT SUN LIFE SUNLIFE MED ASO", 163.47)], {"holder": CLINIC},
                  [("counted_flagged", "named_payer_purpose_refused")], id="T25"),
-    pytest.param([("MISC PAYMENT SUN LIFE SUNLIFE MED ASO", 76.5)], {"holder": CLINIC, "bank": "RBC"},
+    pytest.param([("MISC PAYMENT SUN LIFE SUNLIFE MED ASO", 163.47)], {"holder": CLINIC, "bank": "RBC"},
                  [("counted_flagged", "named_payer_purpose_refused")], id="T25-rbc"),
     # A deferred carrier printing the abbreviation: the widened spellings never read a §15 deferred payer.
     pytest.param([("SUN LIFE INS CO DES:PAYMENT ID:1", 1234.0)], {"holder": CLINIC},
                  [("counted_flagged", "named_payer_purpose_refused")], id="deferred-carrier-ins"),
     # T25c: a Q6-verified glued health-plan row stays verified.
-    pytest.param([("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 76.5), ("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 95.2)],
-                 {"holder": CLINIC}, [VERIFIED, VERIFIED], id="T25c"),
+    pytest.param([("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 163.47),
+                  ("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 187.29)], {"holder": CLINIC}, [VERIFIED, VERIFIED],
+                 id="T25c"),
     # T27: ASSURED is no insurer spelling; T27b: nor P AND C before another word.
     pytest.param([("ASSURED STAFFING LLC DES:PAYMENT ID:1", 1234.0), ("ASSURED STAFFING LLC DES:PAYMENT ID:2", 1290.5)],
                  {}, [VERIFIED, VERIFIED], id="T27"),
@@ -217,9 +219,9 @@ def test_t6_and_t25b_a_deferred_carrier_named_by_today_s_words_counts_at_a_clini
     """T6 and T25b (re-pinned, R2-OW08): RBC's 'INSURANCE MANULIFE' and 'HEALTH DENTAL CLAIM MANULIFE' (the spelled
     word and CLAIM read a §15 deferred payer) at a clinic are counted on the holder's trade, never verified; at a bakery
     the one-off stays held as today."""
-    assert _readings([("INSURANCE MANULIFE", 95.2)], holder=CLINIC, bank="RBC") == [COUNTED]
-    assert _readings([("HEALTH DENTAL CLAIM MANULIFE", 67.5)], holder=CLINIC, bank="RBC") == [COUNTED]
-    assert _readings([("INSURANCE MANULIFE", 95.2)], holder=BAKERY, bank="RBC") == [HELD]
+    assert _readings([("INSURANCE MANULIFE", 187.29)], holder=CLINIC, bank="RBC") == [COUNTED]
+    assert _readings([("HEALTH DENTAL CLAIM MANULIFE", 159.83)], holder=CLINIC, bank="RBC") == [COUNTED]
+    assert _readings([("INSURANCE MANULIFE", 187.29)], holder=BAKERY, bank="RBC") == [HELD]
 
 
 def test_a_listed_insurer_s_cut_spelling_stays_the_insurance_rule_s_non_revenue():
@@ -629,7 +631,7 @@ COUNTED_CASES = [
     # verify as repeats).
     pytest.param(_t4(), {}, ["same_insurer_3_in_31_days"] * 3, id="T4"),
     # T6: a §15 deferred carrier today's INSURANCE word reads, at a clinic (today held insurer_named_payer).
-    pytest.param([("INSURANCE MANULIFE", 95.2, "03-02")], {"holder": CLINIC, "bank": "RBC"}, ["holder_trade:clinic"],
+    pytest.param([("INSURANCE MANULIFE", 187.29, "03-02")], {"holder": CLINIC, "bank": "RBC"}, ["holder_trade:clinic"],
                  id="T6"),
     # T10b: a premium with a commission, at an agency (today held): the commission form overrides the premium word.
     pytest.param([("SAMPLE MUTUAL INSURANCE CO DES:PREM COMM ID:1", 640.0, "03-02")], {"holder": AGENCY},
@@ -644,8 +646,8 @@ COUNTED_CASES = [
                   ("ACH DEPOSIT STATE FARM MUTUA PAYMENTS CONTOSO AUTO REBODY", 5120.0, "03-16")], {},
                  ["same_insurer_3_in_31_days"] * 3, id="T23"),
     # T25b: a deferred carrier's CLAIM three times at a clinic (today all held insurer_named_payer).
-    pytest.param([("HEALTH DENTAL CLAIM MANULIFE", 67.5, "03-02"), ("HEALTH DENTAL CLAIM MANULIFE", 135.0, "03-09"),
-                  ("HEALTH DENTAL CLAIM MANULIFE", 95.2, "03-16")], {"holder": CLINIC, "bank": "RBC"},
+    pytest.param([("HEALTH DENTAL CLAIM MANULIFE", 159.83, "03-02"), ("HEALTH DENTAL CLAIM MANULIFE", 293.42, "03-09"),
+                  ("HEALTH DENTAL CLAIM MANULIFE", 187.29, "03-16")], {"holder": CLINIC, "bank": "RBC"},
                  ["holder_trade:clinic"] * 3, id="T25b"),
     # T26c: a loose AGENCY word corroborated by a second eligible insurer credit (today both held).
     pytest.param([("SAMPLE MUTUAL INSURANCE DES:CLAIM PMT ID:1", 1234.0, "03-02"),
@@ -768,10 +770,10 @@ def test_the_statement_arm_switch_on_counts_another_insurer_s_one_off(monkeypatc
     pytest.param([("STATE FARM DES:DRP PAYMENT ID:1", 0.5, "03-02")], {}, [("excluded_pending_review", "insurer_payer")],
                  id="T24"),
     # T25, T25c: a §15 deferred carrier's health-plan rows with no insurer word keep their tier.
-    pytest.param([("MISC PAYMENT SUN LIFE SUNLIFE MED ASO", 76.5, "03-02")], {"holder": CLINIC, "bank": "RBC"},
+    pytest.param([("MISC PAYMENT SUN LIFE SUNLIFE MED ASO", 163.47, "03-02")], {"holder": CLINIC, "bank": "RBC"},
                  [("counted_flagged", "named_payer_purpose_refused")], id="T25"),
-    pytest.param([("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 76.5, "03-02"),
-                  ("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 95.2, "03-03")], {"holder": CLINIC},
+    pytest.param([("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 163.47, "03-02"),
+                  ("MISC PAYMENT SAMPLE ASO SUNLIFE MED ASO", 187.29, "03-03")], {"holder": CLINIC},
                  [VERIFIED, VERIFIED], id="T25c"),
     # T26: one claim at a staffing agency (the loose AGENCY word needs a second eligible credit); T26b: VISION, a loose
     # clinic word, in a graphics firm's name, once.
