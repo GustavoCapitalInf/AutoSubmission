@@ -1492,7 +1492,8 @@ def test_r3_64_a_released_insurer_s_printed_asset_sale_is_read_by_q11_b(rows, st
 # circular money, is for the credit's own amount, or recurs at one amount printing no premium or retry word; a premium
 # the business pays the carrier that pays it is an ordinary expense, never money going round. American Income Life
 # joins INSURER_CREDIT_BRANDS (its agents' commissions print AM INCOME LIFE as the originator, no insurer word), so
-# the release reads it. Fabricated holders, the public carriers by their names, 2054 dates, zeroed ids.
+# the release reads it. Fabricated holders, the public carriers by their names, 2054 dates, zeroed ids, and fabricated
+# amounts (audit round 4, R4-42: no amount is a corpus amount).
 
 AIL = ("ORIG CO NAME:AM INCOME LIFE ORIG ID:0000000001 DESC DATE:5403{dd} CO ENTRY DESCR:{entry} TRACE#:0000001 "
        "EED:5403{dd} IND ID:0000001 IND NAME:NORTHWIND PARTNERS")
@@ -1505,13 +1506,13 @@ def _ail(entry: str, amount: float, day: str):
 
 AIL_CREDITS = [_ail("AIL INS SEC:PPD", amount, day)
                for amount, day in ((3120.45, "03-02"), (2980.10, "03-09"), (3410.00, "03-16"), (2875.30, "03-23"))]
-AIL_PREMIUM = _ail("INS PREMSEC PPD", -8.0, "03-05")
+AIL_PREMIUM = _ail("INS PREMSEC PPD", -171.09, "03-05")
 NAVY_FEDERAL_AGENCY = {"holder": "NORTHWIND INSURANCE AGENCY LLC", "bank": "Navy Federal Credit Union"}
 FARMERS_CREDITS = [("DEPOSIT ACH PAID FROM 0000 FARMERS INS 0000000", 12500.0, "03-02"),
                    ("DEPOSIT ACH PAID FROM 0000 FARMERS INS 0000000", 9800.0, "03-16")]
-FARMERS_PREMIUM = ("PAID TO - FARMERS INS EFT PYMT CHK 0000000", -148.11, "03-10")
+FARMERS_PREMIUM = ("PAID TO - FARMERS INS EFT PYMT CHK 0000000", -287.61, "03-10")
 MANULIFE_CREDITS = [("INSURANCE MANULIFE", amount, day)
-                    for amount, day in ((95.20, "03-02"), (120.40, "03-09"), (88.10, "03-16"))]
+                    for amount, day in ((187.29, "03-02"), (120.40, "03-09"), (88.10, "03-16"))]
 RBC_CLINIC = {"holder": CLINIC, "bank": "Royal Bank of Canada"}
 HELD_ALSO = ("excluded_pending_review", "payer_also_debited")
 
@@ -1522,13 +1523,13 @@ HELD_ALSO = ("excluded_pending_review", "payer_also_debited")
     # A2: A1 without the premium (today counted named_payer_one_off: the brand was unread).
     pytest.param(AIL_CREDITS, AIL_HOLDER, "same_insurer_3_in_31_days", id="A2"),
     # A3: the premium recurring at one amount, the bank's retry of a returned premium and the premium re-presented.
-    pytest.param([*AIL_CREDITS, AIL_PREMIUM, _ail("INS PREMSEC PPD", -8.0, "03-12"),
-                  _ail("RETRY PYMT", -104.92, "03-13"), _ail("INS PREM", -104.92, "03-14")], AIL_HOLDER,
+    pytest.param([*AIL_CREDITS, AIL_PREMIUM, _ail("INS PREMSEC PPD", -171.09, "03-12"),
+                  _ail("RETRY PYMT", -233.71, "03-13"), _ail("INS PREM", -233.71, "03-14")], AIL_HOLDER,
                  "same_insurer_3_in_31_days", id="A3"),
     # A4: a Farmers agency's credits beside one premium to Farmers (today both held).
     pytest.param([*FARMERS_CREDITS, FARMERS_PREMIUM], NAVY_FEDERAL_AGENCY, "holder_trade:insurance agency", id="A4"),
     # A5: a clinic's insurer payments beside one debit to another insurer the label key names (today held).
-    pytest.param([*MANULIFE_CREDITS, ("INSURANCE SAMPLE MUTUAL", -8.0, "03-05")], RBC_CLINIC, "holder_trade:clinic",
+    pytest.param([*MANULIFE_CREDITS, ("INSURANCE SAMPLE MUTUAL", -318.47, "03-05")], RBC_CLINIC, "holder_trade:clinic",
                  id="A5"),
 ])
 def test_r3_03_a_released_insurer_s_credits_are_counted_beside_its_premium(rows, statement, ground):
@@ -1598,7 +1599,8 @@ def test_r3_03_american_income_life_is_a_credit_only_brand():
 # the hold's purpose, B6): RBC prints its posting-type label INSURANCE before the party on credits and debits alike, and
 # the bank's own label names no party, so a clinic's insurer payments are compared with its debits by the insurer's own
 # name: a debit to another insurer the label alone named no longer holds them, and a premium to the same insurer
-# still names it. Fabricated holder (the file's CLINIC), public carriers by their names, 2054 dates.
+# still names it. Fabricated holder (the file's CLINIC), public carriers by their names, 2054 dates, and fabricated
+# amounts (audit round 4, R4-42: no amount is a corpus amount).
 
 SAMPLE_MUTUAL = "INSURANCE SAMPLE MUTUAL"
 
@@ -1607,12 +1609,12 @@ SAMPLE_MUTUAL = "INSURANCE SAMPLE MUTUAL"
     # Another insurer's debit for the second credit's own amount (today that credit is held: legacy INSURANCE).
     pytest.param([(SAMPLE_MUTUAL, -120.40, "03-10")], [COUNTED] * 3, id="own-amount-another-insurer"),
     # Another insurer's debit recurring at one amount, no premium word (today all three are held).
-    pytest.param([(SAMPLE_MUTUAL, -8.0, "03-04"), (SAMPLE_MUTUAL, -8.0, "03-11")], [COUNTED] * 3,
+    pytest.param([(SAMPLE_MUTUAL, -318.47, "03-04"), (SAMPLE_MUTUAL, -318.47, "03-11")], [COUNTED] * 3,
                  id="recurring-another-insurer"),
     # Controls: the same insurer's debits still name it (key MANULIFE), as today.
     pytest.param([("INSURANCE MANULIFE GRP", -120.40, "03-10")], [COUNTED, HELD_ALSO, COUNTED],
                  id="own-amount-same-insurer"),
-    pytest.param([("INSURANCE MANULIFE GRP", -8.0, "03-04"), ("INSURANCE MANULIFE GRP", -8.0, "03-11")],
+    pytest.param([("INSURANCE MANULIFE GRP", -318.47, "03-04"), ("INSURANCE MANULIFE GRP", -318.47, "03-11")],
                  [HELD_ALSO] * 3, id="recurring-same-insurer"),
 ])
 def test_r3_77_rbc_s_insurance_label_never_names_the_insurer(debits, expected):
@@ -1623,7 +1625,7 @@ def test_r3_77_rbc_s_insurance_label_never_names_the_insurer(debits, expected):
 
 @pytest.mark.parametrize("bank", ["RBC", "Banque Royale du Canada"])
 def test_r3_77_every_rbc_bank_field_reads_the_label(bank):
-    rows = [*MANULIFE_CREDITS, (SAMPLE_MUTUAL, -8.0, "03-04"), (SAMPLE_MUTUAL, -8.0, "03-11")]
+    rows = [*MANULIFE_CREDITS, (SAMPLE_MUTUAL, -318.47, "03-04"), (SAMPLE_MUTUAL, -318.47, "03-11")]
     assert [rules_reading(record) for record in _dated(rows, holder=CLINIC, bank=bank)] == [COUNTED] * 3
 
 
