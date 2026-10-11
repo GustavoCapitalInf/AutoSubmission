@@ -558,3 +558,65 @@ def test_two_same_day_debits_are_one_split_payment_only_when_they_add_up_to_the_
     # The 1,500 paid weekly through February, then the two parts on its days: one payment split, one position.
     february = _rows(every(F(2), F(23)), 1500)
     assert counts(chain((february, FEB), (march, MAR))) == [(1, 0), (1, 0)]
+
+
+# ------------------------------------------------------- review round 3 (2026-10-11; fabricated rows and statements)
+def test_a_bank_switch_that_re_prices_both_positions_hands_each_over_once():
+    # Review round 3: both of account A's positions move to account B (a bank switch) and are re-priced on the move.
+    # The payment changes read both stops as continuing from the funder's first debit in B (04-15); each stop is handed
+    # over to one continuation that began there on or after that day, whatever its amount, as A7 reads a level that
+    # follows another in one account (a level joins the position it is not concurrent with). April held two positions.
+    pkg = _pkg()
+    # Both re-priced by 3% (1,000 -> 1,030 on Wednesdays from 04-15, 500 -> 515 on Fridays from 04-17).
+    built = _two_stop_in_a([(every(A(15), A(29)), 1030), (every(A(17), A(24)), 515)],
+                           [(every(pkg.Y(6), pkg.Y(27)), 1030), (every(pkg.Y(1), pkg.Y(29)), 515)])
+    stops = [item for item in built["lender_payment_changes"] if item["kind"] == "stop"]
+    assert [item["continues_in_other_account"]["first_date"] for item in stops] == ["2054-04-15", "2054-04-15"]
+    assert _rows_of(built)["a-april"] == (2, 0) and _rows_of(built)["b-april"] == (2, 0)
+    assert _months(built) == [("2054-03", 2, 0), ("2054-04", 2, 0), ("2054-05", 2, 0)]
+    _never_below_a_row(built)
+    # Only the Friday one re-priced (500 -> 520): 2.
+    built = _two_stop_in_a([(every(A(15), A(29)), 1000), (every(A(17), A(24)), 520)],
+                           [(every(pkg.Y(6), pkg.Y(27)), 1000), (every(pkg.Y(1), pkg.Y(29)), 520)])
+    assert _months(built) == [("2054-03", 2, 0), ("2054-04", 2, 0), ("2054-05", 2, 0)]
+    # Re-priced far more (500 -> 800): still the stopped position's continuation, 2.
+    built = _two_stop_in_a([(every(A(15), A(29)), 1000), (every(A(17), A(24)), 800)],
+                           [(every(pkg.Y(6), pkg.Y(27)), 1000), (every(pkg.Y(1), pkg.Y(29)), 800)])
+    assert _months(built) == [("2054-03", 2, 0), ("2054-04", 2, 0), ("2054-05", 2, 0)]
+    _never_below_a_row(built)
+
+
+def test_a_second_stop_is_handed_over_to_a_continuation_that_began_after_the_link_whatever_its_amount():
+    # Review round 3, the pure reading: both stops of chain 0 linked to chain 1 at its first debit (1,030 on 04-15);
+    # chain 1 also began a 515 position on 04-17. One to one, the nearest amounts first: 1,000 -> 1,030 and 500 -> 515.
+    first = chain((_rows(every(M(4), M(25)), 1000) + _rows(every(M(6), M(27)), 500), MAR),
+                  (_rows(every(A(1), A(8)), 1000) + _rows(every(A(3), A(10)), 500), APR))
+    second = chain((_rows(every(A(15), A(29)), 1030) + _rows(every(A(17), A(24)), 515), APR))
+    links = [ap.PositionLink(0, ("confirmed", "KAPITUS"), number, 1, A(15), 1030.0) for number in (1, 2)]
+    march, april = 2054 * 12 + 2, 2054 * 12 + 3
+    _per, by_month = ap.package_active_positions([first, second], months=[[march, april], [april]], links=links)
+    assert [(entry["month"], entry["active_positions"]) for entry in by_month] == [("2054-03", 2), ("2054-04", 2)]
+    # A position of chain 1 that paid before the link's day paid beside the stopped ones: never a continuation.
+    second = chain((_rows(every(A(1), A(29)), 515) + _rows(every(A(15), A(29)), 1030), APR))
+    _per, by_month = ap.package_active_positions([first, second], months=[[march, april], [april]], links=links)
+    assert [(entry["month"], entry["active_positions"]) for entry in by_month] == [("2054-03", 2), ("2054-04", 3)]
+
+
+def test_a_split_payment_beside_a_stream_that_carries_on_unchanged_is_one_position():
+    # Review round 3: the precision sample's split shape (a weekly 1,250 bounced, cleared once, then came as 1,000 and
+    # 250 on the same days) beside a daily 200 stream of the same funder that paid every business day at the level it
+    # paid before the parts began. The daily stream carries on unchanged, so it was not split: the 1,250 just before the
+    # parts is the payment that was. Two positions: the daily stream and the split one.
+    split = _rows([M(17), M(24), M(31)], 1000) + _rows([M(17), M(24), M(31)], 250)
+    whole = _rows([M(3), M(5)], 1250, returned_funder_payment_by="transaction:99") + _rows([M(10)], 1250)
+    daily = _rows(bdays(M(2), M(31)), 200)
+    [series] = lpc.series_positions([lpc.StatementRows(_located(split + whole + daily), *MAR, "USD")])
+    assert [[level[0] for level in position.levels] for position in series.positions] == [[20000], [25000], [100000]]
+    assert alone(split + whole + daily, MAR) == (2, 0)
+    # Across a chain: February paid 1,250 weekly beside the daily 200, March the two parts beside it: 2 each month.
+    february = _rows(every(F(3), F(24)), 1250) + _rows(bdays(F(2), F(27)), 200)
+    march = _rows(every(M(3), M(31)), 1000) + _rows(every(M(3), M(31)), 250) + _rows(bdays(M(2), M(31)), 200)
+    assert counts(chain((february, FEB), (march, MAR))) == [(2, 0), (2, 0)]
+    # A stream whose level changes where the parts begin is the one split: February 1,250, March 1,000 + 250.
+    assert counts(chain((_rows(every(F(3), F(24)), 1250), FEB),
+                        (_rows(every(M(3), M(31)), 1000) + _rows(every(M(3), M(31)), 250), MAR))) == [(1, 0), (1, 0)]
