@@ -3938,7 +3938,10 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "exactly two statements move, both from withheld to validated", "0 console errors"):
         assert words in line, words
     assert not _cent_figures(line)
-    assert amendments.rstrip().endswith(line.rstrip())
+    # Audit round 4, R4-B01 (C3): the merge line is round 3's last §20 line; every §20 line after it is round 4's.
+    later = [entry for entry in amendments.split(line, 1)[1].splitlines() if entry.startswith("- **")]
+    assert all("audit round 4" in entry for entry in later), [entry[:80] for entry in later
+                                                              if "audit round 4" not in entry]
     contract = _flat(CONTRACT)
     assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
             "7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit") in contract
@@ -3949,3 +3952,156 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "**Merged** with the owner's approval of 2026-10-10", "| Hosting line merge-back (R3-MERGE) |",
                   "**Done** (R3-MERGE, 2026-10-10): merge commit `7e254cf`, stage 37 and `true-revenue-11`"):
         assert words in handoff, words
+
+
+#: Audit round 4, R4-40: a money figure printed after a count of 1 with a singular noun (or named as one row's: the
+#: largest of a list, one `<word>` pair) is one corpus row's amount. Shapes only; the test holds no amount.
+_R4_40_MONEY = r"\$\s?\d[\d,]*(?:\.\d+)?"
+_R4_40_NOUN = r"(?:row|credit|debit|deposit|transfer|wire|payment|charge)"
+_R4_40_WORDS = r"(?:[\w`'-]+ )"
+R4_40_SINGLE_ROW_SHAPES = tuple(re.compile(pattern) for pattern in (
+    # `<code>` 1, $x  and  `<code>` 1 row, $x  (not a merged "`<code>` n and `<code>` 1, $x", a sum of several rows)
+    r"(?<!and )`[^`\n]+` 1(?: row)?, (" + _R4_40_MONEY + r")",
+    # 1 row|credit|debit ..., $x  (also "(1 row, $x")
+    r"\b1 " + _R4_40_NOUN + r"\b[^;$()]{0,80}?, (?:about )?(" + _R4_40_MONEY + r")",
+    # 1 <word ...> credit ($x  and  1 <word ...> credit, about $x
+    r"\b1 " + _R4_40_WORDS + r"{1,4}" + _R4_40_NOUN + r"\b[^;$()]{0,40}?(?:, about |\()(" + _R4_40_MONEY + r")",
+    # 1 credit ($x
+    r"\b1 " + _R4_40_NOUN + r" \((" + _R4_40_MONEY + r")",
+    # one <up to 4 words> row|credit|debit, $x  and  one <up to 4 words> wire ($x  (singular noun only)
+    r"\bone " + _R4_40_WORDS + r"{0,4}" + _R4_40_NOUN + r"(?:, | \()(" + _R4_40_MONEY + r")",
+    # a bare count of 1 in a list: "; 1, $x"
+    r"[;:(] 1, (" + _R4_40_MONEY + r")",
+    # one <word> $x pair|row|credit
+    r"\bone " + _R4_40_WORDS + r"{0,3}(" + _R4_40_MONEY + r") (?:pair|row|credit|debit)\b",
+    # <name>'s $x the largest  and  the largest <word> $x
+    r"(" + _R4_40_MONEY + r"),? the largest\b",
+    r"\bthe largest " + _R4_40_WORDS + r"{0,2}(" + _R4_40_MONEY + r")",
+))
+#: The rule constants a single-row shape may name (the $1 floor, the $500 floor, the $10,000 lump-sum and large-deposit
+#: floors), never an amount.
+R4_40_RULE_CONSTANTS = {"$1", "$500", "$10,000"}
+
+
+def _r4_40_single_row_figures(text: str) -> list:
+    """Every money figure of §17.1 to the end that a single-row shape prints, but a rounded bound (a figure followed by
+    K, M, thousand or million), a sum over several statements (a figure followed by "over") and a rule constant."""
+    scope = text[text.index("\n### 17.1 "):]
+    found = {}
+    for number, line in enumerate(scope.splitlines()):
+        for pattern in R4_40_SINGLE_ROW_SHAPES:
+            for match in pattern.finditer(line):
+                after = line[match.end(1):match.end(1) + 12]
+                if re.match(r"\s?(?:K|M|thousand|million)\b|\s(?:over)\b", after):
+                    continue
+                figure = match.group(1).replace(" ", "")
+                if figure in R4_40_RULE_CONSTANTS or not re.search(r"[1-9]", figure):
+                    continue
+                # A merged pair ("`<code>` n rows and `<code>` 1 row, $x") prints a sum of several rows.
+                if re.search(r"\band `[^`]+` 1(?: row)?, $", line[max(0, match.start() - 80):match.start(1)]):
+                    continue
+                found.setdefault((number, match.start(1)),
+                                 re.sub(r"\d", "#", line[max(0, match.start() - 40):match.end() + 10]))
+    return sorted(found.items())
+
+
+def test_r4_40_no_spec_line_prints_a_single_corpus_row_s_amount():
+    """Audit round 4, R4-40 (the handoff's and the plan's privacy rule; R3-B15 review round 2, finding 3): §17.1, §19.1
+    and §20 print no single corpus row's amount: a count of 1 reads with no figure, a single statement's share as its
+    direction, and where a removed amount stayed recoverable from its line's other figures the parts are merged (or
+    the figure that gave it back dropped). Each edited line is marked in place."""
+    text = SPEC.read_text(encoding="utf-8")
+    assert _r4_40_single_row_figures(text) == []
+    open_items = _section(text, "\n### 17.1 ", "\n## 18. ")
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    review = _section(text, "\n### 19.1 Owner decisions since the review\n", "\n## 20. Implementation amendments")
+
+    def bullet(section: str, start: str) -> str:
+        [entry] = [entry for entry in section.splitlines() if entry.startswith(start)]
+        return entry
+
+    # The lines that print a single row's or a single statement's figure with no count word, which the scan misses.
+    ow06 = _amendment_line(amendments, "- **Owner ruling 2026-10-02, R2-OW06 in all** (")
+    assert re.search(r"that statement's True \d", ow06) is None and re.search(r"its True \d", ow06) is None
+    for gone in ("held −$", "`non_revenue` +$", "1 credit, $"):
+        assert gone not in ow06, gone
+    for words in ("that statement's True share rises and its held share falls, still gated", "its True share falls;",
+                  "held falls by row (a), `non_revenue` gains row (b)"):
+        assert words in ow06, words
+    ow05 = _amendment_line(amendments, "- **Owner ruling 2026-10-02, R2-OW05 in all** (")
+    assert "shares fall from" not in ow05 and "the four statements' Verified shares fall, their True unchanged" in ow05
+    ow08 = _amendment_line(amendments, "- **Owner ruling 2026-10-02, R2-OW08 in all** (")
+    assert "one `INS` row, $" not in ow08 and "stay held ($" not in ow08
+    assert re.search(r"`holder_name` 3 and `payroll_or_salary` 1, \$[\d,]+\.\d\d, from `non_revenue`", ow08)
+    assert re.search(r"`possible_return` 2, \$[\d,]+\.\d\d\)", ow08)  # a two-row sum, kept
+    draw = bullet(open_items, "- **A project owner or developer that is no builder paying a stage draw")
+    assert "(one credit, now counted)" in draw and "(one wire to True)" in draw and "(one wire; measured at" in draw
+    assert "The question's \"about $" in draw  # the question's own rounded words, a two-row sum
+    finance = bullet(open_items, "- **Finance-named customers, rent and lenders' service payments: the defaults")
+    assert "(one row at" in finance and "one payer's unworded EDI line, one row at" in finance
+    # Found by this batch's own scan beyond the planner's list (single rows printed with no count word).
+    ow04 = _amendment_line(amendments, "- **Owner ruling 2026-10-02, R2-OW04 in all** (")
+    for gone in ("Acima $", "Koalafi $", ", Terrace $", "the largest payout $", "Verified −$8",
+                 "Cached basis (2,493 accounts): 71 rows, $"):
+        assert gone not in ow04, gone
+    for words in ("`named_payer_one_off` 5 and `named_payer_purpose_refused` 1, $",
+                  "Verified `named_payer_repeats` 2 and `named_payer_company_form` 1, $",
+                  "Acima, Koalafi and Terrace $"):
+        assert words in ow04, words
+    insurers = bullet(open_items, "- **Insurers paid for the business's work: the defaults")
+    assert "Aviva's $" not in insurers and "Aviva's the largest" in insurers
+    assert "one funder's wire, both financing" in bullet(open_items, "- **Q9 (c) and registered lenders")
+    ow16 = _amendment_line(amendments, "- **Owner ruling 2026-10-02, R2-OW16 in all** (")
+    assert "**Q4 holds 1 deposit**" in ow16 and "fall by that deposit" in ow16
+    ow09 = _amendment_line(amendments, "- **Owner ruling 2026-10-02, R2-OW09 in all** (")
+    assert "a truck-lease transfer (4 rows: no lessor)" in ow09 and "(1 row: the guard)" in ow09
+    r3_53 = _amendment_line(amendments, "- **A held row's reason sentence never says it is counted**")
+    assert "exactly 44 held rows' sentences change, in 5 statements" in r3_53
+    assert "the 3 `holder_name` ones, so 44 remain" in r3_53
+    courriel = _amendment_line(amendments, "- **Banque Royale's French autodeposit is the Interac rail**")
+    assert "; 1, $" not in courriel and "11 in 2 statements to `p2p_round_repeat` and 1 to `payer_also_debited`" in (
+        courriel)
+    assert "Q4 holds 1 row (its amount removed in place, audit round 4, R4-40)" in review
+    # Each edited line is marked in place.
+    edited = [bullet(open_items, start) for start in (
+        "- **A Treasury `MISC PAY` with no agency code**", "- **Lease-to-own and patient financiers' follow-ups",
+        "- **A project owner or developer that is no builder", "- **Insurers paid for the business's work: the defaults",
+        "- **Q9 (c) and registered lenders", "- **Finance-named customers, rent and lenders' service payments")]
+    edited += [_amendment_line(amendments, start) for start in (
+        "- **Audit fix batch B3 in all**", "- **Consumer lenders' and cash-advance apps' instant-payment forms",
+        "- **Northeast Bank's credit is held as a lending bank's**", "- **Audit round 2, R2-B08 in all**",
+        "- **B7's I18 spares read a name word only", *(f"- **Owner ruling 2026-10-02, R2-OW0{n} in all**"
+                                                       for n in (1, 3, 4, 5, 6, 8, 9)),
+        "- **Audit I26, R2-OW07 in all**", "- **Owner ruling 2026-10-02, R2-OW16 in all**",
+        "- **A held row's reason sentence never says it is counted**",
+        "- **Banque Royale's French autodeposit is the Interac rail**")]
+    unmarked = [entry[:60] for entry in edited if "removed in place, audit round 4, R4-40" not in entry]
+    assert not unmarked, unmarked
+
+
+#: Audit round 4, R4-B01: the commits the §20 line names (A: the insurer tests' amounts; B: the spec lines).
+R4_B01_COMMITS = ("16e5558", "c9d65be")
+
+
+def test_r4_42_and_r4_40_are_recorded():
+    """Audit round 4, R4-42 and R4-40: §20's line after the merge line (the edited lines, the rule, the probes, the
+    history the owner alone may rewrite; no cent figure), §9.3's no-bump line, and the handoff's §6 history item."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    line = _amendment_line(amendments, "- **The insurer tests' premiums are fabricated, and no spec line prints a "
+                                       "single corpus row's amount** (")
+    for words in ("audit round 4, R4-42 and R4-40", "R4-42", "R4-40", "c2bf1cf", "2b684b8", "force-push",
+                  "origin/hosting/true-revenue-5.8", "origin/cursor/intern-testing-host-d911",
+                  "the file's tests keep every expectation", "0 cached rows", *R4_B01_COMMITS):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.index("- **The hosting line merged back** (") < amendments.index(line)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    assert ("- Audit round 4, R4-42 and R4-40 (§20): no bump in a fix batch, and no stored-output change: test "
+            "literals and documentation only.") in versions
+    handoff = _flat(HANDOFF)
+    owner_items = handoff.split("## 6. Open owner items", 1)[1].split("## 7. ", 1)[0]
+    for words in ("R4-42", "`c2bf1cf`", "R4-40", "a rewrite needs the owner's OK", "dropped forward by audit round 4, "
+                  "R4-40", "`a93aedc` and `949b9e1`"):
+        assert words in owner_items, words
+    assert "a forward fix can drop it" not in handoff

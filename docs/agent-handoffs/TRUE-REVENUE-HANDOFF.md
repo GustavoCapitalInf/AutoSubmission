@@ -182,7 +182,13 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   figures; fixed forward; unpushed when found, so whether history keeps them is the orchestrator's call before the
   push and the owner's after it). Rewriting a pushed commit needs the owner's OK. (R3-B15's
   review round 2 left the round-2 spec lines of `5ecb620` with their copy of one statement's figure, as its finding
-  allowed; a forward fix can drop it.)
+  allowed; dropped forward by audit round 4, R4-40.) Audit round 4: R4-42, `c2bf1cf` (and `2b684b8`'s generic
+  amount) put real premium amounts in tests/test_true_revenue_insurer_work.py, on origin/true-revenue,
+  origin/hosting/true-revenue-5.8 and the Fly deploy branch (origin/cursor/intern-testing-host-d911); R4-40, the spec
+  commits `70ebdd6`, `d7637c4`, `5ecb620`, `6d2d614`, `f8b5233`, `bffc560`, `efd82a5`, `3705347`, `67bcf6b`,
+  `7bc1a24`, `8453ae9`, `2e60915`, `166cbe8`, `b0cf346`, `0d62f87`, `0633d9b`, `5a230b8` and `9871cdf` carry single
+  rows' amounts (on the same three branches, most also on the older hosting and fix branches); both fixed forward in
+  `16e5558` and `c9d65be` (R4-B01); a rewrite needs the owner's OK (default: no rewrite).
 - **Owner items with evidence, no fix:** R3-28 (the daily core-processor template's unread credits counted in True:
   about $47K to $50K of $296K under blocks the MCA standard excludes; the block is stored since R3-B09; §17.1's
   "Readings the owner may convert") and R3-76 (a tax preparer's `TAX REFUND PROC DES:RE DISB` credits excluded as

@@ -1493,7 +1493,7 @@ def test_r3_64_a_released_insurer_s_printed_asset_sale_is_read_by_q11_b(rows, st
 # the business pays the carrier that pays it is an ordinary expense, never money going round. American Income Life
 # joins INSURER_CREDIT_BRANDS (its agents' commissions print AM INCOME LIFE as the originator, no insurer word), so
 # the release reads it. Fabricated holders, the public carriers by their names, 2054 dates, zeroed ids, and fabricated
-# amounts (audit round 4, R4-42: no amount is a corpus amount).
+# amounts (audit round 4, R4-42: no amount is a corpus amount at its carrier; the replaced ones match no cached row).
 
 AIL = ("ORIG CO NAME:AM INCOME LIFE ORIG ID:0000000001 DESC DATE:5403{dd} CO ENTRY DESCR:{entry} TRACE#:0000001 "
        "EED:5403{dd} IND ID:0000001 IND NAME:NORTHWIND PARTNERS")
@@ -1600,7 +1600,7 @@ def test_r3_03_american_income_life_is_a_credit_only_brand():
 # the bank's own label names no party, so a clinic's insurer payments are compared with its debits by the insurer's own
 # name: a debit to another insurer the label alone named no longer holds them, and a premium to the same insurer
 # still names it. Fabricated holder (the file's CLINIC), public carriers by their names, 2054 dates, and fabricated
-# amounts (audit round 4, R4-42: no amount is a corpus amount).
+# amounts (audit round 4, R4-42: no amount is a corpus amount at its carrier; the replaced ones match no cached row).
 
 SAMPLE_MUTUAL = "INSURANCE SAMPLE MUTUAL"
 
