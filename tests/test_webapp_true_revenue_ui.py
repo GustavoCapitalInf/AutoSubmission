@@ -622,7 +622,8 @@ def test_the_settings_say_what_true_revenue_is():
     # line's). Audit round 3, final review (R3-FF), F6: the floor's unit moves app.js again (-9 served the Accept run).
     # Audit round 3, R3-MERGE: the merged app.js differs from both lines' (-8 the hosting line's, -10 this branch's).
     # The owner's request of 2026-10-10 (active positions by month): the Active Positions column and the memos' line.
-    assert '<script src="/static/app.js?v=true-revenue-12"></script>' in html
+    # The owner's own design (2026-10-11, display only): -13.
+    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports

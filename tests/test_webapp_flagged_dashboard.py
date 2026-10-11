@@ -722,8 +722,9 @@ def test_the_page_asks_browsers_for_the_new_script():
     # Statements' withholding rate; and its follow-up the same day: the Monthly Statements without the Zelle line and
     # the chart's bars in the key's colours (served there as -7 and -8). Audit round 3, R3-MERGE: the merged app.js
     # differs from both lines', so it takes the next free value above both: -11. The owner's request of 2026-10-10
-    # (active positions by month): the Monthly Statements' Active Positions column and the memos' line: -12.
-    assert '<script src="/static/app.js?v=true-revenue-12"></script>' in html
+    # (active positions by month): the Monthly Statements' Active Positions column and the memos' line: -12. The
+    # owner's own design (2026-10-11, display only): -13.
+    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in
