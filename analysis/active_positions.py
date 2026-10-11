@@ -21,10 +21,11 @@ never detects a stream of its own:
   past (A8's premise, review rounds 1 and 2 of 2026-10-11), is that position catching up (A8's catch-up, which the
   module reads only inside a position, after A7 has formed them), so its payments are the other's; a position that
   pays only on days another pays on, a level of each adding up to the series' payment or attempt just before it began
-  (the payment that was split; review round 2: never an older level or attempt), is one payment split into two
-  debits, one position; and a potential series' position none of whose payments, and not its regular weekly
-  equivalent either, reaches A10's floor (POTENTIAL_MIN_WEEKLY_CENTS, the basis its one-offs are tested on) is no
-  possible position.
+  (the payment that was split; review round 2: never an older level or attempt; review round 3: read per stream, so
+  a stream of the funder that keeps paying beside the parts at its level before them was not split and never hides
+  the whole), is one payment split into two debits, one position; and a potential series' position none of whose
+  payments, and not its regular weekly equivalent either, reaches A10's floor (POTENTIAL_MIN_WEEKLY_CENTS, the basis
+  its one-offs are tested on) is no possible position.
 * A position is **active in a period** when one of its payments is dated inside it. A payment is A2's: a posted debit
   carrying its state's paid flag (the rows paid to lenders count) with no duplicate, reversal or returned-funder-payment
   mark, so a bounced attempt never makes a position active and R3-73's re-debit is the payment it is.
@@ -43,7 +44,10 @@ never detects a stream of its own:
   position paid there and the other account's position paid there only on or after the continuation (review round 1:
   a position of the other account that paid beside the stopped one is a second position in those months). Review
   round 2: one continuation takes over one stopped position at most, the nearest in amount, and two positions of one
-  account are never counted as one, so a month never reads below one account's own count there.
+  account are never counted as one, so a month never reads below one account's own count there. Review round 3: a
+  stop the nearest amounts leave is handed over to a continuation they leave that began on or after the link's day,
+  whatever its amount (a bank switch that re-priced both of a funder's positions), as A7 reads a level that follows
+  another in one account.
 * **N/A, never 0**, where the lender reading is not available: an account whose detection carries no
   `lender_payment_changes` (analysed before the check) or whose statement holds no rows list (`account_active_positions`);
   the package's members never analysed are N/A by webapp/app.py.
@@ -175,12 +179,27 @@ def _catches_up(position: PayingPosition, other: PayingPosition, series: SeriesP
         for amount, payments, _first in position.levels) and _missed_or_bounced(other, position, series)
 
 
+def _carries_on(before: Sequence[tuple[date, int]], after: Sequence[tuple[date, int]]) -> bool:
+    """Review round 3 of 2026-10-11: a position keeps paying beside the parts at the level it paid before they began:
+    one of its payments on its first paying day from the parts' first day on (`after`) is within LEVEL_MERGE_PERCENT
+    of one on its last paying day before it (`before`)."""
+    if not before or not after:
+        return False
+    last, first = before[-1][0], after[0][0]
+    return any(_near(cents, amount) for day, cents in after if day == first
+               for other_day, amount in before if other_day == last)
+
+
 def _split_wholes(position: PayingPosition, series: SeriesPositions) -> list[int]:
     """The amounts (cents) the parts of `position` may add up to (review round 2 of 2026-10-11): the series' payment or
     attempt just before `position` began, the payment that was split, never an older level or attempt. Each other
     position's payments on its last paying day before it, and the series' one-offs and attempts on the last day before
     it that one of them falls on, where no position of the series paid after that day; each dated in the
-    CATCH_UP_LOOKBACK_DAYS days before `position` began."""
+    CATCH_UP_LOOKBACK_DAYS days before `position` began. Review round 3 of 2026-10-11: read per stream, so another
+    position that keeps paying beside the parts at the level it paid before they began (`_carries_on`: a daily stream
+    of the same funder that carries on unchanged) was not split; it is neither a whole nor the latest payment before
+    the parts, and the bounced or one-off whole just before them still counts beside it. A position whose level
+    changes where the parts begin (a weekly 1,250 that becomes 1,000 and 250) is the one split."""
     first = position.days[0]
     since = first - timedelta(days=CATCH_UP_LOOKBACK_DAYS)
     wholes: list[int] = []
@@ -188,6 +207,8 @@ def _split_wholes(position: PayingPosition, series: SeriesPositions) -> list[int
     for other in series.positions:
         before = [(day, cents) for day, cents in other.pays if day < first]
         if other.number == position.number or not before:
+            continue
+        if _carries_on(before, [(day, cents) for day, cents in other.pays if day >= first]):
             continue
         last = before[-1][0]
         latest = last if latest is None else max(latest, last)
@@ -419,14 +440,19 @@ def _distance(amounts: Sequence[int], others: Sequence[int]) -> int | None:
 
 
 def _hand_overs(joins: Sequence[_Join], nodes: set[tuple], readings: Sequence[ChainPositions],
-                spans: Mapping[int, Sequence[tuple[date | None, date | None]]]) -> list[tuple[int, tuple, tuple]]:
-    """Review round 2 of 2026-10-11: each (gap, stopped node, continuation node) a month may join. A continuation is a
-    node of the link's other chain and series that paid in the month only on or after the link's day (`spans`: each
-    chain's statement periods of the month): the position the link's first payment or attempt belongs to (`named`),
-    its gap the stopped position's level nearest the link's amount; or another one that began on or after the link's
-    day at a level within LEVEL_MERGE_PERCENT of the stopped position's (the same stream moved, where the link names
-    the funder's first debit there, which another stop's continuation took), its gap the nearest two levels."""
-    pairs: list[tuple[int, tuple, tuple]] = []
+                spans: Mapping[int, Sequence[tuple[date | None, date | None]]]) -> list[tuple[int, int, tuple, tuple]]:
+    """Review round 2 of 2026-10-11: each (pass, gap, stopped node, continuation node) a month may join, in the order
+    they are tried. A continuation is a node of the link's other chain and series that paid in the month only on or
+    after the link's day (`spans`: each chain's statement periods of the month). The first pass (0): the position the
+    link's first payment or attempt belongs to (`named`), its gap the stopped position's level nearest the link's
+    amount; or another one that began on or after the link's day at a level within LEVEL_MERGE_PERCENT of the stopped
+    position's (the same stream moved, where the link names the funder's first debit there, which another stop's
+    continuation took), its gap the nearest two levels. Review round 3 of 2026-10-11, the second pass (1): any other
+    one that began on or after the link's day, whatever its amount, its gap the nearest two levels, so a stop the
+    first pass left is handed over to a continuation it left (a bank switch that re-priced both of a funder's
+    positions), as A7 reads a level that follows another in one account (it joins the position it is not concurrent
+    with, whatever its amount)."""
+    pairs: list[tuple[int, int, tuple, tuple]] = []
     for join in joins:
         if join.stop not in nodes:
             continue
@@ -441,13 +467,14 @@ def _hand_overs(joins: Sequence[_Join], nodes: set[tuple], readings: Sequence[Ch
                 continue
             amounts = reading.amounts_of(key, number)
             if number == join.named:
-                gap = _distance(join.stop_amounts, (join.amount,) if join.amount is not None else amounts)
-            elif days[0] >= join.day and any(_near(one, other) or _near(other, one)
-                                             for one in join.stop_amounts for other in amounts):
+                tier, gap = 0, _distance(join.stop_amounts, (join.amount,) if join.amount is not None else amounts)
+            elif days[0] >= join.day:
+                tier = 0 if any(_near(one, other) or _near(other, one)
+                                for one in join.stop_amounts for other in amounts) else 1
                 gap = _distance(join.stop_amounts, amounts)
             else:
                 continue
-            pairs.append((0 if gap is None else gap, join.stop, node))
+            pairs.append((tier, 0 if gap is None else gap, join.stop, node))
     return sorted(pairs)
 
 
@@ -469,8 +496,11 @@ def package_active_positions(chains: Sequence[Sequence[StatementRows]], *, month
     is handed over once (`_hand_overs`, the nearest amounts first), and no two positions of one chain are ever counted
     as one, so a month never reads below a chain's own count there: the payment changes read every stop of a funder in
     one account as continuing from the funder's first debit in the other, so two positions that stop together and one
-    continuation there are still two in the hand-off month. A month of `unread_months` (one of whose statements the
-    lender reading is not available for) is N/A."""
+    continuation there are still two in the hand-off month. Review round 3 of 2026-10-11: a stop that pass leaves is
+    then handed over to a continuation it leaves that began on or after the link's day, whatever its amount (a bank
+    switch that re-priced both positions reads 2 in its hand-off month, not 3), as A7 reads a level that follows
+    another in one account; one to one, so a consolidation and a pay-off beside a move still read 2. A month of
+    `unread_months` (one of whose statements the lender reading is not available for) is N/A."""
     readings = [ChainPositions(chain) for chain in chains]
     per_statement = [[_statement_counts(reading, index) for index in range(len(reading.statements))]
                      for reading in readings]
@@ -520,7 +550,7 @@ def package_active_positions(chains: Sequence[Sequence[StatementRows]], *, month
 
         stopped: set[tuple] = set()
         continued: set[tuple] = set()
-        for _gap, stop, node in _hand_overs(joins, nodes, readings, periods[month]):
+        for _tier, _gap, stop, node in _hand_overs(joins, nodes, readings, periods[month]):
             if stop in stopped or node in continued:
                 continue
             first, second = root(stop), root(node)
