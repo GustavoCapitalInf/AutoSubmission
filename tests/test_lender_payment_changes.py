@@ -1842,25 +1842,31 @@ def test_r4_75_a_re_debit_named_in_another_statement_of_the_chain_is_not_the_lin
 # counts payments that keep a schedule: a regime whose own dates (its payments and the attempts at its amount inside its
 # span) read no regular schedule takes its level's only while no gap between those dates is more than SPARSE_RUN_CYCLES
 # cycles of it plus its beat tolerance; a sparser one is noise, as a run under MIN_PAYMENTS_HELD is (spec §17.1 (32)).
+R4_84_END = date(2054, 8, 27)
+
+
 def _r4_84_far_apart():
-    """400 on 03-09 and 04-14 (36 days apart), daily 600 from 04-21 to 04-30, then daily 400 from 05-12 (the 400 level
-    reads daily on all its dates). Fabricated amounts (R4-B05 review round 1: no corpus series' amount)."""
-    return _rows([M(9), A(14)], 400) + _rows(bdays(A(21), A(30)), 600) + _rows(bdays(Y(12), Y(29)), 400)
+    """400 on 06-08 and 07-14 (36 days apart, Juneteenth between them), daily 600 from 07-21 to 07-30, then daily 400
+    from 08-11 to 08-27 (the 400 level reads daily on all its dates). Fabricated amounts and dates (R4-B05 review rounds
+    1 and 2: neither a corpus series' amounts nor its schedule)."""
+    return (_rows([J(8), date(2054, 7, 14)], 400) + _rows(bdays(date(2054, 7, 21), date(2054, 7, 30)), 600)
+            + _rows(bdays(date(2054, 8, 11), R4_84_END), 400))
 
 
 def test_r4_84_two_payments_far_apart_never_borrow_a_daily_schedule():
-    # The base read the two 400s as a daily regime held 2 payments: a pause 03-09 -> 04-14 (26 business days), a
-    # confirmed +50% "after 2 at the old" (reverted) and the -33% "back to the earlier".
-    [item] = changes(_r4_84_far_apart(), start=M(1), end=Y(29))
-    assert _steps([item]) == [("decrease", "daily", "daily", -33, 8, 13, "2054-05-12")]
+    # The base read the two 400s as a daily regime held 2 payments: a pause 06-08 -> 07-14 (25 business days, Juneteenth
+    # left out), a confirmed +50% "after 2 at the old" (reverted) and the -33% "back to the earlier".
+    [item] = changes(_r4_84_far_apart(), start=Y(31), end=R4_84_END)
+    assert _steps([item]) == [("decrease", "daily", "daily", -33, 8, 13, "2054-08-11")]
     assert (item["back_to_earlier"], item["restart"], item["pause_business_days"]) == (False, True, 8)
 
 
 def test_r4_84_bounced_attempts_at_another_amount_never_fill_the_gap():
     # A fabricated defaulted-account shape: between the two 400s only bounced attempts at another amount (2,280), which
     # are presence (no pause) but never the regime's dates. The base read the +50% and the -33% "back to the earlier".
-    found = changes(_r4_84_far_apart() + _returned(bdays(M(10), A(13))[::5], 2280), start=M(1), end=Y(29))
-    assert _steps(found) == [("decrease", "daily", "daily", -33, 8, 13, "2054-05-12")]
+    attempts = _returned(bdays(J(9), date(2054, 7, 13))[::5], 2280)
+    found = changes(_r4_84_far_apart() + attempts, start=Y(31), end=R4_84_END)
+    assert _steps(found) == [("decrease", "daily", "daily", -33, 8, 13, "2054-08-11")]
     assert found[0]["back_to_earlier"] is False
 
 
