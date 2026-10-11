@@ -1629,6 +1629,55 @@ def test_r3_81_the_gate_reads_the_level_paying_when_it_began():
     assert [(item["kind"], item["change_percent"]) for item in found] == [("decrease", -75)]
 
 
+# Audit round 4, R4-B05 (R4-07): the other stream's level at the new stream's start is its KEPT regime (A8, after
+# `_drop_short`) holding its latest payment on or before that day: never a 2x or 3x catch-up level (§17.1 (22)) or a
+# dropped possible level (§17.1 (18)). Position 1 pays weekly 1,000 on Mondays; the new stream pays on Tuesdays.
+_R4_07_MONDAYS = every(M(2), J(29))
+_R4_07_WEEKLY = [{"position": 1, "cadence": "weekly", "amount": 1000.0}]
+
+
+def _r4_07_stream(rows):
+    """The one item of `rows` (March to June 2054), a new stream: its change, `alongside` and weekly totals."""
+    [item] = changes(rows, start=M(1), end=J(30))
+    assert item["kind"] == "new_stream"
+    return item["change_percent"], item["alongside"], item["weekly_total_before"], item["weekly_total_after"]
+
+
+def _r4_07_catch_up_pair(multiple):
+    """Position 1's Mondays, 03-23 and 03-30 paid at `multiple` times 1,000 (a catch-up level, run of 2)."""
+    pair = {M(23), M(30)}
+    return (_rows([day for day in _R4_07_MONDAYS if day not in pair], 1000)
+            + _rows(sorted(pair), 1000 * multiple))
+
+
+def test_r4_07_a_catch_up_pair_before_the_new_stream_never_doubles_the_base():
+    tuesdays = every(M(31), J(30))
+    # 150 from 03-31. Base: no item (the 2,000 pair read as the level paying, so 150 was 7.5%).
+    assert _r4_07_stream(_r4_07_catch_up_pair(2) + _rows(tuesdays, 150)) == (15, _R4_07_WEEKLY, 1000.0, 1150.0)
+    # 300. Base: +15% alongside weekly 2,000.00, 2,000.00 -> 2,300.00.
+    assert _r4_07_stream(_r4_07_catch_up_pair(2) + _rows(tuesdays, 300)) == (30, _R4_07_WEEKLY, 1000.0, 1300.0)
+    # A 3x pair and 350. Base: +12% against 3,000.00.
+    assert _r4_07_stream(_r4_07_catch_up_pair(3) + _rows(tuesdays, 350)) == (35, _R4_07_WEEKLY, 1000.0, 1350.0)
+
+
+def test_r4_07_two_catch_ups_a_month_apart_never_read_a_monthly_level():
+    # Position 1 misses 03-09 and 04-06 and pays 2,000 the Monday after each (03-16 and 04-13, 28 days apart: a
+    # "monthly" 2,000 level, a catch-up); the new stream pays on Tuesdays from 04-14.
+    miss, double = {M(9), A(6)}, {M(16), A(13)}
+    rows = (_rows([day for day in _R4_07_MONDAYS if day not in miss | double], 1000)
+            + _rows(sorted(double), 2000))
+    tuesdays = every(A(14), J(30))
+    # 60: 6% of the weekly 1,000, no item (base: a false +13% "alongside monthly 2,000.00", 461.54 -> 521.54).
+    assert changes(rows + _rows(tuesdays, 60), start=M(1), end=J(30)) == []
+    # 150: +15% (base: +32%, 461.54 -> 611.54).
+    assert _r4_07_stream(rows + _rows(tuesdays, 150)) == (15, _R4_07_WEEKLY, 1000.0, 1150.0)
+
+
+def test_r4_07_controls_the_clean_twin_reads_as_before():
+    assert _r4_07_stream(_rows(_R4_07_MONDAYS, 1000) + _rows(every(A(14), J(30)), 150)) == (
+        15, _R4_07_WEEKLY, 1000.0, 1150.0)
+
+
 R3_82_ROWS = _rows(bdays(M(2), M(13)), 850) + _rows(bdays(M(16), M(25)), 600)
 
 
@@ -1787,7 +1836,7 @@ def test_r4_75_a_re_debit_named_in_another_statement_of_the_chain_is_not_the_lin
     assert item["_missed_dates"] == ["2054-04-03"]
 
 
-# ------------------------------- audit round 4, R4-84: a sparse run never borrows its level's schedule (fabricated rows)
+# ---------------------------- audit round 4, R4-84: a sparse run never borrows its level's schedule (fabricated rows)
 # The owner's 2026-10-06 rule ("stays at the new amount for 2 or more payments; one-off short payments are not counted")
 # counts payments that keep a schedule: a regime whose own dates (its payments and the attempts at its amount inside its
 # span) read no regular schedule takes its level's only while no gap between those dates is more than SPARSE_RUN_CYCLES

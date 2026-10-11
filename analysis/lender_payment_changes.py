@@ -1588,12 +1588,14 @@ def _previous_cycle_days(first: date, cadence: str) -> list[date]:
     return [first - timedelta(days=days) for days in range(shortest, longest + 1)]
 
 
-def _level_at(position: _Position, day: date) -> _Level:
-    """Audit round 3, R3-81: the level the position was paying on `day`: among its levels with a regular cadence that
-    have a payment dated on or before `day`, the one holding the latest such payment (by `_Pay.order`); else its last
-    level."""
-    paying = [(max(pay.order for pay in level.pays if pay.day <= day), level) for level in position.levels
-              if _regular(level.cadence) is not None and any(pay.day <= day for pay in level.pays)]
+def _level_at(position: _Position, day: date, calendar: str = "US", attempts: Sequence[_Pay] = ()) -> _Regime | _Level:
+    """Audit round 3, R3-81: the level the position was paying on `day`. Audit round 4, R4-07: the KEPT regime (A8,
+    after `_drop_short`) holding the position's latest regime payment on or before `day` (by `_Pay.order`), so a 2x/3x
+    catch-up level (§17.1 (22)) and a dropped possible level (§17.1 (18)) are never the level it was paying; else its
+    last level. Both carry `amount` and `cadence`; a kept regime's cadence is always a regular one."""
+    kept, _dropped = _drop_short(_regimes(position, calendar, attempts))
+    paying = [(max(pay.order for pay in regime.pays if pay.day <= day), regime) for regime in kept
+              if any(pay.day <= day for pay in regime.pays)]
     return max(paying, key=lambda entry: entry[0])[1] if paying else position.last_level
 
 
@@ -1605,14 +1607,17 @@ def _new_streams(reading: _Reading, positions: list[_Position], scope: _Scope) -
     been paying before the statement (chain) starts, or during a hole between two members, is never a new stream.
     Audit round 3, R3-81: each Q is read at the level it was paying on P's first payment (`_level_at`), for the grace
     test, the gate, `alongside` and the weekly totals; P's own `amount_after` and `cadence_after` stay its last level
-    (B8)."""
+    (B8). Audit round 4, R4-07: that level is Q's kept regime holding its latest payment on or before that day, never a
+    2x or 3x catch-up level or a dropped possible level (a catch-up pair just before P doubled the base, and two
+    catch-ups a month apart read a monthly level)."""
     items: list[dict] = []
     real = [position for position in positions
             if position.n >= MIN_STOP_PAYMENTS and _grace(position.last_level.cadence) is not None]
     for stream in real:
         if not all(scope.covered(day) for day in _previous_cycle_days(stream.first, stream.last_level.cadence)):
             continue
-        start = {id(other): _level_at(other, stream.first) for other in real}
+        start = {id(other): _level_at(other, stream.first, scope.chain.calendar, reading.series.attempts)
+                 for other in real}
         alongside = [
             other for other in real
             if other is not stream and other.first < stream.first
