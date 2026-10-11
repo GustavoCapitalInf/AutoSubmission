@@ -179,6 +179,10 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
     ("analysis/zelle_view.py", "with_both_readings", "per_account",
      "a reviewer's decision names one posting of one account, written in both readings; each account keeps its own "
      "edits, a malformed document takes today's path"),
+    # The owner's request of 2026-10-10 (active positions by month; true revenue §9.1).
+    ("analysis/active_positions.py", "apply_active_positions_view", "per_account",
+     "the active positions are served per account ledger; every account is read over its own rows, a malformed "
+     "document passes untouched"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -216,6 +220,9 @@ EXCUSED: dict[str, str] = {
     "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
     "analysis/revenue_view.py::_served_account": "one ACCOUNT's revenue view; `apply_revenue_view` hands it each account from `payload_accounts`",
     "analysis/revenue_view.py::revenue_flags": "one ACCOUNT's revenue flags; reached through `_served_account` with that account in hand",
+    # The owner's request of 2026-10-10 (active positions by month): one ACCOUNT's rows, handed it by the taught
+    # `apply_active_positions_view` from `payload_accounts`.
+    "analysis/active_positions.py::account_active_positions": "one ACCOUNT's active positions; `apply_active_positions_view` hands it each account from `payload_accounts`",
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): one ACCOUNT's Zelle rows and
     # served view, each handed its account by the taught `apply_zelle_view` (and `zelle_rows` by it too).
     "analysis/zelle_view.py::_posted_credits": "one ACCOUNT's posted credits; `zelle_rows` reads them for each account `apply_zelle_view` hands it from `payload_accounts`",

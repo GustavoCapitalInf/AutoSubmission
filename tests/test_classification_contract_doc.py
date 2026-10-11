@@ -3686,9 +3686,10 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
         assert stale not in handoff, stale
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
     # Audit round 3, final review (R3-FF), F6: the floor's unit moved app.js again, past the -9 the Accept run served.
-    # Audit round 3, R3-MERGE: the hosting line's merge-back moved it past both lines' values, to -11.
-    assert "app.js?v=true-revenue-11" in html
-    assert all(f"true-revenue-{value}\"" not in html for value in (7, 8, 9, 10))
+    # Audit round 3, R3-MERGE: the hosting line's merge-back moved it past both lines' values, to -11. The owner's
+    # request of 2026-10-10 (active positions by month): the Active Positions column and the memos' line, to -12.
+    assert "app.js?v=true-revenue-12" in html
+    assert all(f"true-revenue-{value}\"" not in html for value in (7, 8, 9, 10, 11))
 
 
 def test_r3_b25_review_round_1_no_single_statement_figure_the_merge_back_values_and_every_served_batch():
@@ -3893,7 +3894,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
 
     assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.8", 37)
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
-    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
+    # The owner's request of 2026-10-10 (active positions by month) moved the page to true-revenue-12, computed when
+    # served (no version move).
+    assert '<script src="/static/app.js?v=true-revenue-12"></script>' in html
     note = re.sub(r"\s*#\s*", " ", (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8"))
     for words in ("33 -> 34 (owner report 2026-10-08, Capital One daily ledger)",
                   "34 -> 35 (owner report 2026-10-08, Bank of America NSF)",
@@ -3938,7 +3941,10 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "exactly two statements move, both from withheld to validated", "0 console errors"):
         assert words in line, words
     assert not _cent_figures(line)
-    assert amendments.rstrip().endswith(line.rstrip())
+    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, the last of §20.
+    positions = _amendment_line(amendments, "- **Active positions by month** (")
+    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip())
+    assert not _cent_figures(positions)
     contract = _flat(CONTRACT)
     assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
             "7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit") in contract

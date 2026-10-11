@@ -24,6 +24,7 @@ import traceback
 from pathlib import Path
 
 from analysis import zelle_view
+from analysis.active_positions import statement_active_positions
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
@@ -76,6 +77,9 @@ FIELDS = [
     "lender_payment_new_streams", "lender_payment_pauses", "lender_payment_possible_stops",
     # Audit round 3, R3-B05 (the owner's answer of 2026-10-07 to R3-25, "Add a 'Caught up' line"): the catch-ups.
     "lender_payment_catch_ups", "lender_payment_changes",
+    # The owner's request of 2026-10-10 (active positions by month): the statement's active positions over its
+    # printed period, the confirmed lenders' and, apart, the potential lenders' (information only).
+    "active_positions", "possible_positions",
     "quality", "transaction_detail_reliable", "corporate_use", "needs_review",
     "model", "error",
 ]
@@ -266,6 +270,8 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
         "flagged_positions": "; ".join(f"{fp.group}:{fp.payee}" for fp in d.flagged_positions),
         "recurring_debit_groups": sum(1 for rc in d.recurring_debits if rc.cadence in ("daily", "weekly")),
         **_payment_change_columns(d.lender_payment_changes),
+        **statement_active_positions(report.classifications, period_start=s.period_start, period_end=s.period_end,
+                                     currency=s.currency),
         "quality": report.quality.level,
         "transaction_detail_reliable": "yes" if report.quality.transaction_detail_reliable else "no",
         "corporate_use": report.quality.corporate_use,

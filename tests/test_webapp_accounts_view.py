@@ -219,7 +219,9 @@ def test_the_dashboard_says_the_idle_main_account_needs_review_over_the_active_a
                # Audit round 3, R3-B22 (R3-68): the summary names the withholding basis its rates divide by.
                "withholdingBasisLabel", "withholdingBasisWords",
                # Audit round 3, R3-B24 (R3-16): the summary's clause for the large unsourced deposits.
-               "largeDepositSummary")
+               "largeDepositSummary",
+               # The owner's request of 2026-10-10 (active positions by month): the summary's active positions clause.
+               "activePositionsWords")
     # R3-68: the basis labels withholdingBasisLabel reads (a frozen object over several lines).
     labels = APP_JS[APP_JS.index("const WITHHOLDING_BASIS_LABELS = "):].split("\n});\n")[0] + "\n});\n"
     # Each function up to its closing brace (top-level code follows some of them).

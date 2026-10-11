@@ -203,7 +203,8 @@ def test_l1_two_large_unsourced_deposits_are_flagged_and_nothing_else_moves(monk
 
 def test_l1_the_served_keys_follow_the_debit_flags():
     metrics = list(_served(_payload(L1))["metrics"])
-    assert metrics[-3:] == list(FLAG_KEYS)
+    # The owner's request of 2026-10-10 (active positions by month): the served copy's last step adds its two keys after.
+    assert metrics[-5:] == [*FLAG_KEYS, "active_positions", "possible_positions"]
 
 
 # ---------------------------------------------------------------- L2: the boundaries
@@ -265,9 +266,10 @@ def test_l5_a_statement_with_no_flag_is_served_and_downloaded_as_before():
 
     payload = _payload([*_squares(), (6, DEPOSIT, 4000.0)])
     served = _served(payload)
-    # The served-only keys every statement already carried: the two revenue flags and the NSF days the chip lists.
+    # The served-only keys every statement already carried: the two revenue flags and the NSF days the chip lists; and,
+    # since the owner's request of 2026-10-10 (active positions by month), its two active position counts.
     assert set(served["metrics"]) - set(payload["metrics"]) == {"verified_revenue_established", "revenue_established",
-                                                                "nsf_days"}
+                                                                "nsf_days", "active_positions", "possible_positions"}
     exported = _analysis_csv(_masked(_displayed(payload, settings={}, export=True)))
     assert "large_unsourced" not in exported
 

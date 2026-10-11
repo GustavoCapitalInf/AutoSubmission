@@ -5678,6 +5678,43 @@ function formatRateTwoDecimals(value) {
   return n === null ? "N/A" : `${n.toFixed(2)}%`;
 }
 
+// The owner's request of 2026-10-10 ("the active Position count by month"; "it should be included in the monthly
+// statement chart before witholding"): the active positions the server reads (analysis/active_positions.py), the
+// confirmed lenders' count and, apart, the potential lenders' ("possible"): "2", "2 (+1 possible)", "0". N/A where the
+// lender reading is not available (the server serves no count), never 0.
+function activePositionsText(source) {
+  const confirmed = numberOrNull(source && source.active_positions);
+  if (confirmed === null) return "N/A";
+  const possible = numberOrNull(source.possible_positions) ?? 0;
+  return possible > 0 ? `${formatNumber(confirmed)} (+${formatNumber(possible)} possible)` : formatNumber(confirmed);
+}
+
+// A Monthly Statements row's Active Positions cell: N/A for a statement that did not complete, as its other figures.
+function monthlyActivePositions(doc) {
+  return monthFigure(doc, true) === null ? "N/A" : activePositionsText(doc);
+}
+
+// The statement memo's clause: "1 active position", "2 active positions (+1 possible)", "N/A active positions".
+function activePositionsWords(metrics) {
+  const confirmed = numberOrNull(metrics && metrics.active_positions);
+  if (confirmed === null) return "N/A active positions";
+  const possible = numberOrNull(metrics.possible_positions) ?? 0;
+  return `${formatNumber(confirmed)} active ${confirmed === 1 ? "position" : "positions"}`
+    + (possible > 0 ? ` (+${formatNumber(possible)} possible)` : "");
+}
+
+// The package memo's sentence, the months the server reads (each month's accounts added up, a position continued in
+// another account once): "Active positions by month: Jan 2054 2, Feb 2054 3 (+1 possible)."
+function activePositionsByMonthSentence(pkg) {
+  const months = (Array.isArray(pkg.active_positions_by_month) ? pkg.active_positions_by_month : [])
+    .filter((entry) => entry && typeof entry === "object" && /^\d{4}-\d{2}$/.test(String(entry.month || "")));
+  if (!months.length) return "Active positions by month: N/A.";
+  return `Active positions by month: ${months.map((entry) => {
+    const [year, month] = entry.month.split("-").map(Number);
+    return `${SHORT_MONTH_NAMES[month - 1]} ${year} ${activePositionsText(entry)}`;
+  }).join(", ")}.`;
+}
+
 const MONTHLY_DEPOSITS_NOTES = {
   total: "Total monthly deposits: everything going in",
   true: "True monthly deposits: revenue only",
@@ -5709,6 +5746,7 @@ function renderMonthlyStatements(pkg) {
         <th>Month</th>
         <th>Year</th>
         ${columns.map(([header]) => `<th>${escapeHtml(header)}</th>`).join("")}
+        <th>Active Positions</th>
         <th>Withholding Rate</th>
         <th>Ledger ($)</th>
         <th>NSF</th>
@@ -5723,6 +5761,7 @@ function renderMonthlyStatements(pkg) {
         <td>No statements</td>
         <td>N/A</td>
         ${columns.map(() => "<td>N/A</td>").join("")}
+        <td>N/A</td>
         <td>N/A</td>
         <td>N/A</td>
         <td>N/A</td>
@@ -5763,6 +5802,7 @@ function renderMonthlyStatements(pkg) {
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td class="mono">${escapeHtml(month ? String(month.year) : "N/A")}</td>
           ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
+          <td class="mono">${escapeHtml(monthlyActivePositions(doc))}</td>
           <td class="mono">${escapeHtml(formatRateTwoDecimals(monthlyWithholdingRate(doc)))}</td>
           <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
           <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>
@@ -6180,7 +6220,10 @@ function generateSummary() {
       `${formatNumber(totals.nsf_count)} NSF events, ${returnedSummary}${formatPercent(totals.package_withholding_rate)} confirmed withholding, ` +
       // Audit round 3, R3-B22 (R3-68): the basis the rates divide by, the label the package serves.
       `${formatMoney(potentialLenderDebitTotal(totals), currency)} potential lender debits and ${formatPercent(totals.potential_withholding_exposure)} potential exposure (${withholdingBasisWords(totals)}). ` +
-      `${formatNumber(funders.length)} confirmed lender detections. Decision: ${labelize(totals.decision || "review required")}.` +
+      `${formatNumber(funders.length)} confirmed lender detections. ` +
+      // The owner's request of 2026-10-10: the active positions by month (each month's accounts added up).
+      `${activePositionsByMonthSentence(pkg)} ` +
+      `Decision: ${labelize(totals.decision || "review required")}.` +
       `\n\nPackage lender summary:\n${lenderSummary}${returnedLines}${paymentChangeLines}`;
     return;
   }
@@ -6218,6 +6261,8 @@ function generateSummary() {
     `Average daily balance ${formatMoney(m.average_daily_balance, currency)}, ` +
     `ending balance ${formatMoney(s.ending_balance, currency)}, cash flow ${formatMoney(m.cash_flow, currency)}, ` +
     `${formatNumber(m.effective_nsf_count)} NSF events, ${formatNumber(lenders)} confirmed lender detections, ` +
+    // The owner's request of 2026-10-10: the statement's active positions over its printed period.
+    `${activePositionsWords(m)}, ` +
     `${lenderDebitsSummary(m, currency)}, and ` +
     // Audit round 3, R3-B22 (R3-68): the basis the rates divide by.
     `${formatMoney(potentialLenderDebitTotal(m), currency)} potential lender debits at ${formatPercent(m.potential_withholding_exposure)} exposure (${withholdingBasisWords(m)}). ` +

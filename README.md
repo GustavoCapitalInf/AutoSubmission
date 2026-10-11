@@ -300,6 +300,12 @@ its bars take only the colours its key shows, with no tallest-bar highlight);
 and each
 lender-table note reads as a bold headline with plain sentences under it, an
 "Also:" sentence per extra note and the statement it comes from by month.
+The owner's request of 2026-10-10 adds an "Active Positions" column to the
+Monthly Statements table, right before Withholding Rate: each statement's
+confirmed lenders' active positions in its printed period ("2", or
+"2 (+1 possible)" with a potential lender's), read when served from the
+lender payment streams (`analysis/active_positions.py`); the copied memos name
+them, the package's by month.
 
 ## Tests
 

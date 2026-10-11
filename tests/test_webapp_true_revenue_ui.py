@@ -554,10 +554,12 @@ console.log(JSON.stringify({{both, trueOnly: {{...monthly(), chart: chartParts()
     both, true_only = result["both"], result["trueOnly"]
     # 2,000 posted: 1,000 True (700 verified, 300 counted), 900 held and 100 non-revenue. The owner's request of
     # 2026-10-07: the table shows the statement's withholding rate where it showed Verified (no lender debit: 0.00%);
-    # the chart keeps the Verified part.
-    assert both["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "0.00%"]
-    assert true_only["head"][2:5] == ["Monthly Deposits ($)", "Deposits Per Month", "Withholding Rate"]
-    assert true_only["rows"][0][2:5] == ["1,000", "2", "0.00%"]
+    # the chart keeps the Verified part. The owner's request of 2026-10-10: its active positions right before the
+    # rate (no lender debit: 0).
+    assert both["rows"][0][2:8] == ["2,000", "4", "1,000", "2", "0", "0.00%"]
+    assert true_only["head"][2:6] == ["Monthly Deposits ($)", "Deposits Per Month", "Active Positions",
+                                      "Withholding Rate"]
+    assert true_only["rows"][0][2:6] == ["1,000", "2", "0", "0.00%"]
     assert both["chart"]["labels"] == [["bar-value", "2,000"], ["bar-value-true", "1,000"],
                                        ["bar-value-verified", "700"]]
     assert both["chart"]["parts"] == [["true", "50.0"], ["verified", "35.0"]]
@@ -573,8 +575,9 @@ currentJobIds = ['old']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...monthly(), chart: chartParts()}}));
 """)
     # True is not established, nor is the withholding basis (True revenue), so no rate is published (the owner's request
-    # of 2026-10-07 put the rate where Verified was).
-    assert result["rows"][0][4:7] == ["N/A", "N/A", "N/A"]
+    # of 2026-10-07 put the rate where Verified was). The owner's request of 2026-10-10: the lender reading is
+    # available, so its active positions read (no lender debit: 0), right before the rate.
+    assert result["rows"][0][4:8] == ["N/A", "N/A", "0", "N/A"]
     assert result["chart"]["parts"] == []
     assert result["chart"]["labels"][1:] == [["bar-value-true", "N/A"], ["bar-value-verified", "N/A"]]
 
@@ -618,7 +621,8 @@ def test_the_settings_say_what_true_revenue_is():
     # Audit round 3, R3-B25: the round-3 batches' app.js changes ship as a new script (-7 and -8 were the hosting
     # line's). Audit round 3, final review (R3-FF), F6: the floor's unit moves app.js again (-9 served the Accept run).
     # Audit round 3, R3-MERGE: the merged app.js differs from both lines' (-8 the hosting line's, -10 this branch's).
-    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
+    # The owner's request of 2026-10-10 (active positions by month): the Active Positions column and the memos' line.
+    assert '<script src="/static/app.js?v=true-revenue-12"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
@@ -948,11 +952,12 @@ def _units_package(docs, currencies, refused):
 
 #: The deposit amount columns of each view's rows (Total/True/Monthly Deposits), by cell position, and the Ledger cell
 #: (an amount the chart prints under its bar, in the member's own money format). The owner's request of 2026-10-07: no
-#: Verified ($) column; the Withholding Rate cell (a percentage, never a unit) sits before Ledger in every view.
+#: Verified ($) column; the Withholding Rate cell (a percentage, never a unit) sits before Ledger in every view. The
+#: owner's request of 2026-10-10: the Active Positions cell (a count, never a unit) sits right before it.
 _DEPOSIT_CELLS = {"both": (2, 4), "total": (2,), "true": (2,)}
-_LEDGER_CELL = {"both": 7, "total": 5, "true": 5}
-#: ... and the count and NSF cells, which never carry a unit.
-_COUNT_CELLS = {"both": (3, 5, 8), "total": (3, 6), "true": (3, 6)}
+_LEDGER_CELL = {"both": 8, "total": 6, "true": 6}
+#: ... and the count, Active Positions and NSF cells, which never carry a unit.
+_COUNT_CELLS = {"both": (3, 5, 6, 9), "total": (3, 4, 7), "true": (3, 4, 7)}
 
 
 def _unit(text):
@@ -998,24 +1003,28 @@ def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_
     # (a) CAD beside an undeclared member: the CAD row names CAD on its amount cells, the undeclared row none; the
     # Withholding Rate cell is a percentage (N/A here: the fabricated rows publish no rate) and names no unit.
     card = result["cad_undeclared"]
+    # The owner's request of 2026-10-10: the Active Positions cell (N/A: the fabricated rows serve no count) sits
+    # right before the rate and names no unit either.
     assert card["both"]["rows"] == [
-        ["March", "2031", "100,000 CAD", "2", "60,000 CAD", "1", "N/A", "5,000 CAD", "1", "Open"],
-        ["April", "2031", "80,000", "2", "60,000", "1", "N/A", "5,000", "1", "Open"]]
-    assert card["total"]["rows"] == [["March", "2031", "100,000 CAD", "2", "N/A", "5,000 CAD", "1", "Open"],
-                                     ["April", "2031", "80,000", "2", "N/A", "5,000", "1", "Open"]]
-    assert card["true"]["rows"] == [["March", "2031", "60,000 CAD", "1", "N/A", "5,000 CAD", "1", "Open"],
-                                    ["April", "2031", "60,000", "1", "N/A", "5,000", "1", "Open"]]
+        ["March", "2031", "100,000 CAD", "2", "60,000 CAD", "1", "N/A", "N/A", "5,000 CAD", "1", "Open"],
+        ["April", "2031", "80,000", "2", "60,000", "1", "N/A", "N/A", "5,000", "1", "Open"]]
+    assert card["total"]["rows"] == [["March", "2031", "100,000 CAD", "2", "N/A", "N/A", "5,000 CAD", "1", "Open"],
+                                     ["April", "2031", "80,000", "2", "N/A", "N/A", "5,000", "1", "Open"]]
+    assert card["true"]["rows"] == [["March", "2031", "60,000 CAD", "1", "N/A", "N/A", "5,000 CAD", "1", "Open"],
+                                    ["April", "2031", "60,000", "1", "N/A", "N/A", "5,000", "1", "Open"]]
     # The chart is unchanged (I54): every bar of a refused package names its unit, an undeclared one none.
     assert card["both"]["bars"] == [["100,000 CAD", "60,000 CAD", "20,000 CAD"], ["80,000", "60,000", "20,000"]]
     assert card["total"]["bars"] == [["100,000 CAD"], ["80,000"]]
     assert card["true"]["bars"] == [["60,000 CAD", "20,000 CAD"], ["60,000", "20,000"]]
     # (b) USD beside an undeclared member: the USD row names USD, the undeclared row stays bare.
-    assert result["usd_undeclared"]["both"]["rows"][0][2:8] == [
-        "100,000 USD", "2", "60,000 USD", "1", "N/A", "5,000 USD"]
-    assert result["usd_undeclared"]["both"]["rows"][1][2:8] == ["80,000", "2", "60,000", "1", "N/A", "5,000"]
+    assert result["usd_undeclared"]["both"]["rows"][0][2:9] == [
+        "100,000 USD", "2", "60,000 USD", "1", "N/A", "N/A", "5,000 USD"]
+    assert result["usd_undeclared"]["both"]["rows"][1][2:9] == ["80,000", "2", "60,000", "1", "N/A", "N/A", "5,000"]
     # (c) CAD and USD: each row names its own unit.
-    assert result["cad_usd"]["both"]["rows"][0][2:8] == ["100,000 CAD", "2", "60,000 CAD", "1", "N/A", "5,000 CAD"]
-    assert result["cad_usd"]["both"]["rows"][1][2:8] == ["80,000 USD", "2", "60,000 USD", "1", "N/A", "5,000 USD"]
+    assert result["cad_usd"]["both"]["rows"][0][2:9] == ["100,000 CAD", "2", "60,000 CAD", "1", "N/A", "N/A",
+                                                         "5,000 CAD"]
+    assert result["cad_usd"]["both"]["rows"][1][2:9] == ["80,000 USD", "2", "60,000 USD", "1", "N/A", "N/A",
+                                                         "5,000 USD"]
     expected_units = {"cad_undeclared": [["CAD"], []], "usd_undeclared": [["USD"], []], "cad_usd": [["CAD"], ["USD"]],
                       "cad_only": [[], []], "usd_only": [[], []], "cad_undeclared_unestablished": [["CAD"], []]}
     for name, card in result.items():
@@ -1030,14 +1039,14 @@ def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_
                 assert all(re.fullmatch(r"[\d,]+|N/A", row[i]) for i in _COUNT_CELLS[view]), (name, view, row)
         # The headers: "($)" whatever the units.
         assert card["both"]["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month",
-                                        "True Deposits ($)", "True Deposits Per Month", "Withholding Rate",
-                                        "Ledger ($)", "NSF", "Action"]
+                                        "True Deposits ($)", "True Deposits Per Month", "Active Positions",
+                                        "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     # A single-currency package stays bare (the CRM's "($)" convention), CAD-only included.
-    assert result["cad_only"]["both"]["rows"][0][2:8] == ["100,000", "2", "60,000", "1", "N/A", "5,000"]
-    assert result["usd_only"]["total"]["rows"][1][2:6] == ["80,000", "2", "N/A", "5,000"]
+    assert result["cad_only"]["both"]["rows"][0][2:9] == ["100,000", "2", "60,000", "1", "N/A", "N/A", "5,000"]
+    assert result["usd_only"]["total"]["rows"][1][2:7] == ["80,000", "2", "N/A", "N/A", "5,000"]
     # A null amount reads N/A with no unit; the row's other amounts still name it.
     unestablished = result["cad_undeclared_unestablished"]["both"]["rows"][0]
-    assert unestablished[2:8] == ["100,000 CAD", "2", "N/A", "N/A", "N/A", "5,000 CAD"]
+    assert unestablished[2:9] == ["100,000 CAD", "2", "N/A", "N/A", "N/A", "N/A", "5,000 CAD"]
 
 
 @needs_node
@@ -1057,9 +1066,10 @@ currentJobIds = ['raw', 'cad']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(unitsCard({json.dumps(package)})));
 """)
     # 2,000 posted: 1,000 True (test_the_monthly_statements_show_true_revenue_and_its_verified_part), and each row's
-    # own withholding rate, a percentage with no unit (no lender debit: 0.00%).
-    assert result["both"]["rows"][0][2:7] == ["2,000", "4", "1,000", "2", "0.00%"]
-    assert result["both"]["rows"][1][2:7] == ["2,000 CAD", "4", "1,000 CAD", "2", "0.00%"]
+    # own withholding rate, a percentage with no unit (no lender debit: 0.00%). The owner's request of 2026-10-10:
+    # each row's active positions, a count with no unit (no lender debit: 0), right before the rate.
+    assert result["both"]["rows"][0][2:8] == ["2,000", "4", "1,000", "2", "0", "0.00%"]
+    assert result["both"]["rows"][1][2:8] == ["2,000 CAD", "4", "1,000 CAD", "2", "0", "0.00%"]
     for view, units in _table_units(result).items():
         assert units["table"] == units["chart"] == units["ledger"] == [[], ["CAD"]], view
 

@@ -58,6 +58,8 @@ from analysis.revenue_view import (
     withholding_basis_unestablished,
 )
 from analysis import zelle_view
+from analysis import active_positions as active_positions_module
+from analysis.active_positions import apply_active_positions_view
 from analysis import lender_payment_changes as payment_changes_module
 from analysis.holder_name import PREMIUM_TRUST_WORDS
 from analysis.true_revenue import zelle_deposit
@@ -271,8 +273,10 @@ def _displayed(
         carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
     analysis = apply_zelle_view(analysis, counted=_zelle_setting(settings))
     rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over, list_days=not export)
-    # 5.6 (true revenue spec §10.4, §12): each account's revenue flags, and an older payload's True revenue nulled.
-    served = apply_revenue_view(apply_flagged_groups_to_payload(rebased, enabled=settings))
+    # 5.6 (true revenue spec §10.4, §12): each account's revenue flags, and an older payload's True revenue nulled. The
+    # owner's request of 2026-10-10 (active positions by month; §9.1): then each account's active and possible
+    # positions, read from its stored rows (analysis/active_positions.py), computed here and never stored.
+    served = apply_active_positions_view(apply_revenue_view(apply_flagged_groups_to_payload(rebased, enabled=settings)))
     # Audit B11 (I51): a download never prints a figure the dashboard reads as N/A.
     return _export_revenue_view(served) if export else served
 
@@ -1104,6 +1108,12 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
         for key in ("source_document", "reason"):
             value = entry.get(key) if isinstance(entry, dict) else None
             rows.append((f"lender_payment_unchecked_{idx}", key, "" if value is None else value))
+    # The owner's request of 2026-10-10 (active positions by month; §10.8): each month's active and possible positions,
+    # the accounts added up, as the copied memo names them (`active_positions_month_<n>`); N/A an empty cell.
+    for idx, entry in enumerate(package.get("active_positions_by_month") or [], start=1):
+        for key in ("month", "active_positions", "possible_positions"):
+            value = entry.get(key) if isinstance(entry, dict) else None
+            rows.append((f"active_positions_month_{idx}", key, "" if value is None else value))
     for idx, provider in enumerate(package.get("insurance_providers") or [], start=1):
         for key, value in provider.items():
             rows.append((f"insurance_provider_{idx}", key, "" if value is None else value))
@@ -3411,8 +3421,8 @@ LENDER_PAYMENT_UNCHECKED_WORDS = {
 }
 
 
-def _package_lender_payment_changes(members: list[tuple], overlays: dict | None = None) -> tuple[list[dict] | None,
-                                                                                                    list[dict]]:
+def _package_lender_payment_changes(members: list[tuple], overlays: dict | None = None, *,
+                                    reading: dict | None = None) -> tuple[list[dict] | None, list[dict]]:
     """The owner's request of 2026-10-06 (lender payment changes; "can we also detect when a payment to lender has
     decreased? That would be a really important metric to track."; true revenue spec §9.2; R2-OW18, part F): each
     lender payment series read across the package's consecutive statements of ONE account, recomputed on every call
@@ -3436,9 +3446,16 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
     days the two chains' statements cover (`covered_business_days`); a later one gains `reappears_in_other_account`
     (with `covered_business_days`) and leaves the stop as its own chain reads it.
 
-    Returns (items, unchecked): items is None when no member was assessed."""
+    Returns (items, unchecked): items is None when no member was assessed. The owner's request of 2026-10-10 (active
+    positions by month; §9.2): `reading`, when given, receives the chains (`chains`, each a list of member entries in
+    period order) and each stop's continuation in another account (`links`, analysis/active_positions.py
+    `PositionLink`s), which `_package_active_positions` reads; the items are the same with or without it."""
     entries: list[dict] = []
     unchecked: list[dict] = []
+    links: list = []
+    if reading is not None:
+        reading["chains"] = []
+        reading["links"] = links
     for job, analysis, account_index, _count in members:
         source = {"source_job": job.id, "source_document": getattr(job, "filename", None),
                   **({"source_account": account_index} if account_index is not None else {})}
@@ -3469,6 +3486,9 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
             "start": _iso_day(statement.get("period_start")), "end": _iso_day(statement.get("period_end")),
             "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
             "order": (str(statement.get("period_start") or ""), str(job.id), account_index or 0),
+            # The owner's request of 2026-10-10 (active positions; review round 1): a statement holding no rows list is
+            # read here as empty, as before, and is N/A to `_package_active_positions`, never 0.
+            "has_rows": isinstance(statement.get("transactions"), list),
             "rows": payment_changes_module.StatementRows(rows, statement.get("period_start"),
                                                           statement.get("period_end"), _statement_currency(analysis)),
         })
@@ -3485,6 +3505,8 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                 break
         else:
             chains.append([entry])
+    if reading is not None:
+        reading["chains"] = chains
     if len(members) >= 2:
         for chain in chains:
             if len(chain) != 1:
@@ -3548,6 +3570,10 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                         **statement_source(other, activity["statement"]),
                         "first_date": activity["date"], "amount": activity["amount"]}
                     published["stop_confirmed"] = False
+                    # The owner's request of 2026-10-10 (active positions): the position continued there counts once.
+                    links.append(active_positions_module.PositionLink(
+                        chain_index, tuple(item["_series_key"]), item["position"], found[0][1],
+                        parse_date(activity["date"]), activity["amount"]))
                 elif reappears is not None:
                     _key, other, activity, covered = reappears
                     published["reappears_in_other_account"] = {
@@ -3556,6 +3582,39 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                         "covered_business_days": covered}
             items.append(published)
     return items, unchecked
+
+
+def _package_active_positions(rows: list[dict], reading: dict) -> list[dict]:
+    """The owner's request of 2026-10-10 (active positions by month; "it should be included in the monthly statement
+    chart before witholding"; true revenue spec §9.2, §10): each member row gains `active_positions` and
+    `possible_positions` (set in place) and the package's months are returned.
+
+    Each chain `_package_lender_payment_changes` read (one account's consecutive statements, the package passes'
+    overlay applied) is read once by analysis/active_positions.py, over each member's printed period, so a stream that
+    runs across months is one position in each. A member no chain holds (never analysed, or analysed before the check)
+    or whose statement holds no rows list (review round 1) reads N/A, never 0, and so does the calendar month it stands
+    for (`_statement_month`, the Monthly Statements table's rule). A month adds its accounts up; a position the payment
+    changes continue in another account (R3-83's "continues from another account") counts once where it is handed
+    over. Information only: nothing stored or summed reads it."""
+    chains = reading.get("chains") or []
+
+    def member_id(entry: dict) -> str:
+        return entry["job_id"] if "source_account" not in entry else f"{entry['job_id']}#account_{entry['source_account']}"
+
+    held = {member_id(entry) for chain in chains for entry in chain if entry.get("has_rows", True)}
+    unread = {month for row in rows if row.get("id") not in held
+              if (month := _statement_month(row.get("period_start"), row.get("period_end"))) is not None}
+    per_statement, by_month = active_positions_module.package_active_positions(
+        [[entry["rows"] for entry in chain] for chain in chains],
+        months=[[_statement_month(entry["start"], entry["end"]) if entry.get("has_rows", True) else None
+                 for entry in chain] for chain in chains],
+        links=reading.get("links") or (), unread_months=unread)
+    counts = {member_id(entry): per_statement[chain_index][index]
+              for chain_index, chain in enumerate(chains) for index, entry in enumerate(chain)
+              if entry.get("has_rows", True)}
+    for row in rows:
+        row.update(counts.get(row.get("id"), active_positions_module.NOT_AVAILABLE))
+    return by_month
 
 
 def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
@@ -4739,6 +4798,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "potential_lender_debits": potential_lender_debit_total,
             "insurance_count": insurance_count,
             "insurance_total": insurance_total,
+            # The owner's request of 2026-10-10 (active positions by month; §9.2): set after the loop, from the member's
+            # chain (`_package_active_positions`); None (N/A) where the lender reading is not available.
+            "active_positions": None,
+            "possible_positions": None,
             "withholding_rate": member_withholding_rate,
             # R2-OW13: paid lender debits plus returned funder payments.
             "withholding_numerator": withholding_numerator,
@@ -4827,8 +4890,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
 
     # The owner's request of 2026-10-06 (lender payment changes; §9.2; R2-OW18): each lender payment series read across
     # the consecutive statements of one account, from the kept members' displayed copies (information only).
+    lender_reading: dict = {}
     lender_payment_changes, lender_payment_unchecked = _package_lender_payment_changes(
-        members, package_matched["overlays"])
+        members, package_matched["overlays"], reading=lender_reading)
+    # The owner's request of 2026-10-10 (active positions by month; §9.2, §10): each member row's active and possible
+    # positions, read from the same chains, and the package's months.
+    active_positions_by_month = _package_active_positions(documents, lender_reading)
 
     # Design §6.5's fourth bullet, and Q5's direction: **no published average is
     # computed over two accounts of one document.** The L1-S3 review measured
@@ -5419,6 +5486,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # its reason), only where there is one. Never summed, so the currency refusal leaves them as they are.
         **({"lender_payment_changes": lender_payment_changes} if lender_payment_changes is not None else {}),
         **({"lender_payment_changes_unchecked": lender_payment_unchecked} if lender_payment_unchecked else {}),
+        # The owner's request of 2026-10-10 (active positions by month; §9.2): one entry per calendar month the members
+        # stand for, the accounts added up (`_package_active_positions`).
+        "active_positions_by_month": active_positions_by_month,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
         "flagged_evidence": package_flagged_evidence,
