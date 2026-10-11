@@ -141,14 +141,15 @@ def test_r1_the_cli_names_an_attempt_and_the_unreported_steps():
     import analyze
     from tests import test_lender_payment_changes as pure
 
+    # Audit round 4, R4-79: the attempt and the payment at another amount on 03-17 (6 quiet business days).
     regular = pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 850)
-    pause = pure.only(regular + pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    pause = pure.only(regular + pure._rows([M(17)], 850, returned_funder_payment_by="transaction:99"))
     assert analyze._payment_change_line(pause) == (
-        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-16, 6 business days (grace 5); "
-        "a returned attempt on 2054-03-16, payments resumed on 2054-03-23")
-    other = pure.only(regular + pure._rows([M(16)], 425))
+        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-17, 6 business days (grace 5); "
+        "a returned attempt on 2054-03-17, payments resumed on 2054-03-23")
+    other = pure.only(regular + pure._rows([M(17)], 425))
     assert analyze._payment_change_line(other).endswith(
-        "6 business days (grace 5); a payment at another amount on 2054-03-16, payments resumed on 2054-03-23")
+        "6 business days (grace 5); a payment at another amount on 2054-03-17, payments resumed on 2054-03-23")
     stop = pure.only(pure._rows(pure.every(M(4), A(1)), 1000)
                      + pure._rows([pure.A(8)], 1000, returned_funder_payment_by="transaction:99"), end=pure.Y(1))
     # Audit round 3, R3-B06 (R3-85): the count runs from the returned attempt, and names it as its anchor.
@@ -169,10 +170,11 @@ def test_r3_b05_the_cli_and_the_batch_name_a_catch_up():
     import batch
     from tests import test_lender_payment_changes as pure
 
-    pause = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 300)
+    # Audit round 4, R4-79: the last payment on 03-05 (6 quiet business days before the 6x).
+    pause = pure.only(pure._rows(pure.bdays(M(2), M(5)) + pure.bdays(M(23), M(31)), 300)
                       + pure._rows([M(16)], 1800))
     assert analyze._payment_change_line(pause) == (
-        "pause: KAPITUS daily $300.00, no payment 2054-03-06 to 2054-03-16, 6 business days (grace 5); a catch-up of "
+        "pause: KAPITUS daily $300.00, no payment 2054-03-05 to 2054-03-16, 6 business days (grace 5); a catch-up of "
         "6x on 2054-03-16, payments resumed on 2054-03-23")
     two = pure.only(pure._rows(pure.bdays(M(2), M(13)) + pure.bdays(M(19), M(31)), 850)
                     + pure._rows([M(18)], 1700))
@@ -184,13 +186,14 @@ def test_r3_b05_the_cli_and_the_batch_name_a_catch_up():
     assert analyze._payment_change_line(one) == (
         "catch-up: KAPITUS daily $850.00, no payment on 1 scheduled payment 2054-03-16, then 2x $1,700.00 on "
         "2054-03-17")
-    # Review round 1 (finding 2): a catch-up after the bounced attempt that ended the pause, before payments resumed.
-    attempt = pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99")
-    inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850) + attempt
-                       + pure._rows([M(17)], 1700))
+    # Review round 1 (finding 2): a catch-up after the bounced attempt that ended the pause, before payments resumed
+    # (audit round 4: the attempt on 03-17, R4-79; the 2x the next business day, nothing missed between them, R4-08).
+    attempt = pure._rows([M(17)], 850, returned_funder_payment_by="transaction:99")
+    inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(19), M(31)), 850) + attempt
+                       + pure._rows([M(18)], 1700))
     assert analyze._payment_change_line(inside) == (
-        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-16, 6 business days (grace 5); a "
-        "returned attempt on 2054-03-16, payments resumed on 2054-03-18; a catch-up of 2x on 2054-03-17 before "
+        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-17, 6 business days (grace 5); a "
+        "returned attempt on 2054-03-17, payments resumed on 2054-03-19; a catch-up of 2x on 2054-03-18 before "
         "payments resumed")
     columns = batch._payment_change_columns([two, pause, {**one, "lender_state": "potential"}])
     assert (columns["lender_payment_catch_ups"], columns["lender_payment_pauses"]) == (2, 1)

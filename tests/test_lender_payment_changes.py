@@ -311,9 +311,10 @@ def test_l14_a_temporary_cut_and_its_restoration():
 
 
 def test_l15_a_restart_after_a_pause():
+    # Audit round 4, R4-79: the restart counts the quiet business days, 03-24 to 04-17 (19; before, 20 with 04-20).
     item = only(_rows(every(M(2), M(23)), 1000) + _rows(every(A(20), Y(4)), 700), end=Y(8))
     assert (item["kind"], item["change_percent"], item["restart"], item["pause_business_days"]) == (
-        "decrease", -30, True, 20)
+        "decrease", -30, True, 19)
 
 
 # ------------------------------------------------------------------------------------------- L16-L21: stops
@@ -557,14 +558,16 @@ def test_l31_a_fee_sized_or_payoff_sized_debit_is_not_presence(amount):
 
 
 def test_l32_a_pause_that_resumes_at_the_same_payment():
-    item = only(_rows(bdays(M(2), M(6)) + bdays(M(16), M(31)), 850))
+    # Audit round 4, R4-79: the quiet business days 03-09 to 03-16 (6), more than the daily grace of 5; the shape is
+    # widened by one business day (payments resume on 03-17, not 03-16, whose 5 quiet days are no pause now).
+    item = only(_rows(bdays(M(2), M(6)) + bdays(M(17), M(31)), 850))
     assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
             item["grace_business_days"], item["cadence"], item["last_payment_amount"]) == (
-        "pause", "2054-03-06", "2054-03-16", 6, 5, "daily", 850.0)
+        "pause", "2054-03-06", "2054-03-17", 6, 5, "daily", 850.0)
     assert (item["position"], item["positions"], item["lender_label"]) == (1, 1, "KAPITUS")
     assert item["locations"] == {"last_before": "transaction:5", "first_after": "transaction:6"}
     assert changes(_rows(bdays(M(2), M(6)) + bdays(M(13), M(31)), 850)) == []
-    assert changes(_rows(bdays(M(2), M(6)) + bdays(M(16), M(31)), 850) + _rows([M(11)], 425)) == []
+    assert changes(_rows(bdays(M(2), M(6)) + bdays(M(17), M(31)), 850) + _rows([M(11)], 425)) == []
 
 
 def test_l33_the_potential_materiality_floor():
@@ -645,24 +648,27 @@ def test_r1_a_restart_pause_leaves_out_the_days_no_statement_covers():
     [item] = _chain((_rows(bdays(M(2), M(31)), 500), M(1), M(31)), (_rows(bdays(A(8), Y(7)), 400), A(8), Y(7)))
     assert (item["kind"], item["change_percent"], item["restart"], item["pause_business_days"]) == (
         "decrease", -20, False, None)
-    # A real pause beside a 2-day hole: the 15 business days from 03-13 to 04-03 less the hole's 2.
+    # A real pause beside a 2-day hole: the 14 quiet business days from 03-16 to 04-02 less the hole's 2 (audit round
+    # 4, R4-79: no longer the day payments resumed).
     [item] = _chain((_rows(bdays(M(2), M(13)), 500), M(1), M(31)), (_rows(bdays(A(3), Y(1)), 400), A(3), Y(1)))
-    assert (item["kind"], item["restart"], item["pause_business_days"]) == ("decrease", True, 13)
+    assert (item["kind"], item["restart"], item["pause_business_days"]) == ("decrease", True, 12)
 
 
 def test_r1_a_pause_names_what_ended_it_and_when_payments_resumed():
+    # Audit round 4, R4-79: the attempt, the payment at another amount and L32's payment come on 03-17 (6 quiet
+    # business days after 03-06, more than the grace of 5; on 03-16 they would leave 5, no pause).
     regular = _rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 850)
-    item = only(regular + _rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+    item = only(regular + _rows([M(17)], 850, returned_funder_payment_by="transaction:99"))
     assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"]) == (
-        "pause", "2054-03-06", "2054-03-16", 6)
+        "pause", "2054-03-06", "2054-03-17", 6)
     assert (item["first_after_kind"], item["resumed_date"]) == ("attempt", "2054-03-23")
-    item = only(regular + _rows([M(16)], 425))
+    item = only(regular + _rows([M(17)], 425))
     assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"]) == (
-        "other_amount", "2054-03-16", "2054-03-23")
+        "other_amount", "2054-03-17", "2054-03-23")
     # L32: the regime's own payment ends it.
-    item = only(_rows(bdays(M(2), M(6)) + bdays(M(16), M(31)), 850))
+    item = only(_rows(bdays(M(2), M(6)) + bdays(M(17), M(31)), 850))
     assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"]) == (
-        "payment", "2054-03-16", "2054-03-16")
+        "payment", "2054-03-17", "2054-03-17")
 
 
 def test_r1_a_stream_first_seen_within_one_cycle_of_the_coverage_start_is_not_new():
@@ -1281,22 +1287,24 @@ def test_r3_25_a_missed_week_caught_up_is_no_pause():
 
 
 def test_r3_25_a_pause_ended_by_a_catch_up_names_it():
-    # Before: a pause 03-06 -> 03-23, 11 business days, ended by the regime's payment. The 6x is presence: the pause
-    # ends at it, names it, and is the one line for the gap (no separate Caught up item).
-    item = only(_rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1800))
+    # Before: a pause 03-05 -> 03-23, 11 quiet business days, ended by the regime's payment. The 6x is presence: the
+    # pause ends at it, names it, and is the one line for the gap (no separate Caught up item). Audit round 4, R4-79:
+    # the last payment is 03-05 (6 quiet business days before the 6x; from 03-06 they would be 5, no pause).
+    item = only(_rows(bdays(M(2), M(5)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1800))
     assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
             item["first_after_kind"], item["first_after_amount"], item["first_after_multiple"],
-            item["resumed_date"]) == ("pause", "2054-03-06", "2054-03-16", 6, "catch_up", 1800.0, 6, "2054-03-23")
+            item["resumed_date"]) == ("pause", "2054-03-05", "2054-03-16", 6, "catch_up", 1800.0, 6, "2054-03-23")
     assert "larger_debits_inside" not in item and "same_amount_debits" not in item
-    assert item["locations"] == {"last_before": "transaction:5", "first_after": "transaction:6"}
+    assert item["locations"] == {"last_before": "transaction:4", "first_after": "transaction:5"}
 
 
 def test_r3_25_a_larger_debit_that_is_no_multiple_is_named_inside_the_pause():
-    # 1,300 is 4.33x the payment, no exact multiple: no presence, no catch-up, named inside the gap.
+    # 1,300 is 4.33x the payment, no exact multiple: no presence, no catch-up, named inside the gap (10 quiet business
+    # days, 03-09 to 03-20; audit round 4, R4-79).
     item = only(_rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1300))
     assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
             item["first_after_kind"], item["resumed_date"]) == (
-        "pause", "2054-03-06", "2054-03-23", 11, "payment", "2054-03-23")
+        "pause", "2054-03-06", "2054-03-23", 10, "payment", "2054-03-23")
     assert item["larger_debits_inside"] == [{"date": "2054-03-16", "amount": 1300.0}]
     assert "first_after_amount" not in item and "first_after_multiple" not in item
 
@@ -1378,14 +1386,14 @@ def test_r3_25_owner_a_bounced_payment_is_a_missed_payment():
 
 
 def test_r3_25_owner_a_weekly_triple_after_two_missed_weeks_is_named_by_its_pause():
-    # Two missed weeks put the triple 15 business days after the last payment, past the weekly grace: the pause line
-    # still shows and carries the catch-up; no separate Caught up item (one line per event).
+    # Two missed weeks leave 14 quiet business days before the triple (audit round 4, R4-79), past the weekly grace:
+    # the pause line still shows and carries the catch-up; no separate Caught up item (one line per event).
     found = changes(_rows(every(M(3), M(17)) + every(A(14), Y(26)), 1000) + _rows([A(7)], 3000), start=M(1), end=Y(29))
     assert _kinds(found) == ["pause"]
     item = found[0]
     assert (item["last_before_date"], item["first_after_date"], item["pause_business_days"], item["first_after_kind"],
             item["first_after_amount"], item["first_after_multiple"], item["resumed_date"]) == (
-        "2054-03-17", "2054-04-07", 15, "catch_up", 3000.0, 3, "2054-04-14")
+        "2054-03-17", "2054-04-07", 14, "catch_up", 3000.0, 3, "2054-04-14")
 
 
 def test_r3_25_owner_a_weekly_triple_inside_the_grace_is_caught_up():
@@ -1464,8 +1472,9 @@ def test_r3_84_a_statement_stop_names_same_cents_debits_on_the_schedule():
 def test_r3_84_a_package_pause_names_them():
     march = _rows(bdays(M(2), M(13)), 850) + _other(bdays(M(16), M(31)), 850)
     [item] = _chain((march, M(1), M(31)), (_rows(bdays(A(1), A(30)), 850), A(1), A(30)))
+    # Audit round 4, R4-79: the quiet business days 03-16 to 03-31 (12).
     assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
-            item["first_after_kind"]) == ("pause", "2054-03-13", "2054-04-01", 13, "payment")
+            item["first_after_kind"]) == ("pause", "2054-03-13", "2054-04-01", 12, "payment")
     assert item["same_amount_debits"] == {"count": 12, "first_date": "2054-03-16", "last_date": "2054-03-31"}
 
 
@@ -1538,43 +1547,49 @@ def _inside(item):
 
 
 def test_r3_b05_r1_a_catch_up_after_a_bounced_attempt_that_ended_the_pause_is_named_on_the_pause():
-    # Finding 2: daily 850 paid 03-02 to 03-06; a bounced attempt on 03-16 ends the pause; a 2x on 03-17; payments
-    # resume on 03-18. One line for the gap: the pause names the 2x, and no Caught up item repeats the missed days.
-    attempt = _rows([M(16)], 850, returned_funder_payment_by="transaction:99")
-    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + attempt + _rows([M(17)], 1700))
+    # Finding 2: daily 850 paid 03-02 to 03-06; a bounced attempt on 03-17 ends the pause (6 quiet business days;
+    # audit round 4, R4-79); a 2x on 03-18; payments resume on 03-19. One line for the gap: the pause names the 2x (no
+    # scheduled payment missed between the attempt and it; R4-08), and no Caught up item repeats the missed days.
+    attempt = _rows([M(17)], 850, returned_funder_payment_by="transaction:99")
+    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(19), M(31)), 850) + attempt + _rows([M(18)], 1700))
     assert _kinds(found) == ["pause"]
     [item] = found
-    assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"]) == (
-        "attempt", "2054-03-16", "2054-03-18")
-    assert _inside(item) == [{"date": "2054-03-17", "amount": 1700.0, "multiple": 2}]
+    assert (item["first_after_kind"], item["first_after_date"], item["resumed_date"], item["pause_business_days"]) == (
+        "attempt", "2054-03-17", "2054-03-19", 6)
+    assert _inside(item) == [{"date": "2054-03-18", "amount": 1700.0, "multiple": 2}]
     # Weekly: a bounced attempt on 04-07, a 3x on 04-09, payments resume on 04-14.
     found = changes(_rows(every(M(3), M(17)) + every(A(14), Y(26)), 1000)
                     + _rows([A(7)], 1000, returned_funder_payment_by="transaction:99") + _rows([A(9)], 3000),
                     start=M(1), end=Y(29))
     assert _kinds(found) == ["pause"]
-    assert (found[0]["first_after_kind"], _inside(found[0])) == (
-        "attempt", [{"date": "2054-04-09", "amount": 3000.0, "multiple": 3}])
+    assert (found[0]["first_after_kind"], found[0]["pause_business_days"], _inside(found[0])) == (
+        "attempt", 14, [{"date": "2054-04-09", "amount": 3000.0, "multiple": 3}])
 
 
 def test_r3_b05_r1_a_catch_up_after_a_payment_sized_one_off_that_ended_the_pause_is_named_on_the_pause():
-    # Finding 2: a 500 one-off on 03-16 ends the pause and a 3x follows on 03-17; before, the 3x was named nowhere
-    # (counted from the one-off, nothing was missed before it).
-    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + _rows([M(16)], 500) + _rows([M(17)], 2550))
+    # Finding 2: a 500 one-off on 03-17 ends the pause (audit round 4, R4-79: 6 quiet business days) and a 3x follows
+    # on 03-18; before, the 3x was named nowhere (counted from the one-off, nothing was missed before it).
+    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(19), M(31)), 850) + _rows([M(17)], 500) + _rows([M(18)], 2550))
     assert _kinds(found) == ["pause"]
     assert (found[0]["first_after_kind"], _inside(found[0])) == (
-        "other_amount", [{"date": "2054-03-17", "amount": 2550.0, "multiple": 3}])
+        "other_amount", [{"date": "2054-03-18", "amount": 2550.0, "multiple": 3}])
     # Weekly: a 500 one-off on 04-07 ends the pause, the 04-14 payment is missed and a 3x follows on 04-21, before
-    # payments resume on 05-05: the pause line names the 3x; before, a separate Caught up line counted from 04-07.
+    # payments resume on 05-05. Audit round 4, R4-08: a scheduled payment was missed between the one-off and the 3x, so
+    # the 3x settles more than the pause's gap: its own Caught up line, counted from the one-off (R3-B05 review round 1
+    # had put it on the pause line).
     found = changes(_rows(every(M(3), M(17)) + every(Y(5), Y(26)), 1000) + _rows([A(7)], 500) + _rows([A(21)], 3000),
                     start=M(1), end=Y(29))
-    assert _kinds(found) == ["pause"]
+    assert _kinds(found) == ["pause", "catch_up"]
     assert (found[0]["first_after_kind"], found[0]["resumed_date"], _inside(found[0])) == (
-        "other_amount", "2054-05-05", [{"date": "2054-04-21", "amount": 3000.0, "multiple": 3}])
+        "other_amount", "2054-05-05", None)
+    assert _catch_up_fields(found[1])[3:] == ("2054-04-07", 1, "2054-04-14", "2054-04-14", 3, "2054-04-21", 3000.0)
 
 
 def test_r3_b05_r1_a_catch_up_on_the_day_payments_resume_is_named_on_the_pause():
     # The 2x posts with the resuming payment on 03-18 (as a catch-up on the regime's next payment day ends a pause).
-    attempt = _rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    # Audit round 4: the attempt on 03-17 (6 quiet business days, R4-79), the day before the 2x, so no scheduled
+    # payment is missed between them and the pause keeps it (R4-08).
+    attempt = _rows([M(17)], 850, returned_funder_payment_by="transaction:99")
     found = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + attempt + _rows([M(18)], 1700))
     assert _kinds(found) == ["pause"]
     assert _inside(found[0]) == [{"date": "2054-03-18", "amount": 1700.0, "multiple": 2}]
@@ -1583,9 +1598,10 @@ def test_r3_b05_r1_a_catch_up_on_the_day_payments_resume_is_named_on_the_pause()
 def test_r3_b05_r1_controls_name_no_catch_up_on_the_pause():
     # A pause ended by a catch-up, by an attempt with no multiple after it, or by the regime's payment carries no
     # list; a catch-up after payments resumed is its own event (its own line where it follows a missed payment).
-    pause = only(_rows(bdays(M(2), M(6)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1800))
+    # Audit round 4, R4-79: each gap holds 6 quiet business days (the last payment 03-05, or the attempt on 03-17).
+    pause = only(_rows(bdays(M(2), M(5)) + bdays(M(23), M(31)), 300) + _rows([M(16)], 1800))
     assert pause["first_after_kind"] == "catch_up" and "catch_ups_inside" not in pause
-    attempt = _rows([M(16)], 850, returned_funder_payment_by="transaction:99")
+    attempt = _rows([M(17)], 850, returned_funder_payment_by="transaction:99")
     alone = only(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + attempt)
     assert alone["first_after_kind"] == "attempt" and "catch_ups_inside" not in alone
     later = [day for day in bdays(M(18), M(31)) if day != M(24)]
@@ -1594,6 +1610,69 @@ def test_r3_b05_r1_controls_name_no_catch_up_on_the_pause():
     assert "catch_ups_inside" not in found[0]
     assert (found[1]["missed_payments"], found[1]["missed_first_date"], found[1]["catch_up_date"]) == (
         1, "2054-03-24", "2054-03-25")
+
+
+# --------------------- audit round 4, R4-B06 (R4-08, R4-09): a catch-up after what ended a pause (fabricated rows only)
+# R4-08, the owner's "one line per event" (2026-10-07): a catch-up after the presence that ended a pause is the pause's
+# own (named on its line, `catch_ups_inside`) only when no scheduled payment of the regime falls missed between it and
+# the mark before it (that presence, or the catch-up before it) and no coverage hole lies between them; otherwise it is
+# its own Caught up line, its missed payments counted from that mark (never the pause's own days), or no line across a
+# hole. Every gap here holds more quiet business days than the grace (R4-79).
+def test_r4_08_a_far_catch_up_after_a_bounced_attempt_is_its_own_caught_up_line():
+    # Daily 850 paid 03-02 to 03-06 and from 04-14; a bounced attempt (or a payment at another amount) on 03-17 ends
+    # the pause; a 2x on 04-13. The base read one pause naming the 2x (7 business days on its measure), so the 18
+    # scheduled payments missed after 03-17 were on no line and no Caught up line showed.
+    regular = _rows(bdays(M(2), M(6)) + bdays(A(14), Y(29)), 850)
+    for ending, kind in ((_returned([M(17)], 850), "attempt"), (_rows([M(17)], 500), "other_amount")):
+        found = changes(regular + ending + _rows([A(13)], 1700), end=Y(29))
+        assert _kinds(found) == ["pause", "catch_up"], kind
+        pause, caught = found
+        assert (pause["first_after_kind"], pause["first_after_date"], pause["resumed_date"],
+                pause["pause_business_days"], _inside(pause)) == (kind, "2054-03-17", "2054-04-14", 6, None)
+        assert _catch_up_fields(caught)[3:] == ("2054-03-17", 18, "2054-03-18", "2054-04-10", 2, "2054-04-13", 1700.0)
+    # Weekly: a bounced attempt on 04-07, the 04-14 and 04-21 payments missed, a 3x on 04-28, payments from 05-05. The
+    # base read the pause (15) naming the 3x.
+    found = changes(_rows(every(M(3), M(17)) + every(Y(5), Y(26)), 1000) + _returned([A(7)], 1000)
+                    + _rows([A(28)], 3000), start=M(1), end=Y(29))
+    assert _kinds(found) == ["pause", "catch_up"]
+    pause, caught = found
+    assert (pause["last_before_date"], pause["first_after_date"], pause["pause_business_days"], _inside(pause)) == (
+        "2054-03-17", "2054-04-07", 14, None)
+    assert _catch_up_fields(caught)[3:] == ("2054-04-07", 2, "2054-04-14", "2054-04-21", 3, "2054-04-28", 3000.0)
+
+
+def test_r4_08_a_second_catch_up_counts_from_the_catch_up_before_it():
+    # The attempt on 03-17, a 2x on 03-18 (nothing missed: the pause's), then a 3x on 03-20 with the payment that
+    # resumes the schedule, after 03-19 was missed: its own Caught up line, counted from the 2x.
+    found = changes(_rows(bdays(M(2), M(6)) + bdays(M(20), M(31)), 850) + _returned([M(17)], 850)
+                    + _rows([M(18)], 1700) + _rows([M(20)], 2550))
+    assert _kinds(found) == ["pause", "catch_up"]
+    pause, caught = found
+    assert (pause["resumed_date"], _inside(pause)) == ("2054-03-20", [{"date": "2054-03-18", "amount": 1700.0,
+                                                                       "multiple": 2}])
+    assert _catch_up_fields(caught)[3:] == ("2054-03-18", 1, "2054-03-19", "2054-03-19", 3, "2054-03-20", 2550.0)
+
+
+def test_r4_08_a_catch_up_across_a_coverage_hole_is_named_on_no_line():
+    # March prints daily 850 to 03-06 and a bounced attempt on 03-17; the next statement starts on 04-06 (no statement
+    # covers 04-01 to 04-05) with a 2x, then daily 850. The base named the 2x on the pause, across the hole.
+    found = _chain((_rows(bdays(M(2), M(6)), 850) + _returned([M(17)], 850), M(1), M(31)),
+                   (_rows([A(6)], 1700) + _rows(bdays(A(7), A(30)), 850), A(6), A(30)))
+    assert _kinds(found) == ["pause"]
+    assert (found[0]["first_after_kind"], found[0]["pause_business_days"], _inside(found[0])) == ("attempt", 6, None)
+
+
+# R4-09: a catch-up dated on the day payments resumed (it sorts before that day's payment) stays on the pause line; the
+# line says "on the day payments resumed" (tests/test_lender_payment_changes_ui.py, _pipeline.py).
+def test_r4_09_a_catch_up_on_the_day_payments_resumed_is_named_on_the_pause():
+    [item] = changes(_rows(bdays(M(2), M(6)) + bdays(M(18), M(31)), 850) + _returned([M(17)], 850)
+                     + _rows([M(18)], 1700))
+    assert (item["kind"], item["resumed_date"], _inside(item)) == (
+        "pause", "2054-03-18", [{"date": "2054-03-18", "amount": 1700.0, "multiple": 2}])
+    [item] = changes(_rows(every(M(3), M(17)) + every(A(14), Y(26)), 1000) + _returned([A(7)], 1000)
+                     + _rows([A(14)], 3000), start=M(1), end=Y(29))
+    assert (item["kind"], item["resumed_date"], item["pause_business_days"], _inside(item)) == (
+        "pause", "2054-04-14", 14, [{"date": "2054-04-14", "amount": 3000.0, "multiple": 3}])
 
 
 # --------------------------------------------------- audit round 3, R3-B06 (R3-81, R3-82; fabricated rows only)
@@ -1856,9 +1935,10 @@ def _r4_84_far_apart():
 def test_r4_84_two_payments_far_apart_never_borrow_a_daily_schedule():
     # The base read the two 400s as a daily regime held 2 payments: a pause 06-08 -> 07-14 (25 business days, Juneteenth
     # left out), a confirmed +50% "after 2 at the old" (reverted) and the -33% "back to the earlier".
+    # Audit round 4, R4-79: the restart counts the quiet business days 07-31 to 08-10 (7; before, 8 with 08-11).
     [item] = changes(_r4_84_far_apart(), start=Y(31), end=R4_84_END)
     assert _steps([item]) == [("decrease", "daily", "daily", -33, 8, 13, "2054-08-11")]
-    assert (item["back_to_earlier"], item["restart"], item["pause_business_days"]) == (False, True, 8)
+    assert (item["back_to_earlier"], item["restart"], item["pause_business_days"]) == (False, True, 7)
 
 
 def test_r4_84_bounced_attempts_at_another_amount_never_fill_the_gap():
@@ -1917,3 +1997,49 @@ def test_r4_84_the_sparse_bound_is_two_cycles_and_the_beat_tolerance(cadence, bo
     # An attempt at the regime's amount inside the gap splits it.
     long = regime(bound + 1)
     assert lpc._sparse_gap(long, (long.first + timedelta(days=1),)) is False
+
+
+# ----------------------- audit round 4, R4-B06 (R4-79): one quiet-day measure for a pause, a restart and a stop
+# A pause, a restart and a stop count the same quiet business days, those strictly after the last payment (a stop: the
+# last presence) and strictly before the next presence (a stop: through the coverage end), and each needs more of them
+# than the schedule's grace window (spec §19.1: "no payment ... for longer than the schedule's grace window"). The
+# pause and the restart counted the day payments resumed, so a gap of exactly the window read as a pause.
+def test_r4_79_the_quiet_business_days_are_strictly_between_the_two_days():
+    chain = lpc._Chain(series={}, credits=[], debt_relief=[], first_day=None, last_day=None, periods=[], calendar="US")
+    quiet = lpc._Scope(chain, "statement", None, "period_end", [], {}).quiet_business_days
+    assert (quiet(M(6), M(16)), quiet(M(6), M(17)), quiet(M(13), M(16)), quiet(M(6), M(9)), quiet(M(6), M(6)),
+            quiet(M(9), M(6))) == (5, 6, 0, 0, 0, 0)
+
+
+def test_r4_79_a_pause_needs_more_quiet_business_days_than_the_grace():
+    # 5 quiet business days (03-09 to 03-13), the daily grace: no item (the base read a pause of 6).
+    assert changes(_rows(bdays(M(2), M(6)) + bdays(M(16), M(31)), 850)) == []
+    # 6 (03-09 to 03-16): a pause of 6 (the base read 7).
+    item = only(_rows(bdays(M(2), M(6)) + bdays(M(17), M(31)), 850))
+    assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
+            item["grace_business_days"]) == ("pause", "2054-03-06", "2054-03-17", 6, 5)
+
+
+def test_r4_79_a_pause_and_a_stop_read_one_measure():
+    # Daily: 5 quiet business days at the statement's end are no stop, 6 are (the stop's measure, unchanged).
+    assert changes(_rows(bdays(M(2), M(24)), 850)) == []
+    item = only(_rows(bdays(M(2), M(23)), 850))
+    assert (item["kind"], item["quiet_business_days"], item["grace_business_days"]) == ("stop", 6, 5)
+    # Weekly 1,200 on Wednesdays to 03-04, then (i) Wednesdays from 03-18 (9 quiet business days), (ii) once on 03-19
+    # (10) or (iii) once on 03-20 (11), then Wednesdays from 03-25: only (iii) is a pause (the base read (ii) as a
+    # pause of 11 and (iii) as one of 12).
+    wednesdays = every(F(4), M(4))
+    for resumed, expected in ((every(M(18), A(29)), []), ([M(19)] + every(M(25), A(29)), []),
+                              ([M(20)] + every(M(25), A(29)), [("pause", "2054-03-04", "2054-03-20", 11, 10)])):
+        found = changes(_rows(wednesdays + resumed, 1200), start=F(1), end=A(30))
+        assert [(item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
+                 item["grace_business_days"]) for item in found] == expected, resumed[0]
+
+
+def test_r4_79_a_restart_counts_the_same_quiet_days():
+    # 5 quiet business days between the old amount and the new one: a decrease with no restart (the base read a
+    # restart after a pause of 6); 6: a restart after a pause of 6 (the base read 7).
+    for first, restart, pause in ((M(16), False, None), (M(17), True, 6)):
+        item = only(_rows(bdays(M(2), M(6)), 850) + _rows(bdays(first, M(31)), 600))
+        assert (item["kind"], item["change_percent"], item["restart"], item["pause_business_days"]) == (
+            "decrease", -29, restart, pause)

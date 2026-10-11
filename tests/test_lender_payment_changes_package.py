@@ -155,9 +155,10 @@ def test_p3_a_statement_s_possible_stop_that_resumes_is_a_package_pause():
     [stop] = items_of(march)
     assert (stop["kind"], stop["quiet_business_days"], stop["stop_confirmed"]) == ("stop", 7, False)
     [item] = package(job("march", march), job("april", april))["lender_payment_changes"]
+    # Audit round 4, R4-79: the quiet business days 03-23 to 03-31 (7).
     assert (item["kind"], item["last_before_date"], item["first_after_date"], item["pause_business_days"],
             item["grace_business_days"], item["source_document"]) == (
-        "pause", "2054-03-20", "2054-04-01", 8, 5, "april.pdf")
+        "pause", "2054-03-20", "2054-04-01", 7, 5, "april.pdf")
 
 
 def p4(*, ondeck_may=False):
@@ -482,8 +483,9 @@ def test_r1_the_downloads_carry_each_step_and_what_ended_a_pause():
 
     steps = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._rows(pure.every(M(23), A(6)), 950)
                       + pure._rows(pure.every(A(13), A(27)), 650), end=A(30))
+    # Audit round 4, R4-79: the attempt on 03-17, 6 quiet business days after 03-06.
     pause = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 850)
-                      + pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
+                      + pure._rows([M(17)], 850, returned_funder_payment_by="transaction:99"))
     rows = {(section, name): value for section, name, value in _lender_payment_change_rows([steps, pause])}
     assert rows[("lender_payment_change_1", "via")] == "weekly 950.0 (-5%)"
     assert rows[("lender_payment_change_1", "last_step_percent")] == -32
@@ -504,7 +506,8 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
     from webapp.app import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, _lender_payment_change_rows
 
     pause_rows = pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31))
-    catch_up = pure.only(pure._rows(pause_rows, 300) + pure._rows([M(16)], 1800))
+    # Audit round 4, R4-79: the catch-up's pause from 03-05 (6 quiet business days before the 6x on 03-16).
+    catch_up = pure.only(pure._rows(pure.bdays(M(2), M(5)) + pure.bdays(M(23), M(31)), 300) + pure._rows([M(16)], 1800))
     larger = pure.only(pure._rows(pause_rows, 300) + pure._rows([M(16)], 1300))
     stop = pure.only(pure._rows([pure.F(13), M(13), A(13)], 1000) + pure._rows([Y(13)], 2000)
                      + pure._rows([pure.J(12)], 3000), start=pure.F(1), end=date(2054, 8, 31))
@@ -532,12 +535,13 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
         12, "2054-03-16", "2054-03-31")
     assert cells(1, "same_amount_debits.count", "missed_payments", "catch_up_date", "catch_ups_inside") == (
         "", "", "", "")
-    # Review round 1 (finding 2): a catch-up after the presence that ended a pause, before payments resumed.
-    attempt = pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99")
-    inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850) + attempt
-                       + pure._rows([M(17)], 1700))
+    # Review round 1 (finding 2): a catch-up after the presence that ended a pause, before payments resumed (audit
+    # round 4: the attempt on 03-17, R4-79; the 2x the next business day, nothing missed between them, R4-08).
+    attempt = pure._rows([M(17)], 850, returned_funder_payment_by="transaction:99")
+    inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(19), M(31)), 850) + attempt
+                       + pure._rows([M(18)], 1700))
     [cell] = [value for _section, name, value in _lender_payment_change_rows([inside]) if name == "catch_ups_inside"]
-    assert cell == "2054-03-17 1700.0 2x"
+    assert cell == "2054-03-18 1700.0 2x"
     fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
     assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 5] == [
         "first_after_amount", "first_after_multiple", "larger_debits_inside", "catch_ups_inside"]
