@@ -3484,6 +3484,9 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
             "start": _iso_day(statement.get("period_start")), "end": _iso_day(statement.get("period_end")),
             "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
             "order": (str(statement.get("period_start") or ""), str(job.id), account_index or 0),
+            # The owner's request of 2026-10-10 (active positions; review round 1): a statement holding no rows list is
+            # read here as empty, as before, and is N/A to `_package_active_positions`, never 0.
+            "has_rows": isinstance(statement.get("transactions"), list),
             "rows": payment_changes_module.StatementRows(rows, statement.get("period_start"),
                                                           statement.get("period_end"), _statement_currency(analysis)),
         })
@@ -3587,23 +3590,26 @@ def _package_active_positions(rows: list[dict], reading: dict) -> list[dict]:
     Each chain `_package_lender_payment_changes` read (one account's consecutive statements, the package passes'
     overlay applied) is read once by analysis/active_positions.py, over each member's printed period, so a stream that
     runs across months is one position in each. A member no chain holds (never analysed, or analysed before the check)
-    reads N/A, never 0, and so does the calendar month it stands for (`_statement_month`, the Monthly Statements
-    table's rule). A month adds its accounts up; a position the payment changes continue in another account (R3-83's
-    "continues from another account") counts once. Information only: nothing stored or summed reads it."""
+    or whose statement holds no rows list (review round 1) reads N/A, never 0, and so does the calendar month it stands
+    for (`_statement_month`, the Monthly Statements table's rule). A month adds its accounts up; a position the payment
+    changes continue in another account (R3-83's "continues from another account") counts once where it is handed
+    over. Information only: nothing stored or summed reads it."""
     chains = reading.get("chains") or []
 
     def member_id(entry: dict) -> str:
         return entry["job_id"] if "source_account" not in entry else f"{entry['job_id']}#account_{entry['source_account']}"
 
-    held = {member_id(entry) for chain in chains for entry in chain}
+    held = {member_id(entry) for chain in chains for entry in chain if entry.get("has_rows", True)}
     unread = {month for row in rows if row.get("id") not in held
               if (month := _statement_month(row.get("period_start"), row.get("period_end"))) is not None}
     per_statement, by_month = active_positions_module.package_active_positions(
         [[entry["rows"] for entry in chain] for chain in chains],
-        months=[[_statement_month(entry["start"], entry["end"]) for entry in chain] for chain in chains],
+        months=[[_statement_month(entry["start"], entry["end"]) if entry.get("has_rows", True) else None
+                 for entry in chain] for chain in chains],
         links=reading.get("links") or (), unread_months=unread)
     counts = {member_id(entry): per_statement[chain_index][index]
-              for chain_index, chain in enumerate(chains) for index, entry in enumerate(chain)}
+              for chain_index, chain in enumerate(chains) for index, entry in enumerate(chain)
+              if entry.get("has_rows", True)}
     for row in rows:
         row.update(counts.get(row.get("id"), active_positions_module.NOT_AVAILABLE))
     return by_month

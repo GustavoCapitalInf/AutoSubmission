@@ -1661,13 +1661,15 @@ def series_activity_after(statements: Sequence[StatementRows | tuple], series_ke
 
 class PayingPosition(NamedTuple):
     """One paying position of a series (`SeriesPositions`): its number (1..n by first payment, the items' `position`),
-    the distinct days of its payments, its weight (the largest regular weekly equivalent, in cents, or None) and its
-    levels, each (representative amount in cents, payments, first day)."""
+    the distinct days of its payments, its weight (the largest regular weekly equivalent, in cents, or None), its
+    levels, each (representative amount in cents, payments, first day), and (review round 1 of 2026-10-11) each
+    level's cadence, in the order of `levels`."""
 
     number: int
     days: tuple[date, ...]
     weight: int | None
     levels: tuple[tuple[int, int, date], ...]
+    cadences: tuple[str, ...] = ()
 
 
 class SeriesPositions(NamedTuple):
@@ -1676,8 +1678,9 @@ class SeriesPositions(NamedTuple):
     canonical_entity) or ('potential', potential_payee_key) and `lender` its entity. `positions` are its PAYING
     positions (A4 to A7: its levels, the fee levels dropped (R3-24), grouped into positions, the fee positions dropped).
     `one_offs` are the series' payments that join no level (A4) and `attempts` its bounced or reversed debits (A3), each
-    (day, cents); `largest_level_cents` is the largest level amount of its paying positions, None when it has none. A
-    position is made of payments only (A2): an attempt is never one."""
+    (day, cents); `largest_level_cents` is the largest level amount of its paying positions, None when it has none;
+    `calendar` is the chain's business-day calendar (`calendar_for`). A position is made of payments only (A2): an
+    attempt is never one."""
 
     key: tuple[str, str]
     lender: str
@@ -1685,6 +1688,16 @@ class SeriesPositions(NamedTuple):
     one_offs: tuple[tuple[date, int], ...]
     largest_level_cents: int | None
     attempts: tuple[tuple[date, int], ...] = ()
+    calendar: str = "US"
+
+
+def missed_payments(last: date, catch_up: date, cadence: str, calendar: str = "US") -> list[date]:
+    """The owner's request of 2026-10-10 (active positions; review round 1 of 2026-10-11): the payments of a level of
+    `cadence` scheduled after `last` and missed before `catch_up`, as the catch-up line reads them (`_missed_payments`;
+    a daily schedule's business days each due, another schedule's, and an irregular daily one's, missed only when
+    `catch_up` comes more than CATCH_UP_LATE_BUSINESS_DAYS after them). A new output only."""
+    late = 0 if cadence == "daily" else CATCH_UP_LATE_BUSINESS_DAYS
+    return _missed_payments(last, catch_up, cadence, late, calendar)
 
 
 def series_positions(statements: Sequence[StatementRows | tuple]) -> list[SeriesPositions]:
@@ -1702,12 +1715,13 @@ def series_positions(statements: Sequence[StatementRows | tuple]) -> list[Series
         positions = tuple(
             PayingPosition(position.number, tuple(sorted({pay.day for pay in position.pays})),
                            None if (weight := position.weight()) is None else int(weight),
-                           tuple((level.amount, level.n, level.first) for level in position.levels))
+                           tuple((level.amount, level.n, level.first) for level in position.levels),
+                           tuple(level.cadence for level in position.levels))
             for position in reading.positions)
         largest = max((level.amount for position in reading.positions for level in position.levels), default=None)
         found.append(SeriesPositions(key, series.entity, positions,
                                      tuple((pay.day, pay.cents) for pay in reading.singles), largest,
-                                     tuple((pay.day, pay.cents) for pay in series.attempts)))
+                                     tuple((pay.day, pay.cents) for pay in series.attempts), chain.calendar))
     return sorted(found, key=lambda item: item.key)
 
 
