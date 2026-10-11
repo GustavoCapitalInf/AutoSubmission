@@ -6541,7 +6541,6 @@ def _unworded_return_pairs(
     - TD Canada Trust's statements are never read (unworded_return_bank_excluded: audit I41)."""
     if unworded_return_bank_excluded(bank):
         return []
-    from .lender_payment_changes import business_days_between
 
     def cents(index: int) -> int:
         return round(abs(records[index].amount) * 100)
@@ -6569,6 +6568,9 @@ def _unworded_return_pairs(
             fee_rows.add(index)
     if not fee_items:
         return []
+    # Imported only where a fee row may gate a return (the module imports this one at load).
+    from .lender_payment_changes import business_days_between
+
     # The bank's own returned-item fee rows are the gate's evidence for a return, never a debit the credit could return,
     # so the guard reads every other non-lender debit (a one-item fee of the payment's cents would otherwise refuse it).
     guard_debits = [
