@@ -22,7 +22,9 @@ The rule, per returned payment R (its funder E, its cents c, its return dated C)
    left out. Its schedule is `payment_cadence` of the series' dates (a same-cents candidate's own date left out;
    daily_irregular read as daily), else, where 2c debits off the cycle blur it, of its c-cent dates alone; each read
    only on MIN_SCHEDULE_DATES distinct dates or more (two dates a fortnight apart read biweekly whatever the series is);
-   irregular, single or no schedule reads nothing.
+   irregular, single or no schedule reads nothing. Audit round 4, R4-01: the c-cent dates alone are also preferred
+   where the series' dates read daily but they read weekly, biweekly, semi-monthly or monthly (a second position's 2x
+   payments on a nearby weekday blur a weekly 1x series into a daily one, which skipped step 3's level windows).
 2. A same-cents candidate X (c cents, dated on or after C and after R, at most one cycle after C) is a re-presentment
    when the schedule is weekly, biweekly or monthly and X is OFF its cycle: the schedule's phase (the weekday of a
    weekly or biweekly series, the day of the month of a monthly one) that the most attempts of the series keep, within
@@ -41,13 +43,19 @@ The rule, per returned payment R (its funder E, its cents c, its return dated C)
    before it, on the series' cycle or not, the re-debits already taken left out (a 2c level of its own is not a
    catch-up: a step-up or a second position that starts with X, review round 1 of R3-B02, on another weekday too, or
    one that ran before X and whose next payment falls past the statement's end or never comes, review round 2 of
-   R3-B02).
+   R3-B02). Audit round 4, R4-01, on any schedule: X is no catch-up either where it is the regular payment of a 2c
+   stream of its own (`_keeps_its_own_stream`): E's 2c attempts not yet taken as re-debits (X included) span
+   MIN_SCHEDULE_DATES distinct dates or more and read weekly, biweekly, semi-monthly or monthly, X keeps that stream's
+   phase, and RECURRING_PHASE_ANCHORS or more other attempts of the stream keep X's phase, one of which follows no other
+   return of the series within one of the stream's cycles (a second position's payment at the stream's edge, or a
+   biweekly second position, which the level count and windows miss; alternating catch-ups that each follow a return
+   stay catch-ups).
 4. The earliest qualifying candidate (date, then order) is taken; each re-debit covers one returned payment.
 """
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable, Hashable, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -83,6 +91,9 @@ RECURRING_PHASE_ANCHORS = 2
 #: or ended), not a catch-up (review rounds 1 and 2 of R3-B02); a daily schedule's level is read within
 #: DAILY_LEVEL_DAYS of the candidate.
 LEVEL_WINDOW_CYCLES = 2
+#: Audit round 4, R4-01: the schedules a 2c stream of its own reads (step 3's stream guard), and the slower schedules
+#: the c-cent dates alone may read that step 1 prefers over a daily reading of the series' dates.
+STREAM_SCHEDULES = ("weekly", "biweekly", "semimonthly", "monthly")
 
 
 @dataclass(frozen=True)
@@ -119,6 +130,28 @@ def _schedule(days: Sequence[date], calendar: str) -> str | None:
     cadence = payment_cadence(days, calendar)
     cadence = "daily" if cadence == "daily_irregular" else cadence
     return cadence if cadence in ("daily", "weekly", "biweekly", "semimonthly", "monthly") else None
+
+
+def _read(days: Sequence[date], calendar: str) -> str | None:
+    """The schedule of `days`, read only on MIN_SCHEDULE_DATES distinct dates or more (step 1)."""
+    return _schedule(days, calendar) if len(set(days)) >= MIN_SCHEDULE_DATES else None
+
+
+def _series_schedule(series_days: list[date], single_days: list[date], calendar: str) -> tuple[str | None, list[date]]:
+    """Step 1: (the schedule, the dates it was read from): the series' dates; the c-cent dates alone where those read
+    nothing; and, audit round 4, R4-01 (the round-3 reviewer's sketch of R3-B02's review round 3), the c-cent dates alone
+    where the series' dates read daily but those read a slower schedule (STREAM_SCHEDULES): a 1x weekly position and a
+    2x second position on a nearby weekday read daily together, which skipped step 3's level windows, and a weekly
+    series is no daily one (so its same-cents re-presentment is read too)."""
+    together = _read(series_days, calendar)
+    if together is not None and together != "daily":
+        return together, series_days
+    alone = _read(single_days, calendar)
+    if together is None:
+        return (alone, single_days) if alone is not None else (None, [])
+    if alone in STREAM_SCHEDULES:
+        return alone, single_days
+    return together, series_days
 
 
 def _phase(day: date, schedule: str) -> tuple[int, int]:
@@ -188,6 +221,37 @@ def _off_cycle(candidate: date, anchors: Sequence[date], schedule: str,
     return not _on_cycle(candidate, cycle, schedule)
 
 
+def _keeps_its_own_stream(candidate: Attempt, family: Sequence[Attempt], used: Mapping[Hashable, int],
+                          other_returns: Sequence[tuple[date, date]], calendar: str) -> bool:
+    """Step 3's stream guard (audit round 4, R4-01; the owner's answer of 2026-10-07 to R3-73, "Count it once": only a
+    real re-debit takes a bounce out): whether the multiple candidate is the regular payment of a stream of its own at
+    its cents. The series' attempts at the candidate's cents not yet taken as re-debits (`used`; the candidate included)
+    span MIN_SCHEDULE_DATES distinct dates or more and read a STREAM_SCHEDULES schedule; the candidate keeps the stream's
+    phase (`_cycle` of its dates; a semi-monthly stream's days of the month are its phase, which every date of such a
+    reading keeps); and RECURRING_PHASE_ANCHORS or more other attempts of the stream keep the candidate's phase, one of
+    them following no other return of the series within one of the stream's cycles (`_follows_a_return`, `other_returns`
+    the series' other returned payments as (payment's date, return's date)). Attempts that each follow another return
+    are that return's catch-ups (alternating bounces each caught up the next cycle), no stream."""
+    stream = [attempt for attempt in family if attempt.cents == candidate.cents
+              and (attempt.key == candidate.key or not used.get(attempt.key))]
+    days = sorted({attempt.day for attempt in stream})
+    schedule = _read(days, calendar)
+    if schedule not in STREAM_SCHEDULES:
+        return False
+    others = [attempt.day for attempt in stream if attempt.key != candidate.key]
+    if schedule == "semimonthly":
+        keeping = others
+    else:
+        cycle = _cycle(days, schedule)
+        if cycle is None or not _on_cycle(candidate.day, cycle, schedule):
+            return False
+        _leaders, modulus, tolerance = cycle
+        phase = _phase(candidate.day, schedule)[0]
+        keeping = [day for day in others if _distance(_phase(day, schedule)[0], phase, modulus) <= tolerance]
+    return len(keeping) >= RECURRING_PHASE_ANCHORS and not all(
+        _follows_a_return(day, other_returns, schedule) for day in keeping)
+
+
 def re_debits(
     returned: Sequence[Returned],
     attempts: Sequence[Attempt],
@@ -202,7 +266,7 @@ def re_debits(
     included); `may_re_debit` narrows the candidates of a returned payment (the package: another member); `taken` are
     re-debits already taken elsewhere (a statement's own reading); `returns` are every returned payment the caller
     knows, the re-debited ones included, which step 2's recurring-phase guard reads (`returned` where not given)."""
-    used: set[Hashable] = set(taken)
+    used: Counter = Counter(taken)
     known_returns = list(returned) if returns is None else list(returns)
     found: dict[Hashable, tuple[Hashable, str]] = {}
     for item in sorted(returned, key=lambda entry: (entry.returned_on, entry.attempt.order)):
@@ -217,19 +281,17 @@ def re_debits(
                          if entry.attempt.entity == payment.entity and entry.attempt.cents == payment.cents
                          and entry.attempt.key != payment.key]
         for candidate in sorted(family, key=lambda attempt: (attempt.day, attempt.order)):
-            if (candidate.key in used or candidate.day < returned_on or candidate.day <= payment.day
+            if (used[candidate.key] or candidate.day < returned_on or candidate.day <= payment.day
                     or (may_re_debit is not None and not may_re_debit(item, candidate))):
                 continue
             same_cents = candidate.cents == payment.cents
-            pool = [attempt for attempt in family if attempt.key not in used
+            pool = [attempt for attempt in family if not used[attempt.key]
                     and (attempt.key != candidate.key or not same_cents)]
-            # The schedule of the series at c and 2c cents, else (2c debits off the cycle can blur it) at c cents alone.
-            schedule, anchors = None, []
-            for dates in ([payment.day] + [attempt.day for attempt in pool],
-                          [payment.day] + [attempt.day for attempt in pool if attempt.cents == payment.cents]):
-                if len(set(dates)) >= MIN_SCHEDULE_DATES and (read := _schedule(dates, calendar)) is not None:
-                    schedule, anchors = read, dates
-                    break
+            # The schedule of the series at c and 2c cents, else (2c debits off the cycle can blur it) at c cents alone;
+            # audit round 4, R4-01: the c cents alone also where the series reads daily but they read a slower schedule.
+            schedule, anchors = _series_schedule(
+                [payment.day] + [attempt.day for attempt in pool],
+                [payment.day] + [attempt.day for attempt in pool if attempt.cents == payment.cents], calendar)
             if schedule is None:
                 continue
             if schedule == "daily":
@@ -255,12 +317,16 @@ def re_debits(
                 if schedule != "daily":
                     window = LEVEL_WINDOW_CYCLES * CYCLE_DAYS[schedule] + CYCLE_TOLERANCE_DAYS.get(schedule, 1)
                     gaps = [(attempt.day - candidate.day).days for attempt in family
-                            if attempt.cents == candidate.cents and attempt.key not in used]
+                            if attempt.cents == candidate.cents and not used[attempt.key]]
                     if (sum(1 for gap in gaps if 0 < gap <= window) >= LEVEL_ATTEMPTS - 1
                             or sum(1 for gap in gaps if 0 < -gap <= window) >= LEVEL_ATTEMPTS - 1):
                         continue
+                # Audit round 4, R4-01: on any schedule, a 2c stream's own regular payment is no catch-up (at the
+                # stream's edge, where the level count and windows see too few of its payments, or a biweekly stream).
+                if _keeps_its_own_stream(candidate, family, used, other_returns, calendar):
+                    continue
                 kind = CAUGHT_UP
-            used.add(candidate.key)
+            used[candidate.key] += 1
             found[payment.key] = (candidate.key, kind)
             break
     return found

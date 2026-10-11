@@ -879,4 +879,98 @@ def test_ff_f3_control_the_package_s_plain_2x_still_catches_up():
     assert package["totals"]["withholding_numerator"] == 3400.0 - 850.0 + 4250.0
 
 
+# ------------------------------------------------------- audit round 4, R4-01: a second position's 2x stream (fabricated)
+
+def _two_positions(ones, twos, *extra):
+    """KAPITUS's 1,000.00 on the days `ones` and a second position's 2,000.00 on the days `twos` of March 2054 (March 2
+    is a Monday), with the `extra` rows."""
+    return sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in ones], *[(day, KAPITUS, -2000.0) for day in twos],
+                   *extra], key=lambda row: row[0])
+
+
+MONDAYS, TUESDAYS = (2, 9, 16, 23, 30), (3, 10, 17, 24, 31)
+#: Audit round 4, R4-01 (the owner's answer of 2026-10-07 to R3-73, "Count it once": only a real re-debit takes a bounce
+#: out): a funder's 1x weekly position and its 2x second position, whose payment right after a 1x payment's return is
+#: that position's regular payment, no catch-up. Each misread before the batch at the 2x stream's edge (the c and 2c dates
+#: together read daily, so the two-cycle level windows were skipped) or, biweekly, anywhere. name -> rows; each returned
+#: payment stands.
+ADJACENT_STREAM_CASES = {
+    # Mondays and Tuesdays; the last Monday (the 30th) returned on Tuesday the 31st.
+    "mon_tue_last": _two_positions(MONDAYS, TUESDAYS, (31, BOFA_RETURN, 1000.0)),
+    # The same, the first Monday (the 2nd) returned on Tuesday the 3rd.
+    "mon_tue_first": _two_positions(MONDAYS, TUESDAYS, (3, BOFA_RETURN, 1000.0)),
+    # Mondays 2 to 23 and Wednesdays 4 to 25; the 23rd returned on the 24th.
+    "mon_wed_short": _two_positions((2, 9, 16, 23), (4, 11, 18, 25), (24, BOFA_RETURN, 1000.0)),
+    # Thursdays 5 to 26 and Fridays 6 to 27; the 26th returned on the 27th.
+    "thu_fri_last": _two_positions((5, 12, 19, 26), (6, 13, 20, 27), (27, BOFA_RETURN, 1000.0)),
+    # A pair across a weekend (the skeptic walk's misread window, the 2x position's first Monday the 9th): Fridays 6 to
+    # 27 and Mondays 9 to 30; Friday the 27th returned on Monday the 30th.
+    "fri_mon_last": _two_positions((6, 13, 20, 27), (9, 16, 23, 30), (30, BOFA_RETURN, 1000.0)),
+    # A biweekly 2x position (Tuesdays 3, 17 and 31) beside the weekly Mondays; Monday the 16th returned on the 17th.
+    "biweekly_2x": _two_positions(MONDAYS, (3, 17, 31), (17, BOFA_RETURN, 1000.0)),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ADJACENT_STREAM_CASES))
+def test_a_second_position_s_2x_stream_is_never_a_catch_up(name):
+    statement = _statement(ADJACENT_STREAM_CASES[name])
+    records = tc.classify_statement_transactions(statement)
+    assert len(_pairs(records)) == 1  # the payment was returned
+    assert _represented(records) == {}
+    [returned] = [record for record in records if record.returned_funder_payment_by]
+    assert (returned.contributes_to_withholding_rate, returned.represented_by) == (True, None)
+    metrics = compute_metrics(statement, classifications=records)
+    # The bounce stands: the numerator is paid to lenders plus the returned payment.
+    assert metrics.withholding_numerator == round(metrics.lender_debits + 1000.0, 2)
+
+
+def test_a_same_cents_re_presentment_beside_a_2x_stream_is_read():
+    """R4-01's schedule preference: Mondays 1x and Tuesdays 2x read daily together, so before the batch no same-cents
+    re-debit could be read; the Monday dates alone read weekly. Monday the 16th, returned on Tuesday the 17th, is
+    re-presented on Wednesday the 18th (off the Monday cycle): counted once."""
+    rows = _two_positions(MONDAYS, TUESDAYS, (17, BOFA_RETURN, 1000.0), (18, KAPITUS, -1000.0))
+    statement = _statement(rows)
+    records = tc.classify_statement_transactions(statement)
+    assert _represented(records) == {"16": ("18", "re_presented")}
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.withholding_numerator == metrics.lender_debits
+
+
+#: R4-01's controls, each reading as before the batch: name -> (rows, {returned debit's day: (re-debit's day, kind)}).
+ADJACENT_STREAM_CONTROLS = {
+    # A bounce in the middle of the Tuesday stream stands (three 2x debits within a week of the candidate).
+    "mid_stream": (_two_positions(MONDAYS, TUESDAYS, (17, BOFA_RETURN, 1000.0)), {}),
+    # The 2x position three or four weekdays after the 1x one (Monday and Thursday, Monday and Friday) reads weekly.
+    "mon_thu": (_two_positions((2, 9, 16, 23), (5, 12, 19, 26), (24, BOFA_RETURN, 1000.0)), {}),
+    "mon_fri": (_two_positions((2, 9, 16, 23), (6, 13, 20, 27), (24, BOFA_RETURN, 1000.0)), {}),
+    # The Friday and Monday pair over the whole of March reads irregular together, and the Fridays weekly: it stands.
+    "fri_mon_full": (_two_positions((6, 13, 20, 27), MONDAYS, (30, BOFA_RETURN, 1000.0)), {}),
+    # A genuine catch-up: Mondays 1x, the 16th returned on the 17th, one 2,000.00 on Wednesday the 18th.
+    "genuine_catch_up": (_two_positions(MONDAYS, (18,), (17, BOFA_RETURN, 1000.0)), {"16": ("18", "caught_up")}),
+}
+
+
+@pytest.mark.parametrize("name", sorted(ADJACENT_STREAM_CONTROLS))
+def test_r4_01_controls_read_as_before(name):
+    rows, expected = ADJACENT_STREAM_CONTROLS[name]
+    assert _represented(tc.classify_statement_transactions(_statement(rows))) == expected
+
+
+def test_r4_01_a_two_month_2x_stream_that_runs_on_is_no_catch_up():
+    """The rule itself over two months (as the package reads a series): KAPITUS's Monday 1x and Tuesday 2x from March 2
+    to April 28, 2054, Monday March 30 returned on Tuesday March 31, whose 2x payment is the stream's own."""
+    from datetime import date, timedelta
+
+    from analysis.represented_payments import Attempt, Returned, re_debits
+
+    attempts = []
+    for week in range(9):
+        monday = date(2054, 3, 2) + timedelta(days=7 * week)
+        attempts.append(Attempt(("1x", monday), "KAPITUS", monday, 100000, (monday, 0)))
+        tuesday = monday + timedelta(days=1)
+        attempts.append(Attempt(("2x", tuesday), "KAPITUS", tuesday, 200000, (tuesday, 1)))
+    [bounced] = [attempt for attempt in attempts if attempt.key == ("1x", date(2054, 3, 30))]
+    assert re_debits([Returned(bounced, date(2054, 3, 31))], attempts) == {}
+
+
 from tests.flag_group_fixtures import fake_payees  # noqa: E402,F401  (fixture)
