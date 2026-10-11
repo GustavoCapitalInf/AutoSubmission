@@ -5016,7 +5016,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     lender_payment_changes, lender_payment_unchecked = _package_lender_payment_changes(
         members, package_matched["overlays"])
     # Audit round 4, R4-75: a package Caught up line names the returned payments pass 5 re-debited with its catch-up.
-    _align_package_catch_ups(lender_payment_changes, package_matched["represented"], members)
+    _align_package_catch_ups(lender_payment_changes, package_matched.get("represented") or {}, members)
 
     # Design §6.5's fourth bullet, and Q5's direction: **no published average is
     # computed over two accounts of one document.** The L1-S3 review measured
