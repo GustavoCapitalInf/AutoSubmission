@@ -28,7 +28,8 @@ from analysis import (
     us_bank, wells,
 )
 from analysis.holder_name import (
-    HolderReading, first_page, holder_from_address_line, mailing_line_after, page_lines, read_mailing_line_after,
+    HolderReading, first_page, holder_from_address_line, mailing_line_after, page_lines, read_address_block,
+    read_address_line, read_mailing_line_after, read_name,
 )
 from ocr.document import StatementMarkdown
 
@@ -655,3 +656,77 @@ def test_every_parser_that_publishes_a_holder_name_publishes_its_title_beside_it
     # The 22 readers' parsers: their constructors and assignments (RBC's two issues, CIBC's and TD Canada Trust's two
     # entry points each count twice).
     assert sites == 25
+
+
+# --- Audit round 4, batch R4-B08 ---
+# Audit round 4, R4-29 (the underwriter's Q10 of 2026-10-02, "Hold every deposit into an account titled "premium
+# trust""; R3-B11's rule that a contact is read by its words and that the contact's name is never the holder's or the
+# title): CARE OF is a contact after the premium-trust designation (the title rule's words, kind words and reference),
+# whatever prints before it, and on a block's own designation line after either designation. Every reader cuts it alike;
+# a name with no designation and no legal form keeps its CARE OF, and an account designation after a form-less name
+# reads as before. Fabricated lines only.
+
+R4_29_ADDRESS = "100 SAMPLE ST SAMPLEVILLE SC 29000-0001"
+R4_29_DESIGNATIONS = [
+    "PREMIUM TRUST", "PREMIUM TRUST CHECKING", "PREMIUM TRUST BUSINESS CHECKING", "PREMIUM TRUST MONEY MARKET",
+    "PREMIUM TRUST SAVINGS", "PREMIUM TRUST DDA", "PREMIUM TRUST ACCOUNT (0000)", "PREMIUM FUND TRUST ACCOUNT",
+]
+
+
+@pytest.mark.parametrize("care_of", ["CARE OF", "care of"])
+@pytest.mark.parametrize("designation", R4_29_DESIGNATIONS)
+def test_r4_29_care_of_after_the_premium_trust_designation_is_a_contact(designation, care_of):
+    line = f"NORTHWIND AGENCY INC {designation} {care_of} SAMPLE PERSON {R4_29_ADDRESS}"
+    assert read_address_line(line) == HolderReading("NORTHWIND AGENCY INC", designation)
+    assert read_name(f"NORTHWIND AGENCY INC {designation} {care_of} SAMPLE PERSON") == HolderReading(
+        "NORTHWIND AGENCY INC", designation)
+
+
+@pytest.mark.parametrize(("line", "title"), [
+    ("PREMIUM TRUST CHECKING CARE OF SAMPLE PERSON", "PREMIUM TRUST CHECKING"),
+    ("PREMIUM TRUST ACCOUNT CARE OF SAMPLE PERSON", "PREMIUM TRUST ACCOUNT"),
+    ("PREMIUM TRUST CARE OF SAMPLE PERSON", "PREMIUM TRUST"),
+    ("OPERATING ACCOUNT CARE OF SAMPLE PERSON", "OPERATING ACCOUNT"),
+])
+def test_r4_29_a_block_s_own_designation_line_cuts_its_care_of(line, title):
+    lines = ["NORTHWIND AGENCY INC", line, "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("NORTHWIND AGENCY INC", title)
+
+
+def test_r4_29_a_title_line_s_care_of_never_drops_a_premium_trust_designation():
+    # The cut keeps a CARE OF contact that names the trust account itself, so the title rule still reads it.
+    from analysis.true_revenue import premium_trust_title
+
+    lines = ["NORTHWIND AGENCY INC", "OPERATING ACCOUNT CARE OF PREMIUM TRUST ACCOUNT", "100 SAMPLE ST",
+             "SAMPLEVILLE SC 29000-0001"]
+    reading = read_address_block(lines)
+    assert reading == HolderReading("NORTHWIND AGENCY INC", "OPERATING ACCOUNT PREMIUM TRUST ACCOUNT")
+    assert premium_trust_title(reading.title, None, reading.name) == "PREMIUM TRUST ACCOUNT"
+
+
+def test_r4_29_a_form_less_name_loses_the_person_after_the_premium_trust_designation():
+    line = f"NORTHWIND AGENCY PREMIUM TRUST CHECKING CARE OF SAMPLE PERSON {R4_29_ADDRESS}"
+    assert read_address_line(line) == HolderReading("NORTHWIND AGENCY PREMIUM TRUST CHECKING", None)
+    assert read_name("NORTHWIND AGENCY PREMIUM TRUST CHECKING CARE OF SAMPLE PERSON") == HolderReading(
+        "NORTHWIND AGENCY PREMIUM TRUST CHECKING", None)
+
+
+@pytest.mark.parametrize(("name", "reading"), [
+    # CARE OF after a name with no designation and no form is part of the name (R3-B11 review round 1, finding 1).
+    ("CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE",
+     HolderReading("CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE", None)),
+    ("SAMPLE AND CO HOME CARE OF SAMPLEVILLE LLC", HolderReading("SAMPLE AND CO HOME CARE OF SAMPLEVILLE LLC", None)),
+    ("SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC", HolderReading("SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC", None)),
+    ("CONTOSO HOME CARE OF SAMPLEVILLE LLC", HolderReading("CONTOSO HOME CARE OF SAMPLEVILLE LLC", None)),
+    # Recorded residual: an account designation after a form-less name keeps the contact in the name, so the contact
+    # person's own Zelles stay held by the holder test.
+    ("NORTHWIND AGENCY OPERATING ACCOUNT CARE OF SAMPLE PERSON",
+     HolderReading("NORTHWIND AGENCY OPERATING ACCOUNT CARE OF SAMPLE PERSON", None)),
+    # ATTN keeps its reading.
+    ("NORTHWIND AGENCY INC OPERATING ACCOUNT ATTN SAMPLE PERSON", HolderReading("NORTHWIND AGENCY INC",
+                                                                                "OPERATING ACCOUNT")),
+    ("NORTHWIND AGENCY INC ATTN:PREMIUM TRUST ACCOUNT", HolderReading("NORTHWIND AGENCY INC", "PREMIUM TRUST ACCOUNT")),
+])
+def test_r4_29_the_controls_read_as_before(name, reading):
+    assert read_address_line(f"{name} {R4_29_ADDRESS}") == reading
+    assert read_name(name) == reading

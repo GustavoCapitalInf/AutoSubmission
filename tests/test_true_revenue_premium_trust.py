@@ -464,6 +464,49 @@ def test_r3_b11_r1_a_dba_home_care_name_keeps_its_care_of_and_its_reading():
     assert tc.classify_statement_transactions(statement) == tc.classify_statement_transactions(whole)
 
 
+# --- Audit round 4, batch R4-B08 ---
+# Audit round 4, R4-29 (the underwriter's Q10 of 2026-10-02): CARE OF a person after the premium-trust designation is a
+# contact, whatever prints before the designation, so the title reads PREMIUM TRUST <kind> and every deposit of the
+# trust account is held; the contact's name never reaches the holder's name, the title or the statement export.
+
+R4_29_LINE = "NORTHWIND AGENCY INC PREMIUM TRUST CHECKING CARE OF SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001"
+R4_29_ROWS = [
+    ("CONTOSO SUPPLY LLC DES:PAYMENT ID:0001 INDN:NORTHWIND AGENCY INC CO ID:0000000001 CCD", amount)
+    for amount in (1210.40, 1305.15, 990.75)
+]
+
+
+def test_r4_29_care_of_a_person_after_the_trust_designation_holds_the_trust_account(monkeypatch):
+    statement = _statement(R4_29_ROWS, R4_29_LINE, bank="Bank of America")
+    assert (statement.holder_name, statement.account_title) == ("NORTHWIND AGENCY INC", "PREMIUM TRUST CHECKING")
+    assert _reading(_today(statement, monkeypatch)) == [("verified", "named_payer_repeats")] * 3
+    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+    assert compute_metrics(statement).premium_trust_account is True
+
+
+def test_r4_29_a_form_less_trust_holder_s_name_reads_the_title_without_the_person():
+    line = "NORTHWIND AGENCY PREMIUM TRUST CHECKING CARE OF SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001"
+    statement = _statement(R4_29_ROWS, line, bank="Bank of America")
+    assert (statement.holder_name, statement.account_title) == ("NORTHWIND AGENCY PREMIUM TRUST CHECKING", None)
+    assert tr.premium_trust_title(statement.account_title, statement.account_name, statement.holder_name) == (
+        "PREMIUM TRUST CHECKING")
+    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+
+
+def test_r4_29_the_statement_export_s_title_prints_no_contact():
+    from tests.test_webapp_app import _r3_62_flat, _r3_62_payload
+
+    payload = _r3_62_payload(R4_29_LINE)
+    assert (payload["statement"]["holder_name"], payload["statement"]["account_title"]) == (
+        "NORTHWIND AGENCY INC", "PREMIUM TRUST CHECKING")
+    csv_rows, xlsx_rows, json_download = _r3_62_flat(payload)
+    assert ["statement", "account_title", "PREMIUM TRUST CHECKING"] in csv_rows
+    assert ["statement", "account_title", "PREMIUM TRUST CHECKING"] in xlsx_rows
+    for rows in (csv_rows, xlsx_rows):
+        assert not [row for row in rows if any("PERSON" in str(cell) for cell in row)]
+    assert "PERSON" not in str(json_download["statement"])
+
+
 #: T6: the owner's two halves. Carrier commissions and a bare deposit, on the operating and on the trust statement.
 T6 = [
     ("SAMPLE MUTUAL INS CO AGT COMM 1234", 640.00),

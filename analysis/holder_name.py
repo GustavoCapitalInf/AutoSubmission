@@ -40,7 +40,13 @@ form or the account designation printed right after it (finding 1: 'CONTOSO LLC 
 SAMPLEVILLE' and 'SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC' are names); and the premium-trust designation a contact's
 words must be is the title rule's own, a title at a field's end read from the contact's first word (finding 2: the
 words, kind words such as CHECKING, a product adjective before one, and a reference; PREMIUM_TRUST_KIND,
-PREMIUM_TRUST_REFERENCE)."""
+PREMIUM_TRUST_REFERENCE).
+
+Audit round 4, R4-29 (the underwriter's Q10): `CARE OF` is also a contact after the premium-trust designation (the
+title rule's words, kind words and reference: _PREMIUM_TRUST_DESIGNATION_AT_END), whatever prints before it, and on a
+block's own designation line after a designation that starts it (_block_title_line), so 'NORTHWIND AGENCY INC PREMIUM
+TRUST CHECKING CARE OF <person>' reads the title PREMIUM TRUST CHECKING and the contact's name reaches neither the name
+nor the title. An account designation after a name with no legal form keeps its CARE OF, as before."""
 from __future__ import annotations
 
 import re
@@ -169,9 +175,14 @@ _TITLE_LINE = re.compile(r"(?<![A-Z])(?:ACCOUNT|ACCT)\b|" + PREMIUM_TRUST_WORDS)
 #: contact's first word: the words, any kind words (PREMIUM_TRUST_KIND: an account, a fund or a product word, a product
 #: adjective before one), then a reference (PREMIUM_TRUST_REFERENCE) and closing punctuation, so 'PREMIUM TRUST
 #: CHECKING', the bare 'PREMIUM TRUST' and 'PREMIUM TRUST ACCOUNT (1234)' read as the rule reads them as a title.
-_CONTACT_DESIGNATION = re.compile(
-    rf"^{PREMIUM_TRUST_WORDS}(?:\s+{PREMIUM_TRUST_KIND})*(?:[\s\-:#,]*{PREMIUM_TRUST_REFERENCE})?[\s.,;:\-)]*$"
+_PREMIUM_TRUST_DESIGNATION = (
+    rf"{PREMIUM_TRUST_WORDS}(?:\s+{PREMIUM_TRUST_KIND})*(?:[\s\-:#,]*{PREMIUM_TRUST_REFERENCE})?[\s.,;:\-)]*"
 )
+_CONTACT_DESIGNATION = re.compile(rf"^{_PREMIUM_TRUST_DESIGNATION}$")
+#: Audit round 4, R4-29 (the underwriter's Q10 of 2026-10-02): the same premium-trust designation (the grammar
+#: _CONTACT_DESIGNATION reads, built from the same three constants), matched from a token of a name's tokens to their
+#: end: the designation printed right before CARE OF (_name_ended).
+_PREMIUM_TRUST_DESIGNATION_AT_END = re.compile(rf"{_PREMIUM_TRUST_DESIGNATION}$")
 #: Audit round 3, R3-B11, review round 1 (finding 2): a reference's marker left dangling at the contact's end (the
 #: address cut reads 'ACCT # 1234 PO BOX …' and 'ACCOUNT NO 1234 100 …' with the number as a house number): dropped.
 _DANGLING_REFERENCE = re.compile(r"(?:\s*#|\s+(?:NO|NUMBER)\.?)\s*$")
@@ -253,33 +264,59 @@ def _contact_at(tokens: Sequence[str], index: int, *, care_of: bool) -> list[str
     return None
 
 
-def _name_ended(tokens: Sequence[str], index: int) -> bool:
+def _premium_trust_start(tokens: Sequence[str], index: int) -> int | None:
+    """Audit round 4, R4-29: the index of the token where a premium-trust designation printed right before `index`
+    starts (_PREMIUM_TRUST_DESIGNATION_AT_END on the tokens from there to `index`, upper case: the words, any kind
+    words, a reference), the earliest such token; None when the tokens before `index` end in no such designation."""
+    for start in range(index):
+        if _PREMIUM_TRUST_DESIGNATION_AT_END.match(" ".join(tokens[start:index]).upper()):
+            return start
+    return None
+
+
+def _name_ended(tokens: Sequence[str], index: int, *, title_line: bool = False) -> bool:
     """Audit round 3, R3-B11, review round 1 (finding 1): the name has ended before `index`: the token right before it
     is a legal form (a trailing comma or dot allowed: _legal_form), or an account designation printed right after one
     (up to _MAX_DESIGNATION_WORDS designation words, then an account word: 'CONTOSO INSURANCE AGENCY INC PREMIUM TRUST
     ACCOUNT CARE OF …'). A legal form printed earlier ends no name there: 'CONTOSO LLC DBA NORTHWIND HOME CARE OF
-    SAMPLEVILLE' (a DBA trade name) and 'SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC' are names."""
+    SAMPLEVILLE' (a DBA trade name) and 'SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC' are names.
+
+    Audit round 4, R4-29 (the underwriter's Q10 of 2026-10-02): the step back also reads the premium-trust designation
+    printed right before `index` (_premium_trust_start: the title rule's words, kind words and reference, so 'PREMIUM
+    TRUST CHECKING', the bare 'PREMIUM TRUST', 'PREMIUM FUND TRUST ACCOUNT' and 'PREMIUM TRUST ACCOUNT (1234)'). The
+    name has ended after it whatever prints before it, a form-less name included: every deposit of such an account is
+    held, so the contact's name never decides money, and it never reaches the name or the title. On a block's own title
+    line (`title_line`, _block_title_line), it has ended after either designation when the designation starts the line
+    ('OPERATING ACCOUNT CARE OF …'). An account designation after a form-less name keeps its CARE OF, as before (the
+    contact person's name stays a holder word, so that person's own Zelles stay held)."""
     cut = index
     if cut > 0 and _word(tokens[cut - 1]) in _ACCOUNT_WORDS:
         cut -= 1
         while cut > 0 and index - 1 - cut < _MAX_DESIGNATION_WORDS and _word(tokens[cut - 1]) in _DESIGNATION_WORDS:
             cut -= 1
-    return cut > 0 and _legal_form(tokens[cut - 1])
+    if cut > 0 and _legal_form(tokens[cut - 1]):
+        return True
+    if title_line and cut == 0:
+        return True
+    premium = _premium_trust_start(tokens, index)
+    return premium is not None and (premium > 0 or title_line)
 
 
-def _contact_split(tokens: Sequence[str]) -> tuple[list[str], list[str]]:
+def _contact_split(tokens: Sequence[str], *, title_line: bool = False) -> tuple[list[str], list[str]]:
     """Audit round 3, R3-B11 (R3-61): the name's tokens before a contact the bank prints after it, and the contact's
     text. Scanning from the second token, the first contact splits the tokens: an attention or care-of marker, whole or
     glued to its text (_contact_at: ATTN, ATTENTION, C/O); the two tokens CARE OF only where the name has ended, right
     after its legal form or the designation printed right after it (_name_ended; review round 1, finding 1: 'CONTOSO
     HOME CARE OF SAMPLEVILLE LLC', 'CONTOSO LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE' and 'SAMPLE & CO HOME CARE OF
     SAMPLEVILLE LLC' are business names); or a court case and its number (a debtor's account: 'CASE 12-34567'), whose
-    text is never a title. No contact: every token is the name's, and no text."""
+    text is never a title. No contact: every token is the name's, and no text. Audit round 4, R4-29: CARE OF also after
+    the premium-trust designation, whatever prints before it, and, on a block's own title line (`title_line`, passed to
+    _name_ended), after a designation that starts the line."""
     for index in range(1, len(tokens)):
         word = tokens[index].upper().rstrip(":")
         if word == "CASE" and index + 1 < len(tokens) and any(ch.isdigit() for ch in tokens[index + 1]):
             return list(tokens[:index]), []
-        care_of = word == "CARE" and _name_ended(tokens, index)
+        care_of = word == "CARE" and _name_ended(tokens, index, title_line=title_line)
         if (contact := _contact_at(tokens, index, care_of=care_of)) is not None:
             return list(tokens[:index]), contact
     return list(tokens), []
@@ -299,12 +336,13 @@ def _contact_designation(contact: Sequence[str]) -> str | None:
     return text if _CONTACT_DESIGNATION.match(text) else None
 
 
-def _without_contact(tokens: list[str]) -> list[str]:
+def _without_contact(tokens: list[str], *, title_line: bool = False) -> list[str]:
     """The name's tokens before a contact the bank prints after it: an attention or care-of line (ATTN, ATTENTION,
     C/O) or a court case and its number (a debtor's account: 'CASE 12-34567'). Audit round 3, R3-B11 (R3-61):
     _contact_split's name, so a marker glued to its text and CARE OF where the name has ended (right after its legal
-    form or the designation printed right after it; review round 1, finding 1) are contacts too."""
-    return _contact_split(tokens)[0]
+    form or the designation printed right after it; review round 1, finding 1) are contacts too. Audit round 4, R4-29:
+    `title_line` is _contact_split's."""
+    return _contact_split(tokens, title_line=title_line)[0]
 
 
 def _dba_split(tokens: Sequence[str]) -> tuple[int, int] | None:
@@ -407,7 +445,12 @@ def _block_title_line(line: str) -> str | None:
     contact's line is never a title, except a contact whose words are the premium-trust designation itself, which is
     the account's title in any spacing (audit round 3, R3-B11: R3-61). A line that opens on a contact (_contact_at at
     its first token: a whole or glued marker, or CARE OF, which needs no legal form before it there) is read only as
-    _contact_designation of its text."""
+    _contact_designation of its text.
+
+    Audit round 4, R4-29: the line is the block's own title line (_contact_split's `title_line`), so CARE OF after a
+    designation that starts it is a contact ('PREMIUM TRUST CHECKING CARE OF <person>', 'OPERATING ACCOUNT CARE OF
+    <person>' publish the designation alone); a CARE OF cut that way whose text is itself the premium-trust designation
+    keeps it in the title, so the cut never drops a title the line printed."""
     tokens = line.split()
     if not tokens:
         return None
@@ -415,7 +458,13 @@ def _block_title_line(line: str) -> str | None:
         return _contact_designation(contact)
     if not _TITLE_LINE.search(line.upper()):
         return None
-    return _title_text(_without_contact(tokens))
+    words, contact = _contact_split(tokens, title_line=True)
+    if (
+        contact and tokens[len(words)].upper() == "CARE"
+        and (designation := _contact_designation(contact)) is not None
+    ):
+        words.append(designation)
+    return _title_text(words)
 
 
 def read_address_block(lines: Sequence[str]) -> HolderReading:
