@@ -200,7 +200,12 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   total), each on the same eleven branches, `8c4bb91` (the large-deposit brief's total; on origin/true-revenue,
   origin/hosting/true-revenue-5.8 and the Fly deploy branch only) and `70ebdd6` (R2-OW01's Verified sums, listed
   above) print two figures whose difference, or a total and its other parts, give one row back; a rewrite needs the
-  owner's OK (default: no rewrite).
+  owner's OK (default: no rewrite). R4-B04's review rounds 1 and 2 found the same kind of leak, as statement months
+  rather than amounts: `3650162` (§20's R4-B04 line named the three statements whose re-debit was returned too by bank
+  and month) and `2822047` (its docs test named the same banks beside the same months, and its pattern's shapes were
+  dated in those months), both fixed forward (`2822047`, then R4-B04's review round 2) and both unpushed when found,
+  so whether history keeps them is the orchestrator's call before the push and the owner's after it (default: no
+  rewrite).
 - **Owner items with evidence, no fix:** R3-28 (the daily core-processor template's unread credits counted in True:
   about $47K to $50K of $296K under blocks the MCA standard excludes; the block is stored since R3-B09; §17.1's
   "Readings the owner may convert") and R3-76 (a tax preparer's `TAX REFUND PROC DES:RE DISB` credits excluded as

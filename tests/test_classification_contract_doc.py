@@ -4407,32 +4407,48 @@ def test_r4_b01_review_round_2_is_recorded():
     assert "the spec prints no single corpus row's amount" in doc and "§17.1, §19.1 and §20 print" not in doc
 
 
+#: A month's name, in full or short, as a statement prints it.
+_MONTH_NAME = (r"(?:January|February|March|April|May|June|July|August|September|October|November|December"
+               r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)")
+
 #: A month written by name with a year from 2000 to 2029, as a statement's month ("<Month> <year>", "<Mon>. <year>",
 #: "<Month> of <year>") or a row's day ("<Mon> <d>, <year>"). The corpus's statements are dated in those years; the
 #: documents' fabricated examples are dated 2031 and 2054, and the owner's rulings are written as ISO dates.
-_CORPUS_MONTH = re.compile(
-    r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December"
-    r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?,? (?:\d{1,2},? )?(?:of )?20[0-2]\d\b")
+_CORPUS_MONTH = re.compile(r"\b" + _MONTH_NAME + r"\.?,? (?:\d{1,2},? )?(?:of )?20[0-2]\d\b")
+
+#: The shapes `_CORPUS_MONTH` must read. R4-B04 review round 2: they are dated 2027 to 2029, after the day this test was
+#: written (2026-10-11), so no statement in the corpus is dated in them, and none is written beside a bank's name.
+_CORPUS_MONTH_SHAPES = ("December 2027", "Mar 16, 2028", "Sept. 2029", "April of 2027", "Dec 3 2028", "May 2029")
 
 
 def test_r4_b04_review_round_1_no_document_names_a_corpus_statement_s_month():
     """Audit round 4, R4-B04 review round 1 (finding 1; the handoff's and the plan's privacy rule: no real date from the
     corpus in code, tests, docs or commit messages): no true-revenue document names a statement's month or a row's day
     with a real year, and the R4-B04 §20 line names the statements whose re-debit was returned too by bank and count
-    only, its months removed in place."""
-    for shape in ("December 2025", "Mar 16, 2025", "Sept. 2024", "April of 2026", "Dec 3 2023", "May 2020"):
-        assert _CORPUS_MONTH.search(shape), shape
+    only, its months removed in place. Review round 2 (findings 1 and 2): this test reads its pattern on shapes dated
+    after the corpus, names no statement's month beside its bank, and scans its own file too; the handoff lists the two
+    unpushed commits whose trees hold the removed months, for the orchestrator before the push and the owner after."""
+    for shape in _CORPUS_MONTH_SHAPES:
+        assert [hit.group() for hit in _CORPUS_MONTH.finditer(shape)] == [shape], shape
+        assert shape[-4:] in ("2027", "2028", "2029"), shape
     for control in ("March 2031", "Mar 16, 2054", "April 2054", "Decision 2026", "2026-10-02", "Jan ##, ####"):
         assert not _CORPUS_MONTH.search(control), control
-    for path in (SPEC, HANDOFF, PLAN, CONTRACT):
+    this_file = Path(__file__)
+    for path in (SPEC, HANDOFF, PLAN, CONTRACT, this_file):
         text = path.read_text(encoding="utf-8")
         hits = [(text.count("\n", 0, hit.start()) + 1, re.sub(r"\d", "#", hit.group()))
-                for hit in _CORPUS_MONTH.finditer(text)]
+                for hit in _CORPUS_MONTH.finditer(text)
+                if not (path == this_file and hit.group() in _CORPUS_MONTH_SHAPES)]
         assert hits == [], (path.name, hits)
     amendments = SPEC.read_text(encoding="utf-8").split("\n## 20. Implementation amendments", 1)[1]
     line = _amendment_line(amendments, "- **Audit round 4, R4-B04 in all** (")
     assert ("R4-76: 11 items in 8 cached accounts, 3 distinct statements holding 4 payments (TD Canada Trust, two "
             "payments, the open I41 statement; Bank of America, one; Citibank, one; each statement uploaded two or "
             "three times; the statements' months removed in place, R4-B04 review round 1) now read") in line
-    for gone in ("its December", "America, March", "Citibank, April"):
-        assert gone not in line, gone
+    clause = line.split("R4-76: ", 1)[1].split(" now read", 1)[0]
+    assert re.findall(r"\b" + _MONTH_NAME + r"\b", clause) == [], clause
+    handoff = _flat(HANDOFF)
+    owner_items = handoff.split("## 6. Open owner items", 1)[1].split("## 7. ", 1)[0]
+    for commit in ("3650162", "2822047"):
+        assert f"`{commit}`" in owner_items, commit
+    assert "R4-B04's review rounds 1 and 2 found" in owner_items
