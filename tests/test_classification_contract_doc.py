@@ -3959,9 +3959,20 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
 _R4_40_MONEY = r"\$\s?\d[\d,]*(?:\.\d+)?"
 _R4_40_NOUN = r"(?:row|credit|debit|deposit|transfer|wire|payment|charge)"
 _R4_40_WORDS = r"(?:[\w`'-]+ )"
+#: A merged pair prints a count before its "and" ("`<code>` n and `<code>` 1, $x", "n rows and"): a sum of several
+#: rows. Any other "and" ("..., $x, and `<code>` 1, $y") does not merge (R4-B01 review round 1, finding 5).
+_R4_40_NOT_MERGED = r"(?<!\d and )(?<!\d rows and )"
 R4_40_SINGLE_ROW_SHAPES = tuple(re.compile(pattern) for pattern in (
     # `<code>` 1, $x  and  `<code>` 1 row, $x  (not a merged "`<code>` n and `<code>` 1, $x", a sum of several rows)
-    r"(?<!and )`[^`\n]+` 1(?: row)?, (" + _R4_40_MONEY + r")",
+    _R4_40_NOT_MERGED + r"`[^`\n]+` 1(?: row)?, (" + _R4_40_MONEY + r")",
+    # `<code>` 1 ($x  and  `<code>` 1 row ($x  (R4-B01 review round 1, finding 5)
+    _R4_40_NOT_MERGED + r"`[^`\n]+` 1(?: row)? \((" + _R4_40_MONEY + r")",
+    # 1 <words> credit of $x, one row of $x, a single credit of $x, its only row, $x (review round 1, finding 5)
+    r"\b(?:1|one) " + _R4_40_WORDS + r"{0,4}" + _R4_40_NOUN + r" of (" + _R4_40_MONEY + r")",
+    r"\b(?:single|only) " + _R4_40_WORDS + r"{0,3}" + _R4_40_NOUN + r"(?: of |, | \()(" + _R4_40_MONEY + r")",
+    # a total step a line gives as one row: "$a (..%) → $b (..%) (R..'s one row)" (review round 1, finding 3)
+    r"→ (" + _R4_40_MONEY + r")(?: \([^)]*\))? \(" + _R4_40_WORDS + r"{0,3}(?:1|one|a single) " + _R4_40_NOUN
+    + r"\b",
     # 1 row|credit|debit ..., $x  (also "(1 row, $x")
     r"\b1 " + _R4_40_NOUN + r"\b[^;$()]{0,80}?, (?:about )?(" + _R4_40_MONEY + r")",
     # 1 <word ...> credit ($x  and  1 <word ...> credit, about $x
@@ -3984,21 +3995,29 @@ R4_40_RULE_CONSTANTS = {"$1", "$500", "$10,000"}
 
 
 def _r4_40_single_row_figures(text: str) -> list:
-    """Every money figure of §17.1 to the end that a single-row shape prints, but a rounded bound (a figure followed by
-    K, M, thousand or million), a sum over several statements (a figure followed by "over") and a rule constant."""
-    scope = text[text.index("\n### 17.1 "):]
+    """Every money figure of the whole document that a single-row shape prints (R4-B01 review round 1, finding 4: the
+    whole spec, §17's questions included, not only §17.1 to the end), but a rounded bound (a figure followed by K, M,
+    thousand or million after a bound word: over, under, more than, less than, up to; review round 1, finding 5: a
+    count of 1 then "about $N thousand" is still one row's amount), a sum over several statements (a figure followed
+    by "over") and a rule constant."""
     found = {}
-    for number, line in enumerate(scope.splitlines()):
+    for number, line in enumerate(text.splitlines()):
         for pattern in R4_40_SINGLE_ROW_SHAPES:
             for match in pattern.finditer(line):
                 after = line[match.end(1):match.end(1) + 12]
-                if re.match(r"\s?(?:K|M|thousand|million)\b|\s(?:over)\b", after):
+                if re.match(r"\s(?:over)\b", after):
+                    continue
+                before = line[max(0, match.start(1) - 12):match.start(1)]
+                if re.match(r"\s?(?:K|M|thousand|million)\b", after) and re.search(
+                        r"\b(?:over|under|more than|less than|up to)\s?$", before):
                     continue
                 figure = match.group(1).replace(" ", "")
                 if figure in R4_40_RULE_CONSTANTS or not re.search(r"[1-9]", figure):
                     continue
-                # A merged pair ("`<code>` n rows and `<code>` 1 row, $x") prints a sum of several rows.
-                if re.search(r"\band `[^`]+` 1(?: row)?, $", line[max(0, match.start() - 80):match.start(1)]):
+                # A merged pair ("`<code>` n rows and `<code>` 1 row, $x") prints a sum of several rows: a count
+                # before its "and" (R4-B01 review round 1, finding 5: "..., $x, and `<code>` 1, $y" is no merge).
+                if re.search(r"\d(?: rows?)? and `[^`]+` 1(?: row)?(?:, | \()$",
+                             line[max(0, match.start() - 80):match.start(1)]):
                     continue
                 found.setdefault((number, match.start(1)),
                                  re.sub(r"\d", "#", line[max(0, match.start() - 40):match.end() + 10]))
@@ -4077,6 +4096,74 @@ def test_r4_40_no_spec_line_prints_a_single_corpus_row_s_amount():
         "- **Banque Royale's French autodeposit is the Interac rail**")]
     unmarked = [entry[:60] for entry in edited if "removed in place, audit round 4, R4-40" not in entry]
     assert not unmarked, unmarked
+    # R4-B01 review round 1 (finding 2): R3-B15's line no longer prints the 44 rows' sum, which less the two parts
+    # R3-53's line prints gave the `payroll_or_salary` row back.
+    b15 = _amendment_line(amendments, "- **Audit round 3, R3-B15 in all** (")
+    assert "44 held rows, 5 statements, by held reason" in b15 and "44 held rows, $" not in b15
+    # Finding 3: R2-B11's Verified step was R33's one row, so it reads in points; the total before it is gone wherever
+    # it printed, with R2-B09's Verified move (R06's 3 rows; less its two wires it also gave the city's row back),
+    # since R2-B12's figures still give the total after it. No line prints a Verified total from R2-B09's to R2-B11's.
+    b11 = _amendment_line(amendments, "- **Audit round 2, R2-B11 in all** (")
+    assert "Verified 28.649% → 28.650% (+0.001 points, R33's one row; both totals removed in place" in b11
+    chain = [_amendment_line(amendments, start) for start in (
+        "- **Audit round 2, R2-B09 review round 1, in all** (", "- **Audit round 2, R2-B10 in all** (",
+        "- **A bare incoming wire prints only a reference, read word by word** (", "- **Audit round 2, R2-B11 in all** (")]
+    assert not [entry[:50] for entry in chain if re.search(r"Verified \$\d", entry)]
+    b09 = _amendment_line(amendments, "- **Audit round 2, R2-B09 in all** (")
+    assert "Verified 28.647% → 28.649% (3 rows, R06; their sum removed in place" in b09 and "(+$" not in b09.split(
+        "Verified 28.647%", 1)[1][:30]
+    r06 = _amendment_line(amendments, "- **A layout's `CREDIT` label is a template prefix, never a lender's name** (")
+    assert "Verified +$" not in r06 and "Verified gains 3 rows, the city's payment and the two wires" in r06
+    # Finding 4: §17's OQ6 prints its one wire with no amount.
+    [oq6] = [entry for entry in text.splitlines() if entry.startswith("- **OQ6. Third-party book transfers**")]
+    assert "one invoice-citing BofA wire (its amount removed in place, audit round 4, R4-40)" in oq6
+    for entry in (b15, b09, r06, *chain):
+        assert "removed in place, audit round 4, R4-40" in entry, entry[:60]
+
+
+#: Audit round 4, R4-B01 review round 1 (finding 5): fabricated lines, each a single row's amount in a shape the scan
+#: must read (the merged pair aside), and controls it must leave alone. Every figure is fabricated.
+R4_40_SHAPES_READ = (
+    "`holder_name` 3, $1,111.11, and `payroll_or_salary` 1, $2,222.22, from `non_revenue`.",
+    "1 row, $4,444.44 at c000000.",
+    "one row of $5,555.55 is held.",
+    "a single credit of $6,666.66 is held.",
+    "the one held row ($7,777.77) stays.",
+    "1 credit, about $8 thousand and 9.9% of its statement's True.",
+    "Verified $10,000,000.00 → $10,001,234.56 (R99's one row).",
+    "Verified $10,000,000.00 (28.000%) → $10,001,234.56 (28.001%) (R99's one row).",
+    "one SAMPLE credit, $9,999.99, counted.",
+    "1 row ($1,234.56) counted.",
+    "1 counted credit of $2,345.67 moves.",
+    "its only row, $3,456.78, moves.",
+    "`possible_return` 1 ($4,567.89, 1 statement).",
+    "`possible_return` 1 row ($4,567.89, 1 statement).",
+)
+R4_40_SHAPES_LEFT = (
+    "`named_payer_one_off` 5 and `named_payer_purpose_refused` 1, $3,333.33; a merged pair.",
+    "`quebec_government` 4 rows and `nd_workforce_safety` 1 row, $3,333.33 (merged).",
+    "one counted credit of over $9M.",
+    "one payer's unworded EDI rows, $3,333.33 over 3 statements.",
+    "one tenant's monthly wire ($3,333.33 over three statements).",
+    "one Katapult pair under $1, which the $1 floor holds.",
+    "`possible_return` 1 (1 statement; its amount removed in place).",
+    "Verified 28.000% → 28.001% (+0.001 points, R99's one row).",
+    "1 row at c000000; 2 rows, $3,333.33.",
+)
+
+
+def test_r4_40_the_single_row_scan_reads_every_shape():
+    """Audit round 4, R4-B01 review round 1 (finding 5): the C1 scan reads a single row's amount however a line prints
+    it: after `<code>` 1 with a comma or a bracket (a merged pair needs a count before its "and"), after 1 or one with
+    "of", after "a single" or "its only", rounded to the thousand after a count of 1, and as the after-figure of a total
+    step a line gives as one row; a bound, a sum over several statements, a plural noun and a merged pair stay."""
+    def hits(line: str) -> list:
+        return _r4_40_single_row_figures("intro\n### 17.1 Open\n- x: " + line + "\n")
+
+    missed = [line for line in R4_40_SHAPES_READ if not hits(line)]
+    assert not missed, missed
+    wrong = [line for line in R4_40_SHAPES_LEFT if hits(line)]
+    assert not wrong, wrong
 
 
 #: Audit round 4, R4-B01: the commits the §20 line names (A: the insurer tests' amounts; B: the spec lines).
@@ -4105,3 +4192,43 @@ def test_r4_42_and_r4_40_are_recorded():
                   "R4-40", "`a93aedc` and `949b9e1`"):
         assert words in owner_items, words
     assert "a forward fix can drop it" not in handoff
+
+
+#: Audit round 4, R4-B01 review round 1: the fix pass's commits (D: the insurer tests' round-2 amounts; E: the spec
+#: lines), and the pushed commits it found that print the values (the tests; the spec).
+R4_B01_R1_COMMITS = ("0d64152", "5905864")
+R4_B01_R1_HISTORY = ("c1acc3e", "28d7167", "1377e3f", "7bcf4e9", "dfab213", "f2756ab")
+
+
+def test_r4_b01_review_round_1_is_recorded():
+    """Audit round 4, R4-B01 review round 1 (findings 1 to 5): the batch's §20 line names the round-2 test commits and
+    the newly found spec commits and is amended in place where its measured claim did not hold; §20's review-round line
+    follows it (each finding, the probes, the history; no cent figure); §9.3's line covers the round; the handoff's §6
+    history item names the commits and the fix pass's commits."""
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    batch = _amendment_line(amendments, "- **The insurer tests' premiums are fabricated, and no spec line prints a "
+                                        "single corpus row's amount** (")
+    for words in ("(Amended in place by its review round 1, below: the file's round-2 sections, from 28d7167 (R2-OW07) "
+                  "and c1acc3e (R2-OW08)", "(amended in place by its review round 1, below: at 16e5558 and c9d65be",
+                  "found by its review round 1, c1acc3e and 28d7167", "from its review round 1 1377e3f, 7bcf4e9, "
+                  "dfab213 and f2756ab"):
+        assert words in batch, words
+    line = _amendment_line(amendments, "- **R4-B01 review round 1: the insurer tests' round-2 amounts are fabricated "
+                                       "too, and no total, chain of totals or question gives a single row back** (")
+    for words in ("audit round 4, R4-42 and R4-40, R4-B01 review round 1, findings 1 to 5", *R4_B01_R1_COMMITS,
+                  "this commit", "(Finding 1, R4-42)", "0 cached rows", "the file's 559 tests keep every expectation",
+                  "(Finding 2)", "(Finding 3)", "(Finding 4)", "(Finding 5)", "the docs test's scan reads the whole spec",
+                  "14 shapes read and 9 controls left", "R2-OW14's printed multi-row cash-load sum", "force-push",
+                  "origin/cursor/intern-testing-host-d911", *R4_B01_R1_HISTORY):
+        assert words in line, words
+    assert not _cent_figures(line)
+    assert amendments.index(batch) < amendments.index(line)
+    assert len(R4_40_SHAPES_READ) == 14 and len(R4_40_SHAPES_LEFT) == 9
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    assert ("test literals and documentation only. Its review round 1 likewise (§20).") in versions
+    handoff = _flat(HANDOFF)
+    owner_items = handoff.split("## 6. Open owner items", 1)[1].split("## 7. ", 1)[0]
+    for commit in (*R4_B01_R1_COMMITS, *R4_B01_R1_HISTORY):
+        assert f"`{commit}`" in owner_items, commit
+    assert "R4-B01's review round 1 found more" in owner_items

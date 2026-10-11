@@ -188,7 +188,13 @@ Shared rules CR1-CR8 are in R2-OW01's notes. The main one: no owner batch bumps 
   commits `70ebdd6`, `d7637c4`, `5ecb620`, `6d2d614`, `f8b5233`, `bffc560`, `efd82a5`, `3705347`, `67bcf6b`,
   `7bc1a24`, `8453ae9`, `2e60915`, `166cbe8`, `b0cf346`, `0d62f87`, `0633d9b`, `5a230b8` and `9871cdf` carry single
   rows' amounts (on the same three branches, most also on the older hosting and fix branches); both fixed forward in
-  `16e5558` and `c9d65be` (R4-B01); a rewrite needs the owner's OK (default: no rewrite).
+  `16e5558` and `c9d65be` (R4-B01). R4-B01's review round 1 found more, fixed forward in `0d64152` and `5905864`: the
+  test commits `c1acc3e` (R2-OW08) and `28d7167` (R2-OW07) printed the same first Manulife amount and three more clinic
+  carrier amounts in that file's round-2 sections, and the spec commits `1377e3f` and `7bcf4e9` (§17's OQ6 wire),
+  `dfab213` (R06's Verified move, one row once its two wires are taken off) and `f2756ab` (R2-B11's Verified totals,
+  one row apart; `35524b0`, `2dcbe9c`, `3725e7f` and `c169e67` print the same totals) give single rows back, each on
+  origin/true-revenue, origin/hosting/true-revenue-5.8, the Fly deploy branch and eight older hosting and fix branches;
+  a rewrite needs the owner's OK (default: no rewrite).
 - **Owner items with evidence, no fix:** R3-28 (the daily core-processor template's unread credits counted in True:
   about $47K to $50K of $296K under blocks the MCA standard excludes; the block is stored since R3-B09; §17.1's
   "Readings the owner may convert") and R3-76 (a tax preparer's `TAX REFUND PROC DES:RE DISB` credits excluded as
