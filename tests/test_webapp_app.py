@@ -519,7 +519,9 @@ def test_index_page_renders():
     client = app.test_client()
     resp = client.get("/")
     assert resp.status_code == 200
-    assert b"Unlimited" in resp.data
+    # The owner's own design (2026-10-11): the tab title is the product's name, which replaced the old
+    # "Unlimited-OCR - Bank Statement Platform".
+    assert b"<title>Capital Infusion</title>" in resp.data
 
 
 # ---------------------------------------------------------------------------

@@ -1015,8 +1015,8 @@ def test_the_bar_colours_are_the_key_colours_in_both_themes_and_no_bar_is_highli
     assert _declared(rules, ".bar-value", "color") == "var(--text-2)"
     assert _declared(rules, ".bar-value-true", "color") == "var(--accent-text)"
     assert _declared(rules, ".bar-value-verified", "color") == "var(--verified)"
-    # Both themes resolve the same tokens: the dark root and the light theme each set the neutral and the verified
-    # shade, and the accent is the dark root's in both.
-    dark, light = _tokens(rules, ":root"), _tokens(rules, ':root[data-theme="light"]')
+    # Both themes resolve the same tokens: each theme sets the neutral, the verified shade and the accent. The owner's
+    # own design (2026-10-11): light is the root (the default) and dark the data-theme rule, each with its own accent.
+    light, dark = _tokens(rules, ':root, :root[data-theme="light"]'), _tokens(rules, ':root[data-theme="dark"]')
+    assert {"--border-2", "--verified", "--accent"} <= set(light)
     assert {"--border-2", "--verified", "--accent"} <= set(dark)
-    assert {"--border-2", "--verified"} <= set(light) and "--accent" not in light
