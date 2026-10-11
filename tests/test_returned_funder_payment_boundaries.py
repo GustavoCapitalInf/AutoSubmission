@@ -619,25 +619,115 @@ WARNING_ITEMS = [
 ]
 
 
+#: Audit round 4, R4-56: the package rows the page names statements from (paymentChangeSources): March alone, and
+#: March and April.
+ONE_STATEMENT = [{"id": "mar", "filename": "mar.pdf", "period_start": "2031-03-01", "period_end": "2031-03-28"}]
+TWO_STATEMENTS = [*ONE_STATEMENT,
+                  {"id": "apr", "filename": "apr.pdf", "period_start": "2031-04-01", "period_end": "2031-04-28"}]
+#: Fabricated items naming their statements by job, as a package serves them: in March; across March and April; one
+#: re-debited in April whose re-debit April returned too (R4-76), and that return; a 3x catch-up in April, paid.
+PACKAGE_WARNING_ITEMS = [
+    {"funder": "KAPITUS", "amount": 850.0, "debit_date": "2031-03-11", "debit_location": "transaction:3",
+     "credit_date": "2031-03-12", "credit_description": BARE_BOUNCE, "source_job": "mar", "source_document": "mar.pdf",
+     "source_currency": "USD"},
+    {"funder": "KAPITUS", "amount": 850.0, "debit_date": "2031-03-27", "debit_location": "transaction:6",
+     "credit_date": "2031-04-02", "credit_description": BARE_BOUNCE, "source_job": "mar", "source_document": "mar.pdf",
+     "source_currency": "USD", "cross_statement": True, "credit_job": "apr", "credit_document": "apr.pdf"},
+    {"funder": "KAPITUS", "amount": 850.0, "debit_date": "2031-03-25", "debit_location": "transaction:5",
+     "credit_date": "2031-03-28", "credit_description": BARE_BOUNCE, "source_job": "mar", "source_document": "mar.pdf",
+     "source_currency": "USD", "represented_date": "2031-04-03", "represented_location": "transaction:3",
+     "represented_kind": "re_presented", "represented_job": "apr", "represented_document": "apr.pdf"},
+    {"funder": "KAPITUS", "amount": 850.0, "debit_date": "2031-04-03", "debit_location": "transaction:3",
+     "credit_date": "2031-04-04", "credit_description": BARE_BOUNCE, "source_job": "apr", "source_document": "apr.pdf",
+     "source_currency": "USD"},
+    {"funder": "ONDECK", "amount": 1200.0, "debit_date": "2031-03-18", "debit_location": "transaction:4",
+     "credit_date": "2031-03-20", "source_job": "mar", "source_document": "mar.pdf", "source_currency": "USD",
+     "represented_date": "2031-04-04", "represented_location": "transaction:7", "represented_kind": "caught_up",
+     "represented_multiple": 3, "represented_job": "apr", "represented_document": "apr.pdf"},
+]
+
+
+def _statement_labels(line):
+    """The page's statement labels (months, from the package's rows) as the download writes them (files): R3-MERGE
+    owner item 1, the one recorded difference between the two."""
+    return (line.replace("From: March 2031 → April 2031 statements", "From: mar.pdf → apr.pdf")
+            .replace("March 2031 statement", "mar.pdf").replace("April 2031 statement", "apr.pdf"))
+
+
 @needs_node
 def test_r3_67_the_section_s_words_are_the_dashboard_s_warning():
-    """The words are app.js returnedFunderPaymentWarning's line on every branch (in-statement, cross-statement with and
-    without its documents, re-presented, caught up, no funder, no dates, no unit), the money written as the
-    downloads write money (`850.00 USD`, no unit when the item has none) in place of the dashboard's formatted money."""
+    """The words are the package page's note (app.js returnedFunderPaymentWarning with the package's sources,
+    paymentChangeSources, and its list read by withReDebitReturns) on every branch (in-statement, cross-statement with
+    and without its documents, re-presented, caught up, a re-debit returned too, no funder, no dates, no unit), the
+    money written as the downloads write money (`850.00 USD`, no unit when the item has none) in place of the
+    dashboard's formatted money. Audit round 4, R4-56 (re-pointed: it compared a rendering with no sources, which the
+    page never shows for a package item): in a package that counts one statement the two are equal; in a package of two
+    they are equal once each statement's month is read as its file (R3-MERGE owner item 1), and any other drift fails."""
     import json
 
     from webapp.app import _returned_funder_payment_words
 
+    items = [*WARNING_ITEMS, *PACKAGE_WARNING_ITEMS]
     result = run_dashboard(f"""
-const items = {json.dumps(WARNING_ITEMS)};
-console.log(JSON.stringify(items.map((item) => ({{
-  line: returnedFunderPaymentWarning(item, 'USD'),
-  money: formatMoney(item.amount, "source_currency" in item ? item.source_currency : 'USD'),
-}}))));
+const items = {json.dumps(items)};
+const lines = (documents) => withReDebitReturns(items).map((item) => returnedFunderPaymentWarning(item, 'USD',
+  paymentChangeSources(documents)));
+console.log(JSON.stringify({{one: lines({json.dumps(ONE_STATEMENT)}), two: lines({json.dumps(TWO_STATEMENTS)}),
+  money: items.map((item) => formatMoney(item.amount, "source_currency" in item ? item.source_currency : 'USD'))}}));
 """)
-    for item, dashboard in zip(WARNING_ITEMS, result, strict=True):
-        money = f"{item['amount']:,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
-        assert _returned_funder_payment_words(item) == dashboard["line"].replace(dashboard["money"], money, 1)
+    assert any("and that debit was also returned." in line for line in result["one"])
+    assert any("From: March 2031 → April 2031 statements." in line for line in result["two"])
+    for counted, lines in ((1, result["one"]), (2, result["two"])):
+        for item, line, dashboard_money in zip(items, lines, result["money"], strict=True):
+            money = f"{item['amount']:,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
+            page = line.replace(dashboard_money, money, 1)
+            assert _returned_funder_payment_words(item, items=items, counted=counted) == (
+                page if counted == 1 else _statement_labels(page)), (counted, item)
+            if counted == 1:
+                assert "From:" not in page
+
+
+def _march_return_rows():
+    """March of the F2(b) fixture, whose 6th's KAPITUS payment the bank returns on the 9th (rule D inside March)."""
+    return sorted([*MARCH, (9, BARE_BOUNCE, 850.0)], key=lambda row: row[0])
+
+
+@needs_node
+@pytest.mark.parametrize("shape", ["one_job", "repeated_upload"])
+def test_r4_56_a_package_of_one_counted_statement_prints_no_source_line(shape):
+    """Audit round 4, R4-56: a package that counts one statement (a single job's `?ids=` package, or two uploads whose
+    second repeats the first, `is_duplicate`) prints no "From:" line, as its page and memo print none
+    (`paymentChangeSourceLine`: `sources.count <= 1`). Base: "... it still counts in the withholding rate. From:
+    mar.pdf."."""
+    import json
+
+    from tests.test_package_matching import _job, _payload
+    from webapp.app import _package_analysis
+    from webapp.jobs import Job
+
+    march = _payload(_march_return_rows(), month=3, opening=5000.0)
+    jobs = [_job("mar", march)]
+    if shape == "repeated_upload":
+        jobs.append(Job(id="mar-again", filename="mar-again.pdf", status="done", analysis=march, content_sha256="mar"))
+    package = _package_analysis(jobs, settings={})
+    assert [row.get("is_duplicate") is True for row in package["documents"]] == (
+        [False] if shape == "one_job" else [False, True])
+    sections, _order = _returned_sections(package)
+    (section,) = sections.values()
+    words = section["words"]
+    assert words == ('KAPITUS: a payment was returned. The 850.00 USD payment on Mar 6, 2031 was returned unpaid on Mar '
+                     '9, 2031 (the bank printed: "ACH RETURN ITEM NSF"). It isn\'t counted as paid, but it still counts '
+                     'in the withholding rate.')
+    page = run_dashboard(f"""
+const pkg = {json.dumps(package)};
+console.log(JSON.stringify(withReDebitReturns(pkg.returned_funder_payments).map((item) =>
+  returnedFunderPaymentWarning(item, 'USD', paymentChangeSources(pkg.documents)))));
+""")
+    assert [line.replace("$850.00", "850.00 USD", 1) for line in page] == [words]
+    # A package of two counted statements keeps its source line (the control).
+    two = _package_analysis([_job("mar", march), _job("apr", _months(_april(), march_rows=_march_return_rows())[1])],
+                            settings={})
+    assert _returned_sections(two)[0][1]["words"].endswith(" From: mar.pdf.")
 
 
 def test_r4_75_the_download_words_name_a_catch_up_s_multiple():

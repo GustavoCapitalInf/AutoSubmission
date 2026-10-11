@@ -911,8 +911,9 @@ _RETURNED_FUNDER_PAYMENT_FIELDS = (
 
 
 #: Audit round 3, R3-MERGE: the readable day and the uploaded file's name as app.js writes them in the lender notes of the
-#: owner's request of 2026-10-07 (readableDate, statementFileName), so the download keeps R3-67's rule that its words
-#: are the dashboard's.
+#: owner's request of 2026-10-07 (readableDate, statementFileName), so the download prints the dashboard's sentences,
+#: each statement named by its file where the package page names its month (R3-MERGE owner item 1, the owner's), and,
+#: since audit round 4 (R4-56), no source line in a package that counts one statement, as the page prints none.
 _READABLE_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _STATEMENT_ID_PREFIX = re.compile(
     r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})(?:[_\s-]+|$)", re.IGNORECASE)
@@ -939,12 +940,16 @@ def _statement_file_name(name) -> str:
     return text
 
 
-def _returned_funder_payment_source(item: dict) -> str:
-    """app.js paymentChangeSourceLine for a returned funder payment's note, read without a package page's rows (the
-    downloads name each statement by its file, as the dashboard does where it has no rows): none on a statement's own
-    item (it names no source; a returned payment's item carries no `scope`, which only a payment change's does), "From:
-    <file> → <file>" for a match across statements, else "From: <file>"."""
+def _returned_funder_payment_source(item: dict, counted: int | None = None) -> str:
+    """app.js paymentChangeSourceLine for a returned funder payment's note, each statement named by its file where the
+    package page names its month from its rows (R3-MERGE owner item 1): none on a statement's own item (it names no
+    source; a returned payment's item carries no `scope`, which only a payment change's does) or, since audit round 4
+    (R4-56), in a package that counts one statement (`counted`, its rows that are no repeat, app.js countedDocuments),
+    as the page prints none (`sources.count <= 1`); "From: <file> → <file>" for a match across statements, else "From:
+    <file>"."""
     if "source_job" not in item and "source_document" not in item:
+        return ""
+    if counted is not None and counted <= 1:
         return ""
 
     def label(prefix: str) -> str:
@@ -972,15 +977,17 @@ def _re_debit_returned(item: dict, items) -> bool:
                for other in items or ())
 
 
-def _returned_funder_payment_words(item: dict, *, items=()) -> str:
+def _returned_funder_payment_words(item: dict, *, items=(), counted: int | None = None) -> str:
     """Audit round 3, R3-B23 (R3-67): a returned funder payment as the dashboard's warning reads it (app.js
     returnedFunderPaymentWarning, §10.1), its money as the downloads write money: the amount, then the item's own unit
     where it names one (the overlapping statements' words; no unit when it is unknown). A payment matched to its return
     across statements names both documents; a payment the funder re-debited (R3-B02) names the re-debit and is counted
-    once in the withholding rate. Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 that
-    the dashboard now writes (a headline, its sentences, the statements it comes from), so R3-67's rule holds. Audit
-    round 4, R4-75: a catch-up of 3 to 6 times the payment (`represented_multiple`; an item without it reads 2) says
-    "by one debit of <k> times the payment", a 2x "of twice the payment", as before. Audit round 4, R4-76: where the
+    once in the withholding rate. Audit round 3, R3-MERGE: the dashboard's sentences, in the plain voice of the owner's
+    request of 2026-10-07 (a headline, its sentences, the statements it comes from), each statement named by its file
+    where the package page names its month (R3-MERGE owner item 1, the owner's); since audit round 4 (R4-56) no source
+    line in a package that counts one statement (`counted`), as the page prints none. Audit round 4, R4-75: a catch-up
+    of 3 to 6 times the payment (`represented_multiple`; an item without it reads 2) says "by one debit of <k> times
+    the payment", a 2x "of twice the payment", as before. Audit round 4, R4-76: where the
     bank returned the re-debit too (`_re_debit_returned` against the list's `items`, or an item copied with
     `represented_returned`, as app.js withReDebitReturns marks it), "It was debited again on <day>, and that debit was
     also returned." (a catch-up: "A catch-up of <twice / k times> the payment was debited on <day>, and that debit was
@@ -1011,7 +1018,7 @@ def _returned_funder_payment_words(item: dict, *, items=()) -> str:
                          f"{'catch-up' if caught_up else 'second debit'}.")
     else:
         sentences.append("It isn't counted as paid, but it still counts in the withholding rate.")
-    source = _returned_funder_payment_source(item)
+    source = _returned_funder_payment_source(item, counted)
     if source:
         sentences.append(f"{source}.")
     return " ".join(sentences)
@@ -1124,12 +1131,17 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     # each funder payment the bank returned unpaid, as the package serves it, its fields and then the dashboard's
     # warning line, each in its own statement's unit (a refused package sums none of them).
     # Audit round 4, R4-76: each item's words read the package's list, so a re-debit the bank returned too is said.
+    # R4-56: and the statements the package counts (its rows that are no repeat, app.js countedDocuments), so a package
+    # of one prints no source line, as its page prints none.
     returned = [item for item in package.get("returned_funder_payments") or [] if isinstance(item, dict)]
+    counted = sum(1 for document in package.get("documents") or []
+                  if isinstance(document, dict) and document.get("is_duplicate") is not True)
     for idx, item in enumerate(returned, start=1):
         for key in _RETURNED_FUNDER_PAYMENT_FIELDS:
             value = item.get(key)
             rows.append((f"returned_funder_payment_{idx}", key, "" if value is None else value))
-        rows.append((f"returned_funder_payment_{idx}", "words", _returned_funder_payment_words(item, items=returned)))
+        rows.append((f"returned_funder_payment_{idx}", "words",
+                     _returned_funder_payment_words(item, items=returned, counted=counted)))
     for idx, funder in enumerate(package.get("potential_lenders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"potential_lender_{idx}", key, "" if value is None else value))

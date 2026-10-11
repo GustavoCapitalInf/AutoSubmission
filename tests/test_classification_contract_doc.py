@@ -3364,10 +3364,11 @@ def test_r3_b23_the_code_names_its_rules():
     assert "no_analysis = isinstance(totals, dict) and totals.get(\"completed\") == 0" in export
     # The source with its comments' line breaks read as spaces.
     rows = re.sub(r"\s+", " ", re.sub(r"\n\s*# ", " ", inspect.getsource(appmod._package_rows)))
-    # Audit round 4, R4-76: the words read the package's list (`items`), so a re-debit returned too is said.
+    # Audit round 4, R4-76: the words read the package's list (`items`), so a re-debit returned too is said; R4-56: and
+    # the statements the package counts (`counted`), so a package of one prints no source line.
     for words in ("rows.append((f\"repeated_account_{idx}\", \"words\", _repeated_account_words(entry, filenames)))",
                   "rows.append((f\"returned_funder_payment_{idx}\", \"words\", _returned_funder_payment_words(item, "
-                  "items=returned)))",
+                  "items=returned, counted=counted)))",
                   "a repeated account of a document, a B11 repeat or an R14 superseded printout, has its own "
                   "`repeated_account_<n>` section below, and a whole repeated job its document row and duplicate group "
                   "above"):
@@ -3911,14 +3912,22 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit itself (7e254cf)",
                   "the app.js cache-bust to `true-revenue-11`", "`CLASSIFICATION_VERSION` stays 5.8",
                   "`Statement.pre_period_carry_in_count`", "`stated_daily_balances`",
-                  "the package downloads' returned funder payment words (R3-B23)"):
+                  "the package downloads' returned funder payment words (R3-B23)",
+                  # Audit round 4, R4-56: what the download prints, said exactly.
+                  "naming each statement by its file where the page names its month (R3-MERGE owner item 1) and "
+                  "printing no source line in a package that counts one statement (audit round 4, R4-56)"):
         assert words in versions, words
+    assert "returned funder payment words (R3-B23), which follow the dashboard's." not in versions
     assert versions.index("- 5.8 (audit round 3, R3-B25: §20)") < versions.index("- Audit round 3, R3-MERGE (§20)")
     head = sections.split("\n## 10. Metrics and UI", 1)[1].split("\n### 10.1 ", 1)[0]
     for words in ("*Audit round 3, R3-MERGE (§20;", "It was taken again on <day> (<its statement>).",
                   "<funder>: a lump-sum payoff.", "<lender>: missed payments caught up.",
                   "this may be the lender collecting under another name.",
-                  "The Withholding Rate cell reads each row's served `withholding_rate`"):
+                  "The Withholding Rate cell reads each row's served `withholding_rate`",
+                  # Audit round 4, R4-76 and R4-56: a re-debit returned too, and the download of a package of one.
+                  "It was debited again on <day> (<its statement>), and that debit was also returned.",
+                  "(no \"From:\" line in a package that counts one statement, as the page prints none: audit round 4, "
+                  "R4-56)"):
         assert words in head, words
     order = [amendments.index(start) for start in (
         "- **Re-presented payments: a 2x level on either side of a candidate",
@@ -3933,12 +3942,17 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
     assert ("the Withholding Rate cell divides the row's own served figures (amended by R3-MERGE, below: the merged cell "
             "reads the row's served `withholding_rate`") in dashboard
     line = _amendment_line(amendments, "- **The hosting line merged back** (")
+    # Audit round 4, R4-56: the line no longer claims R3-67's rule holds; it states what the download prints.
     for words in ("audit round 3, R3-MERGE", "§9.3", "\"Merge, then audit\"", *R3_MERGE_COMMITS, "`--no-ff`",
-                  "stage 37, `true-revenue-11`", "R3-67's rule", "RED against the hosting line's app.js",
+                  "stage 37, `true-revenue-11`", "so the section prints the dashboard's warning sentences; it names "
+                  "each statement by its file where the page names its month (the owner's choice, R3-MERGE owner item "
+                  "1) and, since audit round 4 (R4-56), prints no source line in a package of one statement",
+                  "RED against the hosting line's app.js",
                   "no test that reads real statements moved", "the corpus extraction gate GREEN",
                   "equals the base in every key but `analysis_stage_version`", "G7, re-parsed and cached",
                   "exactly two statements move, both from withheld to validated", "0 console errors"):
         assert words in line, words
+    assert "so R3-67's rule (the section prints the dashboard's warning) still holds" not in line
     assert not _cent_figures(line)
     # Audit round 4, R4-B01 (C3): the merge line is round 3's last §20 line; every §20 line after it is round 4's.
     later = [entry for entry in amendments.split(line, 1)[1].splitlines() if entry.startswith("- **")]
