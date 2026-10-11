@@ -13,7 +13,7 @@
      Capital Infusion - the underwriting desk. Every colour is a token.
      Light (paper under a sky that follows the time of day) is the default;
      dark is the night desk. Green marks what reconciles, ink carries the
-     actions, and the paper objects - receipts, adding-machine tape, green-bar
+     actions, and the paper objects - receipts, adding-machine tape, the
      ledger, the stamp - borrow from the tools underwriters already know.
      =================================================================== */
   :root, :root[data-theme="light"] {
@@ -80,7 +80,6 @@
     --sheet-ink-2: #6b685f;
     --sheet-rule: #e7e2d6;
     --sheet-shadow: 0 1px 1px rgba(14, 14, 14, .05), 0 18px 36px -18px rgba(60, 45, 20, .35);
-    --greenbar: rgba(15, 123, 79, .055);
     --ledger-rule: rgba(15, 123, 79, .16);
     --highlight: rgba(61, 220, 151, .42);
     --stamp-ok: #0f7b4f;
@@ -168,7 +167,6 @@
     --sheet-ink-2: #9a998f;
     --sheet-rule: #2c302d;
     --sheet-shadow: 0 18px 36px -18px rgba(0, 0, 0, .8);
-    --greenbar: rgba(61, 220, 151, .04);
     --ledger-rule: rgba(61, 220, 151, .14);
     --highlight: rgba(61, 220, 151, .26);
     --stamp-ok: #3ddc97;
@@ -1024,8 +1022,8 @@
      The underwriting desk. Layout and behaviour are unchanged; this layer
      floats the navigation over a sky that follows the time of day, and
      dresses the working surfaces as the paper an underwriter knows: an
-     in-tray, a receipt, a rubber stamp, adding-machine tape and green-bar
-     ledger paper.
+     in-tray, a receipt, a rubber stamp, adding-machine tape and a ruled
+     ledger.
      =================================================================== */
   ::selection { background: var(--highlight); }
   h1, h2, h3 { text-wrap: balance; }
@@ -1326,14 +1324,11 @@
   .metric-value, .quality-value, .kv-value, .mix-total { font-variant-numeric: tabular-nums; }
   .metric-row { padding: 11px 24px; }
 
-  /* ---------- the highlighter ---------- */
-  .evidence-link, .mix-label, button.metric-row .metric-label {
-    text-decoration: none; border-radius: 2px;
-    background: linear-gradient(100deg, transparent 0 1%, var(--highlight) 1% 99%, transparent 99%) no-repeat 0 88% / 0% 48%;
-    -webkit-box-decoration-break: clone; box-decoration-break: clone;
-    transition: background-size .45s var(--ease-out);
-  }
-  .evidence-link:hover, .mix-row:hover .mix-label, button.metric-row:hover .metric-label { background-size: 100% 48%; text-decoration: none; }
+  /* ---------- clickable labels ---------- */
+  /* The owner's ruling of 2026-10-11: a clickable label (a Package revenue row, a revenue-mix row, an evidence
+     link) is never highlighted green on hover; the pointer is its cue. */
+  .evidence-link, .mix-label, button.metric-row .metric-label { text-decoration: none; }
+  .evidence-link:hover, .mix-row:hover .mix-label, button.metric-row:hover .metric-label { text-decoration: none; }
   button.metric-row:hover { background: transparent; }
 
   /* ---------- tables, chips and filters ---------- */
@@ -1356,22 +1351,17 @@
   .table-action.review-confirm { background: var(--accent); color: var(--accent-ink); }
   .table-action.review-confirm:hover { background: var(--accent-hover); }
 
-  /* ---------- the ledger: green-bar printout paper ---------- */
-  #transactionCard { position: relative; padding: 0 12px; }
-  #transactionCard::before, #transactionCard::after {
-    content: ""; position: absolute; top: 0; bottom: 0; z-index: 1; width: 12px; pointer-events: none;
-    background: radial-gradient(circle at 6px 10px, var(--bg) 0 3px, transparent 3.5px) 0 6px / 12px 22px repeat-y;
-  }
+  /* ---------- the ledger ---------- */
+  /* The owner's ruling of 2026-10-11: the card keeps plain edges (no punched holes or dashed rules beside it) and its
+     rows no green-bar striping; the hovered row keeps its mint highlight. A hairline parts the rows. */
   #transactionCard .tx-table th, #transactionCard .tx-table td { padding-left: 8px; padding-right: 8px; }
-  #transactionCard .data-table th:first-child, #transactionCard .data-table td:first-child { padding-left: 8px; }
-  #transactionCard .data-table th:last-child, #transactionCard .data-table td:last-child { padding-right: 8px; }
-  #transactionCard::before { left: 0; border-right: 1px dashed var(--border-2); }
-  #transactionCard::after { right: 0; border-left: 1px dashed var(--border-2); }
-  #transactionCard .tx-head { padding: 22px 10px 14px; }
-  #transactionCard .filter-pills { padding: 0 10px 16px; }
+  #transactionCard .data-table th:first-child, #transactionCard .data-table td:first-child { padding-left: 20px; }
+  #transactionCard .data-table th:last-child, #transactionCard .data-table td:last-child { padding-right: 20px; }
+  #transactionCard .tx-head { padding: 22px 22px 14px; }
+  #transactionCard .filter-pills { padding: 0 22px 16px; }
   #transactionCard .tx-table thead th { border-top: 0; border-bottom: 3px double var(--ledger-rule); }
   #transactionCard .tx-table td { border-top: 0; }
-  #transactionCard .tx-table tbody tr:nth-child(4n+1), #transactionCard .tx-table tbody tr:nth-child(4n+2) { background: var(--greenbar); }
+  #transactionCard .tx-table tbody tr + tr td { border-top: 1px solid var(--border); }
   #transactionCard .tx-table tbody tr:hover { background: color-mix(in srgb, var(--highlight) 45%, transparent); }
   #transactionCard .table-more { border-top: 3px double var(--ledger-rule); }
 
@@ -1436,10 +1426,6 @@
     .mix-label { white-space: normal; }
     .tape .total-item:nth-child(n) { border-left: 0; }
     .tape .total-item:nth-child(even) { border-left: 1.5px dashed var(--sheet-rule); }
-    #transactionCard { padding: 0 12px; }
-    #transactionCard::before, #transactionCard::after {
-      width: 12px; background: radial-gradient(circle at 6px 8px, var(--bg) 0 2.6px, transparent 3.1px) 0 4px / 12px 18px repeat-y;
-    }
   }
 </style>
 <script>
