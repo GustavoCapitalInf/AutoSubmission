@@ -1179,8 +1179,11 @@ def test_r3_b04_r2_one_missed_week_never_makes_a_weekly_level_daily():
     assert _steps(found) == [("decrease", "weekly", "weekly", -30, 6, 9, "2054-03-20")]
 
 
-# R3-70's slower-run test reads the main level's paid schedule only while that level is still presented through the
-# 2x or 3x run (P4's catch-up); a main level that is no longer presented there is read on its attempt-read schedule.
+# R3-70's slower-run test reads the main level's paid schedule only while that level is still presented, paid or
+# returned, on every beat of its schedule strictly inside the 2x or 3x run (each business day for a daily one; within
+# the schedule's beat tolerance otherwise; audit round 4, R4-10: one presentment anywhere inside the span read as
+# "still presented"), as P4's catch-up is; a main level that is no longer presented there is read on its attempt-read
+# schedule.
 @pytest.mark.parametrize("rows,end,expected", [
     # Weekly 1,000 with every other debit returned (its paid dates read biweekly), then biweekly 3,000 held 2.
     (_split(every(M(2), A(20)), 1000, lambda day: (day - M(2)).days % 14 == 0) + _rows([Y(4), Y(18)], 3000), Y(22),
@@ -1204,6 +1207,35 @@ def test_r3_b04_r2_a_slower_run_after_a_main_level_read_through_its_attempts_is_
     item = only(rows, end=end)
     assert _steps([item]) == [expected]
     assert (item["schedule_confirmed"], item["cadence_changed"]) == (False, True)
+
+
+# Audit round 4, R4-B05 (R4-10): "still presented through the run" is presented, paid or returned, on every beat of the
+# main level's schedule strictly inside the 2x or 3x run, as the docs say; one presentment anywhere inside its span (a
+# single returned attempt, maybe one re-presentment of an earlier return) is not.
+def test_r4_10_one_stray_attempt_inside_the_run_never_silences_the_possible_change():
+    # Daily 500 that clears only on Fridays, then 1,000 on two Fridays: a possible -60% daily -> weekly.
+    thin = _split(bdays(M(2), A(17)), 500, _fridays)
+    double = _rows([A(24), Y(1)], 1000)
+    expected = [("decrease", "daily", "weekly", -60, 7, 2, "2054-04-24")]
+    assert _steps(changes(thin + double, end=Y(5))) == expected
+    # One returned 500 on the Wednesday inside the run: the same possible change (the base read "still presented"
+    # and a catch-up: no item).
+    assert _steps(changes(thin + double + _returned([A(29)], 500), end=Y(5))) == expected
+    # The 500 presented on every business day inside the run: the funder still presents the old payment, so the run
+    # is a catch-up, no item (as on the base).
+    assert changes(thin + double + _returned(bdays(A(27), A(30)), 500), end=Y(5)) == []
+
+
+def test_r4_10_a_weekly_stray_on_or_near_the_interior_beat_stays_a_catch_up():
+    # Weekly 1,000 whose every other debit bounced, then 3,000 on 05-04 and 05-18: a possible +50% weekly -> biweekly
+    # (its clean twin's reading). A returned 1,000 on the run's only interior weekly beat (05-11), or within the weekly
+    # beat tolerance of 3 days of it (05-08, 05-13), presents the main level on every interior beat: a catch-up, no
+    # item, on the base and now.
+    w = _split(every(M(2), A(20)), 1000, lambda day: (day - M(2)).days % 14 == 0)
+    tri = _rows([Y(4), Y(18)], 3000)
+    assert _steps(changes(w + tri, end=Y(22))) == [("increase", "weekly", "biweekly", 50, 4, 2, "2054-05-04")]
+    for stray in (Y(11), Y(13), Y(8)):
+        assert changes(w + tri + _returned([stray], 1000), end=Y(22)) == [], stray
 
 
 # ------------------------------- audit round 3, R3-B05 (R3-25, R3-84; the owner's answer of 2026-10-07; fabricated)

@@ -796,7 +796,9 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     round 3, R3-70, a 2x or 3x level is no catch-up when one of its runs of MIN_PAYMENTS_HELD or more payments reads a
     regular schedule slower than the dominant level's (a catch-up pulls debits together on the schedule or faster):
     it is then § Still open 18's change at a new schedule. The dominant level's schedule there is its payments' own
-    while it is still presented, paid or returned, through the run (R3-B04 review round 1: a 2x run on the paying
+    while it is still presented, paid or returned, on every beat of its schedule strictly inside the run (each
+    business day for a daily one; within the schedule's beat tolerance otherwise; audit round 4, R4-10: one
+    presentment anywhere inside the span read as "still presented") (R3-B04 review round 1: a 2x run on the paying
     weekday of a daily level whose other days bounce keeps that beat), else its cadence, read through its attempts
     (R3-B04 review round 2: a weekly level whose every other debit bounced, then a biweekly 3x run, is a change).
 
@@ -821,10 +823,29 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     presented = sorted({*main_level.dates, *(pay.day for pay in attempts if _near(pay.cents, main_level.amount))})
 
     def main_schedule(pays: list[_Pay]) -> str | None:
-        # R3-B04 review round 2: the payments' own schedule while the main level is still presented (paid or
-        # returned) through the run, as a catch-up on its paying weekday is; else the schedule its cadence reads.
+        # R3-B04 review round 2: the payments' own schedule while the main level is still presented, paid or
+        # returned, on every beat of its schedule strictly inside the run (each business day for a daily one; within
+        # the schedule's beat tolerance otherwise; audit round 4, R4-10: one presentment anywhere inside the span read
+        # as "still presented"), as a catch-up on its paying weekday is; else the schedule its cadence reads.
         first, last = pays[0].day, pays[-1].day
-        still = any(first <= day <= last for day in presented)
+        regular = _regular(main_level.cadence)
+        tolerance = BEAT_TOLERANCE_DAYS.get(main_level.cadence, BEAT_TOLERANCE_OTHER_DAYS)
+        beats: list[date] = []
+        if regular == "daily":
+            beats = [day for day in (first + timedelta(days=step) for step in range(1, (last - first).days))
+                     if _open_day(day, calendar) == day]
+        elif regular is not None:
+            cycle = _cycle_days(regular)
+            step = 1
+            while True:
+                span = step * cycle
+                beat = first + timedelta(days=-(-span.numerator // span.denominator))
+                if beat >= last:
+                    break
+                beats.append(beat)
+                step += 1
+        still = bool(beats) and all(
+            any(abs((day - beat).days) <= tolerance and first < day < last for day in presented) for beat in beats)
         return _regular(main_level.paid_schedule if still else main_level.cadence)
 
     def slower(index: int) -> bool:
