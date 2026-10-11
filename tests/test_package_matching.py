@@ -478,16 +478,20 @@ R3_B02_KEYS = frozenset({"represented_by"})
 #: metrics `lump_sum_payoff_total` and `_count`, 0; the detection list `lump_sum_payoffs`, empty).
 R3_B03_KEYS = frozenset({"withholding_basis_below_floor", "lump_sum_payoff", "lump_sum_payoff_total",
                          "lump_sum_payoff_count", "lump_sum_payoffs"})
+#: The owner's request of 2026-10-10 (active positions by month): the keys computed when served, each member row's two
+#: counts and the package's months, which the pinned fixtures predate (tests/test_active_positions.py pins them).
+ACTIVE_POSITIONS_KEYS = frozenset({"active_positions", "possible_positions", "active_positions_by_month"})
 
 
 def _without_r2_ow18(node):
     """R2-OW18 (part N): the payload without the keys the owner's request of 2026-10-06 adds (and, audit round 3,
-    R3-B02, the record field `represented_by`, and R3-B03's keys). `_canonical` applies it, and the golden comparisons
-    read both sides through `_canonical`, as they read every classification_version as one placeholder. The pinned
-    fixtures are never rewritten."""
+    R3-B02, the record field `represented_by`, and R3-B03's keys; and the owner's request of 2026-10-10's active
+    positions). `_canonical` applies it, and the golden comparisons read both sides through `_canonical`, as they read
+    every classification_version as one placeholder. The pinned fixtures are never rewritten."""
     if isinstance(node, dict):
         return {key: _without_r2_ow18(value) for key, value in node.items()
-                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS and key not in R3_B03_KEYS}
+                if key not in R2_OW18_KEYS and key not in R3_B02_KEYS and key not in R3_B03_KEYS
+                and key not in ACTIVE_POSITIONS_KEYS}
     if isinstance(node, list):
         return [_without_r2_ow18(value) for value in node]
     return node
