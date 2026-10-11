@@ -2313,6 +2313,29 @@ def _layout_entry(text: str) -> str:
     )
 
 
+#: Audit round 4, R4-35 (§8.1's release; §17.1 Q2 (5); R3-B13 review round 2's finding 2): a credit union's
+#: 'ACH <payer> TYPE <entry> ID <n> [DATA <n>] CO <payer>' layout prints its entry in the TYPE field, which the payer
+#: region (it stops at TYPE), entry_fields and _layout_entry never read: the words after a TYPE label up to the next ID
+#: label, on a row that prints a later CO label after the ID field (and an optional DATA field). Read on the row
+#: before its receiver fields; the corpus prints it on one credit union's rows alone (Bank of America's WIRE TYPE
+#: prints no ID within four words of it).
+_TYPE_CO_ENTRY = re.compile(
+    r"(?<![A-Z])TYPE:? (?P<entry>(?:(?!ID\b)\S+ ?){1,4}?)ID:? \S+(?: DATA:? \S+)? CO:? \S"
+)
+
+
+def _type_field_entry(text: str) -> str:
+    """Audit round 4, R4-35: the TYPE field's entry of a credit union's 'ACH <payer> TYPE <entry> ID <n> CO <payer>'
+    layout (_TYPE_CO_ENTRY), its reference tokens dropped (the classifier's _is_reference_token); '' on a row that
+    prints none. Read by the insurer release alone (_insurer_for_work's purpose); every other entry reader is
+    unchanged."""
+    classifier = _classifier()
+    found = _TYPE_CO_ENTRY.search(classifier._before_receiver(text or ""))
+    if found is None:
+        return ""
+    return " ".join(word for word in found.group("entry").split() if not classifier._is_reference_token(word))
+
+
 def gambling_payout(text: str, row: str, *, purpose_arm: bool = True) -> bool:
     """§8.1 non_sale_purpose (audit B8: I28): a sportsbook's, a casino's, a lottery's or a prediction market's payout
     on `row` (the hold text without the holder's name), read in this order (audit round 2, R2-B12: R36, R37): never the
@@ -6383,7 +6406,9 @@ def _insurer_for_work(
     ground is not released: a listed insurer's stays non_revenue, any other the insurer holds keep. Audit round 4, R4-33
     (§17.1 Q2 (5)): the personal-benefit refusals read the words however a 10-character entry field cuts them or a
     carrier abbreviates them, and a disability abbreviation on the purpose alone (_INSURER_DISABILITY_ABBREVIATION:
-    'DIS BEN', 'DI CLAIM') refuses every ground beside _INSURER_LTD_BENEFIT."""
+    'DIS BEN', 'DI CLAIM') refuses every ground beside _INSURER_LTD_BENEFIT. Audit round 4, R4-35: the purpose also
+    holds a credit union's TYPE field on its 'ACH <payer> TYPE <entry> ID <n> CO <payer>' layout (_type_field_entry),
+    read by every refusal and the service form as a DES entry is."""
     classifier = _classifier()
     eligible: dict[int, InsurerReading] = {}
     forms: dict[int, bool] = {}
@@ -6414,8 +6439,9 @@ def _insurer_for_work(
             purpose = _title_purpose_text(text)
         else:
             # Audit round 2, R2-B12: the layout's entry (Bank of America's DES, Chase's CO ENTRY DESCR) through its
-            # helper, beside entry_fields' other fields (PNC's entry, a transfer's memo).
-            purpose = " ".join(part for part in (_layout_entry(text), entry) if part)
+            # helper, beside entry_fields' other fields (PNC's entry, a transfer's memo). Audit round 4, R4-35: and a
+            # credit union's TYPE field (_type_field_entry), read by the release alone.
+            purpose = " ".join(part for part in (_layout_entry(text), entry, _type_field_entry(text)) if part)
         words = f"{own} {purpose}"
         # Audit round 3, R3-B13 (R3-10): the personal-benefit words refuse as the not-for-work words do; the commission
         # form printed in the same words still releases.

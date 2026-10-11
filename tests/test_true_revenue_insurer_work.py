@@ -1541,6 +1541,115 @@ def test_r4_34_benefit_wording_before_the_carrier_or_another_party_s_form_is_rea
         assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 (R4-35; §17.1 Q2 (5); R3-B13 review round 2's finding 2): a credit union's
+# 'ACH <payer> TYPE <entry> ID <n> [DATA <n>] CO <payer>' layout prints its entry in the TYPE field, which the payer
+# region, entry_fields and _layout_entry never read; the release reads it as the purpose (_type_field_entry).
+# ---------------------------------------------------------------------------------------------------------------------
+
+CREDIT_UNION = "Sample Federal Credit Union"
+#: The layout's three shapes, each printed three times within 31 days ('<entry>' is the TYPE field).
+TYPE_CO_SHAPES = (
+    "ACH SAMPLE MUTUAL INS TYPE {entry} ID 000000000N DATA 000N CO SAMPLE MUTUAL INS",
+    "ACH SAMPLE MUTUAL INS TYPE {entry} ID 000000000N CO SAMPLE MUTUAL INS",
+    "ACH SAMPLE MUTUAL INS 000N TYPE {entry} ID 000000000N CO SAMPLE MUTUAL INS 000N",
+)
+TYPE_REFUSED_ENTRIES = ("DISABILITY", "STD BENEFIT", "STD BENEFI", "BENEFITS", "WORKERS COMP", "DEATH CLAIM",
+                        "SURRENDER", "MEMBER PMT", "WEEKLY BEN")
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # A personal benefit, a member or a policy's money in the TYPE field, three within 31 days at a bakery (today
+    # counted on the 3-in-31 ground: the purpose read empty).
+    *(pytest.param(_three(shape.format(entry=entry), amount=812.37), {"holder": NORTHWIND_BAKERY,
+                   "bank": CREDIT_UNION}, [HELD] * 3, id=f"shape{number}-{entry}")
+      for number, shape in enumerate(TYPE_CO_SHAPES, start=1) for entry in TYPE_REFUSED_ENTRIES),
+    # Controls. A claim payment counts on the 3-in-31 ground; workers' compensation at a clinic is paid for treatment.
+    *(pytest.param(_three(shape.format(entry="CLAIM PMT"), amount=812.37), {"holder": NORTHWIND_BAKERY,
+                   "bank": CREDIT_UNION}, [COUNTED] * 3, id=f"shape{number}-claim-pmt")
+      for number, shape in enumerate(TYPE_CO_SHAPES, start=1)),
+    pytest.param(_three(TYPE_CO_SHAPES[0].format(entry="WORKERS COMP"), amount=812.37),
+                 {"holder": CLINIC, "bank": CREDIT_UNION}, [COUNTED] * 3, id="clinic-workers-comp"),
+    # A DRP payment once at a repair shop (counted on the holder's trade, as today).
+    pytest.param([(TYPE_CO_SHAPES[0].format(entry="DRP PMT").replace("000N", "0001"), 2450.73, "03-02")],
+                 {"holder": REPAIR_SHOP, "bank": CREDIT_UNION}, [COUNTED], id="repair-drp-pmt"),
+])
+def test_r4_35_a_credit_union_type_field_is_the_release_s_purpose(rows, statement, expected):
+    """Audit round 4, R4-35: the TYPE field is the layout's purpose, read by every refusal of the release (the
+    not-for-work, personal-benefit, LTD, R4-33's abbreviation and the non-provider words) and by the service form."""
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
+
+
+@pytest.mark.parametrize("entry", [
+    # Read by _INSURER_SERVICE_FORM alone (today held: the purpose read empty).
+    "CONTINGENCY", "AGENTS EFT",
+    # Control: the classifier's customer-payment wording, read on the whole row before its receiver fields, already
+    # counted a DRP payment.
+    "DRP PMT",
+])
+def test_r4_35_a_type_field_service_form_counts_a_one_off(entry):
+    """Audit round 4, R4-35: a TYPE field's service form is a service form as a DES one is, so one such credit at a
+    bakery is released on the service-form ground."""
+    rows = [(TYPE_CO_SHAPES[0].format(entry=entry).replace("000N", "0001"), 2450.73, "03-02")]
+    records = _dated(rows, holder=NORTHWIND_BAKERY, bank=CREDIT_UNION)
+    assert [rules_reading(record) for record in records] == [COUNTED]
+    assert f"({GROUND_WORDS['service_form']})" in records[0].revenue_reason
+
+
+def test_r4_35_a_listed_brand_s_disability_in_the_type_field_stays_out_of_true():
+    """Audit round 4, R4-35: AFLAC's TYPE DISABILITY three times within 31 days is refused (today counted)."""
+    rows = _three("ACH AFLAC TYPE DISABILITY ID 000000000N DATA 000N CO AFLAC", amount=812.37)
+    records = _dated(rows, holder=NORTHWIND_BAKERY, bank=CREDIT_UNION)
+    assert len(records) == 3
+    for record in records:
+        assert record.revenue_match_method != METHOD
+        assert not record.contributes_to_true_revenue
+
+
+@pytest.mark.parametrize(("rows", "expected"), [
+    # Unchanged: a premium refund is the reversal rule's non_revenue; a merchant deposit from a non-insurer keeps its
+    # verified descriptor reading.
+    pytest.param([(TYPE_CO_SHAPES[0].format(entry="PREM REFUND").replace("000N", "0001"), 812.37, "03-02")],
+                 [("non_revenue", None)], id="prem-refund"),
+    pytest.param([("ACH CONTOSO MARKET TYPE MERCH DEP ID 0000000001 DATA 0001 CO CONTOSO MARKET", 812.37, "03-02")],
+                 [VERIFIED], id="merch-dep"),
+])
+def test_r4_35_the_layout_s_other_readings_are_unchanged(rows, expected):
+    records = _dated(rows, holder=NORTHWIND_BAKERY, bank=CREDIT_UNION)
+    assert [rules_reading(record) for record in records] == expected
+    assert all(record.revenue_match_method != METHOD for record in records)
+
+
+def _normalized(raw: str) -> str:
+    from analysis.transaction_classifier import normalize_transaction_description
+
+    return revenue_text(normalize_transaction_description(raw))
+
+
+@pytest.mark.parametrize(("raw", "entry"), [
+    ("ACH SAMPLE MUTUAL INS TYPE DISABILITY ID 0000000001 DATA 0001 CO SAMPLE MUTUAL INS", "DISABILITY"),
+    ("ACH CONTOSO MARKET TYPE MERCH DEP ID 0000000001 CO CONTOSO MARKET", "MERCH DEP"),
+    ("ACH SAMPLE PAYROLL 0001 TYPE FED SAL ID 0000000001 CO SAMPLE PAYROLL 0001", "FED SAL"),
+    ("ACH SAMPLE MUTUAL INS TYPE: STD BENEFI ID: 0000000001 DATA: 0001 CO: SAMPLE MUTUAL INS", "STD BENEFI"),
+    # A reference token in the field is dropped.
+    ("ACH SAMPLE MUTUAL INS TYPE EC0001 ID 0000000001 CO SAMPLE MUTUAL INS", ""),
+    # Never another layout: Bank of America's DES, Chase's CO ENTRY DESCR, a wire, a row with no TYPE field, a row
+    # printing TYPE with no later CO label.
+    ("SAMPLE MUTUAL INS DES:DISABILITY ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 PPD", ""),
+    ("ORIG CO NAME:SAMPLE MUTUAL INS ORIG ID:0000000001 DESC DATE: CO ENTRY DESCR:DISABILITY SEC:PPD "
+     "TRACE#:000000000000001 EED:540302 IND ID:0001 IND NAME:NORTHWIND BAKERY LLC TRN: 0000000001TC", ""),
+    ("WIRE TYPE:WIRE IN DATE: 540302 TIME:0000 ET TRN:2054030200000001 SEQ:0000001/000001 ORIG:SAMPLE MUTUAL INS "
+     "ID:0000000001 SND BK:SAMPLE BANK ID:000000001 PMT DET:DISABILITY", ""),
+    ("ACH DEPOSIT SAMPLE MUTUAL INS DISABILITY 0001", ""),
+    ("ACH SAMPLE MUTUAL INS TYPE DISABILITY ID 0000000001 DATA 0001", ""),
+])
+def test_r4_35_the_type_field_reader(raw, entry):
+    assert true_revenue._type_field_entry(_normalized(raw)) == entry
+
+
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)
                for n, day in ((1, "03-02"), (2, "03-09"), (3, "03-16"))]
 ROUND_ZEL = [(f"ZEL FROM SAMPLE INSURANCE CO WFCT0ABCDE1{n}", 1000.0, day)
