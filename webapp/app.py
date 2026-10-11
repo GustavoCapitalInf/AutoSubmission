@@ -67,13 +67,18 @@ from analysis.transaction_classifier import (
     _RETURN_CREDIT_TIERS,
     _TRANSFER_WORDING,
     RETURNED_FUNDER_PAYMENT_WINDOW_DAYS,
+    UNWORDED_RETURN_BUSINESS_DAYS,
     _deposit_channel_credit,
     _deposit_return_debit,
     _received_on_day,
     _returned_payment_credit,
     _undo_debit_names_a_credit,
     is_round_sum,
+    next_business_day,
     paper_or_cash_deposit,
+    return_fee_items,
+    unworded_return_bank_excluded,
+    unworded_return_funder,
 )
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
@@ -3275,7 +3280,12 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
     and its lender count; both legs carry `package_match` `{kind: "returned_funder_payment", ...}` (the payment's names
     the return, the return's the payment and its funder), and `matches` gains the pair. R2-OW18's package payment
     changes read the payment's copy as a returned attempt (`_package_lender_payment_changes`). Revenue never moves;
-    each statement viewed alone keeps its own figures."""
+    each statement viewed alone keeps its own figures.
+
+    Audit round 4, R4-78 (§17.1's returned-payment default (10)): then the unworded arm across a member boundary
+    (`_unworded_returns_across`): a credit repeating a confirmed funder's payment of the immediately preceding statement,
+    1 or 2 business days after it, beside the bank's returned-item fee in its own statement, returns that payment, with
+    the same legs and `matches`."""
     noted = {(key, position) for key, rows in overlays.items() for position in rows}
     taken: set[tuple] = set()
     returns: list[tuple] = []
@@ -3336,29 +3346,137 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
         _rank, debit_entry, position, row, gap = best
         if any(guard <= gap for guard in guards):
             continue
-        taken.add((debit_entry["key"], position))
-        record = row["classification"]
-        credit_side = _match_side(credit_entry, credit_position, credit_row)
-        debit_side = {**_match_side(debit_entry, position, row), "funder": record.get("canonical_entity")}
-        overlays.setdefault(debit_entry["key"], {})[position] = {
-            "contributes_to_lender_totals": False,
-            "contributes_to_flagged_totals": False,
-            "returned_funder_payment_by": credit_side["source_location"],
-            "package_match": {"kind": "returned_funder_payment", "credit": credit_side},
-            # Audit round 3, R3-B03 (R3-79): a returned payoff attempt rejoins the rate and is no lump sum, as Q5 rules
-            # inside a statement (`_returned_payoff_in_rate`).
-            **({"contributes_to_withholding_rate": True, "lump_sum_payoff": None}
-               if record.get("lump_sum_payoff") else {}),
-        }
-        overlays.setdefault(credit_entry["key"], {})[credit_position] = {
-            "package_match": {"kind": "returned_funder_payment", "debit": debit_side},
-        }
-        matches.append({
-            "kind": "returned_funder_payment", "moved": True,
-            "credit": {**credit_side, "currency": credit_entry["currency"], "description": credit_row.get("description")},
-            "debit": {**debit_side, "currency": debit_entry["currency"]},
-            "gap_days": gap,
-        })
+        _record_returned_funder_match(overlays, matches, taken, credit_entry, credit_position, credit_row, debit_entry,
+                                      position, row, gap)
+    _unworded_returns_across(matchable, overlays, matches, taken, location_of, text_of)
+
+
+def _record_returned_funder_match(overlays: dict, matches: list, taken: set, credit_entry: dict, credit_position: int,
+                                  credit_row: dict, debit_entry: dict, position: int, row: dict, gap: int) -> None:
+    """Package pass 4's legs (the final review of round 2, F2(b); audit round 4, R4-78's unworded arm writes the same):
+    the payment's copy leaves the package's paid to lenders, keeping its withholding and its lender count; both legs
+    carry `package_match` `{kind: "returned_funder_payment", ...}` and `matches` gains the pair (`gap_days` in calendar
+    days)."""
+    taken.add((debit_entry["key"], position))
+    record = row["classification"]
+    credit_side = _match_side(credit_entry, credit_position, credit_row)
+    debit_side = {**_match_side(debit_entry, position, row), "funder": record.get("canonical_entity")}
+    overlays.setdefault(debit_entry["key"], {})[position] = {
+        "contributes_to_lender_totals": False,
+        "contributes_to_flagged_totals": False,
+        "returned_funder_payment_by": credit_side["source_location"],
+        "package_match": {"kind": "returned_funder_payment", "credit": credit_side},
+        # Audit round 3, R3-B03 (R3-79): a returned payoff attempt rejoins the rate and is no lump sum, as Q5 rules
+        # inside a statement (`_returned_payoff_in_rate`).
+        **({"contributes_to_withholding_rate": True, "lump_sum_payoff": None}
+           if record.get("lump_sum_payoff") else {}),
+    }
+    overlays.setdefault(credit_entry["key"], {})[credit_position] = {
+        "package_match": {"kind": "returned_funder_payment", "debit": debit_side},
+    }
+    matches.append({
+        "kind": "returned_funder_payment", "moved": True,
+        "credit": {**credit_side, "currency": credit_entry["currency"], "description": credit_row.get("description")},
+        "debit": {**debit_side, "currency": debit_entry["currency"]},
+        "gap_days": gap,
+    })
+
+
+def _unworded_returns_across(matchable: list[dict], overlays: dict, matches: list, taken: set, location_of,
+                             text_of) -> None:
+    """Audit round 4, R4-78 (the owner's Q5 of 2026-10-02; true revenue spec §6.2's package passes, §17.1's
+    returned-payment default (10)): package pass 4's unworded arm, the classifier's (`_unworded_return_pairs`) across a
+    member boundary, after the bounce-worded returns and sharing their `taken` payments. A credit of member B that its
+    statement left unpaired (no `returns_funder_payment`, no pair's `reversed_by` naming it, no earlier pass's note),
+    posted, dated, out of True (`_RETURN_CREDIT_TIERS`), printing NO bounce form and naming a confirmed funder F
+    (`unworded_return_funder`), returns F's paid payment (`_paid_funder_payment`) of equal cents in the SAME account's
+    IMMEDIATELY PRECEDING member A (`_same_account`, `_consecutive`), dated 1 or 2 business days before it
+    (`UNWORDED_RETURN_BUSINESS_DAYS`, B's calendar, `calendar_for`). Among several: the one whose words the credit
+    repeats, else the latest, then the canonical member and the later row. The fee gate is read in B: a returned-item
+    fee row (`nsf_or_return`, `return_fee_items`) dated the credit's day or the next business day, no more such credits
+    a day than its items, the statement's own unworded pairs that day counted first. Rule D's guard: an equal posted
+    debit that is no confirmed lender's (the gate's fee rows aside), in either statement, in the window and as near as
+    the chosen payment, leaves the credit alone. TD Canada Trust's statements are left out (audit I41,
+    `unworded_return_bank_excluded`). The legs and `matches` are pass 4's (`_record_returned_funder_match`)."""
+    from analysis.lender_payment_changes import business_days_between, calendar_for
+
+    noted = {(key, position) for key, rows in overlays.items() for position in rows}
+    credits: list[tuple] = []
+    gates: dict[tuple, tuple[dict, dict]] = {}
+    for entry in matchable:
+        if unworded_return_bank_excluded(entry["bank_printed"]):
+            continue
+        fee_items: dict = {}
+        own_pairs: dict = {}
+        for _position, row in entry["rows"]:
+            record = row["classification"]
+            day = _iso_day(row.get("date"))
+            if day is None:
+                continue
+            if _num(row.get("amount")) < 0 and record.get("classification") == "nsf_or_return":
+                items = return_fee_items(text_of(row))
+                if items:
+                    fee_items[day] = fee_items.get(day, 0) + items
+            elif (_num(row.get("amount")) > 0 and record.get("returns_funder_payment")
+                  and not _returned_payment_credit(text_of(row))):
+                own_pairs[day] = own_pairs.get(day, 0) + 1  # the statement's own unworded pairs use the gate first
+        if not fee_items:
+            continue
+        gates[entry["key"]] = (fee_items, own_pairs)
+        named_pairs = {row["classification"].get("reversed_by") for _position, row in entry["rows"]
+                       if row["classification"].get("reversed_by")}
+        for position, row in entry["rows"]:
+            record = row["classification"]
+            day = _iso_day(row.get("date"))
+            if (_num(row.get("amount")) <= 0 or day is None or (entry["key"], position) in noted
+                    or record.get("returns_funder_payment") or location_of(row, position) in named_pairs
+                    or record.get("revenue_tier") not in _RETURN_CREDIT_TIERS or _returned_payment_credit(text_of(row))):
+                continue
+            funder = unworded_return_funder(text_of(row), record)
+            if funder is not None:
+                credits.append(((day.toordinal(), entry["order"], position), entry, position, row, day, funder))
+    paired_on: dict = {}
+    for _sort, credit_entry, credit_position, credit_row, credit_day, funder in sorted(credits, key=lambda item: item[0]):
+        calendar = calendar_for(credit_entry["currency"])
+        fee_items, own_pairs = gates[credit_entry["key"]]
+        capacity = fee_items.get(credit_day, 0) + fee_items.get(next_business_day(credit_day, calendar), 0)
+        if own_pairs.get(credit_day, 0) + paired_on.get((credit_entry["key"], credit_day), 0) >= capacity:
+            continue
+        text = text_of(credit_row)
+        cents = _row_cents(credit_row)
+        best = None
+        guards: list[int] = []
+        for debit_entry in matchable:
+            preceding = _same_account(debit_entry, credit_entry) and _consecutive(debit_entry, credit_entry)
+            if not (preceding or debit_entry is credit_entry):
+                continue
+            for position, row in debit_entry["rows"]:
+                record = row["classification"]
+                day = _iso_day(row.get("date"))
+                if -_row_cents(row) != cents or day is None:
+                    continue
+                business_gap = business_days_between(day, credit_day, calendar)
+                if business_gap not in UNWORDED_RETURN_BUSINESS_DAYS:
+                    continue
+                if record.get("classification") != "confirmed_lender":
+                    if not (record.get("classification") == "nsf_or_return" and return_fee_items(text_of(row))):
+                        guards.append(business_gap)  # rule D's guard debits, in either statement (no gate fee row)
+                    continue
+                if (not preceding or (debit_entry["key"], position) in taken or (debit_entry["key"], position) in noted
+                        or not _paid_funder_payment(record) or record.get("canonical_entity") != funder):
+                    continue
+                rank = (0 if text_of(row) == text else 1, -day.toordinal(), debit_entry["order"], -position)
+                candidate = (rank, debit_entry, position, row, business_gap, (credit_day - day).days)
+                if best is None or candidate[0] < best[0]:
+                    best = candidate
+        if best is None:
+            continue
+        _rank, debit_entry, position, row, business_gap, gap = best
+        if any(guard <= business_gap for guard in guards):
+            continue
+        paired_on[(credit_entry["key"], credit_day)] = paired_on.get((credit_entry["key"], credit_day), 0) + 1
+        _record_returned_funder_match(overlays, matches, taken, credit_entry, credit_position, credit_row, debit_entry,
+                                      position, row, gap)
 
 
 def _package_match_totals(matched: dict) -> dict:

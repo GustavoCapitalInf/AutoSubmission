@@ -350,7 +350,8 @@ def test_the_french_arms_are_r2_b08_s_arms_a_and_c():
 
 
 def _without_rule_d(monkeypatch, rows, bank):
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    # Audit round 4, R4-78: the pass also takes the statement's calendar and bank (its unworded arm), as keywords.
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates, **_statement: records)
     return _run(rows, bank)
 
 
@@ -381,7 +382,7 @@ def test_t17_the_reconciliation_reads_the_same_reversal_pairs(monkeypatch):
             (6, BOFA_RETURN, 850.0)]
     statement = _statement(rows).model_copy(update={"stated_total_credits": 10000.0, "stated_total_debits": 850.0})
     after = asdict(reconcile(statement))
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates, **_statement: records)
     assert asdict(reconcile(statement)) == after
     assert after["reversal_pair_count"] == 1
 
@@ -390,7 +391,7 @@ def test_the_nsf_count_lender_credits_and_eligible_deposits_do_not_move(monkeypa
     rows, bank, _ = RULE_D["T2"]
     statement = _statement(rows, bank)
     after = compute_metrics(statement, classifications=tc.classify_statement_transactions(statement))
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates, **_statement: records)
     before = compute_metrics(statement, classifications=tc.classify_statement_transactions(statement))
     for key in ("nsf_count", "lender_credits", "legacy_eligible_deposits", "eligible_deposits", "ach_debit_count",
                 "loan_count", "potential_lender_debit_total", "lenders_detected", "true_revenue_total",
@@ -508,7 +509,7 @@ def _strip_returned(node):
 
 
 def test_t19_a_payload_stored_before_the_ruling_reads_its_stored_figures(monkeypatch):
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates, **_statement: records)
     old = _strip_returned(t1_payload())
     monkeypatch.undo()
     package = _package(old)
@@ -675,3 +676,167 @@ def test_r3_21_a_confirm_shown_under_yes_leaves_the_no_reading_at_its_analysis_s
     with pytest.raises(ValueError) as refused:
         zelle_view.with_both_readings(copy.deepcopy(stored), shown=False, decisions=[(location, "confirm", None)])
     assert str(refused.value) == RETURNS_FUNDER_PAYMENT_REFUSAL
+
+
+# ---------------------------------------------------------------- audit round 4, R4-78: a bank's unworded returns
+# The owner's Q5 of 2026-10-02 ("Match the return to the funder payment it reverses ..."): Citizens Bank returns a
+# funder's ACH debit unpaid as a credit of the same cents that repeats the debit's own words (its trace suffix), with no
+# return word, one or two business days later, beside its own RETURNED ITEM FEE row. §17.1's returned-payment default
+# (10): such a credit returns that payment, the previous business day's debit (or the one whose words it repeats) taken,
+# no more such credits a day than the fee rows' items. Fabricated rows: KAPITUS's daily payments of March 2054 (no US
+# bank holiday in the month), each with its own trace letter.
+
+CITIZENS = "Citizens Bank"
+MARCH_2054_BUSINESS_DAYS = (2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20, 23, 24, 25, 26, 27, 30, 31)
+FEE_ONE = "RETURNED ITEM FEE (1 AT $35.00 EACH)"
+DAILY_PAYMENT = -412.5
+
+
+def _trace(day: int) -> str:
+    """KAPITUS's daily payment of `day`, its own trace letter after the reference."""
+    return f"KAPITUS PAYMENT 00000001{chr(ord('A') + MARCH_2054_BUSINESS_DAYS.index(day))}"
+
+
+def _daily(extra=(), *, days=MARCH_2054_BUSINESS_DAYS):
+    """A sale on the 1st, KAPITUS's payment on each of `days`, then the `extra` rows; in day order, a day's payment
+    printed before that day's extra rows."""
+    rows = [(1, SALE, 20000.0)] + [(day, _trace(day), DAILY_PAYMENT) for day in days] + list(extra)
+    return sorted(rows, key=lambda row: row[0])
+
+
+#: The 10th's payment (a Tuesday) repeated on Wednesday the 11th, the 13th's (a Friday) on Monday the 16th, each beside
+#: the bank's one-item returned-item fee.
+R4_78_RETURNS = [(11, _trace(10), 412.5), (11, FEE_ONE, -35.0), (16, _trace(13), 412.5), (16, FEE_ONE, -35.0)]
+
+
+def _by_day(records, amount):
+    return {int(record.date[-2:]): record for record in records if record.amount == amount}
+
+
+def test_r4_78_an_unworded_repeat_beside_the_bank_s_fee_returns_the_previous_day_s_payment():
+    # Base: nothing paired; lender_debits includes both returned payments.
+    statement = _statement(_daily(R4_78_RETURNS), CITIZENS)
+    records = tc.classify_statement_transactions(statement)
+    debits, credits = _by_day(records, DAILY_PAYMENT), _by_day(records, 412.5)
+    assert _pairs(records) == {debits[10].source_location: credits[11].source_location,
+                               debits[13].source_location: credits[16].source_location}
+    for day in (10, 13):
+        debit = debits[day]
+        assert (debit.classification, debit.contributes_to_lender_totals, debit.contributes_to_withholding_rate,
+                debit.contributes_to_lender_count, debit.contributes_to_flagged_totals) == (
+            "confirmed_lender", False, True, True, False)
+        assert debit.reversed_by is None
+        assert debit.reason.endswith(RETURNED_UNPAID.format(debit.returned_funder_payment_by))
+    # The credit day's own payment of the same cents stays paid.
+    for day in (11, 16):
+        assert debits[day].contributes_to_lender_totals and debits[day].returned_funder_payment_by is None
+    for credit in credits.values():
+        assert (credit.classification, credit.matched_rule, credit.revenue_tier) == (
+            "other", "financing_proceeds_credit", "non_revenue")
+    metrics = compute_metrics(statement, classifications=records)
+    assert metrics.lender_debits == 22 * 412.5 - 825.0
+    assert metrics.withholding_numerator == 22 * 412.5
+    assert (metrics.returned_funder_payment_total, metrics.returned_funder_payment_count) == (825.0, 2)
+    assert metrics.lenders_detected == 1
+    items = detect(statement, classifications=records).returned_funder_payments
+    assert [(item["debit_date"], item["credit_date"]) for item in items] == [
+        ("2054-03-10", "2054-03-11"), ("2054-03-13", "2054-03-16")]
+
+
+def test_r4_78_the_repeated_trace_wins_over_an_equal_debit_two_days_back():
+    # The credit on Wednesday the 11th repeats Monday the 9th's words: that payment is returned, not the 10th's.
+    records = _run(_daily([(11, _trace(9), 412.5), (11, FEE_ONE, -35.0)]), CITIZENS)
+    debits, credits = _by_day(records, DAILY_PAYMENT), _by_day(records, 412.5)
+    assert _pairs(records) == {debits[9].source_location: credits[11].source_location}
+
+
+def test_r4_78_on_a_day_no_more_credits_pair_than_the_fee_s_items():
+    # Two repeats on the 11th beside one fee item, none on the 12th: only the first, in row order, pairs.
+    records = _run(_daily([(11, _trace(9), 412.5), (11, _trace(10), 412.5), (11, FEE_ONE, -35.0)]), CITIZENS)
+    first, second = [record for record in records if record.amount == 412.5]
+    assert first.returns_funder_payment is not None and second.returns_funder_payment is None
+    # A two-item fee row the next business day pairs both.
+    two = "RETURNED ITEM FEE (2 AT $35.00 EACH)"
+    records = _run(_daily([(11, _trace(9), 412.5), (11, _trace(10), 412.5), (12, two, -70.0)]), CITIZENS)
+    assert all(record.returns_funder_payment for record in records if record.amount == 412.5)
+
+
+WEEKLY_MONDAYS = (2, 9, 16, 23, 30)
+R4_78_CONTROLS = {
+    # No fee row the credit's day or the next business day (the fee two business days later).
+    "no_fee": (_daily([(11, _trace(10), 412.5), (13, FEE_ONE, -35.0)]), CITIZENS),
+    # The only equal payment is dated the credit's own day.
+    "same_day_only": (_daily([(16, _trace(16), 412.5), (16, FEE_ONE, -35.0)], days=WEEKLY_MONDAYS), CITIZENS),
+    # Three business days after the payment.
+    "three_days_later": (_daily([(12, _trace(9), 412.5), (12, FEE_ONE, -35.0)], days=WEEKLY_MONDAYS), CITIZENS),
+    # A credit of other cents.
+    "other_cents": (_daily([(11, _trace(10), 400.0), (11, FEE_ONE, -35.0)]), CITIZENS),
+    # A credit naming another funder, which has no payment here.
+    "other_funder": (_daily([(11, "ONDECK CAPITAL PAYMENT 0001", 412.5), (11, FEE_ONE, -35.0)]), CITIZENS),
+    # TD Canada Trust's returns wait on audit I41 (their sign orientation is the owner's).
+    "td_canada_trust": (_daily(R4_78_RETURNS), "TD Canada Trust"),
+    # Rule D's guard: an equal non-lender debit as near as the payment.
+    "guard": (_daily([(10, "FABRIKAM SUPPLY", -412.5), (11, _trace(10), 412.5), (11, FEE_ONE, -35.0)]), CITIZENS),
+}
+
+
+@pytest.mark.parametrize("name", sorted(R4_78_CONTROLS))
+def test_r4_78_a_control_pairs_nothing(name):
+    rows, bank = R4_78_CONTROLS[name]
+    records = _run(rows, bank)
+    assert _pairs(records) == {}
+    assert all(record.contributes_to_lender_totals for record in records if record.classification == "confirmed_lender")
+
+
+def test_r4_78_control_a_bounce_worded_credit_stays_rule_d_s(monkeypatch):
+    # A bounce-worded return beside the fee is rule D's (the latest equal payment, the same day), with or without the
+    # new arm.
+    rows = _daily([(11, BOFA_RETURN, 412.5), (11, FEE_ONE, -35.0)])
+    after = _pairs(_run(rows, CITIZENS))
+    monkeypatch.setattr(tc, "_unworded_return_pairs", lambda *args, **kwargs: [])
+    assert _pairs(_run(rows, CITIZENS)) == after
+    debit = _by_day(_run(rows, CITIZENS), DAILY_PAYMENT)[11]
+    assert after == {debit.source_location: debit.returned_funder_payment_by}
+
+
+def test_r4_78_moves_no_revenue_reading(monkeypatch):
+    """As T16: every credit's state, tier, reason and revenue field are the arm's input's; on a debit only the paid and
+    flagged flags, the reason and the returned field move."""
+    rows = _daily(R4_78_RETURNS)
+    after = _run(rows, CITIZENS)
+    monkeypatch.setattr(tc, "_unworded_return_pairs", lambda *args, **kwargs: [])
+    before = _run(rows, CITIZENS)
+    assert _pairs(before) == {}
+    for old, new in zip(before, after):
+        assert {key: getattr(old, key) for key in _REVENUE_FIELDS} == {key: getattr(new, key) for key in _REVENUE_FIELDS}
+        assert (old.reversed_by, old.settlement_reversal, old.reversal_of, old.classification, old.is_nsf_event) == (
+            new.reversed_by, new.settlement_reversal, new.reversal_of, new.classification, new.is_nsf_event)
+        if new.returned_funder_payment_by is None:
+            assert replace(new, returns_funder_payment=None) == replace(old, returns_funder_payment=None)
+    statement = _statement(rows, CITIZENS)
+    figures = [compute_metrics(statement, classifications=records) for records in (before, after)]
+    for key in ("true_revenue_total", "verified_revenue_total", "non_revenue_total", "lender_credits",
+                "eligible_deposits", "nsf_count", "lenders_detected", "withholding_numerator"):
+        assert getattr(figures[0], key) == getattr(figures[1], key), key
+
+
+def test_r4_78_the_payment_changes_read_the_bounces_as_attempts():
+    # KAPITUS paid 412.50 daily through Friday the 20th; then five debits of 35.00, the 23rd to the 27th, each come back
+    # the next business day beside the bank's one-item fee of the same 35.00 (the gate's own row, never the guard), and
+    # nothing is debited after; the statement runs to April 10. Base: the bounced attempts read as payments: a false
+    # -92% decrease, and the possible stop dated at the last bounced debit (the 27th).
+    from analysis import lender_payment_changes as lpc
+
+    rows = [(1, SALE, 20000.0)] + [(day, _trace(day), DAILY_PAYMENT) for day in MARCH_2054_BUSINESS_DAYS if day <= 20]
+    for paid, back in ((23, 24), (24, 25), (25, 26), (26, 27), (27, 30)):
+        rows += [(paid, _trace(paid), -35.0), (back, _trace(paid), 35.0), (back, FEE_ONE, -35.0)]
+    statement = _statement(sorted(rows, key=lambda row: row[0]), CITIZENS).model_copy(
+        update={"period_end": "2054-04-10"})
+    records = tc.classify_statement_transactions(statement)
+    assert len(_pairs(records)) == 5
+    items = lpc.statement_payment_changes(records, period_start=statement.period_start,
+                                          period_end=statement.period_end, currency="USD")
+    assert [item["kind"] for item in items] == ["stop"]
+    [stop] = items
+    assert (stop["lender"], stop["last_payment_date"], stop["payments"], stop["last_attempt_returned"]) == (
+        "KAPITUS", "2054-03-20", 15, {"date": "2054-03-27"})

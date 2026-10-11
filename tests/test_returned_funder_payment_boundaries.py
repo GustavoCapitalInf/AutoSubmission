@@ -305,6 +305,73 @@ def test_f2b_controls_match_nothing(name):
     assert package["totals"]["returned_funder_payment_count"] == returned
 
 
+#: Audit round 4, R4-78 (§17.1's returned-payment default (10), package pass 4): Citizens' unworded return of a
+#: payment that sits in the previous statement. KAPITUS's weekly payments on the Fridays of March 2031, each with its
+#: own trace letter; the last, on Friday the 28th, comes back on Tuesday April 1 (two business days later), repeating
+#: its words, beside the bank's one-item returned-item fee.
+def _citizens_payment(letter: str) -> str:
+    return f"KAPITUS PAYMENT 00000001{letter}"
+
+
+CITIZENS_FEE = "RETURNED ITEM FEE (1 AT $35.00 EACH)"
+CITIZENS_MARCH = [(2, NW_MARCH, 30000.0)] + [
+    (day, _citizens_payment(letter), -850.0) for day, letter in ((7, "A"), (14, "B"), (21, "C"), (28, "D"))]
+
+
+def _citizens_april(*, fee=True):
+    return ([(1, _citizens_payment("D"), 850.0)] + ([(1, CITIZENS_FEE, -35.0)] if fee else [])
+            + [(3, NW_APRIL, 30000.0)]
+            + [(day, _citizens_payment(letter), -850.0) for day, letter in ((4, "E"), (11, "F"), (18, "G"), (25, "H"))])
+
+
+def test_r4_78_a_march_payment_returned_unworded_on_april_s_first_business_day_is_matched_across():
+    # Base: no match (the credit prints no bounce form; neither statement holds the payment and the return).
+    import copy
+
+    from tests.test_package_matching import _ledger_row, _package
+
+    march, april = _months(_citizens_april(), march_rows=CITIZENS_MARCH)
+    stored = copy.deepcopy((march, april))
+    # Each statement alone pairs nothing.
+    for payload in (march, april):
+        assert not any(row["classification"].get("returned_funder_payment_by")
+                       or row["classification"].get("returns_funder_payment")
+                       for row in payload["statement"]["transactions"])
+    package = _package(("mar", march), ("apr", april))
+    totals = package["totals"]
+    assert (totals["lender_debits"], totals["withholding_numerator"]) == (5950.0, 6800.0)
+    assert (totals["returned_funder_payment_total"], totals["returned_funder_payment_count"]) == (850.0, 1)
+    assert totals["lenders_detected"] == 1
+    debit_location, credit_location = _location(march, 28, -850.0), _location(april, 1, 850.0)
+    debit = _ledger_row(package, "mar", debit_location)["classification"]
+    assert (debit["contributes_to_lender_totals"], debit["contributes_to_withholding_rate"],
+            debit["returned_funder_payment_by"], debit["package_match"]["kind"]) == (
+        False, True, credit_location, "returned_funder_payment")
+    credit = _ledger_row(package, "apr", credit_location)["classification"]
+    assert credit["package_match"]["kind"] == "returned_funder_payment"
+    assert credit["package_match"]["debit"]["job"] == "mar"
+    # The credit keeps its revenue reading (§17.1's default (4)).
+    assert (credit["classification"], credit["matched_rule"], credit["revenue_tier"]) == (
+        "other", "financing_proceeds_credit", "non_revenue")
+    (item,) = package["returned_funder_payments"]
+    assert (item["debit_date"], item["credit_date"], item["cross_statement"]) == ("2031-03-28", "2031-04-01", True)
+    match = next(entry for entry in package["package_matches"] if entry["kind"] == "returned_funder_payment")
+    assert (match["moved"], match["gap_days"]) == (True, 4)
+    # Each statement viewed alone keeps its figures; the stored payloads are untouched.
+    assert _package(("mar", march))["totals"]["lender_debits"] == 3400.0
+    assert _package(("apr", april))["totals"]["lender_debits"] == 3400.0
+    assert (march, april) == stored
+
+
+def test_r4_78_control_no_fee_row_in_april_matches_nothing():
+    from tests.test_package_matching import _package
+
+    march, april = _months(_citizens_april(fee=False), march_rows=CITIZENS_MARCH)
+    package = _package(("mar", march), ("apr", april))
+    assert not any(entry["kind"] == "returned_funder_payment" for entry in package.get("package_matches") or [])
+    assert (package["totals"]["lender_debits"], package["totals"]["returned_funder_payment_count"]) == (6800.0, 0)
+
+
 def test_f2b_the_package_download_lists_the_match():
     from tests.test_package_matching import _package
     from webapp.app import _package_rows

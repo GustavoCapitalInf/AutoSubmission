@@ -580,6 +580,7 @@ bank's name.
 
 - Audit round 4, R4-B02 (R4-04, R4-05): on a debit, a bank's returned-item, unpaid-item, stop-payment and OD item charge is a charge in every spelling it prints (`CHRG`, `PYMT`, the glued `STOPPAY`, `STOPPAYMENT`, `STOPPMT` and `ODITEM` before a charge word, a stop charge inside the row), even when it names a funder; a spaced `CHARGE BACK` or `CHG BACK` after a returned or unpaid item is the chargeback of a bounced deposit, never the bank's NSF charge: pass 4 pairs it with its deposit whatever its words (the fee veto guards `CHG` and `CHRG` as it guards `CHARGE`, and `UNPAID ITEM CHARGE BACK` is a return wording), and it raises no processor flag. A credit keeps its reading.
 - Audit round 4, R4-B02 (R4-77; the owner question filed in true revenue spec §17.1, "A funder's own fee", default (a) shipped): a confirmed funder's own charge printed without the whole word FEE (`MISCFEE`, `EXPENSE`, `PENALTY`, a `LATE` or `DEFAULT CHARGE`) is a fee (`funder_fee_charge`), as its worded FEE is (lender detection D8), on every route that returns a confirmed funder's debit, read without the receiver field and the holder's own names: out of paid to lenders, the lender count and the withholding rate, no entity attributed.
+- Audit round 4, R4-B02 (R4-78; the owner's Q5 of 2026-10-02; true revenue spec §17.1's returned-payment default (10)): pass 7b's unworded arm (`_unworded_return_pairs`) and the package's pass 4 across a member boundary (`_unworded_returns_across`): a credit repeating a confirmed funder's payment of equal cents 1 or 2 business days after it, beside the bank's returned-item fee that day or the next (no more such credits a day than the fee's items), returns that payment, as rule D's bounce-worded returns do (out of paid to lenders, kept in the withholding rate and the lender count, the returned-payment warning); the credit keeps its revenue reading and, as every credit that returns a funder's payment, refuses Confirm Revenue (R3-21). TD Canada Trust is left to audit I41.
 
 Cancellation and reversal rows are matched to opposite-direction transactions
 by amount, date proximity, and description family when possible. The record
@@ -616,7 +617,19 @@ a level already running, no catch-up either (a 2x debit already taken as another
 bounce's catch-up is no level payment); a weekday kept only by attempts
 that each follow another return of the series within one cycle is no recurring
 phase (a funder re-presenting every bounce on one weekday): each returned payment
-counts once.
+counts once. Since audit round 4 (R4-B02: R4-78; true revenue spec §17.1's
+returned-payment default (10)), pass 7b also reads an unworded return: a bank
+such as Citizens returns a funder's debit unpaid as a credit of the same cents
+that repeats the debit's own words with no return word, one or two business
+days later, beside its own returned-item fee row. Such a credit (out of True,
+no bounce form, naming a confirmed funder by the credit index of the known
+payees or by D1's financing-proceeds entity) returns that funder's paid payment
+of the same cents dated 1 or 2 business days before it, the one whose words it
+repeats first, else the latest; only where a returned-item or NSF fee row is
+dated that day or the next business day, and no more such credits a day than
+the fee rows' items (`n AT`); rule D's guard applies (the fee rows aside); TD
+Canada Trust is left to audit I41. The package's pass 4 reads the same arm
+across a member boundary. The credit keeps its revenue reading.
 
 Classification is applied in this order; the first match wins:
 

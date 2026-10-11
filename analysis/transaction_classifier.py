@@ -6462,8 +6462,171 @@ def _returned_funder_payment_pairs(
     return pairs
 
 
+#: Audit round 4, R4-78 (true revenue spec §17.1's returned-payment default (10)): an unworded return is dated this many
+#: business days after the payment it returns (never the same day).
+UNWORDED_RETURN_BUSINESS_DAYS = (1, 2)
+#: Audit round 4, R4-78: the fee words of the bank's returned-item fee row (a posted `nsf_or_return` debit) beside an
+#: unworded return, and the item count it prints ('RETURNED ITEM FEE (3 AT $35.00 EACH)', normalized '3 AT 35 00').
+_RETURN_FEE_ROW_WORD = re.compile(r"(?<![A-Z])(?:FEES?|CHARGES?|CHGS?|CHRGS?)(?![A-Z])")
+_RETURN_FEE_ITEMS = re.compile(r"(?<![A-Z0-9])(\d{1,2}) AT\b")
+#: Audit round 4, R4-78: TD Canada Trust's returned pre-authorized debits wait on audit I41 (their sign orientation is the
+#: owner's, B10's held patch): the unworded arm never reads its statements (true_revenue._CPA_CODE_BANK's words).
+_UNWORDED_RETURN_EXCLUDED_BANK = re.compile(r"(?<![A-Z])(?:TD )?CANADA TRUST\b", re.IGNORECASE)
+
+
+def unworded_return_bank_excluded(bank: str | None) -> bool:
+    """Audit round 4, R4-78: whether the statement's bank is one whose unworded returns wait on the owner (TD Canada
+    Trust, audit I41)."""
+    return bool(bank) and _UNWORDED_RETURN_EXCLUDED_BANK.search(bank) is not None
+
+
+def return_fee_items(text: str) -> int:
+    """Audit round 4, R4-78: the items a bank's returned-item or NSF fee row charges for: the count it prints before AT
+    ('3 AT 35 00 EACH'), else 1; 0 for a row printing no fee word."""
+    if _RETURN_FEE_ROW_WORD.search(text) is None:
+        return 0
+    found = _RETURN_FEE_ITEMS.search(text)
+    count = int(found.group(1)) if found is not None else 1
+    return count if count >= 1 else 1
+
+
+def next_business_day(day: date, calendar: str = "US") -> date:
+    """Audit round 4, R4-78: the first business day after `day` (analysis.lender_payment_changes' calendar)."""
+    from datetime import timedelta
+
+    from .lender_payment_changes import business_days_between
+
+    later = day + timedelta(days=1)
+    while business_days_between(day, later, calendar) < 1:
+        later += timedelta(days=1)
+    return later
+
+
+def unworded_return_funder(text: str, record: object) -> str | None:
+    """Audit round 4, R4-78: the confirmed funder an unworded return credit names: the credit index of the known payees
+    (`match_known_payee(text, credit=True)`, as rule D reads a credit's funder), else the entity D1's financing-proceeds
+    decision names (`revenue_canonical_entity` of a `financing_proceeds_credit`); None for none. The caller pairs it only
+    with that entity's confirmed payment. `record` is a classification record or a served row's record (a dict)."""
+    named = match_known_payee(text, credit=True)
+    if named is not None and named.state == "confirmed_lender":
+        return named.entity
+    get = record.get if isinstance(record, dict) else (lambda name: getattr(record, name, None))
+    if get("matched_rule") == "financing_proceeds_credit" and get("revenue_canonical_entity"):
+        return get("revenue_canonical_entity")
+    return None
+
+
+def _unworded_return_pairs(
+    records: list[TransactionClassification], duplicate_indexes: set[int], used: set[int], *,
+    calendar: str = "US", bank: str | None = None,
+) -> list[tuple[int, int]]:
+    """Audit round 4, R4-78 (the owner's Q5 of 2026-10-02, "Match the return to the funder payment it reverses"; true
+    revenue spec §6.2 pass 7b, §17.1's returned-payment default (10)): rule D's arm for a bank that returns a funder's
+    debit unpaid as a credit of the same cents repeating the debit's own words with no return word (Citizens Bank, the
+    next business day, beside its RETURNED ITEM FEE row). Its (credit index, debit index) pairs, read after rule D's and
+    sharing its `used` debits (added to in place):
+
+    - Credit: posted, no duplicate, not a named pair's credit, no `returns_funder_payment`, out of True
+      (_RETURN_CREDIT_TIERS), printing NO bounce form (those stay rule D's), naming a confirmed funder F
+      (unworded_return_funder; a lender credit is read: it is the case), dated.
+    - Debit: F's paid payment (_is_paid_funder_debit), no `reversed_by` or `returned_funder_payment_by`, not used, of the
+      credit's exact cents, dated 1 or 2 business days before the credit (UNWORDED_RETURN_BUSINESS_DAYS; never the same
+      day). Among several: the one whose words the credit repeats (its trace), else the latest, then the nearest row.
+    - Fee gate: a posted `nsf_or_return` debit printing a fee word, dated the credit's day or the next business day; on
+      one day no more credits pair, in (date, row) order, than those fee rows' items (return_fee_items) on that day plus
+      the next business day.
+    - Rule D's guard: an equal posted debit that is no confirmed lender's, in the window and as near as the chosen
+      payment, leaves the credit alone; the fee gate's own rows are no guard (the bank's charge for the return is
+      never the debit the credit returns).
+    - TD Canada Trust's statements are never read (unworded_return_bank_excluded: audit I41)."""
+    if unworded_return_bank_excluded(bank):
+        return []
+    from .lender_payment_changes import business_days_between
+
+    def cents(index: int) -> int:
+        return round(abs(records[index].amount) * 100)
+
+    def location(index: int) -> str:
+        return records[index].source_location or f"transaction:{index + 1}"
+
+    dated = {index: parse_date(record.date) for index, record in enumerate(records)}
+    funder_debits = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and index not in used and dated[index] is not None
+        and _is_paid_funder_debit(record) and record.reversed_by is None and record.returned_funder_payment_by is None
+    ]
+    if not funder_debits:
+        return []
+    fee_items: dict[date, int] = {}
+    fee_rows: set[int] = set()
+    for index, record in enumerate(records):
+        if (index in duplicate_indexes or record.amount >= 0 or not record.is_posted
+                or record.classification != "nsf_or_return" or dated[index] is None):
+            continue
+        items = return_fee_items(record.normalized_description)
+        if items:
+            fee_items[dated[index]] = fee_items.get(dated[index], 0) + items
+            fee_rows.add(index)
+    if not fee_items:
+        return []
+    # The bank's own returned-item fee rows are the gate's evidence for a return, never a debit the credit could return,
+    # so the guard reads every other non-lender debit (a one-item fee of the payment's cents would otherwise refuse it).
+    guard_debits = [
+        index for index, record in enumerate(records)
+        if index not in duplicate_indexes and index not in fee_rows and record.amount < 0 and record.is_posted
+        and dated[index] is not None and record.classification != "confirmed_lender"
+    ]
+    paired_credits = {record.reversed_by for record in records if record.reversed_by}
+    credits: list[tuple[date, int, str]] = []
+    for index, record in enumerate(records):
+        if (
+            index in duplicate_indexes
+            or record.amount <= 0
+            or not record.is_posted
+            or dated[index] is None
+            or location(index) in paired_credits
+            or record.returns_funder_payment
+            or record.revenue_tier not in _RETURN_CREDIT_TIERS
+            or _returned_payment_credit(record.normalized_description)
+        ):
+            continue
+        funder = unworded_return_funder(record.normalized_description, record)
+        if funder is not None:
+            credits.append((dated[index], index, funder))
+    credits.sort()
+    paired_on: dict[date, int] = {}
+    pairs: list[tuple[int, int]] = []
+    for credit_day, credit_index, funder in credits:
+        capacity = fee_items.get(credit_day, 0) + fee_items.get(next_business_day(credit_day, calendar), 0)
+        if paired_on.get(credit_day, 0) >= capacity:
+            continue
+
+        def gap(index: int) -> int:
+            return business_days_between(dated[index], credit_day, calendar)
+
+        candidates = [
+            index for index in funder_debits
+            if index not in used and records[index].canonical_entity == funder and cents(index) == cents(credit_index)
+            and gap(index) in UNWORDED_RETURN_BUSINESS_DAYS
+        ]
+        if not candidates:
+            continue
+        words = records[credit_index].normalized_description
+        chosen = min(candidates, key=lambda index: (
+            0 if records[index].normalized_description == words else 1, -dated[index].toordinal(),
+            abs(credit_index - index)))
+        if any(cents(index) == cents(credit_index) and gap(index) in UNWORDED_RETURN_BUSINESS_DAYS
+               and gap(index) <= gap(chosen) for index in guard_debits):
+            continue
+        used.add(chosen)
+        paired_on[credit_day] = paired_on.get(credit_day, 0) + 1
+        pairs.append((credit_index, chosen))
+    return pairs
+
+
 def _apply_returned_funder_payments(
-    records: list[TransactionClassification], duplicate_indexes: set[int],
+    records: list[TransactionClassification], duplicate_indexes: set[int], *, calendar: str = "US",
+    bank: str | None = None,
 ) -> list[TransactionClassification]:
     """Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b, §11; R2-OW13): each rule-D pair
     (_returned_funder_payment_pairs) takes the funder's debit out of paid to lenders (contributes_to_lender_totals and,
@@ -6471,8 +6634,12 @@ def _apply_returned_funder_payments(
     reason's returned-unpaid sentence) and keeps its withholding and its lender count; the credit names the debit
     (returns_funder_payment). reversed_by, settlement_reversal and every revenue field stay as they are, so the
     reconciliation's reversal coverage, the settled-activity counts and every revenue reading are unchanged. It runs
-    after pass 7, so the credit's tier is final, and before the duplicate finalisation."""
+    after pass 7, so the credit's tier is final, and before the duplicate finalisation. Audit round 4, R4-78: then the
+    unworded arm's pairs (_unworded_return_pairs, the statement's `calendar` and `bank`), sharing rule D's used debits,
+    each applied exactly as rule D's."""
     pairs = _returned_funder_payment_pairs(records, duplicate_indexes)
+    pairs += _unworded_return_pairs(records, duplicate_indexes, {debit for _credit, debit in pairs},
+                                    calendar=calendar, bank=bank)
     if not pairs:
         return records
     updated = list(records)
@@ -8185,14 +8352,14 @@ def _classify_statement_reading(
     )
     # Owner ruling 2026-10-02 (the underwriter's Q5; true revenue spec §6.2 pass 7b; R2-OW13): a confirmed funder's
     # payment a bounce-worded credit returned leaves paid to lenders and stays in the withholding rate. After pass 7, so
-    # the return credit's tier is final; it reads and writes nothing passes 5 to 7 read.
-    records = list(_apply_returned_funder_payments(records, set(duplicate_of)))
+    # the return credit's tier is final; it reads and writes nothing passes 5 to 7 read. Audit round 4, R4-78: with the
+    # statement's calendar and bank, which its unworded arm reads.
+    calendar = "CA" if str(statement.currency or "").strip().upper() == "CAD" else "US"
+    records = list(_apply_returned_funder_payments(records, set(duplicate_of), calendar=calendar, bank=statement.bank))
     # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; §6.2 pass 7c; R3-B02): a returned
     # payment the same funder re-presented or caught up leaves the withholding numerator. After pass 7b, which makes the
     # last returned payments; it reads and writes lender fields only.
-    records = _apply_represented_funder_payments(
-        records, set(duplicate_of), "CA" if str(statement.currency or "").strip().upper() == "CAD" else "US",
-    )
+    records = _apply_represented_funder_payments(records, set(duplicate_of), calendar)
 
     for index, original_index in duplicate_of.items():
         record = records[index]
