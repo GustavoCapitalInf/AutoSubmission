@@ -357,19 +357,22 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: monthly()}}));
     whole = lambda value: f"{round(value):,}"  # noqa: E731  the table's whole-number format
     both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
     # The owner's request of 2026-10-07: no Verified ($) column; every view shows the statement's withholding rate.
+    # The owner's request of 2026-10-10: and its active positions, right before it.
     assert both["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
-                            "True Deposits Per Month", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
+                            "True Deposits Per Month", "Active Positions", "Withholding Rate", "Ledger ($)", "NSF",
+                            "Action"]
     assert both["count"] == "2 statements"
     january = documents["jan"]
     rate = _row_rate(january)
-    assert both["rows"][0][2:7] == [whole(january["credits"]), str(january["deposit_count"]),
-                                    whole(january["true_revenue_total"]), str(january["true_revenue_count"]), rate]
+    assert both["rows"][0][2:8] == [whole(january["credits"]), str(january["deposit_count"]),
+                                    whole(january["true_revenue_total"]), str(january["true_revenue_count"]),
+                                    str(january["active_positions"]), rate]
     # One basis alone keeps the CRM's own headers and names the basis beside the count.
     for view, shown, amount, count in (
             (true_only, "True monthly deposits: revenue only", "true_revenue_total", "true_revenue_count"),
             (total_only, "Total monthly deposits: everything going in", "credits", "deposit_count")):
-        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", "Withholding Rate",
-                                "Ledger ($)", "NSF", "Action"]
+        assert view["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month", "Active Positions",
+                                "Withholding Rate", "Ledger ($)", "NSF", "Action"]
         assert view["count"] == f"2 statements · {shown}"
         assert view["rows"][0][2:4] == [whole(january[amount]), str(january[count])]
     assert true_only["stored"] == "true"
@@ -402,7 +405,7 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: {{...monthly(), chart: c
     whole = lambda value: f"{round(value):,}"  # noqa: E731
     jan, feb = documents["jan"], documents["feb"]
     both, true_only, total_only = result["both"], result["trueOnly"], result["totalOnly"]
-    assert len(both["head"]) == 10
+    assert len(both["head"]) == 11
     assert both["chart"]["values"] == [["shown", whole(jan["credits"])], ["true", whole(jan["true_revenue_total"])],
                                        ["shown", whole(feb["credits"])], ["true", whole(feb["true_revenue_total"])]]
     assert "Total deposits" in both["chart"]["legend"] and "True revenue" in both["chart"]["legend"]
@@ -443,11 +446,12 @@ currentJobIds = ['jan', 'feb']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify({{...monthly(), chart: chart()}}));
 """)
     failed, unknown = result["rows"]
-    # A failed statement has no figures at all, not a month of zeros (its withholding rate included).
-    assert failed[2:9] == ["N/A"] * 7 and failed[9] == "Unavailable"
+    # A failed statement has no figures at all, not a month of zeros (its active positions and withholding rate
+    # included).
+    assert failed[2:10] == ["N/A"] * 8 and failed[10] == "Unavailable"
     assert unknown[2] == f"{round(feb['credits']):,}" and unknown[4:6] == ["N/A", "N/A"]
     # The Withholding Rate cell reads the row's own figures (the owner's request of 2026-10-07, its review round 3).
-    assert unknown[6] == _row_rate(feb)
+    assert unknown[7] == _row_rate(feb)
     # The chart says what the table says: nothing for the failed month, no True deposits for the other.
     assert result["chart"]["values"] == [["shown", "N/A"], ["true", "N/A"],
                                          ["shown", f"{round(feb['credits']):,}"], ["true", "N/A"]]

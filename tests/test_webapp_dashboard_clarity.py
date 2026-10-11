@@ -648,9 +648,11 @@ def test_the_page_s_default_hero_label_and_table_header():
     head = html[html.index('<thead id="monthlyHead">'):html.index("</thead>", html.index('<thead id="monthlyHead">'))]
     assert re.findall(r"<th>([^<]*)</th>", head) == [
         "Month", "Year", "Total Deposits ($)", "Total Deposits Per Month", "True Deposits ($)",
-        "True Deposits Per Month", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
+        "True Deposits Per Month", "Active Positions", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     # Audit round 3, R3-MERGE: the merged app.js asks for the next free value above both lines (-8 the hosting line's).
-    assert '<script src="/static/app.js?v=true-revenue-11"></script>' in html
+    # The owner's request of 2026-10-10 (active positions by month): "Active Positions" right before "Withholding
+    # Rate", and app.js asked for as true-revenue-12.
+    assert '<script src="/static/app.js?v=true-revenue-12"></script>' in html
 
 
 # ---------------------------------------------------------------------------------- C: the Monthly Statements
@@ -700,19 +702,20 @@ def test_the_monthly_table_shows_each_statement_s_withholding_rate_and_no_verifi
             _row("negative", 9, withholding_rate=5.0, withholding_numerator=600.0, withholding_denominator=-1.0)]
     package = {"documents": rows, "totals": {}, "currency": {"currencies": ["USD"]}}
     result = run_dashboard(MONTHLY + f"console.log(JSON.stringify(views({json.dumps(package)})));")
+    # The owner's request of 2026-10-10 (active positions by month): "Active Positions" sits right before it.
     assert result["both"]["head"] == ["Month", "Year", "Total Deposits ($)", "Total Deposits Per Month",
-                                      "True Deposits ($)", "True Deposits Per Month", "Withholding Rate", "Ledger ($)",
-                                      "NSF", "Action"]
+                                      "True Deposits ($)", "True Deposits Per Month", "Active Positions",
+                                      "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     for view in ("total", "true"):
         assert result[view]["head"] == ["Month", "Year", "Monthly Deposits ($)", "Deposits Per Month",
-                                        "Withholding Rate", "Ledger ($)", "NSF", "Action"], view
+                                        "Active Positions", "Withholding Rate", "Ledger ($)", "NSF", "Action"], view
     expected = ["76.49%", "N/A", "N/A", "15.00%", "N/A", "N/A", "N/A", "N/A", "N/A"]
-    assert [row[6] for row in result["both"]["rows"]] == expected
-    assert [row[4] for row in result["total"]["rows"]] == expected
-    assert [row[4] for row in result["true"]["rows"]] == expected
-    assert result["both"]["rows"][0] == ["January", "2054", "100,000", "4", "60,000", "2", "76.49%", "5,000", "1",
-                                         "Open"]
-    assert result["both"]["rows"][3][4:7] == ["40,000", "2", "15.00%"]
+    assert [row[7] for row in result["both"]["rows"]] == expected
+    assert [row[5] for row in result["total"]["rows"]] == expected
+    assert [row[5] for row in result["true"]["rows"]] == expected
+    assert result["both"]["rows"][0] == ["January", "2054", "100,000", "4", "60,000", "2", "N/A", "76.49%", "5,000",
+                                         "1", "Open"]
+    assert result["both"]["rows"][3][4:8] == ["40,000", "2", "N/A", "15.00%"]
     assert not any("Verified" in header for shown in result.values() for header in shown["head"])
 
 
@@ -758,14 +761,15 @@ currentJobIds = ['a', 'b']; renderPackageAnalysis({json.dumps(transfer)});
 console.log(JSON.stringify({{returned, transfer: views({json.dumps(transfer)})}}));
 """)
     # True Deposits ($), its count and the Withholding Rate, row by row, in the Both view; the other views agree.
-    assert [row[4:7] for row in result["returned"]["both"]["rows"]] == [["50,000", "1", "5.00%"],
-                                                                          ["50,000", "1", "5.00%"]]
-    assert [row[4:7] for row in result["transfer"]["both"]["rows"]] == [["20,000", "1", "0.00%"],
-                                                                          ["2,000", "1", "35.00%"]]
+    # (The owner's request of 2026-10-10: the Active Positions cell, row[6], sits between them.)
+    assert [[row[4], row[5], row[7]] for row in result["returned"]["both"]["rows"]] == [["50,000", "1", "5.00%"],
+                                                                                     ["50,000", "1", "5.00%"]]
+    assert [[row[4], row[5], row[7]] for row in result["transfer"]["both"]["rows"]] == [["20,000", "1", "0.00%"],
+                                                                                     ["2,000", "1", "35.00%"]]
     for name in ("returned", "transfer"):
-        both = [row[6] for row in result[name]["both"]["rows"]]
-        assert [row[4] for row in result[name]["true"]["rows"]] == both
-        assert [row[4] for row in result[name]["total"]["rows"]] == both
+        both = [row[7] for row in result[name]["both"]["rows"]]
+        assert [row[5] for row in result[name]["true"]["rows"]] == both
+        assert [row[5] for row in result[name]["total"]["rows"]] == both
     # The rows add up to the package's own rate: 5,000 over 100,000 and 700 over 22,000.
     assert returned["totals"]["package_withholding_rate"] == 5.0
     assert transfer["totals"]["package_withholding_rate"] == 3.18
@@ -788,7 +792,7 @@ def test_a_package_that_moved_nothing_keeps_each_statement_s_own_rate(tmp_path, 
 currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(views({json.dumps(package)})));
 """)
-    shown = [row[6] for row in result["both"]["rows"]]
+    shown = [row[7] for row in result["both"]["rows"]]
     rates = [docs[key]["withholding_rate"] for key in ("mar", "apr")]
     assert shown == ["N/A" if rate is None else f"{rate:.2f}%" for rate in rates]
 
@@ -808,8 +812,8 @@ def test_r3_merge_the_cell_prints_the_served_rate_where_it_and_the_row_s_figures
             _row("northwind", 3, withholding_rate=28.0, withholding_numerator=8400.0, withholding_denominator=30000.0)]
     package = {"documents": rows, "totals": {}, "currency": {"currencies": ["USD"]}}
     result = run_dashboard(MONTHLY + f"console.log(JSON.stringify(views({json.dumps(package)})));")
-    assert [row[6] for row in result["both"]["rows"]] == ["9.50%", "N/A", "28.00%"]
-    assert [row[4] for row in result["true"]["rows"]] == [row[4] for row in result["total"]["rows"]] == [
+    assert [row[7] for row in result["both"]["rows"]] == ["9.50%", "N/A", "28.00%"]
+    assert [row[5] for row in result["true"]["rows"]] == [row[5] for row in result["total"]["rows"]] == [
         "9.50%", "N/A", "28.00%"]
 
 
@@ -851,11 +855,11 @@ def test_r3_merge_each_member_s_cell_follows_round_3_s_withholding_rules():
     result = run_dashboard(script + "console.log(JSON.stringify(out));")
     for name in packages:
         expected = ["N/A" if served[name][key] is None else f"{served[name][key]:.2f}%" for key in ("mar", "apr")]
-        both = [row[6] for row in result[name]["both"]["rows"]]
+        both = [row[7] for row in result[name]["both"]["rows"]]
         assert both == expected, name
-        assert [row[4] for row in result[name]["true"]["rows"]] == both, name
-        assert [row[4] for row in result[name]["total"]["rows"]] == both, name
-    assert [result[name]["both"]["rows"][0][6] for name in ("redebit", "payoff", "floor")] == ["8.50%", "28.00%", "N/A"]
+        assert [row[5] for row in result[name]["true"]["rows"]] == both, name
+        assert [row[5] for row in result[name]["total"]["rows"]] == both, name
+    assert [result[name]["both"]["rows"][0][7] for name in ("redebit", "payoff", "floor")] == ["8.50%", "28.00%", "N/A"]
 
 
 # ------------------------------------------------------------- D: the follow-up (the Monthly Statements and its chart)
