@@ -620,3 +620,23 @@ def test_a_split_payment_beside_a_stream_that_carries_on_unchanged_is_one_positi
     # A stream whose level changes where the parts begin is the one split: February 1,250, March 1,000 + 250.
     assert counts(chain((_rows(every(F(3), F(24)), 1250), FEB),
                         (_rows(every(M(3), M(31)), 1000) + _rows(every(M(3), M(31)), 250), MAR))) == [(1, 0), (1, 0)]
+
+
+def test_a_new_stream_starting_on_days_a_stream_that_carries_on_pays_is_never_its_split_part():
+    # Review round 4: a daily 300 that bounced twice and was caught up 3x (900), then a NEW weekly 600 from Monday the
+    # 16th (a stacked advance). The daily stream carries on unchanged across the new stream's first day, so it was not
+    # split and is never the other part of one, although 300 + 600 adds up to the 900 catch-up just before: 2 positions,
+    # as the payment changes read it (a catch-up, then a new stream).
+    days = [day for day in bdays(M(2), M(31)) if day not in (M(3), M(4), M(5))]
+    daily = _rows(days, 300) + _rows([M(3), M(4)], 300, returned_funder_payment_by="transaction:99")
+    weekly = _rows(every(M(16), M(30)), 600)
+    assert alone(daily + _rows([M(5)], 900) + weekly, MAR) == (2, 0)
+    # The same with the 900 catch-up attempted and bounced.
+    assert alone(daily + _rows([M(5)], 900, returned_funder_payment_by="transaction:97") + weekly, MAR) == (2, 0)
+    # Across a chain: February the daily 300 alone (1), March as above (2).
+    february = _rows(bdays(F(2), F(27)), 300)
+    assert counts(chain((february, FEB), (daily + _rows([M(5)], 900) + weekly, MAR))) == [(1, 0), (2, 0)]
+    # A weekly 1,000 every Monday, a 1,250 debit on Thursday the 5th, then a new 250 on Mondays from the 16th:
+    # the 1,000 carries on, so the 250 is a stream of its own, never the 1,000's split part.
+    mondays = _rows(every(M(2), M(30)), 1000) + _rows([M(5)], 1250) + _rows(every(M(16), M(30)), 250)
+    assert alone(mondays, MAR) == (2, 0)

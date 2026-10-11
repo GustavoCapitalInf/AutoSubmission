@@ -228,8 +228,14 @@ def _splits(position: PayingPosition, other: PayingPosition, series: SeriesPosit
     began (`_split_wholes`; review round 2 of 2026-10-11: never an older level, such as the other's own before a
     decrease, or an older bounced attempt, so a stream the payment changes read as a new concurrent stream stays one).
     One payment debited as two parts on the same days, which the module reads as two concurrent positions (A7), is one
-    position."""
+    position. Review round 4 of 2026-10-11: `other` is never a part when it carries on unchanged across `position`'s
+    first day (`_carries_on`, round 3's own premise), so a new stream that starts on days an unchanged stream pays on
+    stays a position of its own, as the payment changes read it (a new stream)."""
     if not set(position.days) <= set(other.days):
+        return False
+    first = position.days[0]
+    if _carries_on([(day, cents) for day, cents in other.pays if day < first],
+                   [(day, cents) for day, cents in other.pays if day >= first]):
         return False
     wholes = _split_wholes(position, series)
     return any(100 * abs(part + rest - whole) <= LEVEL_MERGE_PERCENT * whole
