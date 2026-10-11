@@ -3822,6 +3822,34 @@ def test_ow08_narrowing_15_releases_a_listed_insurer_s_credit_paid_for_work_coun
     assert census.INSURER_FOR_WORK_METHOD == "insurer_paid_for_services"
 
 
+#: Audit round 4, R4-69: a credit the strong rule excluded on its INSURANCE CLAIM or INSURANCE PAYMENT wording alone,
+#: which the pass's release now lifts on a Q2 ground (fabricated, masked as the census masks).
+STRONG_INSURANCE_ROW = census.mask("FABRIKAM INSURANCE PAYMENT 540302 0000000001 CONTOSO AUTO REPAIR LLC")
+
+
+@pytest.mark.parametrize(("state", "method", "tier", "reason", "narrowing", "fails"), [
+    ("unverified_deposit", "insurer_paid_for_services", "counted_flagged", "insurer_paid_for_services",
+     "15_insurer_paid_for_services", False),
+    # A released row a later hold names is still the narrowing's (out of True, no failure).
+    ("unverified_deposit", "insurer_paid_for_services", "excluded_pending_review", "holder_name",
+     "15_insurer_paid_for_services", False),
+    # Counted only: never verified.
+    ("verified_revenue", "insurer_paid_for_services", "verified", None, "15_insurer_paid_for_services", True),
+    # A base strong row moving to anything else keeps today's answer: no narrowing.
+    ("unverified_deposit", "unidentified_posted_credit", "counted_flagged", "named_payer_unlabelled",
+     "outside_the_narrowings", True),
+])
+def test_r4_69_narrowing_15_releases_a_strong_rule_s_insurance_wording(state, method, tier, reason, narrowing, fails):
+    base_credit = _credit(0, 300000, "non_revenue", "strong_non_revenue_rule", tier="non_revenue",
+                          text=STRONG_INSURANCE_ROW)
+    after_credit = _credit(0, 300000, state, method, tier=tier, reason=reason, text=STRONG_INSURANCE_ROW)
+    assert census._narrowing(base_credit, after_credit) == (
+        None if narrowing == "outside_the_narrowings" else narrowing)
+    run = _run(_snap("5.6", {"a": _account([base_credit])}), _snap("5.6", {"a": _account([after_credit])}))
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+
+
 @pytest.mark.parametrize(("later", "cause"), [
     # A Q5 or Q6 repeat now released as an insurer paid for work, counted.
     (_after56("insurer_paid_for_services", INSURER_ROW, tier="counted_flagged", reason="insurer_paid_for_services"),

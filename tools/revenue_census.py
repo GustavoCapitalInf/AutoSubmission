@@ -2089,6 +2089,10 @@ def _narrowing(base: dict, after: dict) -> str | None:
         if re.search(r"H[CE]?CLAIMPMT", after["text"]):
             return "2_hcclaimpmt_insurer"
         return "3_insurer_customer_payment"
+    # Audit round 4, R4-69 (the underwriter's Q2; §6.3 narrowing 13): the pass's release of a credit the strong rule
+    # excluded on its INSURANCE CLAIM or INSURANCE PAYMENT wording alone, counted only (COUNTED_ONLY_NARROWINGS).
+    if base_method == "strong_non_revenue_rule" and after["method"] == INSURER_FOR_WORK_METHOD:
+        return "15_insurer_paid_for_services"
     # Review I1: a book or funds transfer leaves only on a printed third-party originator (T19, §7.11).
     if (
         base_method == "strong_non_revenue_rule"

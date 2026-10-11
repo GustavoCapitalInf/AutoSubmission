@@ -1650,6 +1650,117 @@ def test_r4_35_the_type_field_reader(raw, entry):
     assert true_revenue._type_field_entry(_normalized(raw)) == entry
 
 
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 (R4-69; the underwriter's Q2 of 2026-10-02; §6.3 narrowing 13's precedent): the strong rule's
+# INSURANCE CLAIM or INSURANCE PAYMENT keeps deciding the row first, and pass 7's release lifts it on a Q2 ground as it
+# lifts a listed insurer's exclusion; INSURANCE PROCEEDS, another strong pattern or an own-account transfer never.
+# ---------------------------------------------------------------------------------------------------------------------
+
+STRONG = ("non_revenue", None)
+WELLS = "Wells Fargo"
+
+
+def _wells(entry: str, holder: str, carrier: str = "FABRIKAM") -> str:
+    """A Wells-style name-plus-entry row: the carrier, its entry, a date and an id, then the receiver."""
+    return f"{carrier} {entry} 540302 000000000N {holder}"
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # One-off at a repair shop (today non_revenue, the strong rule).
+    *(pytest.param([(_wells(entry, "CONTOSO AUTO REPAIR LLC").replace("000N", "0001"), 2450.73, "03-02")],
+                   {"holder": REPAIR_SHOP, "bank": WELLS}, [COUNTED], id=f"repair-{entry}")
+      for entry in ("INSURANCE PAYMENT", "INSURANCE CLAIM", "INSURANCE PAYMENT DRP")),
+    pytest.param([("ACH CREDIT FABRIKAM INSURANCE CLAIM PMT 0001", 2450.73, "03-02")],
+                 {"holder": REPAIR_SHOP, "bank": WELLS}, [COUNTED], id="repair-ach-credit-claim-pmt"),
+    # One-off at an agency (a commission) and at a clinic (a health claim payment).
+    pytest.param([(_wells("INSURANCE PAYMENT COMMISSION", "NORTHWIND INSURANCE AGENCY LLC").replace("000N", "0001"),
+                   640.19, "03-02")], {"holder": "NORTHWIND INSURANCE AGENCY LLC", "bank": WELLS}, [COUNTED],
+                 id="agency-commission"),
+    pytest.param([(_wells("HEALTH INSURANCE CLAIM PAYMENT", "CONTOSO PHYSIOTHERAPY").replace("000N", "0001"),
+                   187.29, "03-02")], {"holder": CLINIC, "bank": WELLS}, [COUNTED], id="clinic-health-claim-payment"),
+    # Three within 31 days at a bakery.
+    pytest.param(_three(_wells("INSURANCE PAYMENT", "NORTHWIND BAKERY LLC"), amount=812.37),
+                 {"holder": NORTHWIND_BAKERY, "bank": WELLS}, [COUNTED] * 3, id="bakery-x3"),
+    # A wire whose OBI prints the wording, at a repair shop.
+    pytest.param([("WIRE TYPE:WIRE IN DATE: 540302 TIME:0000 ET TRN:2054030200000001 SEQ:0000001/000001 "
+                   "ORIG:FABRIKAM INSURANCE CO ID:0000000001 SND BK:SAMPLE BANK ID:000000001 OBI:INSURANCE CLAIM",
+                   5120.44, "03-02")], {"holder": REPAIR_SHOP, "bank": "Bank of America"}, [COUNTED],
+                 id="repair-wire-obi"),
+    # Controls. A one-off own-policy claim at a bakery stays out (Q2).
+    pytest.param([(_wells("INSURANCE CLAIM", "NORTHWIND BAKERY LLC").replace("000N", "0001"), 2450.73, "03-02")],
+                 {"holder": NORTHWIND_BAKERY, "bank": WELLS}, [STRONG], id="bakery-one-off-claim"),
+    # INSURANCE PROCEEDS stays strong (insurance proceeds to the policyholder).
+    pytest.param([(_wells("INSURANCE PROCEEDS", "CONTOSO AUTO REPAIR LLC").replace("000N", "0001"), 2450.73,
+                   "03-02")], {"holder": REPAIR_SHOP, "bank": WELLS}, [STRONG], id="repair-proceeds"),
+    # Another strong pattern on the row.
+    pytest.param(_three(_wells("INSURANCE CLAIM LOAN", "NORTHWIND BAKERY LLC"), amount=812.37),
+                 {"holder": NORTHWIND_BAKERY, "bank": WELLS}, [STRONG] * 3, id="bakery-claim-loan-x3"),
+    # A refusal keeps it out: a disability payment is never released.
+    pytest.param(_three(_wells("INSURANCE PAYMENT DISABILITY", "NORTHWIND BAKERY LLC"), amount=812.37),
+                 {"holder": NORTHWIND_BAKERY, "bank": WELLS}, [STRONG] * 3, id="bakery-disability-x3"),
+    # A government payer is never for work, even three within 31 days at a clinic: North Dakota's Workforce Safety and
+    # Insurance (a Q12 government form), in its credit union's layout and in Wells Fargo's, and a §7.6 public payer.
+    pytest.param(_three("DESCRIPTIVE DEPOSIT WORKFORCE SAFETY AND INSURANCE CLAIM 000N", amount=812.37),
+                 {"holder": CLINIC, "bank": "Sample Credit Union"}, [STRONG] * 3, id="clinic-workforce-safety-x3"),
+    pytest.param(_three(_wells("WORKFORCE SAFETY INSURANCE PAYMENT", "CONTOSO PHYSIOTHERAPY", carrier="ND"),
+                        amount=812.37), {"holder": CLINIC, "bank": WELLS}, [STRONG] * 3,
+                 id="clinic-nd-workforce-safety-wells-x3"),
+    pytest.param(_three(_wells("INSURANCE PAYMENT", "CONTOSO PHYSIOTHERAPY", carrier="STATE OF CONTOSO"),
+                        amount=812.37), {"holder": CLINIC, "bank": WELLS}, [STRONG] * 3,
+                 id="clinic-state-insurance-payment-x3"),
+    # A listed carrier keeps the registry's path.
+    pytest.param([("STATE FARM INSURANCE PAYMENT 540302 0000000001 CONTOSO AUTO REPAIR LLC", 2450.73, "03-02")],
+                 {"holder": REPAIR_SHOP, "bank": WELLS}, [COUNTED], id="repair-state-farm-registry"),
+])
+def test_r4_69_an_insurance_payment_or_claim_wording_is_released_on_a_q2_ground(rows, statement, expected):
+    """Audit round 4, R4-69: an unlisted carrier spelled INSURANCE before PAYMENT or CLAIM is released on the same Q2
+    grounds as one spelled INS, and with no ground stays the strong rule's non_revenue, as a listed carrier's stays the
+    insurance rule's (§17.1 Q2 (2))."""
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
+        if reading == STRONG:
+            assert record.revenue_match_method == "strong_non_revenue_rule"
+
+
+def test_r4_69_the_strong_text_is_unchanged():
+    """Audit round 4, R4-69: the strong text's construction moved into _strong_text with byte-identical output, and
+    strong_rule_reads_insurance_wording_only reads the INSURANCE CLAIM or PAYMENT wording as the row's only strong
+    reason."""
+    from analysis import transaction_classifier as classifier
+    from analysis.description_text import ln_name_spans
+    from analysis.transaction_classifier import normalize_transaction_description
+
+    def before(text: str, description: str | None) -> str:
+        """The strong step's construction before this batch, as it read."""
+        strong = classifier._SNAP_MERCHANT_FUNDING.sub(" ", text)
+        for name, blanked in ln_name_spans(description or ""):
+            strong = re.sub(r"(?<![A-Z0-9])" + re.escape(name) + r"(?![A-Z0-9])",
+                            lambda _found, kept=blanked: kept, strong)
+        return strong
+
+    snap = "SNAP LOAN FUNDING F0000001 NORTHWIND BAKERY"
+    assert classifier._strong_text(snap, snap) == before(snap, snap) == "  F0000001 NORTHWIND BAKERY"
+    ln = "LN TRUCKING LLC DES:PAYMENT ID:0001 INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD"
+    ln_text = revenue_text(normalize_transaction_description(ln))
+    assert classifier._strong_text(ln_text, ln) == before(ln_text, ln)
+    assert "LOAN" in ln_text and "LOAN" not in classifier._strong_text(ln_text, ln)
+    plain = "FABRIKAM INSURANCE PAYMENT 0001"
+    assert classifier._strong_text(plain, plain) == before(plain, plain) == plain
+
+    def only(raw: str, holder: str = "NORTHWIND BAKERY LLC") -> bool:
+        text = revenue_text(normalize_transaction_description(raw))
+        return classifier.strong_rule_reads_insurance_wording_only(text, raw, holder)
+
+    assert only("FABRIKAM INSURANCE PAYMENT 0001") is True
+    assert only("FABRIKAM INSURANCE CLAIM 0001") is True
+    assert only("FABRIKAM INSURANCE PROCEEDS 0001") is False
+    assert only("FABRIKAM INSURANCE CLAIM LOAN 0001") is False
+    assert only("ONLINE TRANSFER FROM CHK 0001 CONFIRMATION 0000000001 INSURANCE PAYMENT") is False
+    assert only("FABRIKAM INS PAYMENT 0001") is False
+
+
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)
                for n, day in ((1, "03-02"), (2, "03-09"), (3, "03-16"))]
 ROUND_ZEL = [(f"ZEL FROM SAMPLE INSURANCE CO WFCT0ABCDE1{n}", 1000.0, day)

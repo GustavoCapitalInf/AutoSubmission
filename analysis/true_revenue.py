@@ -6356,6 +6356,31 @@ def _benefit_in_carrier_name(own: str, start: int, end: int) -> bool:
     return bool(_INSURER_NAME.search(after) or _INSURER_SPELLINGS.search(after) or _INSURER_NAME_FORM.search(after))
 
 
+def _strong_insurance_wording_only(record: TransactionClassification) -> bool:
+    """Audit round 4, R4-69 (the underwriter's Q2 of 2026-10-02; §6.3 narrowing 13's precedent): the release's third
+    eligible state, a credit the classifier's strong non-revenue step excluded on its INSURANCE CLAIM or INSURANCE
+    PAYMENT wording alone (non_revenue / strong_non_revenue_rule, and the classifier's
+    strong_rule_reads_insurance_wording_only on the revenue text, the printed description and the holder the step
+    read). Never INSURANCE PROCEEDS, another strong pattern or an own-account transfer. Never a government payer's
+    either (the MCA principle: government money unrelated to the business is never revenue; Q12's step 3a): a §7.6
+    public payer (government_payer) or a payer one of Q12's government forms names (the classifier's
+    GOVERNMENT_NO_PURPOSE_FORMS), so North Dakota's Workforce Safety and Insurance, whose name ends in INSURANCE and
+    which the insurer reading reads as no government payer, keeps the strong rule's non_revenue when its row prints a
+    CLAIM."""
+    if record.revenue_classification != "non_revenue" or record.revenue_match_method != "strong_non_revenue_rule":
+        return False
+    classifier = _classifier()
+    text = classifier.revenue_text(record.normalized_description)
+    region = public_region(text)
+    if government_payer(region) or any(form.search(region) for _key, form in classifier.GOVERNMENT_NO_PURPOSE_FORMS):
+        return False
+    return classifier.strong_rule_reads_insurance_wording_only(
+        text,
+        record.original_description,
+        classifier.holder_reading(record.account_name, record.holder_name),
+    )
+
+
 def _record_day(record: TransactionClassification) -> _date | None:
     """A record's posted day, or None where its date reads as none (an undated credit)."""
     try:
@@ -6408,7 +6433,11 @@ def _insurer_for_work(
     carrier abbreviates them, and a disability abbreviation on the purpose alone (_INSURER_DISABILITY_ABBREVIATION:
     'DIS BEN', 'DI CLAIM') refuses every ground beside _INSURER_LTD_BENEFIT. Audit round 4, R4-35: the purpose also
     holds a credit union's TYPE field on its 'ACH <payer> TYPE <entry> ID <n> CO <payer>' layout (_type_field_entry),
-    read by every refusal and the service form as a DES entry is."""
+    read by every refusal and the service form as a DES entry is. Audit round 4, R4-69 (§6.3 narrowing 13's
+    precedent): a third eligible state, a credit the strong rule excluded on its INSURANCE CLAIM or INSURANCE PAYMENT
+    wording alone (_strong_insurance_wording_only, the classifier's strong_rule_reads_insurance_wording_only: never
+    INSURANCE PROCEEDS, another strong pattern or an own-account transfer); everything after it reads it as it reads
+    the insurance rule's non_revenue, so a credit with no ground stays the strong rule's non_revenue."""
     classifier = _classifier()
     eligible: dict[int, InsurerReading] = {}
     forms: dict[int, bool] = {}
@@ -6420,6 +6449,7 @@ def _insurer_for_work(
                 record.revenue_classification == "non_revenue"
                 and record.revenue_match_method == "insurance_provider_credit_exclusion"
             )
+            or _strong_insurance_wording_only(record)
         ):
             continue
         if (

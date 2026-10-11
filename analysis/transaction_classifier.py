@@ -1171,6 +1171,43 @@ def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
     return any(pattern.search(text) is not None for pattern in patterns)
 
 
+#: Audit round 4, R4-69 (the underwriter's Q2 of 2026-10-02, "Count insurer payments, flagged ... when the business is a
+#: repair shop, an insurance agency, a clinic or a pharmacy, or when the same insurer pays three or more times in a
+#: month"; true revenue spec §6.3 narrowing 13): the strong rule's insurance wording that the true-revenue pass may
+#: release on a Q2 ground, as it releases a listed insurer's insurance_provider_credit_exclusion. INSURANCE PROCEEDS is
+#: never in it (insurance proceeds to the policyholder: standard F1). The strong pattern list is unchanged.
+_STRONG_INSURANCE_WORDING = re.compile(r"\bINSURANCE (?:CLAIM|PAYMENT)\b")
+
+
+def _strong_text(text: str, description: str | None) -> str:
+    """The text the strong non-revenue step reads (audit round 4, R4-69: moved here from _classify_credit_revenue,
+    byte-identical): the revenue text without Snap's merchant-funding form (owner ruling 2026-10-02, Q8;
+    _SNAP_MERCHANT_FUNDING) and with the LOAN the normalizer made of a company name's LN blanked (audit round 3, R3-B07:
+    R3-46; description_text.ln_name_spans, read on the printed `description`)."""
+    strong_text = _SNAP_MERCHANT_FUNDING.sub(" ", text)
+    for name, blanked in ln_name_spans(description or ""):
+        strong_text = re.sub(
+            r"(?<![A-Z0-9])" + re.escape(name) + r"(?![A-Z0-9])", lambda _found, kept=blanked: kept, strong_text
+        )
+    return strong_text
+
+
+def strong_rule_reads_insurance_wording_only(text: str, description: str | None, holder: str | None) -> bool:
+    """Audit round 4, R4-69 (the underwriter's Q2 of 2026-10-02; true revenue spec §6.3 narrowing 13): the strong
+    non-revenue step excluded this credit on its INSURANCE CLAIM or INSURANCE PAYMENT wording alone
+    (_STRONG_INSURANCE_WORDING): a strong pattern reads the strong text (`text`, the revenue text the step reads;
+    `description`, the printed description; _strong_text), none reads it once the wording is blanked, and the row is no
+    own-account book or funds transfer of `holder` (the holder the step read, holder_reading). A row printing INSURANCE
+    PROCEEDS or any other strong pattern is never such a row. Read by the true-revenue pass's insurer release
+    (_insurer_for_work) alone."""
+    strong = _strong_text(text, description)
+    if not _matches_any(strong, _NON_REVENUE_CREDIT_PATTERNS):
+        return False
+    if _matches_any(_STRONG_INSURANCE_WORDING.sub(" ", strong), _NON_REVENUE_CREDIT_PATTERNS):
+        return False
+    return not _own_book_or_funds_transfer(text, holder)
+
+
 def prints_internal_transfer_designation(description: str) -> bool:
     """Does this printed row DESIGNATE a movement between the member's own accounts?
 
@@ -4180,12 +4217,9 @@ def _classify_credit_revenue(
     # description_text.ln_name_spans, read on the printed description: no street, no loan word around it, no transfer
     # wording) is read by the strong patterns with the LOAN the normalizer made of its LN blanked, as Snap's form is, so
     # the row reaches pass 7, whose financing root holds it for review (financing_named_payer). Every other reader keeps
-    # the full text.
-    strong_text = _SNAP_MERCHANT_FUNDING.sub(" ", text)
-    for name, blanked in ln_name_spans(description or ""):
-        strong_text = re.sub(
-            r"(?<![A-Z0-9])" + re.escape(name) + r"(?![A-Z0-9])", lambda _found, kept=blanked: kept, strong_text
-        )
+    # the full text. Audit round 4, R4-69: built by _strong_text, which the true-revenue pass's insurer release reads
+    # too (strong_rule_reads_insurance_wording_only).
+    strong_text = _strong_text(text, description)
     if (
         _matches_any(strong_text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
     ) or _own_book_or_funds_transfer(text, holder):
