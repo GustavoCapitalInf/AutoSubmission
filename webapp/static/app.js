@@ -5802,7 +5802,7 @@ function renderMonthlyStatements(pkg) {
           <td>${escapeHtml(month ? MONTH_NAMES[month.month] : "N/A")}${shared ? `<div class="table-cell-detail">${escapeHtml(doc.filename || "Statement")}</div>` : ""}</td>
           <td class="mono">${escapeHtml(month ? String(month.year) : "N/A")}</td>
           ${columns.map(([, value, kind]) => `<td class="mono">${escapeHtml(kind === "amount" ? amount(value(doc)) : formatWhole(value(doc)))}</td>`).join("")}
-          <td class="mono">${escapeHtml(monthlyActivePositions(doc))}</td>
+          <td class="mono positions">${escapeHtml(monthlyActivePositions(doc))}</td>
           <td class="mono">${escapeHtml(formatRateTwoDecimals(monthlyWithholdingRate(doc)))}</td>
           <td class="mono">${escapeHtml(amount(monthFigure(doc, doc.average_daily_balance)))}</td>
           <td class="mono" title="${escapeHtml(nsfSourceLabel(doc.nsf_source))}">${escapeHtml(formatNumber(monthFigure(doc, doc.nsf_count)))}${mixedNsf ? `<div class="table-cell-detail">${escapeHtml(nsfSourceLabel(doc.nsf_source))}</div>` : ""}</td>

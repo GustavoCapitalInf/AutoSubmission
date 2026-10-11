@@ -1346,6 +1346,8 @@
   .data-table td { border-top-color: var(--border); }
   .seasonality-table thead tr { background: transparent; }
   .seasonality-table th { font-size: 10.5px; }
+  /* Active Positions keeps "2 (+1 possible)" on one line, so a row never doubles in height. */
+  .seasonality-table td.positions { white-space: nowrap; }
   .glass-chip { height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 500; letter-spacing: .01em; }
   .metric .glass-chip, .source-tag, .main-badge { border-radius: 6px; }
   .rules-outdated { border-color: transparent; }
@@ -2352,6 +2354,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-12"></script>
+<script src="/static/app.js?v=true-revenue-13"></script>
 </body>
 </html>

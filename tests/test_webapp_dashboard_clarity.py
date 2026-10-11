@@ -651,8 +651,8 @@ def test_the_page_s_default_hero_label_and_table_header():
         "True Deposits Per Month", "Active Positions", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     # Audit round 3, R3-MERGE: the merged app.js asks for the next free value above both lines (-8 the hosting line's).
     # The owner's request of 2026-10-10 (active positions by month): "Active Positions" right before "Withholding
-    # Rate", and app.js asked for as true-revenue-12.
-    assert '<script src="/static/app.js?v=true-revenue-12"></script>' in html
+    # Rate", and app.js asked for as true-revenue-12. The owner's own design (2026-10-11, display only): -13.
+    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
 
 
 # ---------------------------------------------------------------------------------- C: the Monthly Statements
