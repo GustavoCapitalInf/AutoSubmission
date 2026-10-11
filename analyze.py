@@ -16,6 +16,7 @@ import argparse
 import json
 import sys
 from analysis import zelle_view
+from analysis.active_positions import statement_active_positions
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import (
     LARGE_UNSOURCED_DEPOSIT_FLOOR, apply_revenue_view, revenue_flags, withholding_basis_unestablished,
@@ -94,6 +95,17 @@ def _zelle_line(stored: Report, shown: Report, *, established: bool = True) -> s
         f"${parts['held']:,.2f} held for review{out} (Mark Zelle Payments as True Revenue: Yes; "
         "--zelle-true-revenue no excludes them)"
     )
+
+
+def _active_positions_text(report: Report) -> str:
+    """The owner's request of 2026-10-10 (active positions by month): "2" or "2 (+1 possible)", the statement's
+    confirmed and possible active positions over its printed period (analysis/active_positions.py, from its
+    classification records)."""
+    s = report.statement
+    found = statement_active_positions(report.classifications, period_start=s.period_start,
+                                       period_end=s.period_end, currency=s.currency)
+    possible = found["possible_positions"]
+    return f"{found['active_positions']}" + (f" (+{possible} possible)" if possible else "")
 
 
 def _payment_change_line(item: dict) -> str:
@@ -388,6 +400,9 @@ def _render(stored: Report, zelle_true_revenue: bool = True) -> str:
             )
     else:
         L.append("  Potential lenders: none")
+    # The owner's request of 2026-10-10 (active positions by month): the statement's active positions over its printed
+    # period, the confirmed lenders' and, apart, the potential lenders' (information only).
+    L.append(f"  Active positions      : {_active_positions_text(report)}")
     # The owner's request of 2026-10-06 (R2-OW18): the statement's lender payment changes (information only). One
     # statement at a time, so never a change seen only across months.
     if d.lender_payment_changes:
