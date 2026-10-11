@@ -200,6 +200,24 @@ def test_r3_b05_the_cli_and_the_batch_name_a_catch_up():
     assert columns["lender_payment_changes"] == "catch_up:KAPITUS; pause:KAPITUS; catch_up:KAPITUS (potential)"
 
 
+def test_r4_09_the_cli_names_a_catch_up_on_the_day_payments_resumed():
+    """Audit round 4, R4-B06 (R4-09): a catch-up dated on the day payments resumed is worded so; one before that day
+    still reads "before payments resumed" (fabricated module items)."""
+    import analyze
+    from tests import test_lender_payment_changes as pure
+
+    on_the_day = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850)
+                           + pure._returned([M(17)], 850) + pure._rows([M(18)], 1700))
+    assert analyze._payment_change_line(on_the_day) == (
+        "pause: KAPITUS daily $850.00, no payment or attempt 2054-03-06 to 2054-03-17, 6 business days (grace 5); a "
+        "returned attempt on 2054-03-17, payments resumed on 2054-03-18; a catch-up of 2x on 2054-03-18 on the day "
+        "payments resumed")
+    before = pure.only(pure._rows(pure.every(M(3), M(17)) + pure.every(A(14), pure.Y(26)), 1000)
+                       + pure._returned([A(7)], 1000) + pure._rows([A(9)], 3000), end=pure.Y(29))
+    assert analyze._payment_change_line(before).endswith(
+        "payments resumed on 2054-04-14; a catch-up of 3x on 2054-04-09 before payments resumed")
+
+
 def test_r3_85_the_cli_stop_line_names_the_later_debits_and_the_count_s_anchor():
     """Audit round 3, R3-B06 (R3-85): a statement possible stop whose last presence is a later debit at another amount
     names those debits and counts its business days after the last of them; a stop whose last presence is its last

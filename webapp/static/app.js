@@ -1458,9 +1458,12 @@ function lenderPaymentChangeNote(item, currency = "USD", sources = null) {
       details.push(`Payments then resumed ${same}.`);
     }
     const entries = (list) => (Array.isArray(list) ? list : []).filter((entry) => entry && typeof entry === "object");
+    // Audit round 4, R4-09: a catch-up dated on the day payments resumed (it sorts before that day's payment) says so.
+    const came = (entry) => (entry.date && entry.date === item.resumed_date ? "on the day payments resumed"
+      : "before payments resumed");
     entries(item.catch_ups_inside).forEach((entry) => also.push(`Also: a debit of ${money(entry.amount)} on `
-      + `${day(entry.date)}, ${formatNumber(entry.multiple)} times the payment, came before payments resumed; this may `
-      + "be a catch-up."));
+      + `${day(entry.date)}, ${formatNumber(entry.multiple)} times the payment, came ${came(entry)}; this may be a `
+      + "catch-up."));
     entries(item.larger_debits_inside).forEach((entry) => also.push(`Also: a debit of ${money(entry.amount)} on `
       + `${day(entry.date)}, inside the gap, was more than twice the payment.`));
     also.push(...sameAmount(item.last_payment_amount));

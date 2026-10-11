@@ -383,6 +383,25 @@ def test_r3_b05_r1_a_pause_names_a_catch_up_before_payments_resumed():
 
 
 @needs_node
+def test_r4_09_a_catch_up_on_the_day_payments_resumed_says_so():
+    """Audit round 4, R4-B06 (R4-09): a catch-up dated on the day payments resumed (it sorts before that day's payment)
+    is worded "came on the day payments resumed"; one before that day keeps "came before payments resumed"."""
+    on_the_day = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850)
+                           + pure._returned([M(17)], 850) + pure._rows([M(18)], 1700))
+    weekly = pure.only(pure._rows(pure.every(M(3), M(17)) + pure.every(A(14), Y(26)), 1000)
+                       + pure._returned([A(7)], 1000) + pure._rows([A(9)], 3000), end=Y(29))
+    texts = [text for text, _chip in warning_texts([on_the_day, weekly])]
+    assert texts[0] == (
+        "KAPITUS: payments paused, then resumed. No payment or payment attempt between Mar 6 and Mar 17, 2054 (6 "
+        "business days, more than the 5 a daily schedule allows). The attempt on Mar 17, 2054 was returned unpaid, and "
+        "payments resumed at the same daily $850.00 on Mar 18, 2054. Also: a debit of $1,700.00 on Mar 18, 2054, 2 "
+        "times the payment, came on the day payments resumed; this may be a catch-up.")
+    assert texts[1].endswith(
+        "and payments resumed at the same weekly $1,000.00 on Apr 14, 2054. Also: a debit of $3,000.00 on Apr 9, 2054, "
+        "3 times the payment, came before payments resumed; this may be a catch-up.")
+
+
+@needs_node
 def test_r3_b05_the_same_amount_note_and_a_stop_it_never_confirms():
     march = pure._rows(pure.bdays(M(2), M(13)), 850) + pure._other(pure.bdays(M(16), M(31)), 850)
     [stop] = pure._chain((march, M(1), M(31)), (pure._other(pure.bdays(A(1), A(30)), 850), A(1), A(30)))
