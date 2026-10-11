@@ -51,7 +51,10 @@ numerator moving while the paid-row or withholding-row set does not (`lender_deb
 `withholding_numerator_unexplained`; a declared compare's rule D accounts are skipped). Audit round 4: compare also exits
 1 on a returned row that either snapshot lists in `represented_rows` (counted once by its funder's re-debit, R3-73)
 joining the withholding rows, unless its entity is allowlisted (R4-02: `represented_rows_rejoining_withholding`, failing
-as `represented_rows_rejoining_outside_the_allowlist`; no Q5 join). The payment-changes block never fails.
+as `represented_rows_rejoining_outside_the_allowlist`; no Q5 join), and on a paid row re-read as another lender (its index
+in both snapshots' `lenders`, the entity different after the merge mapping), unless both entities are allowlisted (R4-03:
+`paid_rows_reattributed`, failing as `paid_rows_reattributed_outside_the_allowlist`). The payment-changes block never
+fails.
 """
 from __future__ import annotations
 
@@ -575,9 +578,12 @@ def compare(
     # withholding rows (`_lump_sum_row`), declared row by row.
     lump_sums: dict = {"analyses": set(), "rows": 0}
     # Audit round 4, R4-02: a returned row counted once (either snapshot's represented_rows) joining the withholding
-    # rows; it fails unless its entity is allowlisted.
+    # rows; it fails unless its entity is allowlisted. R4-03: a paid row read as another lender (index in both
+    # snapshots' lenders, the entity different after the merge mapping); it fails unless both entities are allowlisted.
     rejoining: dict = {"analyses": set(), "rows": 0}
     rejoining_outside = 0
+    reattributed: dict = {"analyses": set(), "rows": 0}
+    reattributed_outside = 0
     paid_left_other_outside = 0
     debits_unexplained: set[str] = set()
     numerator_unexplained: set[str] = set()
@@ -676,6 +682,14 @@ def compare(
                     paid_left_other_outside += 1
         old_paid = {index for index, _, _ in old["lenders"]}
         paid_rows["joined"] += len(new_rows - old_paid)
+        # Audit round 4, R4-03: a paid row read as another lender, index by index (a merge is no move).
+        entity_now = {index: entity for index, entity, _ in new["lenders"]}
+        for index, entity, _ in old["lenders"]:
+            if index in entity_now and one_lender(entity_now[index]) != one_lender(entity):
+                reattributed["analyses"].add(sha)
+                reattributed["rows"] += 1
+                if not (signed_off(entity) and signed_off(entity_now[index])):
+                    reattributed_outside += 1
         if key not in rule_d_accounts:
             # R3-22: lender_debits moving while the paid-row set is the same, and the numerator moving while the
             # withholding-row set is the same, are moves no row explains (both present; a rule D account is skipped).
@@ -798,9 +812,12 @@ def compare(
         "lender_debits_unexplained": {"analyses": len(debits_unexplained)},
         "withholding_numerator_unexplained": {"analyses": len(numerator_unexplained)},
         # Audit round 4, R4-02: a row counted once by its funder's re-debit rejoining the withholding rows (no Q5 join),
-        # and those whose entity is not allowlisted (a failure).
+        # and those whose entity is not allowlisted (a failure). R4-03: the paid rows re-read as another lender, and
+        # those whose two entities are not both allowlisted (a failure).
         "represented_rows_rejoining_withholding": {"analyses": len(rejoining["analyses"]), "rows": rejoining["rows"]},
         "represented_rows_rejoining_outside_the_allowlist": rejoining_outside,
+        "paid_rows_reattributed": {"analyses": len(reattributed["analyses"]), "rows": reattributed["rows"]},
+        "paid_rows_reattributed_outside_the_allowlist": reattributed_outside,
         # R2-OW17 (J3): the Zelle readings compared, and the rule D moves a declared compare sets apart.
         "zelle_reading": {"before": before.get("zelle_true_revenue"), "after": after.get("zelle_true_revenue"),
                           "declared": view_declared},
@@ -910,11 +927,15 @@ def _print_comparison(report: dict) -> None:
               f"{(report.get('lender_debits_unexplained') or {}).get('analyses', 0)} analyses")
         print(f"withholding numerator moved with no withholding row move: "
               f"{(report.get('withholding_numerator_unexplained') or {}).get('analyses', 0)} analyses")
-        # Audit round 4, R4-02: a failure, printed with its allowlist part.
+        # Audit round 4, R4-02 and R4-03: two more failures, each printed with its allowlist part.
         rejoining = report.get("represented_rows_rejoining_withholding") or {"analyses": 0, "rows": 0}
         print(f"returned rows rejoining the withholding rows after being counted once: {rejoining['analyses']} "
               f"analyses/{rejoining['rows']} rows; outside the allowlist: "
               f"{report.get('represented_rows_rejoining_outside_the_allowlist', 0)}")
+        reattributed = report.get("paid_rows_reattributed") or {"analyses": 0, "rows": 0}
+        print(f"paid rows re-attributed to another lender: {reattributed['analyses']} analyses/"
+              f"{reattributed['rows']} rows; outside the allowlist: "
+              f"{report.get('paid_rows_reattributed_outside_the_allowlist', 0)}")
     reading = report.get("zelle_reading")
     if reading and reading.get("declared"):
         # R2-OW17 (J3): the declared compare of the two Zelle readings.
@@ -1042,7 +1063,8 @@ def failed_on_lender_losses(report: dict) -> bool:
     """Audit round 3, R3-B01 (R3-22; the underwriter's Q5; spec §14.3 G7): a returned row leaving the withholding rows, a
     paid row leaving for no return, a lost lender or a lender-count loss outside the allowlist, or lender_debits or the
     withholding numerator moving with no row move. Audit round 4: a returned row counted once rejoining the withholding
-    rows whose entity is not allowlisted (R4-02)."""
+    rows whose entity is not allowlisted (R4-02), and a paid row re-read as another lender unless both entities are
+    allowlisted (R4-03)."""
     return (
         report["returned_rows_leaving_withholding"]["rows"] > 0
         or report["paid_rows_left_other_outside_the_allowlist"] > 0
@@ -1051,6 +1073,7 @@ def failed_on_lender_losses(report: dict) -> bool:
         or report["lender_debits_unexplained"]["analyses"] > 0
         or report["withholding_numerator_unexplained"]["analyses"] > 0
         or report["represented_rows_rejoining_outside_the_allowlist"] > 0
+        or report["paid_rows_reattributed_outside_the_allowlist"] > 0
     )
 
 

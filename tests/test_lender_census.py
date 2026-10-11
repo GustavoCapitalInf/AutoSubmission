@@ -699,6 +699,81 @@ def test_r4_02_control_the_zions_shaped_narrowing_passes_on_the_allowlist(tmp_pa
     assert _main_exit(tmp_path, before, after, allowlisted=(CONTOSO_CAPITAL,)) == 0
 
 
+# ------------------------------------------------------------------------------------------------- Audit round 4, R4-03
+# (true revenue spec §14.3 G7; the underwriter's Q5, "declare every lender-figure move"): a paid row re-read as another
+# lender (index in both snapshots' `lenders`, entity A read as B after the merge mapping) fails unless both entities are
+# allowlisted, whether or not A keeps another paid row. Fabricated snapshots, every row a paid withholding row.
+
+
+def _paid_account(entities):
+    count = len(entities)
+    return {**_account(["confirmed_lender"] * count, [[index, entity, entity.upper()]
+                                                      for index, entity in enumerate(entities)], {}, 20.0),
+            "lender_debits": 100.0 * count, "withholding_rows": list(range(count)),
+            "withholding_numerator": 100.0 * count, "lender_count_entities": sorted(set(entities)),
+            "returned_funder_rows": [], "represented_rows": [], "potential_lender_rows": [],
+            "potential_withholding_rows": [], "reversed_by": [],
+            "row_dates": [f"2054-03-{day:02d}" for day in range(2, 2 + count)],
+            "row_entities": {str(index): entity for index, entity in enumerate(entities)}}
+
+
+A, B, C = CONTOSO_CAPITAL, FABRIKAM_FUNDING, NORTHWIND_ADVANCE
+R4_03_CASES = {
+    "P": ([A, A, B, B], [A, B, B, B], 1, (A, B)),          # one of A's two rows read as B, B already paying
+    "P2": ([A, A, A, A, B], [A, B, B, B, B], 3, (A, B)),  # three of A's four rows
+    "S": ([A, A, B, B], [A, B, A, B], 2, (A, B)),          # A's second row and B's first swapped
+    "Q": ([A, A, B], [A, C, B], 1, (A, C)),                # A's second row read as a newly admitted C
+}
+
+
+@pytest.mark.parametrize("case", sorted(R4_03_CASES))
+def test_r4_03_a_partial_re_attribution_fails_unless_both_entities_are_allowlisted(tmp_path, capsys, case):
+    old, new, rows, both = R4_03_CASES[case]
+    before, after = _q5_snapshots(_paid_account(old), _paid_account(new))
+    report = census.compare(before, after, admitted=frozenset({A, B, C}))
+    assert report["paid_rows_reattributed"] == {"analyses": 1, "rows": rows}
+    assert report["paid_rows_reattributed_outside_the_allowlist"] == rows
+    assert report["lost"] == {}  # A keeps a paid row: no loss of A
+    assert census.failed_on_lender_losses(report)
+    assert _main_exit(tmp_path, before, after, admitted=(A, B, C)) == 1
+    assert (f"paid rows re-attributed to another lender: 1 analyses/{rows} rows; outside the allowlist: {rows}"
+            in capsys.readouterr().out)
+    only_one = census.compare(before, after, admitted=frozenset({A, B, C}), allowlisted=frozenset({both[0]}))
+    assert only_one["paid_rows_reattributed_outside_the_allowlist"] == rows
+    assert _main_exit(tmp_path, before, after, admitted=(A, B, C), allowlisted=(both[0],)) == 1
+    allowed = census.compare(before, after, admitted=frozenset({A, B, C}), allowlisted=frozenset(both))
+    assert allowed["paid_rows_reattributed"] == {"analyses": 1, "rows": rows}
+    assert allowed["paid_rows_reattributed_outside_the_allowlist"] == 0
+    assert _main_exit(tmp_path, before, after, admitted=(A, B, C), allowlisted=both) == 0
+
+
+def test_r4_03_control_a_merge_is_no_re_attribution(tmp_path, monkeypatch):
+    from analysis import classification_registry
+
+    before, after = _q5_snapshots(_paid_account([A, A, B, B]), _paid_account([A, B, B, B]))
+    merged = census.compare(before, after, admitted=frozenset({A, B}), merged={A: B})
+    assert merged["paid_rows_reattributed"] == {"analyses": 0, "rows": 0}
+    assert merged["paid_rows_reattributed_outside_the_allowlist"] == 0
+    monkeypatch.setattr(classification_registry, "MERGED_REGISTRY_ENTITIES", {A: B})
+    assert _main_exit(tmp_path, before, after, admitted=(A, B)) == 0
+    # An unchanged account: no re-attribution, exit 0.
+    assert census.compare(before, before, admitted=frozenset({A, B}))["paid_rows_reattributed"] == {
+        "analyses": 0, "rows": 0}
+
+
+def test_r4_03_a_full_re_attribution_is_counted_and_still_fails_as_a_loss(tmp_path):
+    # R3-22's control F: every paid row of A read as B. Counted as re-attributed rows too; with both allowlisted the
+    # re-attribution figure passes and the loss of A is excused by the same allowlist.
+    before, after = _q5_snapshots(_q5_account(), _q5_account(entity=B, counted=(B,)))
+    report = census.compare(before, after, admitted=frozenset({B}))
+    assert report["paid_rows_reattributed"] == {"analyses": 1, "rows": 2}
+    assert report["paid_rows_reattributed_outside_the_allowlist"] == 2
+    assert report["lost_outside_the_allowlist"] == 1
+    assert _main_exit(tmp_path, before, after, admitted=(B,)) == 1
+    before, after = _q5_snapshots(_q5_account(entity=A, counted=(A,)), _q5_account(entity=B, counted=(B,)))
+    assert _main_exit(tmp_path, before, after, admitted=(B,), allowlisted=(A, B)) == 0
+
+
 # ---------------------------------------------------------------- The owner's amendment of 2026-10-06 to the
 # underwriter's Q3 (R2-OW17, J3; true revenue spec §14.3 G7): the snapshot reads one Zelle reading (Yes by default); a
 # compare of the two readings is refused unless declared, and then only rule D's move on a Zelle return credit
