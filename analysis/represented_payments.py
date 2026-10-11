@@ -8,7 +8,9 @@ payment LEAVES the withholding numerator once the same funder re-debits it,
 
 * the same cents OFF its cycle, dated on or after the return and within one cadence gap after it (a re-presentment), or
 * an exact 2x debit dated on or after the return and within one cadence gap after it (a catch-up, which covers the
-  bounced payment once);
+  bounced payment once); since audit round 4, R4-75 (the owner's "Count it once" for the shapes his option text, "a 2x
+  catch-up", did not foresee; its question's default (a)), an exact 2x to 6x debit that pays several bounced payments
+  covers each of them once (step 3);
 
 until such a re-debit exists the returned attempt stays in the numerator exactly as Q5 rules. Paid to lenders, the
 lender count and revenue do not move: only the numerator (and the rate), by exactly the matched attempts.
@@ -18,8 +20,10 @@ This module reads neutral rows only (`Attempt`, `Returned`), so the classifier (
 
 The rule, per returned payment R (its funder E, its cents c, its return dated C), in (return date, R's order) order:
 
-1. The series: E's dated attempts (paid payments and returned attempts) at c or 2c cents, the re-debits already taken
-   left out. Its schedule is `payment_cadence` of the series' dates (a same-cents candidate's own date left out;
+1. The series: E's dated attempts (paid payments and returned attempts) at c cents and at a companion's cents, 2c for a
+   same-cents or a 2c candidate and k*c for a k*c candidate (k in CATCH_UP_MULTIPLES, audit round 4, R4-75), the
+   re-debits already taken left out (a multiple keeps its own date while it has capacity left). Its schedule is
+   `payment_cadence` of the series' dates (a same-cents candidate's own date left out;
    daily_irregular read as daily), else, where 2c debits off the cycle blur it, of its c-cent dates alone; each read
    only on MIN_SCHEDULE_DATES distinct dates or more (two dates a fortnight apart read biweekly whatever the series is);
    irregular, single or no schedule reads nothing. Audit round 4, R4-01: the c-cent dates alone are also preferred
@@ -36,8 +40,18 @@ The rule, per returned payment R (its funder E, its cents c, its return dated C)
    another return are that return's re-presentments, a funder re-presenting every bounce on one weekday, no schedule;
    review round 2 of R3-B02). A daily or semi-monthly schedule reads no same-cents re-debit: every business day is a
    daily series' cycle, and a second debit on one day (or on the payment's own day) cannot be told from two positions.
-3. A 2x candidate X (exactly 2c cents, dated on or after C and after R) is a catch-up when it is at most one cycle after C
-   (one business day on a daily schedule) and E has fewer than LEVEL_ATTEMPTS 2c attempts (X included) within one
+3. A multiple candidate X (exactly k*c cents for k in CATCH_UP_MULTIPLES, 2 to 6; before audit round 4, R4-75, only
+   2c; dated on or after C and after R) is a catch-up of R when (the window and the run, R4-75) it is at most one cycle
+   after the return of L (one business day on a daily schedule), L the latest standing returned payment of the series
+   (its c-cent returned payments still in the numerator, not yet re-debited, paid before X and returned on or before
+   X), and R is L or an earlier standing one whose payment is dated at most k-1 cycles (daily: k-1 business days)
+   before L's (for one bounce, R is L: one cycle after C); when (the capacity, R4-75) X covers fewer returned payments
+   than k, and than k-1 where X stands in for that day's own payment (`_stands_in`: on a weekly, biweekly or monthly
+   schedule X keeps the series' phase, on a daily one it falls on a business day, and no other attempt of the series at
+   c cents is dated X's day; where no phase can be read, semi-monthly, k-1), so a 2x on the cycle with no regular
+   payment beside it covers one bounce, as before, and an off-cycle 2x after two bounces covers both; and when (the
+   levels, read at X's cents) E has fewer than LEVEL_ATTEMPTS attempts at X's cents (X included) within one
+   cycle of it, and at least a week, and (a schedule other than daily) fewer than LEVEL_ATTEMPTS - 1 2c attempts
    cycle of it, and at least a week, and (a schedule other than daily) fewer than LEVEL_ATTEMPTS - 1 2c attempts
    within LEVEL_WINDOW_CYCLES cycles after it and fewer than LEVEL_ATTEMPTS - 1 within LEVEL_WINDOW_CYCLES cycles
    before it, on the series' cycle or not, the re-debits already taken left out (a 2c level of its own is not a
@@ -49,8 +63,10 @@ The rule, per returned payment R (its funder E, its cents c, its return dated C)
    phase, and RECURRING_PHASE_ANCHORS or more other attempts of the stream keep X's phase, one of which follows no other
    return of the series within one of the stream's cycles (a second position's payment at the stream's edge, or a
    biweekly second position, which the level count and windows miss; alternating catch-ups that each follow a return
-   stay catch-ups).
-4. The earliest qualifying candidate (date, then order) is taken; each re-debit covers one returned payment.
+   stay catch-ups). The level windows and the stream read X's own cents (2c above stands for them).
+4. The earliest qualifying candidate (date, then order) is taken. A same-cents re-debit covers one returned payment; a
+   multiple covers as many as its capacity, the returns read in (return date, order) order, so it covers the earliest
+   qualifying bounces first (a run longer than its capacity leaves the latest standing).
 """
 from __future__ import annotations
 
@@ -64,6 +80,9 @@ from .lender_payment_changes import business_days_between, payment_cadence
 #: The kind of re-debit that took a returned payment out of the withholding numerator.
 RE_PRESENTED = "re_presented"
 CAUGHT_UP = "caught_up"
+#: Audit round 4, R4-75: the exact multiples of the payment a catch-up may be (R3-25's, the lender payment changes'
+#: CATCH_UP_PRESENCE_MULTIPLES; exact cents here, pass 7c's own tolerance, where the payment changes allow 2%).
+CATCH_UP_MULTIPLES = (2, 3, 4, 5, 6)
 #: One cycle of each schedule, in calendar days: a re-debit's window after the return.
 CYCLE_DAYS = {"weekly": 7, "biweekly": 14, "semimonthly": 16, "monthly": 31}
 #: The days a payment may stand from its schedule's phase and still keep it (a weekend or holiday shift). A weekly and a
@@ -114,6 +133,15 @@ class Returned:
 
     attempt: Attempt
     returned_on: date
+
+
+def catch_up_multiple(payment_cents: int, re_debit_cents: int) -> int | None:
+    """Audit round 4, R4-75: the k of CATCH_UP_MULTIPLES whose k times the payment's cents the re-debit's cents are
+    exactly (a catch-up's multiple), else None (a same-cents re-debit is a re-presentment)."""
+    if payment_cents <= 0:
+        return None
+    multiple, rest = divmod(re_debit_cents, payment_cents)
+    return multiple if rest == 0 and multiple in CATCH_UP_MULTIPLES else None
 
 
 def out_of_rate_payment(returned_funder_payment_by: object, contributes_to_withholding_rate: object) -> bool:
@@ -252,59 +280,111 @@ def _keeps_its_own_stream(candidate: Attempt, family: Sequence[Attempt], used: M
         _follows_a_return(day, other_returns, schedule) for day in keeping)
 
 
+def _within(start: date, day: date, schedule: str, calendar: str, cycles: int = 1) -> bool:
+    """`day` is at most `cycles` cycles of `schedule` after `start` (on a daily schedule DAILY_CATCH_UP_BUSINESS_DAYS
+    business days where `cycles` is 1, else `cycles` business days; on another, CYCLE_DAYS calendar days each)."""
+    if schedule == "daily":
+        limit = DAILY_CATCH_UP_BUSINESS_DAYS if cycles == 1 else cycles
+        return business_days_between(start, day, calendar) <= limit
+    return (day - start).days <= cycles * CYCLE_DAYS[schedule]
+
+
+def _stands_in(candidate: Attempt, family: Sequence[Attempt], payment_cents: int, anchors: Sequence[date],
+               schedule: str, calendar: str) -> bool:
+    """Step 3's capacity (audit round 4, R4-75): whether a multiple candidate stands in for its own day's payment, so it
+    covers k-1 returned payments, not k: no other attempt of the series at the payment's cents is dated its day, and on
+    a weekly, biweekly or monthly schedule it keeps the series' phase (`_cycle` of the schedule's anchors), on a daily
+    one it falls on a business day; where no phase can be read (a semi-monthly schedule, or no clear phase) it stands
+    in (the conservative side: it covers k-1)."""
+    if any(attempt.day == candidate.day and attempt.cents == payment_cents for attempt in family):
+        return False
+    if schedule == "daily":
+        return business_days_between(date.fromordinal(candidate.day.toordinal() - 1), candidate.day, calendar) == 1
+    cycle = _cycle(anchors, schedule)
+    return cycle is None or _on_cycle(candidate.day, cycle, schedule)
+
+
 def re_debits(
     returned: Sequence[Returned],
     attempts: Sequence[Attempt],
     calendar: str = "US",
     *,
     may_re_debit: Callable[[Returned, Attempt], bool] | None = None,
-    taken: Sequence[Hashable] = (),
+    taken: Sequence[Hashable] | Mapping[Hashable, int] = (),
     returns: Sequence[Returned] | None = None,
+    standing: Sequence[Returned] | None = None,
 ) -> dict[Hashable, tuple[Hashable, str]]:
     """{returned attempt's key: (its re-debit's key, RE_PRESENTED or CAUGHT_UP)} for every returned payment the same
     funder re-debited (the module's rule). `attempts` holds every dated attempt of the funders (the returned ones
     included); `may_re_debit` narrows the candidates of a returned payment (the package: another member); `taken` are
-    re-debits already taken elsewhere (a statement's own reading); `returns` are every returned payment the caller
-    knows, the re-debited ones included, which step 2's recurring-phase guard reads (`returned` where not given)."""
+    re-debits already taken elsewhere (a statement's own reading), each key listed once per returned payment it covers
+    or given as a mapping key -> count (audit round 4, R4-75: a multiple covers several); `returns` are every returned
+    payment the caller knows, the re-debited ones included, which step 2's recurring-phase guard reads (`returned` where
+    not given); `standing` are the returned payments still in the numerator that step 3's run reads its latest bounce L
+    from (`returned` where not given; the package passes its members' own, R4-75), the ones re-debited here left out.
+    A multiple's kind is CAUGHT_UP; its k is `catch_up_multiple` of the two cents."""
     used: Counter = Counter(taken)
     known_returns = list(returned) if returns is None else list(returns)
+    pending = list(returned) if standing is None else list(standing)
     found: dict[Hashable, tuple[Hashable, str]] = {}
     for item in sorted(returned, key=lambda entry: (entry.returned_on, entry.attempt.order)):
         payment, returned_on = item.attempt, item.returned_on
         if returned_on < payment.day:
             continue
+        # Audit round 4, R4-75: the candidates are the payment's cents and its exact 2x to 6x multiples.
+        multiples = {multiple * payment.cents: multiple for multiple in CATCH_UP_MULTIPLES}
         family = [attempt for attempt in attempts
                   if attempt.entity == payment.entity and attempt.key != payment.key
-                  and attempt.cents in (payment.cents, 2 * payment.cents)]
+                  and (attempt.cents == payment.cents or attempt.cents in multiples)]
         # The series' other returned payments at the same cents (step 2: an attempt following one is its re-debit).
         other_returns = [(entry.attempt.day, entry.returned_on) for entry in known_returns
                          if entry.attempt.entity == payment.entity and entry.attempt.cents == payment.cents
                          and entry.attempt.key != payment.key]
+        # Step 3's run (R4-75): the series' returned payments still standing, R included.
+        series_standing = [entry for entry in pending
+                           if entry.attempt.entity == payment.entity and entry.attempt.cents == payment.cents
+                           and entry.attempt.key not in found and entry.attempt.key != payment.key
+                           and entry.returned_on >= entry.attempt.day] + [item]
         for candidate in sorted(family, key=lambda attempt: (attempt.day, attempt.order)):
-            if (used[candidate.key] or candidate.day < returned_on or candidate.day <= payment.day
+            same_cents = candidate.cents == payment.cents
+            multiple = 1 if same_cents else multiples[candidate.cents]
+            if (used[candidate.key] >= multiple or candidate.day < returned_on or candidate.day <= payment.day
                     or (may_re_debit is not None and not may_re_debit(item, candidate))):
                 continue
-            same_cents = candidate.cents == payment.cents
-            pool = [attempt for attempt in family if not used[attempt.key]
+            companion = 2 * payment.cents if same_cents else candidate.cents
+            pool = [attempt for attempt in family if attempt.cents in (payment.cents, companion)
+                    and (not used[attempt.key] or (attempt.key == candidate.key and not same_cents))
                     and (attempt.key != candidate.key or not same_cents)]
-            # The schedule of the series at c and 2c cents, else (2c debits off the cycle can blur it) at c cents alone;
-            # audit round 4, R4-01: the c cents alone also where the series reads daily but they read a slower schedule.
+            # The schedule of the series at c and its companion's cents, else (multiples off the cycle can blur it) at c
+            # cents alone; audit round 4, R4-01: the c cents alone also where the series reads daily but they read a
+            # slower schedule.
             schedule, anchors = _series_schedule(
                 [payment.day] + [attempt.day for attempt in pool],
                 [payment.day] + [attempt.day for attempt in pool if attempt.cents == payment.cents], calendar)
             if schedule is None:
                 continue
-            if schedule == "daily":
-                within = business_days_between(returned_on, candidate.day, calendar) <= DAILY_CATCH_UP_BUSINESS_DAYS
-            else:
-                within = (candidate.day - returned_on).days <= CYCLE_DAYS[schedule]
-            if not within:
-                continue
             if same_cents:
+                if not _within(returned_on, candidate.day, schedule, calendar):
+                    continue
                 if not _off_cycle(candidate.day, anchors, schedule, other_returns):
                     continue
                 kind = RE_PRESENTED
             else:
+                # R4-75's window and run: one cycle after the latest standing bounce's return, R no more than k-1
+                # cycles before it (for one bounce, R itself: one cycle after its return, as before).
+                latest = max((entry for entry in series_standing
+                              if entry.attempt.day < candidate.day and entry.returned_on <= candidate.day),
+                             key=lambda entry: (entry.returned_on, entry.attempt.order))
+                if not _within(latest.returned_on, candidate.day, schedule, calendar):
+                    continue
+                if latest is not item and not _within(payment.day, latest.attempt.day, schedule, calendar,
+                                                      cycles=multiple - 1):
+                    continue
+                # R4-75's capacity: k returned payments, k-1 where the multiple stands in for its day's own payment.
+                capacity = multiple - 1 if _stands_in(candidate, family, payment.cents, anchors, schedule,
+                                                      calendar) else multiple
+                if used[candidate.key] >= capacity:
+                    continue
                 level_days = DAILY_LEVEL_DAYS if schedule == "daily" else max(DAILY_LEVEL_DAYS, CYCLE_DAYS[schedule])
                 if sum(1 for attempt in family if attempt.cents == candidate.cents
                        and abs((attempt.day - candidate.day).days) <= level_days) >= LEVEL_ATTEMPTS:

@@ -6661,10 +6661,11 @@ def _apply_returned_funder_payments(
     return updated
 
 
-def _represented_reason(debit_location: str, kind: str) -> str:
+def _represented_reason(debit_location: str, kind: str, multiple: int | None = None) -> str:
     """The sentence a re-debited returned payment adds to its reason (audit round 3, R3-B02: R3-73; the owner's answer
-    named without its date, as _returned_unpaid_reason names Q5's ruling)."""
-    how = "caught it up 2x" if kind == "caught_up" else "re-presented it"
+    named without its date, as _returned_unpaid_reason names Q5's ruling). Audit round 4, R4-75: a catch-up names its
+    multiple, "caught it up <k>x" (2x where none is given, as before)."""
+    how = f"caught it up {multiple or 2}x" if kind == "caught_up" else "re-presented it"
     return (
         f"The funder {how} by {debit_location}: out of the withholding rate, which counts the obligation once (the "
         "owner's answer on re-presented payments, \"Count it once\")."
@@ -6685,8 +6686,10 @@ def _apply_represented_funder_payments(
     payments, and before the duplicate finalisation. Audit round 3, final review (R3-FF), F3: a paid debit the rate
     leaves out (`out_of_rate_payment`: R3-79's worded lump-sum payoff) is never the re-debit, since the returned attempt
     would then leave the numerator beside it and the obligation would count zero times; it stays in the series the
-    schedule and the 2x level are read from."""
-    from .represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
+    schedule and the 2x level are read from. Audit round 4, R4-75 (the owner's "Count it once"; its question's default
+    (a)): an exact 2x to 6x catch-up that pays several bounced payments takes each of them out once (several returned
+    debits then name one re-debit), and the sentence names its multiple ("caught it up <k>x")."""
+    from .represented_payments import Attempt, Returned, catch_up_multiple, out_of_rate_payment, re_debits
 
     def location(index: int) -> str:
         return records[index].source_location or f"transaction:{index + 1}"
@@ -6725,11 +6728,13 @@ def _apply_represented_funder_payments(
         head, standing, tail = updated[index].reason.rpartition(_returned_unpaid_reason(credit_location))
         reason = f"{head}{_returned_unpaid_reason(credit_location, re_debited=True)}{tail}" if standing else (
             updated[index].reason)
+        multiple = catch_up_multiple(round(abs(records[index].amount) * 100),
+                                     round(abs(records[debit_index].amount) * 100))
         updated[index] = replace(
             updated[index],
             contributes_to_withholding_rate=False,
             represented_by=location(debit_index),
-            reason=f"{reason} {_represented_reason(location(debit_index), kind)}",
+            reason=f"{reason} {_represented_reason(location(debit_index), kind, multiple)}",
         )
     return updated
 

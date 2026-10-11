@@ -15,6 +15,7 @@ amounts)."""
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import fields, replace
 
 import pytest
@@ -971,6 +972,122 @@ def test_r4_01_a_two_month_2x_stream_that_runs_on_is_no_catch_up():
         attempts.append(Attempt(("2x", tuesday), "KAPITUS", tuesday, 200000, (tuesday, 1)))
     [bounced] = [attempt for attempt in attempts if attempt.key == ("1x", date(2054, 3, 30))]
     assert re_debits([Returned(bounced, date(2054, 3, 31))], attempts) == {}
+
+
+# ------------------------------------------- audit round 4, R4-75: one multiple pays several bounces (fabricated)
+
+def _received_return(debit_day, credit_day, amount):
+    """Bank of America's return dated `credit_day` that names its debit's day (`RECEIVED ON`)."""
+    return (credit_day, f"{BOFA_RETURN} RECEIVED ON 03/{debit_day:02d} 03/{credit_day:02d}", amount)
+
+
+def _multiples(records):
+    """{returned debit's day: (re-debit's day, k)}, k read from the reason's "caught it up <k>x" (1 for a
+    re-presentment)."""
+    days = {record.source_location: record.date[-2:] for record in records}
+    found = {}
+    for record in records:
+        if record.represented_by:
+            match = re.search(r"caught it up (\d)x", record.reason)
+            found[record.date[-2:]] = (days[record.represented_by], int(match[1]) if match else 1)
+    return found
+
+
+#: The business days of March 2054.
+BUSINESS_DAYS = (2, 3, 4, 5, 6, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20, 23, 24, 25, 26, 27, 30, 31)
+#: Audit round 4, R4-75 (the owner's answer of 2026-10-07 to R3-73, "Count it once": the scheduled payment, not the
+#: number of attempts; his option text named "a 2x catch-up", so the generalization is his question too, its default
+#: (a) shipped): one exact 2x to 6x multiple of the payment, within one cycle after the latest bounce's return, covers
+#: up to k bounced payments (k-1 where it stands in for that day's own payment) of a run no longer than k-1 cycles,
+#: earliest first, and each counts once. name -> (rows, {returned debit's day: (re-debit's day, k)}, numerator, paid).
+MULTIPLE_CASES = {
+    # Fridays 6 to 20, the 13th returned on the 15th and the 20th on the 22nd; 3,000.00 on Friday the 27th (on the
+    # cycle, no 1,000.00 that day: it stands in for the 27th's payment, so it covers two).
+    "weekly_3x_on_cycle": (_weekly((22, BOFA_RETURN, 1000.0), (27, KAPITUS, -3000.0), days=(6, 13, 20)),
+                           {"13": ("27", 3), "20": ("27", 3)}, 4000.0, 4000.0),
+    # The same bounces, 2,000.00 on Monday the 23rd (off the cycle: it covers two), then the 27th's 1,000.00.
+    "off_cycle_2x_pays_two": (_weekly((22, BOFA_RETURN, 1000.0), (23, KAPITUS, -2000.0)),
+                              {"13": ("23", 2), "20": ("23", 2)}, 4000.0, 4000.0),
+    # KAPITUS's daily 250.00 (March 2 to 13 but Monday the 9th); Thursday the 5th's returned on Friday the 6th, the
+    # 6th's on Monday the 9th; 750.00 on the 9th stands in for that day's payment and covers both.
+    "daily_3x": (sorted([SALE_ROW, *[(day, KAPITUS, -250.0) for day in (2, 3, 4, 5, 6, 10, 11, 12, 13)],
+                         _received_return(5, 6, 250.0), _received_return(6, 9, 250.0), (9, KAPITUS, -750.0)],
+                        key=lambda row: row[0]),
+                 {"05": ("09", 3), "06": ("09", 3)}, 2500.0, 2500.0),
+    # KAPITUS's daily 750.00 on every business day; Monday the 9th to Thursday the 12th each returned the next business
+    # day; on Monday the 16th 3,000.00 beside the regular 750.00 covers all four (the 9th is 3 business days before
+    # the 12th, the latest, returned on the 13th).
+    "daily_4x_beside_a_regular": (
+        sorted([SALE_ROW, *[(day, KAPITUS, -750.0) for day in BUSINESS_DAYS],
+                *[_received_return(day, day + 1, 750.0) for day in (9, 10, 11, 12)], (16, KAPITUS, -3000.0)],
+               key=lambda row: row[0]),
+        {"09": ("16", 4), "10": ("16", 4), "11": ("16", 4), "12": ("16", 4)}, 16500.0, 16500.0),
+    # A 3x on the cycle after ONE bounce covers that one only (its capacity of two, one standing return).
+    "one_bounce_3x": (_weekly((20, KAPITUS, -3000.0), days=(6, 13, 27)), {"13": ("20", 3)}, 5000.0, 5000.0),
+}
+#: R4-75's controls: no multiple re-debits a bounce. name -> (rows, numerator, paid).
+MULTIPLE_CONTROLS = {
+    # A 3x weekly level: 3,000.00 on the three Mondays after the 9th's bounce (the level windows).
+    "weekly_3x_level": ([SALE_ROW, (2, KAPITUS, -1000.0), (9, KAPITUS, -1000.0), (11, BOFA_RETURN, 1000.0),
+                         *[(day, KAPITUS, -3000.0) for day in (16, 23, 30)]], 11000.0, 10000.0),
+    # 3,000.00 twelve days after the latest return (the 2nd's returned on the 4th, the 9th's on the 11th).
+    "too_late": ([SALE_ROW, (2, KAPITUS, -1000.0), (4, BOFA_RETURN, 1000.0), (9, KAPITUS, -1000.0),
+                  (11, BOFA_RETURN, 1000.0), (16, KAPITUS, -1000.0), (23, KAPITUS, -3000.0)], 6000.0, 4000.0),
+    # 2,995.00 after two bounces: no exact multiple.
+    "not_exact": (_weekly((22, BOFA_RETURN, 1000.0), (27, KAPITUS, -2995.0), days=(6, 13, 20)), 5995.0, 3995.0),
+    # Five daily 300.00 payments returned (the 9th to the 13th), then 1,500.00 eight days after the last return.
+    "five_daily_then_5x_eight_days_later": (
+        sorted([SALE_ROW, *[(day, KAPITUS, -300.0) for day in BUSINESS_DAYS],
+                *[_received_return(day, following, 300.0) for day, following in
+                  ((9, 10), (10, 11), (11, 12), (12, 13), (13, 16))], (24, KAPITUS, -1500.0)],
+               key=lambda row: row[0]), 8100.0, 6600.0),
+    # A regular weekly 5,000.00 of the same funder beside a returned 1,000.00 one-off (the level and stream guards).
+    "a_regular_5x_payment": ([SALE_ROW, *[(day, KAPITUS, -5000.0) for day in (6, 13, 20, 27)], (9, KAPITUS, -1000.0),
+                              (11, BOFA_RETURN, 1000.0)], 21000.0, 20000.0),
+    # A worded payoff of 3,000.00 after two bounces (R3-FF F3: a payoff is never a re-debit).
+    "a_worded_payoff": (_weekly((22, BOFA_RETURN, 1000.0), (27, KAPITUS_PAYOFF, -3000.0), days=(6, 13, 20)),
+                        3000.0, 4000.0),
+}
+
+
+@pytest.mark.parametrize("name", sorted(MULTIPLE_CASES))
+def test_one_exact_multiple_counts_each_bounce_it_pays_once(name):
+    rows, expected, numerator, paid = MULTIPLE_CASES[name]
+    statement = _statement(sorted(rows, key=lambda row: row[0]))
+    records = tc.classify_statement_transactions(statement)
+    assert _multiples(records) == expected
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.withholding_numerator, metrics.lender_debits) == (numerator, paid)
+    # Paid, the returned total and the lender count never move: only the numerator, by the bounces the multiple paid.
+    represented = sum(abs(record.amount) for record in records if record.represented_by)
+    assert metrics.withholding_numerator == round(metrics.lender_debits + metrics.returned_funder_payment_total
+                                                  - represented, 2)
+
+
+@pytest.mark.parametrize("name", sorted(MULTIPLE_CONTROLS))
+def test_r4_75_controls_take_no_bounce_out(name):
+    rows, numerator, paid = MULTIPLE_CONTROLS[name]
+    statement = _statement(sorted(rows, key=lambda row: row[0]))
+    records = tc.classify_statement_transactions(statement)
+    assert _pairs(records)  # a payment was returned
+    assert _multiples(records) == {}
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.withholding_numerator, metrics.lender_debits) == (numerator, paid)
+
+
+def test_a_multiple_s_reason_names_its_multiple():
+    """The re-debit sentence names k ("caught it up 3x"); a 2x reads exactly as before."""
+    records = tc.classify_statement_transactions(_statement(MULTIPLE_CASES["weekly_3x_on_cycle"][0]))
+    returned = [record for record in records if record.represented_by]
+    assert [record.date for record in returned] == ["2054-03-13", "2054-03-20"]
+    for record in returned:
+        assert record.represented_by == "transaction:7"
+        assert record.reason.endswith(
+            "The funder caught it up 3x by transaction:7: out of the withholding rate, which counts the obligation "
+            "once (the owner's answer on re-presented payments, \"Count it once\").")
+    [two_x] = [record for record in tc.classify_statement_transactions(_statement(CASES["weekly_catch_up"][0]))
+               if record.represented_by]
+    assert "The funder caught it up 2x by " in two_x.reason
 
 
 from tests.flag_group_fixtures import fake_payees  # noqa: E402,F401  (fixture)
