@@ -24,7 +24,8 @@ The model (the brief's parts A and B):
   the same time with both beats kept are separate **positions** (two streams with one funder); a position far smaller
   than the series' largest on the weekly total is a **fee stream** and is dropped.
 * Inside a position the payments form **regimes** (runs of one regular level held for 2 or more payments, catch-up
-  multiples on the schedule or faster (R3-70) and one-offs set aside, a short regime at another schedule dropped).
+  multiples on the schedule or faster (R3-70) and one-offs set aside, a short regime at another schedule dropped; a
+  run whose own dates read no schedule borrows its level's only across gaps of 2 cycles or less (R4-84)).
   Each regime is compared with the last REPORTED level of its position (the orchestrator's choice of 2026-10-06, the
   brief's § Still open 23): a decrease or an increase of 10% or more, compared on the weekly equivalent when the
   schedule differs, or a schedule change. A change at a new schedule held 2 payments but not yet the 3 (5 if daily)
@@ -84,6 +85,9 @@ BEAT_KEPT_PERCENT = 60
 #: A regime spanning under this share of one cycle is short (A8); later statements covering this share of one cycle
 #: confirm a package stop (B4).
 SHORT_REGIME_CYCLE_PERCENT = 80
+#: Audit round 4, R4-84: a regime whose own dates read no schedule takes its level's cadence only when no gap between
+#: its presentment dates exceeds this many cycles of it (plus its beat tolerance).
+SPARSE_RUN_CYCLES = 2
 #: A change at a new schedule is confirmed when the new regime has this many payments (daily: the second figure).
 CADENCE_CHANGE_MIN_PAYMENTS = 3
 CADENCE_CHANGE_MIN_DAILY = 5
@@ -794,7 +798,12 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
     it is then § Still open 18's change at a new schedule. The dominant level's schedule there is its payments' own
     while it is still presented, paid or returned, through the run (R3-B04 review round 1: a 2x run on the paying
     weekday of a daily level whose other days bounce keeps that beat), else its cadence, read through its attempts
-    (R3-B04 review round 2: a weekly level whose every other debit bounced, then a biweekly 3x run, is a change)."""
+    (R3-B04 review round 2: a weekly level whose every other debit bounced, then a biweekly 3x run, is a change).
+
+    Audit round 4, R4-84: a regime whose own dates (its payments and the in-span attempts at its amount) read no
+    regular schedule takes its level's cadence only when no gap between those dates exceeds SPARSE_RUN_CYCLES cycles of
+    it plus its beat tolerance (`_sparse_gap`); a sparser one is noise, and the regimes are read again without it (two
+    payments 36 days apart of a level that later runs daily never are a daily regime held 2 payments)."""
     levels = position.levels
     tagged = sorted(((pay, index) for index, level in enumerate(levels) for pay in level.pays),
                     key=lambda item: (item[0].day, item[1], item[0].order))
@@ -835,25 +844,49 @@ def _regimes(position: _Position, calendar: str, attempts: Sequence[_Pay] = ()) 
                 for multiple in CATCH_UP_MULTIPLES)
         and not slower(index)
     }
-    regimes: list[_Regime] = []
-    for index, pays in runs:
-        cadence = _regular(levels[index].cadence)
-        if cadence is None or len(pays) < MIN_PAYMENTS_HELD or index in catch_up:
-            continue
-        if regimes and regimes[-1].level == index:
-            regimes[-1].pays.extend(pays)
-        else:
-            regimes.append(_Regime(index, levels[index].amount, cadence, list(pays)))
-    for regime in regimes:
-        days = [pay.day for pay in regime.pays]
-        own = _regular(payment_cadence(days, calendar))
-        extra = [pay.day for pay in attempts
-                 if _near(pay.cents, regime.amount) and regime.first <= pay.day <= regime.last]
-        if extra:
-            own = _regular(_beat_cadence(own or regime.cadence, days, extra, calendar))
-        if own is not None:
-            regime.cadence = own
-    return regimes
+    # Audit round 4, R4-84: the runs found sparse (`_sparse_gap`) are noise; each pass only adds noise, so it ends.
+    noise: set[int] = set()
+    while True:
+        regimes: list[_Regime] = []
+        held: list[list[int]] = []
+        for number, (index, pays) in enumerate(runs):
+            cadence = _regular(levels[index].cadence)
+            if number in noise or cadence is None or len(pays) < MIN_PAYMENTS_HELD or index in catch_up:
+                continue
+            if regimes and regimes[-1].level == index:
+                regimes[-1].pays.extend(pays)
+                held[-1].append(number)
+            else:
+                regimes.append(_Regime(index, levels[index].amount, cadence, list(pays)))
+                held.append([number])
+        sparse: list[int] = []
+        for regime, numbers in zip(regimes, held):
+            days = [pay.day for pay in regime.pays]
+            own = _regular(payment_cadence(days, calendar))
+            extra = [pay.day for pay in attempts
+                     if _near(pay.cents, regime.amount) and regime.first <= pay.day <= regime.last]
+            if own is None and _sparse_gap(regime, extra):
+                sparse.extend(numbers)
+                continue
+            if extra:
+                own = _regular(_beat_cadence(own or regime.cadence, days, extra, calendar))
+            if own is not None:
+                regime.cadence = own
+        if not sparse:
+            return regimes
+        noise.update(sparse)
+
+
+def _sparse_gap(regime: _Regime, attempt_days: Sequence[date]) -> bool:
+    """Audit round 4, R4-84: a gap between consecutive presentment dates of the regime (its payments' and
+    `attempt_days`, the attempts at its amount inside its span) longer than SPARSE_RUN_CYCLES cycles of its cadence,
+    rounded up to a day, plus that cadence's beat tolerance (daily 3, weekly 17, biweekly 35, semi-monthly 38, monthly
+    77 calendar days). `regime.cadence` is the level's regular cadence the regime would borrow."""
+    days = sorted({*(pay.day for pay in regime.pays), *attempt_days})
+    cycles = _cycle_days(regime.cadence) * SPARSE_RUN_CYCLES
+    bound = (-(-cycles.numerator // cycles.denominator)
+             + BEAT_TOLERANCE_DAYS.get(regime.cadence, BEAT_TOLERANCE_OTHER_DAYS))
+    return any((later - earlier).days > bound for earlier, later in zip(days, days[1:]))
 
 
 def _spans_a_cycle(regime: _Regime, cadence: str, other_cadence: str) -> bool:

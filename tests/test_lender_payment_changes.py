@@ -528,6 +528,9 @@ def test_l30_the_constants_are_named_integers_and_fractions():
     # Audit round 3, R3-82: a credit this many days after a payment or attempt of its amount returns it (R2-OW13's
     # rule D window), never a funding.
     assert lpc.FUNDING_NOTE_RETURN_DAYS == 7
+    # Audit round 4, R4-84: a regime whose own dates read no schedule borrows its level's only across gaps of this many
+    # cycles of it (plus its beat tolerance).
+    assert lpc.SPARSE_RUN_CYCLES == 2
 
 
 # ------------------------------------------------------------------------------------------ L31-L33: the revision
@@ -1750,3 +1753,79 @@ def test_r4_75_a_re_debit_named_in_another_statement_of_the_chain_is_not_the_lin
     assert (item["missed_payments"], item["missed_first_date"], item["catch_up_date"], item["_source_statement"]) == (
         1, "2054-04-03", "2054-04-08", 1)
     assert item["_missed_dates"] == ["2054-04-03"]
+
+
+# ------------------------------- audit round 4, R4-84: a sparse run never borrows its level's schedule (fabricated rows)
+# The owner's 2026-10-06 rule ("stays at the new amount for 2 or more payments; one-off short payments are not counted")
+# counts payments that keep a schedule: a regime whose own dates (its payments and the attempts at its amount inside its
+# span) read no regular schedule takes its level's only while no gap between those dates is more than SPARSE_RUN_CYCLES
+# cycles of it plus its beat tolerance; a sparser one is noise, as a run under MIN_PAYMENTS_HELD is (spec §17.1 (32)).
+def _r4_84_far_apart():
+    """50 on 03-09 and 04-14 (36 days apart), daily 75 from 04-21 to 04-30, then daily 50 from 05-12 (the 50 level
+    reads daily on all its dates)."""
+    return _rows([M(9), A(14)], 50) + _rows(bdays(A(21), A(30)), 75) + _rows(bdays(Y(12), Y(29)), 50)
+
+
+def test_r4_84_two_payments_far_apart_never_borrow_a_daily_schedule():
+    # The base read the two 50s as a daily regime held 2 payments: a pause 03-09 -> 04-14 (26 business days), a
+    # confirmed +50% "after 2 at the old" (reverted) and the -33% "back to the earlier".
+    [item] = changes(_r4_84_far_apart(), start=M(1), end=Y(29))
+    assert _steps([item]) == [("decrease", "daily", "daily", -33, 8, 13, "2054-05-12")]
+    assert (item["back_to_earlier"], item["restart"], item["pause_business_days"]) == (False, True, 8)
+
+
+def test_r4_84_bounced_attempts_at_another_amount_never_fill_the_gap():
+    # The corpus shape (a defaulted account): between the two 50s only bounced attempts at another amount (285), which
+    # are presence (no pause) but never the regime's dates. The base read the +50% and the -33% "back to the earlier".
+    found = changes(_r4_84_far_apart() + _returned(bdays(M(10), A(13))[::5], 285), start=M(1), end=Y(29))
+    assert _steps(found) == [("decrease", "daily", "daily", -33, 8, 13, "2054-05-12")]
+    assert found[0]["back_to_earlier"] is False
+
+
+def test_r4_84_a_weekly_pair_six_weeks_apart_never_borrows_weekly():
+    # 1,000 on 01-05 and 02-16 (42 days apart), weekly 1,500 from 02-23 to 03-16, weekly 1,000 from 03-23. The base read
+    # a pause 01-05 -> 02-16 (28 business days), +50% after 2 at the old (reverted) and the -33% "back to the earlier".
+    found = changes(_rows([date(2054, 1, 5), F(16)], 1000) + _rows(every(F(23), M(16)), 1500)
+                    + _rows(every(M(23), A(27)), 1000), start=date(2054, 1, 1), end=A(30))
+    assert _steps(found) == [("decrease", "weekly", "weekly", -33, 4, 6, "2054-03-23")]
+    assert found[0]["back_to_earlier"] is False
+
+
+def test_r4_84_a_trailing_pair_36_days_apart_is_noise():
+    # Weekly 1,000 in February, weekly 1,500 from 03-02 to 03-16, then 1,000 on 03-23 and 04-28. The base read the
+    # +50% (reverted), a -33% held 2 "back to the earlier" and a weekly pause 03-23 -> 04-28 (26 business days).
+    found = changes(_rows(every(F(2), F(23)), 1000) + _rows(every(M(2), M(16)), 1500) + _rows([M(23), A(28)], 1000),
+                    start=F(1), end=Y(1))
+    assert _steps(found) == [("increase", "weekly", "weekly", 50, 4, 3, "2054-03-02")]
+    assert found[0]["reverted"] is False
+
+
+def test_r4_84_controls_a_skipped_week_keeps_weekly_and_a_monthly_pair_its_own_reading():
+    weekly = _rows(every(F(2), F(23)), 1000) + _rows(every(M(2), M(16)), 1500)
+    # A skipped week (gaps 14 and 7, the largest within 17 days): the 1,000 regime keeps its level's weekly schedule.
+    found = changes(weekly + _rows([M(23), A(6), A(13)], 1000), start=F(1), end=A(17))
+    assert _steps(found) == [("increase", "weekly", "weekly", 50, 4, 3, "2054-03-02"),
+                             ("decrease", "weekly", "weekly", -33, 3, 3, "2054-03-23")]
+    assert (found[0]["reverted"], found[1]["back_to_earlier"]) == (True, True)
+    # A trailing pair 35 days apart reads monthly by its own dates (no fallback): the possible -85% stays.
+    found = changes(weekly + _rows([M(23), A(27)], 1000), start=F(1), end=Y(1))
+    assert _steps(found) == [("increase", "weekly", "weekly", 50, 4, 3, "2054-03-02"),
+                             ("decrease", "weekly", "monthly", -85, 3, 2, "2054-03-23")]
+    assert (found[1]["schedule_confirmed"], found[1]["back_to_earlier"]) == (False, True)
+
+
+@pytest.mark.parametrize("cadence,bound", [("daily", 3), ("weekly", 17), ("biweekly", 35), ("semimonthly", 38),
+                                           ("monthly", 77)])
+def test_r4_84_the_sparse_bound_is_two_cycles_and_the_beat_tolerance(cadence, bound):
+    def regime(*gaps):
+        days = [date(2054, 1, 5)]
+        for gap in gaps:
+            days.append(days[-1] + timedelta(days=gap))
+        pays = [lpc._Pay(day, 100000, 0, index, f"transaction:{index}", None) for index, day in enumerate(days)]
+        return lpc._Regime(0, 100000, cadence, pays)
+
+    assert lpc._sparse_gap(regime(bound), ()) is False
+    assert lpc._sparse_gap(regime(bound + 1), ()) is True
+    # An attempt at the regime's amount inside the gap splits it.
+    long = regime(bound + 1)
+    assert lpc._sparse_gap(long, (long.first + timedelta(days=1),)) is False
