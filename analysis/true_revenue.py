@@ -3286,8 +3286,13 @@ def region_names_holder(record: TransactionClassification, text: str, region: st
 #: partnership S.E.N.C. (normalized 'S E N C') or SENC. A city and state ('SAMPLEVILLE CO') stays no name.
 _HOLDER_TRAILING_FORM = re.compile(r"^\S+ \S+ (?:.* )?CO$|^\S+ (?:.* )?(?:S E N C|SENC)$")
 #: §5.2 (audit round 2, R2-B04: R19): the markers that join two names of the holder's inside its name: a trade name
-#: (the classifier's _HOLDER_TRADE_NAME: DBA, D B A, AKA) and BMO's 'Operating as:'.
-_HOLDER_NAME_MARKER = re.compile(r" (?:DBA|D B A|AKA|OPERATING AS) ")
+#: (DBA, D B A, AKA) and BMO's 'Operating as:'. Audit round 4, R4-31: one marker set for the pass and the classifier,
+#: defined here once (the classifier's _HOLDER_TRADE_NAME is this same pattern, imported at its load, since this module
+#: imports nothing from the classifier at load): DBA, D B A, AKA, OPERATING AS, TRADING AS and DOING BUSINESS AS, read by
+#: _usable_holder_text, _holder_runs, _holder_strip_names_of, _holder_business_name, _outside_holder_names and the
+#: classifier's holder_named alike; a printed O/A or T/A after a name of two words or more is read as DBA by
+#: classifier.account_name_text.
+_HOLDER_NAME_MARKER = re.compile(r" (?:DBA|D B A|AKA|OPERATING AS|TRADING AS|DOING BUSINESS AS) ")
 #: §5.2 (audit round 2, R2-B04: R19): the words a partnership's name joins its partners with ('&' normalizes to AND).
 _HOLDER_PARTNER_WORDS = frozenset({"AND"})
 
@@ -3300,9 +3305,9 @@ def _usable_holder_name(account_name: str | None) -> bool:
     round 2: nor a product a holder reader publishes, whose words are no noise (classifier.account_product: PNC's
     'Treasury Enterprise Plan'). Audit round 2, R2-B04 (R19): a holder's own legal forms the company form leaves out
     name it too (_HOLDER_TRAILING_FORM: a trailing CO after two words or more, S.E.N.C.); a name that joins two names
-    (_HOLDER_NAME_MARKER: DBA, AKA, BMO's 'Operating as') names its holder when either side does; and a leading THE and
-    a partnership's AND between words are read as no word of the name. A name of five words or more with no form still
-    names nobody."""
+    (_HOLDER_NAME_MARKER: DBA, AKA, BMO's 'Operating as'; audit round 4, R4-31: TRADING AS, DOING BUSINESS AS and a
+    printed O/A or T/A too) names its holder when either side does; and a leading THE and a partnership's AND between
+    words are read as no word of the name. A name of five words or more with no form still names nobody."""
     return _usable_holder_text(_classifier().account_name_text(account_name))
 
 

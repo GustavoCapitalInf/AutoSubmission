@@ -50,6 +50,7 @@ from .description_text import (
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from .true_revenue import (
+    _HOLDER_NAME_MARKER,
     DealerFunding,
     FundingSeries,
     also_debited,
@@ -1402,8 +1403,17 @@ _NAME_PARTICLES = frozenset({"DEL", "LOS", "LAS", "LES", "VAN", "VON", "DOS", "D
 #: ('INSTANCES AMOUNT', alone or with the grid's first row glued on, or 'AMOUNT'): never a holder's name.
 _SUMMARY_GRID_HEADER_NAME = re.compile(r"^(?:INSTANCES|AMOUNT)\b")
 #: Audit B9 (I38): a trade-name marker inside a holder's name ('CONTOSO LLC DBA NORTHWIND AGENCY'); each side is a
-#: name of the holder's.
-_HOLDER_TRADE_NAME = re.compile(r" (?:DBA|D B A|AKA) ")
+#: name of the holder's. Audit round 4, R4-31: one marker set for this module and the revenue pass, defined once as
+#: true_revenue._HOLDER_NAME_MARKER (the pass imports nothing from here at load, so the one definition lives there and
+#: this name is that same pattern): DBA, D B A, AKA, OPERATING AS, TRADING AS and DOING BUSINESS AS, and a printed O/A
+#: or T/A, which account_name_text reads as DBA (_SLASH_TRADE_MARKER).
+_HOLDER_TRADE_NAME = _HOLDER_NAME_MARKER
+#: Audit round 4, R4-31: a printed O/A or T/A trade-name marker ('<owner> O/A <trade>', 'T / A:'), read on the raw name
+#: before the normalizer turns its slash into a space, and only after a name of two words or more: a spaced 'O A' or
+#: 'T A' with no slash is a person's initials, never a marker.
+_SLASH_TRADE_MARKER = re.compile(r"(?<=\S) +[OT] ?/ ?A:? +(?=\S)", re.IGNORECASE)
+#: Audit round 4, R4-31: the words of a name a slash marker must follow.
+_SLASH_TRADE_MARKER_NAME_WORDS = 2
 #: Audit B9 (I58): a word of fewer letters is a short initialism when a name leads with it.
 _INITIALISM_LETTERS = 3
 #: §5.2: a legal-form word after the payer name's first word, or an institution word. CO is never one (Colorado's
@@ -2324,8 +2334,17 @@ def _first_distinctive_word(words: Sequence[str]) -> str | None:
 @cache
 def account_name_text(account_name: str | None) -> str:
     """5.5: the statement's account name, normalized once per name ('' when none is printed), so the holder test
-    never re-normalizes it row by row."""
-    return normalize_transaction_description(account_name) if account_name else ""
+    never re-normalizes it row by row. Audit round 4, R4-31: a printed O/A or T/A trade-name marker after a name of two
+    words or more (_SLASH_TRADE_MARKER) is read as DBA first, so the holder test splits '<owner> O/A <trade>' as it
+    splits '<owner> DBA <trade>'; the published holder_name and account_name keep their printed text."""
+    if not account_name:
+        return ""
+
+    def trade_marker(found: re.Match[str]) -> str:
+        before = found.string[: found.start()].split()
+        return " DBA " if len(before) >= _SLASH_TRADE_MARKER_NAME_WORDS else found.group(0)
+
+    return normalize_transaction_description(_SLASH_TRADE_MARKER.sub(trade_marker, account_name))
 
 
 def holder_reading(account_name: str | None, holder_name: str | None = None) -> str | None:
@@ -2653,7 +2672,9 @@ def holder_named(
     person's (_person_name_reading) are compared on their shared words only, never by the given name they lead with.
     Audit round 3, R3-B10: the shared words are read with both names as printed (R3-38, _holder_name_words_match's
     `printed_payer` and `holder_printed`); and a DBA holder's whole name is read as a person's when its first side
-    is one ('<owner> DBA <trade>', R3-39), so another person sharing only the owner's given name is counted."""
+    is one ('<owner> DBA <trade>', R3-39), so another person sharing only the owner's given name is counted. Audit
+    round 4, R4-31: every trade-name marker splits the name alike (_HOLDER_TRADE_NAME: DBA, D B A, AKA, OPERATING AS,
+    TRADING AS, DOING BUSINESS AS, and a printed O/A or T/A, which account_name_text reads as DBA)."""
     if not region or not account_name:
         return False
     printed = account_name_text(account_name)

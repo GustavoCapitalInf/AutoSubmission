@@ -1357,6 +1357,85 @@ def test_r3_39_the_reversed_dba_holder_still_counts_another_person():
     assert _tiers([(text, 900.0)], bank="Chase", holder_name="CONTOSO PLUMBING DBA JORDAN SAMPLEMAN") == [P2P]
 
 
+# --- Audit round 4, batch R4-B08 (R4-31) ---
+# Audit round 4, R4-31 (R3-39's ruling and standard A8: a different person sharing only the owner's given name is a
+# customer): the trade-name markers are one set for the classifier and the revenue pass (DBA, D/B/A, AKA, OPERATING AS,
+# TRADING AS, DOING BUSINESS AS), and a printed O/A or T/A after a name of two words or more is read as DBA, so a sole
+# proprietor printed '<owner> OPERATING AS <trade>' reads as '<owner> DBA <trade>' does, as holder_name or as
+# account_name, on every rail. A spaced 'O A' with no slash is a person's initials, never a marker.
+
+R4_31_MARKERS = ["OPERATING AS", "Operating as:", "TRADING AS", "DOING BUSINESS AS", "O/A", "T/A"]
+#: (row, bank, the Zelle Yes reading, the Zelle No reading): the same person-payer rows R3-39 counts.
+R4_31_ROWS = [
+    ("ZELLE PAYMENT FROM JORDAN NORTHWINDER CONF 1234567890", "Chase", P2P, ("non_revenue", "zelle_excluded")),
+    ("E-TRANSFER RECEIVED JORDAN NORTHWINDER 0A0B0C", "Royal Bank of Canada", P2P, P2P),
+    (CHASE_ACH.format(orig="JORDAN NORTHWINDER", entry="PAYMENT ", receiver="CONTOSO PLUMBING"), "Chase", ONE_OFF,
+     ONE_OFF),
+    (FEDWIRE.replace("B/O: NORTHWIND MARINE LLC", "B/O: JORDAN NORTHWINDER").format(bnf="CONTOSO PLUMBING"), "Chase",
+     WIRE, WIRE),
+]
+
+
+def _final_in(rows, zelle, **kwargs):
+    """The credits' final tier and reason (or method) in one Zelle reading, the Zelle policy's own included."""
+    return [(record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method)
+            for record in _records_in(rows, zelle, **kwargs)]
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize("field", ["holder_name", "account_name"])
+@pytest.mark.parametrize("marker", R4_31_MARKERS)
+@pytest.mark.parametrize(("text", "bank", "yes", "no"), R4_31_ROWS)
+def test_r4_31_a_person_sharing_only_the_owner_s_given_name_is_another_person_under_every_marker(
+    text, bank, yes, no, marker, field, zelle,
+):
+    holder = f"JORDAN SAMPLEMAN {marker} CONTOSO PLUMBING"
+    assert _final_in([(text, 900.0)], zelle, bank=bank, **{field: holder}) == [yes if zelle else no]
+    # Each reading equals R3-39's DBA holder's.
+    dba = "JORDAN SAMPLEMAN DBA CONTOSO PLUMBING"
+    assert _final_in([(text, 900.0)], zelle, bank=bank, **{field: holder}) == _final_in(
+        [(text, 900.0)], zelle, bank=bank, **{field: dba})
+    if not zelle:
+        assert _tiers_in([(text, 900.0)], zelle, bank=bank, **{field: holder}) == [yes]
+
+
+def test_r4_31_a_three_letter_given_name_is_read_the_same_way():
+    text = "ZELLE PAYMENT FROM ALI NORTHWINDER CONF 1234567890"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name="ALI SAMPLEMAN O/A CONTOSO PLUMBING") == [P2P]
+
+
+@pytest.mark.parametrize("marker", R4_31_MARKERS)
+@pytest.mark.parametrize("payer", ["JORDAN SAMPLEMAN", "CONTOSO PLUMBING", "JORDAN FABRIKAM INC"])
+def test_r4_31_the_owner_s_names_and_a_company_leading_with_the_given_name_stay_held(payer, marker):
+    text = f"ZELLE PAYMENT FROM {payer} CONF 1234567890"
+    holder = f"JORDAN SAMPLEMAN {marker} CONTOSO PLUMBING"
+    assert _tiers([(text, 900.0)], bank="Chase", holder_name=holder) == [HOLDER_NAME]
+
+
+def test_r4_31_a_slash_marker_is_read_only_after_a_name_and_spaced_initials_are_no_marker():
+    assert tc.account_name_text("JORDAN SAMPLEMAN O/A CONTOSO PLUMBING") == "JORDAN SAMPLEMAN DBA CONTOSO PLUMBING"
+    assert tc.account_name_text("JORDAN SAMPLEMAN t/a: CONTOSO PLUMBING") == "JORDAN SAMPLEMAN DBA CONTOSO PLUMBING"
+    # No name before the slash (none, or one word): never a marker.
+    assert "DBA" not in tc.account_name_text("O/A CONTOSO").split()
+    assert "DBA" not in tc.account_name_text("JORDAN O/A CONTOSO").split()
+    # A person's initials printed without a slash read as today.
+    assert tc.account_name_text("JOHN O A SAMPLEMAN") == "JOHN O A SAMPLEMAN"
+    zelle = "ZELLE PAYMENT FROM {payer} CONF 1234567890"
+    for payer, tier in (("JOHN NORTHWINDER", P2P), ("JOHN SAMPLEMAN", HOLDER_NAME), ("JOHN O A SAMPLEMAN", HOLDER_NAME)):
+        assert _tiers([(zelle.format(payer=payer), 900.0)], bank="Chase", holder_name="JOHN O A SAMPLEMAN") == [tier]
+
+
+@pytest.mark.parametrize("marker", R4_31_MARKERS)
+def test_r4_31_every_marker_names_its_holder_by_either_side(marker):
+    assert tr._usable_holder_name(f"JORDAN SAMPLEMAN {marker} CONTOSO PLUMBING")
+
+
+def test_r4_31_the_two_modules_read_one_marker_set():
+    assert tr._HOLDER_NAME_MARKER is tc._HOLDER_TRADE_NAME
+    for marker in ("DBA", "D B A", "AKA", "OPERATING AS", "TRADING AS", "DOING BUSINESS AS"):
+        assert tc._HOLDER_TRADE_NAME.search(f"JORDAN SAMPLEMAN {marker} CONTOSO PLUMBING"), marker
+
+
 # --- Audit round 2, R2-B04 (R04 parts 1 and 3): a processor's credit printing the holder's name, Capital One's tails -
 
 R04_HOLDER = "CONTOSO TRADING LLC"
