@@ -334,6 +334,106 @@ def test_r3_67_a_package_without_a_return_reads_as_before():
     assert "$6,800.00 confirmed lender debits" not in memo and "NSF events, 11.33% confirmed withholding" in memo
 
 
+# ---------------------------------------------------------------- audit round 4, R4-50: a refused package's returns
+# A package that refuses its money across currencies keeps the returned-payment counts and nulls their totals; the
+# memo's returned clauses print the count alone, as its held clause does (the currency doctrine and the standard's
+# §4.7: never a cross-currency sum), where they printed "N/A" inside the clause.
+
+PLUMBING = "CONTOSO PLUMBING LLC"
+PLUMBING_SALE = "FABRIKAM SUPPLY INC DES:PAYMENT ID:0001 INDN:CONTOSO PLUMBING LLC CO ID:0000000001 CCD"
+ONDECK_PLUMBING = "ONDECK CAPITAL DES:PAYMENT ID:000000003 INDN:CONTOSO PLUMBING LLC CO ID:0000000004 CCD"
+
+
+def _plumbing(rows, *, bank, currency, account):
+    """One month (March 2031) of CONTOSO PLUMBING LLC at `bank`, in `currency`, analysed by the real path."""
+    from analysis.pipeline import analyze_statement
+    from analysis.reconcile import reconcile
+    from analysis.schema import Statement, Transaction
+    from analysis.serialization import document_report_to_dict
+
+    transactions, balance = [], 50000.0
+    for day, text, amount in rows:
+        balance = round(balance + amount, 2)
+        transactions.append(Transaction(date=f"2031-03-{day:02d}", description=text, amount=amount,
+                                        direction="credit" if amount > 0 else "debit", running_balance=balance))
+    statement = Statement(bank=bank, account_name=PLUMBING, account_number=account, period_start="2031-03-01",
+                          period_end="2031-03-31", beginning_balance=50000.0, ending_balance=balance,
+                          currency=currency, currency_source="printed", transactions=transactions)
+    return document_report_to_dict(analyze_statement(statement, reconciliation=reconcile(statement), markdown="",
+                                                     sheets=[], model_used="fabricated-test"))
+
+
+@needs_node
+def test_r4_50_a_refused_package_memo_counts_its_returned_payments_alone():
+    """A USD Zions statement (an ONDECK payment returned "ITEM RET NOT PAID") and a CAD TD Canada Trust statement (two
+    CanaCap payments, each returned "RTN NSF"): the package refuses its money. Base: "(3 returned funder payments,
+    N/A)" and "1 returned unpaid (N/A, still in the withholding rate)"."""
+    usd = _plumbing([(2, PLUMBING_SALE, 12000.0), (6, ONDECK_PLUMBING, -800.0), (9, "ITEM RET NOT PAID", 800.0),
+                     (20, PLUMBING_SALE, 9000.0)], bank="Zions Bank", currency="USD", account="000000007070")
+    cad = _plumbing([(2, PLUMBING_SALE, 15000.0), (9, "CANACAP BUS", -1000.0), (9, "RTN NSF", 1000.0),
+                     (16, "CANACAP BUS", -1000.0), (16, "RTN NSF", 1000.0), (23, PLUMBING_SALE, 8000.0)],
+                    bank="TD Canada Trust", currency="CAD", account="000000008080")
+    package = _package(("usd", usd), ("cad", cad))
+    totals = package["totals"]
+    assert totals["cross_currency_totals_refused"] is True
+    assert (totals["returned_funder_payment_count"], totals["returned_funder_payment_total"]) == (3, None)
+    assert sorted((funder["funder"], funder["returned_payment_count"], funder["returned_payment_total"])
+                  for funder in package["funders"]) == [("CanaCap", 2, None), ("ONDECK", 1, None)]
+    memo = _package_memo(package)["memo"]
+    assert "N/A confirmed lender debits paid (3 returned funder payments), N/A confirmed withholding" in memo
+    lines = _lender_lines(memo)
+    assert sorted(line for line in lines if not line.startswith("- ")) == [
+        "CanaCap: N/A across 1 statement(s), 2 returned unpaid (still in the withholding rate)",
+        "ONDECK: N/A across 1 statement(s), 1 returned unpaid (still in the withholding rate)"]
+    # No returned clause prints "N/A" (the revenue sentence's own "(N/A a month)" is the refused figures' marker).
+    assert not any("(N/A" in line for line in lines) and "payments, N/A)" not in memo
+    # Each payment's own line keeps its amount in its own statement's unit.
+    assert sum(1 for line in lines if line.startswith("- ")) == 3
+
+
+@needs_node
+def test_r4_50_the_re_debited_branches_drop_the_money_when_refused():
+    """`packageFunderSummaryLine`'s three branches and `lenderDebitsSummary` with a null total (a refused package)
+    print the count alone; with the money they read exactly as before."""
+    result = run_dashboard("""
+const refused = (count) => ({funder: "KAPITUS", total_debited: null, documents: 2, returned_payment_count: count,
+  returned_payment_total: null});
+const usd = (count) => ({funder: "KAPITUS", total_debited: 1700, documents: 2, returned_payment_count: count,
+  returned_payment_total: 850 * count});
+const one = [{funder: "KAPITUS", represented_date: "2031-04-03"}];
+console.log(JSON.stringify({
+  refused: [packageFunderSummaryLine(refused(1), null, []), packageFunderSummaryLine(refused(1), null, one),
+            packageFunderSummaryLine(refused(2), null, one)],
+  usd: [packageFunderSummaryLine(usd(1), "USD", []), packageFunderSummaryLine(usd(1), "USD", one),
+        packageFunderSummaryLine(usd(2), "USD", one)],
+  debits: [lenderDebitsSummary({lender_debits: null, returned_funder_payment_count: 2,
+                                returned_funder_payment_total: null}, null),
+           lenderDebitsSummary({lender_debits: null, returned_funder_payment_count: 1,
+                                returned_funder_payment_total: null}, null),
+           lenderDebitsSummary({lender_debits: 1700, returned_funder_payment_count: 2,
+                                returned_funder_payment_total: 1700}, "USD"),
+           lenderDebitsSummary({lender_debits: 1700, returned_funder_payment_count: 0}, "USD")],
+}));
+""")
+    assert result["refused"] == [
+        "KAPITUS: N/A across 2 statement(s), 1 returned unpaid (still in the withholding rate)",
+        "KAPITUS: N/A across 2 statement(s), 1 returned unpaid (re-debited: counted once in the withholding rate)",
+        "KAPITUS: N/A across 2 statement(s), 2 returned unpaid (1 re-debited, counted once in the withholding rate; 1 "
+        "still in it)"]
+    # Controls: the money printed as before.
+    assert result["usd"] == [
+        "KAPITUS: $1,700.00 across 2 statement(s), 1 returned unpaid ($850.00, still in the withholding rate)",
+        "KAPITUS: $1,700.00 across 2 statement(s), 1 returned unpaid ($850.00, re-debited: counted once in the "
+        "withholding rate)",
+        "KAPITUS: $1,700.00 across 2 statement(s), 2 returned unpaid ($1,700.00; 1 re-debited, counted once in the "
+        "withholding rate; 1 still in it)"]
+    assert result["debits"] == [
+        "N/A confirmed lender debits paid (2 returned funder payments)",
+        "N/A confirmed lender debits paid (1 returned funder payment)",
+        "$1,700.00 confirmed lender debits paid (2 returned funder payments, $1,700.00)",
+        "$1,700.00 confirmed lender debits"]
+
+
 # ---------------------------------------------------------------- R3-68: the basis the memos' rates divide by
 
 KAPITUS = "KAPITUS DES:PAYMENT ID:000000001 INDN:CONTOSO BAKERY LLC CO ID:0000000002 CCD"

@@ -1070,13 +1070,16 @@ function paidLendersNote(metrics = {}, currency = "USD", lead = "Total paid to c
   return returned === null ? lead : `${lead}; ${formatMoney(returned, currency)} returned unpaid not included`;
 }
 
-// The summary sentence's lender debits: paid, then the returned payments beside it.
+// The summary sentence's lender debits: paid, then the returned payments beside it. Audit round 4, R4-50: a package
+// that refuses its money across currencies keeps the count and nulls the total, so the clause prints the count alone,
+// as the held clause does ("(2 returned funder payments)"), never "N/A" inside it.
 function lenderDebitsSummary(metrics = {}, currency = "USD") {
   const paid = formatMoney(metrics.lender_debits, currency);
   const count = numberOrNull(metrics.returned_funder_payment_count) ?? 0;
   if (count <= 0) return `${paid} confirmed lender debits`;
+  const total = numberOrNull(metrics.returned_funder_payment_total);
   return `${paid} confirmed lender debits paid (${formatNumber(count)} returned funder `
-    + `${count === 1 ? "payment" : "payments"}, ${formatMoney(metrics.returned_funder_payment_total, currency)})`;
+    + `${count === 1 ? "payment" : "payments"}${total === null ? "" : `, ${formatMoney(total, currency)}`})`;
 }
 
 /* --- lender notes -------------------------------------------------------------
@@ -1283,20 +1286,25 @@ function withReDebitReturns(items) {
 // line explains the rate ("ONDECK: $0.00 across 1 statement(s), 1 returned unpaid ($1,200.00, still in the withholding
 // rate)"). R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it once"): a return the funder re-debited (its
 // served item names the re-debit) is out of the rate, the re-debit in paid counting it once, so the line says so.
+// Audit round 4, R4-50: in a package that refuses its money across currencies (the funder's `returned_payment_total`
+// null, its count kept), the money and its separator are left out of every branch, the count alone, as the held clause
+// prints it: "1 returned unpaid (still in the withholding rate)".
 function packageFunderSummaryLine(funder, currency = "USD", returnedPayments = []) {
   const line = `${funder.funder}: ${formatMoney(funder.total_debited, currency)} across `
     + `${formatNumber(funder.documents)} statement(s)`;
   const count = numberOrNull(funder.returned_payment_count) ?? 0;
   if (count <= 0) return line;
-  const money = formatMoney(funder.returned_payment_total, currency);
+  const total = numberOrNull(funder.returned_payment_total);
+  const money = total === null ? null : formatMoney(total, currency);
   const reDebited = Math.min(count, (Array.isArray(returnedPayments) ? returnedPayments : [])
     .filter((item) => item && typeof item === "object" && item.funder === funder.funder && item.represented_date)
     .length);
-  const rate = reDebited === 0 ? `${money}, still in the withholding rate`
-    : reDebited === count ? `${money}, re-debited: counted once in the withholding rate`
-      : `${money}; ${formatNumber(reDebited)} re-debited, counted once in the withholding rate; `
+  const rate = reDebited === 0 ? "still in the withholding rate"
+    : reDebited === count ? "re-debited: counted once in the withholding rate"
+      : `${formatNumber(reDebited)} re-debited, counted once in the withholding rate; `
         + `${formatNumber(count - reDebited)} still in it`;
-  return `${line}, ${formatNumber(count)} returned unpaid (${rate})`;
+  const clause = money === null ? rate : `${money}${reDebited > 0 && reDebited < count ? "; " : ", "}${rate}`;
+  return `${line}, ${formatNumber(count)} returned unpaid (${clause})`;
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
