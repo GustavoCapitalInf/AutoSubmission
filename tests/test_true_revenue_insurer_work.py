@@ -1353,6 +1353,15 @@ def test_r3_b13_r1_a_benefit_word_in_the_carrier_s_name_is_no_benefit(rows, hold
     ("AFLAC BENEFITS", "", True), ("SAMPLE INS CO", "BNFT", True), ("SAMPLE WC INS FUND", "PAYMENT", True),
     ("SAMPLE WORKERS COMP INS FUND", "", True), ("SAMPLE INS CO", "WC CLAIM", True),
     ("SAMPLE INS CO", "PAYMENT", False),
+    # Audit round 4, R4-34: a benefit word is the carrier's name only after a name word (never a posting or rail
+    # label) and with an insurer word or form within its next two words, no FROM, FOR, TO or BY between.
+    ("BENEFIT PMT SAMPLE MUTUAL INS", "", True), ("BENEFITS SAMPLE LIFE INSURANCE CO", "", True),
+    ("BENEFIT PMT FROM SAMPLE MUTUAL INS CO", "", True),
+    ("SAMPLE MUTUAL INS BENEFIT PMT FOR CONTOSO HOLDINGS LLC", "", True),
+    ("SAMPLE MUTUAL INS BENEFIT PMT CONTOSO LLC", "", True),
+    ("RECEIVED CORPORATE ACH BENEFITS SAMPLE MUTUAL INS", "", True),
+    ("SAMPLE BENEFI INS CO", "", False), ("SAMPLE BENEFIT LIFE ASSURANCE", "", False),
+    ("SAMPLE BENEFIT FOR SAMPLE INS CO", "", True), ("SAMPLE BENEFIT PAYMENT SERVICES INS CO", "", True),
 ])
 def test_r3_b13_r1_the_non_provider_benefit_reading(own, purpose, read):
     assert true_revenue._non_provider_benefit(own, purpose) is read
@@ -1467,6 +1476,69 @@ def test_r4_33_the_cut_words_never_read_the_payer_region_s_abbreviations():
     assert true_revenue._non_provider_benefit("SAMPLE BEN PMT INS", "CLAIM PMT") is False
     assert true_revenue._non_provider_benefit("SAMPLE INS CO", "WORKERS CO") is True
     assert true_revenue._non_provider_benefit("SAMPLE INS CO", "BEN PMT") is True
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 (R4-34; §17.1 Q2 (5); the round-3 reviewer's tighter rule, fail closed): a plain benefit word on
+# the payer region is the carrier's name only after a name word (never a posting or rail label) and with an insurer
+# word, spelling or legal form within its next two words, no FROM, FOR, TO or BY between.
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: The Truist entry-first layout: the entry, the carrier, the receiver and Truist's CUSTOMER ID.
+TRUIST_BENEFIT_ROWS = (
+    "BENEFIT PMT SAMPLE MUTUAL INS {holder} CUSTOMER ID 000N",
+    "BENEFITS SAMPLE MUTUAL INS 000N {holder} CUSTOMER ID 000N",
+    "BNFT SAMPLE MUTUAL INS 000N {holder} CUSTOMER ID 000N",
+    "BENEFI SAMPLE MUTUAL INS 000N {holder} CUSTOMER ID 000N",
+)
+
+
+def _r4_34_three(text: str):
+    return _three(text, amount=812.37)
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # Truist's entry-first layout (today counted on the 3-in-31 ground: the leading benefit word read as the name).
+    *(pytest.param(_r4_34_three(row.format(holder="NORTHWIND BAKERY")),
+                   {"holder": NORTHWIND_BAKERY, "bank": "Truist"}, [HELD] * 3, id=f"truist-{row.split()[0]}")
+      for row in TRUIST_BENEFIT_ROWS),
+    # PNC's ACH CREDIT form, and a CORPORATE ACH printing no reference (today counted).
+    pytest.param(_r4_34_three("ACH CREDIT BENEFITS SAMPLE MUTUAL INS 000N 000000000000000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "PNC Bank"}, [HELD] * 3, id="pnc-ach-credit-benefits"),
+    pytest.param(_r4_34_three("CORPORATE ACH BENEFITS SAMPLE MUTUAL INS 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "PNC Bank"}, [HELD] * 3, id="pnc-corporate-ach-no-reference"),
+    # An RBC-style row (today counted).
+    pytest.param(_r4_34_three("BENEFITS SAMPLE LIFE INSURANCE CO 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Royal Bank of Canada"}, [HELD] * 3, id="rbc-benefits"),
+    # A benefit payment FROM the carrier, and one printed before another party's form (today counted).
+    pytest.param(_r4_34_three("BENEFIT PMT FROM SAMPLE MUTUAL INS CO 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Sample Bank"}, [HELD] * 3, id="benefit-pmt-from"),
+    pytest.param(_r4_34_three("SAMPLE MUTUAL INS BENEFIT PMT FOR CONTOSO HOLDINGS LLC 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Sample Bank"}, [HELD] * 3, id="benefit-pmt-for-another-llc"),
+    pytest.param(_r4_34_three("SAMPLE MUTUAL INS BENEFIT PMT CONTOSO LLC 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Sample Bank"}, [HELD] * 3, id="benefit-pmt-another-llc"),
+    # Controls. Truist's entry-first benefit payment at a clinic is paid for treatment (a provider).
+    pytest.param(_r4_34_three(TRUIST_BENEFIT_ROWS[0].format(holder="CONTOSO PHYSIOTHERAPY")),
+                 {"holder": CLINIC, "bank": "Truist"}, [COUNTED] * 3, id="truist-benefit-pmt-at-a-clinic"),
+    # PNC's real CORPORATE ACH form: entry_fields reads BENEFITS as the purpose (held today too).
+    pytest.param(_r4_34_three("CORPORATE ACH BENEFITS 000000000000000N SAMPLE MUTUAL INS 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "PNC Bank"}, [HELD] * 3, id="pnc-corporate-ach-real"),
+    # TD prints the company before the entry: the benefit word after the name is read (held today too).
+    pytest.param(_r4_34_three("ACH DEPOSIT SAMPLE MUTUAL INS BENEFITS 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "TD Bank"}, [HELD] * 3, id="td-benefits-after-the-name"),
+    # Truist's entry-first claim payment counts on the 3-in-31 ground.
+    pytest.param(_r4_34_three("CLAIM PMT SAMPLE MUTUAL INS NORTHWIND BAKERY CUSTOMER ID 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Truist"}, [COUNTED] * 3, id="truist-claim-pmt"),
+])
+def test_r4_34_benefit_wording_before_the_carrier_or_another_party_s_form_is_read(rows, statement, expected):
+    """Audit round 4, R4-34 (the round-3 reviewer's tighter rule, fail closed: "Holding a carrier whose legal name
+    begins with BENEFIT is the acceptable fail-closed cost"): a benefit wording that leads the payer region (Truist's
+    entry-first layout, PNC's ACH CREDIT form, a benefit payment FROM the carrier) or precedes another party's form is
+    no carrier's name, so it refuses the release away from a provider."""
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
 
 
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)

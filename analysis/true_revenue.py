@@ -6196,6 +6196,16 @@ _INSURER_NON_PROVIDER_PURPOSE_CUT = re.compile(
 #: CO', 'MUTUAL BENEFIT GROUP'): an insurer word or spelling (_INSURER_NAME, _INSURER_SPELLINGS) or a legal form. Audit
 #: round 4, R4-33: the cut plain words too ('BENEFI', 'BENEFT'), so they take the carrier-name test the whole words do.
 _INSURER_PLAIN_BENEFIT = re.compile(r"BENEFITS?|BENEFI|BENEFT|BNFT")
+#: Audit round 4, R4-34 (the round-3 reviewer's tighter rule, fail closed): the posting and rail labels a payer region
+#: may print before a benefit word, which are no name word of a carrier ('RECEIVED CORPORATE ACH BENEFITS <carrier>').
+_BENEFIT_LEAD_LABELS = frozenset({
+    "ACH", "CREDIT", "CREDITS", "DEPOSIT", "DEP", "CORPORATE", "RECEIVED", "RCVD", "ELECTRONIC", "ELEC", "EFT",
+    "DIRECT", "INCOMING", "MISC", "PAYMENT", "PMT", "PAY", "PREAUTHORIZED", "PREAUTH", "EXTERNAL", "ONLINE",
+    "TRANSFER", "FROM",
+})
+#: Audit round 4, R4-34: the words that end the two-word window after a benefit word: a carrier's name never runs past
+#: them ('<carrier> BENEFIT PMT FOR <another party> LLC').
+_BENEFIT_NAME_STOPS = frozenset({"FROM", "FOR", "TO", "BY"})
 _INSURER_NAME_FORM = re.compile(r"(?<![A-Z])(?:CO|COMPANY|CORP|CORPORATION|INC|LLC|LTD|GROUP)(?![A-Z])")
 #: Audit round 3, R3-B13 (R3-10): the holder trades whose insurer credits are medical claim payments to a provider.
 _PROVIDER_TRADES = frozenset({"clinic", "pharmacy"})
@@ -6281,16 +6291,46 @@ def _non_provider_benefit(own: str, purpose: str) -> bool:
     BENEFIT PMT') and workers' compensation anywhere (WC, WORKERS COMP, WORK COMP: a workers' compensation carrier) are
     read. Audit round 4, R4-33: with the carriers' abbreviations and the cut words (_INSURER_NON_PROVIDER_BENEFIT,
     _INSURER_PLAIN_BENEFIT), and the cut 'WORKERS CO' and 'BEN PMT' on the purpose alone
-    (_INSURER_NON_PROVIDER_PURPOSE_CUT: on the payer region they are names)."""
+    (_INSURER_NON_PROVIDER_PURPOSE_CUT: on the payer region they are names). Audit round 4, R4-34 (the round-3
+    reviewer's tighter rule, fail closed): a plain benefit word on the payer region is the carrier's name only after a
+    name word, with an insurer word or form within two words (_benefit_in_carrier_name): a word of two letters or more,
+    all letters, no reference token and no posting or rail label (_BENEFIT_LEAD_LABELS) printed before it, and an
+    insurer word, spelling or legal form among its next two words, the window ending early at FROM, FOR, TO or BY
+    (_BENEFIT_NAME_STOPS). A benefit wording that leads the region (Truist's entry-first 'BENEFIT PMT <carrier>', PNC's
+    'ACH CREDIT BENEFITS <carrier>', 'BENEFIT PMT FROM <carrier>') or precedes another party's form ('<carrier> BENEFIT
+    PMT FOR <another party> LLC') is read; the fail-closed cost is a carrier whose legal name begins with a benefit
+    word, refused away from a provider."""
     if _INSURER_NON_PROVIDER_BENEFIT.search(purpose) or _INSURER_NON_PROVIDER_PURPOSE_CUT.search(purpose):
         return True
     for found in _INSURER_NON_PROVIDER_BENEFIT.finditer(own):
         if not _INSURER_PLAIN_BENEFIT.fullmatch(found.group(0)):
             return True
-        tail = own[found.end():]
-        if not (_INSURER_NAME.search(tail) or _INSURER_SPELLINGS.search(tail) or _INSURER_NAME_FORM.search(tail)):
+        if not _benefit_in_carrier_name(own, found.start(), found.end()):
             return True
     return False
+
+
+def _benefit_in_carrier_name(own: str, start: int, end: int) -> bool:
+    """Audit round 4, R4-34 (the round-3 reviewer's tighter rule, fail closed): whether the plain benefit word at
+    own[start:end] is a word of the carrier's name: a name word precedes it (two letters or more, all letters, no
+    reference token, no posting or rail label of _BENEFIT_LEAD_LABELS) and an insurer word or spelling or a legal form
+    (_INSURER_NAME, _INSURER_SPELLINGS, _INSURER_NAME_FORM) is among its next two words, the window ending early at a
+    word of _BENEFIT_NAME_STOPS."""
+    classifier = _classifier()
+    named = any(
+        len(word) >= 2 and word.isalpha() and not classifier._is_reference_token(word)
+        and word not in _BENEFIT_LEAD_LABELS
+        for word in own[:start].split()
+    )
+    if not named:
+        return False
+    window: list[str] = []
+    for word in own[end:].split()[:2]:
+        if word in _BENEFIT_NAME_STOPS:
+            break
+        window.append(word)
+    after = " ".join(window)
+    return bool(_INSURER_NAME.search(after) or _INSURER_SPELLINGS.search(after) or _INSURER_NAME_FORM.search(after))
 
 
 def _record_day(record: TransactionClassification) -> _date | None:
