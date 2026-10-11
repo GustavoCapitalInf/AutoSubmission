@@ -1090,4 +1090,73 @@ def test_a_multiple_s_reason_names_its_multiple():
     assert "The funder caught it up 2x by " in two_x.reason
 
 
+def test_a_multiple_s_reason_and_item_name_its_multiple():
+    """R4-75's surfaces: each returned debit a 3x paid names it ("caught it up 3x"), and its warning item reads
+    `represented_kind` "caught_up" and `represented_multiple` 3; a 2x item reads 2, a re-presentment none."""
+    statement = _statement(MULTIPLE_CASES["weekly_3x_on_cycle"][0])
+    records = tc.classify_statement_transactions(statement)
+    items = detect(statement, classifications=records).returned_funder_payments
+    assert [(item["debit_date"], item["represented_date"], item["represented_location"], item["represented_kind"],
+             item["represented_multiple"]) for item in items] == [
+        ("2054-03-13", "2054-03-27", "transaction:7", "caught_up", 3),
+        ("2054-03-20", "2054-03-27", "transaction:7", "caught_up", 3)]
+    assert all("The funder caught it up 3x by transaction:7:" in record.reason
+               for record in records if record.represented_by)
+    two = _statement(CASES["weekly_catch_up"][0])
+    two_records = tc.classify_statement_transactions(two)
+    [item] = detect(two, classifications=two_records).returned_funder_payments
+    assert (item["represented_kind"], item["represented_multiple"]) == ("caught_up", 2)
+    assert "caught it up 2x" in next(record.reason for record in two_records if record.represented_by)
+    again = _statement(CASES["re_presented"][0])
+    [presented] = detect(again, classifications=tc.classify_statement_transactions(again)).returned_funder_payments
+    assert presented["represented_kind"] == "re_presented" and "represented_multiple" not in presented
+
+
+def test_the_package_counts_each_bounce_a_multiple_pays_once():
+    """R4-75 across a member boundary (package pass 5): KAPITUS's 1,000.00 on the Fridays of March 2031 (the 7th to the
+    28th), the 21st's returned on the 24th and the 28th's on the 28th; 3,000.00 on Friday April 4 (on the cycle, no
+    1,000.00 that day: it covers two), then 1,000.00 on the Fridays after. Each statement alone keeps both bounces in
+    March's numerator; the package counts each once, both items naming the April re-debit."""
+    from tests.test_package_matching import _package
+
+    march, april = _months(
+        [(3, NW_MARCH, 30000.0), *[(day, KAPITUS_BAKERY, -1000.0) for day in (7, 14, 21, 28)],
+         (24, BARE_BOUNCE, 1000.0), (28, BARE_BOUNCE, 1000.0)],
+        [(2, NW_APRIL, 30000.0), (4, KAPITUS_BAKERY, -3000.0), *[(day, KAPITUS_BAKERY, -1000.0) for day in (11, 18, 25)]])
+    assert _numerators(march, april) == [4000.0, 6000.0]
+    package = _package(("mar", march), ("apr", april))
+    totals = package["totals"]
+    assert (totals["withholding_numerator"], totals["lender_debits"]) == (8000.0, 8000.0)
+    assert (totals["returned_funder_payment_total"], totals["returned_funder_payment_count"]) == (2000.0, 2)
+    items = {item["debit_date"]: item for item in package["returned_funder_payments"]}
+    assert sorted(items) == ["2031-03-21", "2031-03-28"]
+    for item in items.values():
+        assert (item["represented_date"], item["represented_kind"], item["represented_multiple"],
+                item["represented_job"], item["represented_document"]) == ("2031-04-04", "caught_up", 3, "apr",
+                                                                           "apr.pdf")
+    # Each statement viewed alone keeps its own figures.
+    assert _package(("mar", march))["totals"]["withholding_numerator"] == 4000.0
+
+
+@needs_node
+def test_the_dashboard_names_a_catch_up_s_multiple():
+    """R4-75: a catch-up of 3 to 6 times the payment says so; a 2x reads exactly as before, and an item without
+    `represented_multiple` (stored before the field) reads as a 2x."""
+    base = {"funder": "KAPITUS", "amount": 1000.0, "debit_date": "2054-03-13", "credit_date": "2054-03-15",
+            "credit_description": BOFA_RETURN, "represented_date": "2054-03-27", "represented_kind": "caught_up"}
+    items = [{**base, "represented_multiple": 3}, {**base, "represented_multiple": 2}, base]
+    result = run_dashboard(f"""
+const items = {json.dumps(items)};
+console.log(JSON.stringify(items.map((item) => returnedFunderPaymentWarning(item, 'USD'))));
+""")
+    head = ('KAPITUS: a payment was returned. The $1,000.00 payment on Mar 13, 2054 was returned unpaid on Mar 15, 2054 '
+            '(the bank printed: "RETURN OF POSTED CHECK ITEM"). ')
+    tail = " It isn't counted as paid; it is counted once in the withholding rate, by the catch-up."
+    assert result == [
+        f"{head}It was caught up on Mar 27, 2054, by one debit of 3 times the payment.{tail}",
+        f"{head}It was caught up on Mar 27, 2054, by one debit of twice the payment.{tail}",
+        f"{head}It was caught up on Mar 27, 2054, by one debit of twice the payment.{tail}",
+    ]
+
+
 from tests.flag_group_fixtures import fake_payees  # noqa: E402,F401  (fixture)

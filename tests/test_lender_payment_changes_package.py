@@ -597,6 +597,32 @@ def test_r3_b05_r1_a_package_stop_whose_last_presence_is_a_catch_up_in_an_earlie
     assert rows[("lender_payment_change_1", "other_debits_after.catch_ups")] == 1
 
 
+def test_r4_75_a_package_caught_up_line_names_the_payments_pass_5_re_debited():
+    """Audit round 4, R4-B03 (R4-75): KAPITUS weekly 1,000.00 on the Fridays of a statement printed March 1 to 27, the
+    20th's returned on the 24th and the 27th's the same day; the next statement, printed March 28 to April 30, takes
+    2,000.00 on Monday March 30 (off the Friday cycle: it covers both), then the Fridays again. The package's pass 5
+    counts both bounces once, each naming the 30th; its Caught up line names both (before: only the 20th, the 27th
+    being one business day before the catch-up, on time), the same payments the returned notes call caught up."""
+    bounce = "ACH RETURN ITEM NSF"
+    march = statement_payload(debits(every(M(6), M(27)), 1000) + [(M(24), bounce, 1000.0), (M(27), bounce, 1000.0)],
+                              start=M(1), end=M(27))
+    later = statement_payload(debits([M(30)], 2000) + debits(every(A(3), A(24)), 1000), start=M(28), end=A(30),
+                              opening=closing(march))
+    built = package(job("march", march), job("later", later))
+    returned = {item["debit_date"]: item for item in built["returned_funder_payments"]}
+    assert sorted(returned) == ["2054-03-20", "2054-03-27"]
+    for item in returned.values():
+        assert (item["represented_date"], item["represented_kind"], item["represented_multiple"],
+                item["represented_job"]) == ("2054-03-30", "caught_up", 2, "later")
+    [item] = [entry for entry in built["lender_payment_changes"] if entry["kind"] == "catch_up"]
+    assert (item["scope"], item["missed_payments"], item["missed_first_date"], item["missed_last_date"],
+            item["multiple"], item["catch_up_date"], item["source_job"]) == (
+        "package", 2, "2054-03-20", "2054-03-27", 2, "2054-03-30", "later")
+    assert not any(key.startswith("_") for entry in built["lender_payment_changes"] for key in entry)
+    # Each statement alone: no Caught up line (the catch-up and its regime's first payment are in the later one).
+    assert [entry["kind"] for entry in items_of(march) + items_of(later)] == []
+
+
 def test_p13_the_package_json_download_carries_both_keys():
     from webapp.app import _package_for_export
 

@@ -1675,3 +1675,78 @@ def test_r3_82_controls():
     assert funding(longer + [_credit(F(23), 25000)]) is None
     assert funding(longer + [_credit(M(21), 25000)]) == {"date": "2054-03-21", "amount": 25000.0}
     assert funding(longer + [_credit(M(22), 25000)]) is None
+
+
+# ------------------------------- audit round 4, R4-B03 (R4-75): the Caught up line names the payments its debit re-debited
+def _classified(rows, end):
+    """The classifier's records of a fabricated Bank of America statement printed from March 1, 2054 to `end`: a sale on
+    March 2, then the rows (day, description, amount) in date order (pass 7c reads the returns and re-debits)."""
+    from analysis import transaction_classifier as tc
+    from analysis.schema import Statement, Transaction
+    from tests.test_returned_funder_payments import BOFA, HOLDER, SALE
+
+    ordered = sorted([(M(2), SALE, 24000.0), *rows], key=lambda row: row[0])
+    statement = Statement(account_name=HOLDER, bank=BOFA, period_start="2054-03-01", period_end=end.isoformat(),
+                          transactions=[Transaction(date=day.isoformat(), description=text, amount=amount,
+                                                    direction="credit" if amount > 0 else "debit")
+                                        for day, text, amount in ordered])
+    return tc.classify_statement_transactions(statement)
+
+
+def _off_cycle_2x(amount=2000.0):
+    """KAPITUS's 1,000.00 on the Fridays of March and April 2054; the 13th's returned on the 15th, the 20th's on the
+    22nd; `amount` on Monday the 23rd (2,000.00: R4-75's off-cycle 2x that pays both bounces)."""
+    from tests.test_returned_funder_payments import BOFA_RETURN, KAPITUS
+
+    return ([(day, KAPITUS, -1000.0) for day in every(M(6), A(24))]
+            + [(M(15), BOFA_RETURN, 1000.0), (M(22), BOFA_RETURN, 1000.0), (M(23), KAPITUS, -amount)])
+
+
+def test_r4_75_the_caught_up_line_names_the_payments_its_debit_re_debited():
+    """The off-cycle 2x pays both bounces (pass 7c takes both out of the rate, each naming it), so its Caught up line
+    names both: the 13th and the 20th. Before, the line counted only the 13th (the 20th is one business day before the
+    catch-up, on time by CATCH_UP_LATE_BUSINESS_DAYS) while both returned notes said "caught up"."""
+    records = _classified(_off_cycle_2x(), A(30))
+    [debit] = [record for record in records if record.amount == -2000.0]
+    assert {record.date: record.represented_by for record in records if record.represented_by} == {
+        "2054-03-13": debit.source_location, "2054-03-20": debit.source_location}
+    [item] = lpc.statement_payment_changes(records, period_start="2054-03-01", period_end="2054-04-30",
+                                           currency="USD")
+    assert _catch_up_fields(item) == ("catch_up", "weekly", 1000.0, "2054-03-06", 2, "2054-03-13", "2054-03-20", 2,
+                                      "2054-03-23", 2000.0)
+
+
+def test_r4_75_controls_a_daily_3x_reads_as_before_and_a_near_multiple_keeps_its_own_dates():
+    from tests.test_represented_funder_payments import MULTIPLE_CASES, _statement
+
+    # R4-75's daily 3x: both bounces are already the line's missed business days (unchanged).
+    statement = _statement(MULTIPLE_CASES["daily_3x"][0])
+    from analysis import transaction_classifier as tc
+
+    [item] = [entry for entry in lpc.statement_payment_changes(
+        tc.classify_statement_transactions(statement), period_start="2054-03-01", period_end="2054-03-31",
+        currency="USD") if entry["kind"] == "catch_up"]
+    assert (item["kind"], item["missed_payments"], item["missed_first_date"], item["missed_last_date"],
+            item["multiple"]) == ("catch_up", 2, "2054-03-05", "2054-03-06", 3)
+    # 2,995.00, within the line's 2% of 3x but no exact multiple: pass 7c takes no bounce out (both returned notes say
+    # "still counts"), so the line keeps its own missed dates (the recorded limit, spec §17.1 (24)).
+    records = _classified(_off_cycle_2x(2995.0), A(30))
+    assert not any(record.represented_by for record in records)
+    [item] = lpc.statement_payment_changes(records, period_start="2054-03-01", period_end="2054-04-30",
+                                           currency="USD")
+    assert (item["kind"], item["missed_payments"], item["missed_first_date"], item["missed_last_date"],
+            item["multiple"]) == ("catch_up", 1, "2054-03-13", "2054-03-13", 3)
+
+
+def test_r4_75_a_re_debit_named_in_another_statement_of_the_chain_is_not_the_line_s():
+    """The module reads `represented_by` as its own statement's location: March's returned 13th naming
+    'transaction:1' is April's first row only by its words, so April's Caught up line (2,000.00 on Wednesday the 8th,
+    after the missed 3rd) does not take it."""
+    march = _rows([M(6), M(20), M(27)], 1000) + _rows(
+        [M(13)], 1000, contributes_to_lender_totals=False, returned_funder_payment_by="transaction:99",
+        represented_by="transaction:1")
+    april = _rows([A(8)], 2000) + _rows(every(A(10), A(24)), 1000)
+    [item] = [entry for entry in _chain((march, M(1), M(31)), (april, A(1), A(30))) if entry["kind"] == "catch_up"]
+    assert (item["missed_payments"], item["missed_first_date"], item["catch_up_date"], item["_source_statement"]) == (
+        1, "2054-04-03", "2054-04-08", 1)
+    assert item["_missed_dates"] == ["2054-04-03"]

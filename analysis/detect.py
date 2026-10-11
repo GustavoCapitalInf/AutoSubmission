@@ -145,7 +145,12 @@ def _returned_funder_payments(records: list[TransactionClassification]) -> list[
     The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): an item whose payment the
     same funder re-debited (`represented_by`, out of the withholding rate) also names the re-debit's date and location
     and how it was taken (`represented_kind`: "re_presented", the same cents off its cycle, or "caught_up", an exact
-    2x), so the warning says "re-presented on <date>" or "caught up on <date>, 2x". Every other item is unchanged."""
+    2x), so the warning says "re-presented on <date>" or "caught up on <date>, 2x". Every other item is unchanged.
+    Audit round 4, R4-75: "caught_up" is an exact 2x to 6x multiple of the payment (`catch_up_multiple`), and such an
+    item also names its multiple (`represented_multiple`, k), so the warning says "by one debit of <k> times the
+    payment" (twice for 2)."""
+    from .represented_payments import catch_up_multiple
+
     by_location = {record.source_location or f"transaction:{index + 1}": record for index, record in enumerate(records)}
     items: list[dict] = []
     for index, record in enumerate(records):
@@ -163,11 +168,12 @@ def _returned_funder_payments(records: list[TransactionClassification]) -> list[
         }
         re_debit = by_location.get(record.represented_by) if record.represented_by else None
         if re_debit is not None:
+            multiple = catch_up_multiple(round(abs(record.amount) * 100), round(abs(re_debit.amount) * 100))
             item.update({
                 "represented_date": re_debit.date,
                 "represented_location": record.represented_by,
-                "represented_kind": "caught_up" if round(abs(re_debit.amount) * 100) == 2 * round(
-                    abs(record.amount) * 100) else "re_presented",
+                "represented_kind": "caught_up" if multiple is not None else "re_presented",
+                **({"represented_multiple": multiple} if multiple is not None else {}),
             })
         items.append(item)
     return items

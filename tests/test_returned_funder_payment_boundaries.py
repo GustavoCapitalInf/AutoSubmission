@@ -451,7 +451,7 @@ RETURNED_SECTION_FIELDS = (
     "funder", "amount", "debit_date", "debit_location", "credit_date", "credit_location", "credit_description",
     "source_job", "source_document", "source_account", "source_currency", "cross_statement", "credit_job",
     "credit_document", "credit_account", "represented_date", "represented_location", "represented_kind",
-    "represented_job", "represented_document", "represented_account")
+    "represented_multiple", "represented_job", "represented_document", "represented_account")
 
 
 def _returned_sections(package):
@@ -612,6 +612,10 @@ WARNING_ITEMS = [
     {"funder": "ONDECK", "amount": 1200.0, "debit_date": "2031-03-09", "credit_date": "2031-03-11",
      "source_currency": "USD", "represented_date": "2031-03-16", "represented_kind": "caught_up",
      "represented_document": "apr.pdf"},
+    # Audit round 4, R4-75: a catch-up of 4 times the payment (its words name the multiple; a 2x reads as above).
+    {"funder": "ONDECK", "amount": 1200.0, "debit_date": "2031-03-09", "credit_date": "2031-03-11",
+     "source_currency": "USD", "represented_date": "2031-03-16", "represented_kind": "caught_up",
+     "represented_multiple": 4, "represented_document": "apr.pdf"},
 ]
 
 
@@ -634,3 +638,15 @@ console.log(JSON.stringify(items.map((item) => ({{
     for item, dashboard in zip(WARNING_ITEMS, result, strict=True):
         money = f"{item['amount']:,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
         assert _returned_funder_payment_words(item) == dashboard["line"].replace(dashboard["money"], money, 1)
+
+
+def test_r4_75_the_download_words_name_a_catch_up_s_multiple():
+    """Audit round 4, R4-75: the section's words name a 3x to 6x catch-up's multiple, as the dashboard does; a 2x, and
+    an item stored before `represented_multiple`, read "twice the payment"."""
+    from webapp.app import _returned_funder_payment_words
+
+    four, two = WARNING_ITEMS[-1], WARNING_ITEMS[-2]
+    assert ("It was caught up on Mar 16, 2031 (apr.pdf), by one debit of 4 times the payment. It isn't counted as "
+            "paid; it is counted once in the withholding rate, by the catch-up.") in _returned_funder_payment_words(four)
+    assert "by one debit of twice the payment." in _returned_funder_payment_words(two)
+    assert "by one debit of twice the payment." in _returned_funder_payment_words({**four, "represented_multiple": 2})

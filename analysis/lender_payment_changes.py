@@ -284,7 +284,8 @@ def _cents(value: object) -> int | None:
 class _Row:
     """The row view (A1): the fields this module reads, from a record or its serialized dict. Audit round 3, R3-82: a
     credit's R2-OW13 marks, `returns_payment` (`returns_funder_payment`) and `reversal` (`reversal_of`), which the
-    funding note reads."""
+    funding note reads. Audit round 4, R4-75: a returned payment's `represented_by` (pass 7c's re-debit, a location in
+    its own statement), which the Caught up line reads."""
 
     statement: int
     position: int
@@ -306,6 +307,7 @@ class _Row:
     flagged_group: str | None
     returns_payment: bool
     reversal: bool
+    represented_by: str | None = None
 
 
 def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
@@ -332,6 +334,7 @@ def _row(record: Any, statement: int = 0, position: int = 0) -> _Row | None:
         location=_field(record, "source_location") or f"transaction:{position + 1}",
         flagged_group=_field(record, "flagged_group"),
         returns_payment=bool(_field(record, "returns_funder_payment")), reversal=bool(_field(record, "reversal_of")),
+        represented_by=_field(record, "represented_by") or None,
     )
 
 
@@ -364,6 +367,8 @@ class _Pay:
     position: int
     location: str
     label: str | None
+    #: Audit round 4, R4-75: a returned attempt's re-debit (pass 7c's `represented_by`, in its own statement).
+    represented_by: str | None = None
 
     @property
     def order(self) -> tuple:
@@ -395,7 +400,7 @@ class _Chain:
 
 
 def _pay(row: _Row) -> _Pay:
-    return _Pay(row.day, row.cents, row.statement, row.position, row.location, row.label)
+    return _Pay(row.day, row.cents, row.statement, row.position, row.location, row.label, row.represented_by)
 
 
 def _read_chain(statements: Sequence[StatementRows]) -> _Chain:
@@ -1463,7 +1468,17 @@ def _catch_ups(reading: _Reading, positions: list[_Position], scope: _Scope, cov
     (`covered`: one line per event), where a coverage hole falls between the last payment and the catch-up, or under
     a potential series' floor (A10); a multiple with no missed payment before it gives none. A daily regime's business
     days are each due; an irregular daily one's, and another schedule's due dates, are missed only when the catch-up
-    comes more than CATCH_UP_LATE_BUSINESS_DAYS after them. Each one-off gives one item at most."""
+    comes more than CATCH_UP_LATE_BUSINESS_DAYS after them. Each one-off gives one item at most.
+
+    Audit round 4, R4-75 (the owner's "Count it once"; the line names the payments the withholding rate counts once by
+    the catch-up): the missed payments are the union, deduplicated in date order, of those due dates and the dates of
+    the series' returned attempts of the one-off's own statement whose `represented_by` is the one-off's location (pass
+    7c took them out of the rate as its re-debits); `missed_payments`, `missed_first_date` and `missed_last_date` read
+    the union, and a one-off with no missed due date still gives its item when the union is not empty. The item keeps
+    the union as `_missed_dates` (ISO days; an internal key, dropped on publishing), which the package's alignment with
+    its own re-debits reads (webapp `_align_package_catch_ups`). A line whose multiple the numerator's rule refuses (a
+    near multiple within the 2% tolerance, or one more than a cycle after the latest return) keeps its own due dates
+    (spec §17.1 (24))."""
     items: list[dict] = []
     done = set(covered)
     calendar = scope.chain.calendar
@@ -1489,6 +1504,11 @@ def _catch_ups(reading: _Reading, positions: list[_Position], scope: _Scope, cov
             irregular = payment_cadence([each.day for each in regime.pays], calendar) == "daily_irregular"
             late = 0 if regime.cadence == "daily" and not irregular else CATCH_UP_LATE_BUSINESS_DAYS
             missed = _missed_payments(last.day, pay.day, regime.cadence, late, calendar)
+            # Audit round 4, R4-75: and the returned attempts pass 7c re-debited with this one-off (its statement's).
+            re_debited = [attempt.day for attempt in reading.series.attempts
+                          if attempt.represented_by and attempt.statement == pay.statement
+                          and attempt.represented_by == pay.location]
+            missed = sorted({*missed, *re_debited})
             if not missed:
                 continue
             done.add(pay.order)
@@ -1499,7 +1519,7 @@ def _catch_ups(reading: _Reading, positions: list[_Position], scope: _Scope, cov
                 "missed_first_date": _iso(missed[0]), "missed_last_date": _iso(missed[-1]), "multiple": multiple,
                 "catch_up_date": _iso(pay.day), "catch_up_amount": _money(pay.cents),
                 "locations": {"last_before": last.pay.location, "catch_up": pay.location},
-                "_source_statement": pay.statement,
+                "_source_statement": pay.statement, "_missed_dates": [_iso(day) for day in missed],
             })
             items.append(item)
     return items

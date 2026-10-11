@@ -900,12 +900,13 @@ def _repeated_account_words(entry: dict, filenames: dict[str, str]) -> str:
 #: Audit round 3, R3-B23 (R3-67): the fields of a `returned_funder_payment_<n>` section of the package downloads, in
 #: order, before its words: the served warning item's (R2-OW13; the final review of round 2's F2(b) adds the return's
 #: statement for a match across statements), then, since R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it
-#: once"), the re-debit's of a payment the funder re-debited.
+#: once"), the re-debit's of a payment the funder re-debited; since audit round 4, R4-75, a catch-up's multiple
+#: (`represented_multiple`, after `represented_kind`).
 _RETURNED_FUNDER_PAYMENT_FIELDS = (
     "funder", "amount", "debit_date", "debit_location", "credit_date", "credit_location", "credit_description",
     "source_job", "source_document", "source_account", "source_currency", "cross_statement", "credit_job",
     "credit_document", "credit_account", "represented_date", "represented_location", "represented_kind",
-    "represented_job", "represented_document", "represented_account",
+    "represented_multiple", "represented_job", "represented_document", "represented_account",
 )
 
 
@@ -960,7 +961,9 @@ def _returned_funder_payment_words(item: dict) -> str:
     where it names one (the overlapping statements' words; no unit when it is unknown). A payment matched to its return
     across statements names both documents; a payment the funder re-debited (R3-B02) names the re-debit and is counted
     once in the withholding rate. Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 that
-    the dashboard now writes (a headline, its sentences, the statements it comes from), so R3-67's rule holds."""
+    the dashboard now writes (a headline, its sentences, the statements it comes from), so R3-67's rule holds. Audit
+    round 4, R4-75: a catch-up of 3 to 6 times the payment (`represented_multiple`; an item without it reads 2) says
+    "by one debit of <k> times the payment", a 2x "of twice the payment", as before."""
     amount = item.get("amount")
     money = (f"{abs(float(amount)):,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
              if _is_money_value(amount) else "N/A")
@@ -973,7 +976,11 @@ def _returned_funder_payment_words(item: dict) -> str:
                  if item.get("represented_job") or item.get("represented_document") else "")
         caught_up = item.get("represented_kind") == "caught_up"
         day = _readable_date(item["represented_date"])
-        sentences.append(f"It was caught up on {day}{where}, by one debit of twice the payment." if caught_up
+        multiple = item.get("represented_multiple")
+        multiple = int(multiple) if (isinstance(multiple, (int, float)) and not isinstance(multiple, bool)
+                                     and float(multiple).is_integer()) else 2
+        times = "twice the payment" if multiple == 2 else f"{multiple} times the payment"
+        sentences.append(f"It was caught up on {day}{where}, by one debit of {times}." if caught_up
                          else f"It was taken again on {day}{where}.")
         sentences.append("It isn't counted as paid; it is counted once in the withholding rate, by the "
                          f"{'catch-up' if caught_up else 'second debit'}.")
@@ -3148,9 +3155,14 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
     location): the warning item's represented fields (`represented_date`, `_location`, `_kind`, `_job`, `_document`, and
     `_account` for a statement of several accounts)}. Audit round 3, final review (R3-FF), F3: as in pass 7c, a paid
     debit the rate leaves out (`out_of_rate_payment`: R3-79's worded lump-sum payoff, as its package copy reads after
-    pass 4) is never the re-debit; it stays in the series."""
+    pass 4) is never the re-debit; it stays in the series. Audit round 4, R4-75 (the owner's "Count it once"; its
+    question's default (a)): pass 7c's exact 2x to 6x catch-up covers several returned payments here too. The re-debits
+    taken are a count (a statement's own re-debit once per returned row naming it in `represented_by`, each of this
+    pass's once per payment it covers), passed as `taken`; the rule's run reads its latest bounce from the returned
+    payments of the call's members still in the numerator (`standing`: neither its statement nor this pass re-debited
+    them); a catch-up's item also names its multiple (`represented_multiple`, after `represented_kind`)."""
     from analysis.lender_payment_changes import calendar_for
-    from analysis.represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
+    from analysis.represented_payments import Attempt, Returned, catch_up_multiple, out_of_rate_payment, re_debits
 
     def record_of(entry: dict, position: int, row: dict) -> dict:
         overlay = (overlays.get(entry["key"]) or {}).get(position)
@@ -3164,9 +3176,12 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
                 break
     by_member: dict[tuple, list] = {}
     known: dict[tuple, list] = {}
-    used: set[tuple] = set()
+    # Audit round 4, R4-75: the re-debits taken, counted (a multiple covers several returned payments).
+    used: Counter = Counter()
     out_of_rate: set[tuple] = set()
     returns: list[tuple] = []
+    # Audit round 4, R4-75: every dated returned payment still in the numerator (the run's latest bounce reads them).
+    in_rate: dict[tuple, list] = {}
     for entry in matchable:
         rows_at = {location_of(row, position): (position, row) for position, row in entry["rows"]}
         for position, row in entry["rows"]:
@@ -3185,7 +3200,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
                 out_of_rate.add(attempt.key)  # R3-FF F3: never the re-debit
             taken = rows_at.get(record.get("represented_by") or "")
             if taken is not None:
-                used.add((entry["key"], taken[0]))  # a re-debit its own statement already took
+                used[(entry["key"], taken[0])] += 1  # a re-debit its own statement already took, once per return
             if not record.get("returned_funder_payment_by"):
                 continue
             match = record.get("package_match") or {}
@@ -3202,11 +3217,13 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
                 continue
             # Every dated return, a re-debited one included, for the rule's recurring-phase guard (review round 2).
             known.setdefault(entry["key"], []).append(Returned(attempt, credit_day))
-            if (credit_entry is not None and not record.get("represented_by")
-                    and record.get("contributes_to_withholding_rate") is True):
-                returns.append(((credit_day.toordinal(), entry["order"], position), entry, position, row, attempt,
-                                credit_entry, credit_day))
+            if not record.get("represented_by") and record.get("contributes_to_withholding_rate") is True:
+                in_rate.setdefault(entry["key"], []).append(Returned(attempt, credit_day))
+                if credit_entry is not None:
+                    returns.append(((credit_day.toordinal(), entry["order"], position), entry, position, row, attempt,
+                                    credit_entry, credit_day))
     represented: dict = {}
+    re_debited: set[tuple] = set()
     for _sort, entry, position, row, attempt, credit_entry, credit_day in sorted(returns, key=lambda item: item[0]):
         members = [credit_entry] + ([following[credit_entry["key"]]] if credit_entry["key"] in following else [])
         allowed = {member["key"] for member in members if member is not entry}
@@ -3216,23 +3233,27 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
         found = re_debits([Returned(attempt, credit_day)], series, calendar_for(entry["currency"]),
                           may_re_debit=lambda _returned, candidate: (candidate.key[0] in allowed
                                                                      and candidate.key not in out_of_rate),
-                          taken=list(used),
+                          taken=used,
                           returns=[known_return for key in {entry["key"], *allowed}
-                                   for known_return in known.get(key, [])])
+                                   for known_return in known.get(key, [])],
+                          standing=[standing for key in {entry["key"], *allowed}
+                                    for standing in in_rate.get(key, []) if standing.attempt.key not in re_debited])
         if attempt.key not in found:
             continue
         (re_debit_key, kind) = found[attempt.key]
-        used.add(re_debit_key)
+        used[re_debit_key] += 1
+        re_debited.add(attempt.key)
         re_debit_entry = next(member for member in members if member["key"] == re_debit_key[0])
         re_debit_row = dict(re_debit_entry["rows"])[re_debit_key[1]]
         re_debit_location = location_of(re_debit_row, re_debit_key[1])
         overlays.setdefault(entry["key"], {}).setdefault(position, {}).update({
             "contributes_to_withholding_rate": False, "represented_by": re_debit_location,
         })
+        multiple = catch_up_multiple(attempt.cents, abs(_row_cents(re_debit_row))) if kind == "caught_up" else None
         represented[(entry["key"], location_of(row, position))] = {
             "represented_date": re_debit_row.get("date"), "represented_location": re_debit_location,
-            "represented_kind": kind, "represented_job": re_debit_entry["job_id"],
-            "represented_document": re_debit_entry["filename"],
+            "represented_kind": kind, **({"represented_multiple": multiple} if multiple is not None else {}),
+            "represented_job": re_debit_entry["job_id"], "represented_document": re_debit_entry["filename"],
             **({"represented_account": re_debit_entry["account"]} if re_debit_entry["account"] is not None else {}),
         }
     return represented
@@ -3574,7 +3595,10 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
             if position in excluded or not isinstance(record, dict):
                 continue
             if position in member_overlay:
-                record = {**record, **member_overlay[position]}
+                # Audit round 4, R4-75: pass 5's `represented_by` names a row of ANOTHER member, which the module would
+                # read as its own statement's location; `_align_package_catch_ups` reads pass 5's re-debits instead.
+                record = {**record, **{key: value for key, value in member_overlay[position].items()
+                                       if key != "represented_by"}}
             if record.get("is_posted") is False or record.get("duplicate_of"):
                 continue
             rows.append(record)
@@ -3624,6 +3648,9 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
     for chain_index, chain in enumerate(chains):
         for item in payment_changes_module.payment_changes([entry["rows"] for entry in chain]):
             published = payment_changes_module.public_item(item)
+            if "_missed_dates" in item:
+                # Audit round 4, R4-75: for `_align_package_catch_ups`, which drops it from every item.
+                published["_missed_dates"] = list(item["_missed_dates"])
             source = chain[item["_source_statement"]]
             published.update(statement_source(chain, item["_source_statement"]))
             published["source_currency"] = source["currency"]
@@ -3672,6 +3699,49 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                         "covered_business_days": covered}
             items.append(published)
     return items, unchecked
+
+
+def _align_package_catch_ups(items: list[dict] | None, represented: dict, members: list[tuple]) -> None:
+    """Audit round 4, R4-75 (the owner's "Count it once"; the lender payment changes' Caught up line of R3-25): each
+    package `catch_up` item, read by `_package_lender_payment_changes`, names the returned payments package pass 5
+    re-debited with its catch-up debit (pass 5's `represented`: the re-debit's job, account and location equal the
+    item's catch-up statement, `source_job` and `source_account`, and `locations.catch_up`), as the module names a
+    statement's own (`represented_by`, read through the members' copies): its missed payments become the union,
+    deduplicated in date order, of the module's (`_missed_dates`) and those payments' dates (looked up in `members`,
+    each row at its location in its statement), and `missed_payments`, `missed_first_date` and `missed_last_date` read
+    the union. Every item's `_missed_dates` is dropped. In place; information only (no figure reads the items). An item
+    the module dropped for no missed payment is not made here (spec §17.1 (24)'s limit)."""
+    if not items:
+        return
+
+    def payment_day(member_key: tuple, location: object) -> str | None:
+        for job, analysis, account_index, _count in members:
+            if (job.id, account_index) != member_key or not isinstance(analysis, dict):
+                continue
+            statement = analysis.get("statement") if isinstance(analysis.get("statement"), dict) else {}
+            for position, transaction in enumerate(statement.get("transactions") or []):
+                record = transaction.get("classification") if isinstance(transaction, dict) else None
+                if not isinstance(record, dict):
+                    continue
+                if (record.get("source_location") or f"transaction:{position + 1}") == location:
+                    day = _iso_day(transaction.get("date"))
+                    return day.isoformat() if day is not None else None
+        return None
+
+    for item in items:
+        missed = item.pop("_missed_dates", None)
+        if item.get("kind") != "catch_up" or missed is None:
+            continue
+        catch_up = (item.get("locations") or {}).get("catch_up")
+        days = {payment_day(member_key, location)
+                for (member_key, location), fields in represented.items()
+                if fields.get("represented_job") == item.get("source_job")
+                and fields.get("represented_account") == item.get("source_account")
+                and fields.get("represented_location") == catch_up}
+        union = sorted({*missed, *(day for day in days if day is not None)})
+        if union == sorted(missed):
+            continue
+        item.update({"missed_payments": len(union), "missed_first_date": union[0], "missed_last_date": union[-1]})
 
 
 def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
@@ -4945,6 +5015,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # the consecutive statements of one account, from the kept members' displayed copies (information only).
     lender_payment_changes, lender_payment_unchecked = _package_lender_payment_changes(
         members, package_matched["overlays"])
+    # Audit round 4, R4-75: a package Caught up line names the returned payments pass 5 re-debited with its catch-up.
+    _align_package_catch_ups(lender_payment_changes, package_matched["represented"], members)
 
     # Design §6.5's fourth bullet, and Q5's direction: **no published average is
     # computed over two accounts of one document.** The L1-S3 review measured

@@ -1226,8 +1226,13 @@ function returnedFunderPaymentNote(item, currency = "USD", sources = null) {
     const where = item.represented_job || item.represented_document
       ? ` (${paymentChangeMember(item, "represented", sources).label})` : "";
     const caughtUp = item.represented_kind === "caught_up";
+    // Audit round 4, R4-75: a catch-up of 3 to 6 times the payment names its multiple (an item stored without
+    // `represented_multiple` reads 2, "twice the payment", as before).
+    const multiple = typeof item.represented_multiple === "number" && Number.isInteger(item.represented_multiple)
+      ? item.represented_multiple : 2;
+    const times = multiple === 2 ? "twice the payment" : `${multiple} times the payment`;
     details.push(caughtUp
-      ? `It was caught up on ${readableDate(item.represented_date)}${where}, by one debit of twice the payment.`
+      ? `It was caught up on ${readableDate(item.represented_date)}${where}, by one debit of ${times}.`
       : `It was taken again on ${readableDate(item.represented_date)}${where}.`);
     details.push("It isn't counted as paid; it is counted once in the withholding rate, by the "
       + `${caughtUp ? "catch-up" : "second debit"}.`);
