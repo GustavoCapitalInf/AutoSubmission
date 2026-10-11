@@ -1348,9 +1348,8 @@
   .data-table td { border-top-color: var(--border); }
   .seasonality-table thead tr { background: transparent; }
   .seasonality-table th { font-size: 10.5px; }
-  /* The owner's ruling: the Monthly Statements headers read exactly as authored, in their own case
-     ("Total Deposits ($)", as the CRM writes them), so this one table's headers are never set in capitals. */
-  .seasonality-table th { text-transform: none; letter-spacing: normal; }
+  /* The Monthly Statements headers keep the CRM's words as authored ("Total Deposits ($)") and, like every other
+     table here, are set in capitals on screen (owner, 2026-10-11: "All capital is fine"); downloads keep the words. */
   /* Active Positions keeps "2 (+1 possible)" on one line, so a row never doubles in height. */
   .seasonality-table td.positions { white-space: nowrap; }
   /* That one-line cell widens the table, so from 861px up to 1365px wide its cells keep 8px at their
