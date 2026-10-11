@@ -1348,8 +1348,18 @@
   .data-table td { border-top-color: var(--border); }
   .seasonality-table thead tr { background: transparent; }
   .seasonality-table th { font-size: 10.5px; }
+  /* The owner's ruling: the Monthly Statements headers read exactly as authored, in their own case
+     ("Total Deposits ($)", as the CRM writes them), so this one table's headers are never set in capitals. */
+  .seasonality-table th { text-transform: none; letter-spacing: normal; }
   /* Active Positions keeps "2 (+1 possible)" on one line, so a row never doubles in height. */
   .seasonality-table td.positions { white-space: nowrap; }
+  /* That one-line cell widens the table, so from 861px up to 1365px wide its cells keep 8px at their
+     sides instead of 12px (the table's outer 20px stay) and its narrowest columns may close to 52px: every column,
+     the Open buttons too, then fits the card, and the headers keep to two lines where there is room. */
+  @media (min-width: 861px) and (max-width: 1365px) {
+    .seasonality-table th, .seasonality-table td { padding-left: 8px; padding-right: 8px; }
+    .seasonality-table th { min-width: 52px; }
+  }
   .glass-chip { height: 22px; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 500; letter-spacing: .01em; }
   .metric .glass-chip, .source-tag, .main-badge { border-radius: 6px; }
   .rules-outdated { border-color: transparent; }
