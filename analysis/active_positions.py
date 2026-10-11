@@ -17,10 +17,11 @@ never detects a stream of its own:
   into positions (`_positions`), fee levels and fee positions dropped (`_fee_levels`, `_paying_positions`). Two
   concurrent streams of one funder are two positions. Three readings the precision sample of 2026-10-10 asked for
   (`_counted`): a position whose every level holds 2 payments or fewer at exactly 2 or 3 times a level of another
-  position of the series, which holds more payments and missed or bounced a payment before it (A8's premise, review
-  round 1 of 2026-10-11), is that position catching up (A8's catch-up, which the module reads only inside a position,
-  after A7 has formed them), so its payments are the other's; a position that pays only on days another pays on, a
-  level of each adding up to an amount the series paid or attempted before it began, is one payment split into two
+  position of the series, which holds more payments and missed a payment before it or had one bounce it has not paid
+  past (A8's premise, review rounds 1 and 2 of 2026-10-11), is that position catching up (A8's catch-up, which the
+  module reads only inside a position, after A7 has formed them), so its payments are the other's; a position that
+  pays only on days another pays on, a level of each adding up to the series' payment or attempt just before it began
+  (the payment that was split; review round 2: never an older level or attempt), is one payment split into two
   debits, one position; and a potential series' position none of whose payments, and not its regular weekly
   equivalent either, reaches A10's floor (POTENTIAL_MIN_WEEKLY_CENTS, the basis its one-offs are tested on) is no
   possible position.
@@ -40,7 +41,9 @@ never detects a stream of its own:
   package of several accounts adds each account's positions up, and a position the payment changes link across
   accounts (R3-83's "continues from another account") counts once in a month where it is handed over: the stopped
   position paid there and the other account's position paid there only on or after the continuation (review round 1:
-  a position of the other account that paid beside the stopped one is a second position in those months).
+  a position of the other account that paid beside the stopped one is a second position in those months). Review
+  round 2: one continuation takes over one stopped position at most, the nearest in amount, and two positions of one
+  account are never counted as one, so a month never reads below one account's own count there.
 * **N/A, never 0**, where the lender reading is not available: an account whose detection carries no
   `lender_payment_changes` (analysed before the check) or whose statement holds no rows list (`account_active_positions`);
   the package's members never analysed are N/A by webapp/app.py.
@@ -85,6 +88,7 @@ NOT_AVAILABLE = {ACTIVE_POSITIONS_KEY: None, POSSIBLE_POSITIONS_KEY: None}
 #: The position number that stands for a series' one-off payments in a period none of its positions paid.
 ONE_OFFS = 0
 #: Review round 1 (2026-10-11): a catch-up recovers a payment of its position that bounced in this many days before it.
+#: Review round 2: a split payment is one paid or attempted in this many days before its parts began.
 CATCH_UP_LOOKBACK_DAYS = 31
 
 Identity = tuple[tuple[str, str], int]
@@ -126,17 +130,33 @@ def _near(cents: int, amount: int) -> bool:
     return 100 * abs(cents - amount) <= LEVEL_MERGE_PERCENT * amount
 
 
-def _missed_or_bounced(base: PayingPosition, first: date, series: SeriesPositions) -> bool:
-    """A8's premise (review round 1 of 2026-10-11): before `first`, the first payment of the level catching up, the
-    `base` position missed a payment or one of its payments bounced. Bounced: an attempt of the series within
-    LEVEL_MERGE_PERCENT of a level of `base`, dated in the CATCH_UP_LOOKBACK_DAYS days before `first`. Missed: a payment
-    of the base's level in force (the latest one begun before `first`) scheduled after the base's last payment before
-    `first` and missed before it, as the catch-up line reads it (`missed_payments`)."""
+def _bounced_near(series: SeriesPositions, levels: Sequence[tuple[int, int, date]], since: date,
+                  before: date) -> list[date]:
+    """The days of the series' attempts within LEVEL_MERGE_PERCENT of one of `levels`, dated from `since` to the day
+    before `before`."""
+    return [day for day, cents in series.attempts
+            if since <= day < before and any(_near(cents, amount) for amount, _count, _first in levels)]
+
+
+def _missed_or_bounced(base: PayingPosition, position: PayingPosition, series: SeriesPositions) -> bool:
+    """A8's premise (review rounds 1 and 2 of 2026-10-11): before `first`, the first payment of `position` (the level
+    catching up), the `base` position missed a payment or one of its payments bounced and the base has not paid past
+    it. Missed: a payment of the base's level in force (the latest one begun before `first`) scheduled after the base's
+    last payment before `first` and missed before it, as the catch-up line reads it (`missed_payments`). Bounced: an
+    attempt of the series within LEVEL_MERGE_PERCENT of a level of `base`, dated in the CATCH_UP_LOOKBACK_DAYS days
+    before `first`, after the base's last payment before `first` (review round 2: a bounce the base paid past is no
+    premise, as the catch-up line reads missed payments from the last paid presence), or before that payment where the
+    catch-up amount itself (an attempt within LEVEL_MERGE_PERCENT of a level of `position`) was presented and bounced
+    in those days too: the funder collecting the bounced payment as a multiple (the precision sample's catch-up shape,
+    a weekly stream whose one bounce came a payment before the 2x debits, which had bounced first)."""
+    first = position.days[0]
     since = first - timedelta(days=CATCH_UP_LOOKBACK_DAYS)
-    if any(since <= day < first and any(_near(cents, amount) for amount, _count, _first in base.levels)
-           for day, cents in series.attempts):
-        return True
     paid = [day for day in base.days if day < first]
+    bounces = _bounced_near(series, base.levels, since, first)
+    if any(not paid or day > paid[-1] for day in bounces):
+        return True
+    if bounces and _bounced_near(series, position.levels, since, first):
+        return True
     begun = [(level_first, cadence) for (_amount, _count, level_first), cadence in zip(base.levels, base.cadences)
              if level_first < first]
     if not paid or not begun:
@@ -152,20 +172,48 @@ def _catches_up(position: PayingPosition, other: PayingPosition, series: SeriesP
     A8), so such a level, concurrent with its stream, reads as a position of its own; it is that stream catching up."""
     return _payments(other) > _payments(position) and all(
         payments <= CATCH_UP_MAX_RUN and any(_catch_up_multiple(amount, base) for base, _count, _first in other.levels)
-        for amount, payments, _first in position.levels) and _missed_or_bounced(other, position.days[0], series)
+        for amount, payments, _first in position.levels) and _missed_or_bounced(other, position, series)
 
 
-def _splits(position: PayingPosition, other: PayingPosition, earlier: Sequence[tuple[date, int]]) -> bool:
-    """The precision sample's split shape: `position` pays only on days `other` pays on, and a level of each adds up
-    (within LEVEL_MERGE_PERCENT) to an amount the series paid or attempted before `position` began (`earlier`: its
-    one-offs, attempts and levels, each (day, cents)). One payment debited as two parts on the same days, which the
-    module reads as two concurrent positions (A7), is one position."""
+def _split_wholes(position: PayingPosition, series: SeriesPositions) -> list[int]:
+    """The amounts (cents) the parts of `position` may add up to (review round 2 of 2026-10-11): the series' payment or
+    attempt just before `position` began, the payment that was split, never an older level or attempt. Each other
+    position's payments on its last paying day before it, and the series' one-offs and attempts on the last day before
+    it that one of them falls on, where no position of the series paid after that day; each dated in the
+    CATCH_UP_LOOKBACK_DAYS days before `position` began."""
     first = position.days[0]
+    since = first - timedelta(days=CATCH_UP_LOOKBACK_DAYS)
+    wholes: list[int] = []
+    latest: date | None = None
+    for other in series.positions:
+        before = [(day, cents) for day, cents in other.pays if day < first]
+        if other.number == position.number or not before:
+            continue
+        last = before[-1][0]
+        latest = last if latest is None else max(latest, last)
+        if last >= since:
+            wholes.extend(cents for day, cents in before if day == last)
+    loose = [(day, cents) for day, cents in (*series.one_offs, *series.attempts) if since <= day < first]
+    if loose:
+        last = max(day for day, _cents in loose)
+        if latest is None or last >= latest:
+            wholes.extend(cents for day, cents in loose if day == last)
+    return wholes
+
+
+def _splits(position: PayingPosition, other: PayingPosition, series: SeriesPositions) -> bool:
+    """The precision sample's split shape: `position` pays only on days `other` pays on, and a level of each adds up
+    (within LEVEL_MERGE_PERCENT) to the payment that was split, the series' payment or attempt just before `position`
+    began (`_split_wholes`; review round 2 of 2026-10-11: never an older level, such as the other's own before a
+    decrease, or an older bounced attempt, so a stream the payment changes read as a new concurrent stream stays one).
+    One payment debited as two parts on the same days, which the module reads as two concurrent positions (A7), is one
+    position."""
     if not set(position.days) <= set(other.days):
         return False
+    wholes = _split_wholes(position, series)
     return any(100 * abs(part + rest - whole) <= LEVEL_MERGE_PERCENT * whole
                for part, _count, _day in position.levels for rest, _other_count, _other_day in other.levels
-               for day, whole in earlier if day < first)
+               for whole in wholes)
 
 
 def _under_floor(position: PayingPosition) -> bool:
@@ -211,12 +259,10 @@ def _counted(series: SeriesPositions) -> _Counted:
     potential = series.key[0] == "potential"
     positions = {position.number: set(position.days) for position in series.positions}
     stands_for: dict[int, int | None] = {position.number: position.number for position in series.positions}
-    earlier = [*series.one_offs, *series.attempts,
-               *((first, amount) for position in series.positions for amount, _count, first in position.levels)]
     for position in sorted(series.positions, key=lambda item: (_payments(item), item.number)):
         bases = [other for other in series.positions if other is not position and stands_for[other.number] == other.number
                  and (_catches_up(position, other, series)
-                      or (_payments(other) >= _payments(position) and _splits(position, other, earlier)))]
+                      or (_payments(other) >= _payments(position) and _splits(position, other, series)))]
         if bases:
             base = max(bases, key=lambda other: (_payments(other), -other.number))
             positions[base.number] |= positions.pop(position.number)
@@ -278,7 +324,29 @@ class ChainPositions:
         if index is None:
             return ()
         counted = self.counted[index]
-        return counted.one_off_days if number == ONE_OFFS else tuple(sorted(counted.positions.get(number, ())))
+        return (tuple(sorted(counted.one_off_days)) if number == ONE_OFFS
+                else tuple(sorted(counted.positions.get(number, ()))))
+
+    def module_amounts(self, key: Sequence[str], number: int) -> tuple[int, ...]:
+        """The level amounts (cents) of the module's position `number` of series `key` (review round 2 of 2026-10-11)."""
+        index = self._index(key)
+        if index is None:
+            return ()
+        return tuple(amount for position in self.series[index].positions if position.number == number
+                     for amount, _count, _first in position.levels)
+
+    def amounts_of(self, key: Sequence[str], number: int) -> tuple[int, ...]:
+        """The level amounts (cents) of every module position the counted position `number` of series `key` stands for,
+        or its counted one-offs' amounts for ONE_OFFS (review round 2 of 2026-10-11)."""
+        index = self._index(key)
+        if index is None:
+            return ()
+        series, counted = self.series[index], self.counted[index]
+        if number == ONE_OFFS:
+            days = set(counted.one_off_days)
+            return tuple(cents for day, cents in series.one_offs if day in days)
+        return tuple(amount for position in series.positions if counted.stands_for.get(position.number) == number
+                     for amount, _count, _first in position.levels)
 
     def position_of(self, key: Sequence[str], day: date | None, amount: float | None) -> int | None:
         """The counted position of series `key` a payment or attempt on `day` belongs to: the position holding a payment
@@ -332,6 +400,57 @@ def _month_label(month: int) -> str:
     return f"{month // 12:04d}-{month % 12 + 1:02d}"
 
 
+class _Join(NamedTuple):
+    """A link as the package reads it: the stopped node (chain, series key, counted number), the other chain, the
+    counted position there the link's first payment or attempt belongs to (`position_of`; None for none), the link's
+    day, the stopped position's level amounts and the link's amount (cents, None for none)."""
+
+    stop: tuple
+    other_chain: int
+    named: int | None
+    day: date
+    stop_amounts: tuple[int, ...]
+    amount: int | None
+
+
+def _distance(amounts: Sequence[int], others: Sequence[int]) -> int | None:
+    """The smallest gap (cents) between one of `amounts` and one of `others`; None where either is empty."""
+    return min((abs(one - other) for one in amounts for other in others), default=None)
+
+
+def _hand_overs(joins: Sequence[_Join], nodes: set[tuple], readings: Sequence[ChainPositions],
+                spans: Mapping[int, Sequence[tuple[date | None, date | None]]]) -> list[tuple[int, tuple, tuple]]:
+    """Review round 2 of 2026-10-11: each (gap, stopped node, continuation node) a month may join. A continuation is a
+    node of the link's other chain and series that paid in the month only on or after the link's day (`spans`: each
+    chain's statement periods of the month): the position the link's first payment or attempt belongs to (`named`),
+    its gap the stopped position's level nearest the link's amount; or another one that began on or after the link's
+    day at a level within LEVEL_MERGE_PERCENT of the stopped position's (the same stream moved, where the link names
+    the funder's first debit there, which another stop's continuation took), its gap the nearest two levels."""
+    pairs: list[tuple[int, tuple, tuple]] = []
+    for join in joins:
+        if join.stop not in nodes:
+            continue
+        reading = readings[join.other_chain]
+        for node in sorted(nodes):
+            chain_index, key, number = node
+            if chain_index != join.other_chain or key != join.stop[1]:
+                continue
+            days = reading.days_of(key, number)
+            paid = [day for day in days if any(_inside(day, start, end) for start, end in spans[chain_index])]
+            if not paid or min(paid) < join.day:
+                continue
+            amounts = reading.amounts_of(key, number)
+            if number == join.named:
+                gap = _distance(join.stop_amounts, (join.amount,) if join.amount is not None else amounts)
+            elif days[0] >= join.day and any(_near(one, other) or _near(other, one)
+                                             for one in join.stop_amounts for other in amounts):
+                gap = _distance(join.stop_amounts, amounts)
+            else:
+                continue
+            pairs.append((0 if gap is None else gap, join.stop, node))
+    return sorted(pairs)
+
+
 def package_active_positions(chains: Sequence[Sequence[StatementRows]], *, months: Sequence[Sequence[int | None]],
                              links: Iterable[PositionLink] = (), unread_months: Iterable[int] = ()
                              ) -> tuple[list[list[dict]], list[dict]]:
@@ -346,18 +465,28 @@ def package_active_positions(chains: Sequence[Sequence[StatementRows]], *, month
     on or before its last presence) and the other chain's position paid there only on or after the continuation's day.
     Review round 1 of 2026-10-11: the link holds around the hand-off only, so a position of the other account that
     paid beside the stopped one (before the continuation, in the same month or an earlier one) is a second position
-    there. A month of `unread_months` (one of whose statements the lender reading is not available for) is N/A."""
+    there. Review round 2 of 2026-10-11: a continuation takes over one stopped position at most and a stopped position
+    is handed over once (`_hand_overs`, the nearest amounts first), and no two positions of one chain are ever counted
+    as one, so a month never reads below a chain's own count there: the payment changes read every stop of a funder in
+    one account as continuing from the funder's first debit in the other, so two positions that stop together and one
+    continuation there are still two in the hand-off month. A month of `unread_months` (one of whose statements the
+    lender reading is not available for) is N/A."""
     readings = [ChainPositions(chain) for chain in chains]
     per_statement = [[_statement_counts(reading, index) for index in range(len(reading.statements))]
                      for reading in readings]
-    joins: list[tuple[tuple, tuple, date]] = []
+    joins: list[_Join] = []
     for link in links:
         if link.day is None:
             continue
-        one = readings[link.chain].counted_number(link.key, link.position)
-        other = readings[link.other_chain].position_of(link.key, link.day, link.amount)
-        if one is not None and other is not None:
-            joins.append(((link.chain, tuple(link.key), one), (link.other_chain, tuple(link.key), other), link.day))
+        key = tuple(link.key)
+        one = readings[link.chain].counted_number(key, link.position)
+        if one is None:
+            continue
+        stop_amounts = (readings[link.chain].module_amounts(key, link.position)
+                        or readings[link.chain].amounts_of(key, one))
+        joins.append(_Join((link.chain, key, one), link.other_chain,
+                           readings[link.other_chain].position_of(key, link.day, link.amount), link.day, stop_amounts,
+                           None if link.amount is None else round(abs(link.amount) * 100)))
     by_month: dict[int, dict[tuple, set[int]]] = {}
     periods: dict[int, dict[int, list[tuple[date | None, date | None]]]] = {}
     for chain_index, reading in enumerate(readings):
@@ -382,21 +511,26 @@ def package_active_positions(chains: Sequence[Sequence[StatementRows]], *, month
                 numbers = numbers - {ONE_OFFS}
             nodes.update((chain_index, key, number) for number in numbers)
         parent: dict[tuple, tuple] = {}
+        held: dict[tuple, set[int]] = {node: {node[0]} for node in nodes}
 
         def root(node: tuple) -> tuple:
             while parent.get(node, node) != node:
                 node = parent[node]
             return node
 
-        for one, other, day in joins:
-            if one not in nodes or other not in nodes:
+        stopped: set[tuple] = set()
+        continued: set[tuple] = set()
+        for _gap, stop, node in _hand_overs(joins, nodes, readings, periods[month]):
+            if stop in stopped or node in continued:
                 continue
-            paid = [each for each in readings[other[0]].days_of(other[1], other[2])
-                    if any(_inside(each, start, end) for start, end in periods[month][other[0]])]
-            if paid and min(paid) >= day:
-                first, second = root(one), root(other)
-                if first != second:
-                    parent[max(first, second)] = min(first, second)
+            first, second = root(stop), root(node)
+            if first == second or held[first] & held[second]:
+                continue
+            kept, joined = min(first, second), max(first, second)
+            parent[joined] = kept
+            held[kept] |= held.pop(joined)
+            stopped.add(stop)
+            continued.add(node)
         groups = {root(node) for node in nodes}
         result.append({"month": _month_label(month), **_counts(key[0] for _chain, key, _number in groups)})
     return per_statement, result

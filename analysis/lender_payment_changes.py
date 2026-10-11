@@ -1662,14 +1662,16 @@ def series_activity_after(statements: Sequence[StatementRows | tuple], series_ke
 class PayingPosition(NamedTuple):
     """One paying position of a series (`SeriesPositions`): its number (1..n by first payment, the items' `position`),
     the distinct days of its payments, its weight (the largest regular weekly equivalent, in cents, or None), its
-    levels, each (representative amount in cents, payments, first day), and (review round 1 of 2026-10-11) each
-    level's cadence, in the order of `levels`."""
+    levels, each (representative amount in cents, payments, first day), (review round 1 of 2026-10-11) each level's
+    cadence, in the order of `levels`, and (review round 2 of 2026-10-11) its payments, each (day, cents), in date
+    order."""
 
     number: int
     days: tuple[date, ...]
     weight: int | None
     levels: tuple[tuple[int, int, date], ...]
     cadences: tuple[str, ...] = ()
+    pays: tuple[tuple[date, int], ...] = ()
 
 
 class SeriesPositions(NamedTuple):
@@ -1716,7 +1718,8 @@ def series_positions(statements: Sequence[StatementRows | tuple]) -> list[Series
             PayingPosition(position.number, tuple(sorted({pay.day for pay in position.pays})),
                            None if (weight := position.weight()) is None else int(weight),
                            tuple((level.amount, level.n, level.first) for level in position.levels),
-                           tuple(level.cadence for level in position.levels))
+                           tuple(level.cadence for level in position.levels),
+                           tuple(sorted((pay.day, pay.cents) for pay in position.pays)))
             for position in reading.positions)
         largest = max((level.amount for position in reading.positions for level in position.levels), default=None)
         found.append(SeriesPositions(key, series.entity, positions,
