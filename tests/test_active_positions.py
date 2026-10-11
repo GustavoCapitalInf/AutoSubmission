@@ -11,8 +11,8 @@ fabricated statements analysed by the real pipeline. Computed when served: nothi
 changes stay byte-identical.
 
 Fabricated data only: CONTOSO PLUMBING LLC; FABRIKAM and NORTHWIND payees; KAPITUS and ONDECK (public funders of the
-registry) as descriptors; SHOPIFY CAPITAL and SQUARE CAPITAL (public alternative positions) as descriptors; the tests'
-2054 dates; whole amounts."""
+registry) and DAILY FUNDING (a generic potential lender alias of the registry) as descriptors; SHOPIFY CAPITAL and
+SQUARE CAPITAL (public alternative positions) as descriptors; the tests' 2054 dates; whole amounts."""
 from __future__ import annotations
 
 import copy
@@ -325,3 +325,121 @@ def test_nothing_stored_moves():
     assert [march, april, may] == stored
     assert not any("active_positions" in (pkg._account(payload).get("metrics") or {}) for payload in stored)
     assert built["active_positions_by_month"]
+
+
+# ------------------------------------------------------- review round 1 (2026-10-11; fabricated rows and statements)
+def test_a_monthly_potential_lender_reads_the_same_alone_and_across_the_chain():
+    # Review round 1: one basis for A10's floor. A payment of $100 or more counts, as a one-off and as a level alike,
+    # so a potential lender paid once a month reads "+1 possible" in each statement alone and across the chain.
+    months = [(_potential([J(15)], 300), JAN), (_potential([F(16)], 300), FEB), (_potential([M(16)], 300), MAR)]
+    assert [alone(rows, period) for rows, period in months] == [(0, 1), (0, 1), (0, 1)]
+    assert counts(chain(*months)) == [(0, 1), (0, 1), (0, 1)]
+    weekly = [_rows(every(J(5), J(26)), 1000), _rows(every(F(2), F(23)), 1000), _rows(every(M(2), M(30)), 1000)]
+    beside = [(rows + stream, period) for (rows, period), stream in zip(months, weekly)]
+    assert [alone(rows, period) for rows, period in beside] == [(1, 1), (1, 1), (1, 1)]
+    assert counts(chain(*beside)) == [(1, 1), (1, 1), (1, 1)]
+    # Under the floor both ways: a $60 monthly payment is no possible position, alone or across the chain.
+    small = [(_potential([J(15)], 60), JAN), (_potential([F(16)], 60), FEB), (_potential([M(16)], 60), MAR)]
+    assert [alone(rows, period) for rows, period in small] == [(0, 0), (0, 0), (0, 0)]
+    assert counts(chain(*small)) == [(0, 0), (0, 0), (0, 0)]
+
+
+def test_the_fee_reference_is_the_regular_attempt_never_a_bounced_catch_up_or_payoff():
+    # Review round 1: a cleared regular payment is a payment even where a far larger catch-up or payoff attempt bounced.
+    weekly = (_rows(every(F(2), F(16)), 1000, returned_funder_payment_by="transaction:99")
+              + _rows([F(20)], 25000, returned_funder_payment_by="transaction:98") + _rows([F(23)], 1000))
+    assert alone(weekly, FEB) == (1, 0)
+    daily = (_rows(bdays(F(2), F(20)), 300, returned_funder_payment_by="transaction:99")
+             + _rows([F(23)], 7000, returned_funder_payment_by="transaction:98") + _rows([F(24)], 300))
+    assert alone(daily, FEB) == (1, 0)
+    # A token charge beside the bounced regular payments is still no payment.
+    token = (_rows(every(F(2), F(23)), 1000, returned_funder_payment_by="transaction:99")
+             + _rows([F(20)], 25000, returned_funder_payment_by="transaction:98") + _rows([F(24)], 35))
+    assert alone(token, FEB) == (0, 0)
+
+
+def test_a_new_stream_at_twice_another_s_amount_with_no_missed_or_bounced_payment_is_its_own_position():
+    # Review round 1: A8's catch-up follows a missed or bounced payment. A new weekly stream at exactly twice a daily
+    # stream's amount, beside a daily stream that paid every day, is a second position.
+    rows = _rows(bdays(M(2), M(31)), 500) + _rows([M(23), M(30)], 1000)
+    [series] = lpc.series_positions([lpc.StatementRows(_located(rows), *MAR, "USD")])
+    assert [position.number for position in series.positions] == [1, 2]
+    assert alone(rows, MAR) == (2, 0)
+    # After two missed days of the daily stream, the two debits at twice its amount are it catching up.
+    paid = [day for day in bdays(M(2), M(31)) if day not in (M(18), M(19))]
+    rows = _rows(paid, 500) + _rows([M(20), M(23)], 1000)
+    [series] = lpc.series_positions([lpc.StatementRows(_located(rows), *MAR, "USD")])
+    assert [position.number for position in series.positions] == [1, 2]
+    assert alone(rows, MAR) == (1, 0)
+
+
+def _two_accounts(b_march_amount, b_april_days, b_april_amount, b_may_amount):
+    """Account A pays KAPITUS 1,000 weekly from 03-04 to 04-08 and stops; account B pays KAPITUS `b_march_amount`
+    weekly in March, `b_april_amount` on `b_april_days` and `b_may_amount` weekly in May."""
+    pkg = _pkg()
+    a_march = pkg.statement_payload(pkg.debits(every(M(4), M(25)), 1000), month=3)
+    a_april = pkg.statement_payload(pkg.debits(every(pkg.A(1), pkg.A(8)), 1000), month=4, opening=pkg.closing(a_march))
+    a_may = pkg.statement_payload([], month=5, opening=pkg.closing(a_april))
+    b_march = pkg.statement_payload(pkg.debits(every(M(4), M(25)), b_march_amount), month=3, account=pkg.ACCOUNT_B)
+    b_april = pkg.statement_payload(pkg.debits(b_april_days, b_april_amount), month=4, account=pkg.ACCOUNT_B,
+                                    opening=pkg.closing(b_march))
+    b_may = pkg.statement_payload(pkg.debits(every(pkg.Y(6), pkg.Y(27)), b_may_amount), month=5,
+                                  account=pkg.ACCOUNT_B, opening=pkg.closing(b_april))
+    return pkg.package(pkg.job("a-march", a_march), pkg.job("a-april", a_april), pkg.job("a-may", a_may),
+                       pkg.job("b-march", b_march), pkg.job("b-april", b_april), pkg.job("b-may", b_may))
+
+
+def test_a_link_across_accounts_counts_once_only_where_the_stream_is_handed_over():
+    # Review round 1: account B's KAPITUS 700 position paid beside account A's 1,000 from March, so March and April
+    # each held two positions that cleared, although the payment changes read A's stop as continuing in account B.
+    pkg = _pkg()
+    built = _two_accounts(700, every(pkg.A(1), pkg.A(29)), 700, 700)
+    [stop] = [item for item in built["lender_payment_changes"] if item["kind"] == "stop"]
+    assert stop["source_document"] == "a-april.pdf" and "continues_in_other_account" in stop
+    assert _months(built) == [("2054-03", 2, 0), ("2054-04", 2, 0), ("2054-05", 1, 0)]
+    # B paid a 700 position of its own in March, then took A's 1,000 over from 04-15 (the module reads one position
+    # in B, an increase): March holds two positions, April the handed-over one once.
+    built = _two_accounts(700, every(pkg.A(15), pkg.A(29)), 1000, 1000)
+    [stop] = [item for item in built["lender_payment_changes"] if item["kind"] == "stop"]
+    assert stop["continues_in_other_account"]["first_date"] == "2054-04-15"
+    assert _rows_of(built) == {"a-march": (1, 0), "a-april": (1, 0), "a-may": (0, 0), "b-march": (1, 0),
+                               "b-april": (1, 0), "b-may": (1, 0)}
+    assert _months(built) == [("2054-03", 2, 0), ("2054-04", 1, 0), ("2054-05", 1, 0)]
+
+
+#: A potential lender of the registry (POTENTIAL_LENDER_ALIASES' generic "DAILY FUNDING", no legal entity named).
+DAILY_FUNDING = "DAILY FUNDING DES:PAYMENT ID:0001 INDN:CONTOSO PLUMBING LLC CO ID:0000000007 PPD"
+
+
+def test_a_monthly_potential_lender_in_a_package_reads_as_each_statement_alone():
+    # Review round 1: a registry potential lender paid $300 once a month beside a confirmed weekly stream reads
+    # "+1 possible" in each statement alone, and so in the package's rows and months.
+    pkg = _pkg()
+    march = pkg.statement_payload(pkg.debits([M(16)], 300, DAILY_FUNDING) + pkg.debits(every(M(4), M(25)), 1000),
+                                  month=3)
+    april = pkg.statement_payload(pkg.debits([pkg.A(16)], 300, DAILY_FUNDING)
+                                  + pkg.debits(every(pkg.A(1), pkg.A(29)), 1000), month=4, opening=pkg.closing(march))
+    may = pkg.statement_payload(pkg.debits([pkg.Y(15)], 300, DAILY_FUNDING)
+                                + pkg.debits(every(pkg.Y(6), pkg.Y(27)), 1000), month=5, opening=pkg.closing(april))
+    from webapp.app import _displayed
+
+    served = [_displayed(payload, settings={})["metrics"] for payload in (march, april, may)]
+    assert [(metrics["active_positions"], metrics["possible_positions"]) for metrics in served] == [
+        (1, 1), (1, 1), (1, 1)]
+    built = pkg.package(pkg.job("march", march), pkg.job("april", april), pkg.job("may", may))
+    assert _rows_of(built) == {"march": (1, 1), "april": (1, 1), "may": (1, 1)}
+    assert _months(built) == [("2054-03", 1, 1), ("2054-04", 1, 1), ("2054-05", 1, 1)]
+
+
+def test_a_package_member_whose_statement_holds_no_rows_list_reads_n_a_and_so_does_its_month():
+    pkg = _pkg()
+    march, april, _may = three_months()
+    rowless = copy.deepcopy(april)
+    del pkg._account(rowless)["statement"]["transactions"]
+    built = pkg.package(pkg.job("march", march), pkg.job("april", rowless))
+    assert _rows_of(built) == {"march": (1, 0), "april": (None, None)}
+    assert _months(built) == [("2054-03", 1, 0), ("2054-04", None, None)]
+    from webapp.app import _displayed
+
+    metrics = _displayed(rowless, settings={})["metrics"]
+    assert (metrics["active_positions"], metrics["possible_positions"]) == (None, None)
