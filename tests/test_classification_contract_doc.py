@@ -4405,3 +4405,34 @@ def test_r4_b01_review_round_2_is_recorded():
     assert "R4-B01's review round 2 found more" in owner_items
     doc = " ".join(test_r4_40_no_spec_line_prints_a_single_corpus_row_s_amount.__doc__.split())
     assert "the spec prints no single corpus row's amount" in doc and "§17.1, §19.1 and §20 print" not in doc
+
+
+#: A month written by name with a year from 2000 to 2029, as a statement's month ("<Month> <year>", "<Mon>. <year>",
+#: "<Month> of <year>") or a row's day ("<Mon> <d>, <year>"). The corpus's statements are dated in those years; the
+#: documents' fabricated examples are dated 2031 and 2054, and the owner's rulings are written as ISO dates.
+_CORPUS_MONTH = re.compile(
+    r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December"
+    r"|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?,? (?:\d{1,2},? )?(?:of )?20[0-2]\d\b")
+
+
+def test_r4_b04_review_round_1_no_document_names_a_corpus_statement_s_month():
+    """Audit round 4, R4-B04 review round 1 (finding 1; the handoff's and the plan's privacy rule: no real date from the
+    corpus in code, tests, docs or commit messages): no true-revenue document names a statement's month or a row's day
+    with a real year, and the R4-B04 §20 line names the statements whose re-debit was returned too by bank and count
+    only, its months removed in place."""
+    for shape in ("December 2025", "Mar 16, 2025", "Sept. 2024", "April of 2026", "Dec 3 2023", "May 2020"):
+        assert _CORPUS_MONTH.search(shape), shape
+    for control in ("March 2031", "Mar 16, 2054", "April 2054", "Decision 2026", "2026-10-02", "Jan ##, ####"):
+        assert not _CORPUS_MONTH.search(control), control
+    for path in (SPEC, HANDOFF, PLAN, CONTRACT):
+        text = path.read_text(encoding="utf-8")
+        hits = [(text.count("\n", 0, hit.start()) + 1, re.sub(r"\d", "#", hit.group()))
+                for hit in _CORPUS_MONTH.finditer(text)]
+        assert hits == [], (path.name, hits)
+    amendments = SPEC.read_text(encoding="utf-8").split("\n## 20. Implementation amendments", 1)[1]
+    line = _amendment_line(amendments, "- **Audit round 4, R4-B04 in all** (")
+    assert ("R4-76: 11 items in 8 cached accounts, 3 distinct statements holding 4 payments (TD Canada Trust, two "
+            "payments, the open I41 statement; Bank of America, one; Citibank, one; each statement uploaded two or "
+            "three times; the statements' months removed in place, R4-B04 review round 1) now read") in line
+    for gone in ("its December", "America, March", "Citibank, April"):
+        assert gone not in line, gone
