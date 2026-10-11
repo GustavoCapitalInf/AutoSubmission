@@ -2065,3 +2065,66 @@ def test_r3_15_another_numbered_company_after_the_label_stays_counted():
 def test_r3_15_a_word_named_payer_after_the_label_keeps_its_region_and_reading(text, region):
     assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))) == region
     assert _tiers([(text, 12000.0)], holder_name="NORTHWIND BAKERY LTD", bank="Scotiabank") == [REMITTANCE]
+
+
+# --- Audit round 4, batch R4-B08 (R4-92) ---
+# Audit round 4, R4-92 (standard B1/B7 and B6: the merchant's own money or a same-name affiliate is excluded, and the
+# product holds it; B5's own intent, the digit block dropped "so the holder ... holds ... read the payer"): the holder
+# test reads the payer past Navy Federal's 'DEPOSIT ACH PAID FROM' label (classifier.holder_test_region), so PAID never
+# leads the payer's name; the payer region and its key keep the label, as B5 kept it. Fabricated rows only.
+
+NAVY = "Navy Federal Credit Union"
+R4_92_PAYMENT = "DEPOSIT ACH PAID FROM CONTOSO OPERATIONS PAYMENT 000000"
+R4_92_VENDOR_PAY = "DEPOSIT ACH PAID FROM CONTOSO OPERATIONS VENDOR PAY 000000"
+R4_92_CUSTOMER = "DEPOSIT ACH PAID FROM FABRIKAM SUPPLY PAYMENT 000000"
+
+
+def _r4_92_tiers(rows, holder, zelle=True):
+    return _final_in(rows, zelle, bank=NAVY, holder_name=holder)
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize("holder", ["CONTOSO OPERATIONS LLC", "CONTOSO LLC"])
+def test_r4_92_a_one_word_holder_s_own_push_after_navy_federal_s_label_is_held(holder, zelle):
+    rows = [(R4_92_PAYMENT, 2931.40), (R4_92_PAYMENT, 5000.00), (R4_92_VENDOR_PAY, 1210.40)]
+    assert _r4_92_tiers(rows, holder, zelle) == [HOLDER_NAME] * 3
+
+
+def test_r4_92_a_brand_word_affiliate_after_the_label_is_held_as_on_another_layout():
+    navy = "DEPOSIT ACH PAID FROM CONTOSO LOGISTICS PAYROLL 000000"
+    assert _r4_92_tiers([(navy, 2931.40)], "CONTOSO TRUCKING LLC") == [HOLDER_NAME]
+    plain = "ACH CREDIT CONTOSO LOGISTICS PAYROLL"
+    assert _tiers([(plain, 2931.40)], bank="Fifth Third", holder_name="CONTOSO TRUCKING LLC") == [HOLDER_NAME]
+
+
+@pytest.mark.parametrize(("rows", "holder", "tiers"), [
+    # A customer after the label verifies on its repeat, as before.
+    ([(R4_92_CUSTOMER, 2931.40), (R4_92_CUSTOMER, 5000.00)], "CONTOSO OPERATIONS LLC", [REPEATS, REPEATS]),
+    # A two-word holder's own push, the RTP form and a transfer-worded entry are held, as before.
+    ([("DEPOSIT ACH PAID FROM CONTOSO TRUCKING PAYMENT 000000", 2931.40)], "CONTOSO TRUCKING LLC", [HOLDER_NAME]),
+    ([("DEPOSIT RTP PAID FROM CONTOSO OPERATIONS PAYMENT 000000", 2931.40)], "CONTOSO OPERATIONS LLC", [HOLDER_NAME]),
+    ([("DEPOSIT ACH PAID FROM CONTOSO OPERATIONS TRANSFER 000000", 2931.40)], "CONTOSO OPERATIONS LLC",
+     [HOLDER_NAME]),
+])
+def test_r4_92_the_controls_read_as_before(rows, holder, tiers):
+    assert _r4_92_tiers(rows, holder) == tiers
+
+
+@pytest.mark.parametrize(("text", "region", "key"), [
+    (R4_92_PAYMENT, "DEPOSIT ACH PAID FROM CONTOSO OPERATIONS PAYMENT", ("PAID", "CONTOSO", "OPERATIONS")),
+    (R4_92_VENDOR_PAY, "DEPOSIT ACH PAID FROM CONTOSO OPERATIONS VENDOR PAY",
+     ("PAID", "CONTOSO", "OPERATIONS", "VENDOR")),
+    (R4_92_CUSTOMER, "DEPOSIT ACH PAID FROM FABRIKAM SUPPLY PAYMENT", ("PAID", "FABRIKAM", "SUPPLY")),
+])
+def test_r4_92_the_payer_region_and_its_key_keep_the_label(text, region, key):
+    payer = tc.payer_region(_revenue(text))
+    assert payer == region
+    assert tc._payer_key(payer) == key
+
+
+def test_r4_92_the_holder_test_region():
+    assert tc.holder_test_region("DEPOSIT ACH PAID FROM CONTOSO OPERATIONS PAYMENT") == "CONTOSO OPERATIONS PAYMENT"
+    assert tc.holder_test_region("DEPOSIT PAID FROM CONTOSO OPERATIONS") == "CONTOSO OPERATIONS"
+    assert tc.holder_test_region("DEPOSIT ACH PAID FROM") == "DEPOSIT ACH PAID FROM"
+    assert tc.holder_test_region("ACH CREDIT CONTOSO OPERATIONS") == "ACH CREDIT CONTOSO OPERATIONS"
+    assert tr._receiver_holder_named("DEPOSIT ACH PAID FROM CONTOSO OPERATIONS", "CONTOSO OPERATIONS LLC")

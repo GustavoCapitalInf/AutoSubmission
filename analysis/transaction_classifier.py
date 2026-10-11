@@ -2132,6 +2132,10 @@ def pnc_corporate_ach(row: str) -> tuple[str, str] | None:
 #: <digits> <payer>' print a block of four or more digits before the payer's name: the payer is read past it (a
 #: numbered company's number before its province is kept).
 _DIGIT_BLOCK_BEFORE_PAYER = re.compile(r"^(?:DEPOSIT ACH PAID FROM|EXTERNAL DEPOSIT) (?P<reference>\d{4,}) (?=[A-Z])")
+#: Audit round 4, R4-92: Navy Federal's layout label before the payer ('DEPOSIT ACH PAID FROM <payer>'), which the payer
+#: region keeps (B5: the payer keys stay consistent) and the holder test reads past (holder_test_region), so PAID never
+#: leads the payer's name there. The RTP form, which the payer region already reads past, is read alike.
+_HOLDER_TEST_LAYOUT_LABEL = re.compile(r"^DEPOSIT (?:ACH |RTP )?PAID FROM (?=\S)")
 #: Audit B5 (I55): an ACH originator label printed with no value ('ORIG CO ACH CREDIT', a Chase export that keeps only
 #: the label) is no payer, and CO ENTRY DESCR starts the entry field ('CO ENTRY' is no payer either). CO alone stays a
 #: possible name word (_EMPTY_ACH_FIELD_LABELS reads label sequences only).
@@ -2152,6 +2156,13 @@ def _without_reference_before_payer(row: str) -> str:
     if found is not None and _NUMBERED_PROVINCE_START.match(row[found.start("reference"):]) is None:
         return row[: found.start("reference")] + row[found.end():]
     return row
+
+
+def holder_test_region(region: str) -> str:
+    """Audit round 4, R4-92 (B5's intent, §20: the digit block is dropped "so the holder, financing and insurer holds
+    ... read the payer"): a payer region as the holder test reads it: without Navy Federal's leading 'DEPOSIT ACH PAID
+    FROM' label (_HOLDER_TEST_LAYOUT_LABEL), which the region and its key keep. Any other region as it is."""
+    return _HOLDER_TEST_LAYOUT_LABEL.sub("", region, count=1)
 
 
 def _ach_payer_region(text: str) -> str:
@@ -2801,9 +2812,11 @@ def holder_named(
     region with its lone S, O or D glued (_possessive_glued) is read too when a glued word is a word of one of the
     holder's names, by the same arms, and names the holder only where it also shares with that name at least min(2,
     the name's test words) words (§5.2's base rule), so a middle initial ('ROBERT S SMITH') never names 'ROBERTS
-    PLUMBING LLC'. The cut-name and digit-run arms read the names as printed."""
+    PLUMBING LLC'. The cut-name and digit-run arms read the names as printed. R4-92: the region is read past Navy
+    Federal's 'DEPOSIT ACH PAID FROM' label first (holder_test_region), by every arm."""
     if not region or not account_name:
         return False
+    region = holder_test_region(region)
     printed = account_name_text(account_name)
     if not printed or _summary_grid_header(printed) or account_product(printed):
         return False

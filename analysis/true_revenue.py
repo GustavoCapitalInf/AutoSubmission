@@ -3654,11 +3654,12 @@ def _receiver_holder_named(payer: str, holder: str) -> bool:
     """§5.2 (A3-G refinement, narrowed variant): the payer is the holder that a receiver field names: the two names run
     together where one starts the other and the shorter keeps _RECEIVER_HOLDER_RUN_LETTERS letters (a receiver field
     and an originator field cut the same name at different widths). The broad holder test (a shared first word) is not
-    read against a receiver name."""
+    read against a receiver name. Audit round 4, R4-92: the payer is read past Navy Federal's 'DEPOSIT ACH PAID FROM'
+    label (classifier.holder_test_region), as the holder test reads it."""
     classifier = _classifier()
     if not payer:
         return False
-    ours = "".join(ch for ch in classifier.payer_name(payer) if ch.isalpha())
+    ours = "".join(ch for ch in classifier.payer_name(classifier.holder_test_region(payer)) if ch.isalpha())
     theirs = "".join(ch for ch in holder if ch.isalpha())
     shorter = min(len(ours), len(theirs))
     return shorter >= _RECEIVER_HOLDER_RUN_LETTERS and (ours.startswith(theirs) or theirs.startswith(ours))
