@@ -660,6 +660,38 @@ def test_r4_90_controls_a_financier_s_or_a_payout_entity_s_abbreviated_advance_k
         ("excluded_pending_review", "financing_named_payer"), VERIFIED]
 
 
+# --- audit round 4, R4-39: a held vetoed financier credit is no payout in the series (a pin) -----------------------
+
+R4_39_HOLDER = "FABRIKAM DECOR LLC"
+R4_39_CUSTOMER = ("CONTOSO TRADING LLC DES:PAYMENT ID:0009 INDN:FABRIKAM DECOR CO ID:0000000009 CCD", 90000.0)
+
+
+def _r4_39(payer, entries, zelle, amounts=(20000.0, 15000.0, 14000.0)):
+    rows = [(_bofa(payer, entry, "FABRIKAM DECOR"), amount) for entry, amount in zip(entries, amounts)]
+    return _readings(rows + [R4_39_CUSTOMER], holder=R4_39_HOLDER, zelle=zelle)
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+def test_r4_39_a_held_vetoed_financier_credit_is_no_payout_in_the_series(zelle):
+    # Q8's "Keep large one-off lump sums held until sourced" (a pin, green before and after the batch): a financier's
+    # credit a hold reads (a spelled-out ADVANCE, held financing_named_payer; a REBATE, held non_sale_purpose) is no
+    # payout, so it leaves the one-off count and the financier's two round FUNDING payouts are read without it: each
+    # a lump sum held until sourced. A counted abbreviated advance stays in the count (§17.1 Q8 (6)), so the same
+    # payouts are a series of three and counted.
+    held = ("excluded_pending_review", "financing_named_payer")
+    assert _r4_39("KOALAFI", ("FUNDING", "ADVANCE", "FUNDING"), zelle) == [LUMP, held, LUMP, VERIFIED]
+    assert _r4_39("KOALAFI", ("FUNDING", "ADVNC", "FUNDING"), zelle) == [
+        CFP, ("counted_flagged", "named_payer_purpose_refused"), CFP, VERIFIED]
+    assert _r4_39("ACIMA DIGITAL", ("FUNDING", "REBATE", "FUNDING"), zelle) == [
+        LUMP, ("excluded_pending_review", "non_sale_purpose"), LUMP, VERIFIED]
+    # Controls: three FUNDING payouts are a series (counted); the two FUNDING alone are lump sums, as beside the
+    # held ADVANCE; odd-cents FUNDING beside the ADVANCE is no whole multiple, so counted.
+    assert _r4_39("KOALAFI", ("FUNDING", "FUNDING", "FUNDING"), zelle) == [CFP, CFP, CFP, VERIFIED]
+    assert _r4_39("KOALAFI", ("FUNDING", "FUNDING"), zelle, amounts=(20000.0, 14000.0)) == [LUMP, LUMP, VERIFIED]
+    assert _r4_39("KOALAFI", ("FUNDING", "ADVANCE", "FUNDING"), zelle, amounts=(20000.37, 15000.0, 14000.41)) == [
+        CFP, held, CFP, VERIFIED]
+
+
 # --- the debits: unchanged ------------------------------------------------------------------------------------------
 
 #: 45: (debit text, classification, flagged group, canonical entity).

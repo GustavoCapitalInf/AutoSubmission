@@ -7400,7 +7400,14 @@ def _vetoed_financier(record: TransactionClassification, text: str) -> str | Non
     as before the veto, so an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads, is never a way into True
     for a large one-off sum; a payout entity's credit, which no lump-sum test reads, is not one. Audit round 4, R4-90:
     an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads on a financier's or a payout entity's credit whose
-    claim the veto lifted (on any other payer's credit it is a financing root, held as financing_named_payer)."""
+    claim the veto lifted (on any other payer's credit it is a financing root, held as financing_named_payer).
+
+    Audit round 4, R4-39 (§8.9, §8.10, §17.1 Q8 (6); documentation, no code change): a financier's credit that a hold
+    reads (a spelled-out ADVANCE, CAPITAL or CASH ADV, held financing_named_payer; a REBATE, INTEREST or DIVIDEND, held
+    non_sale_purpose) is not counted, so the post-tier loop never reads it here: it is no payout and leaves the one-off
+    count, and the financier's other payouts are read as without it (a large round one may be held as a lump sum, Q8's
+    "Keep large one-off lump sums held until sourced"); a counted abbreviated advance stays in the count. §17.1 Q8
+    (6)'s alternative would make the count the same for both advances."""
     classifier = _classifier()
     if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
         return None
