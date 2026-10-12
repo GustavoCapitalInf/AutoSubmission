@@ -151,10 +151,16 @@ served key, the stored analyses, the JSON download, `analyze.py` and `batch.py`
 are unchanged, and no version or figure moves. The dashboard and the CSV and
 Excel downloads read the `verified` and `counted_flagged` tiers as one, True
 revenue: a credit of either is tagged "True revenue" (tier `true_revenue` in
-the downloads) with no reason, the counted tier's reasons are no evidence row,
-filter or download row, and no figure, card, chart part, memo clause, column
-or section names Verified revenue, "Counted, not verified" or 5.4's
-unverified deposits apart (true revenue spec §2.2, §10, §10.8, §20).
+the downloads) with no reason, offers Mark Non-Revenue only (no Confirm
+Revenue and no multi-select box on a counted credit; the server still accepts
+its confirm) and awaits no review in the downloads (`not_required`), the
+counted tier's reasons are no evidence row, filter or download row, and no
+figure, card, chart part, memo clause, column or section names Verified
+revenue or "Counted, not verified" apart (true revenue spec §2.2, §10, §10.8,
+§20). A credit analysed before 5.6 has no tier: the page tags it "Revenue",
+"Review required" (5.4's unverified deposit) or "Non-revenue", and the
+downloads write its state in those words (`revenue`, `review_required`,
+`non_revenue`), never 5.4's names.
 
 A counted or held credit names its reason (`revenue_tier_reason`). The codes
 and their labels live in one table, `analysis/revenue.py`
@@ -177,9 +183,11 @@ sentence (`revenue_reason`, which the JSON download and the package's evidence
 sections write beside its tier) never says it is counted: a hold that re-tiers
 a counted re-statement rewrites its "counted and flagged, never verified" as
 "never verified, and held for review (<label>)", the held reason's own label
-(audit round 3, R3-B15: R3-53). Since the owner's request of 2026-10-11 only
-the JSON download writes that sentence: the package's CSV and Excel evidence
-sections carry the held code (`revenue_tier_reason`) and no rule sentence.
+(audit round 3, R3-B15: R3-53). Since the owner's request of 2026-10-11 the
+CSV and Excel downloads write a held or non-revenue credit's rule and sentence
+without the words that name a hidden tier ("held for review (<label>)", without
+"never verified"), and a credit in True revenue with neither; the JSON download
+writes the served sentence.
 
 | Reason code | Tier | Label | When (true revenue spec) |
 |---|---|---|---|
@@ -1170,8 +1178,10 @@ above, label "Legacy eligible deposits") or
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` (verified classified revenue,
 label "Verified revenue"; since the owner's request of 2026-10-11 the dashboard
 and the CSV and Excel downloads name this basis "Narrower revenue basis", "a
-part of true revenue only", mode `narrower_revenue_basis` in the downloads, its
-figures unchanged, and the True basis's definition "posted credits minus known
+part of true revenue only", mode `narrower_revenue_basis` in the downloads (a
+downloads-only code that names no tier), "the narrower revenue basis" inside a
+note's sentence, its figures unchanged, and the True basis's definition "posted
+credits minus known
 non-revenue and the deposits held for review"; the payload and the JSON
 download keep the served words). An unset, empty or unknown value reads as the
 default (`DEFAULT_WITHHOLDING_DENOMINATOR_MODE` in `analysis/revenue.py`, which
