@@ -2574,7 +2574,9 @@ def _holder_name_words_match(
     'GOLDEN YACHT SERVICE LLC', 'JB' for 'JB MARINE REPAIR LLC'); or when the R20 payer condition holds and the payer's
     own printed lead (a name-starter, a short word or an initialism included) is none, a holder word or the holder's
     abbreviation (_holder_abbreviation: 'NW' for 'NORTHWIND'): 'GOLDEN', 'ACE' or 'JB YACHT SERVICE' paying 'NORTHWIND
-    YACHT SERVICE LLC' is a customer. The reading is narrower than R20's: it can only release."""
+    YACHT SERVICE LLC' is a customer. The reading is narrower than R20's: it can only release. Audit round 4, R4-B08 late
+    review (finding 2): the payer prints a name-like noise lead by its abbreviation too (_prints_printed_lead), so the
+    holder's own 'NATL YACHT SERVICE' names 'NATIONAL YACHT SERVICE LLC'."""
     if not holder:
         return False
     payer_lead = _lead_word(payer)
@@ -2592,7 +2594,8 @@ def _holder_name_words_match(
     if len(shared) < 2:
         return False
     if holder_lead in shared and (
-        not printed or holder_printed_lead in (None, holder_lead) or holder_printed_lead in printed_payer
+        not printed or holder_printed_lead in (None, holder_lead)
+        or _prints_printed_lead(printed_payer, holder_printed_lead)
     ):
         return True
     payer_first = _first_distinctive_word(payer)
@@ -2634,7 +2637,8 @@ def _brand_word_match(
     'ROYAL YACHT SERVICE' never matches 'GOLDEN YACHT SERVICE LLC' on YACHT; the initialism arm is unchanged. Audit
     round 4, R4-30: any printed lead the holder test dropped or skipped (one that is not the holder's lead: a
     name-starter, a two-letter word, or a name-like noise word such as AMERICAN) needs the payer to print it, so 'ROYAL
-    YACHT SERVICE' never matches 'AMERICAN YACHT SERVICE LLC' either."""
+    YACHT SERVICE' never matches 'AMERICAN YACHT SERVICE LLC' either. Audit round 4, R4-B08 late review (finding 2):
+    a name-like noise lead is printed by its abbreviation too (_prints_printed_lead: 'NATL' for 'NATIONAL')."""
     if holder_lead is not None and payer_lead is not None and (
         len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
     ):
@@ -2643,8 +2647,33 @@ def _brand_word_match(
     if holder_first is None or _first_distinctive_word(payer) != holder_first:
         return False
     if printed_payer is not None and holder_printed_lead is not None and holder_printed_lead != holder_lead:
-        return holder_printed_lead in printed_payer
+        return _prints_printed_lead(printed_payer, holder_printed_lead)
     return True
+
+
+def _prints_printed_lead(printed_payer: Sequence[str], holder_printed_lead: str) -> bool:
+    """§5.2 (audit round 3, R3-B10: R3-38; audit round 4, R4-30): the payer prints the holder's printed lead, the word
+    the shared-word arm's and the brand-word arm's printed-lead requirement reads. Audit round 4, R4-B08 late review
+    (finding 2; standard B1, B7: the holder's own name is excluded): a name-like noise lead (a holder-test noise word
+    the printed lead reads: in _HOLDER_TEST_NOISE, not in _PRINTED_LEAD_SKIP) is printed by its abbreviation too, a
+    payer word reading as the lead's letters in order from its first (_lead_abbreviation, any length: 'NATL' for
+    'NATIONAL', 'AMER', 'GENL', 'PREM', 'COMML', 'SLCT'), so the holder's own push abbreviating its noise lead stays the
+    holder's; a name-starter's or a two-letter lead (R3-38's 'GOLDEN', 'JB') is printed whole, as before."""
+    if holder_printed_lead in printed_payer:
+        return True
+    if holder_printed_lead not in _HOLDER_TEST_NOISE or holder_printed_lead in _PRINTED_LEAD_SKIP:
+        return False
+    return any(_lead_abbreviation(word, holder_printed_lead) for word in printed_payer)
+
+
+def _lead_abbreviation(word: str, lead: str) -> bool:
+    """Audit round 4, R4-B08 late review (finding 2): `word` abbreviates `lead`: two letters or more, shorter than the
+    lead, its first letter the lead's and its letters the lead's in order ('NATL', 'NAT' for 'NATIONAL'; never 'NAPA',
+    'NORTHWIND'). _holder_abbreviation's lead-letters reading without its _INITIALISM_LETTERS cap."""
+    if not 2 <= len(word) < len(lead) or word[0] != lead[0]:
+        return False
+    letters = iter(lead)
+    return all(letter in letters for letter in word)
 
 
 #: Audit B9 (I13): the legal forms a holder's name run may print or leave off, read out of both names before a payer's
@@ -2816,13 +2845,23 @@ def _holder_test_names(printed: str, glued: str | None) -> list[tuple[str, str]]
 
 def _reading_names_holder(
     reading: str, names: Sequence[tuple[str, str]], *, shared_minimum: bool = False,
+    glued_words: frozenset[str] = frozenset(),
 ) -> bool:
     """§5.2's holder test's name arms (holder_named) on one payer reading (`reading`: the payer's words, the receiver
     block already read off) against each of the holder's names (_holder_test_names): a one-word holder left by a dropped
     lead word must print with it (_dropped_lead_run, I58), any other name is read by _holder_name_words_match with both
     names as printed (R3-38) and both read as a person's where both are (R20, R3-39). Audit round 4, R4-58: with
     `shared_minimum` (the glued payer reading), a name is read only when the reading shares at least min(2, its test
-    words) words with it."""
+    words) words with it.
+
+    Audit round 4, R4-B08 late review (finding 1; standard A4, A8: a customer sharing a given name is no holder): on the
+    glued reading, a name with one test word is read only when the reading's test words are that word alone, or when
+    the glued word that is the name's word (`glued_words`: the words the glue made) is followed only by a legal form, a
+    noise word or the end (_glued_one_word_reading), so a middle initial ('ROBERT S CONTOSO' read 'ROBERTS CONTOSO')
+    never names 'ROBERTS GROUP LLC' while 'JOE S LLC' names 'JOES LLC'. Minor 3 (R4-30's one-word arm): a company-form
+    name led by a name-like noise word (its dropped-lead run starts at that word) is named by a payer whose test words
+    are its one word alone, forms or noise beside it ('CONTOSO INC' for 'PREMIUM CONTOSO INC', 'ROOFING' for 'ELITE
+    ROOFING LLC'), its own name with the lead dropped; a GENERAL or two-letter lead's run keeps B9's reading."""
     payer = _holder_test_words(reading.split())
     printed_payer = [word for word in reading.split() if word.isalpha()]
     person_payer = _person_name_reading(reading)
@@ -2830,9 +2869,13 @@ def _reading_names_holder(
         holder = _holder_test_words(name.split())
         if shared_minimum and len(set(payer) & set(holder)) < min(2, len(holder)):
             continue
+        if shared_minimum and len(holder) == 1 and not _glued_one_word_reading(reading, payer, holder, glued_words):
+            continue
         run = _dropped_lead_run(name, holder)
         if run is not None:
             if _prints_run(printed_payer, run):
+                return True
+            if _noise_led_run(run) and set(payer) == set(holder):
                 return True
             continue
         holder_printed = [word for word in name.split() if word.isalpha()]
@@ -2842,6 +2885,31 @@ def _reading_names_holder(
         ):
             return True
     return False
+
+
+def _glued_one_word_reading(
+    reading: str, payer: Sequence[str], holder: Sequence[str], glued_words: frozenset[str],
+) -> bool:
+    """Audit round 4, R4-B08 late review (finding 1): the glued payer reading (`reading`, its test words `payer`) may
+    name a name with one test word (`holder`): its test words are that word alone, or the glued word that is that word
+    is followed in the reading only by a legal form, a noise word or the end (no test word after it)."""
+    if set(payer) <= set(holder):
+        return True
+    words = reading.split()
+    for index, word in enumerate(words):
+        if word in glued_words and word == holder[0]:
+            return not _holder_test_words(words[index + 1:])
+    return False
+
+
+def _noise_led_run(run: Sequence[str]) -> bool:
+    """Audit round 4, R4-B08 late review (minor 3): a dropped-lead run (_dropped_lead_run) that starts at a name-like
+    noise word (R4-30's arm), never at GENERAL (_DROPPED_NAME_LEADS) or a two-letter initialism (B9's arms)."""
+    lead = run[0]
+    return (
+        lead not in _DROPPED_NAME_LEADS and len(lead) != _DROPPED_INITIALISM_LETTERS
+        and lead in _HOLDER_TEST_NOISE and lead not in _PRINTED_LEAD_SKIP
+    )
 
 
 def holder_named(
@@ -2869,7 +2937,9 @@ def holder_named(
     region with its lone S, O or D glued (_possessive_glued) is read too when a glued word is a word of one of the
     holder's names, by the same arms, and names the holder only where it also shares with that name at least min(2,
     the name's test words) words (§5.2's base rule), so a middle initial ('ROBERT S SMITH') never names 'ROBERTS
-    PLUMBING LLC'. The cut-name and digit-run arms read the names as printed. R4-92: the region is read past Navy
+    PLUMBING LLC'; and (R4-B08 late review, finding 1) a name with one test word only where the glued reading prints no
+    other test word, or none after the glued word (_glued_one_word_reading), so 'ROBERT S CONTOSO' never names 'ROBERTS
+    GROUP LLC'. The cut-name and digit-run arms read the names as printed. R4-92: the region is read past Navy
     Federal's 'DEPOSIT ACH PAID FROM' label first (holder_test_region), by every arm."""
     if not region or not account_name:
         return False
@@ -2883,10 +2953,10 @@ def holder_named(
         return True
     glued = _possessive_glued(region)
     if glued is not None:
-        new_words = set(glued.split()) - set(region.split())
+        new_words = frozenset(glued.split()) - frozenset(region.split())
         if any(word in name.split() for name in runs for word in new_words):
             reading = _without_trailing_holder_run(payer_name(glued), runs, receiver_block)
-            if _reading_names_holder(reading, names, shared_minimum=True):
+            if _reading_names_holder(reading, names, shared_minimum=True, glued_words=new_words):
                 return True
     if _holder_cut_name(payer_name(region), printed):
         return True

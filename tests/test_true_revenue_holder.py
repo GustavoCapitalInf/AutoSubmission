@@ -2128,3 +2128,142 @@ def test_r4_92_the_holder_test_region():
     assert tc.holder_test_region("DEPOSIT ACH PAID FROM") == "DEPOSIT ACH PAID FROM"
     assert tc.holder_test_region("ACH CREDIT CONTOSO OPERATIONS") == "ACH CREDIT CONTOSO OPERATIONS"
     assert tr._receiver_holder_named("DEPOSIT ACH PAID FROM CONTOSO OPERATIONS", "CONTOSO OPERATIONS LLC")
+
+
+# --- Audit round 4, R4-B08 late review ---
+# The late review of R4-B08 (standard B1 and B7: the holder's own name is excluded, held and releasable; standard A4 and
+# A8: a customer is never the holder by a shared given name or trade word). Finding 1 (R4-58): the payer's glued reading
+# turned a customer's middle initial S into a one-test-word holder's name ('ROBERT S CONTOSO' read 'ROBERTS CONTOSO'
+# named 'ROBERTS GROUP LLC'); it now names such a name only when its test words are the name's own, or when the glued
+# word is followed only by a legal form, a noise word or the end. Finding 2 (R4-30): the printed-lead requirement
+# released the holder's own push abbreviating a name-like noise lead with four letters or more (NATL, AMER, GENL, PREM,
+# COMML, SLCT); it now reads such an abbreviation (the lead's letters in order from its first) as the lead. Minor 3
+# (R4-30's one-word arm): a company-form holder led by a name-like noise word keeps its own one word, printed alone with
+# forms or noise beside it, held. Fabricated rows only, both Zelle readings.
+
+R4_B08_LATE_ZELLE = "ZELLE PAYMENT FROM {payer} CONF 0000000000"
+
+
+def _r4_b08_late_layouts(payer, receiver):
+    """The rows a payer can print in each layout the review probed: (rows, bank, a Zelle row) by layout."""
+    return {
+        "zelle": ([(R4_B08_LATE_ZELLE.format(payer=payer), 912.40)], "Chase", True),
+        "wire": ([(FEDWIRE.replace("B/O: NORTHWIND MARINE LLC", f"B/O: {payer}").format(bnf=receiver), 6012.40)],
+                 "Chase", False),
+        "ccd": ([(CHASE_ACH.format(orig=payer, entry="PAYMENT ", receiver=receiver), amount)
+                 for amount in (1212.40, 1187.15)], "Chase", False),
+        "rbc_funds": ([(R3_B10_FUNDS_TRANSFER.format(sender=payer), 2500.0)], "Royal Bank of Canada", False),
+        "wf_designation": (_r3_b10_designations(payer), "Wells Fargo", False),
+    }
+
+
+def _r4_b08_late_in_both(rows, bank, zelle_row, expected, **kwargs):
+    """`expected` is the rules' reading of every credit in both Zelle readings: the final reading under Yes, and under No
+    the rules' own reading (rules_reading), a Zelle row's final tier being the policy's exclusion."""
+    assert _final_in(rows, True, bank=bank, **kwargs) == [expected] * len(rows)
+    assert _tiers_in(rows, False, bank=bank, **kwargs) == [expected] * len(rows)
+    final = ("non_revenue", "zelle_excluded") if zelle_row else expected
+    assert _final_in(rows, False, bank=bank, **kwargs) == [final] * len(rows)
+
+
+#: (holder, the customer printing a given name and a middle initial S).
+R4_B08_LATE_MIDDLE_INITIAL = [
+    ("ROBERTS GROUP LLC", "ROBERT S CONTOSO"),
+    ("ROBERTS LLC", "ROBERT S CONTOSO"),
+    ("ROBERTS SERVICES INC", "ROBERT S CONTOSO"),
+    ("WILLIAMS HOLDINGS LLC", "WILLIAM S CONTOSO"),
+    ("ADAMS ENTERPRISES LLC", "ADAM S CONTOSO"),
+    ("EDWARDS MANAGEMENT INC", "EDWARD S CONTOSO"),
+]
+#: The customer's reading in each layout (the reading it had before R4-58).
+R4_B08_LATE_CUSTOMER = {
+    "zelle": P2P, "wire": WIRE, "ccd": REPEATS, "rbc_funds": WIRE, "wf_designation": R3_B10_DESIGNATED,
+}
+
+
+@pytest.mark.parametrize("layout", list(R4_B08_LATE_CUSTOMER))
+@pytest.mark.parametrize(("holder", "payer"), R4_B08_LATE_MIDDLE_INITIAL)
+def test_r4_b08_late_a_middle_initial_never_names_a_one_word_holder(holder, payer, layout):
+    rows, bank, zelle_row = _r4_b08_late_layouts(payer, holder)[layout]
+    _r4_b08_late_in_both(rows, bank, zelle_row, R4_B08_LATE_CUSTOMER[layout], holder_name=holder)
+
+
+@pytest.mark.parametrize(("payer", "holder"), [
+    # The glued reading is the name's own one word, a legal form or a noise word beside it, or two shared words.
+    ("JOE S LLC", "JOES LLC"),
+    ("JOE S", "JOES LLC"),
+    ("JOE S GROUP", "JOES GROUP LLC"),
+    ("ROBERT S PLUMBING", "ROBERTS PLUMBING LLC"),
+])
+@pytest.mark.parametrize("layout", ["zelle", "ccd"])
+def test_r4_b08_late_the_one_word_glued_name_alone_stays_the_holder_s(payer, holder, layout):
+    rows, bank, zelle_row = _r4_b08_late_layouts(payer, "SAMPLE RECEIVER")[layout]
+    _r4_b08_late_in_both(rows, bank, zelle_row, HOLDER_NAME, holder_name=holder)
+
+
+#: (holder, its own name with its name-like noise lead abbreviated, four letters or more).
+R4_B08_LATE_ABBREVIATED = [
+    ("NATIONAL YACHT SERVICE LLC", "NATL YACHT SERVICE"),
+    ("AMERICAN AUTO REPAIR INC", "AMER AUTO REPAIR"),
+    ("GENERAL ROOFING SUPPLY LLC", "GENL ROOFING SUPPLY"),
+    ("PREMIUM AUTO REPAIR LLC", "PREM AUTO REPAIR"),
+    ("COMMERCIAL ROOFING SUPPLY INC", "COMML ROOFING SUPPLY"),
+    ("SELECT AUTO GLASS LLC", "SLCT AUTO GLASS"),
+]
+#: The holder's own money in each layout: held as the holder's name, or (RBC's funds transfer, Wells Fargo's own-account
+#: designation) the own-account non_revenue reading.
+R4_B08_LATE_OWN = {
+    "zelle": HOLDER_NAME, "ccd": HOLDER_NAME, "rbc_funds": R3_B10_OWN_ACCOUNT, "wf_designation": R3_B10_OWN_ACCOUNT,
+}
+
+
+@pytest.mark.parametrize("layout", list(R4_B08_LATE_OWN))
+@pytest.mark.parametrize(("holder", "own"), R4_B08_LATE_ABBREVIATED)
+def test_r4_b08_late_the_holder_s_abbreviated_noise_lead_stays_its_own(holder, own, layout):
+    rows, bank, zelle_row = _r4_b08_late_layouts(own, "SAMPLE RECEIVER")[layout]
+    _r4_b08_late_in_both(rows, bank, zelle_row, R4_B08_LATE_OWN[layout], holder_name=holder)
+
+
+@pytest.mark.parametrize(("holder", "own"), R4_B08_LATE_ABBREVIATED[0:6:2])
+def test_r4_b08_late_the_holder_s_abbreviated_e_transfer_stays_held(holder, own):
+    # The e-Transfer sender reading drops AUTO (read as no name word), so the AUTO names are not cases here.
+    rows = [(f"E-TRANSFER RECEIVED {own} CA0000000000", 812.40)]
+    _r4_b08_late_in_both(rows, "Royal Bank of Canada", False, HOLDER_NAME, holder_name=holder)
+
+
+@pytest.mark.parametrize(("payer", "holder"), [
+    # A third party whose lead is no abbreviation of the holder's noise lead stays a customer (R4-30's release).
+    ("ROYAL YACHT SERVICE", "NATIONAL YACHT SERVICE LLC"),
+    ("NORTHWIND YACHT SERVICE", "NATIONAL YACHT SERVICE LLC"),
+    ("NAPA YACHT SERVICE", "NATIONAL YACHT SERVICE LLC"),
+    ("CONTOSO AUTO REPAIR", "AMERICAN AUTO REPAIR INC"),
+    ("FABRIKAM ROOFING SUPPLY", "COMMERCIAL ROOFING SUPPLY INC"),
+])
+def test_r4_b08_late_a_third_party_s_own_lead_is_no_abbreviation(payer, holder):
+    rows, bank, zelle_row = _r4_b08_late_layouts(payer, "SAMPLE RECEIVER")["zelle"]
+    _r4_b08_late_in_both(rows, bank, zelle_row, P2P, holder_name=holder)
+
+
+@pytest.mark.parametrize(("holder", "own"), [
+    ("PREMIUM CONTOSO INC", "CONTOSO INC"),
+    ("ADVANTAGE CONTOSO LLC", "CONTOSO LLC"),
+    ("ELITE CONTOSO LLC", "CONTOSO"),
+    ("ELITE ROOFING LLC", "ROOFING"),
+])
+@pytest.mark.parametrize("field", ["holder_name", "account_name"])
+def test_r4_b08_late_a_noise_led_one_word_holder_s_own_word_alone_stays_held(holder, own, field):
+    rows, bank, zelle_row = _r4_b08_late_layouts(own, "SAMPLE RECEIVER")["ccd"]
+    _r4_b08_late_in_both(rows, bank, zelle_row, HOLDER_NAME, **{field: holder})
+
+
+def test_r4_b08_late_the_readers():
+    assert tc._lead_abbreviation("NATL", "NATIONAL") and tc._lead_abbreviation("COMML", "COMMERCIAL")
+    assert tc._lead_abbreviation("SLCT", "SELECT") and tc._lead_abbreviation("AM", "AMERICAN")
+    for word, lead in (("NATIONAL", "NATIONAL"), ("NORTHWIND", "NATIONAL"), ("ROYAL", "NATIONAL"),
+                       ("N", "NATIONAL"), ("NAPA", "NATIONAL")):
+        assert not tc._lead_abbreviation(word, lead), word
+    # Only a name-like noise lead is read through its abbreviation: a name-starter's or a word's is printed whole.
+    assert tc._prints_printed_lead(["NATL", "YACHT"], "NATIONAL")
+    assert not tc._prints_printed_lead(["GLDN", "YACHT"], "GOLDEN")
+    assert tc._prints_printed_lead(["GOLDEN", "YACHT"], "GOLDEN")
+
