@@ -1595,6 +1595,19 @@ _AP_LABEL_BEFORE_NUMBERED = re.compile(rf"^ACC(?:OUN)?TS? PAYABLE(?: PMT)? (?=\d
 #: A3: a numbered company's number before its province or territory, or Quebec's NNNN NNNN before QUEBEC (the
 #: province arm of _NUMBERED_COMPANY_REGION), kept when a wire's sender is read after its label.
 _NUMBERED_PROVINCE_START = re.compile(rf"^\d{{6,}} {_PROVINCE}\b|^\d{{4}} \d{{4}} {_QUEBEC}\b")
+#: Audit round 4, R4-14 (§5.2, T11, OQ3; Q5 of 2026-09-28; the underwriter's Q1 of 2026-10-02): the country words an
+#: account number and a province code may print beside (CANADA, CA, US, USA, UNITED STATES), which name nobody.
+_COUNTRY_WORDS = ("CANADA", "CA", "US", "USA", "UNITED", "STATES")
+#: R4-14: a numbered company a relaying bank prints after its relay label: six to ten digits, a province or territory
+#: (or its cut; the longest spelling decides, atomic as in _PROVINCE_NOT_A_NAME_START, so 'NOVA SCOTIA' is never read as
+#: NOVA and a name word), then a letters-only word that is no province, territory or country word (a legal form or a
+#: name word: '1234567 B C LTD', '1234567 ONTARIO LTD'), or Quebec's NNNN NNNN before QUEBEC. An account number and a
+#: province or country code alone ('0000000001 ON', '000000000001 ON', '0000000001 ON CANADA') name nobody.
+#: _NUMBERED_PROVINCE_START (unbounded, no name word needed) keeps its other readers.
+_RELAYED_NUMBERED_COMPANY = re.compile(
+    rf"^\d{{6,10}} (?>{_PROVINCE}\b)(?= (?!(?:{_PROVINCE}|{'|'.join(_COUNTRY_WORDS)})\b)[A-Z]+\b)"
+    rf"|^\d{{4}} \d{{4}} {_QUEBEC}\b"
+)
 _NUMBERED_COMPANY_REGION = re.compile(
     rf"^\d{{6,10}}\b(?: {_PROVINCE}\b| (?:[A-Z]+ ){{0,4}}(?:INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO"
     rf"|COMPANY)\b)"
@@ -1602,6 +1615,26 @@ _NUMBERED_COMPANY_REGION = re.compile(
     # round 5: Quebec's words only, so another province's word or code starting a name ('NORTH STAR', 'AB') is none.
     rf"|^\d{{4}} \d{{4}} {_QUEBEC}\b"
 )
+#: Audit round 4, R4-14: the words of a province or territory, its codes and the country words (province_words_only):
+#: every word of a whole province or territory name (_PROVINCE_NAMES, AND aside), every code (_PROVINCE_ABBREVIATIONS,
+#: 'B C' read as its two letters) and _COUNTRY_WORDS.
+_PROVINCE_ONLY_WORDS = frozenset(
+    {word for name in _PROVINCE_NAMES for word in name.split() if word != "AND"}
+    | {word for code in _PROVINCE_ABBREVIATIONS for word in code.split()}
+    | set(_COUNTRY_WORDS)
+)
+
+
+def province_words_only(name: str) -> bool:
+    """Audit round 4, R4-14 (§8.5 Q5; the underwriter's Q1 of 2026-10-02; §20 A3-G, a bank that names no customer is
+    held): the name, its reference tokens dropped (_is_reference_token: an account number, a postal code's digit
+    tokens), is non-empty and every word is a province's or territory's word, a code or a country word
+    (_PROVINCE_ONLY_WORDS: 'ON', 'B C', 'NOVA SCOTIA', 'ON CANADA', 'ON M5V 3Y2'): it names nobody. 'NEW YORK', 'ONTARIO
+    LTD' and 'NORTH MOUNTAIN PAVING' name someone."""
+    words = [word for word in (name or "").split() if not _is_reference_token(word)]
+    return bool(words) and all(word in _PROVINCE_ONLY_WORDS for word in words)
+
+
 #: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
 #: by the operating registry only).
 #: S2.1 re-review (fix round 3): in these four gate families every left boundary is (?<![A-Z]), never \b (the owner's
@@ -2063,7 +2096,11 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
     region's address context, A3-G re-review 2), or no relay label names a customer (a bank sending on its own
     behalf). Audit round 3, R3-B07 (R3-14): a numbered company is a named payer (§5.2), so a relayed name that starts
     as one once its account number is dropped (_NUMBERED_PROVINCE_START: '1234567 B C LTD', whose single letters and
-    legal form are no payer words) is the customer too."""
+    legal form are no payer words) is the customer too. Audit round 4, R4-14 (§8.5 Q5, the underwriter's Q1 of
+    2026-10-02; §5.2, OQ3): such a numbered company prints six to ten digits, its province and a legal form or a name
+    word (_RELAYED_NUMBERED_COMPANY), and a relayed name of only province, territory or country words once its account
+    number is dropped (province_words_only: 'ON', 'ON M5V 3Y2', 'BC', 'ONTARIO', 'ON CANADA') names no customer: that
+    label is skipped, and with no other the bank is held as a bank-originated wire."""
     if not region or not bank_by_form(region, after, city_state_end=city_state_end):
         return ""
     for label in _RELAY_ORIGINATOR_LABEL.finditer(rest):
@@ -2072,10 +2109,12 @@ def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state
         after = rest[label.end():]
         end = _RELAY_CUSTOMER_END.search(after)
         tokens = (after[: end.start()] if end is not None else after).split()
-        while tokens and _is_reference_token(tokens[0]) and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
+        while tokens and _is_reference_token(tokens[0]) and _RELAYED_NUMBERED_COMPANY.match(" ".join(tokens)) is None:
             tokens.pop(0)
         name = " ".join(tokens)
-        if _NUMBERED_PROVINCE_START.match(name) is not None or any(
+        if province_words_only(_leading_name_words(name)):
+            continue
+        if _RELAYED_NUMBERED_COMPANY.match(name) is not None or any(
             _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
             for token in _leading_name_words(name).split()
         ):

@@ -673,9 +673,10 @@ def test_ff_r1_the_name_reader_needs_two_name_words_one_a_holder_noise_word(regi
     assert tr._wire_names_nobody(region, labelled=False)
 
 
-@pytest.mark.parametrize("region", ["PREMIUM SOLUTIONS LLC", "ELITE GROUP", "THE ADVANTAGE GROUP",
-                                    "MANAGEMENT SERVICES LLC"])
+@pytest.mark.parametrize("region", ["PREMIUM SOLUTIONS LLC", "ELITE GROUP", "THE ADVANTAGE GROUP"])
 def test_ff_r1_control_two_name_words_with_a_holder_noise_word_still_name_a_company(region):
+    # Re-pinned by audit round 4, R4-52: 'MANAGEMENT SERVICES LLC' (holder-noise words only, no product word) moved to
+    # R4_52_NOISE_ONLY, which names no sender.
     assert not tr._wire_names_nobody(region, labelled=True)
     assert _tiers([(f"INCOMING WIRE ORG {region} REF 1", 12000.0)]) == [NAMED]
 
@@ -783,3 +784,188 @@ def test_r4_66_controls_debits_keep_their_readings():
              "confidence_score", "reason", "review_required"}
     fields = [field.name for field in dataclasses.fields(lane) if field.name not in moved]
     assert [getattr(lane, name) for name in fields] == [getattr(spelled, name) for name in fields]
+
+
+# Audit round 4, R4-14 (§8.5 Q5; the underwriter's Q1 of 2026-10-02 holds a wire with no sender): an account number and
+# a province or country code printed after a wire's label name nobody; a numbered company (six to ten digits and its
+# province, _NUMBERED_COMPANY_REGION) keeps its reading.
+
+@pytest.mark.parametrize("text", [
+    "WIRE TRANSFER FROM 000000000001 BC",
+    "INCOMING WIRE 000000000001 ONTARIO NOTPROVIDED",
+    "WIRE TRANSFER IN 000000000001 CANADA",
+])
+def test_r4_14_an_account_and_a_province_after_the_label_name_no_sender(text):
+    assert _tiers([(text, 2345.67)]) == [NO_SENDER]
+    assert _tiers([(text, 2345.67), (text, 3456.78)]) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize("text", [
+    "INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA 1234567 ONTARIO INC",
+    "INCOMING WIRE 1234567 ONTARIO NOTPROVIDED",
+])
+def test_r4_14_controls_a_numbered_company_after_the_label_is_counted_never_verified(text):
+    assert _tiers([(text, 2345.67), (text, 3456.78)]) == [NAMED, NAMED]
+    assert tc.numbered_company(tc.revenue_text(tc.normalize_transaction_description(text)))
+
+
+def test_r4_14_control_a_non_sale_word_keeps_its_hold():
+    assert _tiers([("WIRE TRANSFER IN 1234 INTEREST", 2345.67)]) == [("excluded_pending_review", "non_sale_purpose")]
+
+
+# Audit round 4, R4-52 (§8.5 Q5; R3-40's ruling under the underwriter's Q1 of 2026-10-02; standard B6): a generic
+# company's name needs a product word (_WIRE_COMPANY_NAME_WORDS outside _WIRE_HOLDER_NOISE_NAME_WORDS); a name made
+# only of holder-noise words, legal forms and connectors ('GROUP HOLDINGS LLC', the 'K GROUP HOLDINGS LLC' a dropped
+# initial leaves) names no sender, once and on a repeat.
+R4_52_BOFA = ("WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:20540302001234 ORIG:{orig} ID:0001 SND BK:SAMPLE BANK "
+              "ID:0002 PMT DET:SAMPLE {n}")
+R4_52_NOISE_ONLY = (
+    "WIRE TRANSFER IN 1234 GROUP HOLDINGS LLC",
+    "WIRE TRANSFER IN 1234 SERVICES GROUP INC",
+    "WIRE TRANSFER IN 1234 SOLUTIONS ENTERPRISES INC",
+    "INCOMING WIRE ORG MANAGEMENT SERVICES LLC REF 1",
+    "INCOMING WIRE ORG THE MANAGEMENT GROUP LLC REF 1",
+    "INCOMING WIRE ORG HOLDINGS AND SERVICES CORP REF 1",
+    "INCOMING WIRE ORG K GROUP HOLDINGS LLC REF 1",
+)
+
+
+@pytest.mark.parametrize("text", R4_52_NOISE_ONLY)
+def test_r4_52_a_name_of_holder_noise_words_only_names_no_sender_once_and_on_a_repeat(text):
+    assert _tiers([(text, 12000.0)]) == [NO_SENDER]
+    assert _tiers([(text, 2345.67), (text, 3456.78)]) == [NO_SENDER, NO_SENDER]
+
+
+def test_r4_52_the_bank_of_america_originator_layout_names_no_sender():
+    rows = [(R4_52_BOFA.format(orig="GROUP HOLDINGS LLC", n=n), amount) for n, amount in ((1, 2345.67), (2, 3456.78))]
+    assert _tiers(rows[:1], bank="Bank of America") == [NO_SENDER]
+    assert _tiers(rows, bank="Bank of America") == [NO_SENDER, NO_SENDER]
+
+
+def test_r4_52_a_noise_only_wire_carries_the_funding_aid():
+    from datetime import date, timedelta
+
+    debit = "ACH DEBIT SAMPLE FUNDING LLC 1234567"
+    days, day = [], date(2054, 3, 2)
+    while len(days) < 12:
+        day += timedelta(days=1)
+        if day.weekday() < 5:
+            days.append(day)
+    transactions = [Transaction(date="2054-03-02", description="WIRE TRANSFER IN 1234 GROUP HOLDINGS LLC",
+                                amount=25000.0, direction="credit")]
+    transactions += [Transaction(date=day.isoformat(), description=debit, amount=-399.0, direction="debit")
+                     for day in days]
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank="Fifth Third Bank",
+                                                        period_start="2054-03-01", period_end="2054-03-31",
+                                                        transactions=transactions))
+    wire = records[0]
+    assert (wire.revenue_tier, wire.revenue_tier_reason) == NO_SENDER
+    assert [series.amount for series in wire.revenue_funding_series] == [399.0]
+
+
+def test_r4_52_a_holder_sharing_some_noise_words_never_sees_the_noise_only_name_verified():
+    text = "INCOMING WIRE ORG GROUP HOLDINGS LLC REF 1"
+    assert _tiers([(text, 2345.67), (text, 3456.78)], holder="CONTOSO SERVICES GROUP LLC") == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize("region", ["GROUP HOLDINGS LLC", "SERVICES GROUP INC", "MANAGEMENT SERVICES LLC",
+                                    "THE MANAGEMENT GROUP LLC", "HOLDINGS AND SERVICES CORP"])
+def test_r4_52_the_name_reader_needs_a_product_word(region):
+    words = tc.payer_name(region).split()
+    assert not tr._wire_generic_company(words, True)
+    assert not tr._wire_generic_company(words, False)
+    assert tr._wire_names_nobody(region, labelled=True)
+
+
+# Audit round 4, R4-53 (§8.5 Q5; R3-40's ruling, "on every wire layout and the labelled path", under the underwriter's
+# Q1 of 2026-10-02): a labelled originator is read without its address, up to its first legal form or, for an account
+# designation, without the town, state and country after it, so a designation-only originator printing its address
+# names no sender. Holder NORTHWIND LABS INC on Chase.
+R4_53_FEDWIRE = ("FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: {orig} REF: CHASE NYC/CTR/BNF=NORTHWIND LABS INC "
+                 "SAMPLEVILLE OH 43000 US TRN: 000000{n} IMAD: 0000")
+R4_53_DESIGNATION_ADDRESSES = (
+    "BUSINESS LLC SAMPLETON OH 43000 US",
+    "GROUP LLC SAMPLETON OH 43000",
+    "SERVICES INC MAPLE GROVE MN US",
+    "OPERATING ACCOUNT MAPLE GROVE MN 55311",
+    "BUSINESS CHECKING SAMPLETON OH",
+    "GROUP HOLDINGS LLC SAMPLETON OH 43000",
+    "BUSINESS LLC DENVER CO 80202",
+)
+
+
+def _r4_53(orig, times, *, template=R4_53_FEDWIRE):
+    rows = [(template.format(orig=orig, n=n + 1), (2345.67, 3456.78)[n]) for n in range(times)]
+    return _tiers(rows, bank="Chase")
+
+
+@pytest.mark.parametrize("orig", R4_53_DESIGNATION_ADDRESSES)
+def test_r4_53_a_designation_originator_with_its_address_names_no_sender(orig):
+    assert _r4_53(orig, 1) == [NO_SENDER]
+    assert _r4_53(orig, 2) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize("template", [
+    "CHIPS CREDIT VIA: SAMPLE BANK/0001 B/O: {orig} REF: NBNF=NORTHWIND LABS INC /AC-000000000001 SSN: 000000{n}",
+    "INCOMING WIRE ORG {orig} REF {n}",
+])
+def test_r4_53_the_chips_and_org_layouts_read_the_originator_without_its_address(template):
+    assert _r4_53("BUSINESS LLC SAMPLETON OH 43000", 1, template=template) == [NO_SENDER]
+    assert _r4_53("BUSINESS LLC SAMPLETON OH 43000", 2, template=template) == [NO_SENDER, NO_SENDER]
+
+
+R4_53_BOOK = "BOOK TRANSFER CREDIT B/O: {orig} REF: /TIME/09:00 000000{n}"
+
+
+def test_r4_53_a_book_transfer_from_an_addressed_designation_is_held_with_no_sender():
+    assert _r4_53("BUSINESS LLC SAMPLETON OH 43000 US", 1, template=R4_53_BOOK) == [NO_SENDER]
+    assert _r4_53("BUSINESS LLC SAMPLETON OH 43000 US", 2, template=R4_53_BOOK) == [NO_SENDER, NO_SENDER]
+    # The recorded residual: with no address, the own book transfer keeps the strong rule's non_revenue.
+    assert _r4_53("BUSINESS LLC", 1, template=R4_53_BOOK) == [("non_revenue", "strong_non_revenue_rule")]
+
+
+@pytest.mark.parametrize(("words", "name"), [
+    (["BUSINESS", "LLC", "SAMPLETON", "OH"], ["BUSINESS", "LLC"]),
+    (["OPERATING", "ACCOUNT", "MAPLE", "GROVE", "MN"], ["OPERATING", "ACCOUNT"]),
+    (["BUSINESS", "CHECKING", "SAMPLETON", "OH", "US"], ["BUSINESS", "CHECKING"]),
+    (["BUSINESS", "LLC", "DENVER", "CO"], ["BUSINESS", "LLC"]),
+    (["OPERATING", "ACCOUNT", "DENVER", "CO"], ["OPERATING", "ACCOUNT"]),
+    (["OPERATING", "ACCOUNT", "TORONTO", "ON", "CANADA"], ["OPERATING", "ACCOUNT"]),
+    (["CONTOSO", "BUILDERS", "CO", "SAMPLETON", "OH"], ["CONTOSO", "BUILDERS", "CO"]),
+    (["THE", "CONTOSO", "SAMPLETON", "OH"], ["THE", "CONTOSO", "SAMPLETON", "OH"]),
+    (["BUSINESS", "CONTOSO", "SAMPLETON", "OH"], ["BUSINESS", "CONTOSO", "SAMPLETON", "OH"]),
+    (["OPERATING", "ACCOUNT"], ["OPERATING", "ACCOUNT"]),
+    (["TOTAL", "SERVICES", "SAMPLETON", "OH"], ["TOTAL", "SERVICES", "SAMPLETON", "OH"]),
+])
+def test_r4_53_the_labelled_originator_s_name_without_its_address(words, name):
+    assert tr._labelled_originator_name(words) == name
+
+
+@pytest.mark.parametrize(("orig", "once", "twice"), [
+    ("CONTOSO BUILDERS LLC SAMPLETON OH 43000", [NAMED], [REPEAT_WIRE, REPEAT_WIRE]),
+    ("SELECT HOLDINGS LLC SAMPLETON OH", [NAMED], [REPEAT_WIRE, REPEAT_WIRE]),
+    ("FABRIKAM MARINE SAMPLEVILLE TX", [NAMED], None),
+    ("THE CONTOSO SAMPLETON OH", [NAMED], None),
+    ("TOTAL SERVICES SAMPLETON OH", [NAMED], None),
+    ("BUSINESS LLC", [NO_SENDER], [NO_SENDER, NO_SENDER]),
+])
+def test_r4_53_controls_a_named_originator_with_its_address_keeps_its_reading(orig, once, twice):
+    assert _r4_53(orig, 1) == once
+    if twice is not None:
+        assert _r4_53(orig, 2) == twice
+
+
+@pytest.mark.parametrize("orig", ["1XCONTOSO LLC OH 43000", "1XCONTOSO LLC SAMPLETON OH 43000", "1XCONTOSO BC"])
+def test_r4_b13_a_name_word_glued_to_digits_keeps_its_sender(orig):
+    # Measured on the corpus (R4-B13): a sender whose name word is glued to digits ('<n>X<NAME> LLC <ST> <ZIP>'), which
+    # payer_name drops, still names that sender: neither the address cut (R4-53) nor the province test (R4-14) reads
+    # its region as naming nobody, so the wire keeps its base reading (counted).
+    assert _r4_53(orig, 1) == [NAMED]
+    assert tr._glued_name_word(orig) and not tr._glued_name_word("000000000001 ON M5V 3Y2")
+
+
+def test_r4_53_control_a_numbered_company_with_its_address_is_counted_never_verified():
+    assert _r4_53("1234567 ONTARIO INC TORONTO ON", 2) == [NAMED, NAMED]
+    text = tc.revenue_text(tc.normalize_transaction_description(
+        R4_53_FEDWIRE.format(orig="1234567 ONTARIO INC TORONTO ON", n=1)))
+    assert tc.numbered_company(text)

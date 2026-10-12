@@ -3281,9 +3281,17 @@ def _wire_generic_company(words: Sequence[str], labelled: bool, holder_names: Se
     no-sender shapes, which a repeat would otherwise verify), and so do product words alone ('PLATINUM SELECT',
     'ADVANTAGE PLUS LLC', 'FREE LLC': an account product's designation). So does a name whose name words are all words
     of one of the holder's names (`holder_names`, _holder_names): the holder test reads distinctive words, and these are
-    all its noise, so it cannot see the holder's own money there; the wire stays held as at R3-40."""
+    all its noise, so it cannot see the holder's own money there; the wire stays held as at R3-40.
+
+    Audit round 4, R4-52 (R3-40's ruling under the underwriter's Q1 of 2026-10-02; standard B6 holds holdco transfers):
+    and at least one of the name words is a product word (_WIRE_COMPANY_NAME_WORDS outside
+    _WIRE_HOLDER_NOISE_NAME_WORDS). A name of holder-noise words only, with legal forms and connectors ('GROUP HOLDINGS
+    LLC', which 'K GROUP HOLDINGS LLC' reads as once payer_name drops the initial; 'MANAGEMENT SERVICES LLC', 'THE
+    MANAGEMENT GROUP LLC'), names no sender, once and on a repeat."""
     names = [word for word in words if word in _WIRE_COMPANY_NAME_WORDS]
     if len(set(names)) < 2 or not set(names) & _WIRE_HOLDER_NOISE_NAME_WORDS:
+        return False
+    if not set(names) - _WIRE_HOLDER_NOISE_NAME_WORDS:
         return False
     if not all(word in _WIRE_COMPANY_NAME_WORDS or word in _WIRE_NAME_CONNECTORS or word in _WIRE_LEGAL_FORMS
                for word in words):
@@ -3299,21 +3307,48 @@ def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Seq
     sender: only labels (_wire_label_only), or only label, holder-noise, account-designation, purpose, filler or
     legal-form words (_WIRE_LABEL_ONLY_WORDS, _wire_designation_words: 'BUSINESS', 'OPERATING ACCOUNT', 'BUSINESS LLC',
     'THE AMOUNT OF'), on every wire layout and the labelled path. A numbered company keeps its reading (the
-    classifier's _NUMBERED_COMPANY_REGION or _NUMBERED_PROVINCE_START: '1234567 ONTARIO INC', '1234567 B C LTD',
-    OQ3). Audit round 3, final review (R3-FF), F4: and so does a company named only with R3-40's product and holder-noise
-    words, two or more of them and one a holder-noise word (review round 1), behind an originator label (`labelled`) or
-    ending in a legal form, unless those are the holder's own name's words (`holder_names`; _wire_generic_company)."""
+    classifier's _NUMBERED_COMPANY_REGION: '1234567 ONTARIO INC', '1234567 B C LTD', a BMO cut '1234567 ONTARIO', OQ3).
+    Audit round 3, final review (R3-FF), F4: and so does a company named only with R3-40's product and holder-noise
+    words, two or more of them and one a holder-noise word (review round 1) and one a product word (audit round 4,
+    R4-52), behind an originator label (`labelled`) or ending in a legal form, unless those are the holder's own name's
+    words (`holder_names`; _wire_generic_company).
+
+    Audit round 4, R4-14 (§20 A3-G: a bank that names no customer is held): the numbered exception reads
+    _NUMBERED_COMPANY_REGION only (six to ten digits; the unbounded _NUMBERED_PROVINCE_START is no longer read here),
+    and a region whose name is only province, territory or country words once its account number is dropped (the
+    classifier's province_words_only: 'WIRE TRANSFER FROM <account> BC', 'INCOMING WIRE <account> ONTARIO
+    NOTPROVIDED') names nobody. R4-53 (R3-40's ruling, "on every wire layout and the labelled path"): a labelled
+    region is read without the originator's address (_labelled_originator_name: 'B/O: BUSINESS LLC <town> <ST>
+    <ZIP>', 'B/O: OPERATING ACCOUNT <town> <ST>'). Neither test reads a region that prints a name word glued to digits
+    (_glued_name_word, measured on the corpus: '1XCONTOSO LLC <ST>'), which keeps its reading."""
     if _wire_label_only(region):
         return True
     classifier = _classifier()
-    if (
-        classifier._NUMBERED_COMPANY_REGION.search(region) is not None
-        or classifier._NUMBERED_PROVINCE_START.match(region) is not None
-    ):
+    if classifier._NUMBERED_COMPANY_REGION.search(region) is not None:
         return False
+    name = classifier.payer_name(region)
+    # R4-B13 (measured): a name word glued to digits ('1XCONTOSO LLC <ST>'), which payer_name drops, is the sender's
+    # own name, so neither R4-14's province test nor R4-53's address cut may leave such a region naming nobody: it
+    # keeps the reading it had before them.
+    glued = _glued_name_word(region)
+    if not glued and classifier.province_words_only(name):
+        return True
+    words = name.split()
+    if labelled and not glued:
+        words = _labelled_originator_name(words)
     nobody = _WIRE_LABEL_ONLY_WORDS | _wire_designation_words()
-    words = classifier.payer_name(region).split()
     return all(word in nobody for word in words) and not _wire_generic_company(words, labelled, holder_names)
+
+
+def _glued_name_word(region: str) -> bool:
+    """Audit round 4, R4-B13 (R4-14, R4-53; measured on the corpus): the region prints a name word glued to digits, three
+    or more letters with a digit (the classifier's _is_payer_word: '1XCONTOSO'), which payer_name drops. Such a word is
+    the sender's own name, so R4-14's province test and R4-53's address cut never read the region as naming nobody."""
+    classifier = _classifier()
+    return any(
+        any(character.isdigit() for character in token) and classifier._is_payer_word(token)
+        for token in (region or "").split()
+    )
 
 
 def _sending_bank_after_label(text: str, region: str, bank: str | None) -> bool:
@@ -4106,6 +4141,79 @@ def _wire_party(value: str) -> str:
     if len(words) >= _WIRE_PARTY_TOWN_STATE_WORDS and words[-1] in _WIRE_PARTY_STATES:
         words = words[:-2]
     return " ".join(words)
+
+
+#: Audit round 4, R4-53 (§8.5, Q5; R3-40's ruling under the underwriter's Q1 of 2026-10-02): R3-40's account-designation
+#: words a labelled originator may print as its whole name, the account words such a designation ends in, the country
+#: codes an address prints after its state or province, and the most town words before the state.
+_ORIGINATOR_DESIGNATION_WORDS = frozenset({
+    "BUSINESS", "OPERATING", "OPERATIONS", "CHECKING", "SAVINGS", "ACCOUNT", "ACCT", "DDA", "SAV", "CHK", "MONEY",
+    "MARKET", "COMMERCIAL", "ANALYZED",
+})
+_ORIGINATOR_ACCOUNT_WORDS = frozenset({"ACCOUNT", "ACCT", "CHECKING", "CHK", "SAVINGS", "SAV", "DDA", "MARKET"})
+_ORIGINATOR_COUNTRIES = (("US",), ("USA",), ("CA",), ("CAN",), ("CANADA",), ("UNITED", "STATES"))
+_ORIGINATOR_TOWN_WORDS = 3
+#: R4-53: a company form that is also a state's code (Colorado, Nevada): the address's state when it ends the name or
+#: only a country code follows it.
+_ORIGINATOR_STATE_FORMS = frozenset({"CO", "NV"})
+
+
+@cache
+def _originator_states() -> frozenset[str]:
+    """R4-53: the state codes a wire party's address prints (_WIRE_PARTY_STATES) and the classifier's two-letter
+    province and territory codes (ON, QC, NS, NB, MB, BC, PE, SK, AB, NL, YT, NT, NU)."""
+    provinces = {code for code in _classifier()._PROVINCE_ABBREVIATIONS if len(code) == 2 and code.isalpha()}
+    return frozenset(_WIRE_PARTY_STATES | provinces)
+
+
+def _without_country(words: Sequence[str]) -> int:
+    """R4-53: the number of trailing words that print a country code after a state or province code (0 when none)."""
+    states = _originator_states()
+    for country in _ORIGINATOR_COUNTRIES:
+        size = len(country)
+        if len(words) > size and tuple(words[-size:]) == country and words[-size - 1] in states:
+            return size
+    return 0
+
+
+def _labelled_originator_name(words: list[str]) -> list[str]:
+    """Audit round 4, R4-53 (§8.5, Q5; R3-40's ruling, "on every wire layout and the labelled path", under the
+    underwriter's Q1 of 2026-10-02; an originator's address is never its name): the name a labelled originator region
+    prints (its payer_name words) without the address printed after it.
+      (a) A legal-form cut: the words up to and including the first legal form (_WIRE_LEGAL_FORMS: 'BUSINESS LLC
+          SAMPLETON OH' reads 'BUSINESS LLC'). A CO or NV that ends the words, or that only a country code follows, is
+          the address's state and is skipped ('OPERATING ACCOUNT DENVER CO').
+      (b) Otherwise, a designation cut: words that end in a state or province code (_originator_states), a country code
+          optional after it, and start with a run of R3-40's account-designation words (_ORIGINATOR_DESIGNATION_WORDS)
+          ending in an account word (_ORIGINATOR_ACCOUNT_WORDS), with one to three town words between that run and the
+          state, read as that run ('OPERATING ACCOUNT MAPLE GROVE MN' reads 'OPERATING ACCOUNT'). The account word is
+          needed: a count of trailing words alone would swallow a short distinctive name as its town ('THE CONTOSO
+          SAMPLETON OH' is unchanged).
+      (c) Otherwise, the words unchanged."""
+    words = list(words)
+    for index, word in enumerate(words):
+        if word not in _WIRE_LEGAL_FORMS:
+            continue
+        rest = words[index + 1:]
+        if word in _ORIGINATOR_STATE_FORMS and (not rest or tuple(rest) in _ORIGINATOR_COUNTRIES):
+            continue
+        return words[: index + 1]
+    body = words[: len(words) - _without_country(words)]
+    if not body or body[-1] not in _originator_states():
+        return words
+    body = body[:-1]
+    run = 0
+    while run < len(body) and body[run] in _ORIGINATOR_DESIGNATION_WORDS:
+        run += 1
+    for length in range(run, 0, -1):
+        towns = body[length:]
+        if (
+            body[length - 1] in _ORIGINATOR_ACCOUNT_WORDS
+            and 1 <= len(towns) <= _ORIGINATOR_TOWN_WORDS
+            and all(town.isalpha() for town in towns)
+        ):
+            return body[:length]
+    return words
 
 
 def _wire_sent_by_its_beneficiary(text: str, region: str) -> bool:

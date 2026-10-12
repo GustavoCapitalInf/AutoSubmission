@@ -546,3 +546,61 @@ def test_r3_14_control_a_q6_payer_named_banking_counts_once_and_verifies_only_by
         ("counted_flagged", "named_payer_one_off")]
     assert _r314([(printed.format(n=1), 1234.56), (printed.format(n=2), 2345.67)], bank="Bank of America") == [
         ("verified", "named_payer_repeats")] * 2
+
+
+# Audit round 4, R4-14 (§8.5 Q5; the underwriter's Q1 of 2026-10-02 holds a wire with no sender; §5.2 and OQ3 count a
+# numbered company, never verified; §20 A3-G, a bank that names no customer is held): a relayed ORG field of only an
+# account number and a province or country code names no customer, so the relaying bank's wire is held
+# (financing_named_payer, the bank-originated arm). A relayed numbered company prints six to ten digits, its province
+# and a legal form or a name word (_RELAYED_NUMBERED_COMPANY).
+R4_14_RBC = R314_RBC.replace("ORG: 000000000001 ", "ORG: {account} ")
+
+
+@pytest.mark.parametrize("customer", [
+    "ON", "ON M5V 3Y2", "1234567 ON",
+    # The pre-existing siblings: a province or country word the payer-word test accepts.
+    "BC", "AB", "NS", "ONT", "ONTARIO", "CANADA", "ON CANADA",
+])
+def test_r4_14_a_relayed_account_and_a_province_code_name_no_customer(customer):
+    rows = [(R314_RBC.format(customer=customer, n=1), 2345.67), (R314_RBC.format(customer=customer, n=2), 3456.78)]
+    assert _r314(rows[:1]) == [R314_FINANCING]
+    assert _r314(rows) == [R314_FINANCING, R314_FINANCING]
+    assert transaction_classifier.wire_relayed_customer(_r314_text(rows[0][0])) == ""
+
+
+@pytest.mark.parametrize("account", ["00000001", "0000000001"])
+def test_r4_14_an_eight_or_ten_digit_account_and_a_province_name_no_customer(account):
+    rows = [(R4_14_RBC.format(account=account, customer="ON", n=n), amount)
+            for n, amount in ((1, 2345.67), (2, 3456.78))]
+    assert _r314(rows[:1]) == [R314_FINANCING]
+    assert _r314(rows) == [R314_FINANCING, R314_FINANCING]
+
+
+@pytest.mark.parametrize(("customer", "region"), [("1234567 B.C. LTD.", "1234567 B C LTD"),
+                                                  ("1234567 BC LTD", "1234567 BC LTD"),
+                                                  ("1234567 ONTARIO LTD", "1234567 ONTARIO LTD")])
+def test_r4_14_controls_a_relayed_numbered_company_is_counted_never_verified(customer, region):
+    rows = [(R314_RBC.format(customer=customer, n=1), 2345.67), (R314_RBC.format(customer=customer, n=2), 3456.78)]
+    assert transaction_classifier.payer_region(_r314_text(rows[0][0])) == region
+    assert _r314(rows[:1]) == [R314_NAMED]
+    assert _r314(rows) == [R314_NAMED, R314_NAMED]
+
+
+def test_r4_14_control_a_relayed_company_wiring_twice_verifies():
+    rows = [(R314_RBC.format(customer="CONTOSO TIMBER LTD", n=n), amount) for n, amount in ((1, 2345.67), (2, 3456.78))]
+    assert _r314(rows) == [R314_REPEAT, R314_REPEAT]
+
+
+def test_r4_14_the_relayed_numbered_form_and_the_province_reader():
+    tc = transaction_classifier
+    # R4-B15's R4-59 reads the unbounded after-label form, unchanged.
+    assert tc._NUMBERED_PROVINCE_START.match("000000000001 ON")
+    for name in ("1234567 B C LTD", "1234567 BC LTD", "1234567 ONTARIO LTD", "1234 5678 QUEBEC INC"):
+        assert tc._RELAYED_NUMBERED_COMPANY.match(name), name
+    for name in ("000000000001 ON", "0000000001 ON", "0000000001 ON M5V 3Y2", "0000000001 ON CANADA", "1234567 ON",
+                 "1234567 ONTARIO", "1234567 NOVA SCOTIA", "0000000001 ON CA", "0000000001 ON US"):
+        assert tc._RELAYED_NUMBERED_COMPANY.match(name) is None, name
+    for name in ("ON", "B C", "NOVA SCOTIA", "ON CANADA", "ON M5V 3Y2", "BC CA", "ONTARIO UNITED STATES"):
+        assert tc.province_words_only(name), name
+    for name in ("NEW YORK", "ONTARIO LTD", "NORTH MOUNTAIN PAVING", "", "1234567", "AND"):
+        assert not tc.province_words_only(name), name
