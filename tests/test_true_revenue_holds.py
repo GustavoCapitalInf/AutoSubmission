@@ -2571,6 +2571,92 @@ def test_r3_b14_r1_the_rent_reading_names_only_the_payer_s_name_proper():
     assert name("SAMPLE RENTALS DES:PAYMENT ID:1") == "SAMPLE RENTALS"
 
 
+# Audit round 4, R4-37 (the underwriter's Q9 (b) of 2026-10-02, "rent received counts when the business is in leasing or
+# property"; the fail-closed rule): a label-less rental vendor whose singular RENTAL follows a rental-goods noun, or
+# precedes a cut letter, a trade noun or an entry description's first word, is no rent payer, so one such credit beside
+# a tenant's LEASE never makes a bakery a lessor. A tenant's '<name> RENTAL PMT' or 'RENTAL PAYMENT' memo still reads.
+# Fabricated rows in Wells Fargo's and TD Bank's label-less layouts.
+_R4_37_WF_TAIL = " 540302 000000 NORTHWIND BAKERY LLC"
+_R4_37_LEASES = {
+    "Wells Fargo": ("CONTOSO CAFE LLC LEASE PMT 540302 000000 NORTHWIND BAKERY LLC", 4100.35),
+    "TD Bank": ("ACH DEPOSIT CONTOSO CAFE LLC LEASE PMT NORTHWIND BAKERY", 4100.35),
+}
+_R4_37_VENDORS = (
+    ("Wells Fargo", "FABRIKAM RENTAL C ACH PAYMNT" + _R4_37_WF_TAIL),
+    ("Wells Fargo", "FABRIKAM TOOL RENTAL VENDOR PMT" + _R4_37_WF_TAIL),
+    ("Wells Fargo", "TOOL RENTAL VEND VENDOR PMT" + _R4_37_WF_TAIL),
+    ("Wells Fargo", "FABRIKAM EQUIPMENT RENTAL ACH PAYMNT" + _R4_37_WF_TAIL),
+    ("Wells Fargo", "FABRIKAM RENTAL CENTER ACH PAYMNT" + _R4_37_WF_TAIL),
+    ("Wells Fargo", "FABRIKAM RENTAL ACH PAYMNT" + _R4_37_WF_TAIL),
+    ("TD Bank", "ACH DEPOSIT FABRIKAM EQUIPMENT RENTAL PAYMENT NORTHWIND BAKERY"),
+    ("TD Bank", "ACH DEPOSIT FABRIKAM RENTAL C VENDOR PMT NORTHWIND BAKERY"),
+    ("TD Bank", "ACH DEPOSIT EQUIPMENT RENTAL PAYMENT NORTHWIND BAKERY"),
+)
+
+
+def _r4_37_lease(row, bank, zelle):
+    """The native LEASE row's rules reading beside `row` (900.15), on `bank`'s layout, under the Zelle setting."""
+    records = classify_statement_transactions(Statement(account_name=HOLDER, bank=bank, transactions=[
+        Transaction(date="2055-03-02", description=_R4_37_LEASES[bank][0], amount=_R4_37_LEASES[bank][1],
+                    direction="credit"),
+        Transaction(date="2055-03-03", description=row, amount=900.15, direction="credit"),
+    ]), zelle_true_revenue=zelle)
+    return records[0]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize(("bank", "row"), _R4_37_VENDORS, ids=[row[:30] for _bank, row in _R4_37_VENDORS])
+def test_r4_37_a_label_less_rental_vendor_never_makes_a_lessor(bank, row, zelle):
+    # Today the LEASE row is counted as lessor_rent: the vendor's RENTAL made the bakery a lessor.
+    assert rules_reading(_r4_37_lease(row, bank, zelle)) == FINANCING
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize(("bank", "row"), [
+    ("Wells Fargo", "FABRIKAM DELI RENTAL PMT" + _R4_37_WF_TAIL),
+    ("Wells Fargo", "ACH CREDIT FABRIKAM DELI RENTAL PAYMENT"),
+    ("TD Bank", "ACH DEPOSIT FABRIKAM DELI RENT"),
+    ("Wells Fargo", "RENTAL INCOME FABRIKAM DELI"),
+])
+def test_r4_37_a_tenant_s_rental_memo_still_makes_a_lessor(bank, row, zelle):
+    _released(_r4_37_lease(row, bank, zelle), LESSOR)
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("row", [
+    "FABRIKAM RENTALS ACH PAYMNT" + _R4_37_WF_TAIL,
+    "FABRIKAM RENTAL CO ACH PAYMNT" + _R4_37_WF_TAIL,
+    "FABRIKAM EQUIP RNTL ACH PAYMNT" + _R4_37_WF_TAIL,
+])
+def test_r4_37_the_rental_trades_r3_b14_read_still_make_no_lessor(row, zelle):
+    assert rules_reading(_r4_37_lease(row, "Wells Fargo", zelle)) == FINANCING
+
+
+@pytest.mark.parametrize(("words", "name"), [
+    ("CONTOSO RENTAL C ACH PAYMNT", "CONTOSO RENTAL C"),
+    ("CONTOSO RENTAL CENTER ACH PAYMNT", "CONTOSO RENTAL CENTER"),
+    ("FABRIKAM EQUIPMENT RENTAL PAYMENT NORTHWIND BAKERY", "FABRIKAM EQUIPMENT RENTAL"),
+    ("FABRIKAM RENTAL ACH PAYMNT", "FABRIKAM RENTAL"),
+    ("FABRIKAM TOOL RENTAL VENDOR PMT", "FABRIKAM TOOL RENTAL"),
+    ("TOOL RENTAL VEND VENDOR PMT", "TOOL RENTAL"),
+    ("FABRIKAM RENTAL SERVICES EFT", "FABRIKAM RENTAL SERVICES"),
+    # A tenant's memo: RENTAL followed by any other word.
+    ("FABRIKAM DELI RENTAL PMT", ""),
+    ("FABRIKAM DELI RENTAL PAYMENT", ""),
+    ("FABRIKAM DELI RENTAL MARCH", ""),
+    ("FABRIKAM DELI RENTAL INCOME", ""),
+    ("FABRIKAM DELI RENTAL UNIT 4", ""),
+    # R3-B14 review round 1's readings, unchanged.
+    ("FABRIKAM TENANT RENTAL", "FABRIKAM TENANT RENTAL"),
+    ("SAMPLE AUTO RENTALS ACH PAYMNT", "SAMPLE AUTO RENTALS"),
+    ("RENTAL INCOME FABRIKAM TENANT", ""),
+    # No name word before RENTAL: no name.
+    ("RENTAL C ACH PAYMNT", ""),
+])
+def test_r4_37_the_rental_trade_name(words, name):
+    assert tr._rent_trade_noun_name(words.split()) == name
+
+
 # Audit round 3, R3-B14 review round 1 (findings 4 and 5, the Q11 (b) side): a VIN-bearing floor-plan advance whose
 # unlabelled receiver is the holder's own name printing a service word, and a wire or ACH purchase at the auction that
 # prints the beneficiary's state and country, are still dealer evidence, so a non-dealer's asset sale beside one keeps

@@ -961,6 +961,25 @@ _LENDER_NAME_WORD = re.compile(
 )
 #: Q9 (b), the lessor's third arm: rent wording on a posted credit (never a car rental's RENT A CAR).
 _RENT_RECEIVED = re.compile(r"(?<![A-Z])(?:RENT|RENTS|RENTAL|RENTALS)\b(?! ?A ?CAR\b)")
+#: Audit round 4, R4-37 (the underwriter's Q9 (b) of 2026-10-02, "rent received counts when the business is in leasing
+#: or property"; _rent_trade_noun_name): on a label-less region with no company form, a singular RENTAL ends a rental
+#: vendor's trade name, never a tenant's rent memo, after a rental-goods noun ('<NAME> EQUIPMENT RENTAL', 'TOOL
+#: RENTAL'), or before a cut letter (a 16-character name field, '<NAME> RENTAL C'), a trade noun ('<NAME> RENTAL
+#: CENTER') or the first word of an entry description ('<NAME> RENTAL ACH PAYMNT', '<NAME> RENTAL VENDOR PMT'). RENTAL
+#: followed by any other word ('<tenant> RENTAL PMT', 'RENTAL PAYMENT', 'RENTAL INCOME', 'RENTAL <month>') stays a
+#: tenant's memo, read as rent.
+_RENTAL_GOODS = frozenset({
+    "EQUIPMENT", "EQUIP", "EQPT", "TOOL", "TOOLS", "PARTY", "CAR", "AUTO", "TRUCK", "TRUCKS", "TRAILER", "TRAILERS",
+    "UNIFORM", "UNIFORMS", "LINEN", "LINENS", "CRANE", "FORKLIFT", "MACHINERY", "LIFT", "TENT", "SCAFFOLD", "SCAFFOLDING",
+    "FURNITURE", "COSTUME", "VIDEO",
+})
+_RENTAL_TRADE_AFTER = frozenset({
+    "CENTER", "CENTRE", "CTR", "SERVICE", "SERVICES", "SVC", "SVCS", "SHOP", "STORE", "SOLUTIONS", "DEPOT", "SALES",
+    "YARD",
+})
+_LABELLESS_ENTRY_LEAD = frozenset({
+    "ACH", "VENDOR", "VEND", "VNDR", "EFT", "EDI", "PAYABLES", "PAYABLE", "AP", "B2B", "CCD", "CTX", "PPD",
+})
 #: Q9 (b), the lessor's first arm: a leasing or property trade word on one of the holder's names.
 _PROPERTY_TRADE = re.compile(
     r"(?<![A-Z])(?:REALTY|REAL ESTATE|PROPERTY|PROPERTIES|PROPS|LEASING|RENTALS?|LANDLORD|APARTMENTS?|APTS|LOFTS"
@@ -5133,7 +5152,10 @@ def _rent_payer_name(text: str, region: str) -> str:
     never the name; and with no company form, the name is the region up to a trade noun, RENTALS after a name word or
     RENTAL ending the region after one (_rent_trade_noun_name: 'PAYMENT <NAME> RENTALS', '<NAME> AUTO RENTALS ACH
     PAYMNT'), or none at all, so a tenant's memo after a name with no form ('<tenant> RENT 540301 ...', 'ACH DEPOSIT
-    <tenant> RENT', '<tenant> RENTAL PAYMENT', 'RENTAL INCOME <tenant>') still reads."""
+    <tenant> RENT', '<tenant> RENTAL PAYMENT', 'RENTAL INCOME <tenant>') still reads. Audit round 4, R4-37: a singular
+    RENTAL after a rental-goods noun or before a cut letter, a trade noun or an entry description's first word is a
+    rental vendor's trade name too (_rent_trade_noun_name: '<NAME> EQUIPMENT RENTAL PAYMENT', '<NAME> RENTAL C ACH
+    PAYMNT', '<NAME> RENTAL ACH PAYMNT'), so such a vendor is no rent payer."""
     if not region:
         return ""
     if _prints_payer_name_field(text):
@@ -5149,16 +5171,31 @@ def _rent_payer_name(text: str, region: str) -> str:
 def _rent_trade_noun_name(words: Sequence[str]) -> str:
     """Audit round 3, R3-B14 review round 1 (finding 3): a label-less region with no company form, as `words`, whose
     name is a rental trade: the words up to and including RENTALS after a name word (a word of two letters or more, no
-    generic word, no rent word), or RENTAL as the last word after one; '' when it prints neither."""
+    generic word, no rent word), or RENTAL as the last word after one; '' when it prints neither.
+
+    Audit round 4, R4-37 (the underwriter's Q9 (b) of 2026-10-02; the fail-closed rule): a singular RENTAL after a name
+    word also ends a rental vendor's trade name where the layout shows one: the word before it is a rental-goods noun
+    (_RENTAL_GOODS: '<NAME> EQUIPMENT RENTAL', 'TOOL RENTAL'), or the word after it is a single letter (the 16-character
+    cut, '<NAME> RENTAL C'), a trade noun (_RENTAL_TRADE_AFTER: '<NAME> RENTAL CENTER') or an entry description's first
+    word (_LABELLESS_ENTRY_LEAD: '<NAME> RENTAL ACH PAYMNT', '<NAME> RENTAL VENDOR PMT'). The name then runs through the
+    cut letter or the trade noun when one follows, else through RENTAL. RENTAL followed by any other word stays the
+    tenant's memo ('<tenant> RENTAL PMT', '<tenant> RENTAL PAYMENT', '<tenant> RENTAL MARCH'): ''."""
     classifier = _classifier()
     for at, word in enumerate(words):
-        if word not in ("RENTAL", "RENTALS") or (word == "RENTAL" and at != len(words) - 1):
+        if word not in ("RENTAL", "RENTALS"):
             continue
+        end = at + 1
+        if word == "RENTAL" and at != len(words) - 1:
+            after = words[at + 1]
+            if (len(after) == 1 and after.isalpha()) or after in _RENTAL_TRADE_AFTER:
+                end = at + 2
+            elif not ((at and words[at - 1] in _RENTAL_GOODS) or after in _LABELLESS_ENTRY_LEAD):
+                continue
         if any(
             before.isalpha() and len(before) > 1 and before not in classifier.REVENUE_GENERIC_WORDS
             and not _rent_words(before) for before in words[:at]
         ):
-            return " ".join(words[: at + 1])
+            return " ".join(words[:end])
     return ""
 
 
