@@ -821,7 +821,25 @@ OCR_STAGE_VERSION = 5
 # changes (the plain-voice lender notes, the hero, the Monthly Statements
 # columns, the chart's colours) are computed when served, never stored. OCR
 # stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 37
+# 37 -> 38: LENDER-DETECTION Amerifi Capital ruling (owner, 2026-10-11), in
+# the commit that moves CLASSIFICATION_VERSION 5.8 -> 5.9 (required with it:
+# Re-analyze reads the analysis cache through, so with 5.9 alone it would
+# return the stage-37 entry still stamped 5.8 and the notice would survive its
+# own button). The ledger admits Amerifi Capital as a confirmed lender (alias
+# AMERIFI CAPITAL), so its debits, stored until now as `potential_lender` rows
+# (D6), become counted lender rows (state, entity, alias, match method, reason,
+# the lender, withholding and lender-count contributions, the potential ones
+# off; a row printing LOC or LINE OF CREDIT is `line_of_credit`, D9) with the
+# account's lender and withholding metrics and its detection (`known_funders`,
+# `potential_lenders`, the lender payment changes' series), and its credits,
+# held until now as unverified deposits, become financing proceeds (D1:
+# `non_revenue`, the lender-credit exclusion) with the revenue totals. No
+# cached corpus row prints the name, so no cached analysis moves; a statement
+# that prints it (the owner's, not in the local cache) does. This change rides
+# the hosting line ahead of true revenue audit round 4, whose last batch
+# therefore takes 39 (and 5.10). OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 38
 #: Bump when the HTML renderer's output changes for unchanged settings.
 REPORT_STAGE_VERSION = 1
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
