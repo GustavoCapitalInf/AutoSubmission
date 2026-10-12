@@ -1080,10 +1080,10 @@ def test_r4_38_a_qualified_or_joined_netting_phrase_is_still_a_sale(purpose, lay
 @pytest.mark.parametrize("layout", ["bofa", "chase"])
 @pytest.mark.parametrize("purpose", R4_38_BROKER_COMM)
 def test_r4_38_a_broker_s_comm_with_a_connector_is_its_revenue(purpose, layout, zelle):
-    # Today non_revenue / asset_sale_proceeds. Counted as the named sender's wire: Q5's purpose refusal does not read the
-    # COMM abbreviation (as for R3-59's 'TRUCK SALE COMM WITHHELD' before its netting reading), so the reason is the
-    # wire's own, never verified.
-    assert _r4_38(purpose, layout, zelle) == [WIRE]
+    # Today non_revenue / asset_sale_proceeds. R4-B10 review round 1 (finding 1): counted and refused as proof
+    # (named_payer_purpose_refused), as 'COMMISSION ON TRUCK SALE' is: Q5's and Q6's refusal reads a broker's COMM beside
+    # a printed sale (_broker_comm_on_sale), so the row is never verified on any layout.
+    assert _r4_38(purpose, layout, zelle) == [REFUSED]
 
 
 @pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
@@ -1117,6 +1117,108 @@ def test_r4_38_the_controls_keep_their_readings(purpose, expected, layout, zelle
 def test_r4_38_a_dealer_s_sale_stays_counted(purpose, layout, zelle):
     [tier] = _r4_38(purpose, layout, zelle, R4_38_DEALER)
     assert _counted(tier), tier
+
+
+# Audit round 4, R4-B10 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11; §8.6): a
+# broker's COMM(S) printed as a commission beside a printed sale (before it with a connector, or right after it) is
+# refused as proof, as COMMISSION is wherever it prints: counted named_payer_purpose_refused on every layout, never
+# verified by a company form, a repeat or a repeated wire. Fabricated payers FABRIKAM BROKERS LLC (ACH) and FABRIKAM
+# FREIGHT LLC (wires) at a florist and at a dealer.
+R4_B10_R1_COMM = ("COMM ON TRUCK SALE", "COMMS ON TRAILER SALE", "COMM FOR TRUCK SALE", "TRUCK SALE COMM",
+                  "TRAILER SALE COMMS")
+R4_B10_R1_AMOUNT = 2750.45
+
+
+def _r4_b10_r1(purpose: str, layout: str, zelle: bool, holder: str = FLORIST):
+    """One month of `layout`: one company-form ACH (`ach_one`), three of them (`ach_repeats`), or three Bank of America
+    wires (`wire_repeats`), each printing `purpose`."""
+    if layout == "ach_one":
+        rows = [(_q11_bofa("FABRIKAM BROKERS LLC", purpose, holder=holder, ref="1"), R4_B10_R1_AMOUNT)]
+    elif layout == "ach_repeats":
+        rows = [(_q11_bofa("FABRIKAM BROKERS LLC", purpose, holder=holder, ref=str(n)), R4_B10_R1_AMOUNT + n)
+                for n in range(1, 4)]
+    else:
+        rows = [(_q11_wire("FABRIKAM FREIGHT LLC", purpose).replace("TRN:2054030200012345", f"TRN:205403020001234{n}"),
+                 R4_B10_R1_AMOUNT + n) for n in range(1, 4)]
+    return _q11(rows, holder, zelle_true_revenue=zelle)
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["ach_one", "ach_repeats", "wire_repeats"])
+@pytest.mark.parametrize("purpose", R4_B10_R1_COMM)
+def test_r4_b10_r1_a_broker_s_comm_beside_a_sale_is_refused_as_proof_on_every_layout(purpose, layout, zelle):
+    # Today verified (named_payer_company_form, named_payer_repeats or repeat_wire_sender): the refusal read only the
+    # spelled-out COMMISSION.
+    tiers = _r4_b10_r1(purpose, layout, zelle)
+    assert tiers and set(tiers) == {REFUSED}, tiers
+    spelled = " ".join({"COMM": "COMMISSION", "COMMS": "COMMISSIONS"}.get(word, word) for word in purpose.split())
+    assert _r4_b10_r1(spelled, layout, zelle) == tiers
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["ach_one", "ach_repeats", "wire_repeats"])
+@pytest.mark.parametrize("purpose", R4_B10_R1_COMM)
+def test_r4_b10_r1_a_broker_s_comm_at_a_dealer_is_counted_never_verified(purpose, layout, zelle):
+    tiers = _r4_b10_r1(purpose, layout, zelle, R4_38_DEALER)
+    assert tiers and set(tiers) == {REFUSED}, tiers
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize(("purpose", "layout", "holder", "expected"), [
+    # A bare COMM before the sale is COMMERCIAL: a non-dealer's sale stays asset-sale proceeds, on every layout.
+    ("COMM TRUCK SALE", "ach_one", FLORIST, ASSET_SALE), ("NET COMM TRUCK SALE", "ach_repeats", FLORIST, ASSET_SALE),
+    ("COMM TRUCK SALE", "wire_repeats", FLORIST, ASSET_SALE),
+    # A netted COMM is the seller's sale (R3-59), refused as proof or not.
+    ("TRUCK SALE COMM WITHHELD", "ach_one", FLORIST, ASSET_SALE),
+    ("NET OF COMM ON TRUCK SALE", "wire_repeats", FLORIST, ASSET_SALE),
+    # A COMM printed away from any sale refuses nothing (a state's 'COMM OF' name, a commercial account).
+    ("COMM OF SAMPLE STATE", "ach_one", FLORIST, COMPANY), ("COMM ACCOUNT PMT", "ach_repeats", FLORIST, REPEATS),
+])
+def test_r4_b10_r1_the_comm_controls(purpose, layout, holder, expected, zelle):
+    tiers = _r4_b10_r1(purpose, layout, zelle, holder)
+    assert tiers and set(tiers) == {expected}, tiers
+
+
+@pytest.mark.parametrize(("words", "refused"), [
+    ("COMM ON TRUCK SALE", True), ("COMMS ON TRAILER SALE", True), ("COMM FOR TRUCK SALE", True),
+    ("COMM FROM EQUIPMENT SALE", True), ("COMM OF CAR SALE", True), ("TRUCK SALE COMM", True),
+    ("EQUIPMENT SALE COMMS", True), ("TRUCK SALE COMM WITHHELD", True), ("NET OF COMM ON TRUCK SALE", True),
+    ("COMM TRUCK SALE", False), ("NET COMM TRUCK SALE", False), ("COMMERCIAL TRUCK SALE", False),
+    ("TRUCK SALE COMMERCIAL", False), ("COMM OF SAMPLE STATE", False), ("COMM ON ACCOUNT", False),
+    ("TRUCK SALES COMM", False), ("COMMISSION ON TRUCK SALE", False), ("", False),
+])
+def test_r4_b10_r1_the_broker_comm_reading(words, refused):
+    # COMMISSION is _VERIFICATION_ONLY's own word; this reader adds only the COMM abbreviation beside a printed sale.
+    assert tr._broker_comm_on_sale(words) is refused
+
+
+# Audit round 4, R4-B10 review round 1 (finding 3): two qualifier words joined by AND or & ('LESS AUCTION AND SELLER
+# FEES') are one qualifier run, so the sale reads as its unjoined mirror does.
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", [
+    "LESS AUCTION AND SELLER FEES TRUCK SALE", "NET OF AUCTION & SELLER COMMISSION TRUCK SALE",
+    "AFTER CONSIGNMENT AND HANDLING FEES TRAILER SALE", "LESS AUCTION AND COMMISSION TRUCK SALE",
+])
+def test_r4_b10_r1_qualifiers_joined_by_and_are_a_netting_phrase(purpose, layout, zelle):
+    # Today counted (named_payer_purpose_refused): the AND between the qualifiers ended the netting phrase.
+    assert _r4_38(purpose, layout, zelle) == [ASSET_SALE]
+    [tier] = _r4_38(purpose, layout, zelle, R4_38_DEALER)
+    assert _counted(tier), tier
+
+
+@pytest.mark.parametrize(("after", "before", "vetoed"), [
+    ("", "LESS AUCTION AND SELLER FEES ", False), ("", "NET OF AUCTION & SELLER COMMISSION ", False),
+    ("", "LESS AUCTION AND COMMISSION ", False), ("", "AFTER CONSIGNMENT AND HANDLING FEES ON ", False),
+    ("", "LESS AUCTION AND SELLER COMMISSION AND FEES ", False),
+    # The broker guard reads the same run: a commission less its fees stays a broker's revenue, unless netted itself.
+    ("", "COMMISSION LESS AUCTION AND SELLER FEES ON ", True),
+    ("", "NET OF AUCTION AND SELLER COMMISSION LESS FEES ", False),
+    # A bare NET still reads only before FEES; a lone AND is no qualifier.
+    ("", "NET AUCTION AND SELLER COMMISSION ", True), ("", "LESS AND COMMISSION ", True),
+])
+def test_r4_b10_r1_the_joined_qualifier_netting_words(after, before, vetoed):
+    assert tr._asset_sale_commission(after, before) is vetoed
 
 
 @pytest.mark.parametrize(("text", "bank"), [

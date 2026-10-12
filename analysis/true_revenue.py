@@ -1093,6 +1093,12 @@ _ASSET_SALE_COMMISSION_AFTER = re.compile(r"^\s*(?:COMMISSIONS?|COMMS?|FEES?)\b"
 _ASSET_SALE_COMMISSION_BEFORE = re.compile(
     r"(?<![A-Z])(?:(?:COMMISSIONS?|FEES?)(?:\s+(?:ON|FOR|FROM|OF))?|COMMS?\s+(?:ON|FOR|FROM|OF))\s*$"
 )
+#: Audit round 4, R4-B10 review round 1 (finding 1; §8.6; R2-OW06 review round 1's broker carve-out, standard A11): a
+#: broker's COMM(S) printed as a commission beside a printed sale, before it with a connector ('COMM ON TRUCK SALE') or
+#: right after it ('TRUCK SALE COMM'), which Q5 and Q6 refuse as proof (_broker_comm_on_sale), as _VERIFICATION_ONLY
+#: refuses COMMISSION wherever it prints. A bare COMM before the sale is COMMERCIAL ('COMM TRUCK SALE').
+_ASSET_SALE_COMM_BEFORE = re.compile(r"(?<![A-Z])COMMS?\s+(?:ON|FOR|FROM|OF)\s*$")
+_ASSET_SALE_COMM_AFTER = re.compile(r"^\s*COMMS?\b")
 #: Audit round 4, R4-38 (Q11 (b), standard G6 and §4.2: deposits arrive net of fees): the netting phrases' shared
 #: fragments. Up to two qualifier words between the netting word and the fee (_NETTING_QUALIFIER: an auction's, a
 #: seller's, a consignment's, a broker's or an agent's fee, 'LESS AUCTION COMMISSION', 'NET OF SELLER FEES'); a fee
@@ -1106,6 +1112,9 @@ _NETTING_QUALIFIER = (
 _FEE_WORD = r"(?:COMMISSIONS?|COMMS?|FEES?)"
 _FEE_PAIR = rf"{_FEE_WORD}(?:\s+(?:AND|&)\s+(?:{_NETTING_QUALIFIER}\s+)?{_FEE_WORD})?"
 _DEDUCTION_WORD = r"(?:WITHHELD|DEDUCTED|DEDUCTION|DEDUCTIONS|DEDUCTING|DEDUCTS|DEDUCT|NETTED)"
+#: R4-B10 review round 1 (finding 3): the qualifier run after a netting word, up to two qualifier words, each of which
+#: an AND or & may join to what follows ('LESS AUCTION AND SELLER FEES', 'LESS AUCTION AND COMMISSION').
+_QUALIFIER_RUN = rf"(?:\s+{_NETTING_QUALIFIER}(?:\s+(?:AND|&))?){{0,2}}"
 #: Audit round 3, R3-B15 (R3-59; Q11 (b), "Don't count as true revenue and go straight to non-revenue"; standard G6 and
 #: §4.2: deposits arrive net of fees): a netting word beside that commission or fee, after it ('TRUCK SALE FEES
 #: WITHHELD', 'TRUCK SALE COMM DEDUCTED') or before it ('LESS FEES TRUCK SALE', 'NET OF COMMISSION TRUCK SALE'): what
@@ -1118,7 +1127,7 @@ _DEDUCTION_WORD = r"(?:WITHHELD|DEDUCTED|DEDUCTION|DEDUCTIONS|DEDUCTING|DEDUCTS|
 #: reads only before FEES, with no qualifier (a broker's NET COMMISSION and NET AGENT COMMISSION stay its revenue).
 _ASSET_SALE_NETTING_AFTER = re.compile(rf"^\s*{_FEE_PAIR}\s+{_DEDUCTION_WORD}\b")
 _ASSET_SALE_NETTING_BEFORE = re.compile(
-    rf"(?<![A-Z])(?:(?:NET OF|LESS|AFTER|MINUS)(?:\s+{_NETTING_QUALIFIER}){{0,2}}\s+{_FEE_PAIR}|NET\s+FEES)"
+    rf"(?<![A-Z])(?:(?:NET OF|LESS|AFTER|MINUS){_QUALIFIER_RUN}\s+{_FEE_PAIR}|NET\s+FEES)"
     r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
 )
 #: R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a seller's proceeds never
@@ -1132,11 +1141,11 @@ _ASSET_SALE_NETTING_BEFORE = re.compile(
 #: stands before the broker's commission past up to two qualifiers ('NET OF AUCTION COMMISSION LESS FEES TRUCK SALE' is
 #: the seller's sale).
 _ASSET_SALE_COMMISSION_NETTED_BEFORE = re.compile(
-    rf"(?<![A-Z])(?:COMMISSIONS?|COMMS?)\s+(?:(?:NET OF|LESS|AFTER|MINUS)(?:\s+{_NETTING_QUALIFIER}){{0,2}}"
+    rf"(?<![A-Z])(?:COMMISSIONS?|COMMS?)\s+(?:(?:NET OF|LESS|AFTER|MINUS){_QUALIFIER_RUN}"
     rf"\s+{_FEE_PAIR}|NET\s+FEES)"
     r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
 )
-_ASSET_SALE_NETTED_WORD = re.compile(rf"(?<![A-Z])(?:NET OF|LESS|AFTER|MINUS)(?:\s+{_NETTING_QUALIFIER}){{0,2}}\s*$")
+_ASSET_SALE_NETTED_WORD = re.compile(rf"(?<![A-Z])(?:NET OF|LESS|AFTER|MINUS){_QUALIFIER_RUN}\s*$")
 _ASSET_SALE_FEES_FROM_COMMISSION = re.compile(
     rf"^\s*FEES?\s+{_DEDUCTION_WORD}\s+(?:FROM|OFF)\s+(?:[A-Z]+\s+)?(?:COMMISSIONS?|COMMS?)\b"
 )
@@ -4103,14 +4112,21 @@ def _q7_veto_text(words: str, lender: tuple[str, str] | None, row: str) -> str:
     occurrence on the row), and (b) every auto-lending product (_AUTO_LOAN_PRODUCT: AUTO, VEHICLE, VEH, VHCL or CAR
     LOAN(S)) blanked when `row` (the row before its receiver fields) prints a dealer-specific funding word
     (DEALER_FUNDING_WORDS, never the payables words). Q7 reads a LOAN that is the lender's own name or the financed
-    product, never a loan to the business; every other LOAN still vetoes."""
+    product, never a loan to the business; every other LOAN still vetoes.
+
+    Audit round 4, R4-B10 review round 1 (finding 2; Q7, "Other credits from listed auto lenders stay financing"; the
+    owner's standing rule that loans never become revenue): both blanks only where `row` prints a dealer-specific
+    funding word, never on the payables words alone (PAYABLES, TRADE PAY, ACCT FUND), so a listed lender whose own
+    alias prints LOAN never reaches the payables-only arm: its payables credit keeps the reading it had (a registry
+    lender's D1 financing proceeds; USAA's auto loan, never admitted, held financing_named_payer, the strong text
+    blanking its alias)."""
+    if DEALER_FUNDING_WORDS.search(row) is None:
+        return words
     veto_text = words
     if lender is not None and _LOAN_IN_ALIAS.search(lender[1]):
         alias = r"\s+".join(re.escape(part) for part in lender[1].split())
         veto_text = re.sub(r"(?<![A-Z0-9])" + alias + r"(?![A-Z0-9])", " ", veto_text, count=1)
-    if DEALER_FUNDING_WORDS.search(row):
-        veto_text = _AUTO_LOAN_PRODUCT.sub(" ", veto_text)
-    return veto_text
+    return _AUTO_LOAN_PRODUCT.sub(" ", veto_text)
 
 
 def _dealer_funding_payer(text: str) -> str | None:
@@ -4177,10 +4193,10 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
     wording (Q4: a named transfer is never Verified), and a push rail is the registry's alone (§6.1 step 9b). The
     caller keeps steps 2 and 3 ahead of it (a direction conflict and a reversal marker win) and the $1 floor (§7.0).
 
-    Audit round 4, R4-67: the loan word and the strong rule are read without a LOAN that is the listed lender's own
-    name, or an auto-lending product's beside a dealer-specific funding word (_q7_veto_text, read by
-    _dealer_funding_region): 'USAA AUTO LOAN AUTODLRPMT' and '<BANK> VEHICLE LOAN DES:DLR PMT' from a listed lender
-    verify; any other LOAN still refuses."""
+    Audit round 4, R4-67: the loan word and the strong rule are read, on a row printing a dealer-specific funding word
+    (R4-B10 review round 1, finding 2: never on the payables words alone), without a LOAN that is the listed lender's
+    own name or an auto-lending product's (_q7_veto_text, read by _dealer_funding_region): 'USAA AUTO LOAN AUTODLRPMT'
+    and '<BANK> VEHICLE LOAN DES:DLR PMT' from a listed lender verify; any other LOAN still refuses."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Both arms need their word (a wire's entry fields may run past the row, so the VHCL PURCH entry is looked for on
@@ -4214,7 +4230,8 @@ def _dealer_funding_region(text: str, row: str, words: str) -> str | None:
     LOAN: 'USAA AUTO LOAN', 'NMAC LOANS') and, on a row printing a dealer-specific funding word, without an auto-lending
     product's LOAN (_AUTO_LOAN_PRODUCT: 'AUTO LOAN', 'VEHICLE LOAN'): the lender's name or the financed vehicle, never a
     loan to the dealer. Every other refusal reads as before, so PROCEEDS, ADVANCE, a refund word, a second LOAN and
-    'PMT INFO:LOAN <n>' still refuse."""
+    'PMT INFO:LOAN <n>' still refuse. R4-B10 review round 1 (finding 2): the alias's LOAN too only on a row printing a
+    dealer-specific funding word, so 'USAA AUTO LOAN DES:PAYABLES' and 'NMAC LOANS DES:ACCT FUNDING' are refused."""
     classifier = _classifier()
     veto_text = _q7_veto_text(words, _listed_auto_lender(words), row)
     if (
@@ -6863,6 +6880,8 @@ def credit_facts(
         refused_word=bool(
             _VERIFICATION_ONLY.search(entry) or _VERIFICATION_ONLY.search(region)
             or _ENTRY_VERIFICATION_ONLY.search(entry) or _INVESTMENT_PURPOSE.search(row)
+            # Audit round 4, R4-B10 review round 1 (finding 1): a broker's COMM beside a printed sale, as COMMISSION.
+            or _broker_comm_on_sale(entry) or _broker_comm_on_sale(region)
             # A3-H: a healthcare, insurer or health-plan payer's premium-coded entry is no claim payment (Q6c).
             or _premium_coded(text, region)
             # Audit round 2, R2-B12 (R17): a recurring disbursement entry B7's I18 spare dropped from the non-sale
@@ -7488,7 +7507,10 @@ def _asset_sale_commission(after: str, before: str) -> bool:
     SALE FEE DEDUCTIBLE' is a broker's fee); a broker's COMM(S) before the sale is read only with a connector ('COMM ON
     TRUCK SALE'; a bare COMM is COMMERCIAL, so 'COMM TRUCK SALE' stays the sale); and the broker guard's commission
     is the seller's sale only where a netting word, with up to two qualifiers, stands before it ('NET OF AUCTION
-    COMMISSION LESS FEES TRUCK SALE'). A bare NET still reads only before FEES."""
+    COMMISSION LESS FEES TRUCK SALE'). A bare NET still reads only before FEES. R4-B10 review round 1 (finding 3): an AND
+    or & may join each qualifier to what follows (_QUALIFIER_RUN: 'LESS AUCTION AND SELLER FEES TRUCK SALE', 'LESS
+    AUCTION AND COMMISSION TRUCK SALE'), in the netting phrase, the broker guard and the netted word alike; and (finding
+    1) a broker's COMM beside the sale is refused as proof (_broker_comm_on_sale), as COMMISSION is."""
     broker = _ASSET_SALE_COMMISSION_NETTED_BEFORE.search(before)
     if _ASSET_SALE_FEES_FROM_COMMISSION.search(after) or (
         broker is not None and _ASSET_SALE_NETTED_WORD.search(before[: broker.start()]) is None
@@ -7497,6 +7519,23 @@ def _asset_sale_commission(after: str, before: str) -> bool:
     return bool(
         (_ASSET_SALE_COMMISSION_AFTER.search(after) and not _ASSET_SALE_NETTING_AFTER.search(after))
         or (_ASSET_SALE_COMMISSION_BEFORE.search(before) and not _ASSET_SALE_NETTING_BEFORE.search(before))
+    )
+
+
+def _broker_comm_on_sale(words: str) -> bool:
+    """§8.6 (audit round 4, R4-B10 review round 1, finding 1; R2-OW06 review round 1's broker carve-out, standard A11;
+    the underwriter's Q11 (b) of 2026-10-02): `words` (an entry field or a payer region) print a printed sale
+    (_ASSET_SALE_PURPOSE) with a broker's COMM(S) beside it as a commission: before it with a connector
+    (_ASSET_SALE_COMM_BEFORE: 'COMM ON TRUCK SALE', 'COMMS ON TRAILER SALE') or right after it (_ASSET_SALE_COMM_AFTER:
+    'TRUCK SALE COMM'). Q5 and Q6 refuse such a row as proof (CreditFacts.refused_word), as _VERIFICATION_ONLY refuses
+    the spelled-out COMMISSION wherever it prints, so a broker's commission is counted named_payer_purpose_refused on
+    every layout, never verified by a company form, a repeat or a repeated wire; netted or not (a netted COMM is the
+    seller's sale, refused as proof too, as a netted COMMISSION is). A bare COMM before the sale is COMMERCIAL and
+    refuses nothing ('COMM TRUCK SALE'), nor does a COMM away from a printed sale ('COMM OF <state>')."""
+    return any(
+        _ASSET_SALE_COMM_BEFORE.search(words[: found.start()]) is not None
+        or _ASSET_SALE_COMM_AFTER.search(words[found.end():]) is not None
+        for found in _ASSET_SALE_PURPOSE.finditer(words)
     )
 
 

@@ -1701,14 +1701,69 @@ def test_r4_67_the_debit_and_the_unlisted_dealer_word_keep_their_readings():
         "excluded_pending_review", "financing_named_payer")
 
 
-def test_r4_67_a_payables_only_loan_alias_is_paid_for_services_and_held_beside_its_debit():
+def test_r4_67_a_payables_only_loan_alias_keeps_its_financing_reading():
+    # R4-B10 review round 1 (finding 2; Q7, "Other credits from listed auto lenders stay financing"; the owner's standing
+    # rule that loans never become revenue): Q7 reads the alias's own LOAN as no veto only on a row printing a
+    # dealer-specific funding word, so a payables-only credit of a lender whose alias prints LOAN never reaches the
+    # payables-only arm: a registry lender's stays D1's financing proceeds, alone and beside the lender's own debit.
     agency = "CONTOSO RECOVERY LLC"
     payables = ("NMAC LOANS DES:PAYABLES ID:1", 2100.35)
-    alone = _records([payables], holder=agency)[0]
-    assert _q7_reading(alone) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
-    held = _records([payables, ("NMAC LOANS DES:AUTOPAY ID:1", -455.10)], holder=agency)[0]
-    assert _q7_reading(held) == (
-        "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
+    for rows in ([payables], [payables, ("NMAC LOANS DES:AUTOPAY ID:1", -455.10)]):
+        record = _records(rows, holder=agency)[0]
+        assert (record.revenue_classification, record.revenue_match_method) == (
+            "non_revenue", "financing_proceeds_credit")
+        assert record.contributes_to_lender_credit_exclusion
+        assert not record.contributes_to_true_revenue
+
+
+def _r4_b10_r1_one(text: str, holder: str, zelle: bool):
+    return classify_statement_transactions(Statement(account_name=holder, transactions=[
+        Transaction(date="2055-03-02", description=text, amount=6250.45, direction="credit")]),
+        zelle_true_revenue=zelle)[0]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("holder", ["CONTOSO RECOVERY LLC", "NORTHWIND FLORIST LLC", DEALER])
+@pytest.mark.parametrize(("text", "registry"), [
+    ("USAA AUTO LOAN DES:PAYABLES ID:1", False), ("USAA AUTO LOAN DES:TRADE PAY ID:1", False),
+    ("USAA AUTO LOAN DES:ACCT FUNDING ID:1", False), ("USAA AUTO LOAN PAYABLES 0000000001", False),
+    ("NMAC LOANS DES:ACCT FUNDING ID:1", True), ("NMAC LOANS DES:PAYABLES ID:1", True),
+    ("TOYOTA FINANCE LOAN DES:PAYABLES ID:1", True), ("BANK OF AMERICA VEHICLE LOAN DES:TRADE PAYMENT ID:1", True),
+])
+def test_r4_b10_r1_a_loan_alias_lender_s_payables_credit_never_enters_true(text, registry, holder, zelle):
+    # Today counted_flagged / lender_paid_for_services at the agency and the florist (Q7's payables-only arm read the
+    # payables word once the alias's LOAN was blanked). The unadmitted listed lender's credits are held
+    # (financing_named_payer, §8.7: until a lender is admitted); a registry lender's stay D1's financing proceeds.
+    record = _r4_b10_r1_one(text, holder, zelle)
+    assert not record.contributes_to_true_revenue
+    assert record.revenue_match_method not in ("auto_lender_dealer_funding", "lender_paid_for_services")
+    if registry:
+        assert (record.revenue_classification, record.revenue_match_method) == (
+            "non_revenue", "financing_proceeds_credit")
+        assert record.contributes_to_lender_credit_exclusion
+    else:
+        assert _tier(record) == ("excluded_pending_review", "financing_named_payer")
+        assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("text", [
+    "USAA AUTO LOAN DES:PAYABLES DEALER PAY ID:1", "NMAC LOANS DES:ACCT FUNDING DLR PMT ID:1",
+])
+def test_r4_b10_r1_a_dealer_word_beside_the_payables_word_still_verifies(text, zelle):
+    record = _r4_b10_r1_one(text, DEALER, zelle)
+    assert (record.revenue_classification, record.revenue_match_method) == (
+        "verified_revenue", "auto_lender_dealer_funding")
+
+
+def test_r4_b10_r1_the_q7_veto_text_blanks_the_alias_only_beside_a_dealer_word():
+    lender = ("USAA Federal Savings Bank (auto loan)", "USAA AUTO LOAN")
+    assert "LOAN" not in tr._q7_veto_text("USAA AUTO LOAN AUTODLRPMT", lender, "USAA AUTO LOAN AUTODLRPMT")
+    for row in ("USAA AUTO LOAN DES PAYABLES ID 1", "USAA AUTO LOAN DES ACCT FUNDING ID 1", "USAA AUTO LOAN PAYMENT"):
+        assert tr._q7_veto_text(row, lender, row) == row
+    nmac = ("Nissan Motor Acceptance", "NMAC LOANS")
+    assert tr._q7_veto_text("NMAC LOANS DES TRADE PAY", nmac, "NMAC LOANS DES TRADE PAY") == "NMAC LOANS DES TRADE PAY"
+    assert "LOANS" not in tr._q7_veto_text("NMAC LOANS DES DLR PMT", nmac, "NMAC LOANS DES DLR PMT")
 
 
 def test_r4_67_the_q7_guard_facts_read_q7_s_own_veto_text():
@@ -1730,6 +1785,8 @@ def test_r4_67_the_q7_guard_facts_read_q7_s_own_veto_text():
         "q7_payer_ok": False, "q7_listed": False, "q7_veto_word": False}
     assert facts("USAA AUTO LOAN DES:AUTODLRPMT LOAN PROCEEDS ID:1")["q7_veto_word"] is True
     assert facts("FABRIKAM BANK AUTO LOAN PAYMENT 0000000001")["q7_veto_word"] is True
+    # R4-B10 review round 1 (finding 2): on a payables-only row the alias's own LOAN is a veto word again.
+    assert facts("USAA AUTO LOAN DES:PAYABLES ID:1") == {"q7_payer_ok": True, "q7_listed": True, "q7_veto_word": True}
 
 
 def test_r4_67_the_strong_text_blanks():

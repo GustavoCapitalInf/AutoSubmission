@@ -3903,6 +3903,33 @@ def test_r4_67_a_strong_row_read_on_an_auto_lender_s_loan_name_is_verified_or_he
     assert dict(census.NARROWINGS)["16_auto_lender_loan_name"] is False
 
 
+#: Audit round 4, R4-B10 review round 1 (finding 2): Q7 reads a listed lender's own LOAN as no veto only beside a
+#: dealer-specific funding word, so narrowing 7's strong branch needs that word; a payables-only row of a LOAN-alias
+#: lender is never declared into True (counted from the strong rule or from D1 fails G1).
+R4_B10_R1_PAYABLES_ROW = census.mask("USAA AUTO LOAN DES PAYABLES ID 1")
+
+
+@pytest.mark.parametrize(("base_method", "text", "state", "method", "tier", "reason", "narrowing"), [
+    ("strong_non_revenue_rule", R4_B10_R1_PAYABLES_ROW, "verified_revenue", "auto_lender_dealer_funding", "verified",
+     None, "outside_the_narrowings"),
+    ("strong_non_revenue_rule", R4_B10_R1_PAYABLES_ROW, "unverified_deposit", "lender_paid_for_services",
+     "counted_flagged", "lender_paid_for_services", "outside_the_narrowings"),
+    ("strong_non_revenue_rule", R4_B10_R1_PAYABLES_ROW, "unverified_deposit", "unidentified_posted_credit",
+     "excluded_pending_review", "financing_named_payer", "16_auto_lender_loan_name"),
+    ("financing_proceeds_credit", census.mask("NMAC LOANS DES ACCT FUNDING ID 1"), "unverified_deposit",
+     "lender_paid_for_services", "counted_flagged", "lender_paid_for_services", "outside_the_narrowings"),
+])
+def test_r4_b10_r1_a_loan_alias_lender_s_payables_row_is_never_declared_into_true(base_method, text, state, method,
+                                                                                    tier, reason, narrowing):
+    base_credit = _credit(0, 625045, "non_revenue", base_method, tier="non_revenue", text=text)
+    after_credit = _credit(0, 625045, state, method, tier=tier, reason=reason, text=text)
+    assert census._narrowing(base_credit, after_credit) == (
+        None if narrowing == "outside_the_narrowings" else narrowing)
+    run = _run(_snap("5.6", {"a": _account([base_credit])}), _snap("5.6", {"a": _account([after_credit])}))
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is (narrowing == "outside_the_narrowings")
+
+
 def test_r4_67_the_census_copies_match_the_code():
     from analysis import true_revenue
     from analysis.classification_registry import DEALER_FUNDING_PAYERS

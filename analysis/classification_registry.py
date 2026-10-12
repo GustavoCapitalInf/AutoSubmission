@@ -2025,7 +2025,8 @@ HEALTHCARE_PAYER_ALIASES: dict[str, tuple[str, ...]] = {
 #: (docs/lender-registry-evidence.md, "USAA Federal Savings Bank (auto loan)", rejected; decision 2026-09-25, owner
 #: delegated to the orchestrator: every row is a used-car dealer's receipt from USAA for a member's purchase, "dealer
 #: receipts stay revenue"; public evidence there: usaa.com's auto loans). Its alias prints LOAN, which Q7 reads as the
-#: lender's own name, never a veto (true_revenue._q7_veto_text), and which the strong rule reads blanked
+#: lender's own name, never a veto, on a row printing a dealer-specific funding word (true_revenue._q7_veto_text; R4-B10
+#: review round 1, finding 2: never on the payables words alone), and which the strong rule reads blanked
 #: (transaction_classifier._strong_text). Credit-side only: Q7 and pass 7's hold read this table, no debit reader does
 #: (a debit printing USAA AUTO LOAN still reaches vehicle financing through spec §4.3 step 8's AUTO LOAN wording). Never
 #: the bank's other entities (USAA FSB, USAA FSB CC, USAA COM PAYMNT), whose aliases stay where they are; never admitted

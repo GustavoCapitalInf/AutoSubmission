@@ -2150,8 +2150,10 @@ def _narrowing(base: dict, after: dict) -> str | None:
     # lender's own name or an auto-lending product beside a dealer word (_auto_lender_loan_name) leaves the strong rule
     # verified by Q7 (narrowing 7) or held financing_named_payer (never into True); any other later reading of it is no
     # declared narrowing (G1 fails it).
+    # R4-B10 review round 1 (finding 2): Q7 reads the alias's LOAN as no veto only beside a dealer-specific funding word,
+    # so the verified case needs that word on the row too (a payables-only row verified from the strong rule fails G1).
     if base_method == "strong_non_revenue_rule" and _auto_lender_loan_name(text):
-        if after["method"] == "auto_lender_dealer_funding":
+        if after["method"] == "auto_lender_dealer_funding" and _DEALER_FUNDING_WORDS.search(text) is not None:
             return "7_q7_dealer_funding"
         if (after.get("tier"), after.get("reason")) == ("excluded_pending_review", "financing_named_payer"):
             return "16_auto_lender_loan_name"
