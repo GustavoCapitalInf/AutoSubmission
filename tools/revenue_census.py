@@ -186,6 +186,9 @@ COUNTED_ONLY_NARROWINGS = frozenset({
 #: insurer's credit it releases as the business's work (analysis/true_revenue.py INSURER_FOR_WORK_METHOD, copied: the
 #: census reads other checkouts).
 INSURER_FOR_WORK_METHOD = "insurer_paid_for_services"
+#: Audit round 4, R4-B09 review round 1 (finding 5): the strong wording narrowing 15 releases a strong row on (the
+#: classifier's _STRONG_INSURANCE_WORDING, copied: the census reads other checkouts), read on the census's masked text.
+_STRONG_INSURANCE_WORDING = re.compile(r"\bINSURANCE (?:CLAIM|PAYMENT)\b")
 #: Audit B3 (I11): the method the true-revenue pass gives a released processor card payout
 #: (analysis/true_revenue.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
 PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
@@ -2090,8 +2093,13 @@ def _narrowing(base: dict, after: dict) -> str | None:
             return "2_hcclaimpmt_insurer"
         return "3_insurer_customer_payment"
     # Audit round 4, R4-69 (the underwriter's Q2; §6.3 narrowing 13): the pass's release of a credit the strong rule
-    # excluded on its INSURANCE CLAIM or INSURANCE PAYMENT wording alone, counted only (COUNTED_ONLY_NARROWINGS).
-    if base_method == "strong_non_revenue_rule" and after["method"] == INSURER_FOR_WORK_METHOD:
+    # excluded on its INSURANCE CLAIM or INSURANCE PAYMENT wording alone, counted only (COUNTED_ONLY_NARROWINGS). R4-B09
+    # review round 1 (finding 5): only on a row that prints that wording, so a release that lifted any other strong row
+    # is no declared narrowing (G1 fails it).
+    if (
+        base_method == "strong_non_revenue_rule" and after["method"] == INSURER_FOR_WORK_METHOD
+        and _STRONG_INSURANCE_WORDING.search(text)
+    ):
         return "15_insurer_paid_for_services"
     # Review I1: a book or funds transfer leaves only on a printed third-party originator (T19, §7.11).
     if (

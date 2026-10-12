@@ -3850,6 +3850,24 @@ def test_r4_69_narrowing_15_releases_a_strong_rule_s_insurance_wording(state, me
     assert ("G1" in run["guards"]) is fails
 
 
+@pytest.mark.parametrize("text", [
+    # Audit round 4, R4-B09 review round 1 (finding 5): a strong row that prints no INSURANCE CLAIM or INSURANCE
+    # PAYMENT wording (another strong pattern, INSURANCE PROCEEDS, the words apart) is no narrowing 15 however the
+    # release reads it later: the census fails it (G1) instead of declaring it.
+    census.mask("FABRIKAM LOAN PROCEEDS 540302 0000000001 CONTOSO AUTO REPAIR LLC"),
+    census.mask("FABRIKAM INSURANCE PROCEEDS 540302 0000000001 CONTOSO AUTO REPAIR LLC"),
+    census.mask("FABRIKAM INSURANCE CO CLAIM PAYMENT 540302 0000000001 CONTOSO AUTO REPAIR LLC"),
+])
+def test_r4_b09_r1_narrowing_15_needs_the_strong_insurance_wording(text):
+    base_credit = _credit(0, 300000, "non_revenue", "strong_non_revenue_rule", tier="non_revenue", text=text)
+    after_credit = _credit(0, 300000, "unverified_deposit", "insurer_paid_for_services", tier="counted_flagged",
+                           reason="insurer_paid_for_services", text=text)
+    assert census._narrowing(base_credit, after_credit) is None
+    run = _run(_snap("5.6", {"a": _account([base_credit])}), _snap("5.6", {"a": _account([after_credit])}))
+    assert list(run["left_non_revenue"]) == ["outside_the_narrowings"]
+    assert "G1" in run["guards"]
+
+
 @pytest.mark.parametrize(("later", "cause"), [
     # A Q5 or Q6 repeat now released as an insurer paid for work, counted.
     (_after56("insurer_paid_for_services", INSURER_ROW, tier="counted_flagged", reason="insurer_paid_for_services"),
