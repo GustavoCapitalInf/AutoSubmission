@@ -246,6 +246,10 @@ STALE_SENTENCES = (
     # counting is in the code.
     (SPEC, "except through exactly these twelve named narrowings"),
     (SPEC, "its counting waits for its batch"),
+    # Audit round 4, R4-67 (R4-B10): §6.3 has fourteen narrowings, and §8.7 records the corpus's dealer-worded credit
+    # whose lender's own name printed LOAN.
+    (SPEC, "except through exactly these thirteen named narrowings"),
+    (SPEC, "The corpus holds no dealer-worded credit from an unlisted, non-credit-union payer"),
     # Owner ruling 2026-10-02, R2-OW09 (the underwriter's Q9): the rows T4 holds are released, and §8.1's residuals no
     # longer wait for a T4 ruling.
     (SPEC, "The release of the rows T4 holds waits for its own batch"),
@@ -551,8 +555,9 @@ def test_the_spec_closes_i17_with_the_lease_to_own_ruling():
     assert "| `excluded_pending_review` | `customer_financing_lump_sum` |" in codes
     assert "| `counted_flagged` | `customer_financing_payout` |" in codes
     narrowings = _section(text, "\n### 6.3 ", "\n## 7. ")
-    # R2-OW08 (the underwriter's Q2): narrowing 13 since; the count reads thirteen.
-    assert "except through exactly these thirteen named narrowings" in narrowings
+    # R2-OW08 (the underwriter's Q2): narrowing 13 since; audit round 4, R4-67 (R4-B10): narrowing 14 since, so the
+    # count reads fourteen.
+    assert "except through exactly these fourteen named narrowings" in narrowings
     assert "\n12. a lease-to-own financier's merchant funding printed with the strong LOAN word" in narrowings
     assert "`CUSTOMER_FINANCING_PAYERS`" in _section(text, "\n### 8.9 ", "\n### 8.10 ")
     tiering = _section(text, "\n### 8.10 ", "\n## 9. ")
@@ -4542,3 +4547,86 @@ def test_r4_b09_review_round_1_is_recorded():
     for placeholder in ("R4B09R1" + "CODE", "MEASURE" + "_R4B09R1"):
         assert placeholder not in text, placeholder
         assert placeholder not in CONTRACT.read_text(encoding="utf-8"), placeholder
+
+
+def test_r4_b10_the_code_s_docstrings_name_the_readings():
+    """Audit round 4, R4-B10 (R4-67, R4-36, R4-37, R4-62, R4-38): _dealer_funding_region names R4-67's veto text,
+    _card_purchase_debit R4-36's card wording, _rent_trade_noun_name R4-37's rental trade, _rent_memo_payer R4-62's
+    person-named memo and _asset_sale_commission R4-38's netting phrases; every round-3 and R4-B09 phrase kept."""
+    region = re.sub(r"\s+", " ", true_revenue._dealer_funding_region.__doc__)
+    assert "R4-67" in region and "_q7_veto_text" in region
+    card = re.sub(r"\s+", " ", true_revenue._card_purchase_debit.__doc__)
+    for words in ("R4-36", "_CARD_WORDING_DEBIT", "Review round 1 (finding 5)"):
+        assert words in card, words
+    trade = re.sub(r"\s+", " ", true_revenue._rent_trade_noun_name.__doc__)
+    for words in ("R4-37", "_RENTAL_GOODS", "_LABELLESS_ENTRY_LEAD", "R3-B14 review round 1 (finding 3)"):
+        assert words in trade, words
+    memo = re.sub(r"\s+", " ", true_revenue._rent_memo_payer.__doc__)
+    assert "R4-62" in memo and "_p2p_person_name" in memo
+    netting = re.sub(r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    for words in ("R4-38", "_NETTING_QUALIFIER", "_FEE_PAIR", "_DEDUCTION_WORD", "never DEDUCTIBLE",
+                  "Audit round 3, R3-B15 (R3-59;", "a bare NET before FEES only, R3-B15 review round 1, finding 1",
+                  "R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out"):
+        assert words in netting, words
+    strong = re.sub(r"\s+", " ", transaction_classifier._strong_text.__doc__)
+    for words in ("byte-identical", "R4-67", "DEALER_FUNDING_PAYERS", "_AUTO_LOAN_PRODUCT"):
+        assert words in strong, words
+    assert "R4-67" in re.sub(r"\s+", " ", true_revenue._q7_veto_text.__doc__)
+
+
+#: Audit round 4, R4-B10: the code commit of each issue (R4-67, R4-36, R4-37, R4-62, R4-38), and R4-67's census fact.
+R4_B10_CODE_COMMITS = ("16955fe", "91d3e6e", "32aaa07", "251207e", "1e9c215")
+R4_B10_GUARD_FACT_COMMIT = "31ec723"
+
+
+def test_r4_b10_is_recorded():
+    """Audit round 4, R4-B10: §6.1's step 4 and strong text, §6.3's fourteenth narrowing, §8.1's lessor and asset-sale
+    purpose, §8.7's listed lenders, veto, card wording and corpus sentence, §9.3, §17.1's Q9 default (6), §20's five
+    lines and the in-all line, the earlier lines amended in place; the contract's two rows and its history bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    narrowings = re.sub(r"\s+", " ", _section(text, "\n### 6.3 ", "\n## 7. "))
+    for words in ("the fourteenth by audit round 4, R4-67", "14. a credit the strong rule's LOAN pattern read only "
+                  "inside a listed auto lender's alias", "`16_auto_lender_loan_name`"):
+        assert words in narrowings, words
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("(audit round 4, R4-62, §20; Q9 (b) puts no limit on the rail)", "audit round 4, R4-37, §20; Q9 (b)",
+                  "never `DEDUCTIBLE` since audit round 4, R4-38", "`COMM(S)` with such a connector"):
+        assert words in holds, words
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    for words in ("USAA Federal Savings Bank's auto-loan originator, `USAA AUTO LOAN`",
+                  "never, audit round 4, R4-67, §20, a LOAN inside the listed lender's own alias",
+                  "card wording anywhere on the row, whatever its tail", "The corpus held one: a bank auto lender's"):
+        assert words in q7, words
+    assert "- Audit round 4, R4-B10 (R4-67, R4-36, R4-37, R4-62, R4-38; §20): no bump in a fix batch" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    q9 = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Finance-named customers, rent and lenders' service payments: the defaults"))
+    assert "Audit round 4, R4-37 (§8.1's lessor, §20;" in q9
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, commit in zip((
+        "- **A listed auto lender's own LOAN, and an auto-loan product beside a dealer word, is no loan to the dealer**",
+        "- **Card wording in any bank's form is never an auction purchase**",
+        "- **A label-less rental vendor's singular `RENTAL` is its trade name, never a rent memo**",
+        "- **A person's P2P or named-transfer `LEASE` memo after `FROM` is a rent memo at a lessor**",
+        "- **A qualified or joined netting phrase is still a sale",
+    ), R4_B10_CODE_COMMITS):
+        assert commit in _amendment_line(amendments, start), start
+    assert R4_B10_GUARD_FACT_COMMIT in _amendment_line(
+        amendments, "- **A listed auto lender's own LOAN, and an auto-loan product beside a dealer word")
+    line = _amendment_line(amendments, "- **Audit round 4, R4-B10 in all** (")
+    for commit in (*R4_B10_CODE_COMMITS, R4_B10_GUARD_FACT_COMMIT):
+        assert commit in line, commit
+    for words in ("since audit round 4, R4-36 (§20 below) one printing card wording in any bank's form",
+                  "widened by audit round 4, R4-37, §20 below", "since audit round 4, R4-36, §20 below, so is a row",
+                  "widened by audit round 4, R4-38, §20 below", "until audit round 4, R4-38, §20 below, read up to two"):
+        assert words in amendments, words
+    contract = _flat(CONTRACT)
+    for words in ("after a sender whose name reads as a person's with no root", "audit round 4, R4-37)",
+                  "never `DEDUCTIBLE` (`TRUCK SALE FEE DEDUCTIBLE`: a broker's fee)",
+                  "- Audit round 4 (R4-67, R4-36, R4-37, R4-62, R4-38; R4-B10:"):
+        assert words in contract, words
+    narrowing_14 = re.sub(r"\s+", " ", _section(text, "\n### 14.3 ", "\n### 14.4 "))
+    for words in ("`16_auto_lender_loan_name`, never into True", "`guard_facts`' `q7_veto_word` reads `_q7_veto_text`"):
+        assert words in narrowing_14, words
+    for placeholder in ("MEASURE" + "_R4B10",):
+        assert placeholder not in text, placeholder
