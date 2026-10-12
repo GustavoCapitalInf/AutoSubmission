@@ -23,6 +23,12 @@ Version 5.4 (2026-09-28) applies the owner's ruling that Idea Financial is a
 counted lender, no longer a line of credit: its debits are `confirmed_lender`
 rows, except a row whose own words say LOC or LINE OF CREDIT, which stays
 `line_of_credit` (D9), and its credits stay financing proceeds (D1).
+Version 5.9 (2026-10-11) applies the owner's ruling that Amerifi Capital is a
+counted lender: the ledger admits it with the one alias `AMERIFI CAPITAL`, so
+its debits, read as a potential lender (D6) until then, are `confirmed_lender`
+rows, except a row whose own words say LOC or LINE OF CREDIT, which is
+`line_of_credit` (D9), and its credits are financing proceeds (D1). Versions
+5.5 to 5.8 are the true revenue ones (below).
 
 ## States and precedence
 
@@ -143,6 +149,29 @@ posted credit also carries exactly one revenue tier, stored beside its state:
 | `excluded_pending_review` | `unverified_deposit` | no |
 | `non_revenue` | `non_revenue` | no |
 
+The owner's request of 2026-10-11 ("get rid of verified revenue from the
+fronted end ... and "counted, not verified" still keep them in the backend but
+don't show it"; the CSV and Excel downloads included) is display and downloads
+only: the classifier, the four tiers, their reasons, every record field and
+served key, the stored analyses, the JSON download, `analyze.py` and `batch.py`
+are unchanged, and no version or figure moves. The dashboard and the CSV and
+Excel downloads read the `verified` and `counted_flagged` tiers as one, True
+revenue: a credit of either is tagged "True revenue" (tier `true_revenue` in
+the downloads) with no reason, offers Mark Non-Revenue only (no Confirm
+Revenue and no multi-select box on a counted credit; the server still accepts
+its confirm) and awaits no review in the downloads (`not_required`), except a
+counted credit the served payload flags as a large deposit to source (R3-B24),
+which keeps Confirm Revenue and its box, its note asking for its source, and
+stays `pending` in the downloads, so that confirming it, once sourced, takes it
+out of the flag (review round 2); the
+counted tier's reasons are no evidence row, filter or download row, and no
+figure, card, chart part, memo clause, column or section names Verified
+revenue or "Counted, not verified" apart (true revenue spec §2.2, §10, §10.8,
+§20). A credit analysed before 5.6 has no tier: the page tags it "Revenue",
+"Review required" (5.4's unverified deposit) or "Non-revenue", and the
+downloads write its state in those words (`revenue`, `review_required`,
+`non_revenue`), never 5.4's names.
+
 A counted or held credit names its reason (`revenue_tier_reason`). The codes
 and their labels live in one table, `analysis/revenue.py`
 `REVENUE_TIER_REASONS`, which the dashboard mirrors. The table below repeats
@@ -164,7 +193,11 @@ sentence (`revenue_reason`, which the JSON download and the package's evidence
 sections write beside its tier) never says it is counted: a hold that re-tiers
 a counted re-statement rewrites its "counted and flagged, never verified" as
 "never verified, and held for review (<label>)", the held reason's own label
-(audit round 3, R3-B15: R3-53).
+(audit round 3, R3-B15: R3-53). Since the owner's request of 2026-10-11 the
+CSV and Excel downloads write a held or non-revenue credit's rule and sentence
+without the words that name a hidden tier ("held for review (<label>)", without
+"never verified"), and a credit in True revenue with neither; the JSON download
+writes the served sentence.
 
 | Reason code | Tier | Label | When (true revenue spec) |
 |---|---|---|---|
@@ -536,6 +569,7 @@ bank's name.
 - Audit round 3, R3-B25: classification 5.8 (`CLASSIFICATION_VERSION`), with `ANALYSIS_STAGE_VERSION` 36 in the same commit, the run's last (34 and 35 skipped: the hosting line used them for code this branch merges after the run). The round-3 fix batches (R3-B01 to R3-B24) moved tiers, reasons and lender readings under 5.7, so an analysis saved at 5.7 is now outdated (the re-analyze notice, lender spec D12) and its Re-analyze misses the stage-33 cache entry and recomputes it; no rule, tier, reason or figure changes in this commit (true revenue spec §9.3, §20).
 - The final review of audit round 3, R3-FF (F1 to F6; 64dc273, 0d751bb, 1a5702e, 2207172, 06cc808, 3e2a08a), folded into 5.8 and stage 36 (unreleased): pass 7c and the package's pass 5 never take a paid debit the rate leaves out (R3-79's worded lump-sum payoff, `represented_payments.out_of_rate_payment`) as a returned payment's re-debit, so the bounced obligation is never counted zero times (F3); the withholding formula's words name the lump sums and the re-debited returns the numerator leaves out (F5); a package member row's rate and exposure are its own numerators over its own basis wherever the package moved either (F2); a wire from a company named only with R3-40's product and holder-noise words (`PREMIUM SOLUTIONS LLC`), behind an originator label or ending in a legal form, names its sender unless those words are all the holder's own name's, an account-designation, purpose, `TRUST`, `DBA`, generic or label word keeping R3-40's reading (F4; its review round 1, 9ec8e60: the name prints two or more different name words, one of them a holder-noise word, `_WIRE_HOLDER_NOISE_NAME_WORDS`, so a lone `GROUP LLC` or `WIRE FROM <ref> SERVICES` and product words alone, `ORG PLATINUM SELECT`, keep R3-40's hold, once and on a repeat); the large-deposit floor is written in the statement's unit on the True card and the CLI line, and the cache-bust moves to `true-revenue-10` (F6); the L1-S3 surface census excuses `_account_analysis_rows` (F1, tool only) (true revenue spec §6.2, §8.5, §9.1 to §9.3, §10.1, §13, §20).
 - Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit 7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit, the app.js cache-bust to `true-revenue-11`; classification stays 5.8 (the hosting line changed no classification, so no analysis saved at 5.8 is outdated). The Capital One carry-in and the Bank of America daily table change those statements' stored ledger, ADB and NSF days; the dashboard's lender notes (round 3's included), the copied memos' lender lines and the package downloads' returned funder payment words read in the hosting line's plain voice; the Withholding Rate column reads each row's served rate; no rule, tier, reason, lender reading or figure moves (true revenue spec §9.3, §10, §20).
+- The owner's ruling of 2026-10-11 (Amerifi Capital is a counted lender; 985aa0a, 6c03e15): classification 5.9 (`CLASSIFICATION_VERSION`), with `ANALYSIS_STAGE_VERSION` 37 → 38 in the same commit, so an analysis saved at 5.8 gets the re-analyze notice and its button misses the stage-37 entry. The ledger admits Amerifi Capital with the one alias `AMERIFI CAPITAL`: its debits, read as a potential lender (D6) until then, are counted lender rows (paid to lenders, the withholding rate, the lender count), a row whose own words say LOC or LINE OF CREDIT is `line_of_credit` (D9), and its credits are financing proceeds (D1). No cached corpus row prints the name, so G7 moves no row. On the hosting line ahead of true revenue audit round 4, whose last batch takes 5.10 and 39 (true revenue spec §9.3, §20; lender spec's amendment of 2026-10-11).
 - The final review of round 2, F1 (7854cf1): a statement whose withholding basis is not established (True revenue where the revenue is not, Verified where Verified is not) publishes no withholding rate, potential exposure or potential lender's exposure and asks for review (`withholding_basis_unestablished`, served only); its downloads leave the basis empty and the CLI prints it as N/A; the package marks such a member and its own partial basis the same way; the legacy basis and every stored figure are unchanged (true revenue spec §9.1, §9.2, §10.1, §10.4, §10.8, §11, §20).
 - The final review of round 2, F2 (4cab9ef): a confirmed funder's paid payment pairs on the lender side (classification 5.4's named pair, R2-OW13's restore and its warning) only with a return dated on or after it, printed after it where a row prints no date; the package's pass 4 matches a member's unpaired bounce-worded return (rule D's reading and guards, with two departures from rule D named in the review round below) to the same account's preceding statement's confirmed funder payment 0 to 7 days before it, out of the package's paid to lenders, in its withholding numerator and lender count, with the warning naming both documents; each statement viewed alone is unchanged; G7 declares the moves of a return whose pairing moved (`returned_funder_redirects`) (true revenue spec §6.2, §9.2, §10.1, §10.6, §11, §14.3, §17.1, §20).
 - The final review of round 2, review round 1 of its fix run (1dd3b64, 7b7fb1e, 2d81a43, 80e3d4b): a statement whose withholding basis is not established goes to review (its decision and the summary read review required where they would pass; a decision that already reads a review keeps its words) and so does its package; G7's snapshot records every row's date (`row_dates`) and declares a redirected return only where the dates show a payment dated after its return, and any payment returned in its place on or before it; R2-OW18's package payment changes read pass 4's matched payment as a returned attempt; pass 4's two departures from rule D (a lender credit naming the matched payment's funder is read; only a revenue partner dated on or before the credit holds it back) are named for ratification (true revenue spec §6.2, §9.2, §10.1, §11, §14.3, §17.1, §20).
@@ -1153,7 +1187,14 @@ here.
 `WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` (the legacy figure
 above, label "Legacy eligible deposits") or
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` (verified classified revenue,
-label "Verified revenue"). An unset, empty or unknown value reads as the
+label "Verified revenue"; since the owner's request of 2026-10-11 the dashboard
+and the CSV and Excel downloads name this basis "Narrower revenue basis", "a
+part of true revenue only", mode `narrower_revenue_basis` in the downloads (a
+downloads-only code that names no tier), "the narrower revenue basis" inside a
+note's sentence, its figures unchanged, and the True basis's definition "posted
+credits minus known
+non-revenue and the deposits held for review"; the payload and the JSON
+download keep the served words). An unset, empty or unknown value reads as the
 default (`DEFAULT_WITHHOLDING_DENOMINATOR_MODE` in `analysis/revenue.py`, which
 `Settings`, `load_settings`, `compute_metrics` and the `Metrics` dataclass
 read), and no run or deploy file in this repository sets

@@ -54471,6 +54471,117 @@
     "https://debanked.com/2023/04/all-registered-sales-based-financing-providers-in-virginia-as-of-3-29-23/"
    ],
    "notes": "Liberis US Inc (the US entity of the Liberis group, London), an embedded revenue-based financing provider: it buys a merchant's future card receivables through white-label programmes on software and payment platforms (Vagaro Capital among them; the Parafin precedent), and is repaid by a percentage of the merchant's sales taken before the platform pays out, so no debit names it. Its US fundings are paid out through Airwallex US, LLC, so a bank prints them under Liberis's name ('LIBERIS <reference> ACH IN') or as an Airwallex instant payment naming Liberis US Inc. LIBERIS, the company's name and also a rare surname, is read only as a whole word; LIBERIS US INC is the legal name. AIRWALLEX is never an alias (a payments company paying many senders), and VAGARO stays the operating registry's platform (its payouts are the merchant's sales). Collision check (audit round 2, R2-B03: R43): in the corpus walk (every cached analysis, duplicates included) LIBERIS prints as a whole word only on funding credits (the Mercury 'LIBERIS <reference> ACH IN' form and the Airwallex instant payment naming LIBERIS US INC), never glued inside another word and on no debit, and no registry alias contains either spelling or is contained in it. The r2 verdict records the independent verify round of 2026-10-06 (audit round 2, R2-L01), which re-fetched the four sources, added two independent ones (Elavon's announcement and Virginia's register of sales-based financing providers) and reproduced the collision check before the entity was rendered (the Idea Financial r8 precedent): LIBERIS prints only on those funding credits, no row prints the LIBERI stem otherwise, AIRWALLEX prints as a whole word only beside LIBERIS US INC (it prints glued to other payees on some Chase same-day ACH rows, which no alias reads), no debit prints either whole word, and no registry value contains either spelling or is contained in it. The group follows Parafin's (white-label platform capital, an alternative position), although Liberis US Inc is also a registered sales-based financing provider; its fundings are financing proceeds under either group. Residual, for the owner (audit round 3, R3-50; true revenue spec section 17.1): the matcher reads the whole row, so a holder named '... LIBERIS ...' in another originator's receiver field, a customer company or a P2P sender with the surname, or a deposit memo printing it, is read as Liberis US Inc (financing proceeds); no corpus row prints it."
+  },
+  {
+   "entity": "Amerifi Capital",
+   "group": "confirmed_lender",
+   "business_type": "mca_or_revenue_based_funder",
+   "aliases": [
+    "AMERIFI CAPITAL"
+   ],
+   "status": "admitted",
+   "short_alias_reason": null,
+   "evidence": [
+    {
+     "source": "https://amerificapital.com/",
+     "note": "Own site, fetched 2026-10-11: 'Direct funding for brokers nationwide'; flagship Merchant Cash Advance program from $25,000 to $7,000,000, plus small business capital and equipment financing; same-day approvals and funding; office on Biscayne Blvd, Suite 408, Miami (Aventura) FL; phone in Connecticut's 860 area code; footer 'Copyright 2025 Amerifi Capital'."
+    },
+    {
+     "source": "https://amerificapital.com/about/",
+     "note": "Fetched 2026-10-11: 'We're not a broker or aggregator - we underwrite and fund directly'; a 'True Direct Funder'; products: merchant cash advance, equipment financing, working capital, invoice factoring, business line of credit, small business capital."
+    },
+    {
+     "source": "https://amerificapital.com/partners/",
+     "note": "Fetched 2026-10-11: 'a direct funder built for ISOs and brokers'; same-day decisions and fundings; funds 2nd, 3rd and 4th+ positions (stacked merchant cash advance positions)."
+    },
+    {
+     "source": "https://amerificapital.com/services/",
+     "note": "Fetched 2026-10-11: Merchant Cash Advance, 'Quick access to funds based on your future sales'; funding up to $5,000,000; approvals in as little as 24 hours."
+    },
+    {
+     "source": "https://www.linkedin.com/company/amerifi-capital",
+     "note": "Fetched 2026-10-11: Amerifi Capital, Financial Services, Hartford CT, founded 2018, website amerificapital.com: working capital for small and moderate-sized businesses."
+    },
+    {
+     "source": "https://www.cbinsights.com/company/amerifi-capital",
+     "note": "Fetched 2026-10-11: founded 2018, Main St, Hartford CT, website amerificapital.com; 'providing merchant cash advances, equipment financing, and other financial solutions to businesses'."
+    },
+    {
+     "source": "https://dramerlaw.com/amerifi-capital-llc/",
+     "note": "Fetched 2026-10-11: an MCA-defense law firm's page for merchants who owe 'Amerifi Capital, LLC', treated as a merchant cash advance company (lawsuits, UCC liens, confessions of judgment, bank levies)."
+    },
+    {
+     "source": "https://elitefunders.com/lenders/amerifi-capital",
+     "note": "Fetched 2026-10-11 (third-party review, low weight; its founding year conflicts with LinkedIn and CB Insights): merchant cash advance, Florida-based, daily ACH by default (weekly uncommon), UCC-1 filed as standard."
+    },
+    {
+     "source": "https://businessdebtadjusters.com/amerifi-lawsuit/",
+     "note": "Fetched 2026-10-11: names Amerifi as an MCA lender whose lawsuits take the form of a civil complaint or a confession of judgment."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports--publications/ar03-24.pdf",
+     "note": "Fetched 2026-10-12 (verify round): the Virginia State Corporation Commission's Bureau of Financial Institutions 2024 annual report lists AMERIFI CAPITAL, LLC, Biscayne Boulevard, Suite 408, Aventura FL, among its Sales-Based Financing Provider Registrants (merchant cash advance providers registered under Virginia's sales-based financing law); the 2023 report lists it at the same address; the 2025 report no longer lists it."
+    },
+    {
+     "source": "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports--publications/ar03-23.pdf",
+     "note": "Fetched 2026-10-12 (verify round): the 2023 annual report's Sales-Based Financing Provider Registrants list by name includes AMERIFI CAPITAL, LLC at Biscayne Boulevard, Suite 408, Aventura FL."
+    },
+    {
+     "source": "https://opencorporates.com/companies/us_ct/1368394",
+     "note": "Fetched 2026-10-12 (verify round): AMERIFI CAPITAL, LLC, a Connecticut limited liability company, active, mailing address Main Street, Hartford CT (the address LinkedIn and CB Insights give); the Connecticut business registry's open data gives it as registered in December 2020, domestic, with a business email at amerificapital.com."
+    },
+    {
+     "source": "https://opencorporates.com/companies/us_fl/M23000000632",
+     "note": "Fetched 2026-10-12 (verify round): AMERIFI CAPITAL, LLC's Florida branch, a foreign limited liability company whose parent is the Connecticut LLC, active, head office Biscayne Blvd, Suite 408, Aventura FL (the address on amerificapital.com and on the Virginia registrant list)."
+    },
+    {
+     "source": "https://tsdr.uspto.gov/statusview/sn97010638",
+     "note": "Fetched 2026-10-12 (verify round): the AMERIFI CAPITAL GROUP service mark (accounts receivable financing, first use January 2019) was applied for in September 2021 by AMERIFI CAPITAL LLC, a New York limited liability company at West Dixie Hwy, Aventura FL, and abandoned in December 2022; that address is LinkedIn's Amerifi Capital Group LLC (Miami, founded 2020)."
+    }
+   ],
+   "verdicts": [
+    {
+     "round": "r1",
+     "verdict": "upheld",
+     "confirmed": true
+    },
+    {
+     "round": "r9",
+     "verdict": "corrected",
+     "confirmed": true
+    },
+    {
+     "round": "owner",
+     "verdict": "upheld",
+     "confirmed": true
+    }
+   ],
+   "where_looked": [
+    "https://amerificapital.com/",
+    "https://amerificapital.com/about/",
+    "https://amerificapital.com/partners/",
+    "https://amerificapital.com/services/",
+    "https://www.linkedin.com/company/amerifi-capital",
+    "https://www.cbinsights.com/company/amerifi-capital",
+    "https://opencorporates.com/companies/us_ny/5484737",
+    "https://dramerlaw.com/amerifi-capital-llc/",
+    "https://elitefunders.com/lenders/amerifi-capital",
+    "https://businessdebtadjusters.com/amerifi-lawsuit/",
+    "https://trademarks.justia.com/970/10/amerifi-capital-97010638.html",
+    "https://www.linkedin.com/company/amerifi-capital-group-llc",
+    "https://debanked.com/2019/01/small-business-funding-blasting-off/",
+    "https://debanked.com/2025/04/virginias-sales-based-financing-provider-list/",
+    "https://www.funderintel.com/virgnia-registered-list",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports--publications/ar03-25.pdf",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports--publications/ar03-24.pdf",
+    "https://www.scc.virginia.gov/media/sccvirginiagov-home/regulated-industries/bureau-of-financial-institutions/reports--publications/ar03-23.pdf",
+    "https://opencorporates.com/companies/us_ct/1368394",
+    "https://opencorporates.com/companies/us_fl/M23000000632",
+    "https://opencorporates.com/companies/us_va/11477211",
+    "https://tsdr.uspto.gov/statusview/sn97010638",
+    "https://data.ct.gov/Business/Connecticut-Business-Registry-Business-Master/n7gp-d28j"
+   ],
+   "notes": "Owner ruling 2026-10-11: Amerifi Capital is a counted lender ('amerifi is a lender we count'), on a statement whose daily 'Electronic Withdrawal To AMERIFI CAPITAL' debits of one fixed amount were read as a potential lender (D6). Amerifi Capital, LLC (a Connecticut limited liability company registered in December 2020, Hartford CT; registered in Florida as a foreign LLC in 2023, office at Biscayne Blvd, Aventura FL; LinkedIn and CB Insights give 2018 as the brand's founding year) is a direct merchant cash advance funder that funds through ISO brokers, including 2nd to 4th+ positions, and collects by daily ACH; the Virginia State Corporation Commission listed it at its Aventura office among the Sales-Based Financing Provider Registrants in its 2023 and 2024 annual reports (not in 2025). AMERIFI CAPITAL is the printed form; the matcher also reads it run together (AMERIFICAPITAL), with a legal-form or GROUP word after it, and with digits glued to CAPITAL. Its credits are financing proceeds (D1). It also lists a business line of credit, so a row whose own words say LOC or LINE OF CREDIT goes to Lines of credit (D9). No cached corpus row prints AMERIFI in any spelling (spaced, glued, cut, split or OCR-confused; every cached artifact, the cached PDFs' text and the cache database were searched), so the alias reaches no corpus row; the only corpus word starting AMERIF is AMERIFACTORS (AmeriFactors Financial Group, factoring, its own entity), which the alias never reaches. Bare AMERIFI is never an alias: Amerifi of Broomall PA is a small-business funding broker (founded 2017), which takes no repayments, and the word would read receivers. AMERIFI CAP is not an alias either: AMERIFI CAP LLC and Amerifi Funding, LLC are other registered companies' names (Delaware LLCs registered in Connecticut in 2021, since revoked, sharing no domain with this funder), so a cut form is added only when this funder's own rows print it. Whole words keep other companies out: AMERIFIRST (bank, mortgage and capital names), AMERIFIELD, AMERIFINANCIAL, AMERIFIX and AMERIFY CAPITAL (St George UT) are other tokens. Residual, for the owner: the matcher reads the whole row, so an account holder or receiver named 'Amerifi Capital' in another originator's row is read as Amerifi Capital (no corpus row prints it); AMERIFI CAPITAL GROUP rows are read as Amerifi Capital: that name belongs to a New York LLC also called Amerifi Capital LLC (Aventura FL; its abandoned USPTO application describes accounts receivable financing), whose tie to this funder is not established; the debit index's glued-digit reading is multi-word only, so AMERIFICAPITAL with digits glued to it is read on credits but not on debits. The r9 verdict records the independent verify round of 2026-10-12, which re-fetched the sources, corrected the legal entity (the Connecticut LLC, not the New York one) and added the Virginia registrant listing, and reproduced the corpus census and the collision check; the owner verdict after it records the ruling."
   }
  ]
 }

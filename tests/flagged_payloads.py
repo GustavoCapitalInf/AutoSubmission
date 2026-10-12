@@ -17,8 +17,8 @@ FLAGGED_DEBIT = 7.0
 #: the false-positive release, 5.3 -> 5.4 with the Idea Financial ruling (2026-09-28), and 5.4 -> 5.5 with the
 #: true-revenue bug fixes, 5.5 -> 5.6 with its revenue tiers, and 5.6 -> 5.7 with the audit's fix batches, round 2 and
 #: the owner's rulings (audit round 2, R2-B16: R56), and 5.7 -> 5.8 with the round-3 fix batches (audit round 3,
-#: R3-B25).
-CURRENT_VERSION = "5.8"
+#: R3-B25), and 5.8 -> 5.9 with the Amerifi Capital ruling (2026-10-11).
+CURRENT_VERSION = "5.9"
 #: The flag-group keys in contract order.
 GROUP_KEYS = tuple(group.key for group in FLAG_GROUPS)
 #: The state a premium-financing row keeps: it has no state of its own and stays insurance (plan contract C1, C4).

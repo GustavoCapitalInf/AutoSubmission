@@ -146,7 +146,7 @@ def test_the_selection_is_what_is_ticked_on_screen():
 currentJobId = 'a'; currentJobIds = ['a']; loadResults('a'); await settle();
 boxesIn(els.transactionTable.innerHTML).forEach(tick);
 const ticked = {selected: bulkSelection.size, hidden: els.bulkReviewBar.hidden};
-transactionFilter = 'verified_revenue'; renderMainTransactions();
+transactionFilter = 'non_revenue'; renderMainTransactions();
 const filtered = {selected: bulkSelection.size, hidden: els.bulkReviewBar.hidden,
                   boxes: boxesIn(els.transactionTable.innerHTML).length};
 transactionFilter = 'all'; renderMainTransactions();

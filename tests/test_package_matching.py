@@ -1079,11 +1079,18 @@ def test_q4_never_moves_a_debit_or_a_gross_figure(monkeypatch):
 def test_q4_s_matches_download_with_the_package():
     from webapp.app import _package_csv
 
-    rows = list(csv.reader(io.StringIO(_package_csv(_owners_transfer()))))
+    package = _owners_transfer()
+    rows = list(csv.reader(io.StringIO(_package_csv(package))))
     cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
     assert cells[("package_match_1", "kind")] == "own_account_transfer"
     assert cells[("package_match_1", "moved")] == "True"
-    assert json.loads(cells[("package_match_1", "credit")])["reason_before"] == "no_payer_printed"
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8; its review round 1): the credit the match moved
+    # was counted, so the CSV names the tier it had as True revenue and no counted reason; the served package (the JSON
+    # download) keeps both.
+    credit = json.loads(cells[("package_match_1", "credit")])
+    assert (credit["tier_before"], credit["reason_before"]) == ("true_revenue", None)
+    served = next(match["credit"] for match in package["package_matches"] if match["kind"] == "own_account_transfer")
+    assert (served["tier_before"], served["reason_before"]) == ("counted_flagged", "no_payer_printed")
     assert cells[("totals", "own_account_transfer_held_total")] == str(SENT)
 
 

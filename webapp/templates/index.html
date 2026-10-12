@@ -46,7 +46,6 @@
     --violet-soft: #eeeaf8;
     --teal: #2e8c7e;
     --teal-soft: #e1f1ee;
-    --verified: #0a5a3a;
     --track: #dad8d0;
     --paper: #fffefb;
     --rail: transparent;
@@ -138,7 +137,6 @@
     --violet-soft: rgba(185, 163, 245, .13);
     --teal: #6ed3c1;
     --teal-soft: rgba(110, 211, 193, .13);
-    --verified: #1fa56a;
     --track: #2e3330;
     --paper: #161817;
     --panel: rgba(20, 22, 21, .62);
@@ -594,12 +592,8 @@
   .bar.bar-true { background: var(--accent); }
   .bar-part { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
   .bar-value-true { margin-top: -6px; color: var(--accent-text); }
-  /* 5.6: the Verified part of a True part (or of a True bar), in the third shade. */
-  .bar-part-verified { background: var(--verified); }
-  .bar-value-verified { margin-top: -6px; color: var(--verified); }
   .legend-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; background: var(--border-2); }
   .legend-swatch-true { background: var(--accent); }
-  .legend-swatch-verified { background: var(--verified); }
   .bar-labels { display: grid; gap: 20px; padding: 0 12px; }
   .bar-label { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; text-align: center; }
   .bar-label strong { font-size: 12.5px; font-weight: 500; }
@@ -676,12 +670,8 @@
   }
   /* 5.6 (true revenue spec §10.1): each tier's dot, a held reason's the Held one's; Non-Revenue keeps the plain dot. */
   .is-package .revenue-panel [data-revenue-filter="true_revenue"]::before { background: var(--accent); }
-  .is-package .revenue-panel [data-revenue-filter="verified_revenue"]::before { background: var(--accent); }
-  .is-package .revenue-panel [data-revenue-filter="counted_flagged"]::before { background: var(--teal); }
   .is-package .revenue-panel [data-revenue-filter="excluded_pending_review"]::before { background: var(--amber); }
   .is-package .revenue-panel [data-revenue-filter^="excluded_pending_review:"]::before { background: var(--amber); }
-  /* Audit B11 (I53): a counted reason's dot is the Counted one's. */
-  .is-package .revenue-panel [data-revenue-filter^="counted_flagged:"]::before { background: var(--teal); }
   .results-content > * { scroll-margin-top: 76px; }
   .is-package .single-only { display: none !important; }
   .results-content:not(.is-package) .package-only { display: none !important; }
@@ -1413,11 +1403,19 @@
   @media (max-width: 1120px) {
     .upload-layout { grid-template-columns: 1fr; }
     .hero-chart { grid-template-columns: 1fr; }
-    .panel-open .side-panel {
-      left: 88px; top: 12px; bottom: 12px; border-radius: 22px;
-      border: 1px solid var(--glass-edge); background: var(--panel-solid);
-    }
     .tape .total-item:nth-child(3n+1) { border-left: 0; }
+  }
+  /* Narrower screens: the open panel joins the dock as one piece of glass, exactly as on wide screens (the rail's
+     divider between them), floating over the page, which does not move. The dock stays in its place and its glass
+     layer stretches behind the panel, so rail and panel share one shape, one colour and one shadow; never a separate
+     solid card. */
+  @media (min-width: 641px) and (max-width: 1120px) {
+    .panel-open .sidebar { z-index: 35; }
+    .panel-open .sidebar::before { right: calc(-1px - 224px); }
+    .panel-open .side-panel {
+      position: absolute; top: 0; bottom: 0; left: 100%; width: 224px; z-index: auto;
+      border: 0; border-radius: 0 23px 23px 0; background: transparent; box-shadow: none;
+    }
   }
   @media (max-width: 860px) {
     .topbar { margin: 10px 12px 0; padding: 0 8px 0 18px; }
@@ -1429,7 +1427,14 @@
       border-radius: 20px; border: 1px solid transparent;
     }
     .rail { width: 100%; height: 100%; padding: 0 8px; border-right: 0; }
-    .panel-open .side-panel { left: 10px; right: 10px; top: 10px; bottom: 84px; width: auto; }
+    /* On phones the panel is a sheet above the bottom dock, in the dock's own glass (not a solid card). */
+    .panel-open .side-panel {
+      left: 10px; right: 10px; top: 10px; bottom: 84px; width: auto; border-radius: 20px;
+      border: 1px solid var(--glass-edge); box-shadow: var(--shadow-pop);
+      /* A sheet covers busy page content (black buttons, cards), so the glass is a little denser than the dock's. */
+      background: color-mix(in srgb, var(--panel) 45%, var(--panel-solid));
+      -webkit-backdrop-filter: blur(28px) saturate(160%); backdrop-filter: blur(28px) saturate(160%);
+    }
     .workspace { padding-bottom: 86px; }
     .topbar { top: 8px; height: 50px; margin: 8px 10px 0; padding: 0 6px 0 16px; }
     .view { padding: 26px 16px 40px; }
@@ -1521,7 +1526,7 @@
         <div class="popover" id="helpPopover" role="dialog" aria-label="Help" hidden style="top:auto;bottom:0;right:auto;left:calc(100% + 10px)">
           <div class="popover-title">How it works</div>
           <p>Drop one statement for a single analysis, or several months at once to build a package.</p>
-          <p>Click any revenue figure, lender or evidence row to see the exact transactions behind it. Deposits held for review, and counted deposits, can be confirmed or excluded from the Review column.</p>
+          <p>Click any revenue figure, lender or evidence row to see the exact transactions behind it. Deposits can be confirmed as revenue or marked non-revenue from the Review column.</p>
           <p>Press <span class="kbd">/</span> to search statements and <span class="kbd">Esc</span> to close a dialog.</p>
         </div>
       </div>
@@ -1637,7 +1642,7 @@
           <div class="page-intro">
             <p class="eyebrow" data-today>Today</p>
             <h1 id="newTitle"><span data-greeting>Hello</span>, <em>Gustavo.</em></h1>
-            <p>Drop a statement and Capital Infusion rebuilds it line by line. Drop several months at once and they become a package.</p>
+            <p>Drop a statement and we rebuild it line by line. Drop several months at once and they become a package.</p>
           </div>
           <div class="dropzone" id="dropzone">
             <div class="drop-icon" aria-hidden="true">
@@ -2021,8 +2026,6 @@
             <button class="transaction-filter" type="button" data-transaction-filter="flagged">Flagged</button>
             <button class="transaction-filter" type="button" data-transaction-filter="pos">POS</button>
             <button class="transaction-filter" type="button" data-transaction-filter="true_revenue">True Revenue</button>
-            <button class="transaction-filter" type="button" data-transaction-filter="verified_revenue">Verified</button>
-            <button class="transaction-filter" type="button" data-transaction-filter="counted_flagged">Counted</button>
             <button class="transaction-filter" type="button" data-transaction-filter="excluded_pending_review">Held for Review</button>
             <button class="transaction-filter" type="button" data-transaction-filter="non_revenue">Non-Revenue</button>
           </div>
@@ -2161,8 +2164,7 @@
                 <p class="setting-help" id="monthlyDepositsHelp">
                   <strong>Total monthly deposits:</strong> everything going in, transfers from other accounts and lender
                   funding included. <strong>True revenue:</strong> every posted credit except known non-revenue
-                  (own-account transfers, funding, refunds) and the deposits held for review. The verified part, with
-                  positive proof, is shaded inside it on the monthly chart.
+                  (own-account transfers, funding, refunds) and the deposits held for review.
                   <strong>Both</strong> shows the two side by side. The monthly chart follows the same choice, and a
                   statement whose revenue could not be established shows N/A. Every choice also shows each statement's
                   confirmed withholding rate. Saved in this browser only.
@@ -2293,8 +2295,6 @@
           <button class="transaction-filter" type="button" data-modal-transaction-filter="flagged">Flagged</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="pos">POS</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="true_revenue">True Revenue</button>
-          <button class="transaction-filter" type="button" data-modal-transaction-filter="verified_revenue">Verified</button>
-          <button class="transaction-filter" type="button" data-modal-transaction-filter="counted_flagged">Counted</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="excluded_pending_review">Held for Review</button>
           <button class="transaction-filter" type="button" data-modal-transaction-filter="non_revenue">Non-Revenue</button>
         </div>
@@ -2319,6 +2319,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-13"></script>
+<script src="/static/app.js?v=true-revenue-14"></script>
 </body>
 </html>

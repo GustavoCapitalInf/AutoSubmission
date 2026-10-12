@@ -5,8 +5,8 @@ analyst copies into a credit memo (`generateSummary`).
 R3-01: the statement memo's decision read idle and unverified notes, material potential lender debits and the quality
 word, never T7's revenue gate (`metrics.revenue_review_required`), so a statement whose pill read "Review required"
 copied "Status: approved."; its decision is now the pill's (`accountDecision`), and both memos state the money held for
-review (`revenueSummarySentence`'s held clause, between the verified pair and non-revenue, only where the revenue is
-established). R3-67 (the memo half): the package memo listed each funder's paid total only, so a funder whose every
+review (`revenueSummarySentence`'s held clause, between True revenue and non-revenue, only where the revenue is
+established; since the owner's request of 2026-10-11 the memos carry no verified revenue clause). R3-67 (the memo half): the package memo listed each funder's paid total only, so a funder whose every
 payment bounced read $0.00 beside a withholding rate that keeps its returned payments; each funder line now names its
 returned payments, one "- Returned funder payment: ..." line follows per served item, and the sentence names the
 returned payments before the rate. R3-68: the memos name the withholding basis their rates divide by.
@@ -129,8 +129,9 @@ def test_r3_01_a_statement_the_revenue_gate_sends_to_review_copies_review_requir
     assert (result["own"], result["pill"]) == ("review_required", "Review required")
     assert result["memo"].endswith("Status: review required.")  # was "Status: approved."
     held = f"${wire:,.2f}"
-    assert (f"True revenue $12,000.00 ($12,000.00 a month), verified revenue $12,000.00 ($12,000.00 a month), "
+    assert (f"True revenue $12,000.00 ($12,000.00 a month), "
             f"held for review {held} (1 credit), non-revenue $0.00 ($0.00 a month).") in result["memo"]
+    assert "verified" not in result["memo"].lower()
 
 
 @needs_node
@@ -143,8 +144,7 @@ def test_r3_01_the_control_without_a_held_credit_reads_approved_and_names_nothin
     assert (result["own"], result["pill"]) == ("approved", "Approved")
     assert result["memo"].endswith("Status: approved.")
     assert "held for review" not in result["memo"]
-    assert ("True revenue $12,000.00 ($12,000.00 a month), verified revenue $12,000.00 ($12,000.00 a month), "
-            "non-revenue $0.00 ($0.00 a month).") in result["memo"]
+    assert "True revenue $12,000.00 ($12,000.00 a month), non-revenue $0.00 ($0.00 a month)." in result["memo"]
 
 
 @needs_node
@@ -197,8 +197,7 @@ def test_r3_01_a_statement_whose_revenue_is_not_established_names_nothing_held()
     metrics = served["metrics"]
     assert metrics["revenue_established"] is False and metrics["excluded_pending_review_count"] == 1
     result = _statement_memo(served)
-    assert "True revenue N/A, verified revenue N/A, non-revenue $0.00 ($0.00 a month, captured rows only)." in (
-        result["memo"])
+    assert "True revenue N/A, non-revenue $0.00 ($0.00 a month, captured rows only)." in result["memo"]
     assert "held for review" not in result["memo"]
 
 
@@ -214,8 +213,9 @@ def test_r3_01_a_package_memo_names_its_held_money_and_keeps_its_decision():
     assert (totals["excluded_pending_review_total"], totals["excluded_pending_review_count"]) == (15000.0, 1)
     assert totals["decision"] == "review_required"
     memo = _package_memo(package)["memo"]
-    assert ("True revenue $24,000.00 ($12,000.00 a month), verified revenue $24,000.00 ($12,000.00 a month), held for "
+    assert ("True revenue $24,000.00 ($12,000.00 a month), held for "
             "review $15,000.00 (1 credit), non-revenue $0.00 ($0.00 a month).") in memo
+    assert "verified" not in memo.lower()
     assert "Decision: review required." in memo
 
 
@@ -226,17 +226,17 @@ def test_r3_01_the_held_clause_counts_and_refuses_as_the_cards_do():
     result = run_dashboard("""
 const sentence = (source, flags) => revenueSummarySentence(source, 'USD', flags, {});
 const base = {true_revenue_total: 100, verified_revenue_total: 50, non_revenue_total: 0};
-const yes = {established: true, verifiedEstablished: true};
+const yes = {established: true};
 console.log(JSON.stringify([
   sentence({...base, excluded_pending_review_total: 1500, excluded_pending_review_count: 2}, yes),
   sentence({...base, excluded_pending_review_total: null, excluded_pending_review_count: 3}, yes),
   sentence({...base, excluded_pending_review_total: 1500, excluded_pending_review_count: 1},
-           {established: false, verifiedEstablished: false}),
+           {established: false}),
   sentence({...base, excluded_pending_review_total: 0, excluded_pending_review_count: 0}, yes),
   sentence({...base}, yes),
 ]));
 """)
-    assert ", verified revenue $50.00 (N/A a month), held for review $1,500.00 (2 credits), non-revenue" in result[0]
+    assert "True revenue $100.00 (N/A a month), held for review $1,500.00 (2 credits), non-revenue" in result[0]
     assert ", held for review 3 credits, non-revenue" in result[1]
     assert all("held for review" not in text for text in result[2:])
 
@@ -345,8 +345,10 @@ BASIS_ROWS = [
     (9, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:2", 10000.0),
     (12, "ONLINE BANKING TRANSFER FROM SAV 0000 CONFIRMATION# 0000000000", 5000.0),
 ] + [(day, KAPITUS, -850.0) for day in (6, 13, 20, 27)]
+#: The owner's request of 2026-10-11 (true revenue spec §2.2, §10.1): the verified basis is named "narrower revenue
+#: basis", never "verified revenue".
 BASES = {"true_revenue": "true revenue", "legacy_eligible_deposits": "legacy eligible deposits",
-         "verified_revenue": "verified revenue"}
+         "verified_revenue": "narrower revenue basis"}
 
 
 def basis_report(monkeypatch, mode):

@@ -723,8 +723,9 @@ def test_the_page_asks_browsers_for_the_new_script():
     # the chart's bars in the key's colours (served there as -7 and -8). Audit round 3, R3-MERGE: the merged app.js
     # differs from both lines', so it takes the next free value above both: -11. The owner's request of 2026-10-10
     # (active positions by month): the Monthly Statements' Active Positions column and the memos' line: -12. The
-    # owner's own design (2026-10-11, display only): -13.
-    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
+    # owner's own design (2026-10-11, display only): -13. His request of 2026-10-11 to hide Verified revenue and
+    # "Counted, not verified": -14.
+    assert '<script src="/static/app.js?v=true-revenue-14"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in
@@ -829,7 +830,7 @@ def test_a_factor_payout_keeps_its_revenue_tag_carries_the_chip_and_is_behind_it
 const tagged = (text) => rowsOf(els.transactionTable.innerHTML)
   .map((row) => row.includes(`<span class="chip-text">${text}</span>`));
 const all = {dates: datesOf(els.transactionTable.innerHTML), flagged: flaggedOf(els.transactionTable.innerHTML),
-  revenue: tagged('Verified revenue')};
+  revenue: tagged('Revenue'), verified: tagged('Verified revenue')};
 transactionFilter = 'flagged'; renderMainTransactions();
 const flagged = datesOf(els.transactionTable.innerHTML);
 clickPayee(els.flaggedTable, 'factoring', 'FABRICATED FACTOR FUNDING');
@@ -839,7 +840,10 @@ console.log(JSON.stringify({all, flagged, clicked: {count: els.transactionCount.
     assert result["all"]["dates"] == ["2031-03-03", "2031-03-10", "2031-03-17", "2031-03-20", "2031-03-24"]
     # Every factoring row carries the chip, the payouts beside their revenue tag; the customer's credit carries none.
     assert result["all"]["flagged"] == [True, True, True, False, True]
+    # Rows of an analysis saved before the tiers: a credit its rules read as revenue is tagged "Revenue" (the owner's
+    # request of 2026-10-11: never "Verified revenue").
     assert result["all"]["revenue"] == [False, True, False, True, True]
+    assert not any(result["all"]["verified"])
     # The Flagged pill keeps the payouts with the debit.
     assert result["flagged"] == ["2031-03-03", "2031-03-10", "2031-03-17", "2031-03-24"]
     # A payee click shows the rows behind both of its counts: its debit and its two payouts.

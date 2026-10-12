@@ -486,7 +486,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_37():
+def test_analysis_stage_version_is_pinned_at_38():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -538,9 +538,13 @@ def test_analysis_stage_version_is_pinned_at_37():
     joins the printed-day NSF count: 34 -> 35. Audit round 3, R3-MERGE: the
     merge-back of the hosting line carries both parser fixes into round 3's
     readings, an analysis output neither line's entry holds, so the merge commit
-    moves the stage to the next free value above both lines: 36 -> 37. This is
-    that pin."""
-    assert ANALYSIS_STAGE_VERSION == 37
+    moves the stage to the next free value above both lines: 36 -> 37. The
+    owner's Amerifi Capital ruling (classification 5.9, 2026-10-11: a counted
+    lender, its debits read as a potential lender until then) moves the
+    classification 5.8 -> 5.9 and the stage with it, so Re-analyze misses a
+    stage-37 entry still stamped 5.8: 37 -> 38 (on the hosting line, ahead of
+    audit round 4, whose last batch takes 39). This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 38
 
 
 def test_paddle_model_token_is_not_in_free_models():
