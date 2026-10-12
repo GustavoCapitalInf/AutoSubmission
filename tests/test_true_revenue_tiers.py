@@ -307,6 +307,116 @@ def test_r4_90_a_platform_s_abbreviated_advance_is_never_verified(word, zelle):
         [_HELD_FINANCING] * 3, [_HELD_FINANCING] + [("verified", None)] * 4, [_HELD_FINANCING])
 
 
+# Audit round 4, R4-91 (§7.0, §7.2, §8.1, §8.9; the MCA principle, standard D4 and G5): a registry platform's
+# interest, dividend, rebate or reward is no settlement of the business's sales. It is held as the same row from any
+# other payer is (non_sale_purpose, reviewable), never Verified and never financing_named_payer.
+_NON_SALE_HELD = ("excluded_pending_review", "non_sale_purpose")
+_CHASE_PLATFORM = ("ORIG CO NAME:{payer} ORIG ID:0000000001 DESC DATE:540402 CO ENTRY DESCR:{entry} SEC:CCD "
+                   "TRACE#:000000000000001 EED:540402 IND ID:0001 IND NAME:NORTHWIND BAKERY LLC TRN: 0000000000TC")
+R4_91_ONE_ROW = (
+    ("square interest", "Bank of America", _PLATFORM_BOFA.format(payer="SQUARE INC", entry="INTEREST", n=1)),
+    ("paypal dividend", "Bank of America", _PLATFORM_BOFA.format(payer="PAYPAL", entry="DIVIDEND", n=1)),
+    ("stripe rebate", "Bank of America", _PLATFORM_BOFA.format(payer="STRIPE", entry="REBATE", n=1)),
+    ("shopify interest", "Bank of America", _PLATFORM_BOFA.format(payer="SHOPIFY", entry="INTEREST", n=1)),
+    ("uber rebate", "Bank of America", _PLATFORM_BOFA.format(payer="UBER USA", entry="REBATE", n=1)),
+    ("doordash rebates", "Bank of America", _PLATFORM_BOFA.format(payer="DOORDASH INC", entry="REBATES", n=1)),
+    ("clover rewards", "Bank of America", _PLATFORM_BOFA.format(payer="CLOVER", entry="REWARDS", n=1)),
+    ("paypal rewards", "Bank of America", _PLATFORM_BOFA.format(payer="PAYPAL", entry="REWARDS", n=1)),
+    ("chase square interest", "Chase", _CHASE_PLATFORM.format(payer="SQUARE INC", entry="INTEREST")),
+)
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+@pytest.mark.parametrize(("label", "bank", "text"), R4_91_ONE_ROW, ids=[case[0] for case in R4_91_ONE_ROW])
+def test_r4_91_a_platform_s_non_sale_credit_is_held_as_non_sale(label, bank, text, zelle):
+    # At c1cebca each was counted_flagged / platform_unconfirmed (the registry claimed it, so no hold read it).
+    assert _platform_readings([(text, 312.45)], bank=bank, zelle=zelle) == [_NON_SALE_HELD], label
+
+
+R4_91_VERIFIED_TODAY = (
+    ("square rebate beside four settlements", "Bank of America",
+     [(_PLATFORM_BOFA.format(payer="SQUARE INC", entry="REBATE", n=0), 312.45)] + _PLATFORM_SETTLEMENTS,
+     [_NON_SALE_HELD] + [("verified", None)] * 4),
+    ("two stripe interest rows", "Bank of America",
+     [(_PLATFORM_BOFA.format(payer="STRIPE", entry="INTEREST", n=n), 312.45 + n) for n in range(2)],
+     [_NON_SALE_HELD] * 2),
+    ("ach credit square rebate", None, [("ACH CREDIT SQUARE INC REBATE 000000", 312.45)], [_NON_SALE_HELD]),
+    ("ach credit stripe dividends", None, [("ACH CREDIT STRIPE DIVIDENDS 000000", 312.45)], [_NON_SALE_HELD]),
+    ("ach credit paypal rewards", None, [("ACH CREDIT PAYPAL REWARDS 000000", 312.45)], [_NON_SALE_HELD]),
+)
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+@pytest.mark.parametrize(("label", "bank", "rows", "expected"), R4_91_VERIFIED_TODAY,
+                         ids=[case[0] for case in R4_91_VERIFIED_TODAY])
+def test_r4_91_a_platform_s_non_sale_credit_never_verifies(label, bank, rows, expected, zelle):
+    # At c1cebca each non-sale row was Verified: recurring_operating_source beside the platform's settlements or its
+    # own repeat, operating_source_with_credit_context after a credit label.
+    assert _platform_readings(rows, bank=bank, zelle=zelle) == expected, label
+
+
+#: TD's statement furniture glued after a row (its footer and back panel), as R4-91's probe builds it: its INTEREST,
+#: FINANCE and ADVANCES words are the bank's, never the platform's (the revenue text and the pass text cut it).
+_TD_FURNITURE = (" NORTHWIND CALL 1 800 555 0100 FOR 24 HOUR BANK BY PHONE SERVICES TD BANK N A EQUAL HOUSING LENDER PAGE"
+                 " 2 ADD ANY INTEREST EARNED IF YOU HAVE AN INTEREST BEARING ACCOUNT THE FINANCE CHARGE BEGINS TO"
+                 " ACCRUE ON THE DATE ADVANCES AND OTHER DEBITS ARE POSTED INTEREST NOTICE TOTAL INTEREST CREDITED BY"
+                 " THE BANK")
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+def test_r4_91_controls(zelle):
+    # The settlements alone keep their verification (the pool counts four).
+    assert _platform_readings(_PLATFORM_SETTLEMENTS, zelle=zelle) == [("verified", None)] * 4
+    # A platform's advance stays financing, alone or beside its settlements.
+    assert _platform_readings([("ACH CREDIT SQUARE INC ADVANCE 000000", 312.45)], bank=None, zelle=zelle) == [
+        _HELD_FINANCING]
+    assert _platform_readings([(_PLATFORM_BOFA.format(payer="SQUARE INC", entry="ADVANCE", n=0), 312.45)]
+                              + _PLATFORM_SETTLEMENTS, zelle=zelle)[0] == _HELD_FINANCING
+    # The worded forms are the strong rule's, as before.
+    (worded,) = _records([(_PLATFORM_BOFA.format(payer="SQUARE INC", entry="INTEREST PAYMENT", n=1), 312.45)])
+    assert (worded.revenue_tier, worded.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
+    # A store-name platform printing the holder's own store name, whose word is a non-sale word: no non-sale word.
+    store = "DOORDASH INC DES:SAMPLE REWARDS ID:0001 INDN:SAMPLE REWARDS GRILL CO ID:0000000001 CCD"
+    assert _platform_readings([(store, 312.45)], holder="SAMPLE REWARDS GRILL LLC", zelle=zelle) == [
+        ("counted_flagged", "platform_unconfirmed")]
+    # TD's furniture glued to a Stripe real-time payout never makes it a non-sale credit.
+    td = "RTP RCVD STRIPE PAYMENTS COMPANY ST0000000000AB" + _TD_FURNITURE
+    assert _platform_readings([(td, 1834.55)], holder="NORTHWIND BAKERY LLC", bank="TD Bank", zelle=zelle) == [
+        ("verified", None)]
+    # Any other payer's rebate: held as before.
+    assert _platform_readings([(_PLATFORM_BOFA.format(payer="CONTOSO SUPPLY INC", entry="REBATE", n=1), 312.45)],
+                              zelle=zelle) == [_NON_SALE_HELD]
+
+
+def test_r4_91_the_platform_non_sale_reader():
+    from analysis import transaction_classifier as classifier
+
+    def decision_rule(text, holder="NORTHWIND BAKERY LLC", bank="Bank of America"):
+        (record,) = classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
+            Transaction(date="2054-04-02", description=text, amount=312.45, direction="credit")]))
+        return record.revenue_matched_rule
+
+    for label, _bank, text in R4_91_ONE_ROW:
+        entity = classifier._operating_source(classifier.revenue_text(text))
+        assert entity is not None, label
+        assert classifier.platform_non_sale_word(classifier.revenue_text(text), entity.entity, "NORTHWIND BAKERY LLC")
+    for text in ("ACH CREDIT SQUARE INC REBATE 000000", "ACH CREDIT STRIPE DIVIDENDS 000000"):
+        assert decision_rule(text) == classifier.PLATFORM_NON_SALE_RULE == "platform_non_sale_word", text
+    assert decision_rule(_PLATFORM_BOFA.format(payer="SQUARE INC", entry="REBATE", n=1)) == "platform_non_sale_word"
+    for text, entity, holder in (
+        (_PLATFORM_BOFA.format(payer="SQUARE INC", entry="SETTLEMENT", n=1), "Square", "NORTHWIND BAKERY LLC"),
+        (_PLATFORM_BOFA.format(payer="STRIPE", entry="PAYOUT", n=1), "Stripe", "NORTHWIND BAKERY LLC"),
+        ("DOORDASH INC DES:SAMPLE REWARDS ID:0001 INDN:SAMPLE REWARDS GRILL CO ID:0000000001 CCD", "DoorDash",
+         "SAMPLE REWARDS GRILL LLC"),
+        ("RTP RCVD STRIPE PAYMENTS COMPANY ST0000000000AB" + _TD_FURNITURE, "Stripe", "NORTHWIND BAKERY LLC"),
+    ):
+        assert not classifier.platform_non_sale_word(classifier.revenue_text(text), entity, holder), text
+    for word in ("INTEREST", "DIVIDEND", "DIVIDENDS", "REBATE", "REBATES", "REWARD", "REWARDS"):
+        assert classifier._PLATFORM_NON_SALE_WORD.search(f"SQUARE INC {word} 1"), word
+    for word in ("INTERESTS", "REWARDING", "XREBATE", "DIVIDENDO"):
+        assert classifier._PLATFORM_NON_SALE_WORD.search(word) is None, word
+
+
 @pytest.mark.parametrize("text", [
     "CONTOSO BAKERY DES:TRANSFER ID:1",
     "CONTOSO BAKERY LLC DES:XFER ID:1 CCD",

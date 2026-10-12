@@ -5711,6 +5711,22 @@ def registry_financing(record: TransactionClassification, text: str) -> bool:
     return False
 
 
+def registry_non_sale(record: TransactionClassification, text: str) -> bool:
+    """§8.1, §8.9 (audit round 4, R4-91; the MCA principle, standard D4 and G5): a registry row whose row before its
+    receiver fields prints a non-sale word (the classifier's _PLATFORM_NON_SALE_WORD: INTEREST, DIVIDEND(S), REBATE(S),
+    REWARD(S)), the holder's own words aside on a store-name platform (_own_words, as registry_financing reads them).
+    Such a row is not claimed by the registry (_claimed), so _first_hold's non-sale hold reads it as it reads the same
+    row from any other payer: held as non_sale_purpose, never platform_unconfirmed and never financing_named_payer."""
+    if record.revenue_match_method not in _REGISTRY_METHODS:
+        return False
+    classifier = _classifier()
+    own = _own_words(record, text)
+    return any(
+        not _own_word(found.group(0), own)
+        for found in classifier._PLATFORM_NON_SALE_WORD.finditer(classifier._before_receiver(text))
+    )
+
+
 def _payout_entity(text: str) -> PayeeMatch | None:
     """§8.9: the payout-credit entity (PAYOUT_CREDIT_ENTITIES) the row names, read without the receiver field's value
     (§5.2: the holder's name never names a payer, as the 5.5 readers read the operating alias); or None."""
@@ -5770,11 +5786,13 @@ def _claimed(record: TransactionClassification, text: str) -> bool:
     holds); the insurer, possible-return, pay, personal-income and payroll-tax holds and the $1 floor still read it.
     Audit round 3, R3-B14 (R3-06): a payout entity's or a financier's credit printing a non-sale or financing word
     (_payout_non_sale: an advance, capital, interest, a dividend or a rebate) is not claimed, so the holds read it as
-    they read the same row from any other payer; the payout_credit_entity tier arm is unchanged."""
+    they read the same row from any other payer; the payout_credit_entity tier arm is unchanged. Audit round 4, R4-91:
+    nor is a registry row printing a non-sale word (registry_non_sale: interest, a dividend, a rebate or a reward), so
+    the non-sale hold reads it."""
     if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
         return True
     if record.revenue_match_method in _REGISTRY_METHODS:
-        return not registry_financing(record, text)
+        return not registry_financing(record, text) and not registry_non_sale(record, text)
     if record.classification == "factoring":
         return True
     if _payout_entity(text) is not None and not _payout_non_sale(record, text):

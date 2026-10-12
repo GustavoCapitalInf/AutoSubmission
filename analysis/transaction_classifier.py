@@ -4415,6 +4415,24 @@ def _operating_source_decision(
             source_type=source_type,
             context_signals=("credit_direction", "maintained_operating_source", "financing_entry"),
         )
+    if platform_non_sale_word(text, entity, account_name if holder is None else holder):
+        # Audit round 4, R4-91 (§7.2): a platform's interest, dividend, rebate or reward is no settlement of sales,
+        # never verified here; the pass never claims it (true_revenue.registry_non_sale) and holds it as
+        # non_sale_purpose.
+        return _RevenueDecision(
+            "unverified_deposit",
+            entity,
+            "operating_source_requires_context",
+            alias,
+            PLATFORM_NON_SALE_RULE,
+            0.50,
+            (
+                f"Credit matched maintained {source_type or 'operating-source'} alias '{alias}', but it prints a "
+                "non-sale word (interest, a dividend, a rebate or a reward): never the platform's settlement of sales."
+            ),
+            source_type=source_type,
+            context_signals=("credit_direction", "maintained_operating_source", "platform_non_sale_word"),
+        )
     has_context = source_type not in {"property_management_payments", "wholesale_auto_auction"} and (
         _has_operating_context(text, source, bank=bank)
     )
@@ -6975,7 +6993,9 @@ def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bo
     """5.5 (§7.0): the worded part of the recurrence veto: payroll, a veto word or card-credit label, or FUNDING
     outside the three platforms that print it on settlements (review C2). Audit round 4, R4-90: on a registry row (one
     that names an entity), an abbreviated advance (ADVNC, ADVN, ADVC: _ABBREVIATED_ADVANCE_WORD), read beside the veto
-    words as ADVANCE and ADV are read among them, the holder's own words aside on a store-name platform."""
+    words as ADVANCE and ADV are read among them, the holder's own words aside on a store-name platform. Audit round 4,
+    R4-91: on a registry row, a non-sale word too (platform_non_sale_word: INTEREST, DIVIDEND(S), REBATE(S),
+    REWARD(S)), so such a credit never counts toward an entity's recurrence and is never lifted by it."""
     entity = record.revenue_canonical_entity
     # Audit B9 (I13): the holder's own words are read on the holder's name when the parser read it.
     holder = holder_reading(record.account_name, record.holder_name)
@@ -6987,6 +7007,7 @@ def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bo
             and _recurrence_veto_word(text, holder, entity, _FUNDING_WORD)
         )
         or (entity is not None and _recurrence_veto_word(text, holder, entity, _ABBREVIATED_ADVANCE_WORD))
+        or (entity is not None and platform_non_sale_word(text, entity, holder))
     )
 
 
@@ -7109,6 +7130,28 @@ def platform_entry_leads_with_financing(text: str, entity: str | None, account_n
     if entity in _STORE_NAME_PAYOUT_ENTITIES and _store_name_run(words, text, account_name):
         return False
     return not (found.group(0) in {"FUNDING", "FUNDED"} and entity in _FUNDING_SETTLEMENT_ENTITIES)
+
+
+#: Audit round 4, R4-91 (§7.0, §7.2, §8.1, §8.9; the MCA principle, standard D4 and G5): a registry platform's
+#: interest, dividend, rebate or reward is no settlement of the business's sales (the same words from any other payer
+#: are held as non_sale_purpose). Read beside the recurrence veto and the platform's financing-entry refusal, never
+#: inside _RECURRENCE_VETO or _OPERATING_FINANCING_VETO (which also read named payers' rows), and never inside
+#: _PAYOUT_NON_SALE_CREDIT (REWARDS there would move Cherry's and the OQ2 entities' readings). The worded forms
+#: (INTEREST PAYMENT, INTEREST EARNED, FEE REBATE, CASHBACK) are the strong rule's, before this.
+_PLATFORM_NON_SALE_WORD = re.compile(r"(?<![A-Z])(?:INTEREST|DIVIDENDS?|REBATES?|REWARDS?)\b")
+#: Audit round 4, R4-91: the matched rule of an operating-registry credit that prints a non-sale word.
+PLATFORM_NON_SALE_RULE = "platform_non_sale_word"
+
+
+def platform_non_sale_word(text: str, entity: str | None, account_name: str | None = None) -> bool:
+    """Audit round 4, R4-91 (§7.0, §7.2): a registry platform's row prints a non-sale word (_PLATFORM_NON_SALE_WORD:
+    INTEREST, DIVIDEND(S), REBATE(S), REWARD(S)) on the row before its receiver fields, read as the recurrence veto
+    reads its words (_recurrence_veto_word): on a store-name platform the holder's own words are spared ('DOORDASH INC
+    DES:<store> REWARDS ... INDN:<store> REWARDS GRILL' prints no non-sale word). Such a credit is never verified by
+    its own context (_operating_source_decision), never counts toward recurrence and is never lifted by it
+    (_recurrence_veto_wording), and the true-revenue pass never claims it (true_revenue.registry_non_sale), so it is
+    held as non_sale_purpose, as the same row from any other payer is."""
+    return _recurrence_veto_word(text, account_name, entity, _PLATFORM_NON_SALE_WORD)
 
 
 def _in_operating_pool(record: TransactionClassification) -> bool:
