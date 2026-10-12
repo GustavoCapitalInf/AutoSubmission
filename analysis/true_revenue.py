@@ -5118,12 +5118,25 @@ def debited_as_lender(credit: CounterCredit, debits: CounterDebits, *, prefix: b
     person-to-person or push credit from a named person (its person_key) also matches a lender debit printing that
     whole name. Review round 1: the whole name is one more arm, never the only one: the first word, the B4 forms and
     the prefix still read such a credit, since this hold never lets a funder's money into True (a funder printing no
-    legal form, pushing by a real-time or Zelle rail and pulling under a glued or one-word name)."""
+    legal form, pushing by a real-time or Zelle rail and pulling under a glued or one-word name).
+
+    Audit round 4, R4-45 (§20 B4's guard premise, "Generic words ... never make the counter-debit word"; standard A1:
+    MERCHANT names no party; the underwriter's Q9 of 2026-10-02, the hidden-loan guard, kept): 5.6's first-word arm
+    matches only when that word is no generic word (classifier._COUNTER_DEBIT_GENERIC_WORDS), so a MERCHANT left first
+    after a cut label (Scotiabank's and RBC's INVESTMENT, CIBC's pre-authorized-debit label) or printed first by a funder
+    ('MERCHANT FABRIKAM FUND') never holds a customer whose own first word is MERCHANT; a funder is still caught by its
+    own name word, its registry entity, the B4 forms, the prefix or the financing hold. Read by pass 7, _payer_collects
+    and the classifier's pass 6 alike; also_debited's 5.6 match for circular money is unchanged. MERCH stays no generic
+    word (RBC's 'Investment MERCH PAD', a registered potential lender's printed name)."""
     reading = credit.lender_reading if credit.lender_reading is not None else credit.reading
+    generic = _classifier()._COUNTER_DEBIT_GENERIC_WORDS
     for debit in debits.lender:
         if credit.person_key is not None and credit.person_key in debit.reading.keys:
             return True
-        if reading.legacy is not None and reading.legacy == debit.reading.legacy:
+        if (
+            reading.legacy is not None and reading.legacy not in generic
+            and reading.legacy == debit.reading.legacy
+        ):
             return True
         if credit.entity is not None and debit.entity is not None:
             if credit.entity == debit.entity:

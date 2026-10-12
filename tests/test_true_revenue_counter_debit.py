@@ -1769,3 +1769,73 @@ def test_r4_44_the_receiving_fee_beside_its_wires_never_holds_them(orig):
     if orig[0].isdigit():
         # A numbered company is counted, never verified.
         assert {tier for tier, _ in with_fees} == {"counted_flagged"}
+
+
+# R4-45 (§20 B4's guard premise, "Generic words ... never make the counter-debit word"; standard A1: MERCHANT names no
+# party; the underwriter's Q9 of 2026-10-02, the hidden-loan guard, kept: a funder is still caught by its own name word,
+# its registry entity, the B4 forms, the prefix arm or the financing hold): a lender debit matches a credit on 5.6's
+# first word only when that word is no generic word, so a MERCHANT left first after a cut label (Scotiabank's and RBC's
+# INVESTMENT, CIBC's pre-authorized-debit label) or printed first by a funder never holds a customer whose own first
+# word is MERCHANT. Merchant Growth by its registered name; fabricated customers and funders.
+
+R4_45_HOLDER = "NORTHWIND CATERING LTD"
+ONE_OFF = ("counted_flagged", "named_payer_one_off")
+UNLABELLED_COUNTED = ("counted_flagged", "named_payer_unlabelled")
+
+
+def _r4_45(credit, debit, bank, *, amount=1875.40):
+    """A credit and six lender debits of 312.00: the credit's tier and reason, and the debits' classifications."""
+    records = _r3_b17([(credit, amount), *[(debit, -312.0)] * 6], bank, holder=R4_45_HOLDER)
+    return [_tier(record) for record in _credits(records)], {
+        record.classification for record in records if record.amount < 0}
+
+
+@pytest.mark.parametrize(("credit", "debit", "bank", "reading"), [
+    pytest.param("MISC PAYMENT MERCHANT CONTOSO SALES", "INVESTMENT MERCHANT GROWTH FUND", "Scotiabank", ONE_OFF,
+                 id="scotia-investment-merchant-growth"),
+    pytest.param("MISC PAYMENT MERCHANT CONTOSO SALES", "PRE-AUTH DEBIT 0000000 MERCHANT FABRIKAM CAPITAL BUSINESS PAD",
+                 "CIBC", ONE_OFF, id="cibc-pre-auth-merchant"),
+    pytest.param("MERCHANT CONTOSO SALES", "MERCHANT FABRIKAM FUND", None, UNLABELLED_COUNTED,
+                 id="unlabelled-merchant-funder"),
+])
+def test_r4_45_a_generic_first_word_never_holds_a_customer_beside_a_funder(credit, debit, bank, reading):
+    from analysis.true_revenue import LENDER_DEBIT_STATES
+
+    tiers, classes = _r4_45(credit, debit, bank)
+    assert classes and classes <= set(LENDER_DEBIT_STATES)
+    # The credit reads as it does alone (counted), never payer_debited_as_lender.
+    alone = [_tier(record) for record in _credits(_r3_b17([(credit, 1875.40)], bank, holder=R4_45_HOLDER))]
+    assert tiers == alone == [reading]
+
+
+@pytest.mark.parametrize(("credit", "debit", "bank", "reading"), [
+    # The funder's own credit, and a funder named on both sides, stay out of True (its own funding's non_revenue, its
+    # name's keys, its financing root), as before.
+    pytest.param("MISC PAYMENT MERCHANT GROWTH FUND", "INVESTMENT MERCHANT GROWTH FUND", "Scotiabank",
+                 ("non_revenue", None), id="merchant-growth-own-credit"),
+    pytest.param("MERCHANT FABRIKAM", "MERCHANT FABRIKAM FUND", None, HELD_LENDER, id="unlabelled-funder-own-credit"),
+    pytest.param("MISC PAYMENT FABRIKAM FUNDING", "INVESTMENT FABRIKAM FUNDING", "Scotiabank", HELD_FINANCING,
+                 id="scotia-funder-by-name"),
+    pytest.param("MISC PAYMENT FABRIKAM FUNDING", "INVESTMENT SERVICES FABRIKAM FUNDING", "Scotiabank",
+                 HELD_FINANCING, id="scotia-funder-after-services"),
+    # The recorded MERCH reading: RBC's 'Investment MERCH PAD' is a registered potential lender's printed name.
+    pytest.param("MISC PAYMENT MERCH SERVICES", "Investment MERCH PAD", RBC, HELD_LENDER, id="rbc-merch-pad"),
+])
+def test_r4_45_a_funder_s_own_name_still_holds(credit, debit, bank, reading):
+    tiers, _ = _r4_45(credit, debit, bank)
+    assert tiers == [reading]
+
+
+def test_r4_45_debited_as_lender_skips_a_generic_legacy_word():
+    from analysis.true_revenue import debited_as_lender
+
+    merchant = _debits(lender=[("MERCHANT", ["FABRIKAMFUND"], None)])
+    assert not debited_as_lender(_counter("MERCHANT", ["CONTOSOSALES"]), merchant, prefix=False)
+    assert not debited_as_lender(_counter("MERCHANT", ["CONTOSOSALES"]), merchant, prefix=True)
+    contoso = _debits(lender=[("CONTOSO", ["FABRIKAMFUND"], None)])
+    assert debited_as_lender(_counter("CONTOSO", ["CONTOSOSALES"]), contoso, prefix=False)
+    # The other arms still read a generic-led name: shared keys, the registry entity.
+    shared = _debits(lender=[("MERCHANT", ["MERCHANTFABRIKAM"], None)])
+    assert debited_as_lender(_counter("MERCHANT", ["MERCHANTFABRIKAM"]), shared, prefix=False)
+    entity = _debits(lender=[("MERCHANT", ["FABRIKAMFUND"], "Sample Lender")])
+    assert debited_as_lender(_counter("MERCHANT", ["CONTOSOSALES"], entity="Sample Lender"), entity, prefix=False)
