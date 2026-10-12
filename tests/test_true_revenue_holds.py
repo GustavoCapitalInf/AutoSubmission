@@ -309,6 +309,72 @@ def test_r3_18_the_pattern_is_shared_with_the_payer_less_deposit_reading():
     assert tr._WIRE_TRADE_PURPOSE.search("ADV PAYM") and not tr._WIRE_TRADE_PURPOSE.search("MERCHANT ADV PMT")
 
 
+# Audit round 4, R4-12 (§8.1, T4; standard C1, MCA fundings excluded): a merchant or business advance's purpose printed
+# abbreviated (MERCH, MRCH, MRCHNT, MCHT, RBF, BUSINESS, BUS before ADV PMT) or reordered ('ADV PMT MERCHANT') is the
+# underwritten product's own name, never a buyer's advance payment: the wire's purpose and a payer-less deposit's
+# reading keep the ADV root, so the row holds (financing_named_payer).
+R4_12_PURPOSES = (
+    "MERCH ADV PMT", "MRCH ADV PMT", "MRCHNT ADV PMT", "MCHT ADV PMT",
+    "MERCH ADV PAYMENT", "MERCH ADVANCE PAYMENT", "MERCH ADVANCE PMT",
+    "BUSINESS ADV PMT", "BUS ADV PMT", "BUSINESS ADVANCE PAYMENT",
+    "ADV PMT MERCHANT", "ADV PMT MERCH", "RBF ADV PMT",
+    # R4-B11's abbreviated advances after the same words (the run order's merge note).
+    "MERCH ADVNC PMT", "BUSINESS ADVN PMT",
+)
+R4_12_CHASE = ("FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: FABRIKAM VENTURES REF: CHASE NYC/CTR/BNF=NORTHWIND "
+               "BAKERY LLC /OBI={purpose} IMAD: 1")
+R4_12_WELLS = ("WT FED#01234 SAMPLE BANK /ORG=FABRIKAM VENTURES SRF# 2054010200000 TRN#540102000001 RFB# AB12 "
+               "OBI={purpose}")
+
+
+@pytest.mark.parametrize("purpose", R4_12_PURPOSES)
+def test_r4_12_a_merchant_or_business_advance_purpose_on_a_wire_holds(purpose):
+    text = R318_BOFA.format(orig="FABRIKAM VENTURES", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == FINANCING
+
+
+@pytest.mark.parametrize(("bank", "text"), [
+    ("Chase", R4_12_CHASE.format(purpose="MERCH ADV PMT")),
+    ("Chase", R4_12_CHASE.format(purpose="BUSINESS ADV PMT")),
+    ("Wells Fargo", R4_12_WELLS.format(purpose="ADV PMT MERCHANT")),
+])
+def test_r4_12_the_chase_and_wells_purpose_fields_hold_too(bank, text):
+    assert _one(text, 23456.78, bank=bank) == FINANCING
+
+
+@pytest.mark.parametrize("text", [
+    "MOBILE DEPOSIT MERCH ADV PMT", "MOBILE DEPOSIT ADV PMT MERCHANT", "COUNTER CREDIT BUSINESS ADV PMT",
+    "COUNTER CREDIT MRCH ADV PMT",
+])
+def test_r4_12_a_payer_less_deposit_printing_a_merchant_advance_purpose_holds(text):
+    assert _one(text, 2345.67, bank="Bank of America") == FINANCING
+
+
+@pytest.mark.parametrize("purpose", [
+    "ADV PAYM", "ADV PAYMENT FOR PO 1234", "ADV PMT", "ADV PYMT", "ADV PMT INV 1234", "ADVANCE PYMT", "ADV PMT FOR GOODS",
+    "MERCHANDISE ADV PMT", "FACTOR ADV PMT", "RECEIVABLES ADV PMT", "FRUITS DE MER ADV PMT",
+])
+def test_r4_12_controls_a_buyer_s_advance_payment_stays_counted(purpose):
+    text = R318_BOFA.format(orig="FABRIKAM VENTURES", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == WIRE
+
+
+def test_r4_12_controls_the_other_readings_keep_theirs():
+    for purpose in ("MERCHANT ADV PMT", "CASH ADV PMT", "MERCHANT ADVANCE PAYMENT"):
+        assert _one(R318_BOFA.format(orig="FABRIKAM VENTURES", purpose=purpose), 23456.78,
+                    bank="Bank of America") == FINANCING, purpose
+    assert _one(R318_BOFA.format(orig="FABRIKAM VENTURES", purpose="MCA ADV PMT"), 23456.78,
+                bank="Bank of America")[0] == "non_revenue"
+    assert _one("MOBILE DEPOSIT ADV PMT", 2345.67, bank="Bank of America") == CHECK
+    assert _one("ATM CASH DEPOSIT 1234 ADV PMT", 2345.67, bank="Bank of America") == NO_PAYER
+    assert tr._WIRE_TRADE_PURPOSE.search("MERCH ADV PMT") is None
+    assert tr._WIRE_TRADE_PURPOSE.search("BUSINESS ADV PMT") is None
+    assert tr._WIRE_TRADE_PURPOSE.search("ADV PAYM") is not None
+    assert tr._without_trade_purpose("ADV PMT MERCHANT") == "ADV PMT MERCHANT"
+    assert tr._without_trade_purpose("ADV PMT FOR GOODS").split() == ["FOR", "GOODS"]
+    assert tr._without_trade_purpose("MERCHANDISE ADV PMT").split() == ["MERCHANDISE"]
+
+
 # Audit round 4, R4-90 (§8.1): the abbreviated advances (ADVNC, ADVN, ADVC) are one shared alternation
 # (true_revenue.ABBREVIATED_ADVANCE, which the classifier imports); the two patterns built from it match what they
 # matched before it was shared. (word, _PAYOUT_NON_SALE_CREDIT, _REGISTRY_FINANCING_WORDS), read at c1cebca.

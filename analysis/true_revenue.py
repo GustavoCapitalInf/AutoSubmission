@@ -129,11 +129,28 @@ _WAVE_PAYOUT_ENTRY = re.compile(r"(?<![A-Z])WAVE (?:[A-Z0-9]{2,6} )?FUNDIN WAVE\
 #: entry's 'DES:ADV PMT' keeps its root) and a payer-less deposit's reading (_deposit_location_reading). Audit round 4,
 #: R4-90: and the abbreviated advances (ABBREVIATED_ADVANCE: ADVNC, ADVN, ADVC) before the same payment words, so a
 #: buyer's 'ADVNC PMT' on a named non-lender's wire is trade money while 'ADVNC' alone, 'MERCHANT ADVNC PMT' and 'CASH
-#: ADVN PMT' keep the abbreviated root; still one pattern, shared by both readers.
+#: ADVN PMT' keep the abbreviated root; still one pattern, shared by both readers. Audit round 4, R4-12 (§8.1, T4;
+#: standard C1, MCA fundings excluded): and never after the abbreviated merchant words (MERCH, MRCH, MRCHNT, MCHT), RBF,
+#: BUSINESS or BUS either (a merchant or business advance's own name); a purpose printing a merchant-advance word
+#: anywhere ('ADV PMT MERCHANT') keeps its root too (_without_trade_purpose).
 _WIRE_TRADE_PURPOSE = re.compile(
-    rf"(?<![A-Z])(?<!MERCHANT )(?<!CASH )(?<!MCA )(?:(?:ADVANCE|{ABBREVIATED_ADVANCE}|ADV) (?:PAYM\w*|PMTS?|PYMTS?)"
-    r"|PRE ?PAYMENTS?)(?![A-Z])"
+    rf"(?<![A-Z])(?<!MERCHANT )(?<!CASH )(?<!MCA )(?<!MERCH )(?<!MRCH )(?<!MRCHNT )(?<!MCHT )(?<!RBF )(?<!BUSINESS )"
+    rf"(?<!BUS )(?:(?:ADVANCE|{ABBREVIATED_ADVANCE}|ADV) (?:PAYM\w*|PMTS?|PYMTS?)|PRE ?PAYMENTS?)(?![A-Z])"
 )
+#: Audit round 4, R4-12: the merchant-advance words (the underwritten product's own name: MERCHANT and its
+#: abbreviations MERCH, MRCH, MRCHNT, MCHT, and MCA, RBF), whole words only, so MERCHANDISE never matches. MER is none:
+#: a seafood buyer's 'FRUITS DE MER ADV PMT' is a trade purpose.
+_MERCHANT_ADVANCE_WORDS = re.compile(r"(?<![A-Z])(?:MERCHANT|MERCH|MRCH|MRCHNT|MCHT|MCA|RBF)(?![A-Z])")
+
+
+def _without_trade_purpose(text: str) -> str:
+    """Audit round 4, R4-12 (§8.1, T4; standard C1): `text` without a buyer's advance payment or prepayment for goods
+    (_WIRE_TRADE_PURPOSE), unless it prints a merchant-advance word anywhere (_MERCHANT_ADVANCE_WORDS: the reordered 'ADV
+    PMT MERCHANT'), when it is returned unchanged and its ADV root still reads. Read on a wire's purpose
+    (_financing_root_places) and on a payer-less deposit's reading (_deposit_location_reading)."""
+    if _MERCHANT_ADVANCE_WORDS.search(text) is not None:
+        return text
+    return _WIRE_TRADE_PURPOSE.sub(" ", text)
 #: §8.1, T4 (audit B7: I16): a whole-word CREDIT after a single letter that ends the payer region is the entry word a
 #: layout prints after an originator name its field cut ('<NAME> P CREDIT', a sixteen-character name and its entry).
 #: Audit round 2, R2-B09 (R06): so is the ACH entry 'CREDIT NONE' ending the region after a cut name ('<NAME> CREDIT
@@ -2117,7 +2134,8 @@ def _financing_root_places(
         if entry:
             purpose = _HOLD_POSTING_LABELS.sub(" ", entry)
             if wire:
-                purpose = _WIRE_TRADE_PURPOSE.sub(" ", purpose)
+                # Audit round 4, R4-12: never on a purpose printing a merchant-advance word (_without_trade_purpose).
+                purpose = _without_trade_purpose(purpose)
             reading = _root_reading(purpose, account_name, bank, p2p=False, also=also)
             if fires(reading):
                 entry_place = reading
@@ -2183,7 +2201,8 @@ def _deposit_location_reading(
     for location in (_DEPOSIT_PLACE, _DEPOSIT_BRANCH_NAME, _DEPOSIT_TOWN_TAIL):
         words = location.sub(lambda found: _deposit_location_removal(found, bank=bank), words)
     words = _DEPOSIT_TRADE_PURPOSE.sub(" ", words)
-    words = _WIRE_TRADE_PURPOSE.sub(" ", words)
+    # Audit round 4, R4-12: a merchant or business advance's purpose keeps its ADV root (_without_trade_purpose).
+    words = _without_trade_purpose(words)
     split = words.split()
     return " ".join(
         word for index, word in enumerate(split)
