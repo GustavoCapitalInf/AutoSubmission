@@ -401,8 +401,10 @@ def _section_rows(rows, prefix=""):
 
 def test_l8_the_statement_downloads_write_the_metric_rows_and_one_section_per_flag():
     csv_rows, xlsx_rows, exported = _statement_downloads(_payload(L1))
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): every field but the counted tier's reason
+    # (`revenue_tier_reason`), which the JSON download keeps (below).
     expected = [[f"large_unsourced_deposit_{number}", field, item[field]]
-                for number, item in enumerate(L1_FLAGS, start=1) for field in item]
+                for number, item in enumerate(L1_FLAGS, start=1) for field in item if field != "revenue_tier_reason"]
     as_text = [[section, field, str(value)] for section, field, value in expected]
     assert _section_rows(csv_rows) == as_text
     assert _section_rows(xlsx_rows) == [[section, field, float(value) if isinstance(value, float) else value]
@@ -440,11 +442,14 @@ def test_l8_the_package_downloads_write_one_section_per_flag_after_the_debit_fla
     exported = _masked(_package_for_export(_package(("mar", march), ("apr", april))))
     assert exported["debit_flags"]
     rows = list(csv.reader(io.StringIO(_package_csv(exported))))
-    fields = ("source_location", "date", "description", "amount", "revenue_tier_reason", "share_of_true_percent",
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): no counted reason (`revenue_tier_reason`) in
+    # the downloads; the served package (the JSON download) keeps it.
+    fields = ("source_location", "date", "description", "amount", "share_of_true_percent",
               "source_job", "source_document", "source_account", "source_currency")
     assert [row[1] for row in rows if row[0] == "large_unsourced_deposit_1"] == list(fields)
     assert [row[2] for row in rows if row[0] == "large_unsourced_deposit_3"] == [
-        "transaction:7", "2033-04-13", CHECK, "30000.0", "check_deposit", "54.5", "apr", "apr.pdf", "", "USD"]
+        "transaction:7", "2033-04-13", CHECK, "30000.0", "54.5", "apr", "apr.pdf", "", "USD"]
+    assert exported["large_unsourced_deposits"][2]["revenue_tier_reason"] == "check_deposit"
     sections = [row[0] for row in rows]
     assert max(index for index, section in enumerate(sections) if section.startswith("debit_flag_")) < sections.index(
         "large_unsourced_deposit_1")

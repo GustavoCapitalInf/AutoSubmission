@@ -249,14 +249,18 @@ def test_the_true_revenue_mode_deducts_only_counted_internal_transfer_credits():
 
 
 def test_the_exports_write_the_by_reason_figures_as_readable_rows():
+    """§10.8: the held tier's by-reason figures are readable rows. The owner's request of 2026-10-11 (§2.2, §10.8): the
+    counted tier's are no rows of the downloads at all (the served payload keeps them)."""
     from webapp.app import _analysis_rows, _package_rows
-    rows = _analysis_rows(_payload())
+    payload = _payload()
+    rows = _analysis_rows(payload)
     assert ("revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in rows
-    assert ("revenue_tier", "counted_flagged.check_deposit.count", 1) in rows
-    assert not any(field == "counted_flagged_by_reason" for _section, field, _value in rows)
+    assert not any(field.startswith("counted_flagged") for _section, field, _value in rows)
+    assert payload["metrics"]["counted_flagged_by_reason"] == {"check_deposit": {"count": 1, "total": 300.0}}
     package_rows = _package_rows(_package(_payload()))
     assert ("revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in package_rows
-    assert ("document_1.revenue_tier", "counted_flagged.check_deposit.total", 300.0) in package_rows
+    assert ("document_1.revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in package_rows
+    assert not any(field.startswith("counted_flagged") for _section, field, _value in package_rows)
 
 
 def test_the_review_routes_reject_a_rule_verified_credit_and_refuse_its_confirm():
@@ -418,7 +422,8 @@ def test_a_member_with_no_rows_and_no_stored_verified_figure_has_none():
     row = package["documents"][1]
     assert not row["verified_revenue_established"]
     assert row["verified_revenue_total"] is None and row["confirmed_true_revenue_total"] is None
-    assert ("document_2", "verified_revenue_total", "") in _package_rows(package)
+    # The owner's request of 2026-10-11 (§2.2, §10.8): the downloads write no Verified figure at all.
+    assert not any(field.startswith("verified_revenue") for _section, field, _value in _package_rows(package))
     assert package["totals"]["verified_revenue_total"] is None
     # A stored figure is kept as stored (T10), under the not-established flag.
     stored = copy.deepcopy(bare)
@@ -466,9 +471,11 @@ def test_a_mixed_currency_package_refuses_the_by_reason_money_and_keeps_the_coun
             totals["revenue_review_items"]) == (4, 2, 2, 2)
     assert totals["true_revenue_total"] is None
     rows = _package_rows(package)
-    assert ("revenue_tier", "counted_flagged.check_deposit.total", "") in rows
-    assert ("revenue_tier", "counted_flagged.check_deposit.count", 2) in rows
-    assert ("document_2.revenue_tier", "counted_flagged.check_deposit.total", 300.0) in rows
+    # The owner's request of 2026-10-11 (§2.2, §10.8): the downloads write the held reasons (counted ones are no rows).
+    assert ("revenue_tier", "excluded_pending_review.financing_named_payer.total", "") in rows
+    assert ("revenue_tier", "excluded_pending_review.financing_named_payer.count", 2) in rows
+    assert ("document_2.revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in rows
+    assert not any(field.startswith("counted_flagged") for _section, field, _value in rows)
 
 
 @pytest.mark.parametrize(("held", "gated"), [(1000.0, True), (999.0, False)])
@@ -791,11 +798,15 @@ def test_a_statement_download_leaves_unestablished_revenue_empty():
     exported = _displayed(short, settings={}, export=True)
     assert served["metrics"]["revenue_established"] is False and served["metrics"]["true_revenue_total"] == 1000.0
     cells = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(exported)) if len(row) == 3}
-    for key in ("true_revenue", "true_revenue_total", "true_revenue_count", "counted_flagged_total",
-                "counted_flagged_count", "excluded_pending_review_total", "excluded_pending_review_count",
-                "revenue_review_items", "unverified_deposit_total", "potential_revenue_total", "maximum_revenue",
-                "verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total"):
+    for key in ("true_revenue", "true_revenue_total", "true_revenue_count", "excluded_pending_review_total",
+                "excluded_pending_review_count", "revenue_review_items", "maximum_revenue"):
         assert cells[("metrics", key)] == "", key
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the Verified and Counted figures, 5.4's
+    # unverified deposits and their aliases are not written at all; the JSON download keeps them (empty here).
+    for key in ("counted_flagged_total", "counted_flagged_count", "unverified_deposit_total", "potential_revenue_total",
+                "verified_revenue_total", "confirmed_true_revenue", "confirmed_true_revenue_total"):
+        assert ("metrics", key) not in cells, key
+        assert exported["metrics"][key] is None, key
     assert cells[("metrics", "non_revenue_total")] == "100.0"
     assert cells[("metrics", "revenue_established")] == "False"
     assert not any(row[0] == "revenue_tier" for row in _csv_cells(_analysis_csv(exported)))
@@ -852,22 +863,24 @@ def test_the_xlsx_writes_money_as_numbers_and_flags_as_booleans():
 
 
 def test_the_statement_downloads_list_every_posted_credit_on_its_own_row():
-    """I32: one row per posted credit with its date, description, amount, currency, tier, reason, state and review
-    status, so True can be checked deposit by deposit."""
+    """I32: one row per posted credit with its date, description, amount, currency, tier, reason and review status, so
+    True can be checked deposit by deposit. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): a credit
+    in True revenue reads `true_revenue` with no reason, verified or counted alike, and no `state` column (the 5.4
+    state) is written."""
     from webapp.app import _analysis_csv, _displayed
 
     rows = [row for row in _csv_cells(_analysis_csv(_displayed(_payload(), settings={}, export=True)))
             if row[0] == "posted_credit"]
     assert rows[0] == ["posted_credit", "columns", "date", "description", "amount", "currency", "tier", "reason",
-                       "state", "review_status"]
+                       "review_status"]
     credits = rows[1:]
     assert [(row[3], row[4], row[5], row[6], row[7]) for row in credits] == [
-        ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "700.0", "USD", "verified", ""),
-        ("MOBILE DEPOSIT", "300.0", "USD", "counted_flagged", "check_deposit"),
+        ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "700.0", "USD", "true_revenue", ""),
+        ("MOBILE DEPOSIT", "300.0", "USD", "true_revenue", ""),
         ("FABRIKAM FUNDING LLC DES:PAYMENT ID:1", "900.0", "USD", "excluded_pending_review", "financing_named_payer"),
         ("INTERNAL TRANSFER FROM SAVINGS", "100.0", "USD", "non_revenue", ""),
     ]
-    assert sum(float(row[4]) for row in credits if row[6] in ("verified", "counted_flagged")) == 1000.0
+    assert sum(float(row[4]) for row in credits if row[6] == "true_revenue") == 1000.0
     # A document of several accounts writes one block per account, each under its section prefix.
     document_rows = _csv_cells(_analysis_csv(_pair_document(4000.0, 500.0)))
     assert {row[0] for row in document_rows if row[0].endswith("posted_credit")} == {"account_1.posted_credit"}
@@ -945,11 +958,12 @@ def _two_accounts_with_debits():
 
 def test_the_statement_xlsx_keeps_every_cell_under_the_limit_and_the_csv_keeps_the_ledger_whole():
     """R53: no XLSX cell holds more than Excel's 32,767 characters; the ledger cell, over it, says what it held and
-    points to the JSON download (never a cut JSON). The CSV, which has no such limit, keeps the whole ledger."""
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+    points to the JSON download (never a cut JSON). The CSV, which has no such limit, keeps the whole ledger, as the
+    downloads read it (the owner's request of 2026-10-11: `_downloads_view`, no Verified or Counted tier)."""
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed, _downloads_view
 
     served = _displayed(_forty_payload(), settings={}, export=True)
-    ledger = json.dumps(served["statement"]["transactions"])
+    ledger = json.dumps(_downloads_view(served)["statement"]["transactions"])
     assert _utf16(ledger) > _XLSX_CELL_LIMIT
     rows = _sheet_rows(_analysis_xlsx(served))
     assert all(_utf16(value) <= _XLSX_CELL_LIMIT for row in rows for value in row if isinstance(value, str))
@@ -1055,41 +1069,55 @@ def test_a_short_statement_xlsx_changes_only_by_the_debit_block_and_a_package_xl
 
 
 def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_account():
-    """I32: counted (in True) and held (out of it) credits get their own sections, each record naming its currency
-    and account; the combined ledger is written one posting a row."""
-    from webapp.app import _package_csv, _package_rows
+    """I32: credits in True and held ones (out of it) get their own sections, each record naming its currency and
+    account; the combined ledger is written one posting a row. The owner's request of 2026-10-11 (true revenue spec
+    §2.2, §10.8): the credits in True revenue are one section, `true_revenue_evidence_N`, verified and counted alike
+    (tier `true_revenue`, no counted reason); there is no Verified, Counted or 5.4 unverified section, and the ledger has
+    no `state` column. The served package keeps every list."""
+    from webapp.app import _package_csv
 
-    package = _package(_payload(), _untiered(_payload(month=4)))
-    rows = _package_rows(package)
-    sections = {section.rsplit("_", 1)[0] for section, _field, _value in rows if section.endswith(tuple("0123456789"))}
-    assert {"verified_revenue_evidence", "counted_flagged_evidence", "excluded_pending_review_evidence",
-            "non_revenue_evidence", "unverified_deposit_evidence"} <= sections
-    counted = {field: value for section, field, value in rows if section == "counted_flagged_evidence_1"}
-    assert (counted["revenue_tier"], counted["source_currency"], counted["source_account"]) == (
-        "counted_flagged", "USD", "")
+    def sections_of(package):
+        rows = [row for row in _csv_cells(_package_csv(package)) if len(row) == 3]
+        return rows, {row[0].rsplit("_", 1)[0] for row in rows if row[0].endswith(tuple("0123456789"))}
+
+    package = _package(_payload())
+    rows, sections = sections_of(package)
+    assert {"true_revenue_evidence", "excluded_pending_review_evidence", "non_revenue_evidence"} <= sections
+    assert not sections & {"verified_revenue_evidence", "counted_flagged_evidence", "unverified_deposit_evidence"}
+    true = [{field: value for section, field, value in rows if section == f"true_revenue_evidence_{n}"} for n in (1, 2)]
+    assert [(record["original_description"], record["revenue_tier"], record["revenue_tier_reason"],
+             record["source_currency"], record["source_account"]) for record in true] == [
+        ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "true_revenue", "", "USD", ""),
+        ("MOBILE DEPOSIT", "true_revenue", "", "USD", "")]
+    assert ("true_revenue_evidence_3", "original_description") not in {(row[0], row[1]) for row in rows}
     held = {field: value for section, field, value in rows if section == "excluded_pending_review_evidence_1"}
-    assert held["revenue_tier"] == "excluded_pending_review"
-    # The older member's unverified credits carry no tier and stay in the state's section.
-    older = {field: value for section, field, value in rows if section == "unverified_deposit_evidence_1"}
-    assert "revenue_tier" not in older and older["source_job"] == "job-2"
+    assert (held["revenue_tier"], held["revenue_tier_reason"]) == ("excluded_pending_review", "financing_named_payer")
+    # A package with a member analysed before 5.6 has no established True revenue, so no True section; the older
+    # member's credits are in no section of a hidden tier; the held member's section stays.
+    _older_rows, older_sections = sections_of(_package(_payload(), _untiered(_payload(month=4))))
+    assert "true_revenue_evidence" not in older_sections and "excluded_pending_review_evidence" in older_sections
+    assert not older_sections & {"verified_revenue_evidence", "counted_flagged_evidence", "unverified_deposit_evidence"}
     ledger = [row for row in _csv_cells(_package_csv(package)) if row[0] == "package_transaction"]
     assert ledger[0][2:] == ["source_document", "source_account", "source_currency", "date", "description", "amount",
-                             "classification", "tier", "reason", "state", "review_status"]
+                             "classification", "tier", "reason", "review_status"]
     assert len(ledger) - 1 == len(package["transactions"])
     first = ledger[1]
     assert first[1] == "1" and first[2:8] == ["statement-1.pdf", "", "USD", "2031-03-02",
                                               "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "700.0"]
-    assert first[9:] == ["verified", "", "verified_revenue", package["transactions"][0]["classification"][
-        "revenue_review_status"]]
+    assert first[9:] == ["true_revenue", "", package["transactions"][0]["classification"]["revenue_review_status"]]
+    # The served package (the JSON download) keeps both tiers' evidence.
+    assert [record["revenue_tier"] for record in package["verified_revenue_evidence"]] == ["verified"]
+    assert [record["revenue_tier"] for record in package["counted_flagged_evidence"]] == ["counted_flagged"]
     two_accounts = _package(_pair_document(4000.0, 500.0))
     assert {record["source_account"] for record in two_accounts["verified_revenue_evidence"]} == {1}
 
 
 def test_r3_53_a_held_row_s_evidence_never_says_it_is_counted():
-    """Audit round 3, R3-B15 (R3-53; §5.3): the JSON download (the served payload) and the package downloads' evidence
-    sections write a held row's `revenue_reason` beside `revenue_tier` excluded_pending_review. A hold that re-tiers a
-    counted re-statement (here the underwriter's Q2 release of a repair shop's insurer credit, which the debit for its
-    own amount holds as payer_also_debited) names the hold by its own label there, never "counted and flagged"."""
+    """Audit round 3, R3-B15 (R3-53; §5.3): the JSON download (the served payload) writes a held row's `revenue_reason`
+    beside `revenue_tier` excluded_pending_review. A hold that re-tiers a counted re-statement (here the underwriter's
+    Q2 release of a repair shop's insurer credit, which the debit for its own amount holds as payer_also_debited) names
+    the hold by its own label there, never "counted and flagged". Since the owner's request of 2026-10-11 the package
+    downloads' evidence sections write the hold's code and no rule sentence."""
     from analysis.revenue import REVENUE_TIER_REASONS
     from analysis.serialization import document_report_to_dict
     from webapp.app import _package_rows
@@ -1104,12 +1132,15 @@ def test_r3_53_a_held_row_s_evidence_never_says_it_is_counted():
         assert record["revenue_tier_reason"] == "payer_also_debited"
         assert "counted and flagged" not in record["revenue_reason"]
         assert f"never verified, and held for review ({label})" in record["revenue_reason"]
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the package downloads write the hold's reason
+    # code and no rule sentence (the sentence names the verified tier: "never verified"); the JSON download, above,
+    # keeps it.
     package_rows = _package_rows(_package(payload))
-    reasons = [value for section, field, value in package_rows
-               if section.startswith("excluded_pending_review_evidence_") and field == "revenue_reason"]
-    assert reasons and all(f"held for review ({label})" in value for value in reasons)
-    assert not any("counted and flagged" in str(value) for section, _field, value in package_rows
-                   if section.startswith("excluded_pending_review_evidence_"))
+    held_rows = [(field, value) for section, field, value in package_rows
+                 if section.startswith("excluded_pending_review_evidence_")]
+    assert ("revenue_tier_reason", "payer_also_debited") in held_rows
+    assert not any(field == "revenue_reason" for field, _value in held_rows)
+    assert not any("counted and flagged" in str(value) or "never verified" in str(value) for _field, value in held_rows)
 
 
 # ---------------------------------------------------------------- Audit round 2, R2-B15 (R13): months by days covered
@@ -1433,20 +1464,24 @@ def test_yes_a_member_whose_revenue_is_not_established_still_shows_its_zelle_fig
     assert (member["counted_as_true_revenue"], member["setting_applied"]) == (True, True)
     from webapp.app import _package_rows
     rows = _package_rows(package)
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the downloads write the part in True revenue
+    # as one slot, empty where its parts are.
     for section in ("revenue_tier", "document_2.revenue_tier"):
-        for tier in ("counted_flagged", "excluded_pending_review"):
+        for tier in ("true_revenue", "excluded_pending_review"):
             for field in ("count", "total"):
                 assert (section, f"zelle_deposits.{tier}.{field}", "") in rows, (section, tier, field)
     assert ("revenue_tier", "zelle_deposits.count", 3) in rows
     assert ("revenue_tier", "zelle_deposits.total", 1500.0) in rows
     assert ("document_2.revenue_tier", "zelle_deposits.count", 1) in rows
-    assert ("document_1.revenue_tier", "zelle_deposits.counted_flagged.total", 1000.0) in rows
+    assert ("document_1.revenue_tier", "zelle_deposits.true_revenue.total", 1000.0) in rows
+    assert not any(".verified." in field or ".counted_flagged." in field for _section, field, _value in rows)
 
 
 def test_an_unestablished_statement_download_leaves_the_zelle_parts_of_true_and_held_empty():
     """Audit round 3, R3-B20 (R3-48; §10.4's I51, §10.8): where the statement's revenue is not established, its
     downloads leave the Zelle in-True and held parts empty and keep the captured rows' count, total, non-revenue part,
-    setting and setting_applied; the established download is unchanged."""
+    setting and setting_applied; the established download is unchanged. The owner's request of 2026-10-11 (§2.2,
+    §10.8): the in-True part is one slot, `zelle_deposits.true_revenue.*` (the served copy keeps its tiers apart)."""
     from tests import zelle_setting_fixtures as fx
     from webapp.app import _analysis_rows
 
@@ -1455,15 +1490,17 @@ def test_an_unestablished_statement_download_leaves_the_zelle_parts_of_true_and_
     stored["metrics"]["effective_total_deposits"] = 99999.0
     served = _download(stored, "json", zelle=True)
     assert served["metrics"]["revenue_established"] is False
+    assert set(served["metrics"]["zelle_deposits"]["by_tier"]) >= {"verified", "counted_flagged"}
     rows = _analysis_rows(served)
-    for tier in ("verified", "counted_flagged", "excluded_pending_review"):
+    for tier in ("true_revenue", "excluded_pending_review"):
         for field in ("count", "total"):
             assert ("revenue_tier", f"zelle_deposits.{tier}.{field}", "") in rows, (tier, field)
+    assert not any(".verified." in field or ".counted_flagged." in field for _section, field, _value in rows)
     for kept in (("zelle_deposits.setting", "Yes"), ("zelle_deposits.count", 4), ("zelle_deposits.total", 7734.56),
                  ("zelle_deposits.setting_applied", True)):
         assert ("revenue_tier", *kept) in rows, kept
     csv_lines = _download(stored, "csv", zelle=True).splitlines()
-    assert "revenue_tier,zelle_deposits.counted_flagged.total," in csv_lines
+    assert "revenue_tier,zelle_deposits.true_revenue.total," in csv_lines
     assert "revenue_tier,zelle_deposits.excluded_pending_review.total," in csv_lines
     # The non-revenue part stays: Z4's Zelle truck sale is non-revenue in the counted reading.
     truck = fx.case("Z4_TRUCK")
@@ -1472,12 +1509,13 @@ def test_an_unestablished_statement_download_leaves_the_zelle_parts_of_true_and_
     truck_rows = _analysis_rows(_download(truck, "json", zelle=True))
     assert ("revenue_tier", "zelle_deposits.non_revenue.count", 1) in truck_rows
     assert ("revenue_tier", "zelle_deposits.non_revenue.total", 9000.0) in truck_rows
-    assert ("revenue_tier", "zelle_deposits.counted_flagged.total", "") in truck_rows
-    # The established download is today's.
+    assert ("revenue_tier", "zelle_deposits.true_revenue.total", "") in truck_rows
+    # The established download is today's, its part in True revenue written as one slot.
     established = _analysis_rows(_download(fx.case("Z1"), "json", zelle=True))
-    assert ("revenue_tier", "zelle_deposits.counted_flagged.total", 1234.56) in established
+    assert ("revenue_tier", "zelle_deposits.true_revenue.total", 1234.56) in established
     assert ("revenue_tier", "zelle_deposits.excluded_pending_review.count", 3) in established
-    assert not any(field.startswith("zelle_deposits.verified") for _section, field, _value in established)
+    assert not any(field.startswith(("zelle_deposits.verified", "zelle_deposits.counted_flagged"))
+                   for _section, field, _value in established)
 
 
 def test_yes_a_mixed_currency_package_refuses_the_zelle_money_and_keeps_its_counts():
@@ -1551,7 +1589,8 @@ def test_a_yes_download_of_z1_prints_the_readable_rows_and_the_zelle_column():
     rows = _analysis_rows(served)
     assert ("revenue_tier", "zelle_deposits.setting", "Yes") in rows
     assert ("revenue_tier", "zelle_deposits.count", 4) in rows and ("revenue_tier", "zelle_deposits.total", 7734.56) in rows
-    assert ("revenue_tier", "zelle_deposits.counted_flagged.count", 1) in rows
+    # The owner's request of 2026-10-11 (§2.2, §10.8): the part in True revenue is one slot.
+    assert ("revenue_tier", "zelle_deposits.true_revenue.count", 1) in rows
     assert ("revenue_tier", "zelle_deposits.excluded_pending_review.total", 6500.0) in rows
     assert ("revenue_tier", "zelle_deposits.setting_applied", True) in rows
     assert not any(section == "metrics" and field == "zelle_deposits" for section, field, _value in rows)

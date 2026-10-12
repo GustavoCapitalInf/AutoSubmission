@@ -694,9 +694,15 @@ def test_atb_december_revenue_regression_from_transaction_evidence():
     assert api_analysis["metrics"]["unverified_deposit_total"] == 11675.11
     api_package = client.get(f"/package_analysis?ids={job.id}").get_json()
     assert api_package["totals"]["maximum_revenue"] == 58870.74
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the CSV names neither Verified revenue nor
+    # 5.4's unverified deposits; the JSON download (the backend) keeps both, and the figures above are unchanged.
     csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
-    assert "verified_revenue" in csv_body
-    assert "unverified_deposit" in csv_body
+    assert "verified_revenue" not in csv_body
+    assert "unverified_deposit" not in csv_body
+    assert "metrics,non_revenue_total,1880.25" in csv_body
+    json_body = client.get(f"/download/{job.id}/json").get_json()
+    assert json_body["metrics"]["verified_revenue_total"] == 47195.63
+    assert json_body["metrics"]["unverified_deposit_total"] == 11675.11
 
 
 def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
@@ -793,9 +799,13 @@ def test_revenue_review_api_updates_records_metrics_package_and_exports():
     assert downloaded["statement"]["transactions"][0]["classification"][
         "revenue_review_status"
     ] == "confirmed"
+    assert downloaded["statement"]["transactions"][0]["classification"]["revenue_classification"] == "verified_revenue"
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the CSV carries the decision but names no
+    # Verified revenue (the JSON download, above, keeps the state).
     csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
-    assert "revenue_classification" in csv_body
-    assert "verified_revenue" in csv_body
+    assert "posted_credit,1,2054-01-02,Mobile deposit,441.0,USD,,,confirmed" in csv_body
+    assert "revenue_classification" not in csv_body
+    assert "verified_revenue" not in csv_body
 
     rejected = client.post(
         f"/analysis/{job.id}/revenue-review",

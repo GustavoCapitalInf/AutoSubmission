@@ -826,11 +826,14 @@ def test_the_sweep_reaches_the_package_by_reason_rows():
     assert package["totals"]["cross_currency_totals_refused"] is True
     assert _cross_document_numbers_not_counts(rows) == []
     tier_rows = [(field, value) for section, field, value in rows if section == "revenue_tier"]
-    assert ("counted_flagged.check_deposit.count", 2) in tier_rows
-    assert ("counted_flagged.check_deposit.total", "") in tier_rows
+    assert ("excluded_pending_review.financing_named_payer.count", 2) in tier_rows
     assert ("excluded_pending_review.financing_named_payer.total", "") in tier_rows
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the counted tier's reasons are no rows of the
+    # downloads (the served package keeps them).
+    assert not any(field.startswith("counted_flagged.") for field, _value in tier_rows)
+    assert package["totals"]["counted_flagged_by_reason"]["check_deposit"] == {"count": 2, "total": None}
     # A member's own by-reason rows are denominated by its row's currency and keep their money.
-    assert ("document_2.revenue_tier", "counted_flagged.check_deposit.total", 300.0) in rows
+    assert ("document_2.revenue_tier", "excluded_pending_review.financing_named_payer.total", 900.0) in rows
     assert ("document_2", "currency", "CAD") in rows
 
 
@@ -895,8 +898,11 @@ def test_the_sweep_reaches_the_package_zelle_rows():
     assert _cross_document_numbers_not_counts(rows) == []
     tier_rows = [(field, value) for section, field, value in rows if section == "revenue_tier"]
     assert ("zelle_deposits.count", 3) in tier_rows and ("zelle_deposits.total", "") in tier_rows
-    assert ("zelle_deposits.counted_flagged.count", 2) in tier_rows
-    assert ("zelle_deposits.counted_flagged.total", "") in tier_rows
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the part in True revenue is one slot (the
+    # served package keeps its counted slot).
+    assert ("zelle_deposits.true_revenue.count", 2) in tier_rows
+    assert ("zelle_deposits.true_revenue.total", "") in tier_rows
+    assert not any(field.startswith("zelle_deposits.counted_flagged") for field, _value in tier_rows)
     assert ("document_2.revenue_tier", "zelle_deposits.total", 500.0) in rows
 
 

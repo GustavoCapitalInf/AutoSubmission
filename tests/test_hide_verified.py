@@ -375,3 +375,142 @@ console.log(JSON.stringify({note, placeholder}));
     assert result == {"note": "True revenue: posted credits minus known non-revenue and the deposits held for review",
                       "placeholder": "True revenue by default: posted credits minus known non-revenue and the deposits "
                                      "held for review"}
+
+
+# ----------------------------------------------------------------------------------------------- the downloads
+
+#: What names a hidden tier in a download: its figures' and aliases' names, its codes and the words the backend writes
+#: about it. A lender's own vocabulary ("No verified lender ... matched", `verified_lender_alias`) is not a revenue tier.
+HIDDEN_IN_DOWNLOADS = re.compile(
+    r"verified_revenue|unverified_deposit|counted_flagged|potential_revenue|confirmed_true_revenue|\"verified\"|"
+    r"verified plus counted|verified classified|Verified revenue|never verified|counted and flagged|counted, not verified|"
+    r"zelle_prior:verified|_never_verified|verified_(named|operating|payer|wire|auto)")
+TIERS_SHOWN = {"true_revenue", "excluded_pending_review", "non_revenue", ""}
+
+
+def _csv(text):
+    csv.field_size_limit(10_000_000)
+    return list(csv.reader(io.StringIO(text)))
+
+
+def _hidden_cells(rows):
+    return [row for row in rows for cell in row
+            if (isinstance(cell, str) and (HIDDEN_IN_DOWNLOADS.search(cell) or cell == "verified"))]
+
+
+@pytest.fixture
+def stored_jobs(tmp_path, monkeypatch):
+    """Two fabricated statements stored as done jobs, the way an upload leaves them, read under the default settings (a
+    scratch settings folder)."""
+    from webapp.app import store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    jobs = []
+    for month in (3, 4):
+        job = store.create(f"fabricated-{month}.pdf")
+        store.set_result(job.id, "# fabricated", "<h1>fabricated</h1>", analysis=_payload(ROWS, month))
+        jobs.append(job.id)
+    return jobs
+
+
+def test_the_statement_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_them(stored_jobs):
+    from webapp.app import app
+
+    client = app.test_client()
+    job = stored_jobs[0]
+    rows = _csv(client.get(f"/download/{job}/csv").get_data(as_text=True))
+    sheet = _sheet_rows(client.get(f"/download/{job}/xlsx").get_data())
+    for name, table in (("csv", rows), ("xlsx", sheet)):
+        assert _hidden_cells(table) == [], name
+        cells = {(row[0], row[1]): row[2] for row in table if len(row) == 3}
+        # True, held and non-revenue stay, with every figure as it was.
+        assert float(cells[("metrics", "true_revenue_total")]) == 21750.0, name
+        assert float(cells[("metrics", "excluded_pending_review_total")]) == 900.0, name
+        assert float(cells[("metrics", "non_revenue_total")]) == 100.0, name
+        assert float(cells[("metrics", "maximum_revenue")]) == 22650.0, name
+        assert cells[("metrics", "eligible_deposit_definition")] == (
+            "true revenue: posted credits minus known non-revenue and the deposits held for review"), name
+        # Held reasons and the non-revenue breakdown stay; no counted reason row.
+        assert float(cells[("revenue_tier", "excluded_pending_review.financing_named_payer.total")]) == 900.0, name
+        assert not any(field.startswith("counted_flagged") for section, field in cells if section == "revenue_tier")
+        # Zelle under Yes: its part in True revenue, one figure.
+        assert float(cells[("revenue_tier", "zelle_deposits.true_revenue.total")]) == 250.0, name
+        assert float(cells[("revenue_tier", "zelle_deposits.true_revenue.count")]) == 1, name
+        # A large deposit to source keeps its row, without its counted reason.
+        assert ("large_unsourced_deposit_1", "revenue_tier_reason") not in cells, name
+        assert float(cells[("large_unsourced_deposit_1", "share_of_true_percent")]) == 92.0, name
+        # The posted-credit table: one tier a credit in True revenue, its reason only where it is held or out.
+        credits = [row for row in table if row[0] == "posted_credit"]
+        assert credits[0][2:] == ["date", "description", "amount", "currency", "tier", "reason", "review_status",
+                                  "zelle"], name
+        tiers = {row[3]: (row[6], row[7]) for row in credits[1:]}
+        assert {tier for tier, _reason in tiers.values()} <= TIERS_SHOWN, name
+        assert tiers["NORTHWIND SUPPLY LLC DES:PAYMENT ID:1"] == ("true_revenue", ""), name
+        assert tiers["MOBILE DEPOSIT"] == ("true_revenue", ""), name
+        assert tiers["FABRIKAM FUNDING LLC DES:PAYMENT ID:1"] == ("excluded_pending_review", "financing_named_payer"), name
+        assert sum(float(row[4]) for row in credits[1:] if row[6] == "true_revenue") == 21750.0, name
+    # The JSON download is the backend's: both tiers, every figure and every record field.
+    served = client.get(f"/download/{job}/json").get_json()
+    assert served["metrics"]["verified_revenue_total"] == 700.0
+    assert served["metrics"]["counted_flagged_total"] == 21050.0
+    assert served["metrics"]["counted_flagged_by_reason"]["check_deposit"]["total"] == 300.0
+    assert {tx["classification"].get("revenue_tier") for tx in served["statement"]["transactions"]} >= {
+        "verified", "counted_flagged"}
+
+
+def test_the_package_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_them(stored_jobs):
+    from webapp.app import app
+
+    client = app.test_client()
+    ids = ",".join(stored_jobs)
+    rows = _csv(client.get(f"/package_download/csv?ids={ids}").get_data(as_text=True))
+    sheet = _sheet_rows(client.get(f"/package_download/xlsx?ids={ids}").get_data())
+    for name, table in (("csv", rows), ("xlsx", sheet)):
+        assert _hidden_cells(table) == [], name
+        sections = {row[0].rsplit("_", 1)[0] for row in table if row and re.search(r"_\d+$", str(row[0]))}
+        assert not sections & {"verified_revenue_evidence", "counted_flagged_evidence", "unverified_deposit_evidence"}
+        assert {"true_revenue_evidence", "excluded_pending_review_evidence", "non_revenue_evidence"} <= sections, name
+        # The credits in True revenue are one evidence section each: the verified one and the four counted ones of each
+        # statement, every one read as True revenue and none naming a counted reason.
+        true_sections = {row[0] for row in table if re.fullmatch(r"true_revenue_evidence_\d+", str(row[0]))}
+        assert len(true_sections) == 10, name
+        assert {row[2] for row in table if row[0] in true_sections and row[1] == "revenue_tier"} == {"true_revenue"}
+        assert {row[2] for row in table if row[0] in true_sections and row[1] == "revenue_tier_reason"} == {""}
+        cells = {(row[0], row[1]): row[2] for row in table if len(row) == 3}
+        assert float(cells[("totals", "true_revenue_total")]) == 43500.0, name
+        assert float(cells[("totals", "excluded_pending_review_total")]) == 1800.0, name
+        assert float(cells[("totals", "avg_monthly_true_revenue")]) == 21750.0, name
+        assert float(cells[("document_1", "true_revenue_total")]) == 21750.0, name
+        assert float(cells[("revenue_tier", "zelle_deposits.true_revenue.total")]) == 500.0, name
+        ledger = [row for row in table if row[0] == "package_transaction"]
+        assert ledger[0][2:] == ["source_document", "source_account", "source_currency", "date", "description",
+                                 "amount", "classification", "tier", "reason", "review_status", "zelle"], name
+        assert {row[9] for row in ledger[1:]} <= TIERS_SHOWN, name
+        held = {row[1]: row[2] for row in table if row[0] == "excluded_pending_review_evidence_1"}
+        assert held["revenue_tier"] == "excluded_pending_review" and held["revenue_tier_reason"] == "financing_named_payer"
+    served = client.get(f"/package_download/json?ids={ids}").get_json()
+    assert served["totals"]["verified_revenue_total"] == 1400.0
+    assert served["totals"]["counted_flagged_total"] == 42100.0
+    assert served["verified_revenue_evidence"] and served["counted_flagged_evidence"]
+
+
+def test_a_download_on_the_verified_basis_names_it_without_the_word():
+    from webapp.app import _analysis_csv, _displayed
+
+    from analysis.revenue import rebuild_serialized_revenue_views
+
+    payload = _payload(ROWS)
+    payload["metrics"]["withholding_denominator_mode"] = "verified_revenue"
+    rebuild_serialized_revenue_views(payload)
+    served = _displayed(payload, settings={}, export=True)
+    rows = _csv(_analysis_csv(served))
+    assert _hidden_cells(rows) == []
+    cells = {(row[0], row[1]): row[2] for row in rows if len(row) == 3}
+    assert cells[("metrics", "withholding_denominator_mode")] == "narrower_revenue_basis"
+    assert cells[("metrics", "withholding_denominator_label")] == "Narrower revenue basis"
+    assert cells[("metrics", "eligible_deposit_definition")] == "a part of true revenue only"
+    assert float(cells[("metrics", "withholding_denominator")]) == 700.0
+    assert float(cells[("metrics", "withholding_rate")]) == served["metrics"]["withholding_rate"]
+    assert "verified_revenue" not in cells[("metrics", "withholding_denominator_options")]
+    # The served copy, which the JSON download writes, is the backend's.
+    assert served["metrics"]["withholding_denominator_mode"] == "verified_revenue"

@@ -2543,6 +2543,9 @@ def test_an_analysed_statement_beside_a_failed_or_pending_one_keeps_its_figures(
 _R3_49_KEYS = ("maximum_revenue", "potential_revenue_total", "unverified_deposit_total", "revenue_review_items",
                "unverified_deposit_count", "potential_revenue_count", "verified_revenue_count",
                "confirmed_true_revenue_count")
+#: The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): of those, the CSV and XLSX write only these; the
+#: others name Verified revenue, 5.4's unverified deposits or their aliases, which only the JSON download keeps.
+_R3_49_SHEET_KEYS = ("maximum_revenue", "revenue_review_items")
 
 #: name -> the jobs of a package that analyses no statement.
 _R3_49_PACKAGES = {
@@ -2579,8 +2582,9 @@ def test_r3_49_a_package_with_no_analysed_statement_downloads_no_partial_revenue
     stored = json.dumps(package, sort_keys=True, default=str)
     exported, csv_cells, xlsx_cells = _r3_49_downloads(package)
     assert {key: exported[key] for key in _R3_49_KEYS} == dict.fromkeys(_R3_49_KEYS)
-    assert {key: csv_cells[key] for key in _R3_49_KEYS} == dict.fromkeys(_R3_49_KEYS, "")
-    assert {key: xlsx_cells[key] for key in _R3_49_KEYS} == dict.fromkeys(_R3_49_KEYS, "")
+    assert {key: csv_cells[key] for key in _R3_49_SHEET_KEYS} == dict.fromkeys(_R3_49_SHEET_KEYS, "")
+    assert {key: xlsx_cells[key] for key in _R3_49_SHEET_KEYS} == dict.fromkeys(_R3_49_SHEET_KEYS, "")
+    assert not (set(_R3_49_KEYS) - set(_R3_49_SHEET_KEYS)) & (set(csv_cells) | set(xlsx_cells))
     assert csv_cells["true_revenue_total"] == "" and xlsx_cells["true_revenue_total"] == ""
     # R54's structural zeros and the non-revenue figure stay in the download.
     assert (exported["total_credits"], exported["avg_monthly_credits"], exported["non_revenue_total"]) == (
@@ -2624,9 +2628,10 @@ def test_r3_49_an_analysed_statement_beside_a_failed_one_keeps_its_download_figu
     assert (served["completed"], served["failed"], served["maximum_revenue"], served["verified_revenue_count"]) == (
         1, 1, 10000.0, 1)
     assert {key: exported[key] for key in _R3_49_KEYS} == {key: served[key] for key in _R3_49_KEYS}
-    assert (csv_cells["maximum_revenue"], csv_cells["verified_revenue_count"],
-            csv_cells["unverified_deposit_count"]) == ("10000.0", "1", "0")
-    assert (xlsx_cells["maximum_revenue"], xlsx_cells["confirmed_true_revenue_count"]) == (10000.0, 1.0)
+    # The owner's request of 2026-10-11 (§10.8): the sheets write the figures that name no hidden tier, as served.
+    assert (csv_cells["maximum_revenue"], csv_cells["revenue_review_items"]) == ("10000.0", "0")
+    assert (xlsx_cells["maximum_revenue"], xlsx_cells["revenue_review_items"]) == (10000.0, 0.0)
+    assert not (set(_R3_49_KEYS) - set(_R3_49_SHEET_KEYS)) & (set(csv_cells) | set(xlsx_cells))
 
 
 # ---------------------------------------------------------------------------

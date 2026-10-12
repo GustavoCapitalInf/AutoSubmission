@@ -31,6 +31,7 @@ from analysis.revenue import (
     non_revenue_reason,
     normalize_withholding_denominator_mode,
     REVENUE_STATES,
+    REVENUE_TIER_REASONS,
     revenue_contribution_flags,
     revenue_review_gate,
     withholding_basis_below_floor,
@@ -533,7 +534,12 @@ def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     The section prefix is what keeps two accounts apart. The flat sheet is
     keyed on `(section, field)`, so two accounts writing `("statement",
     "ending_balance")` would collide and one would silently win.
+
+    The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the
+    payload is read as the downloads read it (`_downloads_view`), with no
+    Verified revenue and no "Counted, not verified".
     """
+    analysis = _downloads_view(analysis)
     if is_document_payload(analysis):
         surface = "webapp/app.py::_analysis_rows"
         rows: list[tuple[str, str, object]] = []
@@ -720,16 +726,20 @@ def _zelle_deposit_rows(
 
 
 #: Audit round 3, R3-B24 (R3-16; true revenue spec §9.1, §9.2, §10.8): the served list of large unsourced deposits (a
-#: statement's metrics key, a package's top-level key) and the fields of a package's `large_unsourced_deposit_<n>`
-#: section: the statement's (LARGE_UNSOURCED_DEPOSIT_FIELDS), then the member's.
+#: statement's metrics key, a package's top-level key) and the fields of a statement's and a package's
+#: `large_unsourced_deposit_<n>` section: LARGE_UNSOURCED_DEPOSIT_FIELDS, then the member's. The owner's request of
+#: 2026-10-11 (§2.2, §10.8): without `revenue_tier_reason`, the counted tier's reason (such a credit is counted in True
+#: revenue without proof of the sale); the JSON download keeps it.
 LARGE_UNSOURCED_DEPOSITS_KEY = "large_unsourced_deposits"
+_LARGE_UNSOURCED_DEPOSIT_EXPORT_FIELDS = tuple(
+    field for field in LARGE_UNSOURCED_DEPOSIT_FIELDS if field != "revenue_tier_reason")
 _PACKAGE_LARGE_UNSOURCED_DEPOSIT_FIELDS = (
-    *LARGE_UNSOURCED_DEPOSIT_FIELDS, "source_job", "source_document", "source_account", "source_currency",
+    *_LARGE_UNSOURCED_DEPOSIT_EXPORT_FIELDS, "source_job", "source_document", "source_account", "source_currency",
 )
 
 
 def _large_unsourced_deposit_rows(
-    items: object, fields: tuple[str, ...] = LARGE_UNSOURCED_DEPOSIT_FIELDS,
+    items: object, fields: tuple[str, ...] = _LARGE_UNSOURCED_DEPOSIT_EXPORT_FIELDS,
 ) -> list[tuple[str, str, object]]:
     """Audit round 3, R3-B24 (R3-16; §10.8): one readable section per flagged credit, `large_unsourced_deposit_<n>`, in
     served order, its `fields` (an empty cell where the item has none). A description is statement text: these rows
@@ -765,17 +775,20 @@ def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
     return rows
 
 
-#: Audit B11 (I32): the columns of the statement downloads' posted-credit table.
-_POSTED_CREDIT_COLUMNS = ("date", "description", "amount", "currency", "tier", "reason", "state", "review_status")
+#: Audit B11 (I32): the columns of the statement downloads' posted-credit table. The owner's request of 2026-10-11
+#: (true revenue spec §2.2, §10.8): no `state` column (the 5.4 state, `verified_revenue` or `unverified_deposit`).
+_POSTED_CREDIT_COLUMNS = ("date", "description", "amount", "currency", "tier", "reason", "review_status")
 
 
 def _posted_credit_table(analysis: dict) -> list[tuple]:
     """Audit B11 (I32): one row per posted credit, so an underwriter can check, deposit by deposit, which credits make
     up True (the ledger otherwise sits in one JSON cell, over a spreadsheet's cell limit on most statements): a
-    `columns` row, then `(section, n, date, description, amount, currency, tier, reason, state, review status)`.
-    The tier and reason are the payload's codes (analysis/revenue.py). Every account of a document payload has its
-    own block, under its section prefix. A block written after the flat rows (`_analysis_rows` stays three columns
-    for its readers); its statement text reaches a file only through `_escaped_rows`."""
+    `columns` row, then `(section, n, date, description, amount, currency, tier, reason, review status)`.
+    The tier and reason are the payload's codes (analysis/revenue.py), as the downloads read them (`_downloads_view`:
+    a credit in True revenue is `true_revenue`, with no reason). Every account of a document payload has its own
+    block, under its section prefix. A block written after the flat rows (`_analysis_rows` stays three columns for its
+    readers); its statement text reaches a file only through `_escaped_rows`."""
+    analysis = _downloads_view(analysis)
     if is_document_payload(analysis):
         accounts = payload_accounts(analysis, surface="webapp/app.py::_posted_credit_table")
         return [
@@ -798,8 +811,7 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
             continue
         rows.append(("posted_credit", len(rows) + 1, transaction.get("date") or "",
                      transaction.get("description") or "", amount, currency, record.get("revenue_tier") or "",
-                     record.get("revenue_tier_reason") or "", record.get("revenue_classification") or "",
-                     record.get("revenue_review_status") or ""))
+                     record.get("revenue_tier_reason") or "", record.get("revenue_review_status") or ""))
         tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
     if not rows:
         return []
@@ -858,6 +870,125 @@ def _posted_debit_table(analysis: dict) -> list[tuple]:
     if not rows:
         return []
     return [("posted_debit", "columns", *_POSTED_DEBIT_COLUMNS), *rows]
+
+
+#: The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): "Can you get rid of verified revenue from the
+#: fronted end please and "counted, not verified" still keep them in the backend but don't show it", the CSV and Excel
+#: downloads included ("Hide them there too"). These downloads name no Verified revenue and no "Counted, not verified"
+#: (the tiers `verified` and `counted_flagged`) as things of their own: True revenue, their sum, Held for review and
+#: Non-revenue stay, and no figure moves. The served payload, the JSON download, the CLI and every stored analysis keep
+#: both tiers: only the CSV and XLSX row builders (`_analysis_rows`, `_posted_credit_table`, `_package_rows` and
+#: `_package_transaction_table`) read a payload through `_downloads_view`, so every CSV and XLSX download does.
+_HIDDEN_TIERS = frozenset({"verified", "counted_flagged"})
+#: The tier a credit of a hidden tier is written as: True revenue, of which each is a part.
+_TRUE_REVENUE_TIER = "true_revenue"
+#: Every key that names a hidden tier, its figures or an alias of them, left out wherever it sits: `verified_revenue_*`
+#: (with `avg_monthly_verified_revenue` and the records' `contributes_to_verified_revenue`), `counted_flagged_*`,
+#: `unverified_deposit_*` (5.4's name for counted plus held), `potential_revenue*` and `confirmed_true_revenue*` (the
+#: aliases of those two) and the Zelle figures' `verified` and `counted_flagged` slots (merged first, below).
+_HIDDEN_TIER_KEY = re.compile(r"verified|counted_flagged|potential_revenue|confirmed_true_revenue")
+#: A classification record's fields that say which hidden tier the rules read: its 5.4 state (`verified_revenue` or
+#: `unverified_deposit`), and the rule that read it and its sentence ("counted and flagged, never verified"). Its tier,
+#: its held or non-revenue reason, its review status and every other field stay.
+_HIDDEN_RECORD_KEYS = frozenset({"revenue_classification", "revenue_initial_classification", "revenue_matched_rule",
+                                 "revenue_reason"})
+#: The counted tier's reason codes (analysis/revenue.py REVENUE_TIER_REASONS), left out wherever a record carries one:
+#: on a credit counted in True revenue, on one a reviewer confirmed and on one a reviewer rejected (which keeps it).
+_COUNTED_REASONS = frozenset(code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "counted_flagged")
+#: The verified withholding basis (WITHHOLDING_DENOMINATOR_MODE=verified_revenue, R2-OW14; never chosen on screen), as
+#: the page names it (app.js WITHHOLDING_BASIS_LABELS): its mode, its label and its definition; the True basis's
+#: definition in the page's words. Its figures are unchanged.
+_NARROWER_BASIS_MODE = "narrower_revenue_basis"
+_NARROWER_BASIS_LABEL = "Narrower revenue basis"
+_BASIS_DEFINITIONS = {
+    "verified_revenue": "a part of true revenue only",
+    "true_revenue": "true revenue: posted credits minus known non-revenue and the deposits held for review",
+}
+#: The context signal that keeps a Zelle deposit's reading with Zelle counted (analysis/true_revenue.py `_ZELLE_PRIOR`).
+_ZELLE_PRIOR = "zelle_prior:"
+
+
+def _true_revenue_slot(slots: list) -> dict | None:
+    """The Zelle figures' slot of True revenue: the `verified` and `counted_flagged` slots (`{count, total}`) added up, a
+    count or a total empty (None) where a slot's is, as an unestablished or refused part is. None where neither is."""
+    present = [slot for slot in slots if isinstance(slot, dict)]
+    if not present:
+        return None
+    counts = [slot.get("count") for slot in present]
+    totals = [slot.get("total") for slot in present]
+    return {
+        "count": sum(counts) if all(_is_count(count) for count in counts) else None,
+        "total": round(sum(totals), 2) if all(_is_money_value(total) for total in totals) else None,
+    }
+
+
+def _zelle_by_tier_without_hidden_tiers(by_tier: dict) -> dict:
+    """R2-OW17's `zelle_deposits.by_tier` as the downloads read it: the `verified` and `counted_flagged` slots as one
+    `true_revenue` slot, first, then the held and non-revenue slots as served."""
+    slot = _true_revenue_slot([by_tier.get(tier) for tier in ("verified", "counted_flagged")])
+    rest = {tier: value for tier, value in by_tier.items() if tier not in _HIDDEN_TIERS}
+    return {_TRUE_REVENUE_TIER: slot, **rest} if slot is not None else rest
+
+
+def _context_signals_without_hidden_tiers(signals: object) -> object:
+    """A record's `revenue_context_signals` as the downloads read them: a Zelle deposit's prior reading in a hidden tier
+    (`zelle_prior:verified`, `zelle_prior:counted_flagged:<reason>`) is `zelle_prior:true_revenue`, and any other signal
+    naming a hidden tier is left out."""
+    if not isinstance(signals, (list, tuple)):
+        return signals
+    kept = []
+    for signal in signals:
+        if isinstance(signal, str) and signal.startswith(_ZELLE_PRIOR):
+            tier = signal[len(_ZELLE_PRIOR):].split(":", 1)[0]
+            if tier in _HIDDEN_TIERS:
+                signal = f"{_ZELLE_PRIOR}{_TRUE_REVENUE_TIER}"
+        elif isinstance(signal, str) and _HIDDEN_TIER_KEY.search(signal):
+            continue
+        kept.append(signal)
+    return tuple(kept) if isinstance(signals, tuple) else kept
+
+
+def _downloads_view(node: object) -> object:
+    """A served payload (statement, document or package), or any part of it, as the CSV and XLSX downloads write it
+    (the owner's request of 2026-10-11): a copy in which no key names a hidden tier (`_HIDDEN_TIER_KEY`), a
+    classification record's hidden tier reads `true_revenue` (current and initial), its counted reason, 5.4 state and
+    rule are left out (`_HIDDEN_RECORD_KEYS`), the Zelle figures carry one True revenue slot, and the verified
+    withholding basis reads as the page names it. Every figure is unchanged; the input is never mutated."""
+    if isinstance(node, (list, tuple)):
+        items = [_downloads_view(item) for item in node]
+        return tuple(items) if isinstance(node, tuple) else items
+    if not isinstance(node, dict):
+        return node
+    out: dict = {}
+    for key, value in node.items():
+        if key == "by_tier" and isinstance(value, dict):
+            value = _zelle_by_tier_without_hidden_tiers(value)
+        if _HIDDEN_TIER_KEY.search(str(key)) or key in _HIDDEN_RECORD_KEYS:
+            continue
+        if key in ("revenue_tier", "revenue_initial_tier") and value in _HIDDEN_TIERS:
+            value = _TRUE_REVENUE_TIER
+        elif key == "revenue_tier_reason" and value in _COUNTED_REASONS:
+            value = None
+        elif key == "revenue_context_signals":
+            value = _context_signals_without_hidden_tiers(value)
+        elif key in ("withholding_denominator_mode", "mode") and value == "verified_revenue":
+            value = _NARROWER_BASIS_MODE
+        elif key in ("withholding_denominator_label", "label") and value == "Verified revenue":
+            value = _NARROWER_BASIS_LABEL
+        elif key == "eligible_deposit_definition" and node.get("withholding_denominator_mode") in _BASIS_DEFINITIONS:
+            value = _BASIS_DEFINITIONS[node["withholding_denominator_mode"]]
+        elif key == "withholding_denominator_options" and isinstance(value, (list, tuple)):
+            modes = [mode for mode in value if mode != "verified_revenue"]
+            value = tuple(modes) if isinstance(value, tuple) else modes
+        elif key == "notes" and isinstance(value, (list, tuple)):
+            # A withholding note names its basis by its label ("... because Verified revenue is zero or missing").
+            notes = [note.replace("Verified revenue", _NARROWER_BASIS_LABEL) if isinstance(note, str) else note
+                     for note in value]
+            value = tuple(notes) if isinstance(value, tuple) else notes
+        else:
+            value = _downloads_view(value)
+        out[key] = value
+    return out
 
 
 def _analysis_csv(analysis: dict) -> str:
@@ -985,6 +1116,9 @@ def _returned_funder_payment_words(item: dict) -> str:
 
 
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
+    """The package's flat export sheet, read as the downloads read it (the owner's request of 2026-10-11, true revenue
+    spec §2.2, §10.8: `_downloads_view`, no Verified revenue and no "Counted, not verified")."""
+    package = _downloads_view(package)
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
     for key, value in totals.items():
@@ -1130,18 +1264,14 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, evidence in enumerate(package.get("insurance_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"insurance_evidence_{idx}", key, "" if value is None else value))
-    # Audit B11 (I32): one evidence section per tier, so counted credits (in True) and held ones (out of it) no longer
-    # share `unverified_deposit_evidence_N`. A credit of a member analysed before 5.6 carries no tier and stays there.
-    unverified = package.get("unverified_deposit_evidence") or []
+    # Audit B11 (I32): one evidence section per tier, so credits in True and held ones (out of it) no longer share a
+    # section. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the credits in True revenue are one
+    # section, `true_revenue_evidence_N` (the served True evidence: none where the package's True is not established),
+    # where they were a Verified and a Counted section, and 5.4's unverified list (counted plus held, and a member
+    # analysed before 5.6) is no section; the held and non-revenue sections are unchanged.
     for section, records in (
-        ("verified_revenue_evidence", package.get("verified_revenue_evidence") or []),
-        ("counted_flagged_evidence",
-         [record for record in unverified if record.get("revenue_tier") == "counted_flagged"]),
-        ("excluded_pending_review_evidence",
-         [record for record in unverified if record.get("revenue_tier") == "excluded_pending_review"]),
-        ("unverified_deposit_evidence",
-         [record for record in unverified
-          if record.get("revenue_tier") not in ("counted_flagged", "excluded_pending_review")]),
+        ("true_revenue_evidence", package.get("true_revenue_evidence") or []),
+        ("excluded_pending_review_evidence", package.get("excluded_pending_review_evidence") or []),
         ("non_revenue_evidence", package.get("non_revenue_evidence") or []),
     ):
         for idx, evidence in enumerate(records, start=1):
@@ -1150,15 +1280,19 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     return rows
 
 
-#: Audit B11 (I32): the columns of the package downloads' ledger table.
+#: Audit B11 (I32): the columns of the package downloads' ledger table. The owner's request of 2026-10-11 (true revenue
+#: spec §2.2, §10.8): no `state` column (the 5.4 state, `verified_revenue` or `unverified_deposit`); the tier and reason
+#: are read through `_downloads_view`.
 _PACKAGE_TRANSACTION_COLUMNS = ("source_document", "source_account", "source_currency", "date", "description",
-                                "amount", "classification", "tier", "reason", "state", "review_status")
+                                "amount", "classification", "tier", "reason", "review_status")
 
 
 def _package_transaction_table(package: dict) -> list[tuple]:
     """Audit B11 (I32): the package's combined ledger (`transactions`), one row per posting, each naming its statement,
-    account and currency: a `columns` row, then `(package_transaction, n, ...)`. Written after the flat rows; its
-    statement text reaches a file only through `_escaped_rows`."""
+    account and currency: a `columns` row, then `(package_transaction, n, ...)`, its tier and reason as the downloads
+    read them (`_downloads_view`). Written after the flat rows; its statement text reaches a file only through
+    `_escaped_rows`."""
+    package = _downloads_view(package)
     rows: list[tuple] = []
     tagged: list[bool] = []
     for transaction in package.get("transactions") or []:
@@ -1170,8 +1304,7 @@ def _package_transaction_table(package: dict) -> list[tuple]:
                      transaction.get("source_currency") or "", transaction.get("date") or "",
                      transaction.get("description") or "", _num(transaction.get("amount")),
                      record.get("classification") or "", record.get("revenue_tier") or "",
-                     record.get("revenue_tier_reason") or "", record.get("revenue_classification") or "",
-                     record.get("revenue_review_status") or ""))
+                     record.get("revenue_tier_reason") or "", record.get("revenue_review_status") or ""))
         tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
     if not rows:
         return []
