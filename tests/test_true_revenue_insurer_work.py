@@ -2212,6 +2212,68 @@ def test_r3_03_american_income_life_is_a_credit_only_brand():
     assert insurer_credit_brand(entry_fields(row)) is None
 
 
+# --- Audit round 4, batch R4-B12 ---
+# R4-43 (the underwriter's Q9 of 2026-10-02: "The hidden-loan guard stays: a payer that also debits the account like a
+# lender stays held"; the owner's standing rule that loan money never becomes revenue; R3-B16's own premise, now made
+# true in also_debited whatever the debit's class): a carrier's loan-worded debit may read `insurance` (an insurer-
+# aliased carrier), never a lender debit, so its loan wording holds the released credits there, at any recurrence; an
+# ADVANCE, ADV or REPAY debit (an agency's commission-advance recovery or a claim-overpayment refund, which nets at
+# most: standard §4.3) and a premium keep R3-03's reading. Fabricated holder, public carriers by their names, 2054 dates,
+# zeroed ids, fabricated amounts.
+
+R4_43_HOLDER = {"holder": "NORTHWIND COLLISION LLC", "bank": "Bank of America"}
+R4_43_BOFA = "{payer} DES:{entry} ID:000{n} INDN:NORTHWIND COLLISION LLC CO ID:0000000001 PPD"
+R4_43_CHASE = ("ORIG CO NAME:{payer} ORIG ID:0000000001 DESC DATE:5403{dd} CO ENTRY DESCR:{entry} TRACE#:0000001 "
+               "EED:5403{dd} IND ID:0000001 IND NAME:NORTHWIND COLLISION")
+R4_43_CREDITS = (("DRP PMT", 1212.40, "03-02"), ("CLAIM PMT", 1387.15, "03-09"), ("REPAIR PMT", 990.75, "03-16"),
+                 ("DRP PMT", 1105.60, "03-23"))
+
+
+def _r4_43_credits(payer: str = "STATE FARM", layout: str = "bofa"):
+    if layout == "chase":
+        return [(R4_43_CHASE.format(payer=payer, entry=f"{entry}SEC PPD", dd=day[-2:]), amount, day)
+                for entry, amount, day in R4_43_CREDITS]
+    return [(R4_43_BOFA.format(payer=payer, entry=entry, n=n), amount, day)
+            for n, (entry, amount, day) in enumerate(R4_43_CREDITS, start=1)]
+
+
+def _r4_43_debit(payer: str, entry: str, layout: str = "bofa"):
+    if layout == "chase":
+        return R4_43_CHASE.format(payer=payer, entry=entry, dd="05"), -1214.60, "03-05"
+    return R4_43_BOFA.format(payer=payer, entry=entry, n=9), -1214.60, "03-05"
+
+
+R4_43_LOAN_DEBITS = [
+    pytest.param("STATE FARM", "STATE FARM", "LOAN PMT", "bofa", id="state-farm-loan-pmt"),
+    pytest.param("STATE FARM", "STATE FARM BANK", "LOAN PYMT", "bofa", id="state-farm-bank-loan-pymt"),
+    pytest.param("STATE FARM", "STATE FARM BANK", "AUTO LOAN", "bofa", id="state-farm-bank-auto-loan"),
+    pytest.param("ALLSTATE", "ALLSTATE", "LOAN PAYMENT", "bofa", id="allstate-loan-payment"),
+    pytest.param("STATE FARM", "STATE FARM BANK", "LOAN PMTSEC PPD", "chase", id="chase-state-farm-bank-loan-pmt"),
+]
+
+
+@pytest.mark.parametrize(("credit_payer", "debit_payer", "entry", "layout"), R4_43_LOAN_DEBITS)
+def test_r4_43_a_carrier_s_loan_debit_holds_the_released_credits(credit_payer, debit_payer, entry, layout):
+    statement = {**R4_43_HOLDER, "bank": "Chase" if layout == "chase" else R4_43_HOLDER["bank"]}
+    credits = _r4_43_credits(credit_payer, layout)
+    alone = _dated(credits, **statement)
+    assert [rules_reading(record) for record in alone] == [COUNTED] * 4
+    beside = _dated([*credits, _r4_43_debit(debit_payer, entry, layout)], **statement)
+    assert [rules_reading(record) for record in beside] == [HELD_ALSO] * 4
+
+
+@pytest.mark.parametrize("entry", ["ADVANCE", "ADV PMT", "REPAYMENT", "REPAY", "INS PREM"])
+def test_r4_43_an_advance_repayment_or_premium_debit_keeps_r3_03_s_reading(entry):
+    rows = [*_r4_43_credits(), _r4_43_debit("STATE FARM", entry)]
+    assert [rules_reading(record) for record in _dated(rows, **R4_43_HOLDER)] == [COUNTED] * 4
+
+
+@pytest.mark.parametrize("entry", ["ADV RECOVERY", "COMM ADVANCE"])
+def test_r4_43_an_agency_s_commission_advance_recovery_keeps_its_commissions_counted(entry):
+    rows = [*AIL_CREDITS, AIL_PREMIUM, _ail(entry, -250.0, "03-10")]
+    assert [rules_reading(record) for record in _dated(rows, **AIL_HOLDER)] == [COUNTED] * 4
+
+
 # --- Audit round 3, R3-B17 --------------------------------------------------------------------------------------------
 # R3-77 (owner ruling 2026-10-02, the underwriter's Q2: insurer payments for the business's work count; standard A9;
 # the hold's purpose, B6): RBC prints its posting-type label INSURANCE before the party on credits and debits alike, and

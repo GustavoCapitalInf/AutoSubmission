@@ -4662,6 +4662,12 @@ _OWN_ACCOUNT_AFTER_NAME = (
 _OWN_NAME_TRAILING_FORMS = re.compile(
     r"(?: (?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC))+$"
 )
+#: Audit round 4, R4-43 (the underwriter's Q9 of 2026-10-02, "The hidden-loan guard stays"; the owner's standing rule
+#: that loan money never becomes revenue): a loan word on a non-lender debit's kind text with Chase's glued SEC code
+#: split off (the normalizer already reads LN as LOAN outside a street address): the flag that keeps a debit naming a
+#: released insurer's carrier holding the released credits (also_debited), whatever class the classifier gave it (an
+#: insurer-aliased carrier's 'DES:LOAN PMT' reads insurance). A flag, never a kind: the debit keeps its kind.
+_LOAN_DEBIT = re.compile(r"(?<![A-Z])LOANS?(?![A-Z])")
 #: Audit B4 (guard): a transfer, wire or person-to-person debit, or an own-account move ('TO CHKG', 'DDA TO DDA'):
 #: it can be circular money, so it also matches a payer as 5.6 read it (CounterDebitReading.legacy).
 _OWN_ACCOUNT_DEBIT = re.compile(
@@ -4694,7 +4700,9 @@ class _CounterDebit:
     non-lender debit printing a premium or a retry of one (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code
     split off); a lender debit's is always False. Audit round 4, R4-27: `own_name`, a circular debit whose kind text
     prints one of the holder's names whole before an account designation, a masked number, a reference or the end
-    (_own_account_names: the holder's transfer to its own account); a lender debit's is always False."""
+    (_own_account_names: the holder's transfer to its own account); a lender debit's is always False. R4-43: `loan`, a
+    non-lender debit printing LOAN or LOANS (_LOAN_DEBIT, on its kind text with Chase's glued SEC code split off); a
+    lender debit's is always False (debited_as_lender reads it)."""
 
     reading: CounterDebitReading
     kind: str
@@ -4706,6 +4714,7 @@ class _CounterDebit:
     card: bool = False
     premium: bool = False
     own_name: bool = False
+    loan: bool = False
 
 
 @dataclass(frozen=True)
@@ -4841,10 +4850,11 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
     bank's posting-type label and a leading pre-authorized-debit label (classifier._counter_debit_text). Audit round 4,
     R4-27: each circular debit records whether its kind text prints one of the holder's names (the first record's
     _holder_names) whole before an account designation, a masked number, a reference or the end (_own_account_names):
-    the holder's transfer to its own account (`own_name`)."""
+    the holder's transfer to its own account (`own_name`). R4-43: each non-lender debit records whether its split kind
+    text prints LOAN or LOANS (_LOAN_DEBIT, `loan`); a lender debit never does."""
     classifier = _classifier()
     lender: list[_CounterDebit] = []
-    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool, bool]] = []
+    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool, bool, bool]] = []
     own_account = _own_account_names(_holder_names(records[0])) if records else None
     for index, record in enumerate(records):
         if index in duplicates or record.amount >= 0 or not record.is_posted:
@@ -4876,7 +4886,9 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
             premium = _PREMIUM_DEBIT.search(split) is not None
             # Audit round 4, R4-27: the holder's transfer to its own account.
             own_name = kind == "circular" and own_account is not None and own_account.search(kind_text) is not None
-            other.append((reading, kind, _cents(record.amount), payout, person_key, card, premium, own_name))
+            # Audit round 4, R4-43: a loan word, whatever class the classifier gave the debit.
+            loan = _LOAN_DEBIT.search(split) is not None
+            other.append((reading, kind, _cents(record.amount), payout, person_key, card, premium, own_name, loan))
     # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount (a bill's; B4
     # review round 1: never a processor's fee beside its settlement, also_debited).
     amounts = Counter((_head_word(reading), cents) for reading, _, cents, *_ in other)
@@ -4885,9 +4897,9 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
         tuple(
             _CounterDebit(
                 reading, kind, cents, None, amounts[(_head_word(reading), cents)] >= 2, payout, person_key, card,
-                premium, own_name,
+                premium, own_name, loan,
             )
-            for reading, kind, cents, payout, person_key, card, premium, own_name in other
+            for reading, kind, cents, payout, person_key, card, premium, own_name, loan in other
         ),
     )
 
@@ -4995,7 +5007,8 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     such a rail too, so a French autodeposit's sender names a debit as its English twin's does. Audit round 3, R3-B16
     (R3-03): `released_insurer` is True on that released credit, which also_debited holds by a debit naming its carrier
     only when the debit is circular money, is for its own amount, or recurs at one amount printing no premium or retry
-    word. Audit round 3, R3-B17 (R3-77, R3-74): both readings are read with the statement's bank (`record.bank`), so
+    word; audit round 4, R4-43: or prints a loan word (a carrier's loan-worded debit may read `insurance`, never a
+    lender debit; its loan wording holds the released credits there). Audit round 3, R3-B17 (R3-77, R3-74): both readings are read with the statement's bank (`record.bank`), so
     its posting-type label names no payer (classifier._without_posting_type_label: RBC's `INSURANCE <insurer>`); (R3-15)
     a numbered company's reading carries its number. Audit round 4, R4-27: `merchant_named` is True on a credit whose
     payer region names the holder (classifier.holder_named on a name of _holder_names, the row's layout setting the
@@ -5144,6 +5157,13 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
     and it recurs at one amount by nature, as a processor's fixed fee does (B4 review round 1), so it never holds the
     credit, recurring or not. An insurer the release did not count keeps B4's hold beside its premium or bill.
 
+    Audit round 4, R4-43 (the underwriter's Q9 of 2026-10-02, "The hidden-loan guard stays"; the owner's rule that loan
+    money never becomes revenue): R3-B16 assumed a carrier that lends is read as a lender debit by debited_as_lender;
+    a carrier's loan-worded debit may read `insurance` (an insurer-aliased carrier's 'DES:LOAN PMT'), never a lender
+    debit, so its loan wording (_CounterDebit.loan) holds the released credits here, at any recurrence. An ADVANCE, ADV
+    or REPAY debit (an agency's commission-advance recovery, a claim-overpayment refund, which nets at most: standard
+    §4.3) and a premium keep R3-03's reading.
+
     Audit round 4, R4-27 (standard A1: processor settlements count; B1 excludes own-account transfers on the credit
     side only; §4.6 item 5: an outflow to the holder's own account is a flag, not a revenue change), right after the
     receiving fee: a settlement, payout or platform credit under the merchant's own name (CounterCredit.merchant_named)
@@ -5167,9 +5187,10 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
             continue
         if debit.kind == "bill" and not credit.insurer and not same_amount and not debit.recurring:
             continue
-        # Audit round 3, R3-B16 (R3-03): a released insurer's carrier debits.
+        # Audit round 3, R3-B16 (R3-03): a released insurer's carrier debits. Audit round 4, R4-43: never a loan-worded
+        # one, which holds the released credits at any recurrence (the hidden-loan guard).
         if (
-            credit.released_insurer and not same_amount and debit.kind != "circular"
+            credit.released_insurer and not same_amount and debit.kind != "circular" and not debit.loan
             and (debit.premium or not debit.recurring)
         ):
             continue

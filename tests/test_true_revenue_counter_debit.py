@@ -706,6 +706,20 @@ def test_also_debited_reads_each_kind():
                                   ("bill", 100000, True)):
         debits = _debits(other=[("EXPRESS", ["AMERICAN", "EXPRESS"], kind, cents, False)])
         assert also_debited(generic, debits) is expected, (kind, cents)
+    # Audit round 4, R4-43: a released insurer's credit beside a one-off loan-worded debit naming its carrier is held;
+    # the same debit with no loan word is not (R3-03).
+    released = _counter("CONTOSO", ["CONTOSO"], released_insurer=True)
+    for kind in ("other", "processor_fee"):
+        loan = _debits(other=[("CONTOSO", ["CONTOSO"], kind, 2500, False, False, {"loan": True})])
+        assert also_debited(released, loan), kind
+        assert not also_debited(released, _debits(other=[("CONTOSO", ["CONTOSO"], kind, 2500, False)])), kind
+    # B4's bill rule reads first and is unchanged: a one-off bill never holds a credit that is no insurer's.
+    bill = _debits(other=[("CONTOSO", ["CONTOSO"], "bill", 2500, False, False, {"loan": True})])
+    assert not also_debited(released, bill)
+    # A premium that also prints a loan word is a loan debit too, recurring or not.
+    for recurring in (False, True):
+        loan = _debits(other=[("CONTOSO", ["CONTOSO"], "other", 2500, recurring, True, {"loan": True})])
+        assert also_debited(released, loan), recurring
 
 
 # --- Audit round 2, R2-B02 ------------------------------------------------------------------------------------------
@@ -1661,3 +1675,38 @@ def test_r4_27_the_merchant_named_fact():
     assert not fact("FABRIKAM SUPPLY SETTLEMENT 540115 000000000000000 NORTHWIND PRESS SAMPLEVI", R4_27_HOLDER)
     assert not fact("CONTOSO DESI PAYMENT 540115 000000000000000 NORTHWIND PRESS SAMPLEVI", R4_27_HOLDER)
     assert not fact(settlement, None)
+
+
+# R4-43 (the underwriter's Q9 of 2026-10-02, the hidden-loan guard; the owner's rule that loan money never becomes
+# revenue): a non-lender debit whose split kind text prints LOAN or LOANS records it (_CounterDebit.loan), a flag, never
+# a kind; a lender debit never does. The public carriers by their names, fabricated rows.
+
+@pytest.mark.parametrize(("text", "loan"), [
+    ("STATE FARM DES:LOAN PMT ID:0001 INDN:NORTHWIND COLLISION LLC CO ID:0000000001 PPD", True),
+    ("STATE FARM BANK DES:AUTO LOAN ID:0001 INDN:NORTHWIND COLLISION LLC CO ID:0000000001 PPD", True),
+    ("ALLSTATE DES:LOAN PAYMENT ID:0001", True),
+    ("ORIG CO NAME:STATE FARM BANK ORIG ID:0000000001 DESC DATE:540305 CO ENTRY DESCR:LOAN PMTSEC PPD", True),
+    ("STATE FARM DES:LOANS ID:0001", True),
+    # No loan word: a premium, an advance recovery, a repayment, a word that only starts like LOAN.
+    ("STATE FARM DES:INS PREM ID:0001 INDN:NORTHWIND COLLISION LLC CO ID:0000000001 PPD", False),
+    ("STATE FARM DES:ADV RECOVERY ID:0001", False),
+    ("STATE FARM DES:REPAYMENT ID:0001", False),
+    ("SAMPLE LOANSTAR SUPPLY DES:INVOICE ID:0001", False),
+])
+def test_r4_43_counter_debits_record_a_loan_word(text, loan):
+    from analysis.true_revenue import counter_debits
+
+    record = tc.classify_transaction(text, -1214.60, direction="debit")
+    debits = counter_debits([record], set())
+    assert [debit.loan for debit in (*debits.lender, *debits.other)] == [loan]
+
+
+def test_r4_43_a_lender_debit_never_records_a_loan_word():
+    from analysis.true_revenue import _CounterDebit, counter_debits
+
+    record = tc.classify_transaction("FORWARD FINANCING DES:LOAN PMT ID:2 INDN:NORTHWIND LABS CO ID:0000000001 CCD",
+                                     -500.0, direction="debit")
+    debits = counter_debits([record], set())
+    assert [debit.loan for debit in debits.lender] == [False] and not debits.other
+    assert list(_CounterDebit.__dataclass_fields__)[-2:] == ["own_name", "loan"]
+    assert _CounterDebit.__dataclass_fields__["loan"].default is False
