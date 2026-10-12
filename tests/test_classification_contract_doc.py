@@ -5082,3 +5082,74 @@ def test_r4_b13_is_recorded():
     for placeholder in ("MEASURE" + "_R4", "CODECOMMIT" + "_R4", "MEASURE" + "_INALL"):
         assert placeholder not in text, placeholder
         assert placeholder not in contract, placeholder
+
+
+#: Audit round 4, R4-B13 review round 1: the code commit (findings 1 to 9).
+R4_B13_R1_CODE_COMMIT = "d9a3233"
+
+
+def test_r4_b13_review_round_1_is_recorded():
+    """Audit round 4, R4-B13 review round 1 (findings 1 to 9): the code's docstrings and new readers; §7.11's
+    street-LN bullet, §8.1's advance-payment sentence, §8.5's Held, §9.3, the R4-66, R4-12, R4-14 and R4-53 lines
+    amended in place, the round's own line; the contract's bullets."""
+    from analysis import description_text
+
+    def doc(reader):
+        return re.sub(r"\s+", " ", reader.__doc__)
+
+    assert "R4-B13 review round 1" in doc(description_text._loan_or_lane)
+    for reader in (true_revenue._labelled_originator_name, true_revenue._glued_name_word, true_revenue._address_tail,
+                   true_revenue._originator_designation_word, transaction_classifier.province_words_only):
+        assert "R4-B13 review round 1" in doc(reader), reader.__name__
+    assert "_ORIGINATOR_LABEL_BEFORE_LN = re.compile(" in inspect.getsource(description_text)
+    classifier_source = inspect.getsource(transaction_classifier)
+    for words in ("_RELAYED_NUMBERED_FORMS = ", "_PROVINCE_ONLY_PHRASES = tuple(sorted("):
+        assert words in classifier_source, words
+    revenue_source = inspect.getsource(true_revenue)
+    for words in ("_ORIGINATOR_ONE_WORD_ACCOUNTS = frozenset({", "_GLUED_NAME_WORD = re.compile("):
+        assert words in revenue_source, words
+    assert "_ORIGINATOR_STATE_FORMS" not in revenue_source
+    text = SPEC.read_text(encoding="utf-8")
+    wrong = re.sub(r"\s+", " ", _section(text, "\n### 7.11 ", "\n### 7.12 "))
+    assert ("amended by R4-B13 review round 1, §20 below: only an address a wire's originator label (`B/O`, `ORIG`, "
+            "`ORG`, `ORIGINATOR`, `BY ORDER OF`) prints before its house number") in wrong
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    assert "a recorded residual, R4-B13 review round 1, §20: a buyer's `ADV PMT FOR MERCH ORDER <n>`" in holds
+    wires = re.sub(r"\s+", " ", _section(text, "\n### 8.5 ", "\n### 8.6 "))
+    for words in ("R4-B13 review round 1, §20: only an address, so a legal form is cut at only where a name word "
+                  "precedes it and an address's tail follows it",
+                  "(whole names and codes since R4-B13 review round 1, §20:"):
+        assert words in wires, words
+    assert "Its review round 1 (§20) narrows R4-66's arm to an address after a wire's originator label" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **A house number before `LN` and an address after it is a lane**",
+         "(Corrected by R4-B13 review round 1, §20 below: as first committed the arm read any row"),
+        ("- **A merchant or business advance's abbreviated or reordered purpose is no buyer's advance**",
+         "and (R4-B13 review round 1, §20 below; fail closed, reviewable, 0 rows)"),
+        ("- **An account number and a province code name no relayed customer and no sender**",
+         "amended by R4-B13 review round 1, §20 below: whole phrases only"),
+        ("- **An account number and a province code name no relayed customer and no sender**",
+         "(amended by R4-B13 review round 1, §20 below: unless a legal form follows the country word"),
+        ("- **A labelled originator's address is never its name**",
+         "amended by R4-B13 review round 1, §20 below: only a form that a name word, no connector or label, precedes"),
+        ("- **A labelled originator's address is never its name**",
+         "(amended by R4-B13 review round 1, §20 below: `MARKET` only after `MONEY`"),
+        ("- **A labelled originator's address is never its name**",
+         "(amended by R4-B13 review round 1, §20 below: only a region such a word leads"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    line = _amendment_line(amendments, "- **R4-B13 review round 1: ")
+    for words in (R4_B13_R1_CODE_COMMIT, "`description_text._ORIGINATOR_LABEL_BEFORE_LN`", "`_address_tail`",
+                  "`_ORIGINATOR_ONE_WORD_ACCOUNTS`", "`_PROVINCE_ONLY_PHRASES`", "`_RELAYED_NUMBERED_FORMS`",
+                  "`_GLUED_NAME_WORD`", "(finding 7, R4-12) recorded, no code change"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    assert f"- Audit round 4, R4-B13 review round 1 (findings 1 to 9; {R4_B13_R1_CODE_COMMIT}):" in contract
+    assert ("(R4-66; since its review round 1 only where a wire's originator label prints before the house number"
+            in contract)
+    assert "on an `other` debit of that shape the financing-keyword review no longer reads the lane" not in contract
+    assert "its classification and every lender reading do not)" not in text
+    for placeholder in ("MEASURE" + "_R4B13R1", "CODECOMMIT" + "_R4B13R1"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in contract, placeholder
