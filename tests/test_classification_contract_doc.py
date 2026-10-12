@@ -4476,3 +4476,69 @@ def test_r4_b09_the_code_s_docstrings_name_the_readings():
     holder = re.sub(r"\s+", " ", symitar._holder_reading.__doc__)
     for words in ("Primary Owner(s)", "never the Business Owner(s)", "a later page is never read"):
         assert words in holder, words
+
+
+#: Audit round 4, R4-B09 review round 1: the code commit of findings 1 and 2 (the insurer release), 3 (Symitar) and 5
+#: (the census).
+R4_B09_R1_CODE_COMMITS = ("c561999", "70bcd23", "5a2de2c")
+
+
+def test_r4_b09_review_round_1_is_recorded():
+    """Audit round 4, R4-B09 review round 1 (findings 1, 2, 3 and 5): the code's docstrings name the government guard,
+    Truist's entry field and Symitar's owner labels; the spec's narrowing 13, "Eligible" sentence, §17.1 Q2 (5) and §20
+    record them, the R4-34, R4-69 and R4-68 lines qualified in place, every pinned phrase kept; the contract's row and
+    history bullet name them."""
+    from analysis import symitar
+
+    strong = re.sub(r"\s+", " ", true_revenue._strong_insurance_wording_only.__doc__)
+    for words in ("R4-B09 review round 1 (finding 1)", "_government_insurance_payer",
+                  "Medicare, Medicaid or CMS at a clinic or a pharmacy still counts"):
+        assert words in strong, words
+    guard = re.sub(r"\s+", " ", true_revenue._government_insurance_payer.__doc__)
+    for words in ("_GOVERNMENT_INSURANCE_PAYER", "_PUBLIC_HEALTH_PAYER", "_holder_provider", "_insurer_own_region"):
+        assert words in guard, words
+    benefit = re.sub(r"\s+", " ", true_revenue._non_provider_benefit.__doc__)
+    for words in ("R4-B09 review round 1 (finding 2)", "_entry_first_layout", "_ENTRY_FIRST_FIELD"):
+        assert words in benefit, words
+    assert "_ENTRY_FIRST_FIELD" in true_revenue._benefit_in_carrier_name.__doc__
+    holder = re.sub(r"\s+", " ", symitar._holder_reading.__doc__)
+    for words in ("R4-B09 review round 1 (finding 3)", "_OWNER_LABEL", "_OWNER_WORD", "never the Business Owner(s)"):
+        assert words in holder, words
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    assert "(R4-B09 review round 1, §20) a government benefit or agency payer those two readers miss" in flat
+    assert "`_GOVERNMENT_INSURANCE_PAYER`" in _section(flat, "13. a listed insurer's credit",
+                                                         "Nothing else leaves `non_revenue`")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("R4-B09 review round 1, §20: nor a government benefit or agency payer those readers miss",
+                  "on Truist's entry-first layout no word that starts inside its 10-character entry field is a name "
+                  "word"):
+        assert words in holds, words
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    defaults = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Insurers paid for the business's work: the defaults (the underwriter's Q2 of 2026-10-02, §8.1; "
+        "R2-OW08).**"))
+    for words in ("recorded residuals, both latent", "R4-B09 review round 1, finding 2, §20",
+                  "a third residual, latent too"):
+        assert words in defaults, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **A benefit word is the carrier's name only after a name word", "(Qualified by R4-B09 review round 1, "
+         "finding 2, §20 below:"),
+        ("- **A strong-rule `INSURANCE CLAIM` or `INSURANCE PAYMENT` credit is released on a Q2 ground**",
+         "(Widened by R4-B09 review round 1, findings 1 and 5, §20 below:"),
+        ("- **Symitar's printed holder is read", "(Widened by R4-B09 review round 1, finding 3, §20 below:"),
+    ):
+        assert words in _amendment_line(amendments, start), start
+    line = _amendment_line(amendments, "- **R4-B09 review round 1: ")
+    for words in ("findings 1, 2, 3 and 5", *R4_B09_R1_CODE_COMMITS, "(finding 1;", "(finding 2;", "(finding 3;",
+                  "(finding 5)", "(finding 4)", "reported to the orchestrator as a new round-4 item",
+                  "Measured against `1fe4e23`"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    assert "nor Medicare's, Medicaid's or CMS's away from a clinic or a pharmacy: R4-B09 review round 1" in contract
+    assert "never a word inside Truist's 10-character entry field (R4-B09 review round 1)" in contract
+    assert "- Audit round 4, R4-B09 review round 1 (findings 1, 2, 3 and 5;" in contract
+    for placeholder in ("R4B09R1" + "CODE", "MEASURE" + "_R4B09R1"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in CONTRACT.read_text(encoding="utf-8"), placeholder
