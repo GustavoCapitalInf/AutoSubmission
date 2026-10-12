@@ -4659,10 +4659,17 @@ _PREMIUM_DEBIT = re.compile(r"(?<![A-Z])(?:PREM|PREMS|PREMIUMS?|PREMSEC|RETRY)(?
 #: Audit round 4, R4-27 (standard B1, §4.6 item 5; R3-90 A's own reading): what follows the holder's own name in a
 #: transfer to its own account: an account designation (an account word, a product word before it, MONEY MARKET), a
 #: masked number, a reference or the end. Read by _own_account_names on a circular debit (_CounterDebit.own_name).
+#: R4-B12 review round 1 (finding 3; §8.1's "an affiliate"): the masked number is X-masked ('XXXXXX0000'); a bare
+#: number right after the name may be an affiliate's own ('<holder's words> 360 LLC') or a plan's ('401K'), and the
+#: account's digits after an account word are read by the designation.
 _OWN_ACCOUNT_AFTER_NAME = (
     r"(?= (?:(?:BUSINESS|PERSONAL|OPERATING|PAYROLL) )?"
-    r"(?:CHECKING|CHKG|CHK|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA|MONEY MARKET)\b| X*\d| REF\b|\s*$)"
+    r"(?:CHECKING|CHKG|CHK|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA|MONEY MARKET)\b| X+\d| REF\b|\s*$)"
 )
+#: Audit round 4, R4-B12 review round 1 (finding 3; R4-27; §8.1's "an affiliate"): where the holder's own name is the
+#: transfer's payee: right after TO, or at the start of the debit's kind text. A name after FROM is the source account
+#: ('FROM <holder> CHECKING 0000 TO <affiliate>'), never the payee.
+_OWN_ACCOUNT_PAYEE = r"(?:^\s*|(?<![A-Z0-9])TO )"
 #: Audit round 4, R4-27: the legal forms a holder's name ends with, left off before the name is read in a debit
 #: (_HOLDER_RUN_FORM reads them printed or left off after it).
 _OWN_NAME_TRAILING_FORMS = re.compile(
@@ -4922,7 +4929,10 @@ def _own_account_names(names: tuple[str, ...]) -> re.Pattern[str] | None:
     nobody: a product, a grid header, classifier.holder_words), matched word-bounded with its legal form printed or
     left off (_HOLDER_RUN_FORM) and followed by an account designation, a masked number, a reference or the end
     (_OWN_ACCOUNT_AFTER_NAME). None when no name reads. An affiliate sharing only the holder's first word or first two
-    words ('CONTOSO SOLUTIONS LLC', 'CONTOSO DESIGN STUDIO LLC' for 'CONTOSO DESIGN INC') is never matched."""
+    words ('CONTOSO SOLUTIONS LLC', 'CONTOSO DESIGN STUDIO LLC' for 'CONTOSO DESIGN INC') is never matched. R4-B12
+    review round 1 (finding 3): the name is read only as the transfer's payee (_OWN_ACCOUNT_PAYEE: right after TO, or
+    at the text's start), and its masked number only X-masked, so neither 'FROM CONTOSO DESIGN INC CHECKING 0000 TO
+    <affiliate>' nor an affiliate named 'CONTOSO DESIGN 360 LLC' is the holder's own account."""
     classifier = _classifier()
     runs: set[str] = set()
     for name in names:
@@ -4937,7 +4947,8 @@ def _own_account_names(names: tuple[str, ...]) -> re.Pattern[str] | None:
         return None
     alternation = "|".join(re.escape(run) for run in sorted(runs, key=len, reverse=True))
     return re.compile(
-        r"(?<![A-Z0-9])(?:" + alternation + r")" + _HOLDER_RUN_FORM + r"(?![A-Z0-9])" + _OWN_ACCOUNT_AFTER_NAME
+        _OWN_ACCOUNT_PAYEE + r"(?<![A-Z0-9])(?:" + alternation + r")" + _HOLDER_RUN_FORM + r"(?![A-Z0-9])"
+        + _OWN_ACCOUNT_AFTER_NAME
     )
 
 
@@ -5127,14 +5138,20 @@ def debited_as_lender(credit: CounterCredit, debits: CounterDebits, *, prefix: b
     ('MERCHANT FABRIKAM FUND') never holds a customer whose own first word is MERCHANT; a funder is still caught by its
     own name word, its registry entity, the B4 forms, the prefix or the financing hold. Read by pass 7, _payer_collects
     and the classifier's pass 6 alike; also_debited's 5.6 match for circular money is unchanged. MERCH stays no generic
-    word (RBC's 'Investment MERCH PAD', a registered potential lender's printed name)."""
+    word (RBC's 'Investment MERCH PAD', a registered potential lender's printed name). R4-B12 review round 1 (finding
+    1; Q9's hidden-loan guard; §20 B4's guard, a bank's name keeps matching): the arm skips only the words that name no
+    party (classifier._COUNTER_DEBIT_NO_PARTY_WORDS: MERCHANT, SERVICE(S), UTILITIES, INCOME, POSTED, TRSFR,
+    PAIEMENT, EXPRESS), never a bank's name the generic words list as a channel (CHASE, TRUIST, BLUEVINE,
+    classifier._COUNTER_DEBIT_BANK_NAME_WORDS): a bank that lends prints its name on both sides, and a bare BLUEVINE,
+    CHASE or TRUIST credit names no registry entity and no B4 key (those skip the generic words), so this arm is the
+    only one that holds it beside that bank's loan or line-of-credit debits."""
     reading = credit.lender_reading if credit.lender_reading is not None else credit.reading
-    generic = _classifier()._COUNTER_DEBIT_GENERIC_WORDS
+    no_party = _classifier()._COUNTER_DEBIT_NO_PARTY_WORDS
     for debit in debits.lender:
         if credit.person_key is not None and credit.person_key in debit.reading.keys:
             return True
         if (
-            reading.legacy is not None and reading.legacy not in generic
+            reading.legacy is not None and reading.legacy not in no_party
             and reading.legacy == debit.reading.legacy
         ):
             return True

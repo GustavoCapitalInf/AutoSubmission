@@ -7678,11 +7678,16 @@ def _debit_first_distinctive_word(record: TransactionClassification) -> str | No
 #: POSTED, SERVICE, TRSFR. A bank's own name prints as its channel (a bank's online payment, its merchant deposit, its
 #: card, its ATM, its pay product), never as the payer the holder also pays; only the names the corpus prints that way
 #: are listed (a bank's name printed as the holder's own account at it, a transfer to or from the holder's savings
-#: there, keeps matching: the guard of audit B4 keeps every transfer and lender match as 5.6 read it).
-_COUNTER_DEBIT_GENERIC_WORDS = frozenset({
+#: there, keeps matching: the guard of audit B4 keeps every transfer and lender match as 5.6 read it). Audit round 4,
+#: R4-B12 review round 1 (R4-45; the underwriter's Q9 of 2026-10-02): the set is two named parts, the words that name
+#: no party (_COUNTER_DEBIT_NO_PARTY_WORDS, which payer_debited_as_lender's 5.6 first-word arm skips) and the banks'
+#: names (_COUNTER_DEBIT_BANK_NAME_WORDS: a bank that lends, so that arm still reads its name against its loan or
+#: line-of-credit debits).
+_COUNTER_DEBIT_NO_PARTY_WORDS = frozenset({
     "MERCHANT", "UTILITIES", "EXPRESS", "INCOME", "PAIEMENT", "POSTED", "SERVICE", "SERVICES", "TRSFR",
-    "CHASE", "TRUIST", "BLUEVINE",
 })
+_COUNTER_DEBIT_BANK_NAME_WORDS = frozenset({"CHASE", "TRUIST", "BLUEVINE"})
+_COUNTER_DEBIT_GENERIC_WORDS = _COUNTER_DEBIT_NO_PARTY_WORDS | _COUNTER_DEBIT_BANK_NAME_WORDS
 #: Audit round 2, R2-B02 (R02; §5.2, standard A6, A8, A16): words that name no counterparty, which the counter-debit
 #: readings skip (counter_debit_payer_reading's legacy word, _debit_word_reading, _counter_debit_head; never the payer's
 #: first distinctive word other readers group payers by, nor _counter_debit_skip_words): the person-to-person rails'

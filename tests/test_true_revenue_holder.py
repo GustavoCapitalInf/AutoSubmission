@@ -2437,3 +2437,44 @@ def test_r4_27_a_third_party_paid_back_by_transfer_stays_held():
     assert _tiers([(credit, 1500.0), (debit, -900.0)], **statement) == [
         ("excluded_pending_review", "payer_also_debited")]
 
+
+# R4-B12 review round 1 (finding 3; R4-27; §8.1's stated purpose, "an own account, an affiliate"): the holder's name is
+# its own account only as the transfer's payee (after TO, or at the start of the text) and before an account
+# designation, an X-masked number, a reference or the end, so a transfer FROM the holder's own account TO an affiliate,
+# and a transfer to an affiliate named with the holder's words and a number, still hold the settlement, at any amount.
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("amount", "days"), [(-900.0, (2, 3)), (-1500.0, (2, 2))])
+@pytest.mark.parametrize("debit", [
+    "ONLINE TRANSFER FROM CONTOSO DESIGN INC CHECKING 0000 TO CONTOSO SOLUTIONS LLC",
+    "ONLINE TRANSFER TO CONTOSO DESIGN 360 LLC REF IB0000000",
+])
+def test_r4_b12_r1_a_transfer_from_the_own_account_or_to_a_numbered_affiliate_still_holds(debit, amount, days, zelle):
+    rows = [(R3_90_WELLS.format(n=5), 1500.0), (debit, amount)]
+    assert _r4_27_tiers(rows, days, zelle) == [("excluded_pending_review", "payer_also_debited")]
+
+
+# R4-B12 review round 1 (finding 2; R4-26, standard B7, fail closed; recorded residual): a holder whose own name prints a
+# settlement family's word has that family read as no settlement on its rows wherever the word prints, the row's own
+# entry field (BofA's DES, Chase's CO ENTRY DESCR) included, so a card settlement printing that family's form under the
+# merchant's own name (MERCH DEP under a MERCH or MERCHANT holder) is held as the holder's own push, never verified, in
+# both Zelle readings; a holder whose name prints no family word (MERCHANDISE) keeps the verified card settlement.
+
+R4_B12_R1_BOFA_MERCH = "{orig} DES:MERCH DEP ID:000{n} INDN:{receiver} CO ID:0000000001 CCD"
+
+
+@pytest.mark.parametrize(("holder", "template", "orig", "receiver", "bank", "expected"), [
+    pytest.param("CONTOSO MERCH LLC", R4_B12_R1_BOFA_MERCH, "CONTOSO MERCH", "CONTOSO MERCH LLC", "Bank of America",
+                 HOLDER_NAME, id="bofa-merch-holder"),
+    pytest.param("CONTOSO MERCH LLC", CHASE_ACH, "CONTOSO MERCH", "CONTOSO MERCH", "Chase", HOLDER_NAME,
+                 id="chase-merch-holder"),
+    pytest.param("NORTHWIND MERCHANT SERVICES LLC", R4_B12_R1_BOFA_MERCH, "NORTHWIND MERCHANT",
+                 "NORTHWIND MERCHANT SERVICES LLC", "Bank of America", HOLDER_NAME, id="bofa-merchant-holder"),
+    pytest.param("CONTOSO MERCHANDISE LLC", R4_B12_R1_BOFA_MERCH, "CONTOSO MERCHANDISE", "CONTOSO MERCHANDISE LLC",
+                 "Bank of America", NET_SETTLE, id="bofa-merchandise-holder"),
+])
+def test_r4_b12_r1_the_holder_s_own_family_settlement_entry_is_held(holder, template, orig, receiver, bank, expected):
+    rows = [(template.format(orig=orig, entry="MERCH DEP ", receiver=receiver, n=index), amount)
+            for index, amount in enumerate((1210.40, 1387.15, 990.75))]
+    _r4_b12_both(rows, [expected] * 3, bank=bank, holder_name=holder)
+

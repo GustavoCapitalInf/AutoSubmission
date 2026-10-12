@@ -1621,6 +1621,15 @@ R4_27_HOLDER = "CONTOSO DESIGN INC DBA NORTHWIND PRESS"
     ("ONLINE TRANSFER TO CONTOSO DESIGN STUDIO LLC BUSINESS CHECKING XXXXXX0000", False),
     # A debit that is no circular money never records it.
     ("CONTOSO DESIGN INC DES:PAYMENT ID:0001", False),
+    # R4-B12 review round 1 (finding 3): the holder's name is read only as the transfer's payee (after TO, or at the
+    # start of the text), and only before an account designation, an X-masked number, a reference or the end.
+    ("ONLINE TRANSFER FROM CONTOSO DESIGN INC CHECKING 0000 TO CONTOSO SOLUTIONS LLC", False),
+    ("ONLINE TRANSFER FROM CONTOSO DESIGN INC CHECKING 0000 TO CONTOSO DESIGN INC SAVINGS XXXXXX0000", True),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN 360 LLC REF IB0000000", False),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC 401K PLAN", False),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC 0000 REF IB0000000", False),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC X0000 REF IB0000000", True),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC ACCT ENDING 0000", True),
 ])
 def test_r4_27_counter_debits_mark_the_holder_s_own_account_transfer(text, own_name):
     from analysis.true_revenue import counter_debits
@@ -1839,3 +1848,93 @@ def test_r4_45_debited_as_lender_skips_a_generic_legacy_word():
     assert debited_as_lender(_counter("MERCHANT", ["MERCHANTFABRIKAM"]), shared, prefix=False)
     entity = _debits(lender=[("MERCHANT", ["FABRIKAMFUND"], "Sample Lender")])
     assert debited_as_lender(_counter("MERCHANT", ["CONTOSOSALES"], entity="Sample Lender"), entity, prefix=False)
+
+
+# R4-B12 review round 1 (finding 1; R4-45; the underwriter's Q9 of 2026-10-02, "a payer that also debits the account
+# like a lender stays held"; §20 B4's guard: a bank's name keeps matching): the first-word arm skips only the generic
+# words that name no party (classifier._COUNTER_DEBIT_NO_PARTY_WORDS). The bank names the generic set lists as a
+# channel (classifier._COUNTER_DEBIT_BANK_NAME_WORDS: CHASE, TRUIST, BLUEVINE) name a bank that lends, so a credit
+# whose first word is that bank's name stays held beside the bank's loan or line-of-credit debits, in both Zelle
+# readings. The public banks by their printed names; a fabricated holder, amounts and ids.
+
+R4_B12_R1_HOLDER = "NORTHWIND CATERING LLC"
+R4_B12_R1_BOFA = "{payer} DES:{entry} ID:0001 INDN:NORTHWIND CATERING CO ID:0000000001 CCD"
+R4_B12_R1_BLUEVINE_LOC = ["BLUEVINE CAPITAL DES:LOAN PMT ID:0002", "BLUEVINE CAPITAL DES:LOC PMT ID:0003"] * 2
+
+
+def _r4_b12_r1(credit, debits, zelle, *, bank="Bank of America"):
+    """A credit and its lender's debits of 312.00 on the days after it: the credits' final tier and reason, and the
+    debits' classifications."""
+    rows = [(credit, 1875.40), *[(debit, -312.0) for debit in debits]]
+    statement = Statement(holder_name=R4_B12_R1_HOLDER, bank=bank, transactions=[
+        Transaction(date=f"2054-03-{index * 7 + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    records = classify_statement_transactions(statement, zelle_true_revenue=zelle)
+    return ([_tier(record) for record in records if record.amount > 0],
+            {record.classification for record in records if record.amount < 0})
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("credit", "debits", "bank"), [
+    pytest.param(R4_B12_R1_BOFA.format(payer="BLUEVINE PAY", entry="PAYMENT"), R4_B12_R1_BLUEVINE_LOC,
+                 "Bank of America", id="bluevine-pay-payment"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="BLUEVINE", entry="TRANSFER"), R4_B12_R1_BLUEVINE_LOC,
+                 "Bank of America", id="bluevine-transfer"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="BLUEVINE", entry="DEPOSIT"), R4_B12_R1_BLUEVINE_LOC,
+                 "Bank of America", id="bluevine-deposit"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="BLUEVINE INC", entry="ACH"), R4_B12_R1_BLUEVINE_LOC,
+                 "Bank of America", id="bluevine-inc-ach"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="BLUEVINE PAY", entry="PAYMENT"),
+                 ["BLUEVINE CAPITAL DES:LOAN PMT ID:0002"], "Bank of America", id="bluevine-one-loan-payment"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="BLUEVINE PAY", entry="PAYMENT"),
+                 ["BLUEVINE LOAN DES:PAYMENT ID:0002"] * 4, "Bank of America", id="bluevine-loan"),
+    pytest.param("ONLINE TRANSFER FROM BLUEVINE 0000", ["BLUEVINE CAPITAL LOAN PMT 0000"] * 4, None,
+                 id="unlabelled-bluevine-transfer"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="CHASE", entry="TRANSFER"), ["CHASE LOAN DES:LOAN PMT ID:0002"] * 4,
+                 "Bank of America", id="chase-transfer"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="CHASE", entry="PAYMENT"), ["CHASE LOAN DES:LOAN PMT ID:0002"] * 4,
+                 "Bank of America", id="chase-payment"),
+    pytest.param(R4_B12_R1_BOFA.format(payer="TRUIST", entry="PAYMENT"), ["TRUIST LOAN DES:LOAN PMT ID:0002"] * 4,
+                 "Bank of America", id="truist-payment"),
+])
+def test_r4_b12_r1_a_lending_bank_s_name_still_holds_its_credit_beside_its_lender_debits(credit, debits, bank, zelle):
+    from analysis.true_revenue import LENDER_DEBIT_STATES
+
+    tiers, classes = _r4_b12_r1(credit, debits, zelle, bank=bank)
+    assert classes and classes <= set(LENDER_DEBIT_STATES)
+    assert tiers == [HELD_LENDER]
+    # Alone, the credit is not held as a lender's: the hold is the lender debits'.
+    alone, _ = _r4_b12_r1(credit, [], zelle, bank=bank)
+    assert alone != [HELD_LENDER]
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+def test_r4_b12_r1_a_merchant_led_customer_still_counts_beside_a_merchant_led_funder(zelle):
+    # R4-45's own cases (T45a) are unchanged by the narrower skip: MERCHANT names no party.
+    credit = "MISC PAYMENT MERCHANT CONTOSO SALES"
+    tiers, classes = _r4_b12_r1(credit, ["INVESTMENT MERCHANT GROWTH FUND"] * 4, zelle, bank="Scotiabank")
+    alone, _ = _r4_b12_r1(credit, [], zelle, bank="Scotiabank")
+    assert tiers == alone == [ONE_OFF]
+
+
+def test_r4_b12_r1_the_generic_words_split_into_no_party_words_and_bank_names():
+    assert tc._COUNTER_DEBIT_BANK_NAME_WORDS == frozenset({"CHASE", "TRUIST", "BLUEVINE"})
+    assert tc._COUNTER_DEBIT_NO_PARTY_WORDS == frozenset({
+        "MERCHANT", "UTILITIES", "EXPRESS", "INCOME", "PAIEMENT", "POSTED", "SERVICE", "SERVICES", "TRSFR"})
+    assert tc._COUNTER_DEBIT_NO_PARTY_WORDS | tc._COUNTER_DEBIT_BANK_NAME_WORDS == tc._COUNTER_DEBIT_GENERIC_WORDS
+    assert not tc._COUNTER_DEBIT_NO_PARTY_WORDS & tc._COUNTER_DEBIT_BANK_NAME_WORDS
+
+
+def test_r4_b12_r1_debited_as_lender_skips_only_a_no_party_legacy_word():
+    from analysis.true_revenue import debited_as_lender
+
+    for word in sorted(tc._COUNTER_DEBIT_BANK_NAME_WORDS):
+        debits = _debits(lender=[(word, ["FABRIKAMLOAN"], None)])
+        assert debited_as_lender(_counter(word, ["CONTOSOPAY"]), debits, prefix=False), word
+        assert debited_as_lender(_counter(word, ["CONTOSOPAY"]), debits, prefix=True), word
+    for word in sorted(tc._COUNTER_DEBIT_NO_PARTY_WORDS):
+        debits = _debits(lender=[(word, ["FABRIKAMFUND"], None)])
+        assert not debited_as_lender(_counter(word, ["CONTOSOSALES"]), debits, prefix=False), word
+        assert not debited_as_lender(_counter(word, ["CONTOSOSALES"]), debits, prefix=True), word
