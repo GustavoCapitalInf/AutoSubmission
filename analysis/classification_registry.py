@@ -2020,6 +2020,16 @@ HEALTHCARE_PAYER_ALIASES: dict[str, tuple[str, ...]] = {
 #: trade name GLS AUTO (S1.5's verify round: body shops and a used-car dealer trade under it; the ledger dropped it too).
 #: Never Suncoast Credit Union (S4.3 review): S1.5 did not admit it, and its statements print the holder's own funding
 #: transfers as ACCT FUND; its dealer funding verifies through Q7's credit-union arm alone (two or more VHCL PURCH).
+#: Audit round 4, R4-67 (Q7 of 2026-09-28, "An auto lender paying a dealer: Revenue and Verified when the entry names a
+#: funding or purchase"): USAA Federal Savings Bank's auto-loan originator, by the ledger's own record
+#: (docs/lender-registry-evidence.md, "USAA Federal Savings Bank (auto loan)", rejected; decision 2026-09-25, owner
+#: delegated to the orchestrator: every row is a used-car dealer's receipt from USAA for a member's purchase, "dealer
+#: receipts stay revenue"; public evidence there: usaa.com's auto loans). Its alias prints LOAN, which Q7 reads as the
+#: lender's own name, never a veto (true_revenue._q7_veto_text), and which the strong rule reads blanked
+#: (transaction_classifier._strong_text). Credit-side only: Q7 and pass 7's hold read this table, no debit reader does
+#: (a debit printing USAA AUTO LOAN still reaches vehicle financing through spec §4.3 step 8's AUTO LOAN wording). Never
+#: the bank's other entities (USAA FSB, USAA FSB CC, USAA COM PAYMNT), whose aliases stay where they are; never admitted
+#: to the ledger, so its other credits stay held (financing_named_payer).
 DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Westlake Financial": ("WESTLAKE FINANCIAL", "WESTLAKE FINANCI", "WESTLAKE PORTFOL"),
     "United Auto Credit": ("UNITED AUTO CREDIT", "UNITED AUTO CRED"),
@@ -2042,6 +2052,7 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
     "Regional Acceptance": ("REGIONAL ACCEPTAN", "REGIONAL ACCEPTANCE"),
     "Nicholas Financial": ("NICHOLAS FINANCIAL",),
     "Lendbuzz": ("LENDBUZZ",),
+    "USAA Federal Savings Bank (auto loan)": ("USAA AUTO LOAN",),
 }
 
 #: 5.6 (A3-H, §8.9; lender-scope ruling 2026-09-24: factoring payouts are revenue, counted and flagged, never

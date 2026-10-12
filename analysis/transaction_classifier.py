@@ -16,6 +16,7 @@ from .classification_registry import (
     CardSettlementForm,
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
+    DEALER_FUNDING_PAYERS,
     FACTORING_REVIEW_ENTITIES,
     FIELD_ORDER_PAYEE_FORMS,
     GATED_PROCESSOR_ALIASES,
@@ -50,7 +51,10 @@ from .description_text import (
 from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from .true_revenue import (
+    _AUTO_LOAN_PRODUCT,
     _HOLDER_NAME_MARKER,
+    _LOAN_IN_ALIAS,
+    DEALER_FUNDING_WORDS,
     DealerFunding,
     FundingSeries,
     also_debited,
@@ -1183,12 +1187,27 @@ def _strong_text(text: str, description: str | None) -> str:
     """The text the strong non-revenue step reads (audit round 4, R4-69: moved here from _classify_credit_revenue,
     byte-identical): the revenue text without Snap's merchant-funding form (owner ruling 2026-10-02, Q8;
     _SNAP_MERCHANT_FUNDING) and with the LOAN the normalizer made of a company name's LN blanked (audit round 3, R3-B07:
-    R3-46; description_text.ln_name_spans, read on the printed `description`)."""
+    R3-46; description_text.ln_name_spans, read on the printed `description`).
+
+    Audit round 4, R4-67 (Q7 of 2026-09-28, "An auto lender paying a dealer: Revenue and Verified when the entry names a
+    funding or purchase. Other credits from listed auto lenders stay financing"; true revenue spec §6.1 step 9, §6.3,
+    §8.7): and blanked, on the strong reading only, (a) a listed auto lender's alias that prints LOAN(S)
+    (DEALER_FUNDING_PAYERS: 'USAA AUTO LOAN') where the originator segment names it, whatever else the row prints, so
+    the lender's other credits reach the true-revenue pass's hold (financing_named_payer); and (b) every auto-lending
+    product (true_revenue._AUTO_LOAN_PRODUCT: AUTO, VEHICLE, VEH, VHCL or CAR LOAN(S)) where the row before its
+    receiver fields prints a dealer-specific funding word (true_revenue.DEALER_FUNDING_WORDS), so an unlisted lender's
+    dealer payment reaches §8.1's dealer-word hold. Any other LOAN still decides the strong rule."""
     strong_text = _SNAP_MERCHANT_FUNDING.sub(" ", text)
     for name, blanked in ln_name_spans(description or ""):
         strong_text = re.sub(
             r"(?<![A-Z0-9])" + re.escape(name) + r"(?![A-Z0-9])", lambda _found, kept=blanked: kept, strong_text
         )
+    listed = registry_match(_originator_segment(text), DEALER_FUNDING_PAYERS)
+    if listed is not None and _LOAN_IN_ALIAS.search(listed[1]):
+        alias = r"\s+".join(re.escape(part) for part in listed[1].split())
+        strong_text = re.sub(r"(?<![A-Z0-9])" + alias + r"(?![A-Z0-9])", " ", strong_text, count=1)
+    if DEALER_FUNDING_WORDS.search(_before_receiver(text)):
+        strong_text = _AUTO_LOAN_PRODUCT.sub(" ", strong_text)
     return strong_text
 
 
@@ -4218,7 +4237,10 @@ def _classify_credit_revenue(
     # wording) is read by the strong patterns with the LOAN the normalizer made of its LN blanked, as Snap's form is, so
     # the row reaches pass 7, whose financing root holds it for review (financing_named_payer). Every other reader keeps
     # the full text. Audit round 4, R4-69: built by _strong_text, which the true-revenue pass's insurer release reads
-    # too (strong_rule_reads_insurance_wording_only).
+    # too (strong_rule_reads_insurance_wording_only). Audit round 4, R4-67 (Q7): _strong_text also blanks a listed auto
+    # lender's alias that prints LOAN ('USAA AUTO LOAN') and, beside a dealer-specific funding word, an auto-lending
+    # product's LOAN ('AUTO LOAN', 'VEHICLE LOAN'), so such a row Q7 did not verify reaches the pass's hold; every other
+    # reader keeps the full text, as for Snap's form and the LN names.
     strong_text = _strong_text(text, description)
     if (
         _matches_any(strong_text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation

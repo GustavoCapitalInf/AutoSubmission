@@ -175,6 +175,20 @@ NARROWINGS = (
     # the true-revenue pass (its method insurer_paid_for_services): counted and flagged, never verified; a later hold
     # may still hold it.
     ("15_insurer_paid_for_services", True),
+    # Audit round 4, R4-67 (Q7 of 2026-09-28; §6.3's narrowing 14): a credit the strong rule's LOAN pattern read only
+    # inside a listed auto lender's alias or an auto-lending product beside a dealer word, which Q7 did not verify, is
+    # held financing_named_payer (reviewable), never into True; the verified twin is narrowing 7's.
+    ("16_auto_lender_loan_name", False),
+)
+#: Audit round 4, R4-67: the listed auto lenders' aliases that print LOAN (analysis/classification_registry.py
+#: DEALER_FUNDING_PAYERS' aliases holding LOAN(S), copied: the census reads other checkouts), the auto-lending product
+#: phrase (analysis/true_revenue.py _AUTO_LOAN_PRODUCT, copied) and the dealer-specific funding words
+#: (analysis/true_revenue.py DEALER_FUNDING_WORDS, copied), read on the census's masked text.
+_AUTO_LENDER_LOAN_ALIASES = ("USAA AUTO LOAN",)
+_AUTO_LOAN_PRODUCT = re.compile(r"(?<![A-Z])(?:AUTO|VEH(?:ICLE)?|VHCL|CAR) LOANS?\b")
+_DEALER_FUNDING_WORDS = re.compile(
+    r"(?<![A-Z])(?:VHCL PURCH\w*|VEHICLE PURCHASE\b|DEAL ?FUND\w*|FUNDLOAN\b|DEALER (?:FUND\w*|FND|PMT|PAY\w*)\b"
+    r"|DLR PMT\b|AUTODLRPMT\b|CONTRACT FUND\w*|VADMIN FEE\b)"
 )
 #: The narrowings that lead to True only counted and flagged, never verified (audit B3: I11; audit B6: I10; owner
 #: ruling 2026-10-02, Q8 and the underwriter's Q2).
@@ -2132,6 +2146,15 @@ def _narrowing(base: dict, after: dict) -> str | None:
         return "6_card_credit_release"
     if base_method == "financing_proceeds_credit" and after["method"] == "auto_lender_dealer_funding":
         return "7_q7_dealer_funding"
+    # Audit round 4, R4-67 (Q7 of 2026-09-28; §6.3's narrowing 14): a strong row whose LOAN was only a listed auto
+    # lender's own name or an auto-lending product beside a dealer word (_auto_lender_loan_name) leaves the strong rule
+    # verified by Q7 (narrowing 7) or held financing_named_payer (never into True); any other later reading of it is no
+    # declared narrowing (G1 fails it).
+    if base_method == "strong_non_revenue_rule" and _auto_lender_loan_name(text):
+        if after["method"] == "auto_lender_dealer_funding":
+            return "7_q7_dealer_funding"
+        if (after.get("tier"), after.get("reason")) == ("excluded_pending_review", "financing_named_payer"):
+            return "16_auto_lender_loan_name"
     # Audit B6 (I10, §6.3 narrowing 10): a factoring review entity's credit, routed to the factoring payout (the pass's
     # own factoring_review fact).
     if base_method == "potential_lender_registry_credit_exclusion" and facts.get("factoring_review"):
@@ -2156,6 +2179,15 @@ def _narrowing(base: dict, after: dict) -> str | None:
     if base_method in _FURNITURE_BASE_METHODS and _STATEMENT_FURNITURE_56.search(text):
         return "12_statement_furniture"
     return None
+
+
+def _auto_lender_loan_name(text: str) -> bool:
+    """Audit round 4, R4-67: the masked text prints a listed auto lender's alias that holds LOAN
+    (_AUTO_LENDER_LOAN_ALIASES), or an auto-lending product (_AUTO_LOAN_PRODUCT) beside a dealer-specific funding word
+    (_DEALER_FUNDING_WORDS): the LOAN the strong rule no longer reads (transaction_classifier._strong_text)."""
+    if any(re.search(r"(?<![A-Z0-9])" + re.escape(alias) + r"(?![A-Z0-9])", text) for alias in _AUTO_LENDER_LOAN_ALIASES):
+        return True
+    return _AUTO_LOAN_PRODUCT.search(text) is not None and _DEALER_FUNDING_WORDS.search(text) is not None
 
 
 def _ln_where_loan(base_text: str, after_text: str) -> list[int]:

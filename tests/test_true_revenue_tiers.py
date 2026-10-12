@@ -1610,6 +1610,130 @@ def test_a_q7_verified_row_never_makes_a_q6_repeat():
     assert _tier(rows[2]) == _tier(alone) == ("counted_flagged", "named_payer_one_off")
 
 
+# Audit round 4, R4-67 (Q7 of 2026-09-28, "An auto lender paying a dealer: Revenue and Verified when the entry names a
+# funding or purchase. Other credits from listed auto lenders stay financing"; the ledger's decision of 2026-09-25 on
+# USAA's auto loan, "dealer receipts stay revenue"): a LOAN that is the listed lender's own name, or an auto-lending
+# product beside a dealer-specific funding word, is no loan to the dealer. Fabricated rows at a dealer.
+R4_67_AMOUNT = 5400.25
+USAA_AUTO_LOAN = ("USAA Federal Savings Bank (auto loan)", "USAA AUTO LOAN")
+
+
+@pytest.mark.parametrize("text", [
+    "USAA AUTO LOAN AUTODLRPMT 0000000001",
+    "USAA AUTO LOAN DES:AUTODLRPMT ID:1",
+])
+def test_r4_67_a_listed_lender_s_own_loan_name_never_vetoes_q7(text):
+    # Today non_revenue / strong_non_revenue_rule (the veto and the strong LOAN pattern read the lender's own name).
+    record = _one(text, R4_67_AMOUNT, holder=DEALER)
+    assert (record.revenue_classification, record.revenue_match_method, record.revenue_source_type) == (
+        "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+    assert _tier(record) == ("verified", None)
+    assert (record.revenue_canonical_entity, record.revenue_matched_alias) == USAA_AUTO_LOAN
+    assert (record.canonical_entity, record.matched_alias) == USAA_AUTO_LOAN
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("text", [
+    # A listed lender whose own vehicle_financing alias prints LOAN (today non_revenue / financing_proceeds_credit).
+    "NMAC LOANS DES:DLR PMT ID:1",
+    "TOYOTA FINANCE LOAN DES:DEALER FUNDING ID:1",
+    "BANK OF AMERICA VEHICLE LOAN DES:DLR PMT ID:1",
+    # A listed lender printing the financed product beside a dealer-specific word (today non_revenue).
+    "ALLY FINANCIAL AUTO LOAN DES:AUTODLRPMT ID:1",
+    "WESTLAKE FINANCI VEH LOAN DES:DEALER FUNDING ID:1",
+])
+def test_r4_67_a_listed_lender_s_loan_alias_or_auto_loan_product_beside_a_dealer_word_verifies(text):
+    record = _one(text, R4_67_AMOUNT, holder=DEALER)
+    assert (record.revenue_classification, record.revenue_match_method) == (
+        "verified_revenue", "auto_lender_dealer_funding")
+    assert _tier(record) == ("verified", None)
+    assert not record.contributes_to_lender_credit_exclusion
+
+
+@pytest.mark.parametrize("text", ["USAA AUTO LOAN PAYMENT 0000000001", "USAA AUTO LOAN DES:PAYMENT ID:1"])
+def test_r4_67_a_listed_auto_lender_s_other_credits_stay_out_of_true(text):
+    # Today non_revenue / strong_non_revenue_rule; now held for review (§8.7: the ledger does not admit the lender).
+    record = _one(text, R4_67_AMOUNT, holder=DEALER)
+    assert _tier(record) == ("excluded_pending_review", "financing_named_payer")
+    assert not record.contributes_to_true_revenue
+    assert record.revenue_classification != "verified_revenue"
+
+
+def test_r4_67_a_second_loan_or_proceeds_still_vetoes_the_listed_lender():
+    record = _one("USAA AUTO LOAN DES:AUTODLRPMT LOAN PROCEEDS ID:1", R4_67_AMOUNT, holder=DEALER)
+    assert record.revenue_match_method != "auto_lender_dealer_funding"
+    assert record.revenue_classification != "verified_revenue"
+    assert not record.contributes_to_true_revenue
+
+
+@pytest.mark.parametrize("text", [
+    "FABRIKAM BANK AUTO LOAN AUTODLRPMT 0000000001",
+    "FABRIKAM BANK AUTO LOAN DES:DLR PMT ID:1",
+    "FABRIKAM BANK VEHICLE LOAN DES:DEALER FUNDING ID:1",
+])
+def test_r4_67_an_unlisted_lender_s_auto_loan_dealer_payment_is_held_for_review(text):
+    # Today non_revenue / strong_non_revenue_rule; now §8.1's dealer-word hold.
+    record = _one(text, R4_67_AMOUNT, holder=DEALER)
+    assert _tier(record) == ("excluded_pending_review", "financing_named_payer")
+    assert record.revenue_match_method != "auto_lender_dealer_funding"
+
+
+@pytest.mark.parametrize(("text", "method"), [
+    # No dealer word and no listed lender: the LOAN still decides the strong rule.
+    ("FABRIKAM BANK AUTO LOAN PAYMENT 0000000001", "strong_non_revenue_rule"),
+    ("CONTOSO BANK DES:LOAN ID:1", "strong_non_revenue_rule"),
+    # A registry lender's other credit stays financing proceeds (D1).
+    ("NMAC LOANS DES:PAYMENT ID:1", "financing_proceeds_credit"),
+    # A credit union's PROCEEDS and LOAN still veto.
+    ("SUNCOAST CREDIT UNION DES:VHCL PURCH LOAN PROCEEDS ID:1", "strong_non_revenue_rule"),
+])
+def test_r4_67_the_controls_keep_their_non_revenue_readings(text, method):
+    record = _one(text, R4_67_AMOUNT, holder=DEALER)
+    assert (record.revenue_classification, record.revenue_match_method) == ("non_revenue", method)
+    assert record.contributes_to_lender_credit_exclusion is (method == "financing_proceeds_credit")
+
+
+def test_r4_67_the_debit_and_the_unlisted_dealer_word_keep_their_readings():
+    debit = _one("USAA AUTO LOAN DES:PAYMENT ID:1", -412.33, holder=DEALER)
+    assert (debit.classification, debit.match_method) == ("vehicle_financing", "obligation_descriptor")
+    assert debit.revenue_tier is None
+    assert _tier(_one("GLS AUTO DES:DEALER PAY ID:1", R4_67_AMOUNT, holder=DEALER)) == (
+        "excluded_pending_review", "financing_named_payer")
+
+
+def test_r4_67_a_payables_only_loan_alias_is_paid_for_services_and_held_beside_its_debit():
+    agency = "CONTOSO RECOVERY LLC"
+    payables = ("NMAC LOANS DES:PAYABLES ID:1", 2100.35)
+    alone = _records([payables], holder=agency)[0]
+    assert _q7_reading(alone) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    held = _records([payables, ("NMAC LOANS DES:AUTOPAY ID:1", -455.10)], holder=agency)[0]
+    assert _q7_reading(held) == (
+        "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
+
+
+def test_r4_67_the_strong_text_blanks():
+    from analysis import transaction_classifier as classifier
+    from analysis.description_text import normalize_transaction_description
+
+    def strong(raw: str) -> str:
+        return classifier._strong_text(classifier.revenue_text(normalize_transaction_description(raw)), raw)
+
+    assert "USAA AUTO LOAN" not in strong("USAA AUTO LOAN PAYMENT 0000000001")
+    assert "PAYMENT" in strong("USAA AUTO LOAN PAYMENT 0000000001")
+    blanked = strong("FABRIKAM BANK AUTO LOAN DES:DLR PMT ID:1")
+    assert "AUTO LOAN" not in blanked and "FABRIKAM BANK" in blanked and "DLR PMT" in blanked
+    for raw in ("FABRIKAM BANK AUTO LOAN PAYMENT", "AUTO LOAN DISB 0001"):
+        text = classifier.revenue_text(normalize_transaction_description(raw))
+        assert strong(raw) == text
+    # A second LOAN after the listed lender's name still reads.
+    assert "LOAN PROCEEDS" in strong("USAA AUTO LOAN DES:AUTODLRPMT LOAN PROCEEDS ID:1")
+    for pattern, row, read in ((tr._AUTO_LOAN_PRODUCT, "AUTO LOAN", True), (tr._AUTO_LOAN_PRODUCT, "VEHICLE LOANS", True),
+                               (tr._AUTO_LOAN_PRODUCT, "VEH LOAN", True), (tr._AUTO_LOAN_PRODUCT, "VHCL LOAN", True),
+                               (tr._AUTO_LOAN_PRODUCT, "CAR LOAN", True), (tr._AUTO_LOAN_PRODUCT, "AUTOLOAN", False),
+                               (tr._AUTO_LOAN_PRODUCT, "MOTOR LOAN", False), (tr._AUTO_LOAN_PRODUCT, "CARLOAN", False)):
+        assert bool(pattern.search(row)) is read, row
+
+
 @pytest.mark.parametrize("text", [
     "ONE RIVER FUNDING DES:PAYABLES DEALER PAY ID:1",
     "ONE RIVER GROUP DES:PAYABLES DEAL FUNDING ID:1",

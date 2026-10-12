@@ -3868,6 +3868,52 @@ def test_r4_b09_r1_narrowing_15_needs_the_strong_insurance_wording(text):
     assert "G1" in run["guards"]
 
 
+#: Audit round 4, R4-67 (Q7 of 2026-09-28): a credit the strong rule read only on a listed auto lender's own LOAN
+#: (USAA's auto-loan originator) or on an auto-lending product beside a dealer word leaves the strong rule verified by
+#: Q7 (narrowing 7) or held financing_named_payer (narrowing 16, never into True). Fabricated rows, masked.
+R4_67_DEALER_ROW = census.mask("USAA AUTO LOAN AUTODLRPMT 0000000001")
+R4_67_OTHER_ROW = census.mask("USAA AUTO LOAN PAYMENT 0000000001")
+R4_67_UNLISTED_ROW = census.mask("FABRIKAM BANK AUTO LOAN DES DLR PMT ID 1")
+
+
+@pytest.mark.parametrize(("text", "state", "method", "tier", "reason", "narrowing", "fails"), [
+    (R4_67_DEALER_ROW, "verified_revenue", "auto_lender_dealer_funding", "verified", None, "7_q7_dealer_funding", False),
+    (R4_67_OTHER_ROW, "unverified_deposit", "unidentified_posted_credit", "excluded_pending_review",
+     "financing_named_payer", "16_auto_lender_loan_name", False),
+    (R4_67_UNLISTED_ROW, "unverified_deposit", "unidentified_posted_credit", "excluded_pending_review",
+     "financing_named_payer", "16_auto_lender_loan_name", False),
+    # Never into True: counted is a G1 failure.
+    (R4_67_OTHER_ROW, "unverified_deposit", "unidentified_posted_credit", "counted_flagged", "named_payer_unlabelled",
+     "outside_the_narrowings", True),
+    # A strong LOAN row that prints neither keeps today's answer: no narrowing.
+    (census.mask("FABRIKAM BANK AUTO LOAN PAYMENT 0000000001"), "unverified_deposit", "unidentified_posted_credit",
+     "excluded_pending_review", "financing_named_payer", "outside_the_narrowings", True),
+    (census.mask("CONTOSO BANK DES LOAN ID 1"), "verified_revenue", "auto_lender_dealer_funding", "verified", None,
+     "outside_the_narrowings", True),
+])
+def test_r4_67_a_strong_row_read_on_an_auto_lender_s_loan_name_is_verified_or_held(text, state, method, tier, reason,
+                                                                                   narrowing, fails):
+    base_credit = _credit(0, 540025, "non_revenue", "strong_non_revenue_rule", tier="non_revenue", text=text)
+    after_credit = _credit(0, 540025, state, method, tier=tier, reason=reason, text=text)
+    assert census._narrowing(base_credit, after_credit) == (
+        None if narrowing == "outside_the_narrowings" else narrowing)
+    run = _run(_snap("5.6", {"a": _account([base_credit])}), _snap("5.6", {"a": _account([after_credit])}))
+    assert list(run["left_non_revenue"]) == [narrowing]
+    assert ("G1" in run["guards"]) is fails
+    assert dict(census.NARROWINGS)["16_auto_lender_loan_name"] is False
+
+
+def test_r4_67_the_census_copies_match_the_code():
+    from analysis import true_revenue
+    from analysis.classification_registry import DEALER_FUNDING_PAYERS
+
+    assert census._AUTO_LOAN_PRODUCT.pattern == true_revenue._AUTO_LOAN_PRODUCT.pattern
+    assert census._DEALER_FUNDING_WORDS.pattern == true_revenue.DEALER_FUNDING_WORDS.pattern
+    assert census._AUTO_LENDER_LOAN_ALIASES == tuple(
+        alias for aliases in DEALER_FUNDING_PAYERS.values() for alias in aliases
+        if true_revenue._LOAN_IN_ALIAS.search(alias))
+
+
 @pytest.mark.parametrize(("later", "cause"), [
     # A Q5 or Q6 repeat now released as an insurer paid for work, counted.
     (_after56("insurer_paid_for_services", INSURER_ROW, tier="counted_flagged", reason="insurer_paid_for_services"),

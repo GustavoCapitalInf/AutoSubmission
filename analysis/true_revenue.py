@@ -199,6 +199,13 @@ DEALER_FUNDING_WORDS = re.compile(
     r"(?<![A-Z])(?:VHCL PURCH\w*|VEHICLE PURCHASE\b|DEAL ?FUND\w*|FUNDLOAN\b|DEALER (?:FUND\w*|FND|PMT|PAY\w*)\b"
     r"|DLR PMT\b|AUTODLRPMT\b|CONTRACT FUND\w*|VADMIN FEE\b)"
 )
+#: Audit round 4, R4-67 (§8.7; Q7 of 2026-09-28, "An auto lender paying a dealer: Revenue and Verified when the entry
+#: names a funding or purchase"): an auto-lending product's name, the financed vehicle's loan ('USAA AUTO LOAN
+#: AUTODLRPMT', '<BANK> VEHICLE LOAN DES:DLR PMT'), which on a row printing a dealer-specific funding word
+#: (DEALER_FUNDING_WORDS, never the payables words) is the product the lender financed, never a loan to the dealer: Q7's
+#: veto (_q7_veto_text) and the strong rule (transaction_classifier._strong_text) read it blanked there. Every other
+#: LOAN still vetoes and still decides the strong rule.
+_AUTO_LOAN_PRODUCT = re.compile(r"(?<![A-Z])(?:AUTO|VEH(?:ICLE)?|VHCL|CAR) LOANS?\b")
 #: §8.7: the dealer-payables words a listed auto lender prints on its dealer funding (Westlake's DES:PAYABLES).
 _DEALER_PAYABLES_WORDS = re.compile(r"\bPAYABLES\b|\bTRADE PAY\w*|\bACCT FUND\w*")
 #: §8.7: Q7 never fires on a loan, proceeds, advance or refund word. The owner's veto convention (S2.2 review, item
@@ -4040,6 +4047,28 @@ def _listed_auto_lender(text: str) -> tuple[str, str] | None:
     return registry_match(segment, DEALER_FUNDING_PAYERS)
 
 
+#: Audit round 4, R4-67: a LOAN word in a listed auto lender's own alias ('USAA AUTO LOAN', 'NMAC LOANS').
+_LOAN_IN_ALIAS = re.compile(r"(?<![A-Z])LOANS?\b")
+
+
+def _q7_veto_text(words: str, lender: tuple[str, str] | None, row: str) -> str:
+    """Audit round 4, R4-67 (Q7 of 2026-09-28, "An auto lender paying a dealer: Revenue and Verified when the entry names
+    a funding or purchase"; §8.7): the text Q7's veto words and its strong-pattern refusal read: `words` (the row
+    without the receiver field's value) with (a) the listed auto lender's alias blanked where that alias itself prints
+    LOAN(S) (`lender`, _listed_auto_lender's (entity, alias), the alias found on the originator segment, its first
+    occurrence on the row), and (b) every auto-lending product (_AUTO_LOAN_PRODUCT: AUTO, VEHICLE, VEH, VHCL or CAR
+    LOAN(S)) blanked when `row` (the row before its receiver fields) prints a dealer-specific funding word
+    (DEALER_FUNDING_WORDS, never the payables words). Q7 reads a LOAN that is the lender's own name or the financed
+    product, never a loan to the business; every other LOAN still vetoes."""
+    veto_text = words
+    if lender is not None and _LOAN_IN_ALIAS.search(lender[1]):
+        alias = r"\s+".join(re.escape(part) for part in lender[1].split())
+        veto_text = re.sub(r"(?<![A-Z0-9])" + alias + r"(?![A-Z0-9])", " ", veto_text, count=1)
+    if DEALER_FUNDING_WORDS.search(row):
+        veto_text = _AUTO_LOAN_PRODUCT.sub(" ", veto_text)
+    return veto_text
+
+
 def _dealer_funding_payer(text: str) -> str | None:
     """§8.7: the listed auto lender the originator segment names (_listed_auto_lender), or None."""
     found = _listed_auto_lender(text)
@@ -4102,7 +4131,12 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
     after the receiver still prints the row's own words). §6 precedence (S4.3): the non-revenue rules stay first, so
     Q7 also never fires on a row the strong non-revenue rule or D1's descriptors decide, or that prints transfer
     wording (Q4: a named transfer is never Verified), and a push rail is the registry's alone (§6.1 step 9b). The
-    caller keeps steps 2 and 3 ahead of it (a direction conflict and a reversal marker win) and the $1 floor (§7.0)."""
+    caller keeps steps 2 and 3 ahead of it (a direction conflict and a reversal marker win) and the $1 floor (§7.0).
+
+    Audit round 4, R4-67: the loan word and the strong rule are read without a LOAN that is the listed lender's own
+    name, or an auto-lending product's beside a dealer-specific funding word (_q7_veto_text, read by
+    _dealer_funding_region): 'USAA AUTO LOAN AUTODLRPMT' and '<BANK> VEHICLE LOAN DES:DLR PMT' from a listed lender
+    verify; any other LOAN still refuses."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Both arms need their word (a wire's entry fields may run past the row, so the VHCL PURCH entry is looked for on
@@ -4129,12 +4163,20 @@ def dealer_funding_reading(text: str) -> DealerFunding | None:
 def _dealer_funding_region(text: str, row: str, words: str) -> str | None:
     """§6.1 step 4 (Q7): the payer region of a credit Q7 may read, or None when one of its refusals names the row (the
     loan, proceeds, advance and refund words, the channel gate, the strong non-revenue rule and D1's descriptors,
-    transfer wording, a hold's wording, a lender outside vehicle financing, a potential lender, an insurer)."""
+    transfer wording, a hold's wording, a lender outside vehicle financing, a potential lender, an insurer).
+
+    Audit round 4, R4-67 (Q7 of 2026-09-28; §8.7): the veto words and the strong non-revenue patterns are read on
+    _q7_veto_text, `words` without a listed auto lender's own LOAN (the alias that named it, when that alias prints
+    LOAN: 'USAA AUTO LOAN', 'NMAC LOANS') and, on a row printing a dealer-specific funding word, without an auto-lending
+    product's LOAN (_AUTO_LOAN_PRODUCT: 'AUTO LOAN', 'VEHICLE LOAN'): the lender's name or the financed vehicle, never a
+    loan to the dealer. Every other refusal reads as before, so PROCEEDS, ADVANCE, a refund word, a second LOAN and
+    'PMT INFO:LOAN <n>' still refuse."""
     classifier = _classifier()
+    veto_text = _q7_veto_text(words, _listed_auto_lender(words), row)
     if (
-        _DEALER_FUNDING_VETO.search(words)
+        _DEALER_FUNDING_VETO.search(veto_text)
         or classifier.channel_gate(text) is not None
-        or classifier._matches_any(words, classifier._NON_REVENUE_CREDIT_PATTERNS)
+        or classifier._matches_any(veto_text, classifier._NON_REVENUE_CREDIT_PATTERNS)
         or classifier._descriptor_proceeds(text) is not None
         or _transfer_wording(row)
     ):
