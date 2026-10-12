@@ -4526,18 +4526,24 @@ _OUTGOING_WIRE_FEE = re.compile(r"(?<![A-Z])(?:OUTGOING|OUT|TO|BNF|BENEFICIARY)\
 #: sender, so the words after it are the fee's own.
 #: Audit round 3, R3-B16 (R3-33): the holder's own account is also an account product's name (up to two product words,
 #: BUSINESS, BUS, OPERATING, PAYROLL, PRIMARY, COMMERCIAL, ANALYZED, ANALYSIS or PERSONAL, before an account word:
-#: 'FROM BUSINESS CHECKING TO <payee>', 'FROM BUS CHK'), MONEY MARKET, OPERATING alone (the holder's operating
-#: account) or a digit run of three or more (the account number a bank prints after '*' or '...'); every other word
-#: after FROM still starts a sender ('FROM CONTOSO TO GO INC', 'FROM OPERATING ENGINEERS LOCAL ...'), so the lookahead
-#: is widened only, never every FROM ... TO read as the source (which would re-open R48's sender named with TO).
+#: 'FROM BUSINESS CHECKING TO <payee>', 'FROM BUS CHK') or MONEY MARKET. Audit round 4, R4-44 (R48's ruling, which
+#: R3-B16 kept: "reading every FROM ... TO as the source would re-open it"): after FROM, OPERATING (the holder's
+#: operating account) or a digit run of three or more (the account number a bank prints after '*' or '...'), an
+#: account number after OPERATING included, is the holder's account only before TO or the fee's end, so a sender named
+#: 'OPERATING ENGINEERS LOCAL ...' or a numbered company ('FROM 1234567 ONTARIO INC TO <holder>') still starts a sender;
+#: after TT (RBC's originator, which never prints the holder's own account) only TO, an account word alone or an
+#: X-masked number refuses the sender, as R2-B02 review round 1 refused. Every other word after FROM or TT starts a
+#: sender ('FROM CONTOSO TO GO INC'). Recorded residuals: a sender named after an account word or MONEY MARKET with TO
+#: later ('FROM ACCOUNT ...'), and the holder's own name.
+_FEE_ACCOUNT_WORD = r"(?:CHECKING|CHKG|CHK|CKG|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA)"
 _FEE_SOURCE_ACCOUNT = (
-    r"(?:(?:BUSINESS|BUS|OPERATING|PAYROLL|PRIMARY|COMMERCIAL|ANALYZED|ANALYSIS|PERSONAL) ){0,2}"
-    r"(?:CHECKING|CHKG|CHK|CKG|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA)"
-    r"|MONEY MARKET"
+    r"(?:(?:BUSINESS|BUS|OPERATING|PAYROLL|PRIMARY|COMMERCIAL|ANALYZED|ANALYSIS|PERSONAL) ){0,2}" + _FEE_ACCOUNT_WORD
+    + r"|MONEY MARKET"
 )
 _FEE_SENDER_RUN = re.compile(
-    r"(?<![A-Z])(?:TT|FROM)\b"
-    rf"(?! (?:TO|OPERATING|{_FEE_SOURCE_ACCOUNT})\b| X{{2,}}\d*\b| \d{{3,}}\b)"
+    rf"(?<![A-Z])TT\b(?! (?:TO|{_FEE_ACCOUNT_WORD})\b| X{{2,}}\d*\b)"
+    rf"|(?<![A-Z])FROM\b(?! (?:TO|{_FEE_SOURCE_ACCOUNT})\b| X{{2,}}\d*\b"
+    rf"| (?:OPERATING|\d{{3,}})(?: \d{{3,}})?(?: TO\b| *$))"
 )
 #: Review round 1: the outgoing words no sender's name prints, read after the sender too ('... TT <sender> BNF <payee>').
 _OUTGOING_WIRE_FEE_AFTER_SENDER = re.compile(r"(?<![A-Z])(?:OUTGOING|BNF|BENEFICIARY)\b")
@@ -4787,8 +4793,12 @@ def _counter_debit_kind(text: str) -> str:
     CCD' reads 'FEES SEC CCD', 'BILL PAYMTSEC' reads 'BILL PAYMT SEC'), and a fee word glued after another word at the
     entry's end is the processor's fee too (_GLUED_FEE_ENTRY: 'MONTHLYFEESEC', never 'COFFEESEC'); the receiving fee
     and circular money keep reading the row as printed (a glued 'TRANSFERSEC' keeps its kind). The kind order is
-    unchanged. R3-33: FROM before an account product's name, MONEY MARKET, OPERATING or an account number starts no
-    sender either (_FEE_SOURCE_ACCOUNT: 'WIRE TRANSFER FEE FROM BUSINESS CHECKING TO <payee>' is circular)."""
+    unchanged. R3-33: FROM before an account product's name or MONEY MARKET starts no sender either
+    (_FEE_SOURCE_ACCOUNT: 'WIRE TRANSFER FEE FROM BUSINESS CHECKING TO <payee>' is circular). Audit round 4, R4-44:
+    FROM before OPERATING or a digit run of three or more starts no sender only when TO or the fee's end follows it
+    ('FROM OPERATING TO <payee>', 'FROM 0004567 TO <payee>' are circular; 'FROM OPERATING ENGINEERS LOCAL ... TO
+    <holder>' and 'FROM 1234567 ONTARIO INC TO <holder>' are the receiving fee), and TT, which prints RBC's originator,
+    refuses only TO, an account word alone or an X-masked number (_FEE_SENDER_RUN)."""
     return _counter_debit_kind_of(*_counter_debit_kind_text(text))
 
 

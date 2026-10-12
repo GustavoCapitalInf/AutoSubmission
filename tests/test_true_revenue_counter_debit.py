@@ -1710,3 +1710,62 @@ def test_r4_43_a_lender_debit_never_records_a_loan_word():
     assert [debit.loan for debit in debits.lender] == [False] and not debits.other
     assert list(_CounterDebit.__dataclass_fields__)[-2:] == ["own_name", "loan"]
     assert _CounterDebit.__dataclass_fields__["loan"].default is False
+
+
+# R4-44 (R48's ruling, which R3-B16 kept: "reading every FROM ... TO as the source would re-open it"; R3-33's own forms
+# stay circular): after TT (RBC's originator, never the holder's account) the sender run is refused only before TO, an
+# account word or an X-masked number; after FROM, OPERATING or a digit run of three or more is the holder's account only
+# before TO or the fee's end, so a sender named OPERATING ENGINEERS or a numbered company keeps the receiving fee.
+
+@pytest.mark.parametrize("text", [
+    "WIRE TRANSFER FEE FROM OPERATING ENGINEERS LOCAL 0 TO NORTHWIND LABS",
+    "WIRE TRANSFER FEE FROM 1234567 ONTARIO INC TO NORTHWIND LABS",
+    "WIRE TRANSFER FEE FROM 1000 OAKS DENTAL GROUP TO FABRIKAM SUPPLY CO",
+    "FUNDS TRANSFER FEE TT 0000000001 CONTOSO TO G",
+    "FUNDS TRANSFER FEE TT 1234567 ONTARIO INC TAKE OUT",
+    "FUNDS TRANSFER FEE TT 3000 WAYS TO GO LLC",
+    # R48's controls.
+    "WIRE TRANSFER FEE FROM CONTOSO TO GO INC",
+    "WIRE TRANSFER FEE FROM SAMPLE TO TABLE FOODS INC",
+    "FUNDS TRANSFER FEE TT CONTOSO TO G",
+    "WIRE TRANSFER FEE FROM OPERATING ENGINEERS LOCAL 0",
+])
+def test_r4_44_a_sender_named_with_operating_or_digits_keeps_the_receiving_fee(text):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == "receiving_fee"
+
+
+@pytest.mark.parametrize("text", [
+    "WIRE TRANSFER FEE FROM OPERATING TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM OPERATING 0000 TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM 0004567 TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM *0000 TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM BUSINESS CHECKING TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM PRIMARY CHECKING TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM BUS CHK TO CONTOSO LLC",
+    "WIRE TRANSFER FEE FROM MONEY MARKET TO CONTOSO LLC",
+    "FUNDS TRANSFER FEE TT CHECKING TO CONTOSO",
+    "FUNDS TRANSFER FEE TT XXXXXX1234 TO CONTOSO",
+])
+def test_r4_44_the_holder_s_own_account_forms_stay_circular(text):
+    from analysis.true_revenue import _counter_debit_kind
+
+    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == "circular"
+
+
+R4_44_WIRE = "WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{orig} ID:99 SND BK:SAMPLE BANK ID:1"
+
+
+@pytest.mark.parametrize("orig", ["OPERATING ENGINEERS LOCAL 0", "1234567 ONTARIO INC"])
+def test_r4_44_the_receiving_fee_beside_its_wires_never_holds_them(orig):
+    wires = [(R4_44_WIRE.format(n=1, orig=orig), 7450.20), (R4_44_WIRE.format(n=2, orig=orig), 7620.35)]
+    fees = [(f"WIRE TRANSFER FEE FROM {orig} TO NORTHWIND LABS", -15.0)] * 2
+    rows = [wires[0], fees[0], wires[1], fees[1]]
+    with_fees = [_tier(record) for record in _credits(_records(rows))]
+    without = [_tier(record) for record in _credits(_records(wires))]
+    assert with_fees == without
+    assert HELD_ALSO not in with_fees
+    if orig[0].isdigit():
+        # A numbered company is counted, never verified.
+        assert {tier for tier, _ in with_fees} == {"counted_flagged"}
