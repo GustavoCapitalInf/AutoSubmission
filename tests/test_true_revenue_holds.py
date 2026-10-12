@@ -375,6 +375,15 @@ def test_r4_12_controls_the_other_readings_keep_theirs():
     assert tr._without_trade_purpose("MERCHANDISE ADV PMT").split() == ["MERCHANDISE"]
 
 
+@pytest.mark.parametrize("purpose", ["ADV PMT FOR MERCH ORDER 1234", "SCHOOL BUS ADV PMT"])
+def test_r4_b13_r1_recorded_residual_a_buyer_s_merch_or_bus_purpose_is_held(purpose):
+    # R4-B13 review round 1 (finding 7), a recorded residual (fail closed, reviewable, 0 corpus rows): the brief's
+    # anywhere-match on MERCH and its BUS lookbehind also hold a buyer's MERCH meaning merchandise and a school bus's
+    # advance payment (financing_named_payer, held for review, never non_revenue).
+    text = R318_BOFA.format(orig="FABRIKAM VENTURES", purpose=purpose)
+    assert _one(text, 23456.78, bank="Bank of America") == FINANCING
+
+
 # Audit round 4, R4-90 (§8.1): the abbreviated advances (ADVNC, ADVN, ADVC) are one shared alternation
 # (true_revenue.ABBREVIATED_ADVANCE, which the classifier imports); the two patterns built from it match what they
 # matched before it was shared. (word, _PAYOUT_NON_SALE_CREDIT, _REGISTRY_FINANCING_WORDS), read at c1cebca.

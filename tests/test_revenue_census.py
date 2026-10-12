@@ -235,16 +235,25 @@ def test_r4_66_an_address_lane_after_a_house_number_is_the_guard_s_own_release()
     run = _run(base, after)
     assert run["street_ln_changes"][0]["base"] == "non_revenue|strong_non_revenue_rule"
     assert "G7b" not in run["guards"]
-    assert census._street_ln_release({"method": "strong_non_revenue_rule", "text": "## LOAN SAMPLETON IL #####"},
-                                     {"text": "## LN SAMPLETON IL #####"})
+    assert census._street_ln_release(
+        {"method": "strong_non_revenue_rule", "text": "ORIG FABRIKAM ## LOAN SAMPLETON IL #####"},
+        {"text": "ORIG FABRIKAM ## LN SAMPLETON IL #####"},
+    )
     # A loan-payment word after LN, a loan-product word among the town words, no state and ZIP, or no number before
-    # LN: still a G7b failure.
+    # LN: still a G7b failure. R4-B13 review round 1 (findings 1 and 6): so is the shape with no originator label before
+    # its number (the normaliser's arm reads only a labelled address) and a loan-purpose word after LN or among the
+    # town words.
     for old, new in (
-        ("## LOAN PMT MAPLE GROVE MN #####", "## LN PMT MAPLE GROVE MN #####"),
-        ("## LOAN AUTO SAMPLETON IL #####", "## LN AUTO SAMPLETON IL #####"),
-        ("## LOAN SAMPLETON", "## LN SAMPLETON"),
-        ("## LOAN SAMPLETON XX #####", "## LN SAMPLETON XX #####"),
-        ("DEPOSIT LOAN SAMPLETON IL #####", "DEPOSIT LN SAMPLETON IL #####"),
+        ("B O FABRIKAM ## LOAN PMT MAPLE GROVE MN #####", "B O FABRIKAM ## LN PMT MAPLE GROVE MN #####"),
+        ("B O FABRIKAM ## LOAN AUTO SAMPLETON IL #####", "B O FABRIKAM ## LN AUTO SAMPLETON IL #####"),
+        ("B O FABRIKAM ## LOAN SAMPLETON", "B O FABRIKAM ## LN SAMPLETON"),
+        ("B O FABRIKAM ## LOAN SAMPLETON XX #####", "B O FABRIKAM ## LN SAMPLETON XX #####"),
+        ("B O FABRIKAM DEPOSIT LOAN SAMPLETON IL #####", "B O FABRIKAM DEPOSIT LN SAMPLETON IL #####"),
+        ("## LOAN SAMPLETON IL #####", "## LN SAMPLETON IL #####"),
+        ("ACH DEBIT FABRIKAM ## LOAN SAMPLETON IL #####", "ACH DEBIT FABRIKAM ## LN SAMPLETON IL #####"),
+        ("ORIG CO NAME FABRIKAM ## LOAN SAMPLETON IL #####", "ORIG CO NAME FABRIKAM ## LN SAMPLETON IL #####"),
+        ("B O FABRIKAM ## LOAN PAYOFF IN #####", "B O FABRIKAM ## LN PAYOFF IN #####"),
+        ("B O FABRIKAM ## LOAN PRIN AND INT OH #####", "B O FABRIKAM ## LN PRIN AND INT OH #####"),
     ):
         loan = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule", text=old)])})
         moved = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",

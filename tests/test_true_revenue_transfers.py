@@ -907,8 +907,9 @@ def test_r4_13_controls_a_customer_company_named_ln_keeps_r3_46_s_reading():
         ("LOAN TRUCKING LLC", "     TRUCKING LLC"),)
     assert ln_name_spans("CONTOSO LN HOLDINGS LLC DES:PAYMENT", holder="NORTHWIND LABS INC") == (
         ("LOAN HOLDINGS LLC", "     HOLDINGS LLC"),)
-    # A word that only starts like a purpose word is no purpose word ('LN PAYNE ...', 'LN DEPOT ...').
-    assert ln_name_spans("LN PAYNE TRUCKING LLC") == (("LOAN PAYNE TRUCKING LLC", "     PAYNE TRUCKING LLC"),)
+    # A word that only starts like a purpose word is no purpose word ('LN PAYSAMPLE ...', 'LN DEPOT ...').
+    assert ln_name_spans("LN PAYSAMPLE TRUCKING LLC") == (
+        ("LOAN PAYSAMPLE TRUCKING LLC", "     PAYSAMPLE TRUCKING LLC"),)
     assert ln_name_spans("LN DEPOT SUPPLY LLC") == (("LOAN DEPOT SUPPLY LLC", "     DEPOT SUPPLY LLC"),)
 
 

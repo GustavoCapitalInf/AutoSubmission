@@ -59,6 +59,16 @@ _US_STATE_CODES = (
 _ADDRESS_AFTER_LN = re.compile(
     r" ((?:[A-Z]+ ){1,3})(?:" + "|".join(_US_STATE_CODES) + r") \d{5}(?: \d{4})?(?![0-9])"
 )
+#: Audit round 4, R4-B13 review round 1 (finding 1; the brief's G7 narrowing: no lender, potential-lender, flag or
+#: debit-classification reading may move): the second lane arm reads only an address a wire's originator label prints
+#: before its house number, B O, ORIGINATOR (NAME), ORIG, ORG or BY ORDER OF (the originator labels of the classifier's
+#: _WIRE_ORIGINATOR_LABEL and _RELAY_ORIGINATOR_LABEL, with their guards: never ORIG CO NAME, ORIG ID or a purpose's ORG
+#: TO BNF; a local copy, read on _before_ln_rewrite's text, since the classifier imports this module), so a debit's or
+#: an unlabelled row's '<n> LN <town> <ST> <ZIP>' keeps its LOAN.
+_ORIGINATOR_LABEL_BEFORE_LN = re.compile(
+    r"\b(?:B O|BY ORDER OF|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)"
+    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
+)
 #: 5.6 (true revenue spec §20, A3-G review): a SWIFT field-50F line number printed with its slash right after a wire's
 #: originator label ('ORIG:1/NORTHWIND', 'B/O 1/NORTHWIND'; lines 1 to 3 hold the name, the address and the country
 #: and town). It is never part of the name, and the slash is lost below, so the number is dropped here, where the
@@ -69,7 +79,10 @@ _SWIFT_LINE_NUMBER = re.compile(r"(\b(?:ORIG|ORG|ORIGINATOR|B/O|BY ORDER OF)\b\s
 def _loan_or_lane(match: re.Match[str]) -> str:
     """LN reads LOAN, except where it ends a street address (5.5, §7.11). Audit round 4, R4-66: or where a house number
     stands right before it and a town, a state's code and a ZIP right after it (_HOUSE_NUMBER_BEFORE_LN,
-    _ADDRESS_AFTER_LN), with no loan-payment word after LN and no loan-product word among the town words."""
+    _ADDRESS_AFTER_LN), with no loan-payment word after LN and no loan-product word among the town words. R4-B13 review
+    round 1 (findings 1 and 6): that second arm reads only an address a wire's originator label prints before the
+    house number (_ORIGINATOR_LABEL_BEFORE_LN), and never with a loan-purpose word (R4-13's _LN_LOAN_PURPOSE_AFTER) after
+    LN or among the town words."""
     text = match.string
     street = _STREET_BEFORE_LN.search(text[: match.start()])
     if (
@@ -78,12 +91,14 @@ def _loan_or_lane(match: re.Match[str]) -> str:
         and not set(street.group(1).split()) & _LOAN_PRODUCT_WORDS
     ):
         return "LN"
-    if _HOUSE_NUMBER_BEFORE_LN.search(text[: match.start()]) is not None:
+    house = _HOUSE_NUMBER_BEFORE_LN.search(text[: match.start()])
+    if house is not None and _ORIGINATOR_LABEL_BEFORE_LN.search(text[: house.start()]) is not None:
         address = _ADDRESS_AFTER_LN.match(text, match.end())
         if (
             address is not None
             and not _LOAN_WORD_AFTER_LN.match(text[match.end():])
             and not set(address.group(1).split()) & _LOAN_PRODUCT_WORDS
+            and not any(_LN_LOAN_PURPOSE_AFTER.match(" " + town) for town in address.group(1).split())
         ):
             return "LN"
     return "LOAN"

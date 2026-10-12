@@ -690,6 +690,17 @@ _US_STATE_CODES = frozenset("""
 AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC
 SD TN TX UT VT VA WA WV WI WY DC PR
 """.split())
+#: Audit round 4, R4-B13 review round 1 (findings 1 and 6): the arm's originator labels (analysis/description_text.py
+#: _ORIGINATOR_LABEL_BEFORE_LN, copied) and R4-13's loan-purpose words (_LN_LOAN_PURPOSE_AFTER's), which the arm
+#: refuses after LN and among the town words.
+_ORIGINATOR_LABEL_BEFORE_LN = re.compile(
+    r"\b(?:B O|BY ORDER OF|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)"
+    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
+)
+_LN_LOAN_PURPOSE_WORDS = frozenset("""
+DEPOSIT DEP CREDIT FORGIVENESS FORGIVEN FORGIVE SERVICING SERVICER SVCG SVC SRV REFI REFINANCE PAY PAYOFF PYT INT INTEREST
+ESCROW
+""".split())
 _ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 #: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).
 _CLAIM_54 = _on_masked(r"\bH(?:C|E)?CLAIMPMT\b")
@@ -2217,8 +2228,12 @@ def _ln_where_loan(base_text: str, after_text: str) -> list[int]:
 def _address_after_ln(words: list[str], index: int) -> bool:
     """Audit round 4, R4-66 (§7.11): the normalizer's second lane arm, read on the masked text: a number or a mask right
     before LN (no alphabetic word between), then one to three alphabetic town words, none a loan-product word, a state's
-    code (_US_STATE_CODES) and a masked ZIP (#####, an optional #### after it)."""
+    code (_US_STATE_CODES) and a masked ZIP (#####, an optional #### after it). R4-B13 review round 1 (findings 1 and
+    6): only after a wire's originator label (_ORIGINATOR_LABEL_BEFORE_LN, before the number), and with no loan-purpose
+    word (_LN_LOAN_PURPOSE_WORDS) among the town words, as the normalizer reads it."""
     if index < 1 or not re.fullmatch(r"[\d#]+", words[index - 1]):
+        return False
+    if _ORIGINATOR_LABEL_BEFORE_LN.search(" ".join(words[: index - 1])) is None:
         return False
     after = words[index + 1:]
     for towns in range(1, 4):
@@ -2228,7 +2243,7 @@ def _address_after_ln(words: list[str], index: int) -> bool:
         if not all(word.isalpha() for word in run):
             return False
         if after[towns] in _US_STATE_CODES and re.fullmatch(r"[\d#]{5}", after[towns + 1]):
-            return not set(run) & _LOAN_PRODUCT_WORDS
+            return not set(run) & (_LOAN_PRODUCT_WORDS | _LN_LOAN_PURPOSE_WORDS)
     return False
 
 

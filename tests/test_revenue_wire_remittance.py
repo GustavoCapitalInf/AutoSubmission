@@ -606,6 +606,39 @@ def test_r4_14_the_relayed_numbered_form_and_the_province_reader():
         assert not tc.province_words_only(name), name
 
 
+def test_r4_b13_r1_the_province_reader_reads_whole_names_and_codes():
+    # R4-B13 review round 1 (finding 4): a province's or territory's whole name, its code or a country's name or code
+    # names nobody; a single word of a longer name ('NORTHWEST', 'COLUMBIA', 'PRINCE EDWARD') or UNITED or STATES alone
+    # names somebody.
+    tc = transaction_classifier
+    for name in ("BRITISH COLUMBIA", "NORTHWEST TERRITORIES", "PRINCE EDWARD ISLAND", "NEWFOUNDLAND AND LABRADOR",
+                 "UNITED STATES", "NOVA SCOTIA CANADA", "PEI", "NWT", "B C CANADA", "ALBERTA", "QC CA"):
+        assert tc.province_words_only(name), name
+    for name in ("NORTHWEST", "COLUMBIA", "PRINCE EDWARD", "NEW ISLAND", "UNITED", "STATES", "NOVA", "SCOTIA",
+                 "EDWARD ISLAND", "BRITISH", "TERRITORIES", "ON UNITED", "AND LABRADOR"):
+        assert not tc.province_words_only(name), name
+
+
+def test_r4_b13_r1_a_relayed_numbered_company_may_print_its_country_before_its_form():
+    # R4-B13 review round 1 (finding 5; §5.2, T11, OQ3): '<number> <province> <country> <form>' is a numbered company,
+    # so its number is kept and it is counted, never verified, as at the base; a bare '<number> ONTARIO' (a BMO-style
+    # cut) relayed by a bank names no customer, so the bank's wire is held.
+    tc = transaction_classifier
+    for customer in ("1234567 ONTARIO CANADA INC", "1234567 ON CA LTD"):
+        rows = [(R314_RBC.format(customer=customer, n=1), 2345.67), (R314_RBC.format(customer=customer, n=2), 3456.78)]
+        assert tc.payer_region(_r314_text(rows[0][0])) == customer
+        assert _r314(rows[:1]) == [R314_NAMED]
+        assert _r314(rows) == [R314_NAMED, R314_NAMED]
+        assert tc._RELAYED_NUMBERED_COMPANY.match(customer), customer
+    rows = [(R314_RBC.format(customer="1234567 ONTARIO", n=1), 2345.67),
+            (R314_RBC.format(customer="1234567 ONTARIO", n=2), 3456.78)]
+    assert _r314(rows[:1]) == [R314_FINANCING]
+    assert _r314(rows) == [R314_FINANCING, R314_FINANCING]
+    for name in ("0000000001 ON CANADA", "0000000001 ON CA", "0000000001 ON US", "0000000001 ON CANADA US",
+                 "0000000001 ONTARIO CANADA"):
+        assert tc._RELAYED_NUMBERED_COMPANY.match(name) is None, name
+
+
 # Audit round 4, R4-25 (§8.5 Q5; standard A5 counts a named third party's wire): after BANKING or a non-English bank
 # word, a US non-bank company form (LLC, L L C, INC, INCORPORATED, PLLC, LLP, LP) is a company's, never the bank's own;
 # the forms banks use (SA, AG, NV, BV, PLC, LTD, LIMITED, CORP, CORPORATION, CO, PTY, GMBH) keep R3-14's reading.

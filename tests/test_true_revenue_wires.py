@@ -765,25 +765,62 @@ def test_r4_66_control_a_loan_payment_memo_keeps_the_wire_non_revenue():
     assert "77 LN MAPLE GROVE MN" in record.normalized_description
 
 
-def test_r4_66_controls_debits_keep_their_readings():
+def _read_as_printed_loan(rows, **kwargs):
+    """R4-B13 review round 1 (finding 1): each row printing LN reads exactly as its twin printing LOAN, in every field
+    but the printed description (the normalized description included)."""
     import dataclasses
 
+    lane = _records(rows, **kwargs)
+    spelled = _records([(text.replace(" LN ", " LOAN "), amount) for text, amount in rows], **kwargs)
+    for record, twin in zip(lane, spelled, strict=True):
+        fields = [field.name for field in dataclasses.fields(record) if field.name != "original_description"]
+        assert {name: getattr(record, name) for name in fields} == {name: getattr(twin, name) for name in fields}
+    return lane
+
+
+def test_r4_66_controls_debits_keep_their_readings():
     [loan] = _records([("FABRIKAM BANK LN PMT 1234", -1234.56)], bank="Chase")
     assert loan.normalized_description == "FABRIKAM BANK LOAN PMT 1234"
     assert loan.classification == "potential_lender"
-    # The address's LN reads as a lane and the debit keeps its classification ('other') and every lender reading; the
-    # row printed with LOAN is the base's reading. The one other move: the base's financing-keyword review (an 'other'
-    # row's LOAN beside a payment word: canonical 'Unidentified lender obligation', review required) no longer reads an
-    # address's lane as a loan.
-    [lane] = _records([("ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LN MAPLE GROVE MN 55311", -432.10)], bank="Chase")
-    [spelled] = _records([("ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LOAN MAPLE GROVE MN 55311", -432.10)], bank="Chase")
-    assert lane.normalized_description == "ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LN MAPLE GROVE MN 55311"
-    assert lane.classification == spelled.classification == "other"
-    assert (spelled.match_method, lane.match_method) == ("financing_keyword_review", "default")
-    moved = {"original_description", "normalized_description", "canonical_entity", "match_method", "matched_rule",
-             "confidence_score", "reason", "review_required"}
-    fields = [field.name for field in dataclasses.fields(lane) if field.name not in moved]
-    assert [getattr(lane, name) for name in fields] == [getattr(spelled, name) for name in fields]
+    # R4-B13 review round 1 (finding 1; the brief's G7 narrowing): the address arm reads only an address a wire's
+    # originator label prints before it, so a debit printing '<n> LN <town> <ST> <ZIP>' with no such label does not
+    # move at all: its normalized description keeps LOAN, and the financing-keyword review and every lender reading
+    # are the base's.
+    [lane] = _read_as_printed_loan([("ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LN MAPLE GROVE MN 55311", -432.10)],
+                                   bank="Chase")
+    assert lane.normalized_description == "ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LOAN MAPLE GROVE MN 55311"
+    assert (lane.classification, lane.match_method) == ("other", "financing_keyword_review")
+    # A lender-named debit keeps its potential-lender reading, alone and in a recurring series.
+    text = "ACH DEBIT WOODGROVE LENDING 1234567 LN SAMPLETON OH 43000"
+    [single] = _read_as_printed_loan([(text, -1234.56)], bank="Chase")
+    assert (single.classification, single.canonical_entity, single.match_method, single.review_required) == (
+        "potential_lender", "Unidentified lender obligation", "unidentified_loan_obligation", True)
+    series = _read_as_printed_loan([(text, -1234.56)] * 4, bank="Chase")
+    assert {(record.canonical_entity, record.match_method) for record in series} == {
+        ("Unidentified lender obligation", "unidentified_loan_obligation")}
+
+
+@pytest.mark.parametrize("text", [
+    "ACH CREDIT WOODGROVE 1234567 LN SAMPLETON OH 43000",
+    "WOODGROVE BANK 000123 LN PAYOFF IN 46201",
+    "DEPOSIT 1234567 LN PROCEEDS SAMPLETON OH 43000",
+])
+def test_r4_b13_r1_an_unlabelled_address_shape_keeps_the_credit_s_loan(text):
+    # R4-B13 review round 1 (finding 1): with no originator label before the number, the credit stays non_revenue on
+    # the strong rule's LOAN, as at the base.
+    [record] = _read_as_printed_loan([(text, 23456.78)], bank="Chase")
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
+
+
+@pytest.mark.parametrize("addr", ["1234 LN PAYOFF IN 46201", "000123 LN INT DUE PA 19103",
+                                  "1234567 LN ESCROW CO 80202", "1234 LN PRIN AND INT OH 43000"])
+def test_r4_b13_r1_a_loan_purpose_word_after_a_labelled_ln_keeps_the_loan(addr):
+    # R4-B13 review round 1 (finding 6): a loan-purpose word (R4-13's) after LN or among the town words keeps LOAN, on
+    # an originator's address too.
+    text = R4_66_FEDWIRE.format(addr=addr, obi="")
+    [record] = _records([(text, 23456.78)], holder=R4_66_HOLDER, bank="Chase")
+    assert " LOAN " in record.normalized_description and " LN " not in record.normalized_description
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
 
 
 # Audit round 4, R4-14 (§8.5 Q5; the underwriter's Q1 of 2026-10-02 holds a wire with no sender): an account number and
@@ -969,3 +1006,111 @@ def test_r4_53_control_a_numbered_company_with_its_address_is_counted_never_veri
     text = tc.revenue_text(tc.normalize_transaction_description(
         R4_53_FEDWIRE.format(orig="1234567 ONTARIO INC TORONTO ON", n=1)))
     assert tc.numbered_company(text)
+
+
+# R4-B13 review round 1 (findings 2, 3 and 8; R3-40's ruling under the underwriter's Q1 of 2026-10-02, "an
+# originator's address is never its name"): the address cut reads only an address. A legal form is cut at only when a
+# name word stands before it and an address tail follows it (one to three town words, a state's or province's code, a
+# country optional); a designation cut needs two designation words, or one of ACCOUNT, ACCT or DDA, ending in an
+# account word, and MARKET is one only after MONEY. A name these readings leave whole keeps the base's reading.
+R4_B13_R1_ORG = "INCOMING WIRE ORG {orig} REF {n}"
+R4_B13_R1_BOFA = ("WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:20540302001234 ORIG:{orig} ID:0001 "
+                  "SND BK:SAMPLE BANK ID:0002 PMT DET:SAMPLE {n}")
+R4_B13_R1_NAMED_ONLY = [NAMED, NAMED]
+R4_B13_R1_REPEAT = [REPEAT_WIRE, REPEAT_WIRE]
+
+
+@pytest.mark.parametrize(("orig", "twice"), [
+    # A legal form that leads the name, or a form with no address after it (finding 2).
+    ("LP CONTOSO GAS SUPPLY", R4_B13_R1_NAMED_ONLY),
+    ("LIMITED FABRIKAM EDITIONS", R4_B13_R1_NAMED_ONLY),
+    ("LTD FABRIKAM COMMODITIES LLC", R4_B13_R1_REPEAT),
+    ("LP CONTOSO GAS SUPPLY SAMPLETON OH 43000", R4_B13_R1_NAMED_ONLY),
+    ("COMPANY CONTOSO STORE SAMPLETON OH", R4_B13_R1_NAMED_ONLY),
+    ("CORP OF FABRIKAM", R4_B13_R1_NAMED_ONLY),
+    ("THE CO OP SAMPLETON OH 43000", R4_B13_R1_REPEAT),
+    ("BUSINESS LLC DBA FABRIKAM SUPPLY", R4_B13_R1_REPEAT),
+    ("SERVICES CO OF FABRIKAM", R4_B13_R1_NAMED_ONLY),
+    ("CO OP CONTOSO ELECTRIC SAMPLETON OH 43000", R4_B13_R1_REPEAT),
+    # A single designation word leading a name (finding 3).
+    ("MARKET FABRIKAM PRODUCE SAMPLETON OH 43000", R4_B13_R1_NAMED_ONLY),
+    ("MARKET CONTOSO GROCERY SAMPLETON OH 43000", R4_B13_R1_NAMED_ONLY),
+    ("MARKET TAILSPIN FOODS SAMPLETON OH", R4_B13_R1_NAMED_ONLY),
+    ("SAV CONTOSO DRUGS SAMPLETON CA 90000", R4_B13_R1_NAMED_ONLY),
+    ("SAVINGS FABRIKAM PLUS SAMPLETON OH 43000", R4_B13_R1_NAMED_ONLY),
+    ("CHECKING CONTOSO POINT SAMPLETON OH", R4_B13_R1_NAMED_ONLY),
+    ("MARKET SAMPLETON OH 43000", R4_B13_R1_NAMED_ONLY),
+])
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r1_a_name_the_address_cut_leaves_whole_keeps_the_base_reading(orig, twice, template):
+    assert _r4_53(orig, 1, template=template) == [NAMED]
+    assert _r4_53(orig, 2, template=template) == twice
+
+
+@pytest.mark.parametrize("orig", ["LP CONTOSO GAS SUPPLY LLC", "LTD FABRIKAM COMMODITIES LLC",
+                                  "CO OP CONTOSO ELECTRIC LLC", "LIMITED EDITION CONTOSO GALLERY LLC"])
+def test_r4_b13_r1_a_legal_form_leading_the_name_on_bank_of_america_keeps_the_base_reading(orig):
+    rows = [(R4_B13_R1_BOFA.format(orig=orig, n=n), amount) for n, amount in ((1, 2345.67), (2, 3456.78))]
+    assert _tiers(rows[:1], bank="Bank of America") == [NAMED]
+    assert _tiers(rows, bank="Bank of America") == R4_B13_R1_REPEAT
+
+
+@pytest.mark.parametrize("orig", ["MONEY MARKET SAMPLETON OH 43000", "ACCOUNT SAMPLETON OH 43000",
+                                  "DDA MAPLE GROVE MN",
+                                  # The recorded residual: a name led by a whole two-word designation.
+                                  "MONEY MARKET FABRIKAM FOODS SAMPLETON OH"])
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r1_controls_a_designation_with_its_address_still_names_no_sender(orig, template):
+    assert _r4_53(orig, 1, template=template) == [NO_SENDER]
+    assert _r4_53(orig, 2, template=template) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize(("words", "name"), [
+    (["LP", "CONTOSO", "GAS", "SUPPLY", "LLC"], ["LP", "CONTOSO", "GAS", "SUPPLY", "LLC"]),
+    (["LTD", "FABRIKAM", "COMMODITIES", "LLC"], ["LTD", "FABRIKAM", "COMMODITIES", "LLC"]),
+    (["THE", "CO", "OP", "SAMPLETON", "OH"], ["THE", "CO", "OP", "SAMPLETON", "OH"]),
+    (["BUSINESS", "LLC", "DBA", "FABRIKAM", "SUPPLY"], ["BUSINESS", "LLC", "DBA", "FABRIKAM", "SUPPLY"]),
+    (["SERVICES", "CO", "OF", "FABRIKAM"], ["SERVICES", "CO", "OF", "FABRIKAM"]),
+    (["CONTOSO", "LLC"], ["CONTOSO", "LLC"]),
+    (["CONTOSO", "CO", "US"], ["CONTOSO", "CO", "US"]),
+    (["CONTOSO", "CO", "DENVER", "CO", "US"], ["CONTOSO", "CO"]),
+    (["MARKET", "FABRIKAM", "PRODUCE", "SAMPLETON", "OH"], ["MARKET", "FABRIKAM", "PRODUCE", "SAMPLETON", "OH"]),
+    (["CHECKING", "SAMPLETON", "OH"], ["CHECKING", "SAMPLETON", "OH"]),
+    (["MONEY", "MARKET", "SAMPLETON", "OH"], ["MONEY", "MARKET"]),
+    (["ACCOUNT", "SAMPLETON", "OH"], ["ACCOUNT"]),
+    (["DDA", "MAPLE", "GROVE", "MN"], ["DDA"]),
+])
+def test_r4_b13_r1_the_address_cut_reads_only_an_address(words, name):
+    assert tr._labelled_originator_name(words) == name
+
+
+@pytest.mark.parametrize("orig", ["REF12ABC BUSINESS LLC SAMPLETON OH 43000",
+                                  "AC12345XYZ OPERATING ACCOUNT SAMPLETON OH"])
+def test_r4_b13_r1_a_glued_reference_is_no_name_word(orig):
+    # R4-B13 review round 1 (finding 8): only a first token of digits glued to three or more letters ('1XCONTOSO', the
+    # corpus shape) is read as the sender's own name word; a glued reference ('REF12ABC', 'AC12345XYZ') never keeps a
+    # designation's address as a name.
+    assert _r4_53(orig, 1) == [NO_SENDER]
+    assert _r4_53(orig, 2) == [NO_SENDER, NO_SENDER]
+    assert not tr._glued_name_word(tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(
+        R4_53_FEDWIRE.format(orig=orig, n=1)))))
+    assert tr._glued_name_word("1XCONTOSO LLC SAMPLETON OH") and not tr._glued_name_word("BUSINESS LLC 1XCONTOSO")
+
+
+@pytest.mark.parametrize(("text", "reading"), [
+    # Single words of a province's or a country's name name somebody (finding 4).
+    ("WIRE TRANSFER FROM NORTHWEST", NAMED),
+    ("WIRE TRANSFER FROM COLUMBIA", NAMED),
+    ("WIRE TRANSFER FROM PRINCE EDWARD", NAMED),
+    ("WIRE TRANSFER FROM NEW ISLAND", NAMED),
+    ("INCOMING WIRE ORG UNITED REF 1", NAMED),
+    ("INCOMING WIRE ORG STATES REF 1", NAMED),
+    # Whole names and codes name nobody (R4-14, unchanged).
+    ("INCOMING WIRE ORG ALBERTA REF 1", NO_SENDER),
+    ("WIRE TRANSFER IN 1234 NOVA SCOTIA", NO_SENDER),
+    ("WIRE TRANSFER IN 1234 UNITED STATES", NO_SENDER),
+    ("WIRE TRANSFER FROM 000000000001 BRITISH COLUMBIA", NO_SENDER),
+    ("WIRE TRANSFER FROM 000000000001 BC", NO_SENDER),
+])
+def test_r4_b13_r1_a_province_reads_by_its_whole_name(text, reading):
+    assert _tiers([(text, 2345.67)]) == [reading]

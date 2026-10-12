@@ -327,13 +327,17 @@ def test_a_street_ln_is_a_lane_and_every_other_ln_a_loan(printed, normalized):
 # Audit round 4, R4-66 (§7.11; the owner's Q5 of 2026-09-28, standard A5): a house number right before LN and a town, a
 # state's code and a ZIP right after it ('<n> LN <town> <ST> <ZIP>') is an address's lane too; both ends are needed (a
 # loan account's number can print before LN), and a loan-payment word after LN or a loan-product word among the town
-# words keeps LOAN.
+# words keeps LOAN. R4-B13 review round 1 (finding 1; the brief's G7 narrowing): only an address a wire's originator
+# label prints before the number (B/O, ORIG, ORG, ORIGINATOR, BY ORDER OF), so a debit's or an unlabelled row's shape
+# keeps LOAN (the three unlabelled lane cases are re-pinned as loans below); and (finding 6) a loan-purpose word
+# (R4-13's) after LN or among the town words keeps LOAN too.
 _R4_66_ADDRESS_LANE_CASES = [
-    ("77 Ln Maple Grove MN 55311-0000", "77 LN MAPLE GROVE MN 55311 0000"),
-    ("4410 LN SAMPLETON IL 62701", "4410 LN SAMPLETON IL 62701"),
-    ("77 LN SAMPLETON IL 62701 UNITED STATES", "77 LN SAMPLETON IL 62701 UNITED STATES"),
     ("B/O: FABRIKAM HOLDINGS 77 Ln Maple Grove MN 55311-0000",
      "B O FABRIKAM HOLDINGS 77 LN MAPLE GROVE MN 55311 0000"),
+    ("ORIG:FABRIKAM 4410 LN SAMPLETON IL 62701", "ORIG FABRIKAM 4410 LN SAMPLETON IL 62701"),
+    ("ORG=FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES", "ORG FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES"),
+    ("ORIGINATOR NAME: FABRIKAM 77 LN SAMPLETON IL 62701", "ORIGINATOR NAME FABRIKAM 77 LN SAMPLETON IL 62701"),
+    ("BY ORDER OF: FABRIKAM 77 LN SAMPLETON IL 62701", "BY ORDER OF FABRIKAM 77 LN SAMPLETON IL 62701"),
 ]
 _R4_66_LOAN_CASES = [
     ("1234 LN PMT SAMPLETON IL 62701", "1234 LOAN PMT SAMPLETON IL 62701"),
@@ -344,7 +348,37 @@ _R4_66_LOAN_CASES = [
     ("TRUIST LN PYMT", "TRUIST LOAN PYMT"),
     ("1234 COMMERCIAL LN PMT", "1234 COMMERCIAL LOAN PMT"),
     ("000123 AUTO LN DISB", "000123 AUTO LOAN DISB"),
+    # R4-B13 review round 1 (finding 1): no originator label before the number.
+    ("77 Ln Maple Grove MN 55311-0000", "77 LOAN MAPLE GROVE MN 55311 0000"),
+    ("4410 LN SAMPLETON IL 62701", "4410 LOAN SAMPLETON IL 62701"),
+    ("77 LN SAMPLETON IL 62701 UNITED STATES", "77 LOAN SAMPLETON IL 62701 UNITED STATES"),
+    ("ACH DEBIT WOODGROVE LENDING 1234567 LN SAMPLETON OH 43000",
+     "ACH DEBIT WOODGROVE LENDING 1234567 LOAN SAMPLETON OH 43000"),
+    ("ORIG CO NAME:FABRIKAM 1234567 LN SAMPLETON OH 43000", "ORIG CO NAME FABRIKAM 1234567 LOAN SAMPLETON OH 43000"),
+    ("ORIG ID:FABRIKAM 1234567 LN SAMPLETON OH 43000", "ORIG ID FABRIKAM 1234567 LOAN SAMPLETON OH 43000"),
+    ("LOAN ACCT 1234567 LN SAMPLETON OH 43000", "LOAN ACCT 1234567 LOAN SAMPLETON OH 43000"),
+    # R4-B13 review round 1 (finding 6): a loan-purpose word after LN or among the town words.
+    ("B/O: FABRIKAM 1234 LN PAYOFF IN 46201", "B O FABRIKAM 1234 LOAN PAYOFF IN 46201"),
+    ("B/O: FABRIKAM 000123 LN INT DUE PA 19103", "B O FABRIKAM 000123 LOAN INT DUE PA 19103"),
+    ("B/O: FABRIKAM 1234567 LN ESCROW CO 80202", "B O FABRIKAM 1234567 LOAN ESCROW CO 80202"),
+    ("B/O: FABRIKAM 1234 LN PRIN AND INT OH 43000", "B O FABRIKAM 1234 LOAN PRIN AND INT OH 43000"),
+    ("B/O: FABRIKAM 1234 LN PMT SAMPLETON IL 62701", "B O FABRIKAM 1234 LOAN PMT SAMPLETON IL 62701"),
+    ("B/O: FABRIKAM 1234 LN AUTO SAMPLETON IL 62701", "B O FABRIKAM 1234 LOAN AUTO SAMPLETON IL 62701"),
+    ("1234 LN PAYOFF IN 46201", "1234 LOAN PAYOFF IN 46201"),
 ]
+
+
+def test_r4_b13_r1_the_lane_arm_s_labels_are_the_classifier_s_originator_labels():
+    # R4-B13 review round 1 (finding 1): the normaliser's local copy of the originator labels (description_text cannot
+    # import the classifier, which imports it) reads what the classifier's originator and relay labels read.
+    from analysis import description_text
+    from analysis import transaction_classifier as tc
+
+    for text in ("B O FABRIKAM", "ORIG FABRIKAM", "ORG FABRIKAM", "ORIGINATOR FABRIKAM", "ORIGINATOR NAME FABRIKAM",
+                 "BY ORDER OF FABRIKAM", "ORIG CUST FABRIKAM", "ORIG CO NAME FABRIKAM", "ORIG ID 1234",
+                 "ORG TO BNF FABRIKAM", "ORIGINATOR TO BENEFICIARY FABRIKAM", "ORGANIC FABRIKAM", "BORG FABRIKAM"):
+        classifier = bool(tc._WIRE_ORIGINATOR_LABEL.search(text) or tc._RELAY_ORIGINATOR_LABEL.search(text))
+        assert bool(description_text._ORIGINATOR_LABEL_BEFORE_LN.search(text)) == classifier, text
 
 
 @pytest.mark.parametrize(("printed", "normalized"), _R4_66_ADDRESS_LANE_CASES + _R4_66_LOAN_CASES)

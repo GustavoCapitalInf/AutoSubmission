@@ -5011,8 +5011,9 @@ def test_r4_b13_the_code_s_docstrings_name_the_readings():
                   "_LN_LOAN_PURPOSE_AFTER = re.compile(", "_LN_BANK_FORM_WORDS = frozenset({"):
         assert words in description_source, words
     classifier_source = inspect.getsource(transaction_classifier)
+    # R4-B13 review round 1 (finding 4): the province reader reads whole phrases (_PROVINCE_ONLY_PHRASES).
     for words in ("_RELAYED_NUMBERED_COMPANY = re.compile(", "_US_COMPANY_FORMS = frozenset({",
-                  "_PROVINCE_ONLY_WORDS = frozenset("):
+                  "_PROVINCE_ONLY_PHRASES = tuple(sorted("):
         assert words in classifier_source, words
     assert "_MERCHANT_ADVANCE_WORDS = re.compile(" in inspect.getsource(true_revenue)
 

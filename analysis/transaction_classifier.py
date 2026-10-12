@@ -1603,9 +1603,14 @@ _COUNTRY_WORDS = ("CANADA", "CA", "US", "USA", "UNITED", "STATES")
 #: NOVA and a name word), then a letters-only word that is no province, territory or country word (a legal form or a
 #: name word: '1234567 B C LTD', '1234567 ONTARIO LTD'), or Quebec's NNNN NNNN before QUEBEC. An account number and a
 #: province or country code alone ('0000000001 ON', '000000000001 ON', '0000000001 ON CANADA') name nobody.
-#: _NUMBERED_PROVINCE_START (unbounded, no name word needed) keeps its other readers.
+#: _NUMBERED_PROVINCE_START (unbounded, no name word needed) keeps its other readers. R4-B13 review round 1 (finding 5;
+#: §5.2, T11, OQ3): a country word may stand between the province and a legal form (_RELAYED_NUMBERED_FORMS:
+#: '1234567 ONTARIO CANADA INC', '1234567 ON CA LTD'), so that numbered company keeps its number and is counted, never
+#: verified, as at the base; a country word with no form after it still names nobody.
+_RELAYED_NUMBERED_FORMS = "INC|INCORPORATED|LTD|LIMITED|CORP|CORPORATION|ULC|LLC|LP|CO|COMPANY"
 _RELAYED_NUMBERED_COMPANY = re.compile(
-    rf"^\d{{6,10}} (?>{_PROVINCE}\b)(?= (?!(?:{_PROVINCE}|{'|'.join(_COUNTRY_WORDS)})\b)[A-Z]+\b)"
+    rf"^\d{{6,10}} (?>{_PROVINCE}\b)(?= (?!(?:{_PROVINCE}|{'|'.join(_COUNTRY_WORDS)})\b)[A-Z]+\b"
+    rf"| (?:CANADA|CAN|CA|USA|US|UNITED STATES) (?:{_RELAYED_NUMBERED_FORMS})\b)"
     rf"|^\d{{4}} \d{{4}} {_QUEBEC}\b"
 )
 _NUMBERED_COMPANY_REGION = re.compile(
@@ -1615,24 +1620,35 @@ _NUMBERED_COMPANY_REGION = re.compile(
     # round 5: Quebec's words only, so another province's word or code starting a name ('NORTH STAR', 'AB') is none.
     rf"|^\d{{4}} \d{{4}} {_QUEBEC}\b"
 )
-#: Audit round 4, R4-14: the words of a province or territory, its codes and the country words (province_words_only):
-#: every word of a whole province or territory name (_PROVINCE_NAMES, AND aside), every code (_PROVINCE_ABBREVIATIONS,
-#: 'B C' read as its two letters) and _COUNTRY_WORDS.
-_PROVINCE_ONLY_WORDS = frozenset(
-    {word for name in _PROVINCE_NAMES for word in name.split() if word != "AND"}
-    | {word for code in _PROVINCE_ABBREVIATIONS for word in code.split()}
-    | set(_COUNTRY_WORDS)
-)
+#: Audit round 4, R4-14: the province, territory and country phrases (province_words_only), as word tuples, longest
+#: first. R4-B13 review round 1 (finding 4): whole phrases, never their single words: every whole province or
+#: territory name (_PROVINCE_NAMES: 'NOVA SCOTIA', 'BRITISH COLUMBIA', 'PRINCE EDWARD ISLAND', 'NORTHWEST
+#: TERRITORIES'), every code (_PROVINCE_ABBREVIATIONS, 'B C' as its two letters) and the country names and codes
+#: (CANADA, CA, US, USA and UNITED STATES, whose UNITED and STATES are never read alone).
+_PROVINCE_ONLY_PHRASES = tuple(sorted(
+    {tuple(name.split()) for name in _PROVINCE_NAMES}
+    | {tuple(code.split()) for code in _PROVINCE_ABBREVIATIONS}
+    | {("CANADA",), ("CA",), ("US",), ("USA",), ("UNITED", "STATES")},
+    key=lambda phrase: (-len(phrase), phrase),
+))
 
 
 def province_words_only(name: str) -> bool:
     """Audit round 4, R4-14 (§8.5 Q5; the underwriter's Q1 of 2026-10-02; §20 A3-G, a bank that names no customer is
     held): the name, its reference tokens dropped (_is_reference_token: an account number, a postal code's digit
-    tokens), is non-empty and every word is a province's or territory's word, a code or a country word
-    (_PROVINCE_ONLY_WORDS: 'ON', 'B C', 'NOVA SCOTIA', 'ON CANADA', 'ON M5V 3Y2'): it names nobody. 'NEW YORK', 'ONTARIO
-    LTD' and 'NORTH MOUNTAIN PAVING' name someone."""
+    tokens), is non-empty and made only of province, territory and country phrases (_PROVINCE_ONLY_PHRASES: 'ON', 'B
+    C', 'NOVA SCOTIA', 'ON CANADA', 'ON M5V 3Y2'): it names nobody. 'NEW YORK', 'ONTARIO LTD' and 'NORTH MOUNTAIN
+    PAVING' name someone. R4-B13 review round 1 (finding 4): each phrase is read whole, so a single word of a longer
+    name ('NORTHWEST', 'COLUMBIA', 'PRINCE EDWARD') or UNITED or STATES alone names someone."""
     words = [word for word in (name or "").split() if not _is_reference_token(word)]
-    return bool(words) and all(word in _PROVINCE_ONLY_WORDS for word in words)
+    at = 0
+    while at < len(words):
+        phrase = next((phrase for phrase in _PROVINCE_ONLY_PHRASES if tuple(words[at: at + len(phrase)]) == phrase),
+                      None)
+        if phrase is None:
+            return False
+        at += len(phrase)
+    return bool(words)
 
 
 #: §6.1 step 9b: consumer person-to-person rails (never verified by any step), and real-time or push rails (verified
