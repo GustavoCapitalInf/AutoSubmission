@@ -4983,3 +4983,101 @@ def test_r4_b12_review_round_1_is_recorded():
     for placeholder in ("MEASURE" + "_R4B12R1", "CODECOMMIT" + "_R4B12R1"):
         assert placeholder not in text, placeholder
         assert placeholder not in contract, placeholder
+
+
+def test_r4_b13_the_code_s_docstrings_name_the_readings():
+    """Audit round 4, R4-B13 (R4-66, R4-13, R4-12, R4-14, R4-25, R4-52, R4-53): the LN readers, the trade purpose, the
+    relay and province readers, the bank form and the wire-name readers name their issue."""
+    from analysis import description_text
+
+    def doc(reader):
+        return re.sub(r"\s+", " ", reader.__doc__)
+
+    assert "R4-66" in doc(description_text._loan_or_lane)
+    for reader in (description_text.ln_name_spans, description_text.ln_name_word, description_text._bank_before_ln,
+                   transaction_classifier._strong_text, transaction_classifier.strong_rule_reads_insurance_wording_only):
+        assert "R4-13" in doc(reader), reader.__name__
+    assert "R4-12" in doc(true_revenue._without_trade_purpose)
+    for reader in (transaction_classifier.province_words_only, transaction_classifier.relayed_customer_text,
+                   true_revenue._wire_names_nobody, true_revenue._glued_name_word):
+        assert "R4-14" in doc(reader), reader.__name__
+    assert "R4-25" in doc(transaction_classifier.bank_by_form)
+    assert "R4-52" in doc(true_revenue._wire_generic_company)
+    for reader in (true_revenue._labelled_originator_name, true_revenue._wire_names_nobody,
+                   true_revenue._glued_name_word):
+        assert "R4-53" in doc(reader), reader.__name__
+    description_source = inspect.getsource(description_text)
+    for words in ("_HOUSE_NUMBER_BEFORE_LN = re.compile(", "_ADDRESS_AFTER_LN = re.compile(",
+                  "_LN_LOAN_PURPOSE_AFTER = re.compile(", "_LN_BANK_FORM_WORDS = frozenset({"):
+        assert words in description_source, words
+    classifier_source = inspect.getsource(transaction_classifier)
+    for words in ("_RELAYED_NUMBERED_COMPANY = re.compile(", "_US_COMPANY_FORMS = frozenset({",
+                  "_PROVINCE_ONLY_WORDS = frozenset("):
+        assert words in classifier_source, words
+    assert "_MERCHANT_ADVANCE_WORDS = re.compile(" in inspect.getsource(true_revenue)
+
+
+#: Audit round 4, R4-B13: the code commits (R4-66; R4-13; R4-12; R4-25; R4-14, R4-52 and R4-53).
+R4_B13_CODE_COMMITS = ("47143b3", "4046c50", "c4ae6b9", "7c84eaf", "93b9753")
+
+
+def test_r4_b13_is_recorded():
+    """Audit round 4, R4-B13: §7.11's street-LN bullet (its arm, its measurement sentence, the R3-46 sentence), §8.1's
+    advance-payment sentence, §8.5's bank words and Held, §9.3; §20's seven lines and the in-all line, the R3-14,
+    R3-40, R3-18, R3-46, F4 and R3-FF review-round-1 lines amended in place; the contract's history bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    wrong = re.sub(r"\s+", " ", _section(text, "\n### 7.11 ", "\n### 7.12 "))
+    for words in ("(amended by audit round 4, R4-66, §20 below: or a house number right before `LN` and a town, a "
+                  "state's code and a ZIP right after it: `<n> LN <town> <ST> <ZIP>`",
+                  "(corrected by audit round 4, R4-66, §20 below: that wire's originator address prints",
+                  "(amended by audit round 4, R4-13, §20 below: and never after a bank's name or form (`<bank> LN …`), "
+                  "never before a loan-purpose word"):
+        assert words in wrong, words
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    assert ("amended by audit round 4, R4-12, §20 below: never after `MERCHANT`, `MERCH`, `MRCH`, `MRCHNT`, `MCHT`, "
+            "`RBF`, `CASH`, `MCA`, `BUSINESS` or `BUS`") in holds
+    wires = re.sub(r"\s+", " ", _section(text, "\n### 8.5 ", "\n### 8.6 "))
+    for words in ("audit round 4, R4-25, §20: after `BANKING` or a non-English bank word a US non-bank company form",
+                  "and (audit round 4, R4-52, §20) at least one a product word",
+                  "audit round 4, R4-14, §20: a region of only province, territory or country codes, its account "
+                  "number dropped, names no sender",
+                  "audit round 4, R4-53, §20: a labelled originator is read without its address"):
+        assert words in wires, words
+    assert "- Audit round 4, R4-B13 (R4-66, R4-13, R4-12, R4-14, R4-25, R4-52, R4-53; §20): no bump in a fix batch" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **A relaying bank that prints `BANKING` or a non-English bank word relays its customer",
+         "amended by audit round 4, R4-14, §20 below: a relayed numbered company prints six to ten digits"),
+        ("- **A relaying bank that prints `BANKING` or a non-English bank word relays its customer",
+         "(amended by audit round 4, R4-25, §20 below: after `BANKING` or a non-English bank word a US non-bank"),
+        ("- **A wire region of designation words names no sender**", "Amended by audit round 4, R4-53 (§20 below)"),
+        ("- **A wire region of designation words names no sender**", "amended by audit round 4, R4-14, §20 below"),
+        ("- **A wire's abbreviated advance payment is no financing**", "amended by audit round 4, R4-12, §20 below"),
+        ("- **A company named with `LN` is held for review, never unreviewable non-revenue**",
+         "(amended by audit round 4, R4-13, §20 below"),
+        ("- **A wire from a company named only with generic words names its sender**",
+         "amended by audit round 4, R4-52, §20 below"),
+        ("- **R3-FF review round 1: a generic wire name needs two name words, one a holder-noise word**",
+         "amended by audit round 4, R4-52, §20 below"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    for start, commit in (
+        ("- **A house number before `LN` and an address after it is a lane**", R4_B13_CODE_COMMITS[0]),
+        ("- **A bank's loan, a loan's purpose and the holder's own loan after `LN` keep the strong rule's LOAN**",
+         R4_B13_CODE_COMMITS[1]),
+        ("- **A merchant or business advance's abbreviated or reordered purpose is no buyer's advance**",
+         R4_B13_CODE_COMMITS[2]),
+        ("- **A lookalike company with a US form after a bank word is no bank**", R4_B13_CODE_COMMITS[3]),
+        ("- **An account number and a province code name no relayed customer and no sender**", R4_B13_CODE_COMMITS[4]),
+        ("- **A wire name of holder-noise words only names no sender**", R4_B13_CODE_COMMITS[4]),
+        ("- **A labelled originator's address is never its name**", R4_B13_CODE_COMMITS[4]),
+    ):
+        assert commit in _amendment_line(amendments, start), (start, commit)
+    line = _amendment_line(amendments, "- **Audit round 4, R4-B13 in all** (")
+    for commit in R4_B13_CODE_COMMITS:
+        assert commit in line, commit
+    contract = _flat(CONTRACT)
+    assert "- Audit round 4 (R4-66, R4-13, R4-12, R4-14, R4-25, R4-52, R4-53; R4-B13:" in contract
+    for placeholder in ("MEASURE" + "_R4", "CODECOMMIT" + "_R4", "MEASURE" + "_INALL"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in contract, placeholder
