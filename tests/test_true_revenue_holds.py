@@ -993,6 +993,19 @@ def test_r3_59_a_platform_seller_payout_printing_net_of_fees_stays_asset_sale_pr
     (" FEE DEDUCTED OFF COMM", "", True), (" FEES NETTED FROM AGENT COMMISSION", "", True),
     ("", "NET OF COMMISSION LESS FEES ", False), ("", "LESS COMMISSION AFTER FEES ", False),
     ("", "MINUS COMMISSIONS NET OF FEES ", False), (" FEES WITHHELD FROM PROCEEDS", "", False),
+    # Audit round 4, R4-38: up to two qualifier words, a fee joined by AND, a broker's COMM with a connector, and
+    # DEDUCTIBLE, which is no deduction.
+    ("", "LESS AUCTION COMMISSION ", False), ("", "NET OF SELLER FEES ", False), ("", "LESS SELLERS COMMISSION ", False),
+    ("", "AFTER CONSIGNMENT FEES ", False), ("", "MINUS BROKER COMMISSION ", False),
+    ("", "LESS AUCTION SELLER FEES ", False), ("", "LESS COMMISSION AND FEES ", False),
+    ("", "NET OF COMMISSION AND FEES ", False), ("", "LESS FEES AND COMMISSION ", False),
+    ("", "LESS FEES & COMMISSION ", False), ("", "NET OF AUCTION COMMISSION LESS FEES ", False),
+    (" FEES AND COMMISSION WITHHELD", "", False), (" COMMISSION AND FEES DEDUCTED", "", False),
+    (" FEES DEDUCTION", "", False), (" FEES DEDUCTING", "", False), (" FEE DEDUCTS", "", False),
+    ("", "COMM ON ", True), ("", "COMMS ON ", True), ("", "COMM FOR ", True), ("", "COMM ", False),
+    ("", "NET COMM ", False), (" FEE DEDUCTIBLE", "", True), (" COMMISSION DEDUCTIBLE", "", True),
+    ("", "NET AGENT COMMISSION ON ", True), ("", "COMMISSION LESS AUCTION FEES ON ", True),
+    ("", "COMMISSION LESS AUCTION COMMISSION AND FEES ", True),
 ])
 def test_r3_59_the_netting_words(after, before, vetoed):
     assert tr._asset_sale_commission(after, before) is vetoed
@@ -1029,6 +1042,81 @@ def test_r3_59_review_round_2_a_commission_the_fees_come_out_of_stays_a_broker_s
 ])
 def test_r3_59_review_round_2_a_netted_commission_is_still_a_seller_s_sale(purpose, layout, zelle):
     assert _r3_59(purpose, layout, zelle) == [ASSET_SALE]
+
+
+# Audit round 4, R4-38 (the underwriter's Q11 (b) of 2026-10-02, "Don't count as true revenue and go straight to
+# non-revenue"; standard G6 and §4.2, deposits arrive net of fees; R2-OW06 review round 1's broker carve-out, standard
+# A11): a netting phrase with a qualifier or a fee joined by AND is what a seller's proceeds are net of; a broker's COMM
+# with a connector is its revenue; DEDUCTIBLE is no deduction. Fabricated wires from FABRIKAM FREIGHT LLC.
+R4_38_AMOUNT = 27500.45
+R4_38_DEALER = "NORTHWIND AUTO BROKERS LLC"
+R4_38_NETTED = (
+    "LESS AUCTION COMMISSION TRUCK SALE", "NET OF SELLER FEES TRUCK SALE", "LESS COMMISSION AND FEES TRUCK SALE",
+    "NET OF COMMISSION AND FEES TRUCK SALE", "LESS SELLER FEES TRUCK SALE", "LESS SELLERS COMMISSION TRUCK SALE",
+    "AFTER CONSIGNMENT FEES TRAILER SALE", "MINUS BROKER COMMISSION EQUIPMENT SALE", "LESS FEES AND COMMISSION TRUCK SALE",
+    "NET OF AUCTION COMMISSION LESS FEES TRUCK SALE", "TRUCK SALE FEES AND COMMISSION WITHHELD",
+    "TRUCK SALE COMMISSION AND FEES DEDUCTED",
+)
+R4_38_BROKER_COMM = ("COMM ON TRUCK SALE", "COMMS ON TRAILER SALE", "COMM FOR TRUCK SALE")
+R4_38_DEDUCTIBLE = ("TRUCK SALE FEE DEDUCTIBLE", "TRUCK SALE COMMISSION DEDUCTIBLE")
+
+
+def _r4_38(purpose: str, layout: str, zelle: bool, holder: str = FLORIST):
+    """R3-59's one-credit month at R4-38's amount."""
+    if layout == "bofa":
+        return _q11([(_q11_wire("FABRIKAM FREIGHT LLC", purpose), R4_38_AMOUNT)], holder, zelle_true_revenue=zelle)
+    return _q11([(_r3_59_chase_wire(purpose, holder), R4_38_AMOUNT)], holder, bank="Chase", zelle_true_revenue=zelle)
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", R4_38_NETTED)
+def test_r4_38_a_qualified_or_joined_netting_phrase_is_still_a_sale(purpose, layout, zelle):
+    # Today counted (named_payer_purpose_refused): the qualifier or the AND hid the netting word from the fee.
+    assert _r4_38(purpose, layout, zelle) == [ASSET_SALE]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", R4_38_BROKER_COMM)
+def test_r4_38_a_broker_s_comm_with_a_connector_is_its_revenue(purpose, layout, zelle):
+    # Today non_revenue / asset_sale_proceeds. Counted as the named sender's wire: Q5's purpose refusal does not read the
+    # COMM abbreviation (as for R3-59's 'TRUCK SALE COMM WITHHELD' before its netting reading), so the reason is the
+    # wire's own, never verified.
+    assert _r4_38(purpose, layout, zelle) == [WIRE]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", R4_38_DEDUCTIBLE)
+def test_r4_38_fee_deductible_is_no_netting(purpose, layout, zelle):
+    # Today non_revenue: DEDUCT... read DEDUCTIBLE. Counted as 'TRUCK SALE FEE' is.
+    assert _r4_38(purpose, layout, zelle) == _r4_38("TRUCK SALE FEE", layout, zelle) == [REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize(("purpose", "expected"), [
+    # COMM is COMMERCIAL in bank text: a bare COMM before the sale stays the sale.
+    ("COMM TRUCK SALE", ASSET_SALE), ("NET COMM TRUCK SALE", ASSET_SALE), ("COMMERCIAL TRUCK SALE", ASSET_SALE),
+    # A broker's or an agent's own commission or fee stays its revenue.
+    ("NET COMMISSION ON TRUCK SALE", REFUSED), ("NET AGENT COMMISSION ON TRUCK SALE", REFUSED),
+    ("COMMISSION LESS AUCTION FEES ON TRUCK SALE", REFUSED), ("AGENT COMMISSION AFTER FEES FOR TRUCK SALE", REFUSED),
+    ("TRUCK SALE FEES WITHHELD FROM COMMISSION", REFUSED), ("TRUCK SALE COMMISSION", REFUSED),
+    ("COMMISSION ON TRUCK SALE", REFUSED),
+    # A fee printed apart, and fees deducted, leave the sale.
+    ("TRUCK SALE NET OF FEES", ASSET_SALE), ("TRUCK SALE FEES DEDUCTED", ASSET_SALE),
+])
+def test_r4_38_the_controls_keep_their_readings(purpose, expected, layout, zelle):
+    assert _r4_38(purpose, layout, zelle) == [expected]
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("layout", ["bofa", "chase"])
+@pytest.mark.parametrize("purpose", R4_38_NETTED + R4_38_BROKER_COMM + R4_38_DEDUCTIBLE + ("COMM TRUCK SALE",))
+def test_r4_38_a_dealer_s_sale_stays_counted(purpose, layout, zelle):
+    [tier] = _r4_38(purpose, layout, zelle, R4_38_DEALER)
+    assert _counted(tier), tier
 
 
 @pytest.mark.parametrize(("text", "bank"), [

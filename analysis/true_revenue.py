@@ -1087,7 +1087,25 @@ _ASSET_SALE_PURPOSE = re.compile(
 #: an agent's earned revenue, never the proceeds of its own asset. A fee printed apart ('TRUCK SALE NET OF FEES') leaves
 #: the sale.
 _ASSET_SALE_COMMISSION_AFTER = re.compile(r"^\s*(?:COMMISSIONS?|COMMS?|FEES?)\b")
-_ASSET_SALE_COMMISSION_BEFORE = re.compile(r"(?<![A-Z])(?:COMMISSIONS?|FEES?)(?:\s+(?:ON|FOR|FROM|OF))?\s*$")
+#: Audit round 4, R4-38 (Q11 (b); R2-OW06 review round 1's broker carve-out, standard A11): and a broker's COMM(S) with a
+#: connector ('COMM ON TRUCK SALE', 'COMMS ON TRAILER SALE'); a bare COMM before the sale stays the sale (COMM is
+#: COMMERCIAL in bank text: 'COMM TRUCK SALE', 'NET COMM TRUCK SALE').
+_ASSET_SALE_COMMISSION_BEFORE = re.compile(
+    r"(?<![A-Z])(?:(?:COMMISSIONS?|FEES?)(?:\s+(?:ON|FOR|FROM|OF))?|COMMS?\s+(?:ON|FOR|FROM|OF))\s*$"
+)
+#: Audit round 4, R4-38 (Q11 (b), standard G6 and §4.2: deposits arrive net of fees): the netting phrases' shared
+#: fragments. Up to two qualifier words between the netting word and the fee (_NETTING_QUALIFIER: an auction's, a
+#: seller's, a consignment's, a broker's or an agent's fee, 'LESS AUCTION COMMISSION', 'NET OF SELLER FEES'); a fee
+#: or a commission joined to another by AND or & (_FEE_PAIR: 'LESS COMMISSION AND FEES', 'FEES AND COMMISSION
+#: WITHHELD'); and the deduction words after the fee (_DEDUCTION_WORD), never DEDUCTIBLE ('TRUCK SALE FEE DEDUCTIBLE'
+#: is a fee).
+_NETTING_QUALIFIER = (
+    r"(?:AUCTION|AUCTIONEERS?|SELLERS?|SALES|CONSIGNMENT|CONSIGNOR|BROKERS?|BROKERAGE|AGENTS?|LISTING|MARKETING"
+    r"|HANDLING|ADMIN|PROCESSING|SERVICE|TRANSACTION|DOC|DOCUMENTATION|TITLE|BUYERS?)"
+)
+_FEE_WORD = r"(?:COMMISSIONS?|COMMS?|FEES?)"
+_FEE_PAIR = rf"{_FEE_WORD}(?:\s+(?:AND|&)\s+(?:{_NETTING_QUALIFIER}\s+)?{_FEE_WORD})?"
+_DEDUCTION_WORD = r"(?:WITHHELD|DEDUCTED|DEDUCTION|DEDUCTIONS|DEDUCTING|DEDUCTS|DEDUCT|NETTED)"
 #: Audit round 3, R3-B15 (R3-59; Q11 (b), "Don't count as true revenue and go straight to non-revenue"; standard G6 and
 #: §4.2: deposits arrive net of fees): a netting word beside that commission or fee, after it ('TRUCK SALE FEES
 #: WITHHELD', 'TRUCK SALE COMM DEDUCTED') or before it ('LESS FEES TRUCK SALE', 'NET OF COMMISSION TRUCK SALE'): what
@@ -1095,9 +1113,12 @@ _ASSET_SALE_COMMISSION_BEFORE = re.compile(r"(?<![A-Z])(?:COMMISSIONS?|FEES?)(?:
 #: R3-B15 review round 1 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a bare NET reads only
 #: before FEES ('NET FEES TRUCK SALE'); a broker's or an agent's NET COMMISSION is its own earned commission after
 #: splits, and NET FEE its own fee, so both stay a broker's revenue.
-_ASSET_SALE_NETTING_AFTER = re.compile(r"^\s*(?:COMMISSIONS?|COMMS?|FEES?)\s+(?:WITHHELD|DEDUCTED|DEDUCT\w*|NETTED)\b")
+#: Audit round 4, R4-38: the netting word reads past up to two qualifier words and a fee joined by AND
+#: (_NETTING_QUALIFIER, _FEE_PAIR), and the deduction words are _DEDUCTION_WORD (never DEDUCTIBLE); a bare NET still
+#: reads only before FEES, with no qualifier (a broker's NET COMMISSION and NET AGENT COMMISSION stay its revenue).
+_ASSET_SALE_NETTING_AFTER = re.compile(rf"^\s*{_FEE_PAIR}\s+{_DEDUCTION_WORD}\b")
 _ASSET_SALE_NETTING_BEFORE = re.compile(
-    r"(?<![A-Z])(?:(?:NET OF|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)|NET\s+FEES)"
+    rf"(?<![A-Z])(?:(?:NET OF|LESS|AFTER|MINUS)(?:\s+{_NETTING_QUALIFIER}){{0,2}}\s+{_FEE_PAIR}|NET\s+FEES)"
     r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
 )
 #: R3-B15 review round 2 (finding 1; R2-OW06 review round 1's broker carve-out, standard A11): a seller's proceeds never
@@ -1107,13 +1128,17 @@ _ASSET_SALE_NETTING_BEFORE = re.compile(
 #: the broker's own earned commission, so the veto stays, as for its mirror 'TRUCK SALE COMMISSION LESS FEES'; never a
 #: commission a netting word itself stands before ('NET OF COMMISSION LESS FEES TRUCK SALE', _ASSET_SALE_NETTED_WORD:
 #: what a seller's proceeds are net of; a bare NET is a broker's NET COMMISSION).
+#: Audit round 4, R4-38: the broker guard's netting phrase reads the same qualifiers and AND pair, and a netted word
+#: stands before the broker's commission past up to two qualifiers ('NET OF AUCTION COMMISSION LESS FEES TRUCK SALE' is
+#: the seller's sale).
 _ASSET_SALE_COMMISSION_NETTED_BEFORE = re.compile(
-    r"(?<![A-Z])(?:COMMISSIONS?|COMMS?)\s+(?:(?:NET OF|LESS|AFTER|MINUS)\s+(?:COMMISSIONS?|COMMS?|FEES?)|NET\s+FEES)"
+    rf"(?<![A-Z])(?:COMMISSIONS?|COMMS?)\s+(?:(?:NET OF|LESS|AFTER|MINUS)(?:\s+{_NETTING_QUALIFIER}){{0,2}}"
+    rf"\s+{_FEE_PAIR}|NET\s+FEES)"
     r"(?:\s+(?:ON|FOR|FROM|OF))?\s*$"
 )
-_ASSET_SALE_NETTED_WORD = re.compile(r"(?<![A-Z])(?:NET OF|LESS|AFTER|MINUS)\s*$")
+_ASSET_SALE_NETTED_WORD = re.compile(rf"(?<![A-Z])(?:NET OF|LESS|AFTER|MINUS)(?:\s+{_NETTING_QUALIFIER}){{0,2}}\s*$")
 _ASSET_SALE_FEES_FROM_COMMISSION = re.compile(
-    r"^\s*FEES?\s+(?:WITHHELD|DEDUCTED|DEDUCT\w*|NETTED)\s+(?:FROM|OFF)\s+(?:[A-Z]+\s+)?(?:COMMISSIONS?|COMMS?)\b"
+    rf"^\s*FEES?\s+{_DEDUCTION_WORD}\s+(?:FROM|OFF)\s+(?:[A-Z]+\s+)?(?:COMMISSIONS?|COMMS?)\b"
 )
 #: Q11 (b): an invoice reference, which a vehicle's or heavy equipment's sale reads through (the owner made no invoice
 #: carve-out); accounts-payable, vendor or payables wording still spares the row.
@@ -7453,8 +7478,17 @@ def _asset_sale_commission(after: str, before: str) -> bool:
     standard A11): a seller's proceeds never lead with or come out of a commission, so a commission word printed
     directly before the netting phrase (_ASSET_SALE_COMMISSION_NETTED_BEFORE: 'COMMISSION LESS FEES ON TRUCK SALE',
     'NET COMMISSION LESS FEES TRUCK SALE') or fees taken from or off a commission (_ASSET_SALE_FEES_FROM_COMMISSION:
-    'TRUCK SALE FEES WITHHELD FROM COMMISSION') keeps the veto, as its mirror 'TRUCK SALE COMMISSION LESS FEES' does;
-    a commission a netting word itself stands before ('NET OF COMMISSION LESS FEES TRUCK SALE') is still the sale."""
+    'TRUCK SALE FEES WITHHELD FROM COMMISSION') keeps the veto, as its mirror 'TRUCK SALE COMMISSION LESS FEES' does.
+
+    Audit round 4, R4-38 (Q11 (b), standard G6, §4.2; the broker carve-out, standard A11): the netting phrase reads up
+    to two qualifier words between the netting word and the fee (_NETTING_QUALIFIER: 'LESS AUCTION COMMISSION', 'NET
+    OF SELLER FEES', 'AFTER CONSIGNMENT FEES', 'MINUS BROKER COMMISSION') and a fee joined to another by AND or &
+    (_FEE_PAIR: 'LESS COMMISSION AND FEES TRUCK SALE', 'TRUCK SALE FEES AND COMMISSION WITHHELD'); the deduction words
+    are WITHHELD, DEDUCTED, DEDUCTION(S), DEDUCTING, DEDUCT(S) and NETTED (_DEDUCTION_WORD), never DEDUCTIBLE ('TRUCK
+    SALE FEE DEDUCTIBLE' is a broker's fee); a broker's COMM(S) before the sale is read only with a connector ('COMM ON
+    TRUCK SALE'; a bare COMM is COMMERCIAL, so 'COMM TRUCK SALE' stays the sale); and the broker guard's commission
+    is the seller's sale only where a netting word, with up to two qualifiers, stands before it ('NET OF AUCTION
+    COMMISSION LESS FEES TRUCK SALE'). A bare NET still reads only before FEES."""
     broker = _ASSET_SALE_COMMISSION_NETTED_BEFORE.search(before)
     if _ASSET_SALE_FEES_FROM_COMMISSION.search(after) or (
         broker is not None and _ASSET_SALE_NETTED_WORD.search(before[: broker.start()]) is None
