@@ -485,14 +485,14 @@ def test_r3_90_a_settlement_under_the_holder_s_own_name_is_counted_never_verifie
     assert _in_true_never_verified(_tiers([(R3_90_BALANCE, 1500.0)], holder_name="NORTHWIND FLOWERS LLC"))
 
 
-def test_r3_90_a_later_hold_still_reads_a_settlement_under_the_holder_s_own_name():
-    # The exemption lifts the holder hold only: a statement whose holder also pays its own name (a transfer to its own
-    # other account) holds the settlement by the counter-debit hold, as every other payer debited by name.
-    own_transfer = "ONLINE TRANSFER TO CONTOSO DESIGN INC BUSINESS CHECKING XXXXXX1234 REF IB0ABCDEF ON 05/02/54"
+def test_r3_90_a_the_holder_s_own_account_transfer_never_holds_its_settlement():
+    # Audit round 4, R4-27 (re-pinned; standard A1, B1, §4.6 item 5): the exemption lifts the holder hold, and the
+    # holder's transfer to its own account (a circular debit printing its whole name before an account designation)
+    # proves nothing about a settlement under the merchant's own name, at any amount: counted, never verified. It was
+    # held payer_also_debited. A transfer to an affiliate still holds it (test_r4_27_*).
+    own_transfer = "ONLINE TRANSFER TO CONTOSO DESIGN INC BUSINESS CHECKING XXXXXX0000 REF IB0000000 ON 05 02 54"
     rows = [(R3_90_WELLS.format(n=5), 1500.0), (own_transfer, -900.0)]
-    assert _tiers(rows, holder_name=R3_90_WELLS_HOLDER, bank="Wells Fargo") == [
-        ("excluded_pending_review", "payer_also_debited")
-    ]
+    assert _tiers(rows, holder_name=R3_90_WELLS_HOLDER, bank="Wells Fargo") == [R3_90_REFUSED]
 
 
 def test_r3_90_a_settlement_pushed_under_its_own_name_is_no_own_push_on_the_row_alone():
@@ -2380,3 +2380,60 @@ def test_r4_26_the_settlement_families():
     text = _revenue("ACH CREDIT NORTHWIND MERCHANT REF 0000")
     assert not tr.merchant_settlement(text, ("NORTHWIND MERCHANT SERVICES",))
     assert tr.merchant_settlement(text, ())
+
+
+# R4-27 (standard A1: processor settlements count; B1 excludes own-account transfers on the credit side only; §4.6
+# item 5: an outflow to the holder's own account is a flag, not a revenue change; R3-90 A's own reading: counted, never
+# verified): the holder's transfer to its own account (a circular debit printing the holder's whole name before an
+# account designation, a masked number, a reference or the end) never holds a settlement, payout or platform credit
+# under the merchant's own name, at any amount; a transfer to an affiliate sharing only the holder's first word or
+# first two words still does, and every other credit reads as before. Fabricated rows only.
+
+R4_27_OWN_TRANSFER = "ONLINE TRANSFER TO CONTOSO DESIGN INC BUSINESS CHECKING XXXXXX0000 REF IB0000000 ON 05 02 54"
+R4_27_AFFILIATE = "ONLINE TRANSFER TO CONTOSO SOLUTIONS LLC REF IB0000000 ON 05 02 54"
+R4_27_STUDIO = "ONLINE TRANSFER TO CONTOSO DESIGN STUDIO LLC BUSINESS CHECKING XXXXXX0000"
+R4_27_BANKCARD = "CONTOSO DESI BANKCARD 540115 000000000000000 NORTHWIND PRESS SAMPLEVI"
+
+
+def _r4_27_tiers(rows, days, zelle=True):
+    """The credits' final readings, each row posted on its own day of March 2054 (`days`)."""
+    statement = Statement(holder_name=R3_90_WELLS_HOLDER, bank="Wells Fargo", transactions=[
+        Transaction(date=f"2054-03-{day:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for (text, amount), day in zip(rows, days)
+    ])
+    return [(record.revenue_tier, record.revenue_tier_reason or record.revenue_match_method)
+            for record in classify_statement_transactions(statement, zelle_true_revenue=zelle) if record.amount > 0]
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("amount", "days"), [(-900.0, (2, 3)), (-1500.0, (2, 2))])
+def test_r4_27_the_holder_s_own_account_transfer_never_holds_its_settlement(amount, days, zelle):
+    rows = [(R3_90_WELLS.format(n=5), 1500.0), (R4_27_OWN_TRANSFER, amount)]
+    assert _r4_27_tiers(rows, days, zelle) == [R3_90_REFUSED]
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+def test_r4_27_the_bankcard_twin_reads_as_without_the_own_transfer(zelle):
+    alone = _r4_27_tiers([(R4_27_BANKCARD, 1500.0)], (2,), zelle)
+    assert alone[0][0] == "counted_flagged"
+    assert _r4_27_tiers([(R4_27_BANKCARD, 1500.0), (R4_27_OWN_TRANSFER, -900.0)], (2, 3), zelle) == alone
+
+
+@pytest.mark.parametrize("zelle", [True, False])
+@pytest.mark.parametrize(("debit", "amount"), [(R4_27_AFFILIATE, -76.40), (R4_27_STUDIO, -900.0)])
+def test_r4_27_a_transfer_to_an_affiliate_still_holds_the_settlement(debit, amount, zelle):
+    rows = [(R3_90_WELLS.format(n=5), 1500.0), (debit, amount)]
+    assert _r4_27_tiers(rows, (2, 3), zelle) == [("excluded_pending_review", "payer_also_debited")]
+    # Beside the own-account transfer too, the affiliate's transfer holds it.
+    rows = [(R3_90_WELLS.format(n=5), 1500.0), (R4_27_OWN_TRANSFER, -1500.0), (debit, amount)]
+    assert _r4_27_tiers(rows, (2, 2, 3), zelle) == [("excluded_pending_review", "payer_also_debited")]
+
+
+def test_r4_27_a_third_party_paid_back_by_transfer_stays_held():
+    credit = "FABRIKAM SUPPLY LLC DES:PAYMENT ID:0001 INDN:CONTOSO DESIGN INC CO ID:0000000001 CCD"
+    debit = "ONLINE TRANSFER TO FABRIKAM SUPPLY LLC BUSINESS CHECKING XXXXXX0000 REF IB0000000"
+    statement = {"holder_name": R3_90_WELLS_HOLDER, "bank": "Bank of America"}
+    assert _tiers([(credit, 1500.0), (debit, -900.0)], **statement) == [
+        ("excluded_pending_review", "payer_also_debited")]
+

@@ -4650,6 +4650,18 @@ _INSURER_CREDIT = re.compile(r"(?<![A-Z])(?:INS|INSUR\w*|ASSUR\w*)\b")
 #: flag that lets a debit naming a credit the Q2 release counted recur at one amount without holding it
 #: (also_debited). A flag, never a kind: the debit keeps its kind.
 _PREMIUM_DEBIT = re.compile(r"(?<![A-Z])(?:PREM|PREMS|PREMIUMS?|PREMSEC|RETRY)(?![A-Z])")
+#: Audit round 4, R4-27 (standard B1, §4.6 item 5; R3-90 A's own reading): what follows the holder's own name in a
+#: transfer to its own account: an account designation (an account word, a product word before it, MONEY MARKET), a
+#: masked number, a reference or the end. Read by _own_account_names on a circular debit (_CounterDebit.own_name).
+_OWN_ACCOUNT_AFTER_NAME = (
+    r"(?= (?:(?:BUSINESS|PERSONAL|OPERATING|PAYROLL) )?"
+    r"(?:CHECKING|CHKG|CHK|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA|MONEY MARKET)\b| X*\d| REF\b|\s*$)"
+)
+#: Audit round 4, R4-27: the legal forms a holder's name ends with, left off before the name is read in a debit
+#: (_HOLDER_RUN_FORM reads them printed or left off after it).
+_OWN_NAME_TRAILING_FORMS = re.compile(
+    r"(?: (?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC|PLC))+$"
+)
 #: Audit B4 (guard): a transfer, wire or person-to-person debit, or an own-account move ('TO CHKG', 'DDA TO DDA'):
 #: it can be circular money, so it also matches a payer as 5.6 read it (CounterDebitReading.legacy).
 _OWN_ACCOUNT_DEBIT = re.compile(
@@ -4680,7 +4692,9 @@ class _CounterDebit:
     kind (a fee, a bill or another debit): the card form only lifts a payout's hold (also_debited). A lender debit's
     reading keeps the place words (classifier._without_not_a_payer). Audit round 3, R3-B16 (R3-03): `premium`, a
     non-lender debit printing a premium or a retry of one (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code
-    split off); a lender debit's is always False."""
+    split off); a lender debit's is always False. Audit round 4, R4-27: `own_name`, a circular debit whose kind text
+    prints one of the holder's names whole before an account designation, a masked number, a reference or the end
+    (_own_account_names: the holder's transfer to its own account); a lender debit's is always False."""
 
     reading: CounterDebitReading
     kind: str
@@ -4691,6 +4705,7 @@ class _CounterDebit:
     person_key: str | None = None
     card: bool = False
     premium: bool = False
+    own_name: bool = False
 
 
 @dataclass(frozen=True)
@@ -4708,7 +4723,10 @@ class CounterCredit:
     sender prints a name of two words or more and no company form, that name's first two words glued (R02; review
     round 1: a company's push is compared by the B4 forms as before); `lender_reading`, the reading the lender hold
     compares (the place words kept; None: `reading`). Audit round 3, R3-B16 (R3-03): `released_insurer`, the credit
-    the Q2 release counted as an insurer paying for the business's work (INSURER_FOR_WORK_METHOD)."""
+    the Q2 release counted as an insurer paying for the business's work (INSURER_FOR_WORK_METHOD). Audit round 4, R4-27:
+    `merchant_named`, a credit whose payer region names the holder and whose holder hold was lifted for it as a
+    processor's, a platform's or a settlement credit under the merchant's own name (merchant_settlement,
+    processor_payout, platform_credit)."""
 
     reading: CounterDebitReading
     cents: int
@@ -4719,6 +4737,7 @@ class CounterCredit:
     person_key: str | None = None
     lender_reading: CounterDebitReading | None = None
     released_insurer: bool = False
+    merchant_named: bool = False
 
 
 def _cents(amount: float) -> int:
@@ -4819,10 +4838,14 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
     (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code split off); a lender debit never does. Audit round 3,
     R3-B17 (R3-15): a debit whose reading names no word is kept when it names a numbered company's number
     (CounterDebitReading.number), and recurs by that number (_head_word); (R3-77, R3-74) each debit is read without its
-    bank's posting-type label and a leading pre-authorized-debit label (classifier._counter_debit_text)."""
+    bank's posting-type label and a leading pre-authorized-debit label (classifier._counter_debit_text). Audit round 4,
+    R4-27: each circular debit records whether its kind text prints one of the holder's names (the first record's
+    _holder_names) whole before an account designation, a masked number, a reference or the end (_own_account_names):
+    the holder's transfer to its own account (`own_name`)."""
     classifier = _classifier()
     lender: list[_CounterDebit] = []
-    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool]] = []
+    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool, bool]] = []
+    own_account = _own_account_names(_holder_names(records[0])) if records else None
     for index, record in enumerate(records):
         if index in duplicates or record.amount >= 0 or not record.is_posted:
             continue
@@ -4851,19 +4874,48 @@ def counter_debits(records: Sequence[TransactionClassification], duplicates: set
             ):
                 person_key = reading.heads[0][0] + reading.heads[0][1][0]
             premium = _PREMIUM_DEBIT.search(split) is not None
-            other.append((reading, kind, _cents(record.amount), payout, person_key, card, premium))
+            # Audit round 4, R4-27: the holder's transfer to its own account.
+            own_name = kind == "circular" and own_account is not None and own_account.search(kind_text) is not None
+            other.append((reading, kind, _cents(record.amount), payout, person_key, card, premium, own_name))
     # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount (a bill's; B4
     # review round 1: never a processor's fee beside its settlement, also_debited).
-    amounts = Counter((_head_word(reading), cents) for reading, _, cents, _, _, _, _ in other)
+    amounts = Counter((_head_word(reading), cents) for reading, _, cents, *_ in other)
     return CounterDebits(
         tuple(lender),
         tuple(
             _CounterDebit(
                 reading, kind, cents, None, amounts[(_head_word(reading), cents)] >= 2, payout, person_key, card,
-                premium,
+                premium, own_name,
             )
-            for reading, kind, cents, payout, person_key, card, premium in other
+            for reading, kind, cents, payout, person_key, card, premium, own_name in other
         ),
+    )
+
+
+@cache
+def _own_account_names(names: tuple[str, ...]) -> re.Pattern[str] | None:
+    """§8.1 (audit round 4, R4-27; standard B1, §4.6 item 5): the holder's own names as its transfer to its own account
+    prints them: each of `names` (_holder_names) and each side of a trade name (classifier._HOLDER_TRADE_NAME), read
+    through classifier.account_name_text, its trailing legal forms left off, two words or more (never a name that names
+    nobody: a product, a grid header, classifier.holder_words), matched word-bounded with its legal form printed or
+    left off (_HOLDER_RUN_FORM) and followed by an account designation, a masked number, a reference or the end
+    (_OWN_ACCOUNT_AFTER_NAME). None when no name reads. An affiliate sharing only the holder's first word or first two
+    words ('CONTOSO SOLUTIONS LLC', 'CONTOSO DESIGN STUDIO LLC' for 'CONTOSO DESIGN INC') is never matched."""
+    classifier = _classifier()
+    runs: set[str] = set()
+    for name in names:
+        printed = classifier.account_name_text(name) if name else ""
+        if not printed or not classifier.holder_words(name):
+            continue
+        for side in (printed, *classifier._HOLDER_TRADE_NAME.split(printed)):
+            run = _OWN_NAME_TRAILING_FORMS.sub("", side.strip())
+            if len(run.split()) >= 2:
+                runs.add(run)
+    if not runs:
+        return None
+    alternation = "|".join(re.escape(run) for run in sorted(runs, key=len, reverse=True))
+    return re.compile(
+        r"(?<![A-Z0-9])(?:" + alternation + r")" + _HOLDER_RUN_FORM + r"(?![A-Z0-9])" + _OWN_ACCOUNT_AFTER_NAME
     )
 
 
@@ -4945,7 +4997,12 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
     only when the debit is circular money, is for its own amount, or recurs at one amount printing no premium or retry
     word. Audit round 3, R3-B17 (R3-77, R3-74): both readings are read with the statement's bank (`record.bank`), so
     its posting-type label names no payer (classifier._without_posting_type_label: RBC's `INSURANCE <insurer>`); (R3-15)
-    a numbered company's reading carries its number."""
+    a numbered company's reading carries its number. Audit round 4, R4-27: `merchant_named` is True on a credit whose
+    payer region names the holder (classifier.holder_named on a name of _holder_names, the row's layout setting the
+    receiver block) and whose holder hold was lifted for it as a processor's, a platform's or a settlement credit under
+    the merchant's own name (merchant_settlement, processor_payout, platform_credit): computed here, so pass 7,
+    _payer_collects and the classifier's pass 6 read one flag; also_debited never holds it by the holder's own-account
+    transfer (_CounterDebit.own_name)."""
     classifier = _classifier()
     row = classifier._before_receiver(text)
     # Audit round 2, R2-B11 (R09 part A): TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
@@ -4977,7 +5034,23 @@ def counter_credit(record: TransactionClassification, text: str, region: str) ->
         lender_reading=classifier.counter_debit_payer_reading(words, keep_places=True, bank=record.bank),
         # Audit round 3, R3-B16 (R3-03): the credit the Q2 release counted as the business's work.
         released_insurer=record.revenue_match_method == INSURER_FOR_WORK_METHOD,
+        merchant_named=_merchant_named(record, text, region),
     )
+
+
+def _merchant_named(record: TransactionClassification, text: str, region: str) -> bool:
+    """§8.1 (audit round 4, R4-27; standard A1; R3-90 A's own reading): the credit's payer region names the holder (any
+    of _holder_names, classifier.holder_named with the row's receiver block) and the holder hold was lifted for it as a
+    processor's, a platform's or a settlement credit under the merchant's own name (merchant_settlement,
+    processor_payout, platform_credit), the exemptions pass 7's holder hold reads (CounterCredit.merchant_named)."""
+    names = _holder_names(record)
+    if not region or not names:
+        return False
+    if not (merchant_settlement(text, names) or processor_payout(text) or platform_credit(text, region, names)):
+        return False
+    classifier = _classifier()
+    block = classifier.holder_receiver_block(text, record.bank)
+    return any(classifier.holder_named(region, name, receiver_block=block) for name in names)
 
 
 def _same_payer(credit: CounterDebitReading, debit: CounterDebitReading, *, legacy: bool) -> bool:
@@ -5069,12 +5142,22 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
     for the credit's own amount, or recurs at one amount printing no premium or retry word (_CounterDebit.premium). A
     premium the business pays the carrier that pays it for its work is an ordinary expense, never money going round,
     and it recurs at one amount by nature, as a processor's fixed fee does (B4 review round 1), so it never holds the
-    credit, recurring or not. An insurer the release did not count keeps B4's hold beside its premium or bill."""
+    credit, recurring or not. An insurer the release did not count keeps B4's hold beside its premium or bill.
+
+    Audit round 4, R4-27 (standard A1: processor settlements count; B1 excludes own-account transfers on the credit
+    side only; §4.6 item 5: an outflow to the holder's own account is a flag, not a revenue change), right after the
+    receiving fee: a settlement, payout or platform credit under the merchant's own name (CounterCredit.merchant_named)
+    is never held by the holder's transfer to its own account (_CounterDebit.own_name), at any amount, the same-day
+    sweep of its own amount included (money counts once, where it first lands). A transfer to an affiliate sharing only
+    the holder's first word or two still holds it, and every other credit reads as before."""
     for debit in debits.other:
         same_amount = debit.cents == credit.cents
         if credit.payout and debit.payout and not same_amount:
             continue
         if debit.kind == "receiving_fee":
+            continue
+        # Audit round 4, R4-27: the holder's own-account transfer proves nothing about its own settlement.
+        if credit.merchant_named and debit.own_name:
             continue
         if not _names_the_payer(
             credit, debit, legacy=debit.kind == "circular" or same_amount, same_amount=same_amount,

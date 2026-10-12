@@ -629,24 +629,29 @@ def test_the_debit_kinds(text, kind):
     assert _counter_debit_kind(text) == kind
 
 
-def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insurer=False, released_insurer=False):
+def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insurer=False, released_insurer=False,
+             merchant_named=False):
     from analysis.true_revenue import CounterCredit
 
-    # Audit round 3, R3-B16 (R3-03): `released_insurer` is CounterCredit's last field, passed only when set.
+    # Audit round 3, R3-B16 (R3-03): `released_insurer` is CounterCredit's last field but one, passed only when set;
+    # audit round 4, R4-27: `merchant_named` its last, passed only when set.
     extra = {"released_insurer": True} if released_insurer else {}
+    if merchant_named:
+        extra["merchant_named"] = True
     return CounterCredit(tc._counter_debit_reading(legacy, [words]), cents, entity, settlement, insurer, **extra)
 
 
 def _debits(*, lender=(), other=()):
-    """Each other debit is (legacy, words, kind, cents, recurring), or (..., recurring, premium): audit round 3,
-    R3-B16 (R3-03), `premium` is _CounterDebit's last field, passed only when set."""
+    """Each other debit is (legacy, words, kind, cents, recurring), or (..., recurring, premium), or (..., premium,
+    flags): audit round 3, R3-B16 (R3-03), `premium` is passed only when set; audit round 4, R4-B12, `flags` names
+    _CounterDebit's later fields set (own_name, loan)."""
     from analysis.true_revenue import CounterDebits, _CounterDebit
 
     return CounterDebits(
         tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), "lender", 30000, entity, False)
               for legacy, words, entity in lender),
         tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), kind, cents, None, recurring,
-                            **({"premium": True} if rest and rest[0] else {}))
+                            **({"premium": True} if rest and rest[0] else {}), **(rest[1] if len(rest) > 1 else {}))
               for legacy, words, kind, cents, recurring, *rest in other),
     )
 
@@ -1261,7 +1266,8 @@ def test_r3_03_the_released_insurer_fact():
     from analysis.true_revenue import CounterCredit, counter_credit
 
     assert CounterCredit.__dataclass_fields__["released_insurer"].default is False
-    assert list(CounterCredit.__dataclass_fields__)[-1] == "released_insurer"
+    # Audit round 4, R4-27 adds merchant_named after it, as the dataclass's last field (its own pin, R4-B12's block).
+    assert list(CounterCredit.__dataclass_fields__)[-2] == "released_insurer"
     released = _records([("STATE FARM DES:DRP PAYMENT ID:1", 3000.0)], holder="CONTOSO AUTO REPAIR LLC")[0]
     held = _records([("FABRIKAM MUTUAL INSURANCE COMPANY DES:CLAIM PAYMT ID:1", 1234.0)],
                     holder="CONTOSO BAKERY LLC")[0]
@@ -1579,3 +1585,79 @@ def test_r3_15_a_numbered_company_s_debits_are_kept_and_recur_by_their_number():
     assert _head_word(tc._counter_debit_reading(None, [[]], number="1234567")) == "1234567"
     assert _head_word(tc._counter_debit_reading("CONTOSO", [["CONTOSO"]], number="1234567")) == "CONTOSO"
     assert _head_word(tc._counter_debit_reading(None, [[]])) is None
+
+
+# --- Audit round 4, batch R4-B12 ---
+# R4-27 (standard A1, B1, §4.6 item 5; R3-90 A's own reading): a circular debit printing one of the holder's names whole
+# before an account designation, a masked number, a reference or the end is the holder's transfer to its own account
+# (_CounterDebit.own_name); it never holds a settlement, payout or platform credit under the merchant's own name
+# (CounterCredit.merchant_named), at any amount. Fabricated rows only.
+
+R4_27_HOLDER = "CONTOSO DESIGN INC DBA NORTHWIND PRESS"
+
+
+@pytest.mark.parametrize(("text", "own_name"), [
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC BUSINESS CHECKING XXXXXX0000 REF IB0000000 ON 05 02 54", True),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN CHECKING 0000", True),
+    ("ONLINE TRANSFER TO NORTHWIND PRESS REF IB0000000", True),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC", True),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN INC XXXXXX0000", True),
+    # An affiliate sharing the holder's first word or first two words is never the holder's own account.
+    ("ONLINE TRANSFER TO CONTOSO SOLUTIONS LLC REF IB0000000 ON 05 02 54", False),
+    ("ONLINE TRANSFER TO CONTOSO DESIGN STUDIO LLC BUSINESS CHECKING XXXXXX0000", False),
+    # A debit that is no circular money never records it.
+    ("CONTOSO DESIGN INC DES:PAYMENT ID:0001", False),
+])
+def test_r4_27_counter_debits_mark_the_holder_s_own_account_transfer(text, own_name):
+    from analysis.true_revenue import counter_debits
+
+    records = _records([(text, -900.0)], holder=R4_27_HOLDER, bank="Wells Fargo")
+    assert [debit.own_name for debit in counter_debits(records, set()).other] == [own_name]
+
+
+def test_r4_27_a_lender_debit_and_a_statement_with_no_holder_never_record_it():
+    from analysis.true_revenue import counter_debits
+
+    records = _records([("ONLINE TRANSFER TO CONTOSO DESIGN INC CHECKING 0000", -900.0)], holder=None)
+    assert [debit.own_name for debit in counter_debits(records, set()).other] == [False]
+    assert counter_debits([], set()) == counter_debits([], set())
+
+
+def test_r4_27_also_debited_never_holds_a_merchant_named_credit_by_the_own_account_transfer():
+    from analysis.true_revenue import also_debited
+
+    def held(*, own_name, merchant_named, cents):
+        return also_debited(_counter("CONTOSO", ["CONTOSO"], merchant_named=merchant_named),
+                            _debits(other=[("CONTOSO", ["CONTOSO"], "circular", cents, False, False,
+                                            {"own_name": own_name})]))
+
+    for cents in (2500, 100000):
+        assert not held(own_name=True, merchant_named=True, cents=cents), cents
+        # The affiliate's transfer, and any other credit beside the own-account transfer, read as before.
+        assert held(own_name=False, merchant_named=True, cents=cents), cents
+        assert held(own_name=True, merchant_named=False, cents=cents), cents
+
+
+def test_r4_27_the_fields_are_the_dataclasses_last():
+    from analysis.true_revenue import CounterCredit, _CounterDebit
+
+    assert list(CounterCredit.__dataclass_fields__)[-1] == "merchant_named"
+    assert CounterCredit.__dataclass_fields__["merchant_named"].default is False
+    assert "own_name" in _CounterDebit.__dataclass_fields__
+    assert _CounterDebit.__dataclass_fields__["own_name"].default is False
+
+
+def test_r4_27_the_merchant_named_fact():
+    from analysis.true_revenue import counter_credit
+
+    def fact(text, holder, bank="Wells Fargo"):
+        record = _credits(_records([(text, 1500.0)], holder=holder, bank=bank))[0]
+        revenue = tc.revenue_text(record.normalized_description)
+        return counter_credit(record, revenue, tc.payer_region(revenue)).merchant_named
+
+    settlement = "CONTOSO DESI SETTLEMENT 540115 000000000000000 NORTHWIND PRESS SAMPLEVI"
+    assert fact(settlement, R4_27_HOLDER)
+    # A third party's settlement word, and the holder's own name with no settlement, are not merchant-named.
+    assert not fact("FABRIKAM SUPPLY SETTLEMENT 540115 000000000000000 NORTHWIND PRESS SAMPLEVI", R4_27_HOLDER)
+    assert not fact("CONTOSO DESI PAYMENT 540115 000000000000000 NORTHWIND PRESS SAMPLEVI", R4_27_HOLDER)
+    assert not fact(settlement, None)
