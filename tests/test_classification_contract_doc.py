@@ -4704,3 +4704,102 @@ def test_r4_b10_review_round_1_is_recorded():
     for placeholder in ("R4B10R1" + "CODE", "MEASURE" + "_R4B10R1"):
         assert placeholder not in text, placeholder
         assert placeholder not in CONTRACT.read_text(encoding="utf-8"), placeholder
+
+
+def test_r4_b11_the_code_s_docstrings_name_the_readings():
+    """Audit round 4, R4-B11 (R4-90, R4-91, R4-39): _payout_claim_vetoed, _vetoed_financier and _never_q5_or_q6 name
+    R4-90's abbreviated root; _vetoed_financier R4-39's held case; registry_non_sale and _claimed R4-91's claim; the
+    classifier's platform_non_sale_word and _recurrence_veto_wording R4-91's reading; every round-3 phrase kept."""
+    for reader in (true_revenue._payout_claim_vetoed, true_revenue._vetoed_financier, true_revenue._never_q5_or_q6):
+        doc = re.sub(r"\s+", " ", reader.__doc__)
+        assert "R4-90" in doc and "held as financing_named_payer" in doc, reader.__name__
+    vetoed = re.sub(r"\s+", " ", true_revenue._vetoed_financier.__doc__)
+    for words in ("R4-39", "Keep large one-off lump sums held until sourced", "leaves the one-off count"):
+        assert words in vetoed, words
+    # R3-B14's pinned phrases stay (appended to, never rewritten).
+    assert "is never verified by Q5 or Q6 and never counts toward a repeat" in re.sub(
+        r"\s+", " ", true_revenue._payout_claim_vetoed.__doc__)
+    assert "(_payout_claim_vetoed)" in re.sub(r"\s+", " ", true_revenue._never_q5_or_q6.__doc__)
+    claimed = re.sub(r"\s+", " ", true_revenue._claimed.__doc__)
+    assert "Audit round 3, R3-B14 (R3-06): a payout entity's or a financier's credit printing a non-sale" in claimed
+    assert "R4-91" in claimed and "registry_non_sale" in claimed
+    assert "R4-91" in re.sub(r"\s+", " ", true_revenue.registry_non_sale.__doc__)
+    for reader in (transaction_classifier.platform_non_sale_word, transaction_classifier._recurrence_veto_wording):
+        assert "R4-91" in re.sub(r"\s+", " ", reader.__doc__), reader.__name__
+    assert "R4-90" in re.sub(r"\s+", " ", transaction_classifier._recurrence_veto_wording.__doc__)
+    assert "R4-90" in re.sub(r"\s+", " ", transaction_classifier._wire_vetoed.__doc__)
+    places = re.sub(r"\s+", " ", true_revenue._financing_root_places.__doc__)
+    assert "R4-90" in places and "abbreviated_advance" in places
+    source = inspect.getsource(true_revenue)
+    for words in ("#: Audit round 4, R4-90 (§8.1): the abbreviated advances", "_ABBREVIATED_ADVANCE_ROOT = re.compile("):
+        assert words in source, words
+
+
+#: Audit round 4, R4-B11: the code commit of each issue (R4-90's shared alternation and its readings, R4-91 and its
+#: auction pin, R4-39).
+R4_B11_CODE_COMMITS = ("69470c6", "96b1117", "6067dde", "1f023ec", "cc21e58")
+
+
+def test_r4_b11_is_recorded():
+    """Audit round 4, R4-B11: §7.0's veto pool, §7.2's credit-context verification, §7.5's and §7.9's vetoes, §8.1's
+    roots, claim convention and trade purpose, §8.9's registry and lump-sum bullets, §8.10's lump test, §9.3, §17.1's Q8
+    follow-up (6), §20's three lines and the in-all line, the R3-06 and R3-B14 review round 1 lines amended in place;
+    the contract's three rows and its history bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    recurrence = re.sub(r"\s+", " ", _section(text, "\n### 7.0 ", "\n### 7.1 "))
+    for words in ("(audit round 4, R4-91, §20) a registry row printing a non-sale word",
+                  "(audit round 4, R4-90, §20) a registry row printing an abbreviated advance"):
+        assert words in recurrence, words
+    platforms = re.sub(r"\s+", " ", _section(text, "\n### 7.2 ", "\n### 7.3 "))
+    assert "never verifies on its context (rule `platform_non_sale_word`)" in platforms
+    assert "(audit round 4, R4-90, §20) the abbreviated advances `ADVNC`, `ADVN`, `ADVC`" in re.sub(
+        r"\s+", " ", _section(text, "\n### 7.5 ", "\n### 7.6 "))
+    assert "so a buyer's `ADVNC PMT FOR PO …` is counted as `ADV PMT FOR PO …` is" in re.sub(
+        r"\s+", " ", _section(text, "\n### 7.9 ", "\n### 7.10 "))
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("and (audit round 4, R4-90) the abbreviated advances `ADVNC`, `ADVN`, `ADVC` as whole words, on every "
+                  "payer but a §8.9 financier's or a payout entity's credit whose claim §8.1's veto lifted",
+                  "since audit round 4, R4-91 (§20), a non-sale word (`registry_non_sale`",
+                  "audit round 4, R4-90 (§20): and the abbreviated advances before the same payment words"):
+        assert words in holds, words
+    rest = re.sub(r"\s+", " ", _section(text, "\n### 8.9 ", "\n### 8.10 "))
+    for words in ("(never one printing a non-sale word: held `non_sale_purpose`, R4-91, §20;",
+                  "is no payout and leaves the one-off count, so the financier's other payouts are read as without it",
+                  "(`_vetoed_financier`: the financier read without the veto), in the one-off count too"):
+        assert words in rest, words
+    order = re.sub(r"\s+", " ", _section(text, "\n### 8.10 ", "\n## 9. "))
+    assert "never a financier's credit a hold reads, which is no payout: audit round 4, R4-39, §20" in order
+    assert "- Audit round 4, R4-B11 (R4-90, R4-91, R4-39; §20): no bump in a fix batch" in text
+    open_items = _section(text, "\n### 17.1 Open after the audit fix run", "\n## 18. ")
+    financiers = next(line for line in open_items.splitlines() if line.startswith(
+        "- **Lease-to-own and patient financiers' follow-ups (the underwriter's Q8 of 2026-10-02, §8.9).**"))
+    for words in ("(6) A financier's abbreviated advance (`ADVNC`, `ADVN`, `ADVC`)",
+                  "its alternative (hold every abbreviated advance) would also make the series count the same for both "
+                  "advances", "(Any other payer's abbreviated advance is held `financing_named_payer` since audit round "
+                  "4, R4-90, §20; this default concerns financiers and payout entities only.)"):
+        assert words in financiers, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    assert "(fixed by audit round 4, R4-91, §20 below:" in amendments
+    assert "out of this issue's scope, noted for the round's summary" not in amendments
+    assert "(Audit round 4, R4-39, §20 below: the held case is the other half of the same reading" in amendments
+    for start, commits in (
+        ("- **An unlisted payer's abbreviated advance is a financing root, and no verification reads it as a sale**",
+         ("69470c6", "96b1117")),
+        ("- **A registry platform's interest, dividend, rebate or reward is never claimed or verified: held as "
+         "non-sale**", ("6067dde", "1f023ec")),
+        ("- **A held vetoed financier credit is no payout in the lump-sum series**", ("cc21e58",)),
+    ):
+        line = _amendment_line(amendments, start)
+        for commit in commits:
+            assert commit in line, (start, commit)
+    line = _amendment_line(amendments, "- **Audit round 4, R4-B11 in all** (")
+    for commit in R4_B11_CODE_COMMITS:
+        assert commit in line, commit
+    contract = _flat(CONTRACT)
+    for words in ("an abbreviated advance (`ADVNC`, `ADVN`, `ADVC`) among the roots since audit round 4, R4-90",
+                  "a non-sale word (`INTEREST`, `DIVIDEND(S)`, `REBATE(S)`, `REWARD(S)`: `non_sale_purpose`)",
+                  "(a registry platform's too since audit round 4, R4-91: never claimed, never verified)",
+                  "- Audit round 4 (R4-90, R4-91, R4-39; R4-B11:"):
+        assert words in contract, words
+    for placeholder in ("MEASURE" + "_R4B11",):
+        assert placeholder not in text, placeholder
