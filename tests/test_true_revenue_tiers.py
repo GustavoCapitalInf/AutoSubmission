@@ -1711,6 +1711,27 @@ def test_r4_67_a_payables_only_loan_alias_is_paid_for_services_and_held_beside_i
         "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
 
 
+def test_r4_67_the_q7_guard_facts_read_q7_s_own_veto_text():
+    # The census's G12 reads q7_veto_word on a Q7 row: the listed lender's own LOAN and an auto-loan product beside a
+    # dealer word are no veto word there either, while a second LOAN or PROCEEDS still is.
+    from analysis import true_revenue
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    def facts(text):
+        record = _one(text, R4_67_AMOUNT, holder=DEALER)
+        found = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+        return {key: found[key] for key in ("q7_payer_ok", "q7_listed", "q7_veto_word")}
+
+    assert facts("USAA AUTO LOAN AUTODLRPMT 0000000001") == {
+        "q7_payer_ok": True, "q7_listed": True, "q7_veto_word": False}
+    assert facts("NMAC LOANS DES:DLR PMT ID:1") == {"q7_payer_ok": True, "q7_listed": True, "q7_veto_word": False}
+    assert facts("FABRIKAM BANK AUTO LOAN DES:DLR PMT ID:1") == {
+        "q7_payer_ok": False, "q7_listed": False, "q7_veto_word": False}
+    assert facts("USAA AUTO LOAN DES:AUTODLRPMT LOAN PROCEEDS ID:1")["q7_veto_word"] is True
+    assert facts("FABRIKAM BANK AUTO LOAN PAYMENT 0000000001")["q7_veto_word"] is True
+
+
 def test_r4_67_the_strong_text_blanks():
     from analysis import transaction_classifier as classifier
     from analysis.description_text import normalize_transaction_description

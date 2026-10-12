@@ -8524,7 +8524,10 @@ def guard_facts(record: TransactionClassification, text: str, *, zelle_true_reve
     words = classifier._without_receiver_value(text)
     known = match_known_payee(words, credit=True)
     # G12 (§8.7): Q7's payer and veto words, read as dealer_funding reads them (the holder's name never names a lender).
-    listed = _dealer_funding_payer(words) is not None
+    # Audit round 4, R4-67: the veto words on Q7's own veto text (_q7_veto_text: a listed lender's own LOAN, and an
+    # auto-lending product beside a dealer-specific word, are no veto word).
+    lender = _listed_auto_lender(words)
+    listed = lender is not None
     union = bool(_CREDIT_UNION_PAYER.search(region))
     # Audit B7 (I47): the pay and benefit words are read as the holds read them, without the holder's own name runs
     # (audit round 2, R2-B04: R40, and its other business names, _holder_strip_names).
@@ -8561,7 +8564,7 @@ def guard_facts(record: TransactionClassification, text: str, *, zelle_true_reve
         "q7_payer_ok": listed or union,
         "q7_listed": listed,
         "q7_credit_union": union and bool(_VEHICLE_PURCHASE_ENTRY.search(entry or row)),
-        "q7_veto_word": bool(_DEALER_FUNDING_VETO.search(words)),
+        "q7_veto_word": bool(_DEALER_FUNDING_VETO.search(_q7_veto_text(words, lender, row))),
         "pooled_while_vetoed": (
             record.revenue_match_method in {"recurring_operating_source", "operating_source_related_activity"}
             and classifier._recurrence_vetoed(record, text)
