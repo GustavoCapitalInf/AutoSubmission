@@ -4927,3 +4927,59 @@ def test_r4_b12_is_recorded():
     assert "- Audit round 4 (R4-26, R4-27, R4-43, R4-44, R4-45; R4-B12:" in contract
     for placeholder in ("MEASURE" + "_R4B12",):
         assert placeholder not in text, placeholder
+
+
+#: Audit round 4, R4-B12 review round 1: the round's code commit.
+R4_B12_R1_CODE_COMMIT = "7d3c5bc"
+
+
+def test_r4_b12_review_round_1_is_recorded():
+    """Audit round 4, R4-B12 review round 1 (findings 1 to 3): the code's docstrings and the generic words' two named
+    parts; §8.1's three sentences, §9.3, the B4 guard, R3-74, R3-90 A, R4-26, R4-27 and R4-45 lines amended in place,
+    the round's own line; the contract's bullets."""
+    def doc(reader):
+        return re.sub(r"\s+", " ", reader.__doc__)
+
+    assert "R4-B12 review round 1" in doc(true_revenue.debited_as_lender)
+    assert "classifier._COUNTER_DEBIT_NO_PARTY_WORDS" in doc(true_revenue.debited_as_lender)
+    assert "R4-B12 review round 1" in doc(true_revenue._own_account_names)
+    source = inspect.getsource(true_revenue)
+    assert "_OWN_ACCOUNT_PAYEE = r\"" in source
+    assert "| X+\\d| REF\\b" in source
+    classifier_source = inspect.getsource(transaction_classifier)
+    for words in ("_COUNTER_DEBIT_NO_PARTY_WORDS = frozenset({", "_COUNTER_DEBIT_BANK_NAME_WORDS = frozenset({",
+                  "_COUNTER_DEBIT_GENERIC_WORDS = _COUNTER_DEBIT_NO_PARTY_WORDS | _COUNTER_DEBIT_BANK_NAME_WORDS"):
+        assert words in classifier_source, words
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("R4-B12 review round 1 (§20; Q9's hidden-loan guard): only the generic words that name no party",
+                  "R4-B12 review round 1, §20: the name is read only as the transfer's payee",
+                  "R4-B12 review round 1 (§20; fail closed, a recorded residual): the holder's own family is no "
+                  "settlement wherever its word prints on the row"):
+        assert words in holds, words
+    assert "Its review round 1 (§20) narrows two of these readings back toward the base" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **Generic words and banks' channel names never make the counter-debit word**",
+         "(R4-B12 review round 1, §20 below: a generic word that names no party; a bank's name listed here"),
+        ("- **A funder collecting under a Canadian pre-authorized-debit label is read by its name**",
+         "(R4-B12 review round 1, §20 below: none that names no party"),
+        ("- **A bare `SETTLEMENT` under the merchant's own name is no holder's own push**",
+         "(R4-B12 review round 1, §20 below: the name read only as the transfer's payee"),
+        ("- **A settlement word the holder's own name prints is never that holder's settlement**",
+         "Recorded residual (R4-B12 review round 1, finding 2"),
+        ("- **The holder's own-account transfer never holds its settlement under the merchant's own name**",
+         "(amended by R4-B12 review round 1, finding 3"),
+        ("- **A generic first word never matches a funder's debit**", "amended by R4-B12 review round 1, finding 1"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    line = _amendment_line(amendments, "- **R4-B12 review round 1: ")
+    for words in (R4_B12_R1_CODE_COMMIT, "`_COUNTER_DEBIT_NO_PARTY_WORDS`", "`_COUNTER_DEBIT_BANK_NAME_WORDS`",
+                  "`_OWN_ACCOUNT_PAYEE`", "(finding 2, R4-26) recorded, no code change"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    assert f"- Audit round 4, R4-B12 review round 1 (findings 1 to 3; {R4_B12_R1_CODE_COMMIT}):" in contract
+    assert "none that names no party since its review round 1; a bank's name still reads" in contract
+    for placeholder in ("MEASURE" + "_R4B12R1", "CODECOMMIT" + "_R4B12R1"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in contract, placeholder
