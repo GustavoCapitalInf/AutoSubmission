@@ -143,6 +143,19 @@ posted credit also carries exactly one revenue tier, stored beside its state:
 | `excluded_pending_review` | `unverified_deposit` | no |
 | `non_revenue` | `non_revenue` | no |
 
+The owner's request of 2026-10-11 ("get rid of verified revenue from the
+fronted end ... and "counted, not verified" still keep them in the backend but
+don't show it"; the CSV and Excel downloads included) is display and downloads
+only: the classifier, the four tiers, their reasons, every record field and
+served key, the stored analyses, the JSON download, `analyze.py` and `batch.py`
+are unchanged, and no version or figure moves. The dashboard and the CSV and
+Excel downloads read the `verified` and `counted_flagged` tiers as one, True
+revenue: a credit of either is tagged "True revenue" (tier `true_revenue` in
+the downloads) with no reason, the counted tier's reasons are no evidence row,
+filter or download row, and no figure, card, chart part, memo clause, column
+or section names Verified revenue, "Counted, not verified" or 5.4's
+unverified deposits apart (true revenue spec §2.2, §10, §10.8, §20).
+
 A counted or held credit names its reason (`revenue_tier_reason`). The codes
 and their labels live in one table, `analysis/revenue.py`
 `REVENUE_TIER_REASONS`, which the dashboard mirrors. The table below repeats
@@ -164,7 +177,9 @@ sentence (`revenue_reason`, which the JSON download and the package's evidence
 sections write beside its tier) never says it is counted: a hold that re-tiers
 a counted re-statement rewrites its "counted and flagged, never verified" as
 "never verified, and held for review (<label>)", the held reason's own label
-(audit round 3, R3-B15: R3-53).
+(audit round 3, R3-B15: R3-53). Since the owner's request of 2026-10-11 only
+the JSON download writes that sentence: the package's CSV and Excel evidence
+sections carry the held code (`revenue_tier_reason`) and no rule sentence.
 
 | Reason code | Tier | Label | When (true revenue spec) |
 |---|---|---|---|
@@ -1153,7 +1168,12 @@ here.
 `WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` (the legacy figure
 above, label "Legacy eligible deposits") or
 `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` (verified classified revenue,
-label "Verified revenue"). An unset, empty or unknown value reads as the
+label "Verified revenue"; since the owner's request of 2026-10-11 the dashboard
+and the CSV and Excel downloads name this basis "Narrower revenue basis", "a
+part of true revenue only", mode `narrower_revenue_basis` in the downloads, its
+figures unchanged, and the True basis's definition "posted credits minus known
+non-revenue and the deposits held for review"; the payload and the JSON
+download keep the served words). An unset, empty or unknown value reads as the
 default (`DEFAULT_WITHHOLDING_DENOMINATOR_MODE` in `analysis/revenue.py`, which
 `Settings`, `load_settings`, `compute_metrics` and the `Metrics` dataclass
 read), and no run or deploy file in this repository sets

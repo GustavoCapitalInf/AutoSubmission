@@ -3944,10 +3944,16 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "exactly two statements move, both from withheld to validated", "0 console errors"):
         assert words in line, words
     assert not _cent_figures(line)
-    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, the last of §20.
+    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, and his request of
+    # 2026-10-11 (hide Verified revenue and "Counted, not verified") his after it, the last of §20.
     positions = _amendment_line(amendments, "- **Active positions by month** (")
-    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip())
-    assert not _cent_figures(positions)
+    hidden = _amendment_line(amendments, "- **Verified revenue and \"Counted, not verified\" leave the page and the CSV "
+                                         "and Excel downloads** (")
+    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip() + "\n" + hidden.rstrip())
+    assert not _cent_figures(positions) and not _cent_figures(hidden)
+    for words in ("the owner's request of 2026-10-11", "§2.2", "§10.8", "`_downloads_view`", "`true-revenue-14`",
+                  "no version, stored output or figure moves"):
+        assert words in hidden, words
     contract = _flat(CONTRACT)
     assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
             "7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit") in contract
