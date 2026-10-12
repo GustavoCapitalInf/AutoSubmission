@@ -164,8 +164,15 @@ CLASSIFICATION_STATES: tuple[ClassificationState, ...] = (
 #: lender payment change items under 5.7; the one bump that covers them, so an
 #: analysis saved at 5.7 gets the re-analyze notice (lender spec D12) and its
 #: button computes the current reading.
+#: 5.9 (2026-10-11): the owner's ruling that Amerifi Capital is a counted
+#: lender ("amerifi is a lender we count"): its debits, read as a potential
+#: lender (D6) until now, are `confirmed_lender` rows (paid to lenders, the
+#: withholding rate, the lender count; a row printing LOC or LINE OF CREDIT
+#: goes to Lines of credit, D9) and its credits are financing proceeds (D1).
+#: On the hosting line ahead of true revenue audit round 4, whose last batch
+#: takes 5.10 (compared as numbers, so 5.10 is newer than 5.9).
 #: Moves with `webapp.artifact_cache.ANALYSIS_STAGE_VERSION`.
-CLASSIFICATION_VERSION = "5.8"
+CLASSIFICATION_VERSION = "5.9"
 
 #: The entity of an unknown obligation whose descriptor names no organisation (D11).
 UNIDENTIFIED_LENDER_OBLIGATION = "Unidentified lender obligation"

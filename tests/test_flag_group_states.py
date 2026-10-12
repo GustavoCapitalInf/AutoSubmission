@@ -84,10 +84,12 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     # branch.
     # 5.8/37: audit round 3, R3-MERGE: the merge-back of the hosting line (its two parser fixes beside round 3's
     # readings) moves the stage past both lines' values; no classification change, so 5.8 stays.
-    assert CLASSIFICATION_VERSION == "5.8"
-    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.8"
-    assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.8"
-    assert ANALYSIS_STAGE_VERSION == 37
+    # 5.9/38: the owner ruling of 2026-10-11: Amerifi Capital is a counted lender (its debits read as a potential
+    # lender until then); the stage moves too, so Re-analyze misses a stage-37 entry still stamped 5.8.
+    assert CLASSIFICATION_VERSION == "5.9"
+    assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.9"
+    assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.9"
+    assert ANALYSIS_STAGE_VERSION == 38
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

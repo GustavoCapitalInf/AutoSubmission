@@ -58,8 +58,9 @@ def test_merit_business_alone_is_a_review_alias_and_never_counted():
 
 def test_the_owner_named_funders_are_listed():
     labels = [label for label, _spelling in OWNER_NAMED_PAYEES["confirmed_lender"]]
-    # Idea Financial (owner ruling 2026-09-28, tests/test_idea_financial.py) follows them.
-    assert labels[-4:-1] == ["Flexibility Capital", "Merit Business Funding", "Essentia Funding"]
+    # Idea Financial (owner ruling 2026-09-28, tests/test_idea_financial.py) follows them, then Amerifi Capital (owner
+    # ruling 2026-10-11, tests/test_amerifi_capital.py).
+    assert labels[-5:-2] == ["Flexibility Capital", "Merit Business Funding", "Essentia Funding"]
 
 
 def test_national_fundings_collection_vehicle_spelling_is_national_funding():

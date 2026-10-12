@@ -26,6 +26,7 @@ LENDER_ALIASES: dict[str, tuple[str, ...]] = {
     "2M7 Financial Solutions": ("2M7 FINANCIAL", "2M7FINANCIALSOL", "2M7FINAN"),
     "8fig": ("8FIG",),
     "ACA Funding Group LLC": ("ACA FUNDING GROU", "ACA FUNDING GROUP"),
+    "Amerifi Capital": ("AMERIFI CAPITAL",),
     "AmeriMerchant": ("AMERIMERCHANT",),
     "Amur Equipment Finance, Inc": ("AMUR EF", "AMUR EQUIPMENT FINANC", "AMUR EQUIPMENT"),
     "App Funding Beta LLC": ("APP FUNDING BETA",),
@@ -1431,6 +1432,8 @@ OWNER_NAMED_PAYEES: dict[str, tuple[tuple[str, str], ...]] = {
         ("Essentia Funding", "ESSENTIA FUNDING"),
         # Owner ruling 2026-09-28: Idea Financial (Idea 247, Inc.) is a counted lender, no longer a line of credit.
         ("Idea Financial", "IDEA FINANCIAL"),
+        # Owner ruling 2026-10-11: Amerifi Capital (Amerifi Capital, LLC), a direct MCA funder, is a counted lender.
+        ("Amerifi Capital", "AMERIFI CAPITAL"),
     ),
     "alternative_position": (
         ("SBA/EIDL", "SBA EIDL"),
