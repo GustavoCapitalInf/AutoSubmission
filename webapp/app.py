@@ -1029,27 +1029,60 @@ def _reason_without_hidden_tiers(key: str, value: object, record: dict) -> objec
     return None if _HIDDEN_TIER_WORDS.search(value) else value
 
 
-def _downloads_view(node: object) -> object:
+def _posted_row_key(job: object, account: object, location: object) -> tuple:
+    """Review round 2 of the owner's request of 2026-10-11: a posted row's key, `(statement job, account, location)`, as
+    app.js `debitFlagKey` keys a large unsourced deposit, a record and a package ledger row. A statement's items and
+    records name neither job nor account (they sit under the account that lists them); a package's name both, its
+    account absent (None) for a one-account member."""
+    return (job or None, account, location)
+
+
+def _large_deposit_keys(node: dict) -> frozenset | None:
+    """The keys (`_posted_row_key`) of the large unsourced deposits (R3-B24) that `node` serves: a statement account's,
+    in its `metrics`, or a package's, at its top level beside its combined ledger; None where `node` is neither."""
+    metrics = node.get("metrics")
+    if isinstance(metrics, dict):
+        items = metrics.get(LARGE_UNSOURCED_DEPOSITS_KEY)
+    elif isinstance(node.get("transactions"), list) and "totals" in node:
+        items = node.get(LARGE_UNSOURCED_DEPOSITS_KEY)
+    else:
+        return None
+    return frozenset(
+        _posted_row_key(item.get("source_job"), item.get("source_account"), item.get("source_location"))
+        for item in (items if isinstance(items, (list, tuple)) else ()) if isinstance(item, dict))
+
+
+def _downloads_view(node: object, *, flagged: frozenset = frozenset(), scope: tuple = (None, None)) -> object:
     """A served payload (statement, document or package), or any part of it, as the CSV and XLSX downloads write it
     (the owner's request of 2026-10-11): a copy in which no key names a hidden tier (`_HIDDEN_TIER_KEY`), a
     classification record's hidden tier reads `true_revenue` (current and initial, and a package pass's `tier_before`),
     its counted reason is left out, its 5.4 state is left out (a tier says it) or, before 5.6, written in the page's
     words (`_STATE_KEYS`), its rule and sentence are kept only out of True revenue, and without a hidden tier's words
-    (`_RULE_KEYS`), a counted credit awaits no review, a pre-5.6 view's lists are renamed (`_OLDER_KEY_WORDS`), the
-    Zelle figures carry one True revenue slot, and the verified withholding basis reads as the page names it. Every
-    figure is unchanged; the input is never mutated."""
+    (`_RULE_KEYS`), a counted credit awaits no review unless it is a large deposit to source, a pre-5.6 view's lists are
+    renamed (`_OLDER_KEY_WORDS`), the Zelle figures carry one True revenue slot, and the verified withholding basis reads
+    as the page names it. Every figure is unchanged; the input is never mutated.
+
+    Review round 2: a counted credit the payload flags as a large deposit to source keeps `pending`, as its row on the
+    page keeps Confirm Revenue. `flagged` holds the flagged credits' keys (`_large_deposit_keys`, read from a statement
+    account or a package as the walk reaches it, or passed in for a part of one) and `scope` the statement job and
+    account the walk is under (a package row or record names its own)."""
     if isinstance(node, (list, tuple)):
-        items = [_downloads_view(item) for item in node]
+        items = [_downloads_view(item, flagged=flagged, scope=scope) for item in node]
         return tuple(items) if isinstance(node, tuple) else items
     if not isinstance(node, dict):
         return node
+    served_flags = _large_deposit_keys(node)
+    if served_flags is not None:
+        flagged, scope = served_flags, (None, None)
+    if node.get("source_job"):
+        scope = (node["source_job"], node.get("source_account"))
     record = "revenue_classification" in node
     tiered = isinstance(node.get("revenue_tier"), str)
     older = _older_revenue_view(node)
     out: dict = {}
     for key, value in node.items():
         if older and key in _OLDER_KEY_WORDS:
-            out[_OLDER_KEY_WORDS[key]] = _downloads_view(value)
+            out[_OLDER_KEY_WORDS[key]] = _downloads_view(value, flagged=flagged, scope=scope)
             continue
         if key == "by_tier" and isinstance(value, dict):
             value = _zelle_by_tier_without_hidden_tiers(value)
@@ -1074,8 +1107,10 @@ def _downloads_view(node: object) -> object:
             value = _TRUE_REVENUE_TIER
         elif key in ("revenue_tier_reason", "reason_before") and value in _COUNTED_REASONS:
             value = None
-        elif key == "revenue_review_status" and value == "pending" and node.get("revenue_tier") == "counted_flagged":
-            # A counted credit is in True revenue; the page offers it no review a verified one lacks (review round 1).
+        elif (key == "revenue_review_status" and value == "pending" and node.get("revenue_tier") == "counted_flagged"
+              and _posted_row_key(*scope, node.get("source_location")) not in flagged):
+            # A counted credit is in True revenue; the page offers it no review a verified one lacks (review round 1),
+            # unless it is a large deposit to source, whose row keeps Confirm Revenue (review round 2).
             value = "not_required"
         elif key == "reason" and value in _UNMATCHED_ROW_REASONS:
             value = _UNMATCHED_ROW_REASONS[value]
@@ -1088,7 +1123,11 @@ def _downloads_view(node: object) -> object:
         elif key == "eligible_deposit_definition" and node.get("withholding_denominator_mode") in _BASIS_DEFINITIONS:
             value = _BASIS_DEFINITIONS[node["withholding_denominator_mode"]]
         elif key == "withholding_denominator_options" and isinstance(value, (list, tuple)):
-            modes = [mode for mode in value if mode != "verified_revenue"]
+            # Nothing on screen offers the verified basis, so it is no option, except on a statement analysed on it,
+            # whose options list its own mode as the downloads name it (review round 2).
+            own = node.get("withholding_denominator_mode") == "verified_revenue"
+            modes = [_NARROWER_BASIS_MODE if mode == "verified_revenue" else mode for mode in value
+                     if mode != "verified_revenue" or own]
             value = tuple(modes) if isinstance(value, tuple) else modes
         elif key == "notes" and isinstance(value, (list, tuple)):
             # A withholding note names its basis by its label mid-sentence ("... because Verified revenue is zero or
@@ -1097,7 +1136,7 @@ def _downloads_view(node: object) -> object:
                      for note in value]
             value = tuple(notes) if isinstance(value, tuple) else notes
         else:
-            value = _downloads_view(value)
+            value = _downloads_view(value, flagged=flagged, scope=scope)
         out[key] = value
     return out
 
@@ -1230,6 +1269,8 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     """The package's flat export sheet, read as the downloads read it (the owner's request of 2026-10-11, true revenue
     spec §2.2, §10.8: `_downloads_view`, no Verified revenue and no "Counted, not verified")."""
     evidence_sections = _package_evidence_sections(package)
+    # Review round 2: the sections are read apart from the package, so they take its large deposits to source.
+    flagged = _large_deposit_keys(package) or frozenset()
     package = _downloads_view(package)
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
@@ -1379,7 +1420,7 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     # Audit B11 (I32): one evidence section per tier, so credits in True and held ones (out of it) no longer share a
     # section (`_package_evidence_sections`), each record read as the downloads read it.
     for section, records in evidence_sections:
-        for idx, evidence in enumerate(_downloads_view(records), start=1):
+        for idx, evidence in enumerate(_downloads_view(records, flagged=flagged), start=1):
             for key, value in evidence.items():
                 rows.append((f"{section}_{idx}", key, "" if value is None else value))
     return rows
@@ -1388,21 +1429,39 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
 def _package_evidence_sections(package: dict) -> tuple[tuple[str, list], ...]:
     """Audit B11 (I32): the package's revenue evidence, one section per tier, from the served lists, every posted credit
     of every member in exactly one. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8) and its review
-    round 1: the credits in True revenue are one section, `true_revenue_evidence` (the members' verified credits, then
-    their counted ones, as the served True evidence lists them), where they were a Verified and a Counted section,
-    written even where the package's True is N/A (a member analysed before 5.6), so a 5.6 member's credits are never in
-    no section; then the held credits; a member analysed before 5.6 (no tier) has its credits under its states in the
-    page's words, `revenue_evidence` and `review_required_evidence` (5.4's unverified deposits, its review set); then
-    every member's non-revenue credits."""
+    round 1: the credits in True revenue are one section, `true_revenue_evidence` (the members' verified credits and
+    their counted ones), where they were a Verified and a Counted section, written even where the package's True is N/A
+    (a member analysed before 5.6), so a 5.6 member's credits are never in no section; then the held credits; a member
+    analysed before 5.6 (no tier) has its credits under its states in the page's words, `revenue_evidence` and
+    `review_required_evidence` (5.4's unverified deposits, its review set); then every member's non-revenue credits.
+    Review round 2: the True section is in the package ledger's order (`transactions`: each member's rows as printed,
+    the members in the package's order), as a statement's True evidence is in its ledger's, where the served lists put
+    every verified credit before every counted one, so that the point where its dates went back marked the counted
+    tier."""
     verified = [record for record in package.get("verified_revenue_evidence") or [] if isinstance(record, dict)]
     unverified = [record for record in package.get("unverified_deposit_evidence") or [] if isinstance(record, dict)]
 
     def tiered(record: dict) -> bool:
         return isinstance(record.get("revenue_tier"), str)
 
+    transactions = package.get("transactions") or []
+    ledger: dict[tuple, int] = {}
+    for position, transaction in enumerate(transactions):
+        if isinstance(transaction, dict) and isinstance(transaction.get("classification"), dict):
+            key = _posted_row_key(transaction.get("source_job"), transaction.get("source_account"),
+                                  transaction["classification"].get("source_location"))
+            ledger.setdefault(key, position)
+
+    def ledger_position(record: dict) -> int:
+        # A record the ledger does not list (none is expected) follows those it does, in served order (a stable sort).
+        return ledger.get(_posted_row_key(record.get("source_job"), record.get("source_account"),
+                                          record.get("source_location")), len(transactions))
+
+    in_true = sorted([record for record in verified if tiered(record)]
+                     + [record for record in unverified if record.get("revenue_tier") == "counted_flagged"],
+                     key=ledger_position)
     return (
-        ("true_revenue_evidence", [record for record in verified if tiered(record)]
-         + [record for record in unverified if record.get("revenue_tier") == "counted_flagged"]),
+        ("true_revenue_evidence", in_true),
         ("excluded_pending_review_evidence",
          [record for record in unverified if record.get("revenue_tier") == "excluded_pending_review"]),
         ("revenue_evidence", [record for record in verified if not tiered(record)]),

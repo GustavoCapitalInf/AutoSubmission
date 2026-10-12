@@ -31,7 +31,8 @@ LEDGER = PACKAGE_MATCH_VIEW + r"""
 const largeRows = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1])
   .map((row) => ({desc: unescapeHtml((row.match(/<td class="tx-desc">([^<]*)<\/td>/) || [])[1] || ""),
     large: [...row.matchAll(/<div class="tx-reason tx-large-deposit">([^<]*)<\/div>/g)].map((m) => unescapeHtml(m[1])),
-    review: [/data-revenue-review-action="confirm"/.test(row), /data-revenue-review-action="reject"/.test(row)]}))
+    review: [/data-revenue-review-action="confirm"/.test(row), /data-revenue-review-action="reject"/.test(row)],
+    box: /class="tx-select"/.test(row), decided: (row.match(/<span>(Confirmed as revenue|Marked non-revenue)<\/span>/) || [])[1] || null}))
   .filter((row) => row.desc);
 const evidence = () => cells(els.revenueTable.innerHTML);
 const evidenceFilters = () => [...els.revenueTable.innerHTML.matchAll(/data-revenue-filter="([^"]+)"/g)].map((m) => m[1]);
@@ -64,14 +65,90 @@ console.log(JSON.stringify({note: trueNote(), evidenceRows, filters, large, all,
     row = next(row for row in result["evidenceRows"] if row[0] == "Large deposits to source")
     assert row[1:3] == ["2", "$270,000.00"] and "Source it" in row[3]
     assert result["large"] == {"count": "2 large deposits to source", "rows": [DEPOSIT, WIRE]}
-    # U3: each flagged row asks for its source; every other row reads as before. The owner's request of 2026-10-11
-    # (spec §10's head, its review round 1): a flagged deposit is counted, in True revenue, so it offers what every
-    # credit in True revenue offers, Mark Non-Revenue only (the flag never changes its controls).
+    # U3: each flagged row asks for its source; every other row reads as before. A flagged row keeps Confirm Revenue,
+    # Mark Non-Revenue and its multi-select box: the reviewer sources it, then confirms it, and it leaves the flag. The
+    # owner's request of 2026-10-11 (spec §10's head, its review rounds 1 and 2) took Confirm and the box off every
+    # other credit in True revenue, a counted one included (CHECK, counted and under 25% of True, so not flagged).
     notes = {row["desc"]: row["large"] for row in result["all"]}
     assert notes[DEPOSIT] == [NOTE_39] and notes[WIRE] == [NOTE_31]
     assert all(not notes[desc] for desc in notes if desc not in (DEPOSIT, WIRE))
     flagged = [row for row in result["flaggedRows"] if row["desc"] in (DEPOSIT, WIRE)]
-    assert len(flagged) == 2 and all(row["review"] == [False, True] for row in flagged)
+    assert len(flagged) == 2 and all(row["review"] == [True, True] and row["box"] for row in flagged)
+    check = next(row for row in result["all"] if row["desc"] == CHECK)
+    assert check["review"] == [False, True] and not check["box"]
+    assert all(row["review"] == [False, True] and not row["box"] for row in result["all"] if row["desc"] == SQUARE)
+
+
+@needs_node
+def test_review_round_2_confirm_on_a_flagged_row_clears_its_flag(tmp_path, monkeypatch):
+    """Review round 2 of the owner's request of 2026-10-11: the page's path to clear a large deposit to source is kept.
+    The reviewer sources the deposit and presses its Confirm Revenue; the server (the real review route) confirms it,
+    and the redrawn page lists one flag fewer: the evidence row's count and total, the True card's fact and the row's
+    note follow, the confirmed row reads its decision, and the other flagged row keeps its controls. With both
+    confirmed, no "Large deposits to source" is left anywhere on the page."""
+    from webapp.app import app, store
+
+    monkeypatch.setattr(store.storage, "data_dir", tmp_path)
+    job = store.create("fabricated-large.pdf")
+    store.set_result(job.id, "# fabricated", "<h1>fabricated</h1>", analysis=_payload(L1))
+    client = app.test_client()
+    served = client.get(f"/analysis/{job.id}").get_json()["analysis"]
+    url = f"/analysis/{job.id}/revenue-review"
+    first = client.post(url, json={"source_location": "transaction:4", "decision": "confirm"})
+    second = client.post(url, json={"source_location": "transaction:12", "decision": "confirm"})
+    assert first.status_code == 200 and second.status_code == 200
+    # The backend moves the flag (the count and total of the served copy) and no revenue figure.
+    one_left, none_left = first.get_json()["analysis"]["metrics"], second.get_json()["analysis"]["metrics"]
+    assert served["metrics"]["large_unsourced_deposit_count"] == 2 and one_left["large_unsourced_deposit_count"] == 1
+    assert "large_unsourced_deposit_count" not in none_left or not none_left["large_unsourced_deposit_count"]
+    assert one_left["true_revenue_total"] == none_left["true_revenue_total"] == served["metrics"]["true_revenue_total"]
+    press = r"""
+const pressConfirm = async (desc) => {
+  const row = [...els.transactionTable.innerHTML.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1])
+    .find((html) => html.includes(`<td class="tx-desc">${desc}</td>`));
+  const attrs = Object.fromEntries([...row.match(/<button[^>]*data-revenue-review-action="confirm"[^>]*>/)[0]
+    .matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
+  const button = fakeElement("confirm"); Object.assign(button.attributes, attrs);
+  await submitRevenueReview(button); await settle();
+};
+const snapshot = () => ({note: trueNote(), evidence: evidence(), rows: largeRows(els.transactionTable.innerHTML)});
+"""
+    result = run_dashboard(METRIC_ROWS + LEDGER + _open(job.id, served) + press + f"""
+showMainRevenueEvidence("all");
+const before = snapshot();
+FAKE_RESPONSES[{json.dumps(url)}] = {{json: {json.dumps(first.get_json())}}};
+await pressConfirm({json.dumps(DEPOSIT)});
+const afterOne = snapshot();
+FAKE_RESPONSES[{json.dumps(url)}] = {{json: {json.dumps(second.get_json())}}};
+await pressConfirm({json.dumps(WIRE)});
+const afterBoth = snapshot();
+console.log(JSON.stringify({{before, afterOne, afterBoth, posts: REQUESTS.filter((r) => r.method === "POST")
+  .map((r) => JSON.parse(r.body))}}));
+""")
+    assert result["posts"] == [{"source_location": "transaction:4", "decision": "confirm"},
+                               {"source_location": "transaction:12", "decision": "confirm"}]
+
+    def flag_row(snapshot):
+        return next((row[1:3] for row in snapshot["evidence"] if row[0] == "Large deposits to source"), None)
+
+    def row_of(snapshot, desc):
+        return next(row for row in snapshot["rows"] if row["desc"] == desc)
+
+    assert flag_row(result["before"]) == ["2", "$270,000.00"]
+    assert result["before"]["note"].endswith(" · " + FACT)
+    # One confirmed: one flag left, the confirmed row reads its decision and asks for nothing.
+    assert flag_row(result["afterOne"]) == ["1", "$120,000.00"]
+    assert result["afterOne"]["note"].endswith(
+        " · Large deposits to source: 1 · $120,000.00 (each $10,000.00 or more and over 25% of True)")
+    deposit = row_of(result["afterOne"], DEPOSIT)
+    assert deposit["large"] == [] and deposit["decided"] == "Confirmed as revenue" and not deposit["box"]
+    wire = row_of(result["afterOne"], WIRE)
+    assert wire["large"] == [NOTE_31] and wire["review"] == [True, True] and wire["box"]
+    # Both confirmed: no flag anywhere on the page.
+    assert flag_row(result["afterBoth"]) is None
+    assert "Large deposits" not in result["afterBoth"]["note"]
+    assert all(row["large"] == [] for row in result["afterBoth"]["rows"])
+    assert row_of(result["afterBoth"], WIRE)["decided"] == "Confirmed as revenue"
 
 
 @needs_node

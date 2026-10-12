@@ -153,7 +153,11 @@ Excel downloads read the `verified` and `counted_flagged` tiers as one, True
 revenue: a credit of either is tagged "True revenue" (tier `true_revenue` in
 the downloads) with no reason, offers Mark Non-Revenue only (no Confirm
 Revenue and no multi-select box on a counted credit; the server still accepts
-its confirm) and awaits no review in the downloads (`not_required`), the
+its confirm) and awaits no review in the downloads (`not_required`), except a
+counted credit the served payload flags as a large deposit to source (R3-B24),
+which keeps Confirm Revenue and its box, its note asking for its source, and
+stays `pending` in the downloads, so that confirming it, once sourced, takes it
+out of the flag (review round 2); the
 counted tier's reasons are no evidence row, filter or download row, and no
 figure, card, chart part, memo clause, column or section names Verified
 revenue or "Counted, not verified" apart (true revenue spec §2.2, §10, §10.8,

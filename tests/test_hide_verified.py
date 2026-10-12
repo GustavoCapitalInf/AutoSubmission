@@ -166,7 +166,8 @@ const reasons = (html) => [...html.matchAll(/<div class="tx-reason[^"]*">([\s\S]
 console.log(JSON.stringify({zelle: chips(row("ZELLE FROM JOHN SAMPLE")), zelleReasons: reasons(row("ZELLE FROM JOHN SAMPLE")),
   check: reasons(row("MOBILE DEPOSIT")), wire: reasons(row("WIRE TRANSFER FROM SAMPLE")),
   held: reasons(row("FABRIKAM FUNDING")), heldControls: (row("FABRIKAM FUNDING").match(/data-revenue-review-action="[a-z]+"/g) || []),
-  countedControls: (row("MOBILE DEPOSIT").match(/data-revenue-review-action="[a-z]+"/g) || [])}));
+  countedControls: (row("MOBILE DEPOSIT").match(/data-revenue-review-action="[a-z]+"/g) || []),
+  flaggedControls: (row("WIRE TRANSFER FROM SAMPLE").match(/data-revenue-review-action="[a-z]+"/g) || [])}));
 """)
     # The Zelle chip stays beside the one tag; no counted reason line under a True revenue row.
     assert result["zelle"] == ["True revenue", "Zelle"]
@@ -180,14 +181,18 @@ console.log(JSON.stringify({zelle: chips(row("ZELLE FROM JOHN SAMPLE")), zelleRe
     # confirmed", the counted tier under another name (review round 1; the server still accepts a confirm).
     assert result["heldControls"] == ['data-revenue-review-action="confirm"', 'data-revenue-review-action="reject"']
     assert result["countedControls"] == ['data-revenue-review-action="reject"']
+    # Review round 2: a counted credit flagged as a large deposit to source keeps Confirm Revenue, the reviewer's way to
+    # say it is sourced (a confirm takes it out of the flag); its note already asks for its source.
+    assert result["flaggedControls"] == ['data-revenue-review-action="confirm"', 'data-revenue-review-action="reject"']
 
 
-#: Each ledger row tagged True revenue: whether it offers Confirm Revenue, Mark Non-Revenue and a multi-select box; and
-#: the held row's (FABRIKAM FUNDING) the same.
+#: Each ledger row tagged True revenue: whether it offers Confirm Revenue, Mark Non-Revenue and a multi-select box (and
+#: whether it is the large deposit to source, WIRE TRANSFER FROM SAMPLE); and the held row's (FABRIKAM FUNDING) the same.
 ROW_CONTROLS = r"""
 const ledgerRows = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1]);
 const controlsOf = (row) => ({confirm: row.includes('data-revenue-review-action="confirm"'),
-  reject: row.includes('data-revenue-review-action="reject"'), box: row.includes('class="tx-select"')});
+  reject: row.includes('data-revenue-review-action="reject"'), box: row.includes('class="tx-select"'),
+  flagged: row.includes("WIRE TRANSFER FROM SAMPLE")});
 const trueRows = (html) => ledgerRows(html).filter((row) => row.includes('<span class="chip-text">True revenue</span>'))
   .map(controlsOf);
 const heldRows = (html) => ledgerRows(html).filter((row) => row.includes("FABRIKAM FUNDING")).map(controlsOf);
@@ -198,7 +203,9 @@ const heldRows = (html) => ledgerRows(html).filter((row) => row.includes("FABRIK
 def test_a_row_in_true_revenue_offers_no_confirm_and_no_select_box(tmp_path, monkeypatch):
     """Review round 1 (the owner's request of 2026-10-11): a credit in True revenue, verified or counted, offers Mark
     Non-Revenue only and no multi-select box, on the statement ledger, the statement window and the package ledger;
-    a held credit keeps Confirm Revenue, Mark Non-Revenue and its box."""
+    a held credit keeps Confirm Revenue, Mark Non-Revenue and its box. Review round 2: one exception, a counted credit
+    the served payload flags as a large deposit to source keeps Confirm Revenue and its box (the page's path to clear
+    the flag, R3-B24); its note already asks for its source, so the button says nothing of a hidden tier."""
     served = _served(_payload(ROWS))
     statement = run_dashboard(ROW_CONTROLS + _open("s", served) + r"""
 showMainRevenueEvidence("all");
@@ -216,15 +223,21 @@ currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
 showMainRevenueEvidence("all");
 console.log(JSON.stringify({true: trueRows(els.transactionTable.innerHTML), held: heldRows(els.transactionTable.innerHTML)}));
 """)
-    only_reject = {"confirm": False, "reject": True, "box": False}
-    # The verified credit and the four counted ones of each statement.
-    assert statement["page"]["true"] == [only_reject] * 5
-    assert packaged["true"] == [only_reject] * 10
-    assert statement["page"]["held"] == [{"confirm": True, "reject": True, "box": True}]
-    assert packaged["held"] == [{"confirm": True, "reject": True, "box": True}] * 2
+    only_reject = {"confirm": False, "reject": True, "box": False, "flagged": False}
+    flagged = {"confirm": True, "reject": True, "box": True, "flagged": True}
+    held = {"confirm": True, "reject": True, "box": True, "flagged": False}
+
+    def by_kind(rows):
+        return sorted(rows, key=lambda row: row["flagged"])
+
+    # The verified credit and the four counted ones of each statement, the wire of 20,000.00 its large deposit.
+    assert by_kind(statement["page"]["true"]) == [only_reject] * 4 + [flagged]
+    assert by_kind(packaged["true"]) == [only_reject] * 8 + [flagged] * 2
+    assert statement["page"]["held"] == [held]
+    assert packaged["held"] == [held] * 2
     # The statement window draws no multi-select at all; its rows offer the same buttons.
-    assert statement["studio"]["true"] == [only_reject] * 5
-    assert statement["studio"]["held"] == [{"confirm": True, "reject": True, "box": False}]
+    assert by_kind(statement["studio"]["true"]) == [only_reject] * 4 + [{**flagged, "box": False}]
+    assert statement["studio"]["held"] == [{**held, "box": False}]
 
 
 PACKAGE_WALK = r"""
@@ -510,6 +523,10 @@ HIDDEN_IN_DOWNLOADS = re.compile(
     r"verified plus counted|verified classified|Verified revenue|never verified|counted and flagged|counted, not verified|"
     r"zelle_prior:verified|_never_verified|verified_(named|operating|payer|wire|auto)")
 TIERS_SHOWN = {"true_revenue", "excluded_pending_review", "non_revenue", ""}
+#: The credits of ROWS in True revenue, and the one of them flagged as a large deposit to source.
+TRUE_DESCRIPTIONS = ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "MOBILE DEPOSIT", "WIRE TRANSFER FROM SAMPLE TRADING LLC",
+                     "ZELLE FROM JOHN SAMPLE", "BRANCH DEPOSIT")
+LARGE = "WIRE TRANSFER FROM SAMPLE TRADING LLC"
 
 
 def _csv(text):
@@ -574,9 +591,13 @@ def test_the_statement_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_th
         assert tiers["FABRIKAM FUNDING LLC DES:PAYMENT ID:1"] == ("excluded_pending_review", "financing_named_payer"), name
         assert sum(float(row[4]) for row in credits[1:] if row[6] == "true_revenue") == 21750.0, name
         # Review round 1: a credit in True revenue awaits no review, verified or counted alike (the served copy keeps a
-        # counted credit `pending`); the held credit is still pending.
+        # counted credit `pending`); the held credit is still pending. Review round 2: so is the counted credit flagged
+        # as a large deposit to source, whose section asks to source it and whose row on the page offers Confirm.
         status = {row[3]: row[8] for row in credits[1:]}
-        assert {status[row[3]] for row in credits[1:] if row[6] == "true_revenue"} == {"not_required"}, name
+        assert {status[row[3]] for row in credits[1:] if row[6] == "true_revenue" and row[3] != LARGE} == {
+            "not_required"}, name
+        assert status[LARGE] == "pending", name
+        assert cells[("large_unsourced_deposit_1", "description")] == LARGE, name
         assert status["FABRIKAM FUNDING LLC DES:PAYMENT ID:1"] == "pending", name
         # Review round 1: the held and non-revenue evidence keep the rule and the sentence that say why; a credit in
         # True revenue carries neither (the counted one's would say it is not confirmed).
@@ -592,7 +613,9 @@ def test_the_statement_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_th
         in_true = json.loads(cells[("metrics", "true_revenue_evidence")])
         assert len(in_true) == 5 and not any(
             {"revenue_matched_rule", "revenue_reason", "revenue_classification"} & set(record) for record in in_true)
-        assert {record["revenue_review_status"] for record in in_true} == {"not_required"}, name
+        assert {record["original_description"]: record["revenue_review_status"] for record in in_true} == {
+            description: "pending" if description == LARGE else "not_required"
+            for description in TRUE_DESCRIPTIONS}, name
         # Review round 1: the lender classifier's default sentence, on most credits, names no verified anything.
         assert not any("No verified lender" in str(cell) for row in table for cell in row), name
         assert {record["reason"] for record in in_true} >= {
@@ -636,10 +659,64 @@ def test_the_package_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_them
         assert {row[9] for row in ledger[1:]} <= TIERS_SHOWN, name
         held = {row[1]: row[2] for row in table if row[0] == "excluded_pending_review_evidence_1"}
         assert held["revenue_tier"] == "excluded_pending_review" and held["revenue_tier_reason"] == "financing_named_payer"
+        # Review round 2: each member's large deposit to source still awaits review (its row offers Confirm); every
+        # other credit in True revenue awaits none.
+        in_true = [row for row in ledger[1:] if row[9] == "true_revenue"]
+        assert {(row[6], row[11]) for row in in_true} == {
+            (description, "pending" if description == LARGE else "not_required") for description in TRUE_DESCRIPTIONS}
+        assert sum(row[6] == LARGE for row in in_true) == 2, name
+        true_records = {}
+        for row in table:
+            if row and row[0] in true_sections:
+                true_records.setdefault(int(str(row[0]).rsplit("_", 1)[1]), {})[row[1]] = row[2]
+        assert {(record["original_description"], record["revenue_review_status"]) for record in true_records.values()} == {
+            (description, "pending" if description == LARGE else "not_required") for description in TRUE_DESCRIPTIONS}
+        # Review round 2: the section reads as one list in date order, as a statement's does, so nothing in it marks
+        # where the verified credits end and the counted ones begin.
+        dates = [true_records[number]["date"] for number in sorted(true_records)]
+        assert dates == sorted(dates) and len(set(dates)) > 2, name
     served = client.get(f"/package_download/json?ids={ids}").get_json()
     assert served["totals"]["verified_revenue_total"] == 1400.0
     assert served["totals"]["counted_flagged_total"] == 42100.0
     assert served["verified_revenue_evidence"] and served["counted_flagged_evidence"]
+
+
+def test_a_large_deposit_awaits_review_in_its_own_account_only():
+    """Review round 2: a location numbers a posting within its account, so each account's `transaction:1` is its own.
+    In one document of two accounts, account 2's bare DEPOSIT of 12,000.00 at `transaction:1` is a large deposit to
+    source and account 1's MOBILE DEPOSIT at `transaction:1` is counted but not flagged: the statement and the package
+    downloads write the first `pending` and the second `not_required`, in the posted-credit table, the package ledger
+    and the True evidence alike."""
+    from tests.test_large_unsourced_deposits import _package as package_of
+    from tests.test_package_matching import NW_A, SENT, TRANSFER_OUT, _rows_b, _two_account_document
+    from webapp.app import _analysis_csv, _masked, _package_csv
+
+    document = _two_account_document([(1, "MOBILE DEPOSIT", 300.0), (2, NW_A, 20000.0), (3, TRANSFER_OUT, -SENT)],
+                                     _rows_b(amount=12000.0))
+    served = _served(document)
+    records = {(index, tx["description"]): tx["classification"]
+               for index, account in enumerate(served["accounts"], start=1) for tx in account["statement"]["transactions"]}
+    assert records[(1, "MOBILE DEPOSIT")]["source_location"] == records[(2, "DEPOSIT")]["source_location"]
+    assert records[(1, "MOBILE DEPOSIT")]["revenue_tier"] == records[(2, "DEPOSIT")]["revenue_tier"] == "counted_flagged"
+    assert [item["description"] for item in served["accounts"][1]["metrics"]["large_unsourced_deposits"]] == ["DEPOSIT"]
+    assert not served["accounts"][0]["metrics"].get("large_unsourced_deposits")
+    expected = {("1", "MOBILE DEPOSIT"): "not_required", ("1", NW_A): "not_required", ("2", "DEPOSIT"): "pending"}
+
+    statement = _csv(_analysis_csv(_masked(served)))
+    credits = {(row[0].split(".")[0].removeprefix("account_"), row[3]): row[8] for row in statement
+               if row[0].endswith("posted_credit") and row[1] != "columns"}
+    assert {key: credits[key] for key in expected} == expected
+
+    package = _csv(_package_csv(_masked(package_of(("doc", document)))))
+    ledger = {(row[3], row[6]): row[11] for row in package if row[0] == "package_transaction" and row[1] != "columns"}
+    assert {key: ledger[key] for key in expected} == expected
+    true_records = {}
+    for row in package:
+        if re.fullmatch(r"true_revenue_evidence_\d+", str(row[0])):
+            true_records.setdefault(row[0], {})[row[1]] = row[2]
+    written = {(record["source_account"], record["original_description"]): record["revenue_review_status"]
+               for record in true_records.values()}
+    assert {key: written[key] for key in expected} == expected
 
 
 OLDER_TIERS = {"NORTHWIND SUPPLY LLC DES:PAYMENT ID:1": "revenue", "MOBILE DEPOSIT": "review_required",
@@ -852,9 +929,21 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     assert cells[("metrics", "eligible_deposit_definition")] == "a part of true revenue only"
     assert float(cells[("metrics", "withholding_denominator")]) == 700.0
     assert float(cells[("metrics", "withholding_rate")]) == served["metrics"]["withholding_rate"]
-    assert "verified_revenue" not in cells[("metrics", "withholding_denominator_options")]
+    # Review round 2: the options list the statement's own mode under its downloads name, in the backend's order (the
+    # cell is the list as the flat sheet writes it: a tuple here, a JSON list once a stored job is read back).
+    def modes(cell):
+        return re.findall(r"[a-z_]+", cell)
+
+    assert modes(cells[("metrics", "withholding_denominator_options")]) == [
+        "legacy_eligible_deposits", "narrower_revenue_basis", "true_revenue"]
     # The served copy, which the JSON download writes, is the backend's.
     assert served["metrics"]["withholding_denominator_mode"] == "verified_revenue"
+    assert "verified_revenue" in served["metrics"]["withholding_denominator_options"]
+    # A statement on any other basis lists no narrower basis: nothing on screen offers it.
+    true_basis = {(row[0], row[1]): row[2] for row in _csv(_analysis_csv(_displayed(_payload(ROWS), settings={},
+                                                                                     export=True))) if len(row) == 3}
+    assert modes(true_basis[("metrics", "withholding_denominator_options")]) == [
+        "legacy_eligible_deposits", "true_revenue"]
     # Review round 1: inside a note the basis is named mid-sentence, in lower case, as the page's rate note names it.
     unpaid = _payload([row for row in ROWS if not row[1].startswith("NORTHWIND")])
     unpaid["metrics"]["withholding_denominator_mode"] = "verified_revenue"

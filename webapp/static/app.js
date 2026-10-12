@@ -2165,11 +2165,13 @@ function reviewAccountOf(tx, fallbackAccount = null) {
 // A deposit the classifier left for review and nobody has decided yet: its statement, account and row, or null. The
 // row's own Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these. The owner's request
 // of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): a counted credit is in True revenue and reads as
-// a verified one does, so it is offered no box: a box marks a deposit awaiting review.
-function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
+// a verified one does, so it is offered no box: a box marks a deposit awaiting review. Review round 2: except one the
+// served payload flags as a large deposit to source (`largeDeposit`, R3-B24), which does await the reviewer: its note
+// asks for its source, and its Confirm (one row or many) takes it out of the flag.
+function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null, { largeDeposit = false } = {}) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return null;
-  if (record.revenue_tier === "counted_flagged") return null;
+  if (record.revenue_tier === "counted_flagged" && !largeDeposit) return null;
   // Audit round 3, R3-B02 (R3-21; spec §10.7): a credit that returns a confirmed funder's payment is never confirmed,
   // so it has no multi-select box: a bulk Confirm never carries it, and the all-or-nothing batch never refuses on it.
   if (record.returns_funder_payment) return null;
@@ -2186,9 +2188,12 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
 // for a Zelle deposit the owner's policy excluded; the server refuses a reject on it, the row being non-revenue already.
 // The owner's request of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): a counted credit is tagged
 // True revenue like a verified one, so it shows what a verified one shows, "reject": a Confirm Revenue beside the True
-// revenue tag would read "in True revenue but not yet confirmed", the counted tier under another name, and confirming
-// it moves no figure the page shows. The server still accepts its confirm (the backend is unchanged).
-function revenueReviewKind(record) {
+// revenue tag would read "in True revenue but not yet confirmed", the counted tier under another name. The server still
+// accepts its confirm (the backend is unchanged). Review round 2: a counted credit the served payload flags as a large
+// deposit to source (`largeDeposit`, R3-B24) keeps "both": its note asks for its source, so its Confirm reads "I have
+// sourced it" and says nothing of any other row, and confirming it takes it out of the flag (the True card's fact, the
+// Revenue evidence table's row, the memo's clause and the downloads' section), the page's only path to clear one.
+function revenueReviewKind(record, { largeDeposit = false } = {}) {
   // Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment (rule D's pair) is the business's
   // own payment coming back: the server refuses its Confirm, so a held or counted one shows Mark Non-Revenue only and a
   // Zelle deposit the policy excluded, whose only control is Confirm, shows none. Any other keeps its kind (review
@@ -2199,7 +2204,7 @@ function revenueReviewKind(record) {
       && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "";
   }
   if (record.revenue_initial_classification === "unverified_deposit") {
-    return record.revenue_tier === "counted_flagged" ? "reject" : "both";
+    return record.revenue_tier === "counted_flagged" && !largeDeposit ? "reject" : "both";
   }
   if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
   if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
@@ -2207,9 +2212,9 @@ function revenueReviewKind(record) {
   return "";
 }
 
-function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null) {
+function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null, { largeDeposit = false } = {}) {
   const record = transactionClassification(tx);
-  const kind = revenueReviewKind(record);
+  const kind = revenueReviewKind(record, { largeDeposit });
   if (!kind) return "";
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
@@ -2497,8 +2502,13 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
   const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
   if (runningBalanceHeader) runningBalanceHeader.hidden = !showRunningBalance;
+  // Review round 2 of the owner's request of 2026-10-11: whether each row shown is a large deposit to source (R3-B24),
+  // whose Confirm and box a counted credit keeps.
+  const large = visible.map((tx) => Boolean(debitFlags && typeof debitFlags.largeDeposit === "function"
+    && debitFlags.largeDeposit(tx)));
   // The multi-select column shows only while a row shown can be picked (a deposit awaiting review).
-  const targets = visible.map((tx) => (selectable ? pendingReviewTarget(tx, reviewJobId, reviewAccount) : null));
+  const targets = visible.map((tx, index) => (selectable
+    ? pendingReviewTarget(tx, reviewJobId, reviewAccount, { largeDeposit: large[index] }) : null));
   const pickable = targets.some(Boolean);
   tableEl.closest("table")?.classList.toggle("has-select", pickable);
   const offered = targets.filter(Boolean).map((target) => bulkKey(target.jobId, target.account, target.sourceLocation));
@@ -2590,7 +2600,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td>${glassChip(category.glyph, category.label, category.tone)}${zelleChip(tx)}${flaggedChip(tx)}${returnedFunderChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
-        <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
+        <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount, { largeDeposit: large[index] })}</td>
       </tr>
     `;
   }).join("");
