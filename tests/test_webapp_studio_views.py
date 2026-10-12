@@ -409,7 +409,8 @@ console.log(JSON.stringify({{both, trueOnly, totalOnly: {{...monthly(), chart: c
     assert both["chart"]["values"] == [["shown", whole(jan["credits"])], ["true", whole(jan["true_revenue_total"])],
                                        ["shown", whole(feb["credits"])], ["true", whole(feb["true_revenue_total"])]]
     assert "Total deposits" in both["chart"]["legend"] and "True revenue" in both["chart"]["legend"]
-    assert "of which verified" in both["chart"]["legend"]
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.3): no verified part in the key.
+    assert "verified" not in both["chart"]["legend"] and "verified" not in true_only["chart"]["legend"]
     # Storage refused the choice; the page still took it.
     assert true_only["select"] == "true" and true_only["head"][2] == "Monthly Deposits ($)"
     assert true_only["count"] == "2 statements · True monthly deposits: revenue only"

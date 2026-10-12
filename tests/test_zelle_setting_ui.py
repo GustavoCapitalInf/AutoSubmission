@@ -249,8 +249,10 @@ def test_the_statement_copy_in_both_readings():
 def test_the_copy_after_a_confirm_in_yes():
     stored = _decided(("transaction:2", "confirm", True))
     no = _statement_copy(stored, False)
-    assert no["true"] == TRUE_NOTE + "Zelle deposits excluded: $6,500.00 (3) · counted after review: $1,234.56 (1)"
-    assert (", of which Zelle deposits excluded $6,500.00; Zelle deposits counted after review "
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.1): the part a review counted is "counted in True
+    # revenue", never a verified part.
+    assert no["true"] == TRUE_NOTE + "Zelle deposits excluded: $6,500.00 (3) · counted in True revenue: $1,234.56 (1)"
+    assert (", of which Zelle deposits excluded $6,500.00; Zelle deposits counted in True revenue "
             "$1,234.56.") in no["memo"]
     yes = _statement_copy(stored, True)
     assert yes["true"] == TRUE_NOTE + YES_FACT
@@ -325,7 +327,7 @@ def test_the_package_copy_and_the_monthly_cells_in_both_readings(tmp_path, monke
 def test_the_package_names_a_confirmed_zelle_deposit_in_no(tmp_path, monkeypatch):
     analyses = {"mar": _decided(("transaction:2", "confirm", True))}
     _package_, no = _package_copy(analyses, tmp_path, monkeypatch, False)
-    assert no["true"] == TRUE_NOTE + "Zelle deposits excluded: $6,500.00 (3) · counted after review: $1,234.56 (1)"
+    assert no["true"] == TRUE_NOTE + "Zelle deposits excluded: $6,500.00 (3) · counted in True revenue: $1,234.56 (1)"
     assert no["details"] == [[]]  # the owner's follow-up of 2026-10-07: no Zelle line in the Monthly Statements
 
 
@@ -358,11 +360,11 @@ def test_a_package_with_a_member_analysed_before_the_setting_prints_every_part(t
     figures = package["totals"]["zelle_deposits"]
     assert (figures["counted_as_true_revenue"], figures["setting"], figures["setting_applied"]) == (False, True, False)
     assert yes["true"] == TRUE_NOTE + (
-        "Zelle deposits excluded: $1,500.00 (1) · counted: $1,234.56 (1) · held for review: $6,500.00 (3)"
+        "Zelle deposits excluded: $1,500.00 (1) · counted in True revenue: $1,234.56 (1) · held for review: $6,500.00 (3)"
         f" · {NOTICE}")
     assert yes["non_revenue"] == NON_REVENUE
-    assert (", of which Zelle deposits excluded $1,500.00; Zelle deposits counted $1,234.56, held for review "
-            f"$6,500.00; {NOTICE}.") in yes["memo"]
+    assert (", of which Zelle deposits excluded $1,500.00; Zelle deposits counted in True revenue $1,234.56, held for "
+            f"review $6,500.00; {NOTICE}.") in yes["memo"]
     assert "counted as True revenue" not in yes["memo"]
 
 
@@ -416,9 +418,10 @@ def test_r3_19_a_mixed_package_under_no_names_the_legacy_member_s_parts(tmp_path
     figures = package["totals"]["zelle_deposits"]
     assert (figures["counted_as_true_revenue"], figures["setting"], figures["setting_applied"]) == (False, False, False)
     assert no["true"] == TRUE_NOTE + (
-        f"Zelle deposits excluded: $7,734.56 (4) · counted: $1,500.00 (1) · {NOTICE}")
+        f"Zelle deposits excluded: $7,734.56 (4) · counted in True revenue: $1,500.00 (1) · {NOTICE}")
     assert no["non_revenue"] == NON_REVENUE
-    assert f", of which Zelle deposits excluded $7,734.56; Zelle deposits counted $1,500.00; {NOTICE}." in no["memo"]
+    assert (f", of which Zelle deposits excluded $7,734.56; Zelle deposits counted in True revenue $1,500.00; "
+            f"{NOTICE}.") in no["memo"]
 
 
 @needs_node
@@ -452,7 +455,7 @@ def test_an_unestablished_statement_names_its_captured_zelle_rows_only():
     yes = _statement_copy(_unestablished(), True)
     assert yes["true_value"] == "N/A"
     assert yes["true"] == TRUE_NOTE + "Zelle deposits captured: $7,734.56 (4), captured rows only"
-    assert "True revenue N/A, verified revenue N/A, non-revenue " in yes["memo"]
+    assert "True revenue N/A, non-revenue " in yes["memo"]
     assert ("captured rows only); Zelle deposits captured $7,734.56 (captured rows only).") in yes["memo"]
     assert "counted as True revenue" not in yes["memo"] and "held for review" not in yes["memo"]
     # The established statement reads as before (test_the_statement_copy_in_both_readings).
@@ -517,11 +520,13 @@ def test_r3_51_under_no_an_excluded_zelle_deposit_names_the_rules_reading():
     assert no[fx.OWN]["reason"] == EXCLUDED + held + "From the holder's own name or brand." + RELEASES
     assert no[fx.FABRIKAM_1]["reason"] == no[fx.FABRIKAM_2]["reason"] == (
         EXCLUDED + held + "Repeated round sums from one sender." + RELEASES)
-    assert no[fx.PAT]["reason"] == EXCLUDED + " With Zelle counted (Yes), it counts as: Person-to-person."
+    # The owner's request of 2026-10-11 (§2.2, §10.6): a reading in True revenue says so, never its counted reason.
+    assert no[fx.PAT]["reason"] == EXCLUDED + " With Zelle counted (Yes), it counts in True revenue."
     # The control is still Confirm Revenue only (the owner-decision default).
     assert all(no[text]["controls"] == ["confirm"] for text in (fx.OWN, fx.FABRIKAM_1, fx.FABRIKAM_2, fx.PAT))
-    # A row no Zelle rule reads is as before.
-    assert no[fx.VENMO]["reason"] == "Person-to-person. A person-to-person payment."
+    # A row no Zelle rule reads is as before: counted in True revenue, it carries no reason line (since the owner's
+    # request of 2026-10-11).
+    assert no[fx.VENMO]["reason"] == "" and no[fx.VENMO]["tag"] == "True revenue"
     also = _reviewed(fx.payload(PAYS_BOTH), False)[PAYS_BOTH_IN]
     assert also["reason"] == EXCLUDED + held + "Payer also debited this account." + RELEASES
     assert also["controls"] == ["confirm"]
@@ -534,7 +539,7 @@ def test_r3_51_the_yes_rows_read_as_before():
         "From the holder's own name or brand. The credit comes from the account holder's own name or brand.")
     assert yes[fx.OWN]["tag"] == "Held: From the holder's own name or brand"
     assert yes[fx.FABRIKAM_1]["tag"] == "Held: Repeated round sums from one sender"
-    assert yes[fx.PAT]["reason"] == "Person-to-person. A person-to-person payment."
+    assert yes[fx.PAT]["reason"] == "" and yes[fx.PAT]["tag"] == "True revenue"
     assert yes[fx.OWN]["controls"] == ["confirm", "reject"]
 
 
@@ -561,8 +566,8 @@ console.log(JSON.stringify({{reasons: review({json.dumps(rows)}).map((row) => ro
     assert reasons[0] == result["government"]
     assert reasons[1] == EXCLUDED
     assert reasons[2] == EXCLUDED + HOLDS + "fabricated_code." + RELEASES
-    assert reasons[3] == EXCLUDED + " With Zelle counted (Yes), it is Verified revenue."
-    assert reasons[4] == EXCLUDED + " With Zelle counted (Yes), it counts as: Check deposit."
+    assert reasons[3] == EXCLUDED + " With Zelle counted (Yes), it counts in True revenue."
+    assert reasons[4] == EXCLUDED + " With Zelle counted (Yes), it counts in True revenue."
     assert result["priors"] == [None, None, {"tier": "excluded_pending_review", "reason": "fabricated_code"},
                                 {"tier": "verified", "reason": None},
                                 {"tier": "counted_flagged", "reason": "check_deposit"}]

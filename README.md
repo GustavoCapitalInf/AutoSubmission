@@ -295,8 +295,8 @@ On the dashboard (owner request 2026-10-07, display only) the hero's big figure 
 True revenue with Total credits on the line below it; the Monthly Statements
 table shows each statement's confirmed Withholding Rate in every view, on the
 figures its row shows after the package's passes (its Verified ($) column is
-gone, and no row carries a Zelle line; the chart keeps the verified part, and
-its bars take only the colours its key shows, with no tallest-bar highlight);
+gone, and no row carries a Zelle line; the chart's bars take only the colours
+its key shows, with no tallest-bar highlight);
 and each
 lender-table note reads as a bold headline with plain sentences under it, an
 "Also:" sentence per extra note and the statement it comes from by month.
@@ -306,6 +306,12 @@ confirmed lenders' active positions in its printed period ("2", or
 "2 (+1 possible)" with a potential lender's), read when served from the
 lender payment streams (`analysis/active_positions.py`); the copied memos name
 them, the package's by month.
+The owner's request of 2026-10-11 takes Verified revenue and "Counted, not
+verified" off the dashboard and out of the CSV and Excel downloads: True revenue
+stands with Held for review and Non-revenue beside it, a credit in True revenue
+is tagged "True revenue", the chart has no verified part, and the verified
+withholding basis is named "Narrower revenue basis". The classifier, the served
+payload, the JSON download and the CLI keep both tiers.
 
 ## Tests
 

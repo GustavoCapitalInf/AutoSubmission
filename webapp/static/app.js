@@ -186,15 +186,12 @@ function parseModeLabel(value) {
   return value === "deterministic" ? "Deterministic only" : "Auto";
 }
 
-// 5.6 (true revenue spec §10.5): the note under each revenue figure. Audit B11 (I53): the Counted note names every kind
-// of counted credit (cash, checks and person-to-person were 55% of counted dollars; wires, unlabelled and numbered
-// payers, factoring and platform payouts the rest) and says what is missing is proof of the sale, the payer being
-// printed on most; the Verified note claims confirmed platform payouts only (an unconfirmed one is counted).
+// 5.6 (true revenue spec §10.5): the note under each revenue figure. The owner's request of 2026-10-11 (§2.2, §10):
+// the page shows no Verified revenue and no "Counted, not verified" (the tiers `verified` and `counted_flagged`, kept in
+// the backend), so their notes are gone; True revenue, their sum, keeps its own.
 const REVENUE_METRIC_COPY = Object.freeze({
   totalCredits: "All posted credit transactions",
   trueRevenue: "Posted credits minus known non-revenue and the deposits held for review",
-  verifiedRevenue: "Revenue with proof: card settlements, confirmed platform payouts, repeat or institutional payers, invoices, and deposits you confirmed",
-  countedFlagged: "Counted in true revenue without proof of the sale: cash, checks, person-to-person, wires, one-off, unlabelled and numbered-company payers, factoring and platform payouts",
   heldForReview: "Kept out of true revenue until you confirm it",
   // R2-OW03 (owner ruling 2026-10-02, the underwriter's Q3): the note names the Zelle deposits the policy excludes.
   nonRevenue: "Own-account transfers, funding, refunds and other known non-revenue, Zelle deposits included",
@@ -207,11 +204,14 @@ const REVENUE_METRIC_COPY = Object.freeze({
 // lender funding, never True revenue.
 const LEGACY_ELIGIBLE_DEPOSITS_NOTE = "Gross deposits less lender funding (not True revenue)";
 // Owner ruling 2026-10-02 (the underwriter's Q7, audit I34; true revenue spec §10.1, §10.5, §11; R2-OW14): True revenue
-// is the default withholding basis; the legacy and verified bases stay selectable. Each basis's label and definition,
-// for a payload that carries its mode but not its words.
+// is the default withholding basis; the legacy and verified bases stay selectable (WITHHOLDING_DENOMINATOR_MODE, never
+// on screen). Each basis's label and definition. The owner's request of 2026-10-11 (§2.2, §10.1): the page never prints
+// the word Verified, so a statement analysed on the verified basis (a part of True revenue) names it "Narrower revenue
+// basis", its figures unchanged, and these labels win over the words a payload carries (its served
+// `withholding_denominator_label` and `eligible_deposit_definition` say "Verified revenue" and "verified plus counted").
 const WITHHOLDING_BASIS_LABELS = Object.freeze({
   legacy_eligible_deposits: "Legacy eligible deposits",
-  verified_revenue: "Verified revenue",
+  verified_revenue: "Narrower revenue basis",
   true_revenue: "True revenue",
 });
 // Audit round 3, R3-B03 (R3-20; true revenue spec §10.1, §11): a True or Verified withholding basis under this many
@@ -223,16 +223,19 @@ const WITHHOLDING_BASIS_FLOOR = 500;
 // writes it in that unit, never "$" on a CAD statement.
 const LARGE_UNSOURCED_DEPOSIT_FLOOR = 10000;
 const WITHHOLDING_BASIS_DEFINITIONS = Object.freeze({
-  verified_revenue: "verified classified revenue",
-  true_revenue: "verified plus counted credits",
+  verified_revenue: "a part of true revenue only",
+  true_revenue: "posted credits minus known non-revenue and the deposits held for review",
 });
-const DEFAULT_WITHHOLDING_BASIS_NOTE = "True revenue by default: verified plus counted credits";
+const DEFAULT_WITHHOLDING_BASIS_NOTE =
+  "True revenue by default: posted credits minus known non-revenue and the deposits held for review";
 
 // 5.6 (true revenue spec §5.3, §10.6): the reason codes of the two middle tiers, code -> [tier, label, sentence], and
 // (the owner's rulings of 2026-10-02) the non_revenue codes: the Zelle policy's and Q12's display reason (R2-OW03), and
 // Q11's non-dealer asset sales (R2-OW06). It
 // mirrors analysis/revenue.py REVENUE_TIER_REASONS (code -> tier and label); tests/test_webapp_true_revenue_ui.py holds
-// the two equal. The sentence is the ledger's one line on the code.
+// the two equal. The sentence is the ledger's one line on the code. The owner's request of 2026-10-11 (true revenue spec
+// §2.2, §10.6): the counted_flagged rows stay in the mirror, but the page never shows their labels or sentences (a
+// credit in True revenue is tagged "True revenue" and carries no reason line).
 const REVENUE_TIER_REASONS = Object.freeze({
   direction_conflict: ["excluded_pending_review", "Direction conflicts with the amount", "The bank prints this row in the other direction from its amount."],
   insurer_payer: ["excluded_pending_review", "Insurance carrier", "An insurance carrier paid it: a claim or a refund unless you confirm it pays for a sale."],
@@ -257,7 +260,8 @@ const REVENUE_TIER_REASONS = Object.freeze({
   premium_trust_account: ["excluded_pending_review", "Deposit into a premium trust account", "The account is titled as an insurance premium trust account: its deposits are insureds' premiums held for the carriers, not the agency's revenue. Only commissions paid to the operating account count."],
   // Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16: within a package, a deposit that prints no payer matched to
   // a transfer out of another of the business's accounts; package-only, the end of the held group.
-  own_account_transfer_matched: ["excluded_pending_review", "Matches a transfer out of another account in this package", "A deposit that prints no payer, of the same cents as a transfer out of another of the business's accounts 0 to 2 days before it: the business's own money moving between its accounts, held so it is not counted twice. Confirm Revenue releases it into True and marks it Verified."],
+  // The owner's request of 2026-10-11: what Confirm Revenue does is said in the page's words, never "Verified".
+  own_account_transfer_matched: ["excluded_pending_review", "Matches a transfer out of another account in this package", "A deposit that prints no payer, of the same cents as a transfer out of another of the business's accounts 0 to 2 days before it: the business's own money moving between its accounts, held so it is not counted twice. Confirm Revenue counts it in True revenue."],
   wire_named_sender: ["counted_flagged", "Wire from a named sender", "A wire from a named sender, counted without proof of the sale."],
   check_deposit: ["counted_flagged", "Check deposit", "A check deposit: the payer is not printed."],
   no_payer_printed: ["counted_flagged", "No payer printed", "A cash, branch, ATM or bare deposit: no payer is printed."],
@@ -325,9 +329,10 @@ function zelleExcludedFact(source, currency) {
 
 // The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §10.1, §10.2, §10.5; R2-OW17): the
 // served Zelle figures (a statement's metrics.zelle_deposits, a package's totals or a member row's), in the parts every
-// surface prints: in True (verified plus counted), held, out (non-revenue), and the verified and counted parts apart.
-// Each part is {count, total}, its total null where the package refuses its currencies. Null where the payload carries
-// no figures: the display is then today's (the exclusion, read from non_revenue_by_reason).
+// surface prints: in True revenue, held and out (non-revenue). The owner's request of 2026-10-11 (§2.2, §10.1): never
+// the verified and counted parts apart, which only the backend keeps. Each part is {count, total}, its total null where
+// the package refuses its currencies. Null where the payload carries no figures: the display is then today's (the
+// exclusion, read from non_revenue_by_reason).
 function zelleDeposits(source = {}) {
   const figures = source && source.zelle_deposits;
   if (!figures || typeof figures !== "object") return null;
@@ -346,8 +351,6 @@ function zelleDeposits(source = {}) {
     // Audit round 3, R3-B20 (R3-48): the captured Zelle rows' total, null where the package refuses its currencies.
     total: numberOrNull(figures.total),
     inTrue: part("verified", "counted_flagged"),
-    verified: part("verified"),
-    countedFlagged: part("counted_flagged"),
     held: part("excluded_pending_review"),
     out: part("non_revenue"),
   };
@@ -355,7 +358,8 @@ function zelleDeposits(source = {}) {
 
 // The True card's Zelle fact (R2-OW17), every non-zero part, the count alone where the money is refused. Yes: "Zelle
 // deposits in True revenue: $C (n)" always, then the held and non-revenue parts; No: "Zelle deposits excluded: $N (k)"
-// then the parts a review or an older analysis left counted or held. A statement or a package member analysed before the
+// then the part a review or an older analysis counted in True revenue (one part since the owner's request of
+// 2026-10-11: "counted in True revenue: $C (n)") and the part held. A statement or a package member analysed before the
 // setting says it is shown as analysed. Without served figures, today's fact. Audit round 3, R3-B20 (R3-48; §10.4's
 // I51): where the revenue is not `established`, the captured rows only: "Zelle deposits captured: $T (n), captured rows
 // only", then the non-revenue part where there is some, never a part in True revenue, counted or held.
@@ -374,8 +378,7 @@ function zelleFact(source, currency, { package: isPackage = false, established =
     if (zelle.out.count > 0) parts.push(`non-revenue: ${money(zelle.out)}`);
   } else {
     parts.push(`Zelle deposits excluded: ${money(zelle.out)}`);
-    if (zelle.verified.count > 0) parts.push(`counted after review: ${money(zelle.verified)}`);
-    if (zelle.countedFlagged.count > 0) parts.push(`counted: ${money(zelle.countedFlagged)}`);
+    if (zelle.inTrue.count > 0) parts.push(`counted in True revenue: ${money(zelle.inTrue)}`);
     if (zelle.held.count > 0) parts.push(`held for review: ${money(zelle.held)}`);
   }
   if (!zelle.applied) {
@@ -398,23 +401,20 @@ function zelleChip(tx) {
   return tx && tx.zelle_deposit === true ? glassChip("Z", "Zelle", "blue", "flag-chip") : "";
 }
 
-// The revenue cards of true revenue spec §10.1, in order: True Revenue (the headline), Verified Revenue with its share
-// of True, Counted, Held and Non-Revenue, each a button to its rows. `source` is a statement's metrics or a package's
-// totals. A True, Counted or Held figure reads N/A unless `established`, a Verified one unless `verifiedEstablished`
-// (§10.4). `note` wraps each note (a package's currency refusal replaces them); `unestablishedNote` replaces the True
-// note where revenue is not established; `counts` prints "count / total", as the statement window does.
+// The revenue cards of true revenue spec §10.1, in order: True Revenue (the headline), Held and Non-Revenue, each a
+// button to its rows. The owner's request of 2026-10-11 (§2.2, §10.1): no Verified Revenue and no "Counted, Not
+// Verified" line (True revenue is their sum; the backend keeps both). `source` is a statement's metrics or a package's
+// totals. A True or Held figure reads N/A unless `established` (§10.4). `note` wraps each note (a package's currency
+// refusal replaces them); `unestablishedNote` replaces the True note where revenue is not established; `counts` prints
+// "count / total", as the statement window does.
 function revenueCardItems(source, currency, {
-  established, verifiedEstablished, note = (text) => text, unestablishedNote = "", counts = false, facts = [],
+  established, note = (text) => text, unestablishedNote = "", counts = false, facts = [],
 }) {
   const figure = (kind, shown) => {
     if (!shown) return "N/A";
     const total = formatMoney(source[`${kind}_total`], currency);
     return counts ? `${formatNumber(source[`${kind}_count`])} / ${total}` : total;
   };
-  const trueTotal = numberOrNull(source.true_revenue_total);
-  const verifiedTotal = numberOrNull(source.verified_revenue_total);
-  const share = established && verifiedEstablished && trueTotal !== null && trueTotal > 0 && verifiedTotal !== null
-    ? `${((verifiedTotal / trueTotal) * 100).toFixed(1)}% of true revenue · ` : "";
   // Audit B11 (B9's I13, B10's I05): the statement integrity facts True rests on follow its note.
   const trueNote = [!established && unestablishedNote ? unestablishedNote : REVENUE_METRIC_COPY.trueRevenue,
     ...facts].join(" · ");
@@ -425,19 +425,18 @@ function revenueCardItems(source, currency, {
     ? nonRevenueCopy.replace(", Zelle deposits included", "") : nonRevenueCopy;
   return [
     ["True Revenue", figure("true_revenue", established), note(trueNote), "REV", "green", { revenueFilter: "true_revenue", headline: true }],
-    ["Verified Revenue", figure("verified_revenue", verifiedEstablished), note(share + REVENUE_METRIC_COPY.verifiedRevenue), "VER", "green", { revenueFilter: "verified_revenue" }],
-    ["Counted, Not Verified", figure("counted_flagged", established), note(REVENUE_METRIC_COPY.countedFlagged), "CNT", "teal", { revenueFilter: "counted_flagged" }],
     ["Held for Review", figure("excluded_pending_review", established), note(REVENUE_METRIC_COPY.heldForReview), "?", "amber", { revenueFilter: "excluded_pending_review" }],
     ["Non-Revenue", figure("non_revenue", true), note(nonRevenueNote), "X", "neutral", { revenueFilter: "non_revenue" }],
   ];
 }
 
-// Audit B11 (I07): the revenue sentence of a copied summary (the credit-memo artefact): True revenue (the headline, Q1),
-// Verified beside it and Non-revenue, each in total and per calendar month (`monthly`: {trueMonthly, verifiedMonthly,
-// nonRevenueMonthly}); N/A where not established (§10.4), and Non-revenue named as captured rows only there. Audit
-// round 3, R3-B20 (R3-19; §10.5): `package` picks the notice's words for a package's memo. Audit round 3, R3-B22 (R3-01;
-// §10.1): and the money held for review, between the verified pair and non-revenue.
-function revenueSummarySentence(source = {}, currency = "USD", { established, verifiedEstablished } = {}, monthly = {},
+// Audit B11 (I07): the revenue sentence of a copied summary (the credit-memo artefact): True revenue (the headline, Q1)
+// and Non-revenue, each in total and per calendar month (`monthly`: {trueMonthly, nonRevenueMonthly}); N/A where not
+// established (§10.4), and Non-revenue named as captured rows only there. Audit round 3, R3-B20 (R3-19; §10.5):
+// `package` picks the notice's words for a package's memo. Audit round 3, R3-B22 (R3-01; §10.1): and the money held for
+// review, between True revenue and non-revenue. The owner's request of 2026-10-11 (§2.2, §10.1): no verified revenue
+// clause (it stood after True revenue) and no Zelle part counted apart from True revenue.
+function revenueSummarySentence(source = {}, currency = "USD", { established } = {}, monthly = {},
   { package: isPackage = false } = {}) {
   const pair = (total, perMonth, shown) => (shown
     ? `${formatMoney(total, currency)} (${formatMoney(perMonth, currency)} a month)` : "N/A");
@@ -469,11 +468,10 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
       + (served.out.count > 0 ? `, non-revenue ${formatMoney(served.out.total, currency)}` : "");
   } else if (served) {
     // Audit round 3, R3-B20 (R3-19): every part zelleFact names, so a package mixing members served counted and
-    // excluded, or a legacy member under No, says where each part sits: the part a review counted, then the parts
-    // counted and held.
+    // excluded, or a legacy member under No, says where each part sits: the part a review or an older analysis counted
+    // in True revenue (one part since the owner's request of 2026-10-11), then the part held.
     const parts = [
-      ...(served.verified.count > 0 ? [`counted after review ${formatMoney(served.verified.total, currency)}`] : []),
-      ...(served.countedFlagged.count > 0 ? [`counted ${formatMoney(served.countedFlagged.total, currency)}`] : []),
+      ...(served.inTrue.count > 0 ? [`counted in True revenue ${formatMoney(served.inTrue.total, currency)}`] : []),
       ...(served.held.count > 0 ? [`held for review ${formatMoney(served.held.total, currency)}`] : []),
     ];
     zelleNote = `, of which Zelle deposits excluded ${formatMoney(served.out.total, currency)}`
@@ -485,15 +483,14 @@ function revenueSummarySentence(source = {}, currency = "USD", { established, ve
       : "; analysed before the Zelle setting: shown as analysed";
   }
   return `True revenue ${pair(source.true_revenue_total, monthly.trueMonthly, established === true)}, `
-    + `verified revenue ${pair(source.verified_revenue_total, monthly.verifiedMonthly, verifiedEstablished === true)}, `
     + `${held}non-revenue ${nonRevenue}${zelleNote}.`;
 }
 
 // Audit round 3, R3-B24 (R3-16; true revenue spec §10.1; standard G7, P22): the copied memo's clause after the revenue
 // sentence, only where the served payload flags a large unsourced deposit. A statement: "1 large deposit to source: $X,
-// S% of True revenue (counted, not verified). " or "N large deposits to source: $X (each over 25% of True revenue;
-// counted, not verified). "; a package: "N large deposits to source: $X (each over 25% of its statement's True revenue;
-// counted, not verified). ", the count alone where it refuses its money. "" otherwise.
+// S% of True revenue. " or "N large deposits to source: $X (each over 25% of True revenue). "; a package: "N large
+// deposits to source: $X (each over 25% of its statement's True revenue). ", the count alone where it refuses its money.
+// "" otherwise. The owner's request of 2026-10-11 (§2.2, §10.1): the clause "counted, not verified" is gone.
 function largeDepositSummary(source = {}, currency = "USD", { package: isPackage = false } = {}) {
   const count = numberOrNull(source && source.large_unsourced_deposit_count);
   if (!count) return "";
@@ -503,10 +500,10 @@ function largeDepositSummary(source = {}, currency = "USD", { package: isPackage
   const items = Array.isArray(source.large_unsourced_deposits) ? source.large_unsourced_deposits : [];
   const share = count === 1 && items.length === 1 ? numberOrNull(items[0] && items[0].share_of_true_percent) : null;
   if (!isPackage && share !== null) {
-    return `${head}, ${share.toFixed(1)}% of True revenue (counted, not verified). `;
+    return `${head}, ${share.toFixed(1)}% of True revenue. `;
   }
   const of = isPackage ? "its statement's True revenue" : "True revenue";
-  return `${head} (${count === 1 ? "" : "each "}over 25% of ${of}; counted, not verified). `;
+  return `${head} (${count === 1 ? "" : "each "}over 25% of ${of}). `;
 }
 
 // Audit B11 (I31): whether a statement's revenue reads "Balanced": its own rows reconcile to the bank's printed figures
@@ -562,19 +559,20 @@ function statementRevenueFacts(metrics = {}, currency = "USD") {
 // Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §17.1's default D1; standard G7, "COUNT+FLAG, and source them
 // when large", P22): the True card's line for the counted credits whose source the statement does not prove that are
 // 10,000 or more of the statement's unit and over 25% of True, from a statement's served metrics or a package's totals,
-// only where the count is: "Large deposits to source: N · $X (each $10,000.00 or more and over 25% of True; counted,
-// not verified)", a package's share being each statement's own True as the package counts it (the True Deposits its row shows on the package page,
-// its holds applied; R3-B24 review round 1), and the count alone where a package refuses its money. Information only:
-// no figure, badge, gate or decision reads it. Audit round 3, final review (R3-FF), F6: the floor is written in the
-// unit it is compared in, as the withholding floor's note writes its floor (formatMoney): the statement's, a package's
-// where its members share one, none where they differ ("$10,000.00", "CA$10,000.00", "10,000.00").
+// only where the count is: "Large deposits to source: N · $X (each $10,000.00 or more and over 25% of True)", a
+// package's share being each statement's own True as the package counts it (the True Deposits its row shows on the
+// package page, its holds applied; R3-B24 review round 1), and the count alone where a package refuses its money.
+// Information only: no figure, badge, gate or decision reads it. Audit round 3, final review (R3-FF), F6: the floor is
+// written in the unit it is compared in, as the withholding floor's note writes its floor (formatMoney): the statement's,
+// a package's where its members share one, none where they differ ("$10,000.00", "CA$10,000.00", "10,000.00"). The
+// owner's request of 2026-10-11 (§2.2, §10.1): the clause "counted, not verified" is gone.
 function largeDepositFacts(source = {}, currency = "USD", { package: isPackage = false } = {}) {
   const count = numberOrNull(source && source.large_unsourced_deposit_count);
   if (!count) return [];
   const total = numberOrNull(source.large_unsourced_deposit_total);
   return [`${LARGE_DEPOSIT_WORDS}: ${formatNumber(count)}${total === null ? "" : ` · ${formatMoney(total, currency)}`} `
     + `(each ${formatMoney(LARGE_UNSOURCED_DEPOSIT_FLOOR, currency)} or more and over 25% of `
-    + `${isPackage ? "its statement's True" : "True"}; counted, not verified)`];
+    + `${isPackage ? "its statement's True" : "True"})`];
 }
 
 // Owner ruling 2026-10-02 (the underwriter's Q6, "Flag, but do not deduct, returns that cannot be matched and processor
@@ -675,8 +673,6 @@ const emptyMetricSections = [
     sub: "Posted credit transactions",
     items: [
       ["True Revenue", "N/A", REVENUE_METRIC_COPY.trueRevenue, "REV", "green", { headline: true }],
-      ["Verified Revenue", "N/A", REVENUE_METRIC_COPY.verifiedRevenue, "VER", "green"],
-      ["Counted, Not Verified", "N/A", REVENUE_METRIC_COPY.countedFlagged, "CNT", "teal"],
       ["Held for Review", "N/A", REVENUE_METRIC_COPY.heldForReview, "?", "amber"],
       ["Non-Revenue", "N/A", REVENUE_METRIC_COPY.nonRevenue, "X", "neutral"],
       ["Total Credits", "N/A", REVENUE_METRIC_COPY.totalCredits, "CR", "neutral"],
@@ -895,12 +891,16 @@ function formatPercent(value) {
   return `${Number.isInteger(n) ? n.toFixed(0) : n.toFixed(2)}%`;
 }
 
-// The basis the withholding rates divide by, as the payload names it (R2-OW14): its own label, else its mode's (a payload
-// with no mode was analysed on the legacy basis), else a package's mixed configuration's.
+// The basis the withholding rates divide by (R2-OW14): its mode's label, else the payload's own (a package's mixed
+// configuration's), else the legacy basis's (a payload with no mode was analysed on it). The owner's request of
+// 2026-10-11 (§2.2, §10.1): the mode's label comes first, and a served label that names the verified basis is read as
+// that basis, so the page never prints "Verified revenue".
 function withholdingBasisLabel(metrics = {}) {
-  if (metrics.withholding_denominator_label) return metrics.withholding_denominator_label;
-  const mode = metrics.withholding_denominator_mode || "legacy_eligible_deposits";
-  return WITHHOLDING_BASIS_LABELS[mode] || "Withholding basis";
+  const mode = metrics.withholding_denominator_mode;
+  if (mode && WITHHOLDING_BASIS_LABELS[mode]) return WITHHOLDING_BASIS_LABELS[mode];
+  const label = metrics.withholding_denominator_label;
+  if (label) return /verified/i.test(label) ? WITHHOLDING_BASIS_LABELS.verified_revenue : label;
+  return WITHHOLDING_BASIS_LABELS[mode || "legacy_eligible_deposits"] || "Withholding basis";
 }
 
 // Audit round 3 (R3-68): the basis the copied memos' rates divide by, as the Withholding Basis card names it.
@@ -1634,12 +1634,15 @@ function lenderPaymentChangesSummary(items) {
 // The Withholding Basis card's note: the basis the withholding rates divide by. Audit B11 (I34): the legacy basis is
 // named for what it is, gross deposits less lender funding and never True revenue (a payload with no mode was analysed
 // on it). Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): True revenue is the default; a revenue basis reads
-// '<label>: <definition>' ('True revenue: verified plus counted credits'), the definition's own leading label dropped.
+// '<label>: <definition>', the definition's own leading label dropped. The owner's request of 2026-10-11 (§2.2,
+// §10.1): a revenue basis's definition is the page's own ('True revenue: posted credits minus known non-revenue and the
+// deposits held for review', 'Narrower revenue basis: a part of true revenue only'), never the served one, which names
+// the verified and counted credits.
 function activeDenominatorNote(metrics = {}) {
   const mode = metrics.withholding_denominator_mode;
   if (!mode || mode === "legacy_eligible_deposits") return LEGACY_ELIGIBLE_DEPOSITS_NOTE;
   const label = withholdingBasisLabel(metrics);
-  let definition = metrics.eligible_deposit_definition || WITHHOLDING_BASIS_DEFINITIONS[mode]
+  let definition = WITHHOLDING_BASIS_DEFINITIONS[mode] || metrics.eligible_deposit_definition
     || "deposits used to calculate withholding rates";
   if (definition.toLowerCase().startsWith(`${label.toLowerCase()}:`)) {
     definition = definition.slice(label.length + 1).trim();
@@ -1762,13 +1765,17 @@ function transactionClassification(tx) {
     : { classification: "other" };
 }
 
-// 5.6 (true revenue spec §10.6): a credit's tag is its tier, a middle tier naming its reason. An analysis saved before
-// 5.6 carries no tier, so its credits keep their revenue state's tag. R2-OW03: a non_revenue row that carries a
-// non-revenue code (the Zelle policy's, Q12's display reason) names it too; a reviewer's rejection keeps its counted or
-// held code, which is none, and reads "Non-revenue".
+// 5.6 (true revenue spec §10.6): a credit's tag is its tier, a held one naming its reason. The owner's request of
+// 2026-10-11 (§2.2, §10.6): a credit in True revenue carries one tag, "True revenue", whether a rule verified it, a rule
+// counted it or a reviewer confirmed it (the backend keeps the tiers apart). An analysis saved before 5.6 carries no
+// tier, so its credits keep their revenue state's tag in the page's words ("Revenue" for one its rules read as revenue,
+// "Review required" for one they left to review, 5.4's unverified deposit; review round 1). R2-OW03: a
+// non_revenue row that carries a non-revenue code (the Zelle policy's, Q12's display reason) names it too; a reviewer's
+// rejection keeps its counted or held code, which is none, and reads "Non-revenue".
+const TRUE_REVENUE_TAG = Object.freeze({ label: "True revenue", glyph: "REV", tone: "green" });
 const REVENUE_TIER_TAGS = Object.freeze({
-  verified: () => ({ label: "Verified revenue", glyph: "VER", tone: "green" }),
-  counted_flagged: (record) => ({ label: `Counted: ${revenueReasonLabel(record)}`, glyph: "CNT", tone: "teal" }),
+  verified: () => TRUE_REVENUE_TAG,
+  counted_flagged: () => TRUE_REVENUE_TAG,
   excluded_pending_review: (record) => ({ label: `Held: ${revenueReasonLabel(record)}`, glyph: "?", tone: "amber" }),
   non_revenue: (record) => ({
     label: nonRevenueReason(record && record.revenue_tier_reason) ? `Non-revenue: ${revenueReasonLabel(record)}` : "Non-revenue",
@@ -1784,10 +1791,10 @@ function transactionCategory(tx) {
     return REVENUE_TIER_TAGS[record.revenue_tier](record);
   }
   if (txAmount(tx) > 0 && revenueState === "verified_revenue") {
-    return { label: "Verified revenue", glyph: "VER", tone: "green" };
+    return { label: "Revenue", glyph: "REV", tone: "green" };
   }
   if (txAmount(tx) > 0 && revenueState === "unverified_deposit") {
-    return { label: "Unverified deposit", glyph: "?", tone: "amber" };
+    return { label: "Review required", glyph: "?", tone: "amber" };
   }
   if (txAmount(tx) > 0 && revenueState === "non_revenue") {
     return { label: "Non-revenue", glyph: "X", tone: "neutral" };
@@ -1849,12 +1856,10 @@ function revenueSourceChip(tx) {
 }
 
 // 5.6 (true revenue spec §10.6): the revenue filters, value -> test of a row's classification record. A row analysed
-// before 5.6 carries no tier (and its served copy no contributes_to_true_revenue), so only Verified and Non-Revenue
-// find it.
+// before 5.6 carries no tier (and its served copy no contributes_to_true_revenue), so only Non-Revenue finds it. The
+// owner's request of 2026-10-11 (§2.2, §10.6): no Verified and no Counted filter (nor a counted reason's).
 const REVENUE_FILTERS = Object.freeze({
   true_revenue: (record) => record.contributes_to_true_revenue === true,
-  verified_revenue: (record) => record.revenue_classification === "verified_revenue",
-  counted_flagged: (record) => record.revenue_tier === "counted_flagged",
   excluded_pending_review: (record) => record.revenue_tier === "excluded_pending_review",
   non_revenue: (record) => record.revenue_classification === "non_revenue",
 });
@@ -1863,13 +1868,6 @@ const REVENUE_FILTERS = Object.freeze({
 // other filter.
 function heldReasonFilter(filter) {
   const match = /^excluded_pending_review:([a-z_0-9]+)$/.exec(String(filter || ""));
-  return match ? match[1] : null;
-}
-
-// Audit B11 (I53): the ledger filter behind one reason of the counted tier is "counted_flagged:<reason>". Null for any
-// other filter.
-function countedReasonFilter(filter) {
-  const match = /^counted_flagged:([a-z_0-9]+)$/.exec(String(filter || ""));
   return match ? match[1] : null;
 }
 
@@ -1948,7 +1946,9 @@ function packageDebitFlags(pkg) {
 }
 
 // T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
-// review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill.
+// review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill. The owner's
+// request of 2026-10-11 (review round 1): the page names them "deposits to review" and tags each "Review required",
+// never 5.4's "unverified deposit".
 const OLDER_REVIEW_FILTER = "unverified_deposit";
 
 // Whether a ledger was analysed before 5.6: a credit carries a revenue state and none carries a tier.
@@ -1964,11 +1964,9 @@ function ledgerCarriesNoTier(transactions) {
 function revenueFilterLabel(filter, count) {
   const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
   if (filter === "true_revenue") return "in true revenue";
-  if (filter === OLDER_REVIEW_FILTER) return count === 1 ? "unverified deposit" : "unverified deposits";
+  if (filter === OLDER_REVIEW_FILTER) return count === 1 ? "deposit to review" : "deposits to review";
   const heldReason = heldReasonFilter(filter);
   if (heldReason) return `held: ${lower(revenueReasonLabel({ revenue_tier_reason: heldReason }))}`;
-  const countedReason = countedReasonFilter(filter);
-  if (countedReason) return `counted: ${lower(revenueReasonLabel({ revenue_tier_reason: countedReason }))}`;
   const excludedReason = excludedReasonFilter(filter);
   if (excludedReason) return `excluded: ${lower(revenueReasonLabel({ revenue_tier_reason: excludedReason }))}`;
   // R2-OW15: the package passes' matches and the debit flags.
@@ -2136,13 +2134,6 @@ function filterTransactions(transactions, filter, canonicalEntity = null, nsfDay
       return record.revenue_tier === "excluded_pending_review" && record.revenue_tier_reason === heldReason;
     });
   }
-  const countedReason = countedReasonFilter(filter);
-  if (countedReason) {
-    matched = transactions.filter((tx) => {
-      const record = transactionClassification(tx);
-      return txAmount(tx) > 0 && record.revenue_tier === "counted_flagged" && record.revenue_tier_reason === countedReason;
-    });
-  }
   const excludedReason = excludedReasonFilter(filter);
   if (excludedReason) {
     matched = transactions.filter((tx) => {
@@ -2172,10 +2163,15 @@ function reviewAccountOf(tx, fallbackAccount = null) {
 }
 
 // A deposit the classifier left for review and nobody has decided yet: its statement, account and row, or null. The
-// row's own Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these.
-function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
+// row's own Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these. The owner's request
+// of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): a counted credit is in True revenue and reads as
+// a verified one does, so it is offered no box: a box marks a deposit awaiting review. Review round 2: except one the
+// served payload flags as a large deposit to source (`largeDeposit`, R3-B24), which does await the reviewer: its note
+// asks for its source, and its Confirm (one row or many) takes it out of the flag.
+function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null, { largeDeposit = false } = {}) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return null;
+  if (record.revenue_tier === "counted_flagged" && !largeDeposit) return null;
   // Audit round 3, R3-B02 (R3-21; spec §10.7): a credit that returns a confirmed funder's payment is never confirmed,
   // so it has no multi-select box: a bulk Confirm never carries it, and the all-or-nothing batch never refuses on it.
   if (record.returns_funder_payment) return null;
@@ -2190,7 +2186,14 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
 // credit a rule verified, "" for anything else. An analysis saved before 5.6 carries no tier and keeps its rules: only
 // a credit left unverified is reviewed. R2-OW03 (the underwriter's Q3, "I can review"): "confirm" (Confirm Revenue only)
 // for a Zelle deposit the owner's policy excluded; the server refuses a reject on it, the row being non-revenue already.
-function revenueReviewKind(record) {
+// The owner's request of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): a counted credit is tagged
+// True revenue like a verified one, so it shows what a verified one shows, "reject": a Confirm Revenue beside the True
+// revenue tag would read "in True revenue but not yet confirmed", the counted tier under another name. The server still
+// accepts its confirm (the backend is unchanged). Review round 2: a counted credit the served payload flags as a large
+// deposit to source (`largeDeposit`, R3-B24) keeps "both": its note asks for its source, so its Confirm reads "I have
+// sourced it" and says nothing of any other row, and confirming it takes it out of the flag (the True card's fact, the
+// Revenue evidence table's row, the memo's clause and the downloads' section), the page's only path to clear one.
+function revenueReviewKind(record, { largeDeposit = false } = {}) {
   // Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment (rule D's pair) is the business's
   // own payment coming back: the server refuses its Confirm, so a held or counted one shows Mark Non-Revenue only and a
   // Zelle deposit the policy excluded, whose only control is Confirm, shows none. Any other keeps its kind (review
@@ -2200,16 +2203,18 @@ function revenueReviewKind(record) {
     if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
       && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "";
   }
-  if (record.revenue_initial_classification === "unverified_deposit") return "both";
+  if (record.revenue_initial_classification === "unverified_deposit") {
+    return record.revenue_tier === "counted_flagged" && !largeDeposit ? "reject" : "both";
+  }
   if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
   if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
     && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "confirm";
   return "";
 }
 
-function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null) {
+function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null, { largeDeposit = false } = {}) {
   const record = transactionClassification(tx);
-  const kind = revenueReviewKind(record);
+  const kind = revenueReviewKind(record, { largeDeposit });
   if (!kind) return "";
   const jobId = tx.source_job || fallbackJobId;
   const sourceLocation = record.source_location;
@@ -2265,7 +2270,8 @@ function zellePriorReading(record) {
 // R3-51: under No, the sentence an excluded Zelle deposit adds on the reading the rules give it with Zelle counted,
 // so a reviewer sees a hold before the one-click Confirm releases it (in both settings, §17.1 default (4)); "" without
 // a prior. The label is the reason's (REVENUE_TIER_REASONS), or the code itself where the table lacks it, as
-// true_revenue `_zelle_excluded` names it.
+// true_revenue `_zelle_excluded` names it. The owner's request of 2026-10-11 (§2.2, §10.6): a reading in True revenue
+// (verified or counted) says so in those words, never its tier or a counted reason.
 function zellePriorSentence(record) {
   const prior = zellePriorReading(record);
   if (!prior) return "";
@@ -2275,15 +2281,17 @@ function zellePriorSentence(record) {
     return ` With Zelle counted (Yes), the rules hold it for review: ${label}.`
       + " Confirm Revenue releases it in both settings.";
   }
-  if (prior.tier === "counted_flagged") return ` With Zelle counted (Yes), it counts as: ${label}.`;
-  if (prior.tier === "verified") return " With Zelle counted (Yes), it is Verified revenue.";
+  if (prior.tier === "counted_flagged" || prior.tier === "verified") {
+    return " With Zelle counted (Yes), it counts in True revenue.";
+  }
   return "";
 }
 
 function revenueReviewReason(tx) {
   const record = transactionClassification(tx);
   if (txAmount(tx) <= 0) return "";
-  // 5.6 (true revenue spec §10.6): a counted or held credit names its reason, and one sentence on it.
+  // 5.6 (true revenue spec §10.6): a held credit names its reason, and one sentence on it. The owner's request of
+  // 2026-10-11 (§2.2, §10.6): a counted credit, in True revenue, carries no reason line (it read "Counted: <reason>").
   const entry = REVENUE_TIER_REASONS[record.revenue_tier_reason];
   // R2-OW03: so does a non_revenue row that carries a non-revenue code (the Zelle policy's, Q12's display reason).
   // Audit round 3, R3-B20 (R3-51): a Zelle deposit the policy excluded adds the rules' reading with Zelle counted.
@@ -2291,7 +2299,7 @@ function revenueReviewReason(tx) {
     const prior = record.revenue_tier_reason === "zelle_excluded" ? zellePriorSentence(record) : "";
     return `${entry[1]}. ${entry[2]}${prior}`;
   }
-  if (entry && (record.revenue_tier === "counted_flagged" || record.revenue_tier === "excluded_pending_review")) {
+  if (entry && record.revenue_tier === "excluded_pending_review") {
     // Audit round 2, R2-B07 (R07): a credit the reader marked unread carries the payer blocks it could not attribute
     // to one row (unread_payer_text), printed so a reviewer can release a customer's row a lender's block held.
     const unread = typeof tx.unread_payer_text === "string" ? tx.unread_payer_text.trim() : "";
@@ -2389,7 +2397,8 @@ function packageMatchNotes(tx, debitFlags = null) {
       if (match.moved === true) {
         const gap = numberOrNull(match.gap_days);
         const when = gap === 0 ? "the same day" : gap === 1 ? "1 day earlier" : `${gap ?? "some"} days earlier`;
-        notes.push(`Transfer out of ${from}, ${when}. Confirm Revenue releases it into True and marks it Verified; `
+        // The owner's request of 2026-10-11 (§2.2, §10.6): what Confirm Revenue does, in the page's words.
+        notes.push(`Transfer out of ${from}, ${when}. Confirm Revenue counts it in True revenue; `
           + "Mark Non-Revenue keeps it out.");
       } else {
         notes.push(`Also matches a transfer out of ${from}.`);
@@ -2425,16 +2434,16 @@ function packageMatchNotes(tx, debitFlags = null) {
 
 // Audit round 3, R3-B24 (R3-16; true revenue spec §10.6; standard G7, P22): a credit the served payload flags as a large
 // unsourced deposit asks for its source under its reason, on the statement page, the statement window and the package
-// ledger: "Large deposit: S% of True revenue, counted without proof of the sale. Ask for its source." (a package's
-// share is of its statement's True as the package counts it, the True Deposits its row shows on the package page, and
-// says so). Information only: its tier, tag and review controls are unchanged.
+// ledger: "Large deposit: S% of True revenue. Ask for its source." (a package's share is of its statement's True as the
+// package counts it, the True Deposits its row shows on the package page, and says so). Information only: its tier,
+// tag and review controls are unchanged. The owner's request of 2026-10-11 (§2.2, §10.6): the counted tier's words
+// ("counted without proof of the sale") are gone.
 function largeDepositNotes(tx, debitFlags = null) {
   const item = debitFlags && typeof debitFlags.largeDeposit === "function" ? debitFlags.largeDeposit(tx) : null;
   if (!item) return [];
   const share = numberOrNull(item.share_of_true_percent);
   const of = "source_job" in item ? "its statement's True revenue" : "True revenue";
-  return [`Large deposit: ${share === null ? "N/A" : `${share.toFixed(1)}%`} of ${of}, counted without proof of the `
-    + "sale. Ask for its source."];
+  return [`Large deposit: ${share === null ? "N/A" : `${share.toFixed(1)}%`} of ${of}. Ask for its source.`];
 }
 
 function runningBalanceValue(tx) {
@@ -2493,8 +2502,13 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
   const showRunningBalance = matched.some((tx) => runningBalanceValue(tx) !== null);
   const runningBalanceHeader = tableEl.closest("table")?.querySelector("[data-running-balance-column]");
   if (runningBalanceHeader) runningBalanceHeader.hidden = !showRunningBalance;
+  // Review round 2 of the owner's request of 2026-10-11: whether each row shown is a large deposit to source (R3-B24),
+  // whose Confirm and box a counted credit keeps.
+  const large = visible.map((tx) => Boolean(debitFlags && typeof debitFlags.largeDeposit === "function"
+    && debitFlags.largeDeposit(tx)));
   // The multi-select column shows only while a row shown can be picked (a deposit awaiting review).
-  const targets = visible.map((tx) => (selectable ? pendingReviewTarget(tx, reviewJobId, reviewAccount) : null));
+  const targets = visible.map((tx, index) => (selectable
+    ? pendingReviewTarget(tx, reviewJobId, reviewAccount, { largeDeposit: large[index] }) : null));
   const pickable = targets.some(Boolean);
   tableEl.closest("table")?.classList.toggle("has-select", pickable);
   const offered = targets.filter(Boolean).map((target) => bulkKey(target.jobId, target.account, target.sourceLocation));
@@ -2529,7 +2543,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const note = filter === "all" ? "No statement returned transaction rows."
       : filter === "nsf" && !canonicalEntity ? nsfDaysEmptyNote(nsfDays)
       : filter === OLDER_REVIEW_FILTER
-        ? "No deposit is left unverified. Analysed with older classification rules: Re-analyze to compute true revenue."
+        ? "No deposit is left to review. Analysed with older classification rules: Re-analyze to compute true revenue."
       : "No rows matched this filter.";
     tableEl.innerHTML = `
       <tr>
@@ -2586,7 +2600,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
         <td>${glassChip(category.glyph, category.label, category.tone)}${zelleChip(tx)}${flaggedChip(tx)}${returnedFunderChip(tx)}${revenueSourceChip(tx)}${reviewReasonHtml}</td>
         <td class="amount-cell ${amount < 0 ? "amount-debit" : "amount-credit"}">${amount > 0 ? "+" : ""}${escapeHtml(formatMoney(amount, rowCurrency))}</td>
         ${runningBalance}
-        <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount)}</td>
+        <td class="tx-review">${revenueReviewControls(tx, reviewJobId, reviewAccount, { largeDeposit: large[index] })}</td>
       </tr>
     `;
   }).join("");
@@ -2758,6 +2772,22 @@ function clearBulkSelection({ refocus = false } = {}) {
   syncBulkReview({ refocus });
 }
 
+// The owner's request of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): the server's two review
+// refusals that name the tiers (webapp/app.py _DECLARED_REVIEW_REFUSALS, unchanged) in the page's words. The page never
+// offers either action; they are reached through a stale page, such as a decision made in another tab.
+const REVIEW_REFUSAL_WORDS = Object.freeze({
+  "a credit a rule verified can only be marked non-revenue":
+    "This deposit is already in True revenue: it can only be marked non-revenue. Open the statement again to see where "
+    + "it stands.",
+  "only automatically unverified deposits can be reviewed":
+    "This deposit can no longer be reviewed. Open the statement again to see where it stands.",
+});
+
+// A review refusal as the page words it: one of the two above, else the server's own text.
+function reviewRefusalWords(message) {
+  return REVIEW_REFUSAL_WORDS[message] || message;
+}
+
 // A response's JSON body, or {} when it has none (an error page from a proxy, an empty body): the refusal then reads
 // "Revenue review failed (status)" instead of a parser's complaint.
 async function responseJson(response) {
@@ -2850,7 +2880,9 @@ async function submitBulkReview(decision) {
         body: JSON.stringify({ decisions }),
       });
       const payload = await responseJson(response);
-      if (!response.ok || !payload.analysis) throw new Error(payload.error || `Revenue review failed (${response.status})`);
+      if (!response.ok || !payload.analysis) {
+        throw new Error(reviewRefusalWords(payload.error) || `Revenue review failed (${response.status})`);
+      }
       applied += picks.length;
       picks.forEach(({ key }) => bulkSelection.delete(key));
       latest = { jobId, analysis: payload.analysis };
@@ -3062,13 +3094,8 @@ function setInitialState() {
   renderRevenueEvidence({
     total_posted_credit_count: 0,
     revenue_established: true,
-    verified_revenue_established: true,
     true_revenue_count: 0,
     true_revenue_total: 0,
-    verified_revenue_count: 0,
-    verified_revenue_total: 0,
-    counted_flagged_count: 0,
-    counted_flagged_total: 0,
     excluded_pending_review_count: 0,
     excluded_pending_review_total: 0,
     non_revenue_count: 0,
@@ -3146,8 +3173,6 @@ const CHIP_VOCABULARY = {
   OK: ["✓", "Approved"],
   REV: ["◐", "Revenue"],
   REVIEW: ["◐", "Review"],
-  VER: ["✓", "Verified"],
-  CNT: ["+", "Counted"],
   ERR: ["✕", "Error"],
   DOC: ["◈", "Integrity"],
   LEN: ["⌂", "Lender"],
@@ -3578,19 +3603,18 @@ function renderFlaggedPositions(positions, currency, isPackage = false) {
 
 // 5.6 (true revenue spec §10.1, §10.7): the Revenue evidence rows, [filter, label, glyph, status, tone, which flag
 // establishes the figure]. Held for Review is followed by its reasons, largest total first: the Held for Review view.
-// Counted (audit B11) and Non-Revenue (R2-OW03: its codes, the Zelle policy's and Q12's) are broken down the same way.
+// Non-Revenue (R2-OW03: its codes, the Zelle policy's and Q12's) is broken down the same way. The owner's request of
+// 2026-10-11 (§2.2, §10.1): no Verified Revenue row and no Counted row or counted reason rows (audit B11's I53 breakdown).
 const revenueRows = [
   ["true_revenue", "True Revenue", "REV", "Revenue", "green", "revenue_established"],
-  ["verified_revenue", "Verified Revenue", "VER", "Verified", "green", "verified_revenue_established"],
-  ["counted_flagged", "Counted, Not Verified", "CNT", "Counted", "teal", "revenue_established"],
   ["excluded_pending_review", "Held for Review", "?", "Review Required", "amber", "revenue_established"],
   ["non_revenue", "Non-Revenue", "X", "Excluded", "neutral", null],
 ];
 
 // The credits of one middle tier of a statement or a package by reason, largest total first (ties by code), or []
-// where they are not established. `tier` is counted_flagged or excluded_pending_review. R2-OW03 (owner ruling
-// 2026-10-02): or non_revenue, the non-revenue breakdown, read whenever it is an object (Non-revenue stays where
-// revenue is not established, §10.4).
+// where they are not established. `tier` is excluded_pending_review. R2-OW03 (owner ruling 2026-10-02): or
+// non_revenue, the non-revenue breakdown, read whenever it is an object (Non-revenue stays where revenue is not
+// established, §10.4).
 function tierReasonEntries(source = {}, tier = "excluded_pending_review") {
   const key = `${tier}_by_reason`;
   const shown = tier === "non_revenue" || (source && source.revenue_established === true);
@@ -3608,7 +3632,7 @@ function heldReasonEntries(source = {}) {
 // The words naming one middle tier's reason rows in the evidence table. R2-OW03: and the non-revenue breakdown's,
 // filtered as "non_revenue:<code>".
 const TIER_REASON_ROW_WORDS = Object.freeze({
-  counted_flagged: "counted", excluded_pending_review: "held", non_revenue: "excluded",
+  excluded_pending_review: "held", non_revenue: "excluded",
 });
 
 function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) {
@@ -3623,7 +3647,7 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
         <td>${glassChip(glyph, status, tone)}</td>
       </tr>
     `;
-    // Audit B11 (I53): Counted is broken down by reason, as Held is, so the card that headlines it can be read.
+    // Held and Non-Revenue are broken down by reason.
     if (!TIER_REASON_ROW_WORDS[filter]) return row;
     return row + tierReasonEntries(metrics, filter).map(({ reason, count, total }) => `
       <tr class="evidence-subrow">
@@ -3633,7 +3657,7 @@ function revenueEvidenceRowsHtml(metrics = {}, currency = "USD", modal = false) 
         <td></td>
       </tr>
     `).join("")
-      // Audit round 3, R3-B24 (R3-16): after the counted and held reasons, the large unsourced deposits' row.
+      // Audit round 3, R3-B24 (R3-16): after the held reasons, the large unsourced deposits' row.
       + (filter === "excluded_pending_review" ? largeDepositEvidenceRowHtml(metrics, currency, filterAttribute) : "");
   }).join("") + debitFlagEvidenceRowsHtml(metrics, currency, filterAttribute);
 }
@@ -4126,22 +4150,21 @@ function creditsMetaLines(...lines) {
   return lines.filter(Boolean).map((line) => `<span class="credits-meta-line">${line}</span>`).join("");
 }
 
-// 5.6 (true revenue spec §10.1): the four tiers of the posted credits.
+// 5.6 (true revenue spec §10.1): the posted credits in three parts. The owner's request of 2026-10-11 (§2.2, §10.1):
+// True revenue is one part, in his green, where it was the verified and counted tiers apart; Held and Non-revenue stay.
 const CREDIT_MIX = [
-  ["verified_revenue", "Verified revenue", "dot-green"],
-  ["counted_flagged", "Counted, not verified", "dot-teal"],
+  ["true_revenue", "True revenue", "dot-green"],
   ["excluded_pending_review", "Held for review", "dot-amber"],
   ["non_revenue", "Non-revenue", "dot-muted"],
 ];
 
-// The four tiers of the posted credits, each as its share of the four together. A row is a button to that tier's
-// transactions, like the Revenue evidence rows. Where revenue is not established the tiers are not known, so the
-// counted and held rows read N/A and no share is drawn (§10.4).
+// The three parts of the posted credits, each as its share of the three together (the posted credits). A row is a
+// button to that part's transactions, like the Revenue evidence rows. Where revenue is not established the parts are
+// not known, so the True and Held rows read N/A and no share is drawn (§10.4).
 function renderCreditMix(source = {}, currency = "USD") {
   const established = source.revenue_established === true;
   const parts = CREDIT_MIX.map(([state, label, dot]) => {
-    const known = established || state === "non_revenue"
-      || (state === "verified_revenue" && source.verified_revenue_established === true);
+    const known = established || state === "non_revenue";
     return {
       state,
       label,
@@ -4157,7 +4180,7 @@ function renderCreditMix(source = {}, currency = "USD") {
     .filter((part) => sum > 0 && part.size > 0)
     .map((part) => `<span class="${part.dot}" style="width: ${((part.size / sum) * 100).toFixed(2)}%"></span>`)
     .join("");
-  // Audit B11 (I53): each share is of the posted credits (the four tiers together), and says so.
+  // Audit B11 (I53): each share is of the posted credits (the parts together), and says so.
   els.creditMixBar.setAttribute(
     "aria-label",
     sum > 0 ? `Credit mix, as a share of posted credits: ${parts.map((part) => `${share(part)} ${part.label.toLowerCase()}`).join(", ")}` : "Credit mix unavailable",
@@ -4321,15 +4344,15 @@ function packageTitle(rows) {
 
 // The monthly chart follows the Monthly Statements basis (Settings) like the table beside it, so the page never shows
 // two different figures as a month's deposits: Total deposits, True revenue, or both. 5.6 (true revenue spec §10.3):
-// each Total bar holds its True part and the True part its Verified part, in three shades; in the True view the bar is
-// True revenue with its Verified part shaded. A statement whose revenue is not established draws neither part. The
-// owner's follow-up of 2026-10-07 ("there are like 4 different colors while the color key contains only two"): a bar
-// takes only colours its key shows, so no bar is highlighted: every Total bar (Both and Total views) is the Total
-// swatch's neutral, every True bar (True view) the True revenue swatch's accent, and the Total view's key names its
-// swatch too.
+// in the Both view each Total bar holds its True part; in the True view the bar is True revenue. A statement whose
+// revenue is not established draws no True part. The owner's follow-up of 2026-10-07 ("there are like 4 different
+// colors while the color key contains only two"): a bar takes only colours its key shows, so no bar is highlighted:
+// every Total bar (Both and Total views) is the Total swatch's neutral, every True bar (True view) the True revenue
+// swatch's accent, and the Total view's key names its swatch too. The owner's request of 2026-10-11 (§2.2, §10.3): no
+// verified part, shade, figure or legend line.
 // The monthly chart's geometry, as webapp/templates/index.html sets it: the plot box (.bar-chart, 190px border-box
 // with a 1px baseline, so 189px of content), each value figure's line (.bar-value, 16px), the column's flex gap (8px)
-// and the pull of each figure after the first (.bar-value-true and .bar-value-verified, margin-top -6px).
+// and the pull of each figure after the first (.bar-value-true, margin-top -6px).
 const MONTHLY_CHART_PLOT_PX = 189;
 const MONTHLY_CHART_FIGURE_PX = 16;
 const MONTHLY_CHART_GAP_PX = 8;
@@ -4349,7 +4372,6 @@ function monthlyChartTallestBar(figures) {
 function renderMonthlyChart(rows, unitsShown, view = "both") {
   if (!els.monthlyChart) return;
   const both = view === "both";
-  const nested = view !== "total";
   const plotted = view === "true" ? trueDeposits : totalDeposits;
   // Every bar of a view in its key's colour (webapp/templates/index.html: .bar.bar-total, .bar.bar-true).
   const barClass = view === "true" ? "bar bar-true" : "bar bar-total";
@@ -4363,9 +4385,9 @@ function renderMonthlyChart(rows, unitsShown, view = "both") {
   });
   const years = new Set(rows.map((row) => row.month && row.month.year));
   const columns = `grid-template-columns: repeat(${Math.max(rows.length, 1)}, minmax(0, 1fr))`;
-  // The tallest bar fills the plot box less the figures stacked above it (5.6, A4: the Verified figure is the third in
-  // the Both view and the second in the True view), so the bar, its figures and the baseline fit exactly.
-  const tallest = monthlyChartTallestBar(both ? 3 : nested ? 2 : 1);
+  // The tallest bar fills the plot box less the figures stacked above it (5.6, A4: two in the Both view, one in the True
+  // and Total views), so the bar, its figures and the baseline fit exactly.
+  const tallest = monthlyChartTallestBar(both ? 2 : 1);
   const bars = rows.map(({ doc }, index) => {
     const value = values[index];
     const currency = currencyOfDocument(doc);
@@ -4373,21 +4395,14 @@ function renderMonthlyChart(rows, unitsShown, view = "both") {
     const unit = unitsShown && currency ? ` ${currency}` : "";
     const withUnit = (text) => (text === "N/A" ? text : text + unit);
     const heightPx = largest > 0 && value !== null ? Math.max((Math.max(value, 0) / largest) * tallest, 2) : 0;
-    const truePart = nested ? numberOrNull(trueDeposits(doc)) : null;
-    // The Verified part stands only inside an established True part.
-    const verifiedPart = truePart !== null ? numberOrNull(verifiedDeposits(doc)) : null;
-    const shareOf = (part) => (part !== null && value > 0 ? Math.min(Math.max(part, 0) / value, 1) : 0);
-    const trueShare = both ? shareOf(truePart) : 0;
-    const verifiedShare = shareOf(verifiedPart);
-    const verifiedLabel = nested ? withUnit(formatWhole(truePart !== null ? verifiedDeposits(doc) : null)) : null;
+    const truePart = both ? numberOrNull(trueDeposits(doc)) : null;
+    const trueShare = truePart !== null && value > 0 ? Math.min(Math.max(truePart, 0) / value, 1) : 0;
     return `
       <div class="bar-col">
         <span class="bar-value">${escapeHtml(withUnit(formatWhole(plotted(doc))))}</span>
         ${both ? `<span class="bar-value bar-value-true">${escapeHtml(withUnit(formatWhole(trueDeposits(doc))))}</span>` : ""}
-        ${nested ? `<span class="bar-value bar-value-verified">${escapeHtml(verifiedLabel)}</span>` : ""}
         <div class="${barClass}" style="height: ${heightPx.toFixed(1)}px">${
-          trueShare > 0 ? `<div class="bar-part" style="height: ${(trueShare * 100).toFixed(1)}%"></div>` : ""}${
-          verifiedShare > 0 ? `<div class="bar-part bar-part-verified" style="height: ${(verifiedShare * 100).toFixed(1)}%"></div>` : ""}</div>
+          trueShare > 0 ? `<div class="bar-part" style="height: ${(trueShare * 100).toFixed(1)}%"></div>` : ""}</div>
       </div>
     `;
   }).join("");
@@ -4407,14 +4422,13 @@ function renderMonthlyChart(rows, unitsShown, view = "both") {
   }).join("");
   const totalSwatch = `<span><i class="legend-swatch" aria-hidden="true"></i>Total deposits</span>`;
   const trueSwatch = `<span><i class="legend-swatch legend-swatch-true" aria-hidden="true"></i>True revenue</span>`;
-  const verifiedSwatch = `<span><i class="legend-swatch legend-swatch-verified" aria-hidden="true"></i>of which verified</span>`;
   const ledgerNote = "<span>and ledger (average daily balance) per statement</span>";
   const legend = both
-    ? totalSwatch + trueSwatch + verifiedSwatch
-    : view === "true" ? trueSwatch + verifiedSwatch + ledgerNote : totalSwatch + ledgerNote;
+    ? totalSwatch + trueSwatch
+    : view === "true" ? trueSwatch + ledgerNote : totalSwatch + ledgerNote;
   const described = {
-    both: "total deposits, true revenue and its verified part",
-    true: "true revenue and its verified part",
+    both: "total deposits and true revenue",
+    true: "true revenue",
     total: "total deposits",
   }[view] || "total deposits";
   els.monthlyChart.innerHTML = `
@@ -4613,7 +4627,6 @@ function renderAccount(report) {
       items: [
         ...revenueCardItems(metrics, currency, {
           established: revenueEstablished,
-          verifiedEstablished: metrics.verified_revenue_established === true,
           unestablishedNote: rulesOutdated ? "Re-analyze to compute true revenue" : "",
           facts: statementRevenueFacts(metrics, currency),
         }),
@@ -5503,7 +5516,7 @@ function renderPackageAnalysis(pkg) {
           ...packageRevenueFlags(totals), note: moneyNote, facts: packageRevenueFacts(totals, currency),
         }),
         ["True Revenue Per Month", formatMoney(totals.avg_monthly_true_revenue, currency), moneyNote("True revenue per calendar month, across the package's accounts"), "AVG", "green", { revenueFilter: "true_revenue" }],
-        ["Verified Revenue Per Month", formatMoney(totals.avg_monthly_verified_revenue, currency), moneyNote("Verified revenue per calendar month, across the package's accounts"), "AVG", "green", { revenueFilter: "verified_revenue" }],
+        // The owner's request of 2026-10-11 (§2.2, §10.1): no Verified Revenue Per Month line.
         ["Total Credits", formatMoney(totals.total_credits, currency), moneyNote(REVENUE_METRIC_COPY.totalCredits), "CR", "neutral"],
         ["Avg Monthly Gross Credits", formatMoney(totals.avg_monthly_credits, currency), moneyNote("Gross posted credits per calendar month (not True revenue)"), "AVG", "neutral"],
       ],
@@ -5593,8 +5606,9 @@ function renderPackageTables(pkg) {
 /* --- Monthly Statements deposits -----------------------------------------
    Which deposits the package's Monthly Statements table shows, chosen on the Settings page and kept in this browser
    only. Total is everything going in. True is True revenue (5.6): every posted credit except known non-revenue (an
-   own-account transfer, lender funding, a refund) and the deposits held for review; the chart shades its Verified part.
-   Every view also shows each statement's confirmed withholding rate (the owner's request of 2026-10-07). */
+   own-account transfer, lender funding, a refund) and the deposits held for review (since the owner's request of
+   2026-10-11, the chart shades no verified part). Every view also shows each statement's confirmed withholding rate (the
+   owner's request of 2026-10-07). */
 const MONTHLY_DEPOSITS_KEY = "bsa-monthly-deposits";
 const MONTHLY_DEPOSITS_VIEWS = ["both", "total", "true"];
 // The choice made on this page. Storage only carries it to the next visit: where storage is blocked (a private
@@ -5630,17 +5644,12 @@ function trueDepositCount(doc) {
   return doc.revenue_established === true ? monthFigure(doc, doc.true_revenue_count) : null;
 }
 
-// Its Verified part, established on its own condition (`verified_revenue_established`, the tier aside).
-function verifiedDeposits(doc) {
-  return doc.verified_revenue_established === true ? monthFigure(doc, doc.verified_revenue_total) : null;
-}
-
 function totalDeposits(doc) {
   return monthFigure(doc, doc.credits);
 }
 
 // The deposit columns, [header, value of a row, kind]: the CRM's own headers when one basis is shown, each basis
-// named when both are. The owner's request of 2026-10-07: no Verified ($) column (the chart keeps its Verified part).
+// named when both are. The owner's request of 2026-10-07: no Verified ($) column.
 function monthlyDepositColumns(view) {
   const total = [totalDeposits, (doc) => monthFigure(doc, doc.deposit_count)];
   const revenue = [trueDeposits, trueDepositCount];
@@ -6053,7 +6062,6 @@ function renderStatementModal(jobId, report, markdown) {
   els.statementModalMetrics.innerHTML = [
     ...revenueCardItems(metrics, currency, {
       established: metrics.revenue_established === true,
-      verifiedEstablished: metrics.verified_revenue_established === true,
       unestablishedNote: rulesOutdated ? "Re-analyze to compute true revenue" : "",
       counts: true,
       facts: statementRevenueFacts(metrics, currency),
@@ -6200,8 +6208,9 @@ function generateSummary() {
     const repeats = duplicateDocuments(pkg.documents).length;
     // Audit round 2, R2-B15 (R50): a package holding an account of a document says how many of its accounts completed.
     const counts = packageCounts(pkg);
-    // Audit B11 (I07): the memo carries True, Verified and Non-revenue, in total and per calendar month, ahead of the
-    // gross figures, which are named gross; and the repeated statements left out (I06).
+    // Audit B11 (I07): the memo carries True and Non-revenue (no Verified since the owner's request of 2026-10-11), in
+    // total and per calendar month, ahead of the gross figures, which are named gross; and the repeated statements left
+    // out (I06).
     els.summaryBox.textContent =
       `Package ${packagePeriod(counted)} (${packageSpanLabel(totals, counted.length)}): ` +
       (counts.multi
@@ -6211,7 +6220,6 @@ function generateSummary() {
       (repeats ? `, ${formatNumber(repeats)} repeated ${repeats === 1 ? "statement" : "statements"} left out` : "") + ". " +
       `${revenueSummarySentence(totals, currency, packageRevenueFlags(totals), {
         trueMonthly: totals.avg_monthly_true_revenue,
-        verifiedMonthly: totals.avg_monthly_verified_revenue,
         nonRevenueMonthly: totals.avg_monthly_non_revenue,
       }, { package: true })} ` +
       // Audit round 3, R3-B24 (R3-16): the members' large unsourced deposits, after the revenue sentence.
@@ -6245,16 +6253,14 @@ function generateSummary() {
   // Audit round 2, R2-B15 (R13): the statement's monthly figures are its totals over the calendar months its period
   // covers (statementMonthsCovered): one for a statement of a month, two for one of 59 days. B11 (I07) read every
   // statement as one month, so a statement longer than a month printed its whole total as "a month".
-  const established = { established: m.revenue_established === true,
-    verifiedEstablished: m.verified_revenue_established === true };
+  const established = { established: m.revenue_established === true };
   const months = statementMonthsCovered(s);
   const perMonth = (value) => (months === 1 || numberOrNull(value) === null ? value : numberOrNull(value) / months);
   els.summaryBox.textContent =
     lead +
     `${s.bank || "Statement"} ${period(s)}: ` +
     `${revenueSummarySentence(m, currency, established, {
-      trueMonthly: perMonth(m.true_revenue_total), verifiedMonthly: perMonth(m.verified_revenue_total),
-      nonRevenueMonthly: perMonth(m.non_revenue_total),
+      trueMonthly: perMonth(m.true_revenue_total), nonRevenueMonthly: perMonth(m.non_revenue_total),
     })} ` +
     // Audit round 3, R3-B24 (R3-16): the statement's large unsourced deposits, after the revenue sentence.
     largeDepositSummary(m, currency) +
@@ -6339,7 +6345,7 @@ function showResultsEmpty(kind) {
   const copy = {
     results: ["No statement open", "Upload a statement, or several at once to build a package, and its analysis opens here."],
     packages: ["No package open", "Upload two or more statements at once to build a package."],
-    review: ["Nothing to review", "Open a statement or package to review its unverified deposits."],
+    review: ["Nothing to review", "Open a statement or package to review its held deposits."],
   }[kind];
   els.resultsEmptyTitle.textContent = copy[0];
   els.resultsEmptyCopy.textContent = copy[1];
@@ -7083,7 +7089,7 @@ async function submitRevenueReview(button) {
     });
     const payload = await responseJson(response);
     if (!response.ok || !payload.analysis) {
-      throw new Error(payload.error || `Revenue review failed (${response.status})`);
+      throw new Error(reviewRefusalWords(payload.error) || `Revenue review failed (${response.status})`);
     }
     saved = { jobId, analysis: payload.analysis };
     if (modalJobId === jobId) {
