@@ -193,12 +193,27 @@ detect = make_detector(DETECTION_MARKERS)
 #: Audit round 4, R4-68 (the underwriter's Q2 of 2026-10-02, "when the business is a repair shop"; the R2-B05 reader
 #: convention): the line page 1 of the `Free Business Checking ( ID nnnn )` issue prints under the account's heading,
 #: 'Primary Owner(s): <holder> Business Owner(s): <persons>', the business owners on the same line or the next. The
-#: label's spacing is read loosely (`Owner (s) :`). The name never starts with the Business Owner(s) label.
+#: label's spacing is read loosely (`Owner (s) :`). The name never starts with the Business Owner(s) label. Audit
+#: round 4, R4-B09 review round 1 (finding 3): the label's O read as a zero too (`0wner(s)`), and the name ends at
+#: _OWNER_LABEL, any owner or signer label a reading prints after it, not only the exact `Business Owner(s):`.
 _PRIMARY_OWNER_LINE = re.compile(
-    r"\bPrimary\s+Owner\s*\(\s*s\s*\)\s*:\s*(?P<name>(?!Business\s+Owner)\S.*?)"
-    r"(?:\s+Business\s+Owner\s*\(\s*s\s*\)\s*:.*)?$",
+    r"\bPrimary\s+[O0]wner\s*\(\s*s\s*\)\s*:\s*(?P<name>(?!Business\s+[O0]wner)\S.*?)"
+    r"(?:\s+Business\s+[O0]wner\s*\(\s*s\s*\)\s*:.*)?$",
     re.IGNORECASE,
 )
+#: Audit round 4, R4-B09 review round 1 (finding 3; privacy and correctness): an owner or signer label, with or without
+#: a label word before it ('Business Owners:', 'Business 0wner(s):', 'Joint Owner(s):', 'Co-Owner:', 'Owner:',
+#: 'Authorized Signer(s):', 'Signers:'): the persons it names are never the holder, so the holder's name ends before
+#: it. The label words are named (never any word, so a legal form before a bare 'Owner:' stays the name's, and CO
+#: only hyphenated, as a co-owner's).
+_OWNER_LABEL = re.compile(
+    r"(?:(?<![A-Za-z0-9])(?:(?:Business|Joint|Primary|Secondary|Additional|Other|Authori[sz]ed|Beneficial|Sole"
+    r"|Account)\s+|Co\s*-\s*))?(?<![A-Za-z0-9])(?:[O0]wner|Signer)s?\s*(?:\(\s*s\s*\))?\s*:",
+    re.IGNORECASE,
+)
+#: Audit round 4, R4-B09 review round 1 (finding 3): an owner or signer word left in a reading's name or title (a label
+#: printed without its colon): no holder is read (fail closed; never a person's name published as the holder).
+_OWNER_WORD = re.compile(r"(?<![A-Za-z0-9])(?:[O0]wner|Signer)s?(?![A-Za-z])", re.IGNORECASE)
 
 
 def _holder_reading(markdown: str) -> HolderReading:
@@ -207,12 +222,21 @@ def _holder_reading(markdown: str) -> HolderReading:
     account title it drops, if any); NO_READING when page 1 prints no such line or the label names nobody. The persons
     printed after the Business Owner(s) label are the business's owners, never the Business Owner(s) as the holder
     (privacy and correctness), and a later page is never read. The issue that prints `Business Checking (Account
-    #...)` prints no such line and reads no holder."""
+    #...)` prints no such line and reads no holder. Audit round 4, R4-B09 review round 1 (finding 3): the name ends
+    at any owner or signer label (_OWNER_LABEL: 'Business Owners:', 'Business 0wner(s):', 'Joint Owner(s):',
+    'Authorized Signer(s):'), and a reading whose name or title still prints an owner or signer word (_OWNER_WORD) is
+    NO_READING, so never the Business Owner(s) or any other owner's or signer's name is published as the holder."""
     for line in page_lines(first_page(markdown)):
         found = _PRIMARY_OWNER_LINE.search(line)
         if found is not None:
-            reading = read_name(found.group("name"))
-            return reading if reading.name else NO_READING
+            name = found.group("name")
+            label = _OWNER_LABEL.search(name)
+            reading = read_name(name[: label.start()] if label is not None else name)
+            if not reading.name or any(
+                _OWNER_WORD.search(part) for part in (reading.name, reading.title or "")
+            ):
+                return NO_READING
+            return reading
     return NO_READING
 
 

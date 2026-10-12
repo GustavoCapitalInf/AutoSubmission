@@ -7,6 +7,8 @@ deposit account is one the single-account schema cannot carry.
 """
 from __future__ import annotations
 
+import pytest
+
 from analysis.symitar import detect, parse_symitar_statement
 
 HEAD = (
@@ -407,6 +409,45 @@ def test_the_business_owners_are_never_the_holder():
     assert parse_symitar_statement(_page_one("Business Owner(s): SAMPLE OWNER\n")).holder_name is None
     assert parse_symitar_statement(_page_one("Primary Owner(s):\nBusiness Owner(s): SAMPLE OWNER\n")).holder_name is None
     assert parse_symitar_statement(_page_one("Primary Owner(s): Business Owner(s): SAMPLE OWNER\n")).holder_name is None
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    # Audit round 4, R4-B09 review round 1 (finding 3): the name ends at any owner
+    # or signer label, however a reading spells or cuts it.
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Business Owners: SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Business Owner: SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Business 0wner(s): SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY Business 0wner(s): SAMPLE OWNER\n", "CONTOSO AUTO REBODY"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Joint Owner(s): SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): SAMPLE PERSON Joint Owner(s): SAMPLE SPOUSE\n", "SAMPLE PERSON"),
+    # A legal form before a bare label stays the name's; a label word before it never does.
+    ("Primary Owner(s): CONTOSO TRADING CO Owner: SAMPLE PERSON\n", "CONTOSO TRADING CO"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY Owner(s): SAMPLE PERSON\n", "CONTOSO AUTO REBODY"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Co-Owner: SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Owner: SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Authorized Signer(s): SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary Owner(s): CONTOSO AUTO REBODY LLC Signers: SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+    ("Primary 0wner(s): CONTOSO AUTO REBODY LLC Business 0wner(s): SAMPLE OWNER\n", "CONTOSO AUTO REBODY LLC"),
+])
+def test_an_owner_or_signer_label_ends_the_holder(line, holder):
+    stmt = parse_symitar_statement(_page_one(line))
+    assert stmt.holder_name == holder
+    assert stmt.account_title is None
+
+
+@pytest.mark.parametrize("line", [
+    # An owner-like word left in the name or the title is never published: no
+    # reading (fail closed, privacy).
+    "Primary Owner(s): CONTOSO AUTO REBODY LLC Business Owners SAMPLE OWNER\n",
+    "Primary Owner(s): CONTOSO AUTO REBODY Owners SAMPLE OWNER\n",
+    "Primary Owner(s): Business Owners: SAMPLE OWNER\n",
+    "Primary Owner(s): Joint Owner(s): SAMPLE OWNER\n",
+    "Primary Owner(s): CONTOSO AUTO REBODY LLC Signer SAMPLE OWNER\n",
+])
+def test_an_owner_word_left_in_the_reading_reads_no_holder(line):
+    stmt = parse_symitar_statement(_page_one(line))
+    assert stmt.holder_name is None
+    assert stmt.account_title is None
 
 
 def test_a_statement_with_no_primary_owner_line_reads_no_holder():
