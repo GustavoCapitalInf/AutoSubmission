@@ -6229,6 +6229,11 @@ _BENEFIT_LEAD_LABELS = frozenset({
 #: Audit round 4, R4-34: the words that end the two-word window after a benefit word: a carrier's name never runs past
 #: them ('<carrier> BENEFIT PMT FOR <another party> LLC').
 _BENEFIT_NAME_STOPS = frozenset({"FROM", "FOR", "TO", "BY"})
+#: Audit round 4, R4-B09 review round 1 (finding 2; R4-34's fail-closed rule): Truist's entry-first layout ('<entry>
+#: <company field> <receiver> CUSTOMER ID <n>', the classifier's receiver slot on a Truist statement) prints the ACH
+#: entry description, a field of this many characters with no padding, first: a word that starts inside the region's
+#: first _ENTRY_FIRST_FIELD characters may be the entry's, never the carrier's name word before a benefit word.
+_ENTRY_FIRST_FIELD = 10
 _INSURER_NAME_FORM = re.compile(r"(?<![A-Z])(?:CO|COMPANY|CORP|CORPORATION|INC|LLC|LTD|GROUP)(?![A-Z])")
 #: Audit round 3, R3-B13 (R3-10): the holder trades whose insurer credits are medical claim payments to a provider.
 _PROVIDER_TRADES = frozenset({"clinic", "pharmacy"})
@@ -6305,7 +6310,7 @@ def _holder_provider(record: TransactionClassification, receiver_holders: Sequen
     return trade is not None and trade[0] in _PROVIDER_TRADES
 
 
-def _non_provider_benefit(own: str, purpose: str) -> bool:
+def _non_provider_benefit(own: str, purpose: str, entry_first: bool = False) -> bool:
     """Audit round 3, R3-B13 (R3-10): workers' compensation or a plain BENEFIT(S) wording
     (_INSURER_NON_PROVIDER_BENEFIT) on the purpose, or on the payer region read without the holder's names (`own`).
     R3-B13 review round 1 (finding 2): on the payer region a plain BENEFIT(S) or BNFT followed by an insurer word or
@@ -6322,28 +6327,44 @@ def _non_provider_benefit(own: str, purpose: str) -> bool:
     (_BENEFIT_NAME_STOPS). A benefit wording that leads the region (Truist's entry-first 'BENEFIT PMT <carrier>', PNC's
     'ACH CREDIT BENEFITS <carrier>', 'BENEFIT PMT FROM <carrier>') or precedes another party's form ('<carrier> BENEFIT
     PMT FOR <another party> LLC') is read; the fail-closed cost is a carrier whose legal name begins with a benefit
-    word, refused away from a provider."""
+    word, refused away from a provider. Audit round 4, R4-B09 review round 1 (finding 2): on Truist's entry-first
+    layout (`entry_first`, _entry_first_layout) a word that starts inside the region's first 10 characters, the
+    entry field's (_ENTRY_FIRST_FIELD), is no name word, so an entry word before a benefit word ('GROUP BENEFIT
+    <carrier> ... CUSTOMER ID') never makes it the carrier's name."""
     if _INSURER_NON_PROVIDER_BENEFIT.search(purpose) or _INSURER_NON_PROVIDER_PURPOSE_CUT.search(purpose):
         return True
     for found in _INSURER_NON_PROVIDER_BENEFIT.finditer(own):
         if not _INSURER_PLAIN_BENEFIT.fullmatch(found.group(0)):
             return True
-        if not _benefit_in_carrier_name(own, found.start(), found.end()):
+        if not _benefit_in_carrier_name(own, found.start(), found.end(), entry_first):
             return True
     return False
 
 
-def _benefit_in_carrier_name(own: str, start: int, end: int) -> bool:
+def _entry_first_layout(record: TransactionClassification, text: str) -> bool:
+    """Audit round 4, R4-B09 review round 1 (finding 2): the row is Truist's entry-first layout, the classifier's
+    receiver slot ('<entry> <company field> <receiver> CUSTOMER ID <n>', _RECEIVER_SLOT_LABEL on the row before its
+    receiver fields) on a Truist statement (_RECEIVER_SLOT_BANK), as holder_receiver_block reads it."""
+    classifier = _classifier()
+    return bool(
+        record.bank and classifier._RECEIVER_SLOT_BANK.search(record.bank)
+        and classifier._RECEIVER_SLOT_LABEL.search(classifier._before_receiver(text))
+    )
+
+
+def _benefit_in_carrier_name(own: str, start: int, end: int, entry_first: bool = False) -> bool:
     """Audit round 4, R4-34 (the round-3 reviewer's tighter rule, fail closed): whether the plain benefit word at
     own[start:end] is a word of the carrier's name: a name word precedes it (two letters or more, all letters, no
     reference token, no posting or rail label of _BENEFIT_LEAD_LABELS) and an insurer word or spelling or a legal form
     (_INSURER_NAME, _INSURER_SPELLINGS, _INSURER_NAME_FORM) is among its next two words, the window ending early at a
-    word of _BENEFIT_NAME_STOPS."""
+    word of _BENEFIT_NAME_STOPS. Audit round 4, R4-B09 review round 1 (finding 2): with `entry_first` (Truist's
+    entry-first layout) a word that starts inside the first _ENTRY_FIRST_FIELD characters is no name word."""
     classifier = _classifier()
     named = any(
         len(word) >= 2 and word.isalpha() and not classifier._is_reference_token(word)
         and word not in _BENEFIT_LEAD_LABELS
-        for word in own[:start].split()
+        and not (entry_first and found.start() < _ENTRY_FIRST_FIELD)
+        for found in re.finditer(r"\S+", own[:start]) for word in (found.group(0),)
     )
     if not named:
         return False
@@ -6356,7 +6377,60 @@ def _benefit_in_carrier_name(own: str, start: int, end: int) -> bool:
     return bool(_INSURER_NAME.search(after) or _INSURER_SPELLINGS.search(after) or _INSURER_NAME_FORM.search(after))
 
 
-def _strong_insurance_wording_only(record: TransactionClassification) -> bool:
+#: Audit round 4, R4-B09 review round 1 (finding 1; R4-69's ruling, a government payer is never for work, never released
+#: even three in 31 days; the MCA principle: government money unrelated to the business is never revenue): the
+#: government benefit and agency payers §7.6's public-payer reader and Q12's no-purpose forms miss, read by the
+#: strong-rule release alone (_government_insurance_payer). Social Security (SOCIAL SECURITY, SOC SEC, SSA, SSI, SUPP
+#: SEC), veterans' benefits (VA, never a state's code before a ZIP code; VETERAN(S)), unemployment insurance and the
+#: labour departments (EDD, UI, UNEMPLOY..., DOL, DEPT OF LABOR, WORKFORCE), flood insurance (FEMA, NFIP, NATIONAL
+#: FLOOD), crop insurance (USDA, RMA, FCIC), deposit and share insurance (FDIC, NCUA), the Treasury and the tax
+#: collectors (US TREAS..., TREASURY, TREASURER, IRS, COMPTROLLER, TAXATION, DEPT OF REVENUE) and the PBGC: the payers
+#: §7.6's name veto takes out of government_payer (DEPT OF LABOR, UNEMPLOYMENT, WORKFORCE, DEPT OF REVENUE, TAXATION,
+#: COMPTROLLER, TREASURER) among them. Never GOVERNMENT alone (a carrier's legal name may print it), and never a public
+#: health payer, which _PUBLIC_HEALTH_PAYER reads.
+_GOVERNMENT_INSURANCE_PAYER = re.compile(
+    r"(?<![A-Z])(?:SOCIAL SECURITY|(?:XX)?SOC ?SEC|SSA|SSI|SUPP SEC|VA(?! ?\d{5}(?!\d))|VETERANS?|EDD|UI|UNEMPLOY\w*"
+    r"|DOL|(?:DEPT|DEPARTMENT) OF LABOR|WORKFORCE|FEMA|NFIP|NATIONAL FLOOD|USDA|RMA|FCIC|FDIC|NCUA|US TREAS\w*"
+    r"|TREASURY|TREASURER|IRS|COMPTROLLER|TAXATION|(?:DEPT|DEPARTMENT) OF REVENUE|PBGC)(?![A-Z])"
+)
+#: Audit round 4, R4-B09 review round 1 (finding 1; the MCA principle: a government paying the business for its
+#: services is revenue): the public health payers, Medicare, Medicaid (Medi-Cal, normalized MEDI CAL, never the word
+#: MEDICAL) and CMS, which pay a clinic or a pharmacy for its services; read by the strong-rule release alone, which
+#: refuses them only where the holder is no provider (_holder_provider).
+_PUBLIC_HEALTH_PAYER = re.compile(r"(?<![A-Z])(?:MEDICARE|MEDICAID|MEDI CAL|CMS)(?![A-Z])")
+
+
+def _release_purpose(text: str, entry: str | None = None) -> str:
+    """The insurer release's purpose (§8.1): a wire's purpose fields (_title_purpose_text, never its REF), or the entry
+    fields (`entry`, classifier.entry_fields when None) read with R2-B12's layout entry (_layout_entry) and (audit
+    round 4, R4-35) a credit union's TYPE field (_type_field_entry)."""
+    classifier = _classifier()
+    if classifier._is_wire_row(text):
+        return _title_purpose_text(text)
+    if entry is None:
+        entry = classifier.entry_fields(text)
+    return " ".join(part for part in (_layout_entry(text), entry, _type_field_entry(text)) if part)
+
+
+def _government_insurance_payer(
+    record: TransactionClassification, text: str, region: str, receiver_holders: Sequence[str] = (),
+) -> bool:
+    """Audit round 4, R4-B09 review round 1 (finding 1; R4-69's ruling; the MCA principle): a strong-rule credit whose
+    payer, read on the public region without the holder's names (_insurer_own_region), or whose purpose
+    (_release_purpose) prints a government benefit or agency payer (_GOVERNMENT_INSURANCE_PAYER), or a public health
+    payer (_PUBLIC_HEALTH_PAYER) where the holder is no provider (_holder_provider). A public health payer at a clinic
+    or a pharmacy pays for its services, whatever agency word prints beside it."""
+    words = " ".join(part for part in (_insurer_own_region(record, region, receiver_holders), _release_purpose(text))
+                     if part)
+    health = _PUBLIC_HEALTH_PAYER.search(words) is not None
+    if health and _holder_provider(record, receiver_holders):
+        return False
+    return health or _GOVERNMENT_INSURANCE_PAYER.search(words) is not None
+
+
+def _strong_insurance_wording_only(
+    record: TransactionClassification, receiver_holders: Sequence[str] = (),
+) -> bool:
     """Audit round 4, R4-69 (the underwriter's Q2 of 2026-10-02; §6.3 narrowing 13's precedent): the release's third
     eligible state, a credit the classifier's strong non-revenue step excluded on its INSURANCE CLAIM or INSURANCE
     PAYMENT wording alone (non_revenue / strong_non_revenue_rule, and the classifier's
@@ -6366,19 +6440,25 @@ def _strong_insurance_wording_only(record: TransactionClassification) -> bool:
     public payer (government_payer) or a payer one of Q12's government forms names (the classifier's
     GOVERNMENT_NO_PURPOSE_FORMS), so North Dakota's Workforce Safety and Insurance, whose name ends in INSURANCE and
     which the insurer reading reads as no government payer, keeps the strong rule's non_revenue when its row prints a
-    CLAIM."""
+    CLAIM. Audit round 4, R4-B09 review round 1 (finding 1): nor a government benefit or agency payer those two readers
+    miss (_government_insurance_payer: Social Security, veterans' benefits, unemployment insurance, flood, crop and
+    deposit insurance, the Treasury and the tax collectors, on the payer without the holder's names or the purpose),
+    nor a public health payer away from a provider (Medicare, Medicaid or CMS at a clinic or a pharmacy still
+    counts)."""
     if record.revenue_classification != "non_revenue" or record.revenue_match_method != "strong_non_revenue_rule":
         return False
     classifier = _classifier()
     text = classifier.revenue_text(record.normalized_description)
-    region = public_region(text)
-    if government_payer(region) or any(form.search(region) for _key, form in classifier.GOVERNMENT_NO_PURPOSE_FORMS):
-        return False
-    return classifier.strong_rule_reads_insurance_wording_only(
+    if not classifier.strong_rule_reads_insurance_wording_only(
         text,
         record.original_description,
         classifier.holder_reading(record.account_name, record.holder_name),
-    )
+    ):
+        return False
+    region = public_region(text)
+    if government_payer(region) or any(form.search(region) for _key, form in classifier.GOVERNMENT_NO_PURPOSE_FORMS):
+        return False
+    return not _government_insurance_payer(record, text, region, receiver_holders)
 
 
 def _record_day(record: TransactionClassification) -> _date | None:
@@ -6437,7 +6517,10 @@ def _insurer_for_work(
     precedent): a third eligible state, a credit the strong rule excluded on its INSURANCE CLAIM or INSURANCE PAYMENT
     wording alone (_strong_insurance_wording_only, the classifier's strong_rule_reads_insurance_wording_only: never
     INSURANCE PROCEEDS, another strong pattern or an own-account transfer); everything after it reads it as it reads
-    the insurance rule's non_revenue, so a credit with no ground stays the strong rule's non_revenue."""
+    the insurance rule's non_revenue, so a credit with no ground stays the strong rule's non_revenue. Audit round 4,
+    R4-B09 review round 1: that third state is never a government benefit or agency payer's credit, nor a public
+    health payer's away from a provider (finding 1, _government_insurance_payer), and Truist's 10-character entry field
+    never names the carrier before a benefit word (finding 2, _entry_first_layout)."""
     classifier = _classifier()
     eligible: dict[int, InsurerReading] = {}
     forms: dict[int, bool] = {}
@@ -6449,7 +6532,7 @@ def _insurer_for_work(
                 record.revenue_classification == "non_revenue"
                 and record.revenue_match_method == "insurance_provider_credit_exclusion"
             )
-            or _strong_insurance_wording_only(record)
+            or _strong_insurance_wording_only(record, receiver_holders)
         ):
             continue
         if (
@@ -6465,13 +6548,10 @@ def _insurer_for_work(
         if reading is None or not reading.for_work:
             continue
         own = _insurer_own_region(record, region, receiver_holders)
-        if classifier._is_wire_row(text):
-            purpose = _title_purpose_text(text)
-        else:
-            # Audit round 2, R2-B12: the layout's entry (Bank of America's DES, Chase's CO ENTRY DESCR) through its
-            # helper, beside entry_fields' other fields (PNC's entry, a transfer's memo). Audit round 4, R4-35: and a
-            # credit union's TYPE field (_type_field_entry), read by the release alone.
-            purpose = " ".join(part for part in (_layout_entry(text), entry, _type_field_entry(text)) if part)
+        # A wire's purpose fields; on any other row (audit round 2, R2-B12) the layout's entry (Bank of America's DES,
+        # Chase's CO ENTRY DESCR) through its helper, beside entry_fields' other fields (PNC's entry, a transfer's
+        # memo), and (audit round 4, R4-35) a credit union's TYPE field (_type_field_entry), read by the release alone.
+        purpose = _release_purpose(text, entry)
         words = f"{own} {purpose}"
         # Audit round 3, R3-B13 (R3-10): the personal-benefit words refuse as the not-for-work words do; the commission
         # form printed in the same words still releases.
@@ -6480,7 +6560,10 @@ def _insurer_for_work(
             or _INSURER_PERSONAL_BENEFIT.search(words)
             or _INSURER_LTD_BENEFIT.search(purpose)
             or _INSURER_DISABILITY_ABBREVIATION.search(purpose)
-            or (_non_provider_benefit(own, purpose) and not _holder_provider(record, receiver_holders))
+            or (
+                _non_provider_benefit(own, purpose, _entry_first_layout(record, text))
+                and not _holder_provider(record, receiver_holders)
+            )
         ):
             continue
         eligible[index] = reading

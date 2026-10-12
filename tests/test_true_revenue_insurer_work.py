@@ -1762,6 +1762,152 @@ def test_r4_69_the_strong_text_is_unchanged():
 
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 review round 1 (finding 1; R4-69's ruling, a government payer is never for work, never released
+# even three in 31 days; the MCA principle: government money unrelated to the business is never revenue, a government
+# paying the business for its services still is): the strong-rule release also refuses a government benefit or agency
+# payer that §7.6's public-payer reader (government_payer, which _PUBLIC_PAYER_NAME_VETO's DEPT OF LABOR, UNEMPLOYMENT,
+# WORKFORCE, DEPT OF REVENUE, TAXATION, COMPTROLLER and TREASURER take out of it) and Q12's no-purpose forms miss, read
+# on the payer without the holder's names and on the purpose; a public health payer (MEDICARE, MEDICAID, CMS) only away
+# from a provider (a clinic or a pharmacy is paid for its services). Fabricated rows; public agencies by public names.
+# ---------------------------------------------------------------------------------------------------------------------
+
+#: The government benefit and agency payers the strong-rule release refuses everywhere (each released at 1fe4e23).
+GOVERNMENT_INSURANCE_PAYERS = (
+    "SOCIAL SECURITY", "SSA", "SSI", "EDD UI", "UI", "VA", "VETERANS AFFAIRS", "FEMA FLOOD", "NFIP FLOOD",
+    "NATIONAL FLOOD", "USDA RMA CROP", "RMA CROP", "FCIC CROP", "FDIC DEPOSIT", "NCUA SHARE", "US TREASURY", "US TREAS",
+    "IRS", "SAMPLE DEPT OF LABOR", "SAMPLE DOL", "SAMPLE UNEMPLOYMENT", "SAMPLE WORKFORCE COMMISSION",
+    "SAMPLE COMPTROLLER", "SAMPLE COUNTY TREASURER", "SAMPLE DEPT OF REVENUE", "SAMPLE TAXATION", "PBGC",
+)
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize("payer", GOVERNMENT_INSURANCE_PAYERS)
+def test_r4_b09_r1_a_government_payer_s_insurance_wording_is_never_released(payer, zelle):
+    """Audit round 4, R4-B09 review round 1 (finding 1): three within 31 days at a bakery, one at a repair shop and
+    three at a clinic stay the strong rule's non_revenue in both Zelle readings (1fe4e23 released them on a Q2 ground or
+    held them after the release; the batch's base read them so)."""
+    bakery = _dated(_three(_wells("INSURANCE PAYMENT", "NORTHWIND BAKERY LLC", carrier=payer), amount=812.37),
+                    holder=NORTHWIND_BAKERY, bank=WELLS, zelle_true_revenue=zelle)
+    repair = _dated([(_wells("INSURANCE CLAIM", "CONTOSO AUTO REPAIR LLC", carrier=payer).replace("000N", "0001"),
+                      2450.73, "03-02")], holder=REPAIR_SHOP, bank=WELLS, zelle_true_revenue=zelle)
+    clinic = _dated(_three(_wells("INSURANCE PAYMENT", "CONTOSO PHYSIOTHERAPY", carrier=payer), amount=812.37),
+                    holder=CLINIC, bank=WELLS, zelle_true_revenue=zelle)
+    assert len(bakery) == 3 and len(repair) == 1 and len(clinic) == 3
+    for record in (*bakery, *repair, *clinic):
+        assert rules_reading(record) == STRONG
+        assert record.revenue_match_method == "strong_non_revenue_rule"
+
+
+WIRE_HEAD = "WIRE TYPE:WIRE IN DATE: 540302 TIME:0000 ET TRN:2054030200000001 SEQ:0000001/000001 "
+
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # A public health payer away from a provider: no payment for the business's work (1fe4e23 counted them).
+    *(pytest.param(_three(_wells("INSURANCE PAYMENT", "NORTHWIND BAKERY LLC", carrier=payer), amount=812.37),
+                   {"holder": NORTHWIND_BAKERY, "bank": WELLS}, [STRONG] * 3, id=f"bakery-{payer}")
+      for payer in ("MEDICARE", "MEDICAID", "CMS MEDICARE")),
+    pytest.param([(_wells("INSURANCE CLAIM", "CONTOSO AUTO REPAIR LLC", carrier="MEDICARE").replace("000N", "0001"),
+                   2450.73, "03-02")], {"holder": REPAIR_SHOP, "bank": WELLS}, [STRONG], id="repair-medicare"),
+    # An insurer's wire whose purpose names a government benefit (1fe4e23 counted it at a repair shop).
+    pytest.param([(WIRE_HEAD + "ORIG:FABRIKAM INSURANCE CO ID:0000000001 SND BK:SAMPLE BANK ID:000000001 "
+                   "OBI:SOCIAL SECURITY INSURANCE CLAIM", 5120.44, "03-02")],
+                 {"holder": REPAIR_SHOP, "bank": "Bank of America"}, [STRONG], id="repair-wire-obi-social-security"),
+    # Controls. A public health payer at a provider pays for its services, whatever agency word prints beside it.
+    *(pytest.param(_three(_wells("INSURANCE PAYMENT", "CONTOSO PHYSIOTHERAPY", carrier=payer), amount=812.37),
+                   {"holder": CLINIC, "bank": WELLS}, [COUNTED] * 3, id=f"clinic-{payer}")
+      for payer in ("MEDICARE", "MEDICAID", "CMS MEDICARE", "US TREASURY MEDICARE")),
+    pytest.param([(_wells("INSURANCE CLAIM", "CONTOSO PHYSIOTHERAPY", carrier="MEDICAID").replace("000N", "0001"),
+                   187.29, "03-02")], {"holder": CLINIC, "bank": WELLS}, [COUNTED], id="clinic-medicaid-one-off"),
+    # A state's code before a ZIP code in a wire's originator address is no VA.
+    pytest.param([(WIRE_HEAD + "ORIG:FABRIKAM INSURANCE CO 100 MAIN ST SAMPLEVILLE VA 22000 ID:0000000001 "
+                   "SND BK:SAMPLE BANK ID:000000001 OBI:INSURANCE CLAIM", 5120.44, "03-02")],
+                 {"holder": REPAIR_SHOP, "bank": "Bank of America"}, [COUNTED], id="repair-wire-virginia-address"),
+    # The holder's own name is never read as a government payer.
+    pytest.param([("FABRIKAM INSURANCE PAYMENT 540302 0000000001 VETERANS AUTO BODY LLC", 2450.73, "03-02")],
+                 {"holder": "VETERANS AUTO BODY LLC", "bank": WELLS}, [COUNTED], id="repair-veterans-holder"),
+])
+def test_r4_b09_r1_a_public_health_payer_counts_only_at_a_provider(rows, statement, expected):
+    """Audit round 4, R4-B09 review round 1 (finding 1): Medicare, Medicaid and CMS pay a clinic or a pharmacy for its
+    services, so the strong-rule release counts them there and nowhere else; the government words are read on the payer
+    without the holder's names and on the purpose, never a state's code before a ZIP code."""
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
+        if reading == STRONG:
+            assert record.revenue_match_method == "strong_non_revenue_rule"
+
+
+@pytest.mark.parametrize(("words", "agency", "health"), [
+    ("SOCIAL SECURITY", True, False), ("XXSOC SEC", True, False), ("SOCSEC", True, False), ("SSA", True, False),
+    ("SSI", True, False), ("SUPP SEC", True, False), ("EDD UI", True, False), ("UI", True, False),
+    ("SAMPLE DOL", True, False), ("DEPT OF LABOR", True, False), ("DEPARTMENT OF LABOR", True, False),
+    ("SAMPLE UNEMPLOYMENT", True, False), ("SAMPLE WORKFORCE", True, False), ("VA", True, False),
+    ("VA LIFE", True, False), ("VETERANS AFFAIRS", True, False), ("VETERAN", True, False), ("FEMA", True, False),
+    ("NFIP", True, False), ("NATIONAL FLOOD", True, False), ("USDA", True, False), ("RMA", True, False),
+    ("FCIC", True, False), ("FDIC", True, False), ("NCUA", True, False), ("US TREAS", True, False),
+    ("US TREASURY", True, False), ("TREASURY", True, False), ("SAMPLE COUNTY TREASURER", True, False),
+    ("IRS", True, False), ("SAMPLE COMPTROLLER", True, False), ("SAMPLE TAXATION", True, False),
+    ("DEPT OF REVENUE", True, False), ("PBGC", True, False),
+    ("MEDICARE", False, True), ("MEDICAID", False, True), ("MEDI CAL", False, True), ("CMS", False, True),
+    # Never read: a state's code before a ZIP code, a word that holds the letters, GEICO's legal name, a carrier.
+    ("SAMPLEVILLE VA 22000", False, False), ("SAMPLEVILLE VA 22000-0001", False, False), ("NOVA", False, False),
+    ("VAN", False, False), ("GUI", False, False), ("FEMALE", False, False), ("USDAL", False, False),
+    ("GOVERNMENT EMPLOYEES", False, False), ("FABRIKAM MUTUAL", False, False), ("DOLLAR", False, False),
+    ("CMSX", False, False), ("MEDICAL", False, False),
+])
+def test_r4_b09_r1_the_government_payer_words(words, agency, health):
+    assert (true_revenue._GOVERNMENT_INSURANCE_PAYER.search(words) is not None) is agency
+    assert (true_revenue._PUBLIC_HEALTH_PAYER.search(words) is not None) is health
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Audit round 4, R4-B09 review round 1 (finding 2; R4-34's fail-closed rule): Truist's entry-first layout prints its
+# ACH entry, a 10-character field with no padding, before the company field ('<entry> <company field> <receiver>
+# CUSTOMER ID <n>'), so a word that starts inside the region's first 10 characters may be the entry's and is never the
+# carrier's name word before a benefit word.
+# ---------------------------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize(("rows", "statement", "expected"), [
+    # A benefit wording in Truist's entry field after an entry word (1fe4e23 counted them on the 3-in-31 ground).
+    *(pytest.param(_r4_34_three(f"{entry} SAMPLE MUTUAL INS NORTHWIND BAKERY CUSTOMER ID 000N"),
+                   {"holder": NORTHWIND_BAKERY, "bank": "Truist"}, [HELD] * 3, id=f"truist-{entry}")
+      for entry in ("GROUP BENEFIT", "EMPLOYEE BENEFIT", "LIFE BENEFITS", "CLAIM BENEFITS", "GROUP LIFE BENEFIT",
+                    "GR LF BNFT")),
+    # Controls. A carrier's name after Truist's entry still names the carrier; a provider is paid for treatment; on
+    # another layout the entry-field reading is never applied.
+    pytest.param(_r4_34_three("CLAIM PMT SAMPLE MUTUAL BENEFIT INS CO NORTHWIND BAKERY CUSTOMER ID 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Truist"}, [COUNTED] * 3, id="truist-carrier-name-after-entry"),
+    pytest.param(_r4_34_three("GROUP BENEFIT SAMPLE MUTUAL INS CONTOSO PHYSIOTHERAPY CUSTOMER ID 000N"),
+                 {"holder": CLINIC, "bank": "Truist"}, [COUNTED] * 3, id="truist-group-benefit-at-a-clinic"),
+    pytest.param(_r4_34_three("SAMPLE BENEFIT INS CO 000N"),
+                 {"holder": NORTHWIND_BAKERY, "bank": "Sample Bank"}, [COUNTED] * 3, id="sample-bank-carrier-name"),
+])
+def test_r4_b09_r1_truist_s_entry_field_never_names_the_carrier(rows, statement, expected):
+    """Audit round 4, R4-B09 review round 1 (finding 2): on Truist's entry-first layout a benefit word whose only name
+    words start inside the 10-character entry field refuses away from a provider."""
+    records = _dated(rows, **statement)
+    assert [rules_reading(record) for record in records] == expected
+    for record, reading in zip(records, expected):
+        assert (record.revenue_match_method == METHOD) is (reading == COUNTED)
+
+
+@pytest.mark.parametrize(("own", "read"), [
+    ("GROUP BENEFIT SAMPLE MUTUAL INS", True), ("EMPLOYEE BENEFIT SAMPLE MUTUAL INS", True),
+    ("LIFE BENEFITS SAMPLE MUTUAL INS", True), ("GR LF BNFT SAMPLE MUTUAL INS", True),
+    ("CLAIM SAMPLE BENEFIT INS CO", True),
+    # A name word that starts after the 10-character field names the carrier.
+    ("CLAIM PMT SAMPLE MUTUAL BENEFIT INS CO", False), ("CLAIM PMT MUTUAL BENEFIT INS CO", False),
+    # The recorded residual: an entry wider than the field, which no real row prints.
+    ("SUPPLEMENTAL LIFE BENEFIT SAMPLE MUTUAL INS", False),
+])
+def test_r4_b09_r1_the_entry_first_benefit_reading(own, read):
+    assert true_revenue._non_provider_benefit(own, "", entry_first=True) is read
+    # Off Truist's layout R4-34's reading is unchanged: every name word counts, so each is the carrier's name.
+    assert true_revenue._non_provider_benefit(own, "") is False
+
+
+# ---------------------------------------------------------------------------------------------------------------------
 # Audit round 4, R4-B09 (R4-68; the underwriter's Q2 of 2026-10-02, "when the business is a repair shop"): Symitar's
 # parser reads the holder page 1 prints ('Primary Owner(s): <holder> Business Owner(s): <persons>'), so Q2's
 # holder-trade ground reads a body shop's name there. Fabricated statement, names and amounts.
