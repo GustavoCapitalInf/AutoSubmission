@@ -3801,6 +3801,18 @@ _MERCHANT_SETTLEMENT_ENTRY = re.compile(
 #: releases is counted, never verified and never a repeat, in each spelling, slot and boundary
 #: (CreditFacts.settlement_released).
 _HOLDER_NAMED_SETTLEMENT_ENTRY = re.compile(r"(?<![A-Z])(?:SETTLEMENT|SETTLMT|STLMT)(?![A-Z])")
+#: §8.1 (audit round 4, R4-26; standard B7, fail closed): the settlement-word families, one per entry form of
+#: _MERCHANT_SETTLEMENT_ENTRY and _HOLDER_NAMED_SETTLEMENT_ENTRY (a match's trailing SEC dropped): every spelling a
+#: family's form reads is that family's word. A holder whose own name prints a family's word never has that family read
+#: as a settlement on its rows (merchant_settlement, _holder_settlement_families).
+_SETTLEMENT_FAMILIES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("SETTLEMENT", re.compile(r"(?:SETTLEMENT|SETTLMT|STLMT)")),
+    ("NET SETTLE", re.compile(r"NET (?:SETTLE|SETLMT|STLMT|SETL)")),
+    ("MERCHANT", re.compile(r"(?:MERCH|MERCHANT|MERCHPAYO\w*|MRCHNTSRVS)")),
+    ("BANKCARD", re.compile(r"(?:BANKCARD|BANKCD|BNKCD|BKCD|BKCRD|BNKCRD)")),
+    ("NETSWEEP", re.compile(r"NETSWEEP")),
+    ("FINTECHEFT", re.compile(r"FINTECHEFT")),
+)
 #: §8.1 (audit round 3, R3-B10 review round 2: finding 1): the method and the matched rule pass 7 gives a settlement
 #: under the merchant's own name that an earlier rule verified and that only the bare settlement word lifted from the
 #: own-push guard (_settlement_never_verified).
@@ -3869,20 +3881,61 @@ def merchant_settlement(text: str, names: Sequence[str] = (), *, bare_settlement
     (_HOLDER_NAMED_SETTLEMENT_ENTRY), on a row that is no transfer or person-to-person row (a transfer printing the
     word is the holder's own money): the holds skip it, and it takes its own reading, counted and never verified.
     R3-B10 review round 2 (finding 1): with `bare_settlement` False that arm is not read (B9's words alone), the
-    reading credit_facts compares to name a row the bare word alone released (CreditFacts.settlement_released)."""
+    reading credit_facts compares to name a row the bare word alone released (CreditFacts.settlement_released).
+
+    Audit round 4, R4-26 (standard B7: the holder's own name is excluded; fail closed: when the settlement word is the
+    holder's own name word, nothing on the row shows a processor paid it; standard A1 still counts a processor's
+    settlement printed under the merchant's name): a word of a settlement family that any of `names` prints
+    (_holder_settlement_families: either trade-name side, any spelling of the family) is never read as a settlement
+    for that holder, whatever form its name prints (the strip of _outside_holder_names cuts only a name its runs
+    read), so a holder named 'NORTHWIND SETTLEMENT SERVICES' or '... DBA NORTHWIND MERCHANT SERVICES' keeps its own
+    push, Zelle and wire held, while a BANKCARD or NET SETTLE settlement printed beside its name is still one."""
     classifier = _classifier()
     if classifier._is_wire_row(text) or classifier._loose_wire_originator(text):
         return False
     row = classifier._before_receiver(text)
     if _p2p_rail(row) or classifier._PUSH_RAIL.search(row):
         return False
+    own = _holder_settlement_families(tuple(names))
     outside = _outside_holder_names(row, names)
-    if _MERCHANT_SETTLEMENT_ENTRY.search(outside) is not None:
+    if any(_settlement_family(found.group(0)) not in own for found in _MERCHANT_SETTLEMENT_ENTRY.finditer(outside)):
         return True
     return (
-        bare_settlement and _HOLDER_NAMED_SETTLEMENT_ENTRY.search(outside) is not None
+        bare_settlement and "SETTLEMENT" not in own
+        and _HOLDER_NAMED_SETTLEMENT_ENTRY.search(outside) is not None
         and not classifier._is_transfer_or_p2p_row(text)
     )
+
+
+def _settlement_family(matched: str) -> str | None:
+    """§8.1 (audit round 4, R4-26): the settlement family (_SETTLEMENT_FAMILIES) of a match of
+    _MERCHANT_SETTLEMENT_ENTRY or _HOLDER_NAMED_SETTLEMENT_ENTRY, its trailing SEC dropped ('BANKCARDSEC' is
+    BANKCARD's); None for any other text."""
+    for candidate in (matched, matched[:-3] if matched.endswith("SEC") else None):
+        if not candidate:
+            continue
+        for family, pattern in _SETTLEMENT_FAMILIES:
+            if pattern.fullmatch(candidate):
+                return family
+    return None
+
+
+@cache
+def _holder_settlement_families(names: tuple[str, ...]) -> frozenset[str]:
+    """§8.1 (audit round 4, R4-26): the settlement families whose word one of the holder's names prints: every
+    whole-word match of _MERCHANT_SETTLEMENT_ENTRY or _HOLDER_NAMED_SETTLEMENT_ENTRY in each of `names`, read whole
+    (both trade-name sides, the OPERATING AS and printed O/A sides included) through classifier.account_name_text. A
+    word that merely starts like one ('MERCHANDISE') is a family word only where the pattern itself matches it whole."""
+    classifier = _classifier()
+    families: set[str] = set()
+    for name in names:
+        printed = classifier.account_name_text(name) if name else ""
+        for pattern in (_MERCHANT_SETTLEMENT_ENTRY, _HOLDER_NAMED_SETTLEMENT_ENTRY):
+            for found in pattern.finditer(printed):
+                family = _settlement_family(found.group(0))
+                if family is not None:
+                    families.add(family)
+    return frozenset(families)
 
 
 def _outside_holder_names(row: str, names: Sequence[str]) -> str:

@@ -2267,3 +2267,116 @@ def test_r4_b08_late_the_readers():
     assert not tc._prints_printed_lead(["GLDN", "YACHT"], "GOLDEN")
     assert tc._prints_printed_lead(["GOLDEN", "YACHT"], "GOLDEN")
 
+
+# --- Audit round 4, batch R4-B12 ---
+# R4-26 (standard B7: the holder's own name is excluded; fail closed: when the settlement word is the holder's own name
+# word, nothing on the row shows a processor paid it; standard A1 still counts a processor's settlement under the
+# merchant's name): a settlement word that any of the holder's names prints (either trade-name side, any spelling of its
+# family: SETTLEMENT, NET SETTLE, MERCHANT, BANKCARD, NETSWEEP, FINTECHEFT) is never read as a settlement for that
+# holder, whatever form its name prints, so its own push stays held as holder_name, in both Zelle readings and with the
+# name as holder_name or account_name; a settlement of another family printed beside its name is still a settlement.
+# Fabricated rows only.
+
+def _r4_b12_both(rows, expected, **kwargs):
+    """The credits' final reading in both Zelle readings (no Zelle row here)."""
+    for zelle in (True, False):
+        assert _final_in(rows, zelle, **kwargs) == expected, zelle
+
+
+#: (holder, rows): the holder's own push printing its own settlement word; the amounts uneven.
+R4_26_SETTLEMENT_HOLDERS = [
+    ("NORTHWIND SETTLEMENT SERVICES",
+     ["{ach} NORTHWIND SETTLEMENT REF 0000", "{ach} NORTHWIND SETTLEMENT REF 0000",
+      "{ach} NORTHWIND SETTLEMENT SVCS REF 0000", "{ach} NORTHWIND SETTLEMENT SVCS REF 0000"]),
+    ("CONTOSO HAULING LLC DBA NORTHWIND SETTLEMENT SERVICES",
+     ["{ach} NORTHWIND SETTLEMENT REF 0000", "{ach} NORTHWIND SETTLEMENT REF 0000",
+      "{ach} NORTHWIND SETTLEMENT SVCS REF 0000", "{ach} NORTHWIND SETTLEMENT SVCS REF 0000",
+      "{ach} NORTHWIND SETTLEMENT SERV REF 0000"]),
+    ("ACE SETTLEMENT SERVICES", ["{ach} ACE SETTLEMENT S PAYMENT 0000"]),
+    ("SETTLEMENT SERVICES LLC", ["{ach} SETTLEMENT SERV REF 0000"]),
+    ("NORTHWIND STLMT SERVICES", ["{ach} NORTHWIND STLMT REF 0000"]),
+    ("CONTOSO HAULING LLC DBA THE SETTLEMENT TAPHOUSE AND GRILL", ["{ach} THE SETTLEMENT TAP PAYMENT 0000"]),
+]
+R4_26_BANKS = [("Fifth Third", "ACH CREDIT"), ("Huntington", "ACH DEPOSIT")]
+R4_26_AMOUNTS = (1210.40, 1387.15, 990.75, 1105.60, 1312.20)
+
+
+def _r4_26_rows(templates, ach, repeat=1):
+    texts = [template.format(ach=ach) for template in templates] * repeat
+    return [(text, R4_26_AMOUNTS[index % len(R4_26_AMOUNTS)] + index) for index, text in enumerate(texts)]
+
+
+@pytest.mark.parametrize("field", ["holder_name", "account_name"])
+@pytest.mark.parametrize(("bank", "ach"), R4_26_BANKS)
+@pytest.mark.parametrize(("holder", "templates"), R4_26_SETTLEMENT_HOLDERS)
+def test_r4_26_a_holder_named_for_settlement_keeps_its_own_push_held(holder, templates, bank, ach, field):
+    rows = _r4_26_rows(templates, ach)
+    _r4_b12_both(rows, [HOLDER_NAME] * len(rows), bank=bank, **{field: holder})
+
+
+#: (holder, row, repeats): the holder's own push printing its own MERCHANT or BANKCARD word, verified by repetition
+#: before (named_payer_repeats).
+R4_26_MERCHANT_HOLDERS = [
+    ("CONTOSO HAULING LLC DBA NORTHWIND MERCHANT SERVICES", "{ach} NORTHWIND MERCHANT REF 0000", 3),
+    ("NORTHWIND MERCHANT SERVICES", "{ach} NORTHWIND MERCHANT REF 0000", 3),
+    ("CONTOSO HAULING LLC DBA NORTHWIND BANKCARD SERVICES", "{ach} NORTHWIND BANKCARD REF 0000", 2),
+    ("CONTOSO HAULING LLC DBA THE MERCHANT TAVERN AND GRILL", "{ach} THE MERCHANT TAV PAYMENT 0000", 2),
+]
+
+
+@pytest.mark.parametrize("field", ["holder_name", "account_name"])
+@pytest.mark.parametrize(("bank", "ach"), R4_26_BANKS)
+@pytest.mark.parametrize(("holder", "template", "repeats"), R4_26_MERCHANT_HOLDERS)
+def test_r4_26_a_holder_named_for_a_processor_s_word_never_verifies_its_own_push(
+    holder, template, repeats, bank, ach, field,
+):
+    rows = _r4_26_rows([template], ach, repeats)
+    if bank == "Huntington" and "BANKCARD" in template:
+        # Recorded residual (not this pass's reading): the classifier's card-settlement rule verifies Huntington's
+        # 'ACH DEPOSIT <name> BANKCARD' before pass 7 reads the holder (operating_income_descriptor), as before.
+        _r4_b12_both(rows, [NET_SETTLE] * repeats, bank=bank, **{field: holder})
+        return
+    _r4_b12_both(rows, [HOLDER_NAME] * repeats, bank=bank, **{field: holder})
+
+
+def test_r4_26_a_settlement_of_another_family_beside_the_holder_s_name_is_still_a_settlement():
+    bankcard = _revenue("BANKCARD DEPOSIT 000000 000000000000000 NORTHWIND MERCHANT SERV")
+    assert tr.merchant_settlement(bankcard, ("NORTHWIND MERCHANT SERVICES LLC",))
+    netsweep = _revenue(CHASE_ACH.format(orig="NORTHWIND MERCHANT SERV", entry="NETSWEEP ",
+                                         receiver="NORTHWIND MERCHANT SERVICES LLC"))
+    assert tr.merchant_settlement(netsweep, ("NORTHWIND MERCHANT SERVICES LLC",))
+    net_settle = _revenue(CHASE_ACH.format(orig="NORTHWIND SETTLEMENT SERV", entry="NET SETLMT ",
+                                           receiver="NORTHWIND SETTLEMENT SERVICES"))
+    assert tr.merchant_settlement(net_settle, ("NORTHWIND SETTLEMENT SERVICES",))
+    # MERCHANDISE is no family word: the MERCH deposit form is still a settlement under the holder's name.
+    merch = _revenue("MERCH DEP 0000000000 NORTHWIND MERCHANDISE")
+    assert tr.merchant_settlement(merch, ("NORTHWIND MERCHANDISE LLC",))
+    assert tr._holder_settlement_families(("NORTHWIND MERCHANDISE LLC",)) == frozenset()
+
+
+@pytest.mark.parametrize(("holder", "text"), [
+    # The same shape with no settlement word, and a usable form-less name that builds its runs: held, as before.
+    ("NORTHWIND SAMPLING SERVICES", "ACH CREDIT NORTHWIND SAMPLING REF 0000"),
+    ("NORTHWIND SETTLEMENT AGENCY", "ACH CREDIT NORTHWIND SETTLEMENT REF 0000"),
+])
+def test_r4_26_the_controls_stay_held(holder, text):
+    rows = [(text, 1210.40), (text, 1387.15)]
+    _r4_b12_both(rows, [HOLDER_NAME] * 2, bank="Fifth Third", holder_name=holder)
+
+
+def test_r4_26_the_settlement_families():
+    assert tr._holder_settlement_families(("CONTOSO HAULING LLC DBA NORTHWIND MERCHANT SERVICES",)) == {"MERCHANT"}
+    assert tr._holder_settlement_families(("NORTHWIND STLMT SERVICES", "SAMPLE BNKCRD LLC")) == {
+        "SETTLEMENT", "BANKCARD"}
+    assert tr._holder_settlement_families(("CONTOSO MERCH LLC",)) == {"MERCHANT"}
+    assert tr._holder_settlement_families(("CONTOSO HAULING LLC",)) == frozenset()
+    assert tr._holder_settlement_families(()) == frozenset()
+    for matched, family in (("SETTLEMENT", "SETTLEMENT"), ("SETTLMT", "SETTLEMENT"), ("STLMT", "SETTLEMENT"),
+                            ("NET SETTLE", "NET SETTLE"), ("NET SETL", "NET SETTLE"), ("NET STLMT", "NET SETTLE"),
+                            ("MERCH", "MERCHANT"), ("MERCHPAYOUT", "MERCHANT"), ("MRCHNTSRVS", "MERCHANT"),
+                            ("BANKCARDSEC", "BANKCARD"), ("BKCRD", "BANKCARD"), ("NETSWEEP", "NETSWEEP"),
+                            ("FINTECHEFT", "FINTECHEFT")):
+        assert tr._settlement_family(matched) == family, matched
+    text = _revenue("ACH CREDIT NORTHWIND MERCHANT REF 0000")
+    assert not tr.merchant_settlement(text, ("NORTHWIND MERCHANT SERVICES",))
+    assert tr.merchant_settlement(text, ())
