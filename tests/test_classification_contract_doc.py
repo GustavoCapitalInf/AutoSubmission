@@ -3944,9 +3944,11 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "exactly two statements move, both from withheld to validated", "0 console errors"):
         assert words in line, words
     assert not _cent_figures(line)
-    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, the last of §20.
+    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, and the owner's
+    # Amerifi Capital ruling (2026-10-11) the last of §20 after it.
     positions = _amendment_line(amendments, "- **Active positions by month** (")
-    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip())
+    amerifi = _amendment_line(amendments, AMERIFI_LINE_START)
+    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip() + "\n" + amerifi.rstrip())
     assert not _cent_figures(positions)
     contract = _flat(CONTRACT)
     assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
@@ -3958,3 +3960,65 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "**Merged** with the owner's approval of 2026-10-10", "| Hosting line merge-back (R3-MERGE) |",
                   "**Done** (R3-MERGE, 2026-10-10): merge commit `7e254cf`, stage 37 and `true-revenue-11`"):
         assert words in handoff, words
+
+
+#: The owner's ruling of 2026-10-11 (Amerifi Capital is a counted lender): the start of its §20 line, the last of §20.
+AMERIFI_LINE_START = "- **Amerifi Capital is a counted lender** ("
+#: The ruling's commits, before the docs commit ("this commit"): the ledger, the tests, the versions.
+AMERIFI_COMMITS = ("985aa0a", "11d79f3", "6c03e15")
+
+
+def test_the_specs_the_plan_and_the_contract_record_the_amerifi_capital_ruling():
+    """The owner's ruling of 2026-10-11 ("amerifi is a lender we count"; tests/test_amerifi_capital.py): the code reads
+    5.9 and stage 38; the true revenue spec's §9.3 carries the 5.9 line (37 → 38, on the hosting line ahead of audit
+    round 4, whose last batch takes 5.10 and 39) and the closing paragraph's 5.9 sentence, after every earlier line; §20
+    ends with the ruling's line (its commits, G7's count, the residuals; no statement figure); the lender spec's
+    amendment and version lines, the master plan's version line and the contract's head and version lines name it."""
+    from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
+
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    spec = SPEC.read_text(encoding="utf-8")
+    sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
+    versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
+    for words in ("- 5.9 (the owner's ruling of 2026-10-11, \"amerifi is a lender we count\"; §20;",
+                  "`CLASSIFICATION_VERSION = \"5.9\"`, and `ANALYSIS_STAGE_VERSION` 37 → 38 in the same commit.",
+                  "its Re-analyze misses the stage-37 cache entry",
+                  "with 5.9 alone the cached 5.8 entry would come back",
+                  "No cached corpus row prints the name, so no cached analysis moves (G7, §20).",
+                  "round 4's last batch takes 5.10 and stage 39",
+                  "the cache-bust stays `true-revenue-13`",
+                  "and 5.8 sets it on every analysis saved at 5.7 or earlier (audit round 3, R3-B25). 5.9 sets it on "
+                  "every analysis saved at 5.8 or earlier (the owner's Amerifi Capital ruling of 2026-10-11)."):
+        assert words in versions, words
+    assert (versions.index("- Audit round 3, R3-MERGE (§20)")
+            < versions.index("- The owner's request of 2026-10-10 (active positions by month; §20)")
+            < versions.index("- 5.9 (the owner's ruling of 2026-10-11"))
+    line = _amendment_line(amendments, AMERIFI_LINE_START)
+    for words in ("\"amerifi is a lender we count\"", "§9.3", *AMERIFI_COMMITS, "this commit",
+                  "`Electronic Withdrawal To AMERIFI CAPITAL`", "the one alias `AMERIFI CAPITAL`",
+                  "the independent verify round r9", "bare `AMERIFI`", "the cut `AMERIFI CAP`",
+                  "is a line of credit (D9)", "its credits are financing proceeds (D1)",
+                  "`tests/test_amerifi_capital.py`", "eighteen controls", "AmeriFactors' credit as factoring",
+                  "G7 (the lender census, cached;", "moves 0 rows in 0 statements",
+                  "AMERIFI CAPITAL GROUP", "reads on credits only"):
+        assert words in line, words
+    assert amendments.rstrip().endswith(line.rstrip())
+    assert not _cent_figures(line)
+    lender = _flat(ROOT / "docs" / "superpowers" / "specs" / "2026-09-24-lender-detection-design.md")
+    for words in ("*Amendment (owner, 2026-10-11; classification 5.9, `ANALYSIS_STAGE_VERSION` 38):* **Amerifi Capital "
+                  "(Amerifi Capital, LLC) is a counted lender**",
+                  "and `\"5.9\"` with the owner's Amerifi Capital ruling of 2026-10-11 (5.5 to 5.8 are the true revenue "
+                  "spec's, its §9.3)",
+                  "So does the owner's Amerifi Capital ruling (2026-10-11: a counted lender, read as a potential lender "
+                  "until then): `CLASSIFICATION_VERSION = \"5.9\"` and `ANALYSIS_STAGE_VERSION` 37 → 38, together"):
+        assert words in lender, words
+    assert lender.index("*Amendment (owner, 2026-10-11;") < lender.index("*Amendment (owner, 2026-09-28;")
+    plan = _flat(ROOT / "docs" / "superpowers" / "plans" / "2026-09-24-lender-detection.md")
+    assert ("`\"5.9\"` since the owner's Amerifi Capital ruling (2026-10-11: a counted lender, read as a potential "
+            "lender until then), with `ANALYSIS_STAGE_VERSION` 37 → 38") in plan
+    contract = _flat(CONTRACT)
+    assert "Version 5.9 (2026-10-11) applies the owner's ruling that Amerifi Capital is a counted lender" in contract
+    assert ("- The owner's ruling of 2026-10-11 (Amerifi Capital is a counted lender; 985aa0a, 6c03e15): classification "
+            "5.9 (`CLASSIFICATION_VERSION`), with `ANALYSIS_STAGE_VERSION` 37 → 38 in the same commit") in contract
+    assert contract.index("Version 5.4 (2026-09-28)") < contract.index("Version 5.9 (2026-10-11)")
+    assert contract.index("- Audit round 3, R3-MERGE:") < contract.index("- The owner's ruling of 2026-10-11 (Amerifi")
