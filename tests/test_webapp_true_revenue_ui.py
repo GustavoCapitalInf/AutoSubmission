@@ -144,27 +144,25 @@ console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML), meta: e
 """)
     rows = result["rows"]
     labels = [row["label"] for row in rows]
-    assert labels[:7] == ["True Revenue", "Verified Revenue", "Counted, Not Verified", "Held for Review", "Non-Revenue",
-                          "Total Credits", "ACH Credits"]
+    # The owner's request of 2026-10-11 (spec §2.2, §10.1): no Verified Revenue and no "Counted, Not Verified" line.
+    assert labels[:5] == ["True Revenue", "Held for Review", "Non-Revenue", "Total Credits", "ACH Credits"]
+    assert not {"Verified Revenue", "Counted, Not Verified"} & set(labels)
     assert "Unverified Deposits" not in labels and "Revenue Upper Bound" not in labels
     figures = {row["label"]: row for row in rows}
-    assert figures["True Revenue"]["headline"] and not figures["Verified Revenue"]["headline"]
-    assert [figures[label]["value"] for label in ("True Revenue", "Verified Revenue", "Counted, Not Verified",
-                                                  "Held for Review", "Non-Revenue")] == [
-        "$1,000.00", "$700.00", "$300.00", "$900.00", "$100.00"]
-    assert figures["Verified Revenue"]["note"].startswith("70.0% of true revenue · Revenue with proof")
+    assert figures["True Revenue"]["headline"] and not figures["Held for Review"]["headline"]
+    assert [figures[label]["value"] for label in ("True Revenue", "Held for Review", "Non-Revenue")] == [
+        "$1,000.00", "$900.00", "$100.00"]
     assert figures["True Revenue"]["note"] == "Posted credits minus known non-revenue and the deposits held for review"
     # The owner's request of 2026-10-07: the hero's big figure is True revenue, Total credits on the line below.
     assert (result["label"], result["value"]) == ("True revenue", "$1,000.00")
     assert "Total credits" in result["meta"] and "$2,000.00" in result["meta"]
     assert result["badge"] == [False, "1"]  # the held credit, not every unverified deposit
     evidence = result["evidence"]
-    # Audit B11 (I53): Counted is broken down by reason, as Held is.
-    assert [row[0] for row in evidence] == ["True Revenue", "Verified Revenue", "Counted, Not Verified",
-                                            "Check deposit", "Held for Review", "Payer or entry suggests financing",
+    # Held is broken down by reason; True revenue is one row (no Verified row, no Counted row or counted reasons).
+    assert [row[0] for row in evidence] == ["True Revenue", "Held for Review", "Payer or entry suggests financing",
                                             "Non-Revenue"]
-    assert evidence[3][1:3] == ["1", "$300.00"]
-    assert evidence[5][1:3] == ["1", "$900.00"]
+    assert evidence[0][1:3] == ["2", "$1,000.00"]
+    assert evidence[2][1:3] == ["1", "$900.00"]
 
 
 @needs_node
@@ -175,10 +173,10 @@ console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML), mix: el
   bar: els.creditMixBar.getAttribute('aria-label'), badge: els.reviewCount.textContent}));
 """)
     figures = {row["label"]: row for row in result["rows"]}
-    assert [figures[label]["value"] for label in ("True Revenue", "Counted, Not Verified", "Held for Review")] == [
-        "N/A"] * 3
+    assert [figures[label]["value"] for label in ("True Revenue", "Held for Review")] == ["N/A"] * 2
     assert figures["True Revenue"]["note"] == "Re-analyze to compute true revenue"
-    assert figures["Verified Revenue"]["value"] == "$700.00"  # the stored figure, under the outdated notice
+    # The owner's request of 2026-10-11: the stored Verified figure is no line of the page (the payload keeps it).
+    assert "Verified Revenue" not in figures and older["metrics"]["verified_revenue_total"] == 700.0
     assert result["bar"] == "Credit mix unavailable"
     assert result["badge"] == "2"  # before 5.6 the badge counts the deposits left unverified
 
@@ -192,8 +190,8 @@ console.log(JSON.stringify({rows: metricRows(els.metricsGrid.innerHTML),
   badge: [els.reviewCount.hidden, els.reviewCount.textContent]}));
 """)
     figures = {row["label"]: row["value"] for row in result["rows"]}
-    assert [figures[label] for label in ("True Revenue", "Verified Revenue", "Counted, Not Verified",
-                                         "Held for Review")] == ["N/A"] * 4
+    assert [figures[label] for label in ("True Revenue", "Held for Review")] == ["N/A"] * 2
+    assert not {"Verified Revenue", "Counted, Not Verified"} & set(figures)
     assert figures["Non-Revenue"] == "$100.00"
     # The held count is kept (revenue_review_items), but it is not an established figure: the badge says N/A, never
     # a count the page cannot stand behind.
@@ -212,8 +210,8 @@ console.log(JSON.stringify({{grid: els.metricsGrid.innerHTML, rows: metricRows(e
   badge: [els.reviewCount.hidden, els.reviewCount.textContent]}}));
 """)
     figures = {row["label"]: row["value"] for row in result["rows"]}
-    assert [figures[label] for label in ("True Revenue", "Counted, Not Verified", "Held for Review")] == ["N/A"] * 3
-    assert figures["Verified Revenue"] == "$1,400.00"
+    assert [figures[label] for label in ("True Revenue", "Held for Review")] == ["N/A"] * 2
+    assert not {"Verified Revenue", "Counted, Not Verified", "Verified Revenue Per Month"} & set(figures)
     assert "1 of 2 statements has no established revenue · Re-analyze to compute true revenue" in result["grid"]
     # The package's revenue_review_items counts only its established member's held credit: a partial count, so the
     # badge reads N/A with the Held figure.
@@ -255,7 +253,7 @@ def test_a_mixed_currency_package_shows_n_a_money_and_keeps_its_counts(tmp_path,
     older = _package({"new": _payload(), "old": _untiered(_payload(month=4))}, tmp_path, monkeypatch)
     assert mixed["totals"]["cross_currency_totals_refused"] is True
     result = run_dashboard(METRIC_ROWS + f"""
-const view = () => ({{cards: metricRows(els.metricsGrid.innerHTML).slice(0, 4).map((row) => row.value),
+const view = () => ({{cards: metricRows(els.metricsGrid.innerHTML).slice(0, 3).map((row) => row.value),
   evidence: cells(els.revenueTable.innerHTML).map((row) => row.slice(0, 3)),
   mix: [...els.creditMixRows.innerHTML.matchAll(/<span class="mix-count">([^<]*)<\\/span>/g)].map((m) => m[1]),
   badge: [els.reviewCount.hidden, els.reviewCount.textContent]}});
@@ -264,18 +262,16 @@ currentJobIds = ['new', 'old']; renderPackageAnalysis({json.dumps(older)});
 console.log(JSON.stringify({{refused, older: view()}}));
 """)
     refused, older_view = result["refused"], result["older"]
-    assert refused["cards"] == ["N/A"] * 4
-    assert refused["evidence"] == [["True Revenue", "4", "N/A"], ["Verified Revenue", "2", "N/A"],
-                                   ["Counted, Not Verified", "2", "N/A"], ["Check deposit", "2", "N/A"],
-                                   ["Held for Review", "2", "N/A"],
+    # The owner's request of 2026-10-11 (spec §2.2, §10.1): True, Held and Non-Revenue, no Verified or Counted line.
+    assert refused["cards"] == ["N/A"] * 3
+    assert refused["evidence"] == [["True Revenue", "4", "N/A"], ["Held for Review", "2", "N/A"],
                                    ["Payer or entry suggests financing", "2", "N/A"], ["Non-Revenue", "2", "N/A"]]
-    assert refused["mix"] == ["2", "2", "2", "2"]
+    assert refused["mix"] == ["4", "2", "2"]
     assert refused["badge"] == [False, "2"]
-    assert older_view["cards"] == ["N/A", "$1,400.00", "N/A", "N/A"]
-    assert older_view["evidence"] == [["True Revenue", "N/A", "N/A"], ["Verified Revenue", "2", "$1,400.00"],
-                                      ["Counted, Not Verified", "N/A", "N/A"], ["Held for Review", "N/A", "N/A"],
+    assert older_view["cards"] == ["N/A", "N/A", "$200.00"]
+    assert older_view["evidence"] == [["True Revenue", "N/A", "N/A"], ["Held for Review", "N/A", "N/A"],
                                       ["Non-Revenue", "2", "$200.00"]]
-    assert older_view["mix"] == ["2", "N/A", "N/A", "2"]
+    assert older_view["mix"] == ["N/A", "N/A", "2"]
     assert older_view["badge"] == [False, "N/A"]
 
 
@@ -319,36 +315,39 @@ const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+
 console.log(JSON.stringify({{tags: rows.map(transactionCategory), reasons: rows.map(revenueReviewReason),
   decided: {{tags: decided.map((tx) => transactionCategory(tx).label), reasons: decided.map(revenueReviewReason),
     controls: decided.map((tx) => actions(revenueReviewControls(tx))),
-    filters: Object.fromEntries(["true_revenue", "verified_revenue", "counted_flagged", "non_revenue",
+    filters: Object.fromEntries(["true_revenue", "non_revenue",
       "excluded_pending_review:financing_named_payer", "excluded_pending_review:non_sale_purpose"]
       .map((f) => [f, found(f)]))}}}}));
 """)
+    # The owner's request of 2026-10-11 (spec §2.2, §10.6): a credit in True revenue carries one tag, verified or
+    # counted alike, and no counted reason line.
     assert result["tags"] == [
-        {"label": "Verified revenue", "glyph": "VER", "tone": "green"},
-        {"label": "Counted: Check deposit", "glyph": "CNT", "tone": "teal"},
+        {"label": "True revenue", "glyph": "REV", "tone": "green"},
+        {"label": "True revenue", "glyph": "REV", "tone": "green"},
         {"label": "Held: Payer or entry suggests financing", "glyph": "?", "tone": "amber"},
         {"label": "Non-revenue", "glyph": "X", "tone": "neutral"},
         {"label": "Unverified deposit", "glyph": "?", "tone": "amber"},
     ]
-    assert result["reasons"][1] == "Check deposit. A check deposit: the payer is not printed."
+    assert result["reasons"][1] == ""
     assert result["reasons"][2] == ("Payer or entry suggests financing. The payer or the entry names funding, a loan or "
                                     "an advance.")
     assert result["reasons"][0] == result["reasons"][3] == ""
     assert result["reasons"][4] == "Unable to determine whether this deposit represents operating revenue."
     held_non_sale = "Not a sale: owner money, investment, grant, refund, claim or interest"
-    assert result["decided"]["tags"] == ["Verified revenue", "Non-revenue", "Verified revenue", f"Held: {held_non_sale}"]
+    assert result["decided"]["tags"] == ["True revenue", "Non-revenue", "True revenue", f"Held: {held_non_sale}"]
     assert result["decided"]["reasons"] == ["", "", "", f"{held_non_sale}. The entry names owner money, an investment, "
                                                        "a grant, a refund, a claim or interest."]
     assert result["decided"]["controls"] == [["reset"], ["reset"], ["reject"], ["confirm", "reject"]]
     assert result["decided"]["filters"] == {
-        "true_revenue": [0, 2], "verified_revenue": [0, 2], "counted_flagged": [], "non_revenue": [1],
+        "true_revenue": [0, 2], "non_revenue": [1],
         "excluded_pending_review:financing_named_payer": [], "excluded_pending_review:non_sale_purpose": [3]}
 
 
 @needs_node
 def test_a_credit_marked_unread_shows_the_payer_blocks_the_reader_could_not_attribute():
-    """Audit round 2, R2-B07 (R07): the review card prints a marked credit's unread payer blocks
-    (`unread_payer_text`), so a reviewer can release a customer's row that a lender's block in the same run held."""
+    """Audit round 2, R2-B07 (R07): the review card prints a held credit's unread payer blocks (`unread_payer_text`),
+    so a reviewer can release a customer's row that a lender's block in the same run held. Since the owner's request of
+    2026-10-11 (spec §2.2, §10.6) a counted credit, in True revenue, carries no reason line, its blocks with it."""
     held = _record("excluded_pending_review", reason="unread_run_names_financing")
     held["unread_payer_text"] = "CONTOSO INC. PAYABLES 1 NORTHWIND CCD KAPITUS LLC FUNDING 2 NORTHWIND CCD"
     counted = _record("counted_flagged", reason="payer_text_not_read")
@@ -360,15 +359,13 @@ console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
   tags: rows.map((tx) => transactionCategory(tx).label)}}));
 """)
     label = "A lender is printed among this credit's unread payer blocks"
-    assert result["tags"] == [f"Held: {label}", "Counted: Payer text not read", "Counted: Payer text not read"]
-    unread_sentence = ("Payer text not read. The statement prints a payer for this row that the reader could not read: "
-                       "counted without proof of the sale.")
+    assert result["tags"] == [f"Held: {label}", "True revenue", "True revenue"]
     assert result["reasons"] == [
         f"{label}. The statement prints a lender's or a lending bank's block among payer blocks the reader could not "
         "attribute to one row: held until you confirm whose credit this is. Unread payer blocks: "
         "CONTOSO INC. PAYABLES 1 NORTHWIND CCD KAPITUS LLC FUNDING 2 NORTHWIND CCD",
-        f"{unread_sentence} Unread payer blocks: FABRIKAM INC. PAYABLES 3 NORTHWIND CCD SAMPLE INC 4 NORTHWIND CCD",
-        unread_sentence,
+        "",
+        "",
     ]
 
 
@@ -396,8 +393,8 @@ console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason),
         f"Transfer, payer line not read. {unattributed} Unread payer text: REF 0001 CONTOSO TITLE LLC",
         "Wire, no sender printed. A wire with no sender printed.",
         "Transfer, no counterparty. A transfer that names no counterparty.",
-        "Payer text not read. The statement prints a payer for this row that the reader could not read: counted "
-        "without proof of the sale. Unread payer blocks: FABRIKAM INC. PAYABLES 3 NORTHWIND CCD",
+        # The owner's request of 2026-10-11: a counted credit, in True revenue, carries no reason line.
+        "",
     ]
     # The tag reads the reason code, unchanged.
     assert result["tags"][:4] == ["Held: Wire, no sender printed", "Held: Transfer, no counterparty",
@@ -412,11 +409,11 @@ def test_the_revenue_filters_find_their_rows():
     result = run_dashboard(f"""
 const rows = {json.dumps(rows)};
 const found = (filter) => filterTransactions(rows, filter).map((tx) => rows.indexOf(tx));
-console.log(JSON.stringify(Object.fromEntries(["true_revenue", "verified_revenue", "counted_flagged",
+console.log(JSON.stringify(Object.fromEntries(["true_revenue",
   "excluded_pending_review", "non_revenue", "excluded_pending_review:wire_no_sender"].map((f) => [f, found(f)]))));
 """)
-    assert result == {"true_revenue": [0, 1], "verified_revenue": [0], "counted_flagged": [1],
-                      "excluded_pending_review": [2, 3], "non_revenue": [4],
+    # The owner's request of 2026-10-11 (spec §2.2, §10.6): no Verified or Counted filter; True revenue finds both.
+    assert result == {"true_revenue": [0, 1], "excluded_pending_review": [2, 3], "non_revenue": [4],
                       "excluded_pending_review:wire_no_sender": [3]}
 
 
@@ -494,39 +491,42 @@ def test_the_ledger_header_names_a_revenue_filter_in_the_page_words():
     # §10.6: the tier labels of the credit mix and the held reasons' labels, never a filter's value.
     result = run_dashboard(_open("s", _served(_payload())) + r"""
 const out = {};
-for (const filter of ['true_revenue', 'verified_revenue', 'counted_flagged', 'excluded_pending_review',
+for (const filter of ['true_revenue', 'excluded_pending_review',
                       'excluded_pending_review:financing_named_payer', 'non_revenue', 'all']) {
   showMainRevenueEvidence(filter); out[filter] = els.transactionCount.textContent;
 }
 console.log(JSON.stringify(out));
 """)
-    assert result == {"true_revenue": "2 in true revenue", "verified_revenue": "1 verified revenue",
-                      "counted_flagged": "1 counted, not verified", "excluded_pending_review": "1 held for review",
+    assert result == {"true_revenue": "2 in true revenue", "excluded_pending_review": "1 held for review",
                       "excluded_pending_review:financing_named_payer": "1 held: payer or entry suggests financing",
                       "non_revenue": "1 non-revenue", "all": "5 transactions"}
 
 
 def test_the_package_evidence_dots_follow_the_tiers():
     html = " ".join((ROOT / "webapp/templates/index.html").read_text(encoding="utf-8").split())
-    for selector, token in (('="true_revenue"', "accent"), ('="verified_revenue"', "accent"),
-                            ('="counted_flagged"', "teal"), ('="excluded_pending_review"', "amber"),
+    for selector, token in (('="true_revenue"', "accent"), ('="excluded_pending_review"', "amber"),
                             ('^="excluded_pending_review:"', "amber")):
         assert (f".is-package .revenue-panel [data-revenue-filter{selector}]::before {{ background: var(--{token}); }}"
                 in html)
     assert 'data-revenue-filter="unverified_deposit"' not in html
+    # The owner's request of 2026-10-11 (spec §2.2, §10.1): no Verified or Counted row, so no dot of theirs.
+    assert 'data-revenue-filter="verified_revenue"' not in html and 'data-revenue-filter="counted_flagged"' not in html
+    assert 'data-revenue-filter^="counted_flagged:"' not in html
 
 
 def test_the_page_carries_the_true_revenue_words():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     assert 'title="Deposits held for review"' in html
-    assert "Deposits held for review, and counted deposits, can be confirmed or excluded from the Review column." in html
+    # The owner's request of 2026-10-11 (spec §2.2, §10.5): the help names no counted deposits.
+    assert "Deposits can be confirmed as revenue or marked non-revenue from the Review column." in html
+    assert "counted deposits" not in html
     assert "Analysed with older classification rules." in html
-    for value, label in (("true_revenue", "True Revenue"), ("verified_revenue", "Verified"),
-                         ("counted_flagged", "Counted"), ("excluded_pending_review", "Held for Review"),
+    for value, label in (("true_revenue", "True Revenue"), ("excluded_pending_review", "Held for Review"),
                          ("non_revenue", "Non-Revenue")):
         assert f'data-transaction-filter="{value}">{label}</button>' in html
         assert f'data-modal-transaction-filter="{value}">{label}</button>' in html
-    assert 'data-transaction-filter="unverified_deposit"' not in html
+    for value in ("unverified_deposit", "verified_revenue", "counted_flagged"):
+        assert f'data-transaction-filter="{value}"' not in html and f'data-modal-transaction-filter="{value}"' not in html
 
 
 # ---------------------------------------------------------------- S6.3: Monthly Statements and the chart
@@ -543,7 +543,7 @@ const chartParts = () => ({
 
 
 @needs_node
-def test_the_monthly_statements_show_true_revenue_and_its_verified_part(tmp_path, monkeypatch):
+def test_the_monthly_statements_show_true_revenue_and_no_verified_part(tmp_path, monkeypatch):
     package = _package({"mar": _payload()}, tmp_path, monkeypatch)
     result = run_dashboard(CELLS + CHART_PARTS + f"""
 currentJobIds = ['mar']; renderPackageAnalysis({json.dumps(package)});
@@ -553,18 +553,18 @@ console.log(JSON.stringify({{both, trueOnly: {{...monthly(), chart: chartParts()
 """)
     both, true_only = result["both"], result["trueOnly"]
     # 2,000 posted: 1,000 True (700 verified, 300 counted), 900 held and 100 non-revenue. The owner's request of
-    # 2026-10-07: the table shows the statement's withholding rate where it showed Verified (no lender debit: 0.00%);
-    # the chart keeps the Verified part. The owner's request of 2026-10-10: its active positions right before the
-    # rate (no lender debit: 0).
+    # 2026-10-07: the table shows the statement's withholding rate where it showed Verified (no lender debit: 0.00%).
+    # The owner's request of 2026-10-10: its active positions right before the rate (no lender debit: 0). The owner's
+    # request of 2026-10-11 (spec §2.2, §10.3): the chart draws no verified part or figure either.
     assert both["rows"][0][2:8] == ["2,000", "4", "1,000", "2", "0", "0.00%"]
     assert true_only["head"][2:6] == ["Monthly Deposits ($)", "Deposits Per Month", "Active Positions",
                                       "Withholding Rate"]
     assert true_only["rows"][0][2:6] == ["1,000", "2", "0", "0.00%"]
-    assert both["chart"]["labels"] == [["bar-value", "2,000"], ["bar-value-true", "1,000"],
-                                       ["bar-value-verified", "700"]]
-    assert both["chart"]["parts"] == [["true", "50.0"], ["verified", "35.0"]]
-    assert all(word in both["chart"]["legend"] for word in ("Total deposits", "True revenue", "of which verified"))
-    assert true_only["chart"]["parts"] == [["verified", "70.0"]]
+    assert both["chart"]["labels"] == [["bar-value", "2,000"], ["bar-value-true", "1,000"]]
+    assert both["chart"]["parts"] == [["true", "50.0"]]
+    assert all(word in both["chart"]["legend"] for word in ("Total deposits", "True revenue"))
+    assert "verified" not in both["chart"]["legend"] and "verified" not in true_only["chart"]["legend"]
+    assert true_only["chart"]["labels"] == [["bar-value", "1,000"]] and true_only["chart"]["parts"] == []
 
 
 @needs_node
@@ -579,20 +579,20 @@ console.log(JSON.stringify({{...monthly(), chart: chartParts()}}));
     # available, so its active positions read (no lender debit: 0), right before the rate.
     assert result["rows"][0][4:8] == ["N/A", "N/A", "0", "N/A"]
     assert result["chart"]["parts"] == []
-    assert result["chart"]["labels"][1:] == [["bar-value-true", "N/A"], ["bar-value-verified", "N/A"]]
+    assert result["chart"]["labels"][1:] == [["bar-value-true", "N/A"]]
 
 
 @needs_node
 def test_the_tallest_bar_its_figures_and_the_baseline_fit_the_plot_box_in_every_view(tmp_path, monkeypatch):
-    # A4: the Verified figure is a third figure in the Both view and a second in the True view, so the tallest bar is
-    # the plot box less its stacked figures (each a 16px line and an 8px gap, every one after the first pulled up
-    # 6px): 129px, 147px and 165px, which sit exactly on the baseline.
+    # A4: the tallest bar is the plot box less its stacked figures (each a 16px line and an 8px gap, every one after
+    # the first pulled up 6px), which sit exactly on the baseline. The owner's request of 2026-10-11 (spec §2.2, §10.3):
+    # with no Verified figure, two figures in the Both view and one in the True and Total views: 147px, 165px, 165px.
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     assert re.search(r"\.bar-chart \{[^}]*height: 190px;[^}]*border-bottom: 1px", html)
     assert re.search(r"\.bar-col \{[^}]*gap: 8px;", html)
     assert re.search(r"\.bar-value \{[^}]*line-height: 16px;", html)
     assert re.search(r"\.bar-value-true \{ margin-top: -6px;", html)
-    assert re.search(r"\.bar-value-verified \{ margin-top: -6px;", html)
+    assert ".bar-value-verified" not in html
     package = _package({"mar": _payload(), "apr": _payload(month=4)}, tmp_path, monkeypatch)
     result = run_dashboard(CELLS + f"""
 const bars = () => [...els.monthlyChart.innerHTML.matchAll(/<div class="bar[^"]*" style="height: ([0-9.]+)px">/g)]
@@ -604,26 +604,27 @@ const trueOnly = bars();
 setMonthlyDepositsView('total');
 console.log(JSON.stringify({{both, trueOnly, total: bars()}}));
 """)
-    assert max(result["both"]) == 129.0 and max(result["trueOnly"]) == 147.0 and max(result["total"]) == 165.0
-    for figures, tallest in ((3, 129.0), (2, 147.0), (1, 165.0)):
+    assert max(result["both"]) == 147.0 and max(result["trueOnly"]) == 165.0 and max(result["total"]) == 165.0
+    for figures, tallest in ((2, 147.0), (1, 165.0)):
         assert tallest + figures * 16 + figures * 8 - (figures - 1) * 6 == 189
 
 
 def test_the_settings_say_what_true_revenue_is():
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     text = " ".join(html.split())
-    # The owner's request of 2026-10-07: Verified ($) left the table; the chart keeps the verified part, and every
-    # choice shows the withholding rate.
+    # The owner's request of 2026-10-07: Verified ($) left the table, and every choice shows the withholding rate. The
+    # owner's request of 2026-10-11 (spec §2.2, §10.2): the chart's verified part is gone, and so is its sentence.
     assert ("<strong>True revenue:</strong> every posted credit except known non-revenue (own-account transfers, "
-            "funding, refunds) and the deposits held for review. The verified part, with positive proof, is shaded "
-            "inside it on the monthly chart.") in text
+            "funding, refunds) and the deposits held for review. <strong>Both</strong>") in text
+    assert "verified part" not in text
     assert "Every choice also shows each statement's confirmed withholding rate." in text
     # Audit round 3, R3-B25: the round-3 batches' app.js changes ship as a new script (-7 and -8 were the hosting
     # line's). Audit round 3, final review (R3-FF), F6: the floor's unit moves app.js again (-9 served the Accept run).
     # Audit round 3, R3-MERGE: the merged app.js differs from both lines' (-8 the hosting line's, -10 this branch's).
     # The owner's request of 2026-10-10 (active positions by month): the Active Positions column and the memos' line.
-    # The owner's own design (2026-10-11, display only): -13.
-    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
+    # The owner's own design (2026-10-11, display only): -13. His request of 2026-10-11 to hide Verified revenue and
+    # "Counted, not verified": -14.
+    assert '<script src="/static/app.js?v=true-revenue-14"></script>' in html
 
 
 # ---------------------------------------------------------------- Audit B11: the package page, the copy and the exports
@@ -676,7 +677,7 @@ def test_yes_the_non_revenue_note_drops_the_zelle_clause_where_zelle_counts():
     """R2-OW17 (§10.5): where the served account or package says its Zelle deposits count in True revenue, the note no
     longer names them; a payload without the figures cannot say the mode and keeps today's note."""
     notes = run_dashboard("""
-const note = (source, established) => revenueCardItems(source, 'USD', {established, verifiedEstablished: true})[4][2];
+const note = (source, established) => revenueCardItems(source, 'USD', {established})[2][2];
 const counted = {zelle_deposits: {counted_as_true_revenue: true, setting_applied: true, count: 1, total: 5,
   by_tier: {counted_flagged: {count: 1, total: 5}}}};
 const excluded = {zelle_deposits: {...counted.zelle_deposits, counted_as_true_revenue: false}};
@@ -712,16 +713,17 @@ console.log(JSON.stringify({{...hero(), rows: metricRows(els.metricsGrid.innerHT
     assert result["sub"] == "2 statements · 1 month"
     figures = {row["label"]: row for row in result["rows"]}
     assert figures["True Revenue Per Month"]["value"] == "$3,500.00"
-    assert figures["Verified Revenue Per Month"]["value"] == "$2,700.00"
+    # The owner's request of 2026-10-11 (spec §2.2, §10.1): no Verified Revenue Per Month line.
+    assert "Verified Revenue Per Month" not in figures
     assert figures["Avg Monthly Gross Credits"]["note"] == "Gross posted credits per calendar month (not True revenue)"
     assert "Avg Monthly Credits" not in figures
 
 
 @needs_node
-def test_the_copy_names_every_counted_kind_and_the_withholding_basis():
-    """I53, I34: the Counted note names every kind of counted credit and says the missing proof is of the sale; the
-    Verified note claims confirmed platform payouts only; the legacy basis is named gross deposits less lender funding
-    and (R2-OW14, Q7) the withholding placeholders name the withholding basis, True revenue by default."""
+def test_the_copy_names_no_hidden_tier_and_names_the_withholding_basis():
+    """I34: the legacy basis is named gross deposits less lender funding and (R2-OW14, Q7) the withholding placeholders
+    name the withholding basis, True revenue by default. The owner's request of 2026-10-11 (spec §2.2, §10.5): the
+    Counted and Verified notes (I53's) are gone, and the verified basis is named without the word."""
     result = run_dashboard(METRIC_ROWS + """
 setInitialState();
 console.log(JSON.stringify({copy: REVENUE_METRIC_COPY, rows: metricRows(els.metricsGrid.innerHTML),
@@ -732,16 +734,14 @@ console.log(JSON.stringify({copy: REVENUE_METRIC_COPY, rows: metricRows(els.metr
     eligible_deposit_definition: 'verified classified revenue'})}));
 """)
     copy = result["copy"]
-    assert copy["countedFlagged"] == (
-        "Counted in true revenue without proof of the sale: cash, checks, person-to-person, wires, one-off, "
-        "unlabelled and numbered-company payers, factoring and platform payouts")
-    assert copy["verifiedRevenue"] == ("Revenue with proof: card settlements, confirmed platform payouts, repeat or "
-                                       "institutional payers, invoices, and deposits you confirmed")
+    assert "countedFlagged" not in copy and "verifiedRevenue" not in copy
+    assert not any("verified" in text.lower() for text in copy.values())
     assert result["payout"][1] == "BNPL or marketplace settlement (payer also lends)"
     assert result["legacy"] == "Gross deposits less lender funding (not True revenue)"
     # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: the placeholders name the withholding basis, True revenue
-    # by default, and the verified basis's note names its label before its definition.
-    assert result["verified"] == "Verified revenue: verified classified revenue"
+    # by default, and the verified basis's note names its label before its definition, in the page's words (never the
+    # served "verified classified revenue").
+    assert result["verified"] == "Narrower revenue basis: a part of true revenue only"
     figures = {row["label"]: row["note"] for row in result["rows"]}
     assert figures.get("Confirmed Withholding", "Confirmed lender debits as a share of the withholding basis (True "
                        "revenue by default)") == (
@@ -786,13 +786,15 @@ console.log(JSON.stringify({{statement, modal, modalOld, package: basis(metricRo
 """)
     statement = result["statement"]
     assert "Eligible Deposits" not in statement and result["modalOld"] is None
-    assert statement["Withholding Basis"] == {"value": "$1,000.00", "note": "True revenue: verified plus counted credits"}
+    # The owner's request of 2026-10-11 (spec §2.2, §10.1): the definition is the page's, never the served "verified
+    # plus counted credits".
+    true_note = "True revenue: posted credits minus known non-revenue and the deposits held for review"
+    assert statement["Withholding Basis"] == {"value": "$1,000.00", "note": true_note}
     assert result["modal"] == statement["Withholding Basis"]
     assert statement["Confirmed Withholding"]["note"] == "$0.00 confirmed lender debits divided by $1,000.00 true revenue"
     assert statement["Potential Withholding Exposure"]["note"] == (
         "$0.00 potential lender debits divided by $1,000.00 true revenue")
-    assert result["package"]["Withholding Basis"] == {"value": "$1,000.00",
-                                                     "note": "True revenue: verified plus counted credits"}
+    assert result["package"]["Withholding Basis"] == {"value": "$1,000.00", "note": true_note}
     assert "Eligible Deposits" not in result["package"]
     # U3: a stored payload with no mode keeps the legacy basis's note.
     assert result["missing"] == "Gross deposits less lender funding (not True revenue)"
@@ -825,17 +827,21 @@ console.log(JSON.stringify({audit: withholdingAuditNote(metrics, 'USD'),
 
 
 @needs_node
-def test_the_credit_mix_share_is_of_posted_credits_and_counted_has_its_reasons():
+def test_the_credit_mix_share_is_of_posted_credits_and_held_has_its_reasons():
     result = run_dashboard(_open("s", _served(_payload())) + """
-showMainRevenueEvidence('counted_flagged:check_deposit');
+showMainRevenueEvidence('excluded_pending_review:financing_named_payer');
 console.log(JSON.stringify({bar: els.creditMixBar.getAttribute('aria-label'), mix: els.creditMixRows.innerHTML,
   evidence: els.revenueTable.innerHTML, header: els.transactionCount.textContent}));
 """)
-    assert result["bar"].startswith("Credit mix, as a share of posted credits: ")
+    # The owner's request of 2026-10-11 (spec §2.2, §10.1): True revenue is one part of the mix (1,000 of 2,000
+    # posted), and the counted tier is broken down nowhere.
+    assert result["bar"] == ("Credit mix, as a share of posted credits: 50.0% true revenue, 45.0% held for review, "
+                             "5.0% non-revenue")
     assert '<p class="mix-caption">Shares of posted credits</p>' in result["mix"]
-    assert 'title="35.0% of posted credits"' in result["mix"]
-    assert 'data-revenue-filter="counted_flagged:check_deposit"' in result["evidence"]
-    assert result["header"] == "1 counted: check deposit"
+    assert 'title="50.0% of posted credits"' in result["mix"]
+    assert 'data-revenue-filter="counted_flagged' not in result["evidence"]
+    assert 'data-revenue-filter="excluded_pending_review:financing_named_payer"' in result["evidence"]
+    assert result["header"] == "1 held: payer or entry suggests financing"
 
 
 @needs_node
@@ -924,7 +930,8 @@ const tableCells = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
   .map((row) => [...row[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((cell) => cell[1].replace(/<[^>]+>/g, "").trim()));
 const unitsCard = (pkg) => Object.fromEntries(["both", "total", "true"].map((view) => {
   setMonthlyDepositsView(view); renderMonthlyStatements(pkg);
-  const per = {both: 3, true: 2, total: 1}[view];
+  // The owner's request of 2026-10-11: no verified figure, so two figures a bar in the Both view and one otherwise.
+  const per = {both: 2, true: 1, total: 1}[view];
   const figures = [...els.monthlyChart.innerHTML.matchAll(/<span class="bar-value[^"]*">([^<]*)<\/span>/g)].map((m) => m[1]);
   const bars = [];
   for (let i = 0; i < figures.length; i += per) bars.push(figures.slice(i, i + per));
@@ -1013,10 +1020,11 @@ def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_
                                      ["April", "2031", "80,000", "2", "N/A", "N/A", "5,000", "1", "Open"]]
     assert card["true"]["rows"] == [["March", "2031", "60,000 CAD", "1", "N/A", "N/A", "5,000 CAD", "1", "Open"],
                                     ["April", "2031", "60,000", "1", "N/A", "N/A", "5,000", "1", "Open"]]
-    # The chart is unchanged (I54): every bar of a refused package names its unit, an undeclared one none.
-    assert card["both"]["bars"] == [["100,000 CAD", "60,000 CAD", "20,000 CAD"], ["80,000", "60,000", "20,000"]]
+    # The chart is unchanged (I54): every bar of a refused package names its unit, an undeclared one none (since the
+    # owner's request of 2026-10-11, with no verified figure).
+    assert card["both"]["bars"] == [["100,000 CAD", "60,000 CAD"], ["80,000", "60,000"]]
     assert card["total"]["bars"] == [["100,000 CAD"], ["80,000"]]
-    assert card["true"]["bars"] == [["60,000 CAD", "20,000 CAD"], ["60,000", "20,000"]]
+    assert card["true"]["bars"] == [["60,000 CAD"], ["60,000"]]
     # (b) USD beside an undeclared member: the USD row names USD, the undeclared row stays bare.
     assert result["usd_undeclared"]["both"]["rows"][0][2:9] == [
         "100,000 USD", "2", "60,000 USD", "1", "N/A", "N/A", "5,000 USD"]
@@ -1066,7 +1074,7 @@ def test_the_monthly_table_of_a_real_package_names_the_cad_row_beside_an_undecla
 currentJobIds = ['raw', 'cad']; renderPackageAnalysis({json.dumps(package)});
 console.log(JSON.stringify(unitsCard({json.dumps(package)})));
 """)
-    # 2,000 posted: 1,000 True (test_the_monthly_statements_show_true_revenue_and_its_verified_part), and each row's
+    # 2,000 posted: 1,000 True (test_the_monthly_statements_show_true_revenue_and_no_verified_part), and each row's
     # own withholding rate, a percentage with no unit (no lender debit: 0.00%). The owner's request of 2026-10-10:
     # each row's active positions, a count with no unit (no lender debit: 0), right before the rate.
     assert result["both"]["rows"][0][2:8] == ["2,000", "4", "1,000", "2", "0", "0.00%"]
@@ -1371,27 +1379,29 @@ shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replac
 
 
 @needs_node
-def test_the_copied_summaries_carry_true_verified_and_non_revenue(tmp_path, monkeypatch):
-    """I07: the credit-memo text carries True, Verified and Non-revenue, in total and per month, and names the gross
-    monthly figure gross."""
+def test_the_copied_summaries_carry_true_and_non_revenue(tmp_path, monkeypatch):
+    """I07: the credit-memo text carries True and Non-revenue, in total and per month, and names the gross monthly
+    figure gross. The owner's request of 2026-10-11 (spec §2.2, §10.1): no verified revenue clause."""
     statement = run_dashboard(_open("s", _served(_payload())) + """
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """)
-    # Audit round 3, R3-B22 (R3-01): and the money held for review, between the verified pair and non-revenue.
-    assert ("True revenue $1,000.00 ($1,000.00 a month), verified revenue $700.00 ($700.00 a month), held for review "
+    # Audit round 3, R3-B22 (R3-01): and the money held for review, between True revenue and non-revenue.
+    assert ("True revenue $1,000.00 ($1,000.00 a month), held for review "
             "$900.00 (1 credit), non-revenue $100.00 ($100.00 a month).") in statement
+    assert "verified" not in statement.lower()
     short = run_dashboard(_open("s", _served(_summary_only(3))) + """
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """)
-    assert "True revenue N/A, verified revenue N/A, non-revenue $100.00 ($100.00 a month, captured rows only)." in short
+    assert "True revenue N/A, non-revenue $100.00 ($100.00 a month, captured rows only)." in short
     package = _package({"mar": _payload(), "apr": _payload(month=4)}, tmp_path, monkeypatch)
     text = run_dashboard(f"""
 currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)}); generateSummary();
 console.log(JSON.stringify(els.summaryBox.textContent));
 """)
     assert text.startswith("Package 2031-03-01 to 2031-04-28 (2 statements · 2 months): 2 of 2 statements completed. ")
-    assert ("True revenue $2,000.00 ($1,000.00 a month), verified revenue $1,400.00 ($700.00 a month), held for "
+    assert ("True revenue $2,000.00 ($1,000.00 a month), held for "
             "review $1,800.00 (2 credits), non-revenue $200.00 ($100.00 a month).") in text
+    assert "verified" not in text.lower()
     assert "average monthly gross credits" in text and "average monthly credits" not in text
 
 
@@ -1751,7 +1761,8 @@ console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).labe
     "non_revenue:check_deposit"].map((f) => [f, found(f)])),
   labels: ["non_revenue:zelle_excluded", "non_revenue:government_no_purpose"].map((f) => revenueFilterLabel(f, 1))}}));
 """)
-    assert result["tags"] == [f"Non-revenue: {_ZELLE_LABEL}", "Verified revenue", f"Non-revenue: {_GOVERNMENT_LABEL}",
+    # The owner's request of 2026-10-11 (spec §2.2, §10.6): a confirmed Zelle deposit is in True revenue, so tagged.
+    assert result["tags"] == [f"Non-revenue: {_ZELLE_LABEL}", "True revenue", f"Non-revenue: {_GOVERNMENT_LABEL}",
                               "Non-revenue", "Non-revenue"]
     assert result["reasons"] == [f"{_ZELLE_LABEL}. {_ZELLE_SENTENCE}", "",
                                  f"{_GOVERNMENT_LABEL}. {_GOVERNMENT_SENTENCE}", "", ""]
@@ -1825,24 +1836,27 @@ def test_the_dashboard_reason_table_names_the_q9_releases():
 
 
 @needs_node
-def test_the_q9_releases_are_tagged_with_their_reasons():
+def test_the_q9_releases_are_tagged_true_revenue_with_no_reason_line():
+    """R2-OW09's releases are counted in True revenue. The owner's request of 2026-10-11 (spec §2.2, §10.6): they are
+    tagged "True revenue" and carry no reason line (their labels stay in the mirrored reason table)."""
     rows = [_record("counted_flagged", reason="finance_named_customer"), _record("counted_flagged", reason="lessor_rent")]
     result = run_dashboard(f"""
 const rows = {json.dumps(rows)};
-console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason)}}));
+console.log(JSON.stringify({{reasons: rows.map(revenueReviewReason), tags: rows.map((tx) => transactionCategory(tx).label)}}));
 """)
-    assert result["reasons"][0].startswith("Customer with a finance word in its name, paying an invoice. A customer")
-    assert result["reasons"][1].startswith("Rent received by a leasing or property business. A tenant paid")
+    assert result == {"reasons": ["", ""], "tags": ["True revenue", "True revenue"]}
 
 
 @needs_node
-def test_an_insurer_paid_for_the_business_s_work_is_tagged_with_its_reason():
+def test_an_insurer_paid_for_the_business_s_work_is_tagged_true_revenue_with_no_reason_line():
+    """R2-OW08's insurer paid for the business's work is counted in True revenue. The owner's request of 2026-10-11
+    (spec §2.2, §10.6): tagged "True revenue", with no reason line."""
     rows = [_record("counted_flagged", reason="insurer_paid_for_services")]
     result = run_dashboard(f"""
 const rows = {json.dumps(rows)};
 console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).label), reasons: rows.map(revenueReviewReason)}}));
 """)
-    assert result["reasons"][0].startswith("Insurer paid for the business's work. An insurer paid the business for its")
+    assert result == {"tags": ["True revenue"], "reasons": [""]}
 
 
 @needs_node
@@ -1880,7 +1894,9 @@ console.log(JSON.stringify({{tags: rows.map((tx) => transactionCategory(tx).labe
 """)
     assert result["tags"][0] == f"Non-revenue: {_ASSET_SALE_LABEL}" and result["tags"][2] == "Non-revenue"
     assert result["reasons"][0] == f"{_ASSET_SALE_LABEL}. {_ASSET_SALE_SENTENCE}"
-    assert result["reasons"][1].startswith("Builder's progress draw. A builder paid the business a progress draw")
+    # The owner's request of 2026-10-11 (spec §2.2, §10.6): the builder's draw, counted in True revenue, is tagged so
+    # and carries no reason line.
+    assert (result["tags"][1], result["reasons"][1]) == ("True revenue", "")
     assert result["controls"][0] == [] and result["controls"][2] == []
     assert result["filters"] == {"non_revenue:asset_sale_proceeds": [0], "non_revenue": [0, 2]}
     assert result["label"] == f"excluded: {_ASSET_SALE_LABEL.lower()}"
@@ -2371,8 +2387,9 @@ console.log(JSON.stringify({{package: read({json.dumps(package)}), later: read({
 """)
     ledger = result["package"]["ledger"]
     [deposit] = [row for row in ledger if row["desc"] == "DEPOSIT"]
+    # The owner's request of 2026-10-11 (spec §2.2, §10.6): what Confirm Revenue does, in the page's words.
     assert deposit["notes"] == ["Transfer out of Sample Bank ••1010 on 2031-03-03 (a.pdf), the same day. Confirm "
-                                "Revenue releases it into True and marks it Verified; Mark Non-Revenue keeps it out."]
+                                "Revenue counts it in True revenue; Mark Non-Revenue keeps it out."]
     assert deposit["confirm"] and deposit["reject"]
     [held] = [row for row in ledger if row["desc"] == "TRANSFER CREDIT"]
     assert held["notes"] == ["Also matches a transfer out of Sample Bank ••1010 on 2031-03-04 (a.pdf)."]

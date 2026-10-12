@@ -1,7 +1,7 @@
 """Audit round 3, R3-B24 (R3-16; true revenue spec §10.1, §10.6, §10.7; standard G7, P22): the dashboard names a large
 unsourced counted deposit, for information only. The True card adds "Large deposits to source: N · $X (each $10,000 or
-more and over 25% of True; counted, not verified)"; the Revenue evidence table adds one row, after the counted and held
-reasons, whose "Source it" button filters the ledger to the flagged rows ("largeDeposit"); each flagged row's reason
+more and over 25% of True)" (the owner's request of 2026-10-11 took out its "counted, not verified"); the Revenue
+evidence table adds one row, after the held reasons, whose "Source it" button filters the ledger to the flagged rows ("largeDeposit"); each flagged row's reason
 cell asks for its source on the statement page, the statement window and the package ledger; both copied memos carry a
 clause after the revenue sentence. The review badge, the Held for Review view, the pill and the decisions do not read
 it.
@@ -22,10 +22,9 @@ from tests.webapp_js_harness import NODE, run_dashboard
 
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
-FACT = ("Large deposits to source: 2 · $270,000.00 (each $10,000.00 or more and over 25% of True; counted, not "
-        "verified)")
-NOTE_39 = "Large deposit: 39.0% of True revenue, counted without proof of the sale. Ask for its source."
-NOTE_31 = "Large deposit: 31.2% of True revenue, counted without proof of the sale. Ask for its source."
+FACT = "Large deposits to source: 2 · $270,000.00 (each $10,000.00 or more and over 25% of True)"
+NOTE_39 = "Large deposit: 39.0% of True revenue. Ask for its source."
+NOTE_31 = "Large deposit: 31.2% of True revenue. Ask for its source."
 
 #: Each ledger row's description and its large-deposit note, if any.
 LEDGER = PACKAGE_MATCH_VIEW + r"""
@@ -113,23 +112,18 @@ generateSummary();
 console.log(JSON.stringify({{note: trueNote(), all, large, memo: els.summaryBox.textContent, evidence: evidence()}}));
 """)
     assert result["note"].endswith(
-        " · Large deposits to source: 3 · $300,000.00 (each $10,000.00 or more and over 25% of its statement's True; "
-        "counted, not verified)")
+        " · Large deposits to source: 3 · $300,000.00 (each $10,000.00 or more and over 25% of its statement's True)")
     notes = {row["desc"]: row["large"] for row in result["all"] if row["large"]}
     assert notes == {
-        DEPOSIT: ["Large deposit: 50.8% of its statement's True revenue, counted without proof of the sale. Ask for its "
-                  "source."],
-        WIRE: ["Large deposit: 40.7% of its statement's True revenue, counted without proof of the sale. Ask for its "
-               "source."],
-        CHECK: ["Large deposit: 54.5% of its statement's True revenue, counted without proof of the sale. Ask for its "
-                "source."],
+        DEPOSIT: ["Large deposit: 50.8% of its statement's True revenue. Ask for its source."],
+        WIRE: ["Large deposit: 40.7% of its statement's True revenue. Ask for its source."],
+        CHECK: ["Large deposit: 54.5% of its statement's True revenue. Ask for its source."],
     }
     assert result["large"]["count"] == "3 large deposits to source"
     assert sorted(result["large"]["rows"]) == sorted([DEPOSIT, WIRE, CHECK])
     row = next(row for row in result["evidence"] if row[0] == "Large deposits to source")
     assert row[1:3] == ["3", "$300,000.00"]
-    assert (" 3 large deposits to source: $300,000.00 (each over 25% of its statement's True revenue; counted, not "
-            "verified). ") in result["memo"]
+    assert " 3 large deposits to source: $300,000.00 (each over 25% of its statement's True revenue). " in result["memo"]
     # After the revenue sentence, before the gross credits.
     memo = result["memo"]
     assert memo.index("large deposits to source") > memo.index("non-revenue")
@@ -143,12 +137,11 @@ MEMO = "generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent
 def test_u4_the_statement_memo_carries_its_clause_after_the_revenue_sentence():
     many = run_dashboard(_open("s", _served(_payload(L1))) + MEMO)
     assert ("non-revenue $0.00 ($0.00 a month). 2 large deposits to source: $270,000.00 (each over 25% of True "
-            "revenue; counted, not verified). Average daily balance") in many
+            "revenue). Average daily balance") in many
     one = _served(_payload([*_squares(range(1, 12)), (12, SQUARE, 2496.0), (14, DEPOSIT, 10000.0)]))
     assert one["metrics"]["large_unsourced_deposit_count"] == 1
     single = run_dashboard(_open("s", one) + MEMO)
-    assert (". 1 large deposit to source: $10,000.00, 25.0% of True revenue (counted, not verified). Average daily "
-            "balance") in single
+    assert ". 1 large deposit to source: $10,000.00, 25.0% of True revenue. Average daily balance" in single
     none = run_dashboard(_open("s", _served(_payload([*_squares(), (6, DEPOSIT, 4000.0)]))) + MEMO)
     assert "large deposit" not in none
 
@@ -179,8 +172,7 @@ def test_review_round_1_the_package_memo_keeps_its_gross_credits_sentence(flagge
     assert "gross credits,$" not in memo
     plain = run_dashboard(render.format(json.dumps(_without_flag(package))))
     assert plain.count(gross) == 1 and plain.index(gross) > plain.index("non-revenue")
-    clause = ("3 large deposits to source: $300,000.00 (each over 25% of its statement's True revenue; counted, not "
-              "verified). ")
+    clause = "3 large deposits to source: $300,000.00 (each over 25% of its statement's True revenue). "
     assert memo == (plain.replace(gross, clause + gross, 1) if flagged else plain)
 
 
@@ -236,10 +228,8 @@ console.log(JSON.stringify({{facts: packageRevenueFacts(pkg.totals, null), memo:
   evidence: evidence()}}));
 """)
     # Audit round 3, final review (R3-FF), F6: a refused package's members differ in unit, so the floor has none.
-    assert ("Large deposits to source: 3 (each 10,000.00 or more and over 25% of its statement's True; counted, not "
-            "verified)") in result["facts"]
-    assert (" 3 large deposits to source (each over 25% of its statement's True revenue; counted, not verified). "
-            in result["memo"])
+    assert "Large deposits to source: 3 (each 10,000.00 or more and over 25% of its statement's True)" in result["facts"]
+    assert " 3 large deposits to source (each over 25% of its statement's True revenue). " in result["memo"]
     row = next(row for row in result["evidence"] if row[0] == "Large deposits to source")
     assert row[1:3] == ["3", "N/A"]
 
@@ -284,7 +274,7 @@ def test_ff_f6_the_card_writes_the_floor_in_a_cad_statement_s_unit():
     assert served["metrics"]["large_unsourced_deposit_count"] == 2
     result = _statement_view(served, "console.log(JSON.stringify({note: trueNote()}));")
     assert result["note"].endswith(" · Large deposits to source: 2 · CA$270,000.00 (each CA$10,000.00 or more and over "
-                                   "25% of True; counted, not verified)")
+                                   "25% of True)")
     assert "$10,000 " not in result["note"].replace("CA$10,000", "")
 
 
@@ -297,14 +287,14 @@ console.log(JSON.stringify({usd: largeDepositFacts(one, "USD"), cad: largeDeposi
   none: largeDepositFacts(one, null), pkg: largeDepositFacts(one, "CAD", {package: true}),
   mixed: largeDepositFacts(refused, null, {package: true}), floor: LARGE_UNSOURCED_DEPOSIT_FLOOR}));
 """)
-    tail = "or more and over 25% of True; counted, not verified)"
+    tail = "or more and over 25% of True)"
     assert result["usd"] == [f"Large deposits to source: 1 · $12,000.00 (each $10,000.00 {tail}"]
     assert result["cad"] == [f"Large deposits to source: 1 · CA$12,000.00 (each CA$10,000.00 {tail}"]
     assert result["none"] == [f"Large deposits to source: 1 · 12,000.00 (each 10,000.00 {tail}"]
     assert result["pkg"] == ["Large deposits to source: 1 · CA$12,000.00 (each CA$10,000.00 or more and over 25% of its "
-                             "statement's True; counted, not verified)"]
+                             "statement's True)"]
     assert result["mixed"] == ["Large deposits to source: 3 (each 10,000.00 or more and over 25% of its statement's "
-                               "True; counted, not verified)"]
+                               "True)"]
     assert result["floor"] == 10000
 
 

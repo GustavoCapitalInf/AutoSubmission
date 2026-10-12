@@ -35,8 +35,9 @@ def test_the_page_s_table_header_names_the_column_before_withholding_rate_and_as
     html = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
     head = html[html.index('<thead id="monthlyHead">'):html.index("</thead>", html.index('<thead id="monthlyHead">'))]
     assert re.findall(r"<th>([^<]*)</th>", head) == HEADER_BOTH
-    # The owner's own design (2026-10-11, display only) moved the page on to -13; -12 was this request's release.
-    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
+    # The owner's own design (2026-10-11, display only) moved the page on to -13, and his request of 2026-10-11 to hide
+    # Verified revenue and "Counted, not verified" to -14; -12 was this request's release.
+    assert '<script src="/static/app.js?v=true-revenue-14"></script>' in html
     assert "true-revenue-11" not in html and "true-revenue-12" not in html
 
 

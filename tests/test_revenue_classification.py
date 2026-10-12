@@ -838,9 +838,13 @@ def test_revenue_ui_uses_authoritative_fields_and_exposes_review_controls():
 
     assert 'id="revenueTable"' in html
     assert 'id="statementModalRevenue"' in html
-    for state in ("true_revenue", "verified_revenue", "counted_flagged", "excluded_pending_review", "non_revenue"):
+    for state in ("true_revenue", "excluded_pending_review", "non_revenue"):
         assert f'data-transaction-filter="{state}"' in html
         assert f'data-modal-transaction-filter="{state}"' in html
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.6): no Verified and no Counted filter.
+    for state in ("verified_revenue", "counted_flagged"):
+        assert f'data-transaction-filter="{state}"' not in html
+        assert f'data-modal-transaction-filter="{state}"' not in html
     assert "record.revenue_classification" in javascript
     assert "data-revenue-review-action" in javascript
     assert "/revenue-review" in javascript
