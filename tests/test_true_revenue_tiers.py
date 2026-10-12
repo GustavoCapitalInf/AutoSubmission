@@ -272,6 +272,41 @@ def test_a_platform_s_own_settlement_words_keep_it_counted():
     assert _tier(store) == ("counted_flagged", "platform_unconfirmed")
 
 
+def _platform_readings(rows, *, holder="NORTHWIND BAKERY LLC", bank="Bank of America", zelle=False):
+    statement = Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2054-04-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    return [rules_reading(record) for record in classify_statement_transactions(statement, zelle_true_revenue=zelle)
+            if record.amount > 0]
+
+
+_PLATFORM_BOFA = "{payer} DES:{entry} ID:000{n} INDN:NORTHWIND BAKERY LLC CO ID:0000000001 CCD"
+_PLATFORM_SETTLEMENTS = [(_PLATFORM_BOFA.format(payer="SQUARE INC", entry="SETTLEMENT", n=n), 1000.15 + n)
+                         for n in range(1, 5)]
+_HELD_FINANCING = ("excluded_pending_review", "financing_named_payer")
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+@pytest.mark.parametrize("word", ["ADVNC", "ADVN", "ADVC"])
+def test_r4_90_a_platform_s_abbreviated_advance_is_never_verified(word, zelle):
+    # Audit round 4, R4-90 (§7.0, §7.2, §8.1): the registry's own financing words (registry_financing) read an
+    # abbreviated advance, but the classifier's recurrence veto and the entry's financing lead did not, so at c1cebca
+    # three of them verified on recurrence and one after a credit label verified on its context. They now read it as
+    # ADVANCE: never verified, never counted toward a pool, held as financing like the ADVANCE twin.
+    def readings(entry):
+        alone = _platform_readings([(_PLATFORM_BOFA.format(payer="SQUARE INC", entry=entry, n=n), 312.45 + n)
+                                    for n in range(3)], zelle=zelle)
+        beside = _platform_readings([(_PLATFORM_BOFA.format(payer="SQUARE INC", entry=entry, n=0), 312.45)]
+                                    + _PLATFORM_SETTLEMENTS, zelle=zelle)
+        labelled = _platform_readings([(f"ACH CREDIT SQUARE INC {entry} 000000", 312.45)], bank=None, zelle=zelle)
+        return alone, beside, labelled
+
+    assert readings(word) == readings("ADVANCE") == (
+        [_HELD_FINANCING] * 3, [_HELD_FINANCING] + [("verified", None)] * 4, [_HELD_FINANCING])
+
+
 @pytest.mark.parametrize("text", [
     "CONTOSO BAKERY DES:TRANSFER ID:1",
     "CONTOSO BAKERY LLC DES:XFER ID:1 CCD",

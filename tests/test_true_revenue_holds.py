@@ -340,6 +340,144 @@ def test_r4_90_the_shared_alternation_builds_both_patterns_byte_for_byte():
         r"|\b(?:CAP\d*(?:SEC)?|FIN|ADV|MCA|NGC)\b")
 
 
+def test_r4_90_the_abbreviated_root_reads_the_three_whole_words_only():
+    for word in ("ADVNC", "ADVN", "ADVC", "DES ADVNC ID", "0001 ADVC", "FABRIKAM ADVN LLC"):
+        assert tr._ABBREVIATED_ADVANCE_ROOT.search(word), word
+    for word in ("ADVNCD", "CADVN", "ADVANCE", "ADV", "CASH ADV", "ADVCX", "XADVC", "ADVNCE"):
+        assert tr._ABBREVIATED_ADVANCE_ROOT.search(word) is None, word
+
+
+# Audit round 4, R4-90 (§8.1; the owner's standing rule that loans and advances never become revenue, standard C1 and
+# the fail-closed rule): a payer no registry, payout entity or §8.9 financier names that prints an abbreviated advance
+# (ADVNC, ADVN, ADVC) is held as financing_named_payer, as ADVANCE, ADV, CASH ADV and ADV PMT are. At c1cebca each row
+# below was Verified (named_payer_company_form, named_payer_repeats) or counted (named_payer_one_off,
+# named_payer_unlabelled, wire_named_sender).
+R4_90_HOLDER = "BLUEHERON CABINETRY LLC"
+R4_90_BOFA = "{payer} DES:{entry} ID:000{n} INDN:BLUEHERON CABINETRY LLC CO ID:0000000001 CCD"
+R4_90_CHASE = ("ORIG CO NAME:{payer} ORIG ID:0000000001 DESC DATE:540302 CO ENTRY DESCR:{entry} SEC:CCD "
+               "TRACE#:00000000000000{n} EED:540302 IND ID:0001 IND NAME:BLUEHERON CABINETRY LLC TRN: 0000000000TC")
+R4_90_WIRE = ("WIRE TYPE:WIRE IN DATE:540302 TIME:0930 ET TRN:2054030200000001 SEQ:000001/000001 "
+              "ORIG:FABRIKAM VENTURES LLC ID:000000001 SND BK:SAMPLE BANK NA ID:0002 PMT DET:{purpose}")
+
+
+def _r4_90(rows, *, bank, zelle, holder=R4_90_HOLDER):
+    records = classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2054-03-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ]), zelle_true_revenue=zelle)
+    return [rules_reading(record, method=True) for record in records if record.amount > 0]
+
+
+def _r4_90_bofa(word, times, payer="FABRIKAM VENTURES INC"):
+    return [(R4_90_BOFA.format(payer=payer, entry=word, n=index + 1), (18500.35, 17250.65)[index])
+            for index in range(times)]
+
+
+R4_90_HELD = [
+    *[(f"bofa {word} x{times}", "Bank of America", _r4_90_bofa(word, times))
+      for word in ("ADVNC", "ADVN", "ADVC") for times in (1, 2)],
+    ("bofa no company form", "Bank of America", _r4_90_bofa("ADVNC", 1, payer="FABRIKAM VENTURES")),
+    ("chase x2", "Chase", [(R4_90_CHASE.format(payer="FABRIKAM VENTURES LLC", entry="ADVNC", n=n), amount)
+                                    for n, amount in ((1, 18500.35), (2, 17250.65))]),
+    ("generic ach credit", None, [("ACH CREDIT FABRIKAM VENTURES ADVNC 0001", 18500.35)]),
+    ("in the payer's name x2", "Bank of America",
+     [(R4_90_BOFA.format(payer="FABRIKAM ADVNC LLC", entry="PAYMENT", n=n), amount)
+      for n, amount in ((1, 18500.35), (2, 17250.65))]),
+    ("wells fargo trailing", "Wells Fargo",
+     [("FABRIKAM VENTURES ADVNC 540302 0000000001 BLUEHERON CABINETRY LLC", 18500.35)]),
+    ("bofa wire", "Bank of America", [(R4_90_WIRE.format(purpose="ADVNC"), 18500.35)]),
+]
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+@pytest.mark.parametrize(("label", "bank", "rows"), R4_90_HELD, ids=[case[0] for case in R4_90_HELD])
+def test_r4_90_an_unlisted_payer_s_abbreviated_advance_is_held_as_financing(label, bank, rows, zelle):
+    assert _r4_90(rows, bank=bank, zelle=zelle) == [FINANCING] * len(rows), label
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+@pytest.mark.parametrize(("purpose", "expected"), [
+    # A buyer's advance payment for goods on a named non-lender's wire is trade money (R3-B07's trade purpose).
+    ("ADVNC PMT", WIRE), ("ADVN PMT FOR PO 1234", WIRE), ("ADVC PYMT", WIRE),
+    # A merchant or cash advance's own words still hold (the guard).
+    ("MERCHANT ADVNC PMT", FINANCING), ("CASH ADVN PMT", FINANCING),
+])
+def test_r4_90_a_buyer_s_abbreviated_advance_payment_wire_is_trade_money(purpose, expected, zelle):
+    assert _r4_90([(R4_90_WIRE.format(purpose=purpose), 18500.35)], bank="Bank of America", zelle=zelle) == [
+        expected]
+    assert tr._WIRE_TRADE_PURPOSE.search(purpose) is not None or expected == FINANCING
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+def test_r4_90_controls(zelle):
+    bofa = "Bank of America"
+    # The existing pin and the spelled-out advance: held, as before.
+    assert _r4_90([("CONTOSO GROUP DES:ADV PMT ID:1", 18500.35)], bank=bofa, zelle=zelle) == [FINANCING]
+    assert _r4_90(_r4_90_bofa("ADVANCE", 1), bank=bofa, zelle=zelle) == [FINANCING]
+    # An invoice or a payment from the same payer: Verified, as before.
+    assert _r4_90(_r4_90_bofa("INVOICE", 1), bank=bofa, zelle=zelle) == [COMPANY]
+    assert _r4_90(_r4_90_bofa("PAYMENT", 2), bank=bofa, zelle=zelle) == [REPEATS] * 2
+    # The payer also debits the account four times: its PAYMENT stays held by the debits; its ADVNC was held by them
+    # at c1cebca (payer_debited_as_lender) and is now held first by the financing root (§8.10's order), still held.
+    debits = [(R4_90_BOFA.format(payer="FABRIKAM VENTURES INC", entry="ACH PMT", n=n), -650.25) for n in range(4)]
+    assert _r4_90(_r4_90_bofa("PAYMENT", 1) + debits, bank=bofa, zelle=zelle) == [
+        ("excluded_pending_review", "payer_debited_as_lender")]
+    assert _r4_90(_r4_90_bofa("ADVNC", 1) + debits, bank=bofa, zelle=zelle) == [FINANCING]
+    # A holder whose own name prints the word: its names are removed before the roots are read.
+    customer = ("CONTOSO PARTNERS INC DES:PAYMENT ID:0001 INDN:ADVN SAMPLE LLC CO ID:0000000001 CCD", 18500.35)
+    assert _r4_90([customer], bank=bofa, zelle=zelle, holder="ADVN SAMPLE LLC") == [COMPANY]
+    # A payer-less deposit reads the abbreviated root as a whole word on what its location leaves, as it reads
+    # FUNDING; a buyer's advance payment printed there is trade money (the shared trade purpose).
+    assert _r4_90([("MOBILE DEPOSIT FABRIKAM ADVNC LLC", 2345.67)], bank=bofa, zelle=zelle) == [FINANCING]
+    assert _r4_90([("MOBILE DEPOSIT ADVNC PMT", 2345.67)], bank=bofa, zelle=zelle) == [CHECK]
+
+
+# Audit round 4, R4-90 (§7.5, §7.9, §8.5): the classifier's verifications read an abbreviated advance where they read
+# ADVANCE and ADV (the payer remittance veto, the incoming wire's vetoes), so the row reaches the hold, which reads it
+# as the spelled-out word's twin. At c1cebca each abbreviated row was Verified (payer_remittance_descriptor,
+# wire_remittance_purpose, repeat_wire_sender) while its ADVANCE twin was held or counted.
+R4_90_VERIFICATION_PATHS = (
+    ("ach invoice", "Bank of America", lambda w: [(R4_90_BOFA.format(
+        payer="FABRIKAM VENTURES INC", entry=f"{w} INV 1234", n=1), 18500.35)], [FINANCING]),
+    ("ach invoice payment", "Bank of America", lambda w: [(R4_90_BOFA.format(
+        payer="FABRIKAM VENTURES INC", entry=f"{w} INVOICE PMT", n=1), 18500.35)], [FINANCING]),
+    ("ach payables", "Bank of America", lambda w: [(R4_90_BOFA.format(
+        payer="FABRIKAM VENTURES INC", entry=f"{w} PAYABLES", n=1), 18500.35)], [FINANCING]),
+    ("chase invoice", "Chase", lambda w: [(R4_90_CHASE.format(
+        payer="FABRIKAM VENTURES LLC", entry=f"{w} INV 1234", n=1), 18500.35)], [FINANCING]),
+    ("wire for a po", "Bank of America", lambda w: [(R4_90_WIRE.format(purpose=f"{w} FOR PO 1234"), 18500.35)],
+     [FINANCING]),
+    ("wire payment for a po", "Bank of America",
+     lambda w: [(R4_90_WIRE.format(purpose=f"{w} PMT FOR PO 1234"), 18500.35)], [WIRE]),
+    ("wire payment twice", "Bank of America",
+     lambda w: [(R4_90_WIRE.format(purpose=f"{w} PMT"), 18500.35), (R4_90_WIRE.format(purpose=f"{w} PMT"), 17250.65)],
+     [WIRE, WIRE]),
+)
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+@pytest.mark.parametrize("word", ["ADVNC", "ADVN", "ADVC"])
+@pytest.mark.parametrize(("label", "bank", "rows", "expected"), R4_90_VERIFICATION_PATHS,
+                         ids=[case[0] for case in R4_90_VERIFICATION_PATHS])
+def test_r4_90_no_verification_reads_an_abbreviated_advance_as_a_sale(label, bank, rows, expected, word, zelle):
+    assert _r4_90(rows(word), bank=bank, zelle=zelle) == _r4_90(rows("ADVANCE"), bank=bank, zelle=zelle) == expected
+
+
+def test_r4_90_the_classifier_s_vetoes_read_the_abbreviated_word():
+    from analysis import transaction_classifier as classifier
+
+    for word in ("ADVNC", "ADVN", "ADVC"):
+        assert classifier._PAYER_REMITTANCE_VETO.search(f"FABRIKAM VENTURES INC {word} 1234"), word
+        assert classifier._wire_vetoed(R4_90_WIRE.format(purpose=f"{word} FOR PO 1234"), "FABRIKAM VENTURES LLC",
+                                       R4_90_HOLDER), word
+        assert classifier._ENTRY_FINANCING_LEAD.match(f"{word} 1234"), word
+    for word in ("ADVNCD", "CADVN", "INVOICE"):
+        assert classifier._ABBREVIATED_ADVANCE_WORD.search(word) is None, word
+    assert not classifier._wire_vetoed(R4_90_WIRE.format(purpose="INVOICE 1234"), "FABRIKAM VENTURES LLC",
+                                       R4_90_HOLDER)
+
+
 def test_a_fundraising_purpose_is_no_financing():
     text = ("WIRE TYPE WIRE IN DATE 540102 TIME 1234 ET TRN 1234567890123456 SEQ 1234567890123456 123456 ORIG CONTOSO "
             "FOR SAMPLE ID 1234567890 SND BK FABRIKAM BANK ID 123456789 PMT DET 12345 1234567890 INVOICE "

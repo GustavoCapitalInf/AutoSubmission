@@ -3274,6 +3274,12 @@ _RECURRENCE_VETO = re.compile(
 )
 #: §7.0 (review C2): FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
 _FUNDING_WORD = re.compile(r"(?<![A-Z])(?:FUNDING|FUNDED)\b")
+#: Audit round 4, R4-90 (§7.0, §7.2, §7.5, §7.9, §8.1): an abbreviated advance (true_revenue.ABBREVIATED_ADVANCE: ADVNC,
+#: ADVN, ADVC) as a whole word, read where the verification vetoes read ADVANCE and ADV: beside the recurrence veto on
+#: a registry row (_recurrence_veto_wording), a platform entry's financing lead (_ENTRY_FINANCING_LEAD), the incoming
+#: wire's vetoes (_wire_vetoed) and the payer remittance veto (_PAYER_REMITTANCE_VETO), so no verification reads it as
+#: a sale where the spelled-out word is refused. The recurrence veto itself and _OPERATING_FINANCING_VETO are unchanged.
+_ABBREVIATED_ADVANCE_WORD = re.compile(rf"(?<![A-Z])(?:{ABBREVIATED_ADVANCE})\b")
 _FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
 #: §7.0, §5.2 (S2.4 review): the operating sources whose payout rows print the merchant's store name, which is the
 #: holder's, in the entry field: the food-delivery and ordering platforms of the registry ('DOORDASH INC DES:<store>
@@ -3462,6 +3468,8 @@ _PAYER_REMITTANCE_VETO = re.compile(
     r"|(?<![A-Z])CONTROLLED DISB\w*|(?<![A-Z])(?:TRANSFER|XFER|TFR) FROM\b"
     r"|\bRTN\b|(?<![A-Z])RETURN(?:ED)? ITEM\b|(?<![A-Z])RECALL\w*|(?<![A-Z])UNPAID\b|\bADJ\b"
     r"|ACIMA"
+    # Audit round 4, R4-90 (§7.5, §8.1): an abbreviated advance (ADVNC, ADVN, ADVC) as a whole word, as ADVANC and ADV.
+    rf"|(?<![A-Z])(?:{ABBREVIATED_ADVANCE})\b"
 )
 #: §7.5, §8.1: words that never make a payer's or a debit's first distinctive word: the AP words, the public-payer
 #: words, the holder noise (legal suffixes, generic words) and the bank's template and channel words (D11's channel
@@ -3966,7 +3974,8 @@ def _wire_remittance_purpose(text: str, region: str, account_name: str | None) -
 
 def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
     """5.5 (§7.9): the vetoes of an incoming wire: a non-sale purpose; a financing root after the channel and bank
-    fields are removed, or in the first six words after the originator label run together (wrap-tolerant); any known
+    fields are removed (audit round 4, R4-90: an abbreviated advance, ADVNC, ADVN or ADVC, too, as ADV), or in the first
+    six words after the originator label run together (wrap-tolerant); any known
     payee; the own account (the originator's first two words are the beneficiary's or in the account name); a
     brand-word affiliate (the originator's first distinctive word is the beneficiary's first word or the account
     name's); a cut originator field that starts a financing name; a title or escrow firm (§8.5). The AP rule reads
@@ -3974,6 +3983,10 @@ def _wire_vetoed(text: str, region: str, account_name: str | None) -> bool:
     if _WIRE_NON_SALE_PURPOSE.search(text):
         return True
     if _names_financing(_wire_financing_text(text)):
+        return True
+    # Audit round 4, R4-90 (§7.9, §8.1): an abbreviated advance (ADVNC, ADVN, ADVC) as a whole word vetoes as ADV does
+    # (_names_financing, read by the debit-side skips too, is left as it is).
+    if _ABBREVIATED_ADVANCE_WORD.search(_wire_financing_text(text)):
         return True
     run = _wire_originator_run(text)
     if run is not None and _names_financing(run):
@@ -6960,7 +6973,9 @@ def _recurrence_vetoed(record: TransactionClassification, text: str) -> bool:
 
 def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bool:
     """5.5 (§7.0): the worded part of the recurrence veto: payroll, a veto word or card-credit label, or FUNDING
-    outside the three platforms that print it on settlements (review C2)."""
+    outside the three platforms that print it on settlements (review C2). Audit round 4, R4-90: on a registry row (one
+    that names an entity), an abbreviated advance (ADVNC, ADVN, ADVC: _ABBREVIATED_ADVANCE_WORD), read beside the veto
+    words as ADVANCE and ADV are read among them, the holder's own words aside on a store-name platform."""
     entity = record.revenue_canonical_entity
     # Audit B9 (I13): the holder's own words are read on the holder's name when the parser read it.
     holder = holder_reading(record.account_name, record.holder_name)
@@ -6971,6 +6986,7 @@ def _recurrence_veto_wording(record: TransactionClassification, text: str) -> bo
             entity not in _FUNDING_SETTLEMENT_ENTITIES
             and _recurrence_veto_word(text, holder, entity, _FUNDING_WORD)
         )
+        or (entity is not None and _recurrence_veto_word(text, holder, entity, _ABBREVIATED_ADVANCE_WORD))
     )
 
 
@@ -7068,10 +7084,11 @@ def _platform_entry_words(text: str, entity: str | None) -> list[str]:
 
 
 #: §7.2 (re-review N6): the financing words a platform's entry field may lead with: the recurrence veto's financing
-#: words, and FUNDING or FUNDED except on the settlements of the three platforms that print it (§7.0).
+#: words, and FUNDING or FUNDED except on the settlements of the three platforms that print it (§7.0). Audit round 4,
+#: R4-90: and the abbreviated advances (ADVNC, ADVN, ADVC), as ADVANCE and ADV.
 _ENTRY_FINANCING_LEAD = re.compile(
     r"(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCES?|FINANC\w*|LEND\w*|CASH ADV\w*|FUNDING|FUNDED"
-    r"|CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
+    rf"|CAP\d*(?:SEC)?|FIN|ADV|MCA|{ABBREVIATED_ADVANCE})\b"
 )
 
 

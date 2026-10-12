@@ -631,6 +631,35 @@ def test_r3_b14_r1_a_small_or_serial_abbreviated_advance_is_counted_never_verifi
     assert _reading(payout) == LUMP
 
 
+def _readings(rows, *, bank="Bank of America", holder=HOLDER, zelle=False):
+    statement = Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2055-03-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    return [rules_reading(record) for record in classify_statement_transactions(statement, zelle_true_revenue=zelle)
+            if record.amount > 0]
+
+
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+def test_r4_90_controls_a_financier_s_or_a_payout_entity_s_abbreviated_advance_keeps_its_reading(zelle):
+    # Audit round 4, R4-90: an abbreviated advance is a financing root on every payer's credit but a §8.9 financier's
+    # or a payout entity's whose claim §8.1's veto lifted (§17.1 Q8 (6)'s default, the owner's open choice, unchanged):
+    # Koalafi's small one counted as a refused named payer, Affirm's counted as its payout, a large one-off held as a
+    # lump sum, each as at c1cebca.
+    assert _readings([(_bofa("KOALAFI", "ADVNC"), 4870.55), BIG], zelle=zelle) == [
+        ("counted_flagged", "named_payer_purpose_refused"), VERIFIED]
+    assert _readings([(_bofa("AFFIRM INC", "ADVNC"), 4870.55), BIG], zelle=zelle) == [
+        ("counted_flagged", "payout_credit_entity"), VERIFIED]
+    assert _readings([(_bofa("KOALAFI", "ADVNC"), 20000.0), BIG], zelle=zelle) == [LUMP, VERIFIED]
+    for word in ("ADVN", "ADVC"):
+        assert _readings([(_bofa("ACIMA DIGITAL", word), 4870.55), BIG], zelle=zelle) == [
+            ("counted_flagged", "named_payer_purpose_refused"), VERIFIED], word
+    # The same words from a payer no claim reads are held as financing (the twin of R3-06's base payer).
+    assert _readings([(_bofa("SAMPLE TECHNOLOGIES", "ADVNC"), 4870.55), BIG], zelle=zelle) == [
+        ("excluded_pending_review", "financing_named_payer"), VERIFIED]
+
+
 # --- the debits: unchanged ------------------------------------------------------------------------------------------
 
 #: 45: (debit text, classification, flagged group, canonical entity).

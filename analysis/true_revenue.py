@@ -91,6 +91,19 @@ _FINANCING_ROOT = re.compile(
     r"|CRED(?=ORA|IBLY)|[A-Z]CREDIT|CREDIT(?!S\b)[A-Z]"
     r"|\b(?:CAP|FIN|ADV|MTG|MCA|RTR|SPE|SPV)\b|(?<![A-Z])(?:CAPI|FINA|FINAN|FINL|FNCL|LEASE)\b"
 )
+#: Audit round 4, R4-90 (§8.1): the abbreviated advances a bank's entry field or a payer's name prints (ADVNC, ADVN,
+#: ADVC), one alternation shared by the registry's financing words (_REGISTRY_FINANCING_WORDS), the classifier's
+#: payout veto (transaction_classifier._PAYOUT_NON_SALE_CREDIT, which imports this name: the classifier imports this
+#: module at its load, so the one definition lives here), the wire trade purpose (_WIRE_TRADE_PURPOSE) and the
+#: financing hold's abbreviated root (_ABBREVIATED_ADVANCE_ROOT). Each pattern built from it before the batch matches
+#: what it matched before.
+ABBREVIATED_ADVANCE = r"ADVNC|ADVN|ADVC"
+#: Audit round 4, R4-90 (§8.1, T4; the owner's standing rule that loans and advances never become revenue, standard C1,
+#: the fail-closed rule): an abbreviated advance as a whole word (never inside a longer word: ADVNCD, CADVN), a
+#: financing root on any payer's credit but a §8.9 financier's or a payout entity's whose claim §8.1's veto lifted
+#: (_payout_claim_vetoed; §17.1 Q8 (6) keeps that one's reading, the owner's open choice). _financing_root_places reads
+#: it beside _FINANCING_ROOT only when asked (`abbreviated_advance`); every other _FINANCING_ROOT reader is unchanged.
+_ABBREVIATED_ADVANCE_ROOT = re.compile(rf"(?<![A-Z])(?:{ABBREVIATED_ADVANCE})\b")
 #: §8.1, T4: the whole-word CREDIT a payer name may print. Audit B7 (I16): the plural CREDITS is a statement's section
 #: word ('DEPOSITS AND CREDITS', 'OTHER CREDITS', printed after a deposit when a page header or footer is glued on, or
 #: as a layout's posting word), never a lender's name word: it is no root, glued or whole (the glued arm above spares
@@ -113,9 +126,13 @@ _WAVE_PAYOUT_ENTRY = re.compile(r"(?<![A-Z])WAVE (?:[A-Z0-9]{2,6} )?FUNDIN WAVE\
 #: Audit round 3, R3-B07 (R3-18): and the abbreviated forms a wire's purpose field prints or cuts (ADV PAYM, ADV
 #: PAYMENT, ADV PMT, ADV PYMT, ADVANCE PYMT), never after MERCHANT, CASH or MCA (a merchant cash advance's own words,
 #: the full forms included). One pattern, shared by a wire's purpose text (_financing_root_places, wire-only: an ACH
-#: entry's 'DES:ADV PMT' keeps its root) and a payer-less deposit's reading (_deposit_location_reading).
+#: entry's 'DES:ADV PMT' keeps its root) and a payer-less deposit's reading (_deposit_location_reading). Audit round 4,
+#: R4-90: and the abbreviated advances (ABBREVIATED_ADVANCE: ADVNC, ADVN, ADVC) before the same payment words, so a
+#: buyer's 'ADVNC PMT' on a named non-lender's wire is trade money while 'ADVNC' alone, 'MERCHANT ADVNC PMT' and 'CASH
+#: ADVN PMT' keep the abbreviated root; still one pattern, shared by both readers.
 _WIRE_TRADE_PURPOSE = re.compile(
-    r"(?<![A-Z])(?<!MERCHANT )(?<!CASH )(?<!MCA )(?:(?:ADVANCE|ADV) (?:PAYM\w*|PMTS?|PYMTS?)|PRE ?PAYMENTS?)(?![A-Z])"
+    rf"(?<![A-Z])(?<!MERCHANT )(?<!CASH )(?<!MCA )(?:(?:ADVANCE|{ABBREVIATED_ADVANCE}|ADV) (?:PAYM\w*|PMTS?|PYMTS?)"
+    r"|PRE ?PAYMENTS?)(?![A-Z])"
 )
 #: §8.1, T4 (audit B7: I16): a whole-word CREDIT after a single letter that ends the payer region is the entry word a
 #: layout prints after an originator name its field cut ('<NAME> P CREDIT', a sixteen-character name and its entry).
@@ -827,12 +844,6 @@ def consumer_entry(text: str, account_name: str | None = None) -> bool:
 
 #: §8.6 method names.
 _Q6_METHODS = ("named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer")
-#: Audit round 4, R4-90 (§8.1): the abbreviated advances a bank's entry field or a payer's name prints (ADVNC, ADVN,
-#: ADVC), one alternation shared by the registry's financing words (_REGISTRY_FINANCING_WORDS), the classifier's
-#: payout veto (transaction_classifier._PAYOUT_NON_SALE_CREDIT, which imports this name: the classifier imports this
-#: module at its load, so the one definition lives here) and the financing hold's abbreviated root
-#: (_ABBREVIATED_ADVANCE_ROOT). Each pattern built from it matches what it matched before.
-ABBREVIATED_ADVANCE = r"ADVNC|ADVN|ADVC"
 #: §8.1 (review C2): the financing words on a registry row: the recurrence veto's financing words (§7.0), the
 #: new-read financing veto (§7.2) and the auction's financing words (§7.8). A platform's or processor's capital,
 #: advance or loan credit and an auction's floor-plan or NextGear credit are never claimed by the registry. Audit round
@@ -2007,7 +2018,7 @@ def government_grant(text: str) -> bool:
 
 def financing_named(
     text: str, region: str, entry: str, account_name: str | None, *, bank: str | None = None,
-    also: Sequence[str] = (),
+    also: Sequence[str] = (), abbreviated_advance: bool = False,
 ) -> bool:
     """§8.1, T4: a financing root in the payer region or the entry fields (posting labels removed, and the holder's
     own name runs removed first: its whole account name, and audit B7 (I47) a run of its first two words or more,
@@ -2029,8 +2040,13 @@ def financing_named(
     printed with its state, a buyer's advance purchase and a hold notice's FUNDS are removed or never kept too.
 
     Owner ruling 2026-10-02 (the underwriter's Q9; R2-OW09): the reading is _financing_root_places', place by place;
-    this is whether any place fired (bool of the places), unchanged."""
-    return bool(_financing_root_places(text, region, entry, account_name, bank=bank, also=also))
+    this is whether any place fired (bool of the places), unchanged. Audit round 4, R4-90: with `abbreviated_advance`
+    every place also fires on an abbreviated advance (_ABBREVIATED_ADVANCE_ROOT: ADVNC, ADVN, ADVC as whole words);
+    the pass asks it on every credit but a §8.9 financier's or a payout entity's whose claim §8.1's veto lifted
+    (_payout_claim_vetoed)."""
+    return bool(_financing_root_places(
+        text, region, entry, account_name, bank=bank, also=also, abbreviated_advance=abbreviated_advance,
+    ))
 
 
 @dataclass(frozen=True)
@@ -2052,18 +2068,31 @@ class _RootPlaces:
 
 def _financing_root_places(
     text: str, region: str, entry: str, account_name: str | None, *, bank: str | None = None,
-    also: Sequence[str] = (),
+    also: Sequence[str] = (), abbreviated_advance: bool = False,
 ) -> _RootPlaces:
     """§8.1, T4 (financing_named's reading, moved here whole by R2-OW09, no behaviour change): the places a financing
     root fires on, each read as financing_named always read it. Every place is computed: a special payer arm (the
     whole-word or formed CREDIT, a glued ...CRED name, a wire's wrap-split root) no longer ends the reading, so the
     underwriter's Q9 release (finance_named_release) sees an entry root printed beside it. bool() of the result is
-    financing_named's answer on every input."""
+    financing_named's answer on every input.
+
+    Audit round 4, R4-90: with `abbreviated_advance`, every place (the payer-less deposit reading, which then keeps an
+    abbreviated advance as a whole financing word; the payer reading, its special arms unchanged; the entry reading,
+    after a wire's trade purpose is removed; the row reading) fires on _FINANCING_ROOT or an abbreviated advance
+    (_ABBREVIATED_ADVANCE_ROOT). False (the default) reads as before the batch, for every other reader."""
     classifier = _classifier()
+
+    def fires(words: str) -> bool:
+        return _FINANCING_ROOT.search(words) is not None or (
+            abbreviated_advance and _ABBREVIATED_ADVANCE_ROOT.search(words) is not None
+        )
+
     channel = _channel(text, bank)
     if not region and channel in _DEPOSIT_CHANNELS:
-        reading = _deposit_location_reading(text, account_name, bank, also=also)
-        return _RootPlaces(row=reading) if _FINANCING_ROOT.search(reading) is not None else _RootPlaces()
+        reading = _deposit_location_reading(
+            text, account_name, bank, also=also, abbreviated_advance=abbreviated_advance,
+        )
+        return _RootPlaces(row=reading) if fires(reading) else _RootPlaces()
     row = classifier._before_receiver(text)
     p2p = channel == "person_to_person" and _p2p_rail(row)
     wire = classifier._is_wire_row(text)
@@ -2090,10 +2119,10 @@ def _financing_root_places(
             if wire:
                 purpose = _WIRE_TRADE_PURPOSE.sub(" ", purpose)
             reading = _root_reading(purpose, account_name, bank, p2p=False, also=also)
-            if _FINANCING_ROOT.search(reading):
+            if fires(reading):
                 entry_place = reading
         return _RootPlaces(
-            payer=payer if payer_arm or _FINANCING_ROOT.search(payer) else None,
+            payer=payer if payer_arm or fires(payer) else None,
             payer_arm=payer_arm,
             entry=entry_place,
         )
@@ -2105,7 +2134,7 @@ def _financing_root_places(
         if sender and _p2p_person_name(sender):
             for word in sender.split():
                 reading = re.sub(r"(?<![A-Z0-9])" + re.escape(word) + r"(?![A-Z0-9])", " ", reading)
-    return _RootPlaces(row=reading) if _FINANCING_ROOT.search(reading) else _RootPlaces()
+    return _RootPlaces(row=reading) if fires(reading) else _RootPlaces()
 
 
 def _root_reading(
@@ -2132,6 +2161,7 @@ def _root_reading(
 
 def _deposit_location_reading(
     text: str, account_name: str | None, bank: str | None, *, also: Sequence[str] = (),
+    abbreviated_advance: bool = False,
 ) -> str:
     """§8.1, T4 (B7 review round 1, I16): the words a payer-less check, cash, branch or ATM row's roots are read on: the
     row's root reading (_root_reading) without its location (a branch's label, a credit union's name, a street's name),
@@ -2140,7 +2170,9 @@ def _deposit_location_reading(
     listed sending bank: the person-to-person removal), a place a suffix names (_DEPOSIT_PLACE), a branch's name
     (_DEPOSIT_BRANCH_NAME), a town printed with its state (_DEPOSIT_TOWN_TAIL), a buyer's advance purchase or payment
     (_DEPOSIT_TRADE_PURPOSE, _WIRE_TRADE_PURPOSE), or a hold notice's FUNDS or FUNDED (kept only before a company
-    form: _DEPOSIT_FINANCING_STARTS)."""
+    form: _DEPOSIT_FINANCING_STARTS). Audit round 4, R4-90: with `abbreviated_advance` (_financing_root_places') an
+    abbreviated advance (ADVNC, ADVN, ADVC) is kept as a whole financing word too; a buyer's 'ADVNC PMT' is removed
+    with the trade purpose first."""
     words = _root_reading(_hold_text(text), account_name, bank, p2p=True, also=also)
     words = _DEPOSIT_BRANCH_LABEL.sub(" ", words)
     words = _DEPOSIT_CREDIT_UNION.sub(" ", words)
@@ -2158,6 +2190,7 @@ def _deposit_location_reading(
         if word.startswith(_DEPOSIT_FINANCING_STARTS)
         or _WHOLE_WORD_ROOT.fullmatch(word) is not None
         or (word in _DEPOSIT_NOTICE_FUNDS and _ENTRY_COMPANY_FORM.match(" ".join(split[index + 1:])) is not None)
+        or (abbreviated_advance and _ABBREVIATED_ADVANCE_ROOT.fullmatch(word) is not None)
     )
 
 
@@ -5066,7 +5099,12 @@ def finance_named_release(
     classifier = _classifier()
     holder = _holder(record)
     also = _holder_strip_names(record)
-    places = _financing_root_places(text, region, entry, holder, bank=record.bank, also=also)
+    # Audit round 4, R4-90: read as the hold reads it (an abbreviated advance is a root on every payer's credit but a
+    # financier's or a payout entity's whose claim the veto lifted), so a release never lifts a row read differently.
+    places = _financing_root_places(
+        text, region, entry, holder, bank=record.bank, also=also,
+        abbreviated_advance=not _payout_claim_vetoed(record, text),
+    )
     if not places:
         return None
     row = _without_holder_name(classifier._before_receiver(text), holder, also=also)
@@ -6996,7 +7034,15 @@ def _first_hold(
         return "possible_return"
     if not claimed and (
         # Owner ruling 2026-10-02 (the underwriter's Q9; R2-OW09): the root arm alone is lifted on a released row.
-        (financing_named(text, region, entry, _holder(record), bank=record.bank, also=also) and not released)
+        # Audit round 4, R4-90: an abbreviated advance (ADVNC, ADVN, ADVC) is a root here on every payer's credit but a
+        # §8.9 financier's or a payout entity's whose claim the veto lifted (§17.1 Q8 (6) keeps that one counted).
+        (
+            financing_named(
+                text, region, entry, _holder(record), bank=record.bank, also=also,
+                abbreviated_advance=not _payout_claim_vetoed(record, text),
+            )
+            and not released
+        )
         or registry_financing(record, text)
         # §8.7: a listed lender's or a dealer-funding word's row that Q7 did not verify, and a lone credit union's.
         # Audit B7 (I36): never on a named non-lender's wire purpose (_dealer_word_lender).
@@ -7287,7 +7333,10 @@ def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditF
     hold or the own-push guard (CreditFacts.settlement_released), which never counted toward a repeat while held. Audit
     round 3, R3-B14 (R3-06): and a payout entity's or a financier's credit whose claim the non-sale or financing veto
     lifted (_payout_claim_vetoed), so the holds read it: such a credit is counted, never verified, and where no hold
-    reads its word (an abbreviated advance, ADVNC) a payout entity's is counted as payout_credit_entity, as before."""
+    reads its word (an abbreviated advance, ADVNC) a payout entity's is counted as payout_credit_entity, as before.
+    Audit round 4, R4-90: an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads on a financier's or a payout
+    entity's credit whose claim the veto lifted (on any other payer's credit it is a financing root, held as
+    financing_named_payer)."""
     return (
         record.revenue_match_method == "direction_conflict"
         or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
@@ -7311,7 +7360,13 @@ def _payout_claim_vetoed(record: TransactionClassification, text: str) -> bool:
     (_customer_financier, read without the veto) names the row, whose claim the non-sale or financing veto lifted
     (_payout_non_sale). Such a credit is never verified by Q5 or Q6 and never counts toward a repeat: the holds read it
     as any payer's row, and where none reads its word (an abbreviated advance: ADVNC, ADVN, ADVC) it is counted, a
-    payout entity's as payout_credit_entity, as before the batch."""
+    payout entity's as payout_credit_entity, as before the batch.
+
+    Audit round 4, R4-90 (§8.1, §17.1 Q8 (6)): an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads on a
+    financier's or a payout entity's credit whose claim the veto lifted (audit round 4, R4-90: on any other payer's
+    credit it is a financing root, held as financing_named_payer). The financing hold, the Q9 release's places, the
+    census's financing_root fact and hold_rule ask financing_named for the abbreviated root on every credit this
+    reader does not name (`abbreviated_advance=not _payout_claim_vetoed(...)`)."""
     classifier = _classifier()
     if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
         return False
@@ -7325,7 +7380,9 @@ def _vetoed_financier(record: TransactionClassification, text: str) -> str | Non
     lease-to-own or patient financier (_customer_financier, read without the veto) whose claim the non-sale or financing
     veto lifted (_payout_non_sale), or None. The lump-sum test reads such a counted credit as that financier's payout,
     as before the veto, so an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads, is never a way into True
-    for a large one-off sum; a payout entity's credit, which no lump-sum test reads, is not one."""
+    for a large one-off sum; a payout entity's credit, which no lump-sum test reads, is not one. Audit round 4, R4-90:
+    an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads on a financier's or a payout entity's credit whose
+    claim the veto lifted (on any other payer's credit it is a financing root, held as financing_named_payer)."""
     classifier = _classifier()
     if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
         return None
@@ -8472,7 +8529,9 @@ def apply_true_revenue_pass(
     # Audit round 3, R3-B14 review round 1 (finding 2): a financier's credit whose claim the non-sale or financing veto
     # lifted and that the rules counted (an abbreviated advance, ADVNC, ADVN or ADVC, which no hold reads) is read by
     # the lump-sum test as the payout it was read as before the veto (_vetoed_financier), so a large one-off advance
-    # stays held until sourced; its counted reason is kept otherwise.
+    # stays held until sourced; its counted reason is kept otherwise. Audit round 4, R4-90: an abbreviated advance
+    # (ADVNC, ADVN, ADVC), which no hold reads on a financier's or a payout entity's credit whose claim the veto lifted
+    # (on any other payer's credit it is a financing root, held as financing_named_payer).
     for index in credits:
         if (
             index not in financier_payouts and updated[index].revenue_tier == "counted_flagged"
@@ -8581,7 +8640,12 @@ def guard_facts(record: TransactionClassification, text: str, *, zelle_true_reve
     pay_row = _without_holder_name(row, _holder(record), also=also)
     return {
         "claimed": _claimed(record, text),
-        "financing_root": financing_named(text, region, entry, _holder(record), bank=record.bank, also=also),
+        # Audit round 4, R4-90: read as the financing hold reads it (the abbreviated advances on every payer's credit but
+        # a financier's or a payout entity's whose claim the veto lifted).
+        "financing_root": financing_named(
+            text, region, entry, _holder(record), bank=record.bank, also=also,
+            abbreviated_advance=not _payout_claim_vetoed(record, text),
+        ),
         "registry_root": registry_financing_root(record, text),
         "registry_financing": registry_financing(record, text),
         "pay_or_personal": bool(
@@ -8682,7 +8746,11 @@ def hold_rule(record: TransactionClassification, text: str, region: str, entry: 
     row = _without_holder_name(_hold_text(text), _holder(record), also=also)
     if _bank_originated_wire(text, region, wire=_channel(text, record.bank) == "wire"):
         return "bank_originated_wire"
-    if financing_named(text, region, entry, _holder(record), bank=record.bank, also=also):
+    # Audit round 4, R4-90: the abbreviated advances as the hold reads them, so the census names their hold's cause.
+    if financing_named(
+        text, region, entry, _holder(record), bank=record.bank, also=also,
+        abbreviated_advance=not _payout_claim_vetoed(record, text),
+    ):
         return "financing_root"
     # Audit B6 (I23): a lending bank named as the payer (the financing hold).
     if lending_bank_payer(text, region):
