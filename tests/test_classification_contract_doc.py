@@ -250,6 +250,11 @@ STALE_SENTENCES = (
     # whose lender's own name printed LOAN.
     (SPEC, "except through exactly these thirteen named narrowings"),
     (SPEC, "The corpus holds no dealer-worded credit from an unlisted, non-credit-union payer"),
+    # Audit round 4, R4-B10 review round 1 (findings 1 and 2): a broker's connector COMM is refused as proof on every
+    # layout, and a LOAN-alias lender's payables-only credit keeps D1's financing reading.
+    (SPEC, "A broker's connector `COMM` counts as the named sender's wire (`wire_named_sender`, never Verified)"),
+    (SPEC, "a registry lender's payables-only `NMAC LOANS DES:PAYABLES` at a repossession agency is "
+           "`lender_paid_for_services`"),
     # Owner ruling 2026-10-02, R2-OW09 (the underwriter's Q9): the rows T4 holds are released, and §8.1's residuals no
     # longer wait for a T4 ruling.
     (SPEC, "The release of the rows T4 holds waits for its own batch"),
@@ -4630,3 +4635,72 @@ def test_r4_b10_is_recorded():
         assert words in narrowing_14, words
     for placeholder in ("MEASURE" + "_R4B10",):
         assert placeholder not in text, placeholder
+
+
+#: Audit round 4, R4-B10 review round 1: the code commit of findings 1, 2 and 3.
+R4_B10_R1_CODE_COMMIT = "4526fd7"
+
+
+def test_r4_b10_review_round_1_is_recorded():
+    """Audit round 4, R4-B10 review round 1 (findings 1 to 3): the code's docstrings name the dealer-word-only alias
+    blank, the broker's COMM refusal and the joined qualifier run; the spec's §6.1 step 4, §6.3 narrowings 7 and 14,
+    §8.1's asset-sale purpose, §8.6's refused words, §8.7's veto and payables paragraph, §9.3 and §20 record them, the
+    R4-67 and R4-38 lines qualified and corrected in place, every pinned phrase kept; the contract's row and history
+    bullet name them."""
+    veto = re.sub(r"\s+", " ", true_revenue._q7_veto_text.__doc__)
+    for words in ("R4-B10 review round 1 (finding 2;", "never on the payables words alone"):
+        assert words in veto, words
+    assert "R4-B10 review round 1 (finding 2)" in re.sub(r"\s+", " ", true_revenue._dealer_funding_region.__doc__)
+    comm = re.sub(r"\s+", " ", true_revenue._broker_comm_on_sale.__doc__)
+    for words in ("R4-B10 review round 1, finding 1", "_ASSET_SALE_COMM_BEFORE", "_ASSET_SALE_COMM_AFTER",
+                  "CreditFacts.refused_word", "A bare COMM before the sale is COMMERCIAL"):
+        assert words in comm, words
+    netting = re.sub(r"\s+", " ", true_revenue._asset_sale_commission.__doc__)
+    for words in ("R4-B10 review round 1 (finding 3)", "_QUALIFIER_RUN", "_broker_comm_on_sale"):
+        assert words in netting, words
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    assert ("both only on a row printing a dealer-specific funding word since R4-B10 review round 1, finding 2, §20, "
+            "never on the payables words alone") in flat
+    narrowings = re.sub(r"\s+", " ", _section(text, "\n### 6.3 ", "\n## 7. "))
+    for words in ("the census names it so only where the row prints that dealer-specific word, R4-B10 review round 1",
+                  "R4-B10 review round 1, finding 2, §20: Q7 verifies such a row only where it prints a dealer-specific "
+                  "funding word"):
+        assert words in narrowings, words
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("since audit round 4, R4-B10 review round 1, finding 1, §20, a broker's `COMM(S)` beside the sale by "
+                  "`_broker_comm_on_sale`", "each joinable to what follows by `AND` or `&` since R4-B10 review round 1, "
+                  "finding 3"):
+        assert words in holds, words
+    q6 = re.sub(r"\s+", " ", _section(text, "\n### 8.6 ", "\n### 8.7 "))
+    assert "(audit round 4, R4-B10 review round 1, finding 1, §20) a broker's `COMM(S)` printed as a commission" in q6
+    q7 = re.sub(r"\s+", " ", _section(text, "\n### 8.7 ", "\n### 8.8 "))
+    for words in ("never, audit round 4, R4-67, §20, a LOAN inside the listed lender's own alias",
+                  "since R4-B10 review round 1, finding 2, §20, the alias's LOAN too only on such a row",
+                  "Never the credit of a listed lender whose own alias prints LOAN",
+                  "its payables-word credits among them since R4-B10 review round 1"):
+        assert words in q7, words
+    versions = re.sub(r"\s+", " ", _section(text, "\n### 9.3 ", "\n## 10. "))
+    assert "by its review round 1 (§20), a payables-only credit of a listed lender whose own alias prints LOAN" in versions
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    r4_67 = _amendment_line(
+        amendments, "- **A listed auto lender's own LOAN, and an auto-loan product beside a dealer word")
+    for words in ("(qualified by R4-B10 review round 1, finding 2, §20 below:",
+                  "until R4-B10 review round 1, finding 2, §20 below, kept it D1's financing proceeds"):
+        assert words in r4_67, words
+    r4_38 = _amendment_line(amendments, "- **A qualified or joined netting phrase is still a sale")
+    for words in ("corrected in place by R4-B10 review round 1, finding 1, §20 below",
+                  "each joinable to what follows by `AND` or `&` since R4-B10 review round 1, finding 3, §20 below"):
+        assert words in r4_38, words
+    line = _amendment_line(amendments, "- **R4-B10 review round 1: ")
+    for words in ("findings 1 to 3", R4_B10_R1_CODE_COMMIT, "(finding 1)", "(finding 2)", "(finding 3)",
+                  "option (a), declaring the move as a narrowing, is listed for the orchestrator and the owner",
+                  "Measured against `833dd17`"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    assert "- Audit round 4, R4-B10 review round 1 (findings 1, 2 and 3;" in contract
+    assert "refused as proof as `COMMISSION` is (counted `named_payer_purpose_refused`, never verified" in contract
+    assert "both only on a row printing that word since its review round 1" in contract
+    for placeholder in ("R4B10R1" + "CODE", "MEASURE" + "_R4B10R1"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in CONTRACT.read_text(encoding="utf-8"), placeholder
