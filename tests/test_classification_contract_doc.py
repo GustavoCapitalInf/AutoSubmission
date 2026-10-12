@@ -4844,3 +4844,86 @@ def test_r4_b08_late_review_is_recorded():
         assert "R4-B08 late review" in re.sub(r"\s+", " ", reader.__doc__), reader.__name__
     for placeholder in ("MEASURE" + "_R4B08LATE",):
         assert placeholder not in text, placeholder
+
+
+def test_r4_b12_the_code_s_docstrings_name_the_readings():
+    """Audit round 4, R4-B12 (R4-26, R4-27, R4-43, R4-44, R4-45): merchant_settlement and its family readers name
+    R4-26; CounterCredit, _CounterDebit, counter_credit, counter_debits, also_debited and _own_account_names R4-27;
+    the loan flag R4-43 (the corrected premise); _counter_debit_kind R4-44; debited_as_lender R4-45."""
+    def doc(reader):
+        return re.sub(r"\s+", " ", reader.__doc__)
+
+    for reader in (true_revenue.merchant_settlement, true_revenue._holder_settlement_families,
+                   true_revenue._settlement_family):
+        assert "R4-26" in doc(reader), reader.__name__
+    for reader in (true_revenue.CounterCredit, true_revenue._CounterDebit, true_revenue.counter_credit,
+                   true_revenue.counter_debits, true_revenue.also_debited, true_revenue._own_account_names,
+                   true_revenue._merchant_named):
+        assert "R4-27" in doc(reader), reader.__name__
+    for reader in (true_revenue._CounterDebit, true_revenue.counter_debits, true_revenue.also_debited,
+                   true_revenue.counter_credit):
+        assert "R4-43" in doc(reader), reader.__name__
+    assert "a carrier's loan-worded debit may read `insurance`, never a lender debit" in doc(true_revenue.also_debited)
+    assert "R4-44" in doc(true_revenue._counter_debit_kind)
+    assert "R4-45" in doc(true_revenue.debited_as_lender)
+    source = inspect.getsource(true_revenue)
+    for words in ("_SETTLEMENT_FAMILIES: tuple[", "_OWN_ACCOUNT_AFTER_NAME = (", "_LOAN_DEBIT = re.compile(",
+                  "_FEE_ACCOUNT_WORD = r\"", "Audit round 4, R4-44 (R48's ruling"):
+        assert words in source, words
+
+
+#: Audit round 4, R4-B12: the code commit of each issue.
+R4_B12_CODE_COMMITS = ("c0fdee5", "45b358b", "2adc9a4", "775b6b9", "29c4792")
+
+
+def test_r4_b12_is_recorded():
+    """Audit round 4, R4-B12: §8.1's `holder_name`, `payer_debited_as_lender` and `payer_also_debited`; §9.3; §20's
+    five lines and the in-all line, the B4 guard, R3-90 A, R3-03, R3-33 and R3-74 lines amended in place; the
+    contract's history bullet."""
+    text = SPEC.read_text(encoding="utf-8")
+    holds = re.sub(r"\s+", " ", _section(text, "\n### 8.1 ", "\n### 8.2 "))
+    for words in ("Audit round 4, R4-26 (§20; standard B7, fail closed): a settlement word that any of the holder's "
+                  "names prints",
+                  "Audit round 4, R4-45 (§20; standard A1: `MERCHANT` names no party; the underwriter's Q9 hidden-loan "
+                  "guard kept): 5.6's first-word match reads no generic word",
+                  "(Amended by audit round 4, R4-43, §20: a carrier's loan-worded debit may read `insurance`",
+                  "(Audit round 4, R4-27, §20: the holder's transfer to its own account",
+                  "(Amended by audit round 4, R4-44, §20: after `FROM`, `OPERATING` or a digit run of three or more"):
+        assert words in holds, words
+    assert "- Audit round 4, R4-B12 (R4-26, R4-27, R4-43, R4-44, R4-45; §20): no bump in a fix batch" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **Generic words and banks' channel names never make the counter-debit word**",
+         "(amended by audit round 4, R4-45, §20 below: a lender debit still matches on 5.6's first word, unless that "
+         "word is a generic word"),
+        ("- **A bare `SETTLEMENT` under the merchant's own name is no holder's own push**",
+         "amended by audit round 4, R4-26, §20 below"),
+        ("- **A bare `SETTLEMENT` under the merchant's own name is no holder's own push**",
+         "amended by audit round 4, R4-27, §20 below: the holder's own-account transfer (a circular debit printing "
+         "the holder's whole name before an account designation) never holds a settlement, payout or platform credit "
+         "under the merchant's own name; a transfer to an affiliate still does"),
+        ("- **A released insurer is held by its carrier's debit only as circular money",
+         "(Amended by audit round 4, R4-43, §20 below:"),
+        ("- **The outgoing-wire fee's source account reads its product name**",
+         "(Amended by audit round 4, R4-44, §20 below:"),
+        ("- **A funder collecting under a Canadian pre-authorized-debit label is read by its name**",
+         "(Amended by audit round 4, R4-45, §20 below:"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    r3_90_a = _amendment_line(amendments, "- **A bare `SETTLEMENT` under the merchant's own name is no holder's own push**")
+    assert "that over-hold is left to the counter-debit batches or the owner" not in r3_90_a
+    for start, commit in (
+        ("- **A settlement word the holder's own name prints is never that holder's settlement**", "c0fdee5"),
+        ("- **The holder's own-account transfer never holds its settlement under the merchant's own name**", "45b358b"),
+        ("- **A carrier's loan-worded debit holds the credits the Q2 release counted**", "2adc9a4"),
+        ("- **A sender named `OPERATING …` or led by digits keeps the bank's receiving fee**", "775b6b9"),
+        ("- **A generic first word never matches a funder's debit**", "29c4792"),
+    ):
+        assert commit in _amendment_line(amendments, start), (start, commit)
+    line = _amendment_line(amendments, "- **Audit round 4, R4-B12 in all** (")
+    for commit in R4_B12_CODE_COMMITS:
+        assert commit in line, commit
+    contract = _flat(CONTRACT)
+    assert "- Audit round 4 (R4-26, R4-27, R4-43, R4-44, R4-45; R4-B12:" in contract
+    for placeholder in ("MEASURE" + "_R4B12",):
+        assert placeholder not in text, placeholder

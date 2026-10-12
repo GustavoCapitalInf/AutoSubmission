@@ -5181,11 +5181,11 @@ def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
     credit, recurring or not. An insurer the release did not count keeps B4's hold beside its premium or bill.
 
     Audit round 4, R4-43 (the underwriter's Q9 of 2026-10-02, "The hidden-loan guard stays"; the owner's rule that loan
-    money never becomes revenue): R3-B16 assumed a carrier that lends is read as a lender debit by debited_as_lender;
-    a carrier's loan-worded debit may read `insurance` (an insurer-aliased carrier's 'DES:LOAN PMT'), never a lender
-    debit, so its loan wording (_CounterDebit.loan) holds the released credits here, at any recurrence. An ADVANCE, ADV
-    or REPAY debit (an agency's commission-advance recovery, a claim-overpayment refund, which nets at most: standard
-    §4.3) and a premium keep R3-03's reading.
+    money never becomes revenue): R3-B16 assumed a carrier that lends is read as a lender debit by debited_as_lender.
+    Corrected: a carrier's loan-worded debit may read `insurance`, never a lender debit; its loan wording holds the
+    released credits here (_CounterDebit.loan, an insurer-aliased carrier's 'DES:LOAN PMT' included), at any
+    recurrence. An ADVANCE, ADV or REPAY debit (an agency's commission-advance recovery, a claim-overpayment refund,
+    which nets at most: standard §4.3) and a premium keep R3-03's reading.
 
     Audit round 4, R4-27 (standard A1: processor settlements count; B1 excludes own-account transfers on the credit
     side only; §4.6 item 5: an outflow to the holder's own account is a flag, not a revenue change), right after the
