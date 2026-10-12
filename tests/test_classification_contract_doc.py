@@ -4452,3 +4452,27 @@ def test_r4_b04_review_round_1_no_document_names_a_corpus_statement_s_month():
     for commit in ("3650162", "2822047"):
         assert f"`{commit}`" in owner_items, commit
     assert "R4-B04's review rounds 1 and 2 found" in owner_items
+
+
+def test_r4_b09_the_code_s_docstrings_name_the_readings():
+    """Audit round 4, R4-B09 (R4-33, R4-34, R4-35, R4-69, R4-68): _non_provider_benefit names R4-34's carrier-name
+    test, _insurer_for_work names R4-35's TYPE field and R4-69's third eligible state, the classifier's helper names
+    its own reading, and Symitar's holder reader names its label and what it never reads; every round-3 phrase kept."""
+    from analysis import symitar
+
+    benefit = re.sub(r"\s+", " ", true_revenue._non_provider_benefit.__doc__)
+    for words in ("R4-34", "within two words", "R4-33",
+                  "followed by an insurer word or spelling or a legal form is the carrier's name"):
+        assert words in benefit, words
+    release = re.sub(r"\s+", " ", true_revenue._insurer_for_work.__doc__)
+    for words in ("R4-35", "_type_field_entry", "R4-69", "strong_rule_reads_insurance_wording_only", "R4-33",
+                  "_INSURER_DISABILITY_ABBREVIATION", "nor a personal benefit's word",
+                  "_non_provider_benefit: review round 1, never a benefit word inside the carrier's name",
+                  "where the holder's first trade is no clinic or pharmacy (_holder_provider)"):
+        assert words in release, words
+    helper = re.sub(r"\s+", " ", transaction_classifier.strong_rule_reads_insurance_wording_only.__doc__)
+    assert "INSURANCE PROCEEDS or any other strong pattern is never such a row" in helper
+    assert "byte-identical" in re.sub(r"\s+", " ", transaction_classifier._strong_text.__doc__)
+    holder = re.sub(r"\s+", " ", symitar._holder_reading.__doc__)
+    for words in ("Primary Owner(s)", "never the Business Owner(s)", "a later page is never read"):
+        assert words in holder, words
