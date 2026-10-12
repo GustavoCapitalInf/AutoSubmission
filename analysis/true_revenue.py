@@ -827,11 +827,18 @@ def consumer_entry(text: str, account_name: str | None = None) -> bool:
 
 #: §8.6 method names.
 _Q6_METHODS = ("named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer")
+#: Audit round 4, R4-90 (§8.1): the abbreviated advances a bank's entry field or a payer's name prints (ADVNC, ADVN,
+#: ADVC), one alternation shared by the registry's financing words (_REGISTRY_FINANCING_WORDS), the classifier's
+#: payout veto (transaction_classifier._PAYOUT_NON_SALE_CREDIT, which imports this name: the classifier imports this
+#: module at its load, so the one definition lives here) and the financing hold's abbreviated root
+#: (_ABBREVIATED_ADVANCE_ROOT). Each pattern built from it matches what it matched before.
+ABBREVIATED_ADVANCE = r"ADVNC|ADVN|ADVC"
 #: §8.1 (review C2): the financing words on a registry row: the recurrence veto's financing words (§7.0), the
 #: new-read financing veto (§7.2) and the auction's financing words (§7.8). A platform's or processor's capital,
-#: advance or loan credit and an auction's floor-plan or NextGear credit are never claimed by the registry.
+#: advance or loan credit and an auction's floor-plan or NextGear credit are never claimed by the registry. Audit round
+#: 4, R4-90: its abbreviated advances are ABBREVIATED_ADVANCE's (the same matches).
 _REGISTRY_FINANCING_WORDS = re.compile(
-    r"(?<![A-Z])(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPTL|FINANC\w*|LEND\w*|ADVANCE[SD]?|ADVNC|ADVN|ADVC"
+    rf"(?<![A-Z])(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPTL|FINANC\w*|LEND\w*|ADVANCE[SD]?|{ABBREVIATED_ADVANCE}"
     r"|CASH ADV\w*|FUNDING|FUNDNG|FUNDED|PROCEEDS|DRAW|FLOOR ?PLAN|FLOORPLAN)\b"
     r"|\b(?:CAP\d*(?:SEC)?|FIN|ADV|MCA|NGC)\b"
 )

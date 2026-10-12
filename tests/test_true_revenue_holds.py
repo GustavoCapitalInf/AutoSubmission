@@ -309,6 +309,37 @@ def test_r3_18_the_pattern_is_shared_with_the_payer_less_deposit_reading():
     assert tr._WIRE_TRADE_PURPOSE.search("ADV PAYM") and not tr._WIRE_TRADE_PURPOSE.search("MERCHANT ADV PMT")
 
 
+# Audit round 4, R4-90 (§8.1): the abbreviated advances (ADVNC, ADVN, ADVC) are one shared alternation
+# (true_revenue.ABBREVIATED_ADVANCE, which the classifier imports); the two patterns built from it match what they
+# matched before it was shared. (word, _PAYOUT_NON_SALE_CREDIT, _REGISTRY_FINANCING_WORDS), read at c1cebca.
+R4_90_WORD_TABLE = (
+    ("ADVNC", True, True), ("ADVN", True, True), ("ADVC", True, True), ("ADVANCE", True, True),
+    ("ADVANCES", True, True), ("CASH ADV", True, True), ("CAPITAL", True, True), ("INTEREST", True, False),
+    ("DIVIDEND", True, False), ("REBATES", True, False), ("ADVNCD", False, False), ("CADVN", False, False),
+    ("ADV", False, True), ("ADVNC PMT", True, True), ("FABRIKAM ADVN LLC", True, True),
+)
+
+
+@pytest.mark.parametrize(("word", "payout", "registry"), R4_90_WORD_TABLE)
+def test_r4_90_the_word_sets_are_unchanged(word, payout, registry):
+    from analysis import transaction_classifier as classifier
+
+    assert bool(classifier._PAYOUT_NON_SALE_CREDIT.search(word)) is payout
+    assert bool(tr._REGISTRY_FINANCING_WORDS.search(word)) is registry
+
+
+def test_r4_90_the_shared_alternation_builds_both_patterns_byte_for_byte():
+    from analysis import transaction_classifier as classifier
+
+    assert classifier.ABBREVIATED_ADVANCE is tr.ABBREVIATED_ADVANCE == "ADVNC|ADVN|ADVC"
+    assert classifier._PAYOUT_NON_SALE_CREDIT.pattern == (
+        r"(?<![A-Z])(?:ADVANCES?|ADVNC|ADVN|ADVC|CASH ADV\w*|CAPITAL|CAPTL|INTEREST|DIVIDENDS?|REBATES?)\b")
+    assert tr._REGISTRY_FINANCING_WORDS.pattern == (
+        r"(?<![A-Z])(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPTL|FINANC\w*|LEND\w*|ADVANCE[SD]?|ADVNC|ADVN|ADVC"
+        r"|CASH ADV\w*|FUNDING|FUNDNG|FUNDED|PROCEEDS|DRAW|FLOOR ?PLAN|FLOORPLAN)\b"
+        r"|\b(?:CAP\d*(?:SEC)?|FIN|ADV|MCA|NGC)\b")
+
+
 def test_a_fundraising_purpose_is_no_financing():
     text = ("WIRE TYPE WIRE IN DATE 540102 TIME 1234 ET TRN 1234567890123456 SEQ 1234567890123456 123456 ORIG CONTOSO "
             "FOR SAMPLE ID 1234567890 SND BK FABRIKAM BANK ID 123456789 PMT DET 12345 1234567890 INVOICE "

@@ -54,6 +54,7 @@ from .true_revenue import (
     _AUTO_LOAN_PRODUCT,
     _HOLDER_NAME_MARKER,
     _LOAN_IN_ALIAS,
+    ABBREVIATED_ADVANCE,
     DEALER_FUNDING_WORDS,
     DealerFunding,
     FundingSeries,
@@ -5031,9 +5032,10 @@ _BNPL_CONSUMER_CREDIT = re.compile(
 #: (refunds, loans to the holder) stay as today"; the MCA principle: an advance, interest, a dividend or a rebate is no
 #: money the business earns from its operations. Never FUNDING, FUNDED, PAYOUT, PAYMENT, LEASE FUND or a bare ADV, which
 #: is a payment advice; never PROCEEDS, which a settlement may print; LOAN is the strong rule's. Read by the
-#: true-revenue pass's claim (_customer_financier, _claimed) and, for Cherry alone, by _is_payout_credit.
+#: true-revenue pass's claim (_customer_financier, _claimed) and, for Cherry alone, by _is_payout_credit. Audit round
+#: 4, R4-90: its abbreviated advances are the pass's ABBREVIATED_ADVANCE (ADVNC, ADVN, ADVC; the same matches).
 _PAYOUT_NON_SALE_CREDIT = re.compile(
-    r"(?<![A-Z])(?:ADVANCES?|ADVNC|ADVN|ADVC|CASH ADV\w*|CAPITAL|CAPTL|INTEREST|DIVIDENDS?|REBATES?)\b"
+    rf"(?<![A-Z])(?:ADVANCES?|{ABBREVIATED_ADVANCE}|CASH ADV\w*|CAPITAL|CAPTL|INTEREST|DIVIDENDS?|REBATES?)\b"
 )
 #: Audit round 3, R3-B14 (R3-06): Cherry joined the payout entities under OQ2's consumer-side veto only (Q8), so a
 #: Cherry loan or advance left D1; it keeps D1 again, as before the Q8 ruling. The other OQ2 entities' LOAN readings
