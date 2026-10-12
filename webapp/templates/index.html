@@ -1413,11 +1413,19 @@
   @media (max-width: 1120px) {
     .upload-layout { grid-template-columns: 1fr; }
     .hero-chart { grid-template-columns: 1fr; }
-    .panel-open .side-panel {
-      left: 88px; top: 12px; bottom: 12px; border-radius: 22px;
-      border: 1px solid var(--glass-edge); background: var(--panel-solid);
-    }
     .tape .total-item:nth-child(3n+1) { border-left: 0; }
+  }
+  /* Narrower screens: the open panel joins the dock as one piece of glass, exactly as on wide screens (the rail's
+     divider between them), floating over the page, which does not move. The dock stays in its place and its glass
+     layer stretches behind the panel, so rail and panel share one shape, one colour and one shadow; never a separate
+     solid card. */
+  @media (min-width: 641px) and (max-width: 1120px) {
+    .panel-open .sidebar { z-index: 35; }
+    .panel-open .sidebar::before { right: calc(-1px - 224px); }
+    .panel-open .side-panel {
+      position: absolute; top: 0; bottom: 0; left: 100%; width: 224px; z-index: auto;
+      border: 0; border-radius: 0 23px 23px 0; background: transparent; box-shadow: none;
+    }
   }
   @media (max-width: 860px) {
     .topbar { margin: 10px 12px 0; padding: 0 8px 0 18px; }
@@ -1429,7 +1437,14 @@
       border-radius: 20px; border: 1px solid transparent;
     }
     .rail { width: 100%; height: 100%; padding: 0 8px; border-right: 0; }
-    .panel-open .side-panel { left: 10px; right: 10px; top: 10px; bottom: 84px; width: auto; }
+    /* On phones the panel is a sheet above the bottom dock, in the dock's own glass (not a solid card). */
+    .panel-open .side-panel {
+      left: 10px; right: 10px; top: 10px; bottom: 84px; width: auto; border-radius: 20px;
+      border: 1px solid var(--glass-edge); box-shadow: var(--shadow-pop);
+      /* A sheet covers busy page content (black buttons, cards), so the glass is a little denser than the dock's. */
+      background: color-mix(in srgb, var(--panel) 45%, var(--panel-solid));
+      -webkit-backdrop-filter: blur(28px) saturate(160%); backdrop-filter: blur(28px) saturate(160%);
+    }
     .workspace { padding-bottom: 86px; }
     .topbar { top: 8px; height: 50px; margin: 8px 10px 0; padding: 0 6px 0 16px; }
     .view { padding: 26px 16px 40px; }
