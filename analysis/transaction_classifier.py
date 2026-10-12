@@ -1184,11 +1184,12 @@ def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
 _STRONG_INSURANCE_WORDING = re.compile(r"\bINSURANCE (?:CLAIM|PAYMENT)\b")
 
 
-def _strong_text(text: str, description: str | None) -> str:
+def _strong_text(text: str, description: str | None, holder: str | None = None) -> str:
     """The text the strong non-revenue step reads (audit round 4, R4-69: moved here from _classify_credit_revenue,
     byte-identical): the revenue text without Snap's merchant-funding form (owner ruling 2026-10-02, Q8;
     _SNAP_MERCHANT_FUNDING) and with the LOAN the normalizer made of a company name's LN blanked (audit round 3, R3-B07:
-    R3-46; description_text.ln_name_spans, read on the printed `description`).
+    R3-46; description_text.ln_name_spans, read on the printed `description`; audit round 4, R4-13: with `holder`,
+    holder_reading's name, so the holder's own name after LN is never a customer's).
 
     Audit round 4, R4-67 (Q7 of 2026-09-28, "An auto lender paying a dealer: Revenue and Verified when the entry names a
     funding or purchase. Other credits from listed auto lenders stay financing"; true revenue spec §6.1 step 9, §6.3,
@@ -1199,7 +1200,7 @@ def _strong_text(text: str, description: str | None) -> str:
     receiver fields prints a dealer-specific funding word (true_revenue.DEALER_FUNDING_WORDS), so an unlisted lender's
     dealer payment reaches §8.1's dealer-word hold. Any other LOAN still decides the strong rule."""
     strong_text = _SNAP_MERCHANT_FUNDING.sub(" ", text)
-    for name, blanked in ln_name_spans(description or ""):
+    for name, blanked in ln_name_spans(description or "", holder=holder):
         strong_text = re.sub(
             r"(?<![A-Z0-9])" + re.escape(name) + r"(?![A-Z0-9])", lambda _found, kept=blanked: kept, strong_text
         )
@@ -1219,8 +1220,8 @@ def strong_rule_reads_insurance_wording_only(text: str, description: str | None,
     `description`, the printed description; _strong_text), none reads it once the wording is blanked, and the row is no
     own-account book or funds transfer of `holder` (the holder the step read, holder_reading). A row printing INSURANCE
     PROCEEDS or any other strong pattern is never such a row. Read by the true-revenue pass's insurer release
-    (_insurer_for_work) alone."""
-    strong = _strong_text(text, description)
+    (_insurer_for_work) alone. Audit round 4, R4-13: the strong text is read with that holder, as the step reads it."""
+    strong = _strong_text(text, description, holder)
     if not _matches_any(strong, _NON_REVENUE_CREDIT_PATTERNS):
         return False
     if _matches_any(_STRONG_INSURANCE_WORDING.sub(" ", strong), _NON_REVENUE_CREDIT_PATTERNS):
@@ -4324,8 +4325,9 @@ def _classify_credit_revenue(
     # too (strong_rule_reads_insurance_wording_only). Audit round 4, R4-67 (Q7): _strong_text also blanks a listed auto
     # lender's alias that prints LOAN ('USAA AUTO LOAN') and, beside a dealer-specific funding word, an auto-lending
     # product's LOAN ('AUTO LOAN', 'VEHICLE LOAN'), so such a row Q7 did not verify reaches the pass's hold; every other
-    # reader keeps the full text, as for Snap's form and the LN names.
-    strong_text = _strong_text(text, description)
+    # reader keeps the full text, as for Snap's form and the LN names. Audit round 4, R4-13: the LN names are read with
+    # the holder's name, so a bank's loan, a loan's purpose or the holder's own name after LN keeps its LOAN.
+    strong_text = _strong_text(text, description, holder)
     if (
         _matches_any(strong_text, _NON_REVENUE_CREDIT_PATTERNS) and not named_after_designation
     ) or _own_book_or_funds_transfer(text, holder):

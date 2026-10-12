@@ -825,6 +825,93 @@ def test_r3_46_a_debit_to_a_company_named_ln_keeps_its_reading():
     assert (debit.classification, debit.revenue_tier) == ("other", None)
 
 
+# Audit round 4, R4-13 (§7.11; the owner's standing rule that loans never become revenue, standard C2): R3-46's LN
+# name is a customer company's, never a bank's loan ('<bank> LN ...'), a loan-purpose word after LN ('LN DEPOSIT', 'LN
+# CREDIT', 'LN FORGIVENESS', 'LN SERVICING', 'LN REFI', 'LN PAY') or the holder's own name after LN: those keep the
+# strong rule's LOAN, non_revenue as before R3-B07. Holder NORTHWIND LABS INC, bank Woodgrove Bank.
+R4_13_HOLDER_ROWS = (
+    "WOODGROVE BANK LN NORTHWIND LABS INC",
+    "TRUIST LN NORTHWIND LABS INC",
+    "WELLS FARGO LN NORTHWIND LABS INC",
+    "CITIZENS LN NORTHWIND LABS INC",
+    "JPMORGAN CHASE BANK N A LN NORTHWIND LABS INC",
+    "LN NORTHWIND LABS INC",
+)
+R4_13_OTHER_ROWS = (
+    "WOODGROVE BANK LN ADATUM ROOFING LLC",
+    "LN DEPOSIT TAILSPIN LLC",
+    "LN DEP TAILSPIN LLC",
+    "LN CREDIT TAILSPIN LLC",
+    "LN FORGIVENESS TAILSPIN LLC",
+    "LN PAY TAILSPIN LLC",
+    "LN REFI LLC",
+    "TAILSPIN LN SERVICING LLC",
+)
+R4_13_VENDOR_NAMES = (
+    "WOODGROVE BANK LN NORTHWIND LABS INC",
+    "TRUIST LN NORTHWIND LABS INC",
+    "LN DEPOSIT TAILSPIN LLC",
+    "LN CREDIT TAILSPIN LLC",
+    "LN FORGIVENESS TAILSPIN LLC",
+    "LN PAY TAILSPIN LLC",
+)
+R4_13_STRONG = ("non_revenue", "strong_non_revenue_rule")
+
+
+def _r4_13_strong(record):
+    return record.revenue_tier, record.revenue_match_method
+
+
+@pytest.mark.parametrize("text", R4_13_HOLDER_ROWS + R4_13_OTHER_ROWS)
+def test_r4_13_a_bank_s_loan_a_loan_purpose_or_the_holder_after_ln_stays_non_revenue(text):
+    from analysis.description_text import ln_name_spans
+
+    [record] = _r346([(text, 2345.67)], bank="Woodgrove Bank")
+    assert _r4_13_strong(record) == R4_13_STRONG
+    assert ln_name_spans(text, holder="NORTHWIND LABS INC") == ()
+    if text in R4_13_OTHER_ROWS:
+        assert ln_name_spans(text) == ()
+
+
+@pytest.mark.parametrize("name", R4_13_VENDOR_NAMES)
+def test_r4_13_vendor_payment_wording_never_releases_such_a_loan(name):
+    text = R346_BOFA.format(name=name, entry="VENDOR PMT")
+    records = _r346([(text, 2345.67), (text, 3456.78)], bank="Woodgrove Bank")
+    assert [_r4_13_strong(record) for record in records] == [R4_13_STRONG] * 2
+
+
+def test_r4_13_an_unlabelled_bank_loan_with_vendor_wording_stays_non_revenue():
+    [record] = _r346([("WOODGROVE BANK LN NORTHWIND LABS INC VENDOR PMT", 2345.67)], bank="Woodgrove Bank")
+    assert _r4_13_strong(record) == R4_13_STRONG
+
+
+def test_r4_13_the_normalizer_never_moves():
+    # Each row's normalized text is its d5e7345 output: LN read LOAN.
+    for text in R4_13_HOLDER_ROWS + R4_13_OTHER_ROWS:
+        assert normalize_transaction_description(text) == text.replace(" LN ", " LOAN ").replace("LN ", "LOAN ", 1), text
+    for name in R4_13_VENDOR_NAMES:
+        assert normalize_transaction_description(R346_BOFA.format(name=name, entry="VENDOR PMT")) == (
+            name.replace("LN", "LOAN", 1) + " DES VENDOR PMT ID 0001 INDN NORTHWIND LABS INC CO ID 0000000001 CCD")
+    assert normalize_transaction_description("WOODGROVE BANK LN NORTHWIND LABS INC VENDOR PMT") == (
+        "WOODGROVE BANK LOAN NORTHWIND LABS INC VENDOR PMT")
+
+
+def test_r4_13_controls_a_customer_company_named_ln_keeps_r3_46_s_reading():
+    from analysis.description_text import ln_name_spans
+
+    [record] = _r346([("ACH CREDIT LN TRUCKING LLC", 2345.67)], bank="Woodgrove Bank")
+    assert _tier(record) == (HELD, "financing_named_payer")
+    [record] = _r346([("CONTOSO LN HOLDINGS LLC DES:PAYMENT", 2345.67)], bank="Woodgrove Bank")
+    assert _tier(record) == (HELD, "financing_named_payer")
+    assert ln_name_spans("ACH CREDIT LN TRUCKING LLC", holder="NORTHWIND LABS INC") == (
+        ("LOAN TRUCKING LLC", "     TRUCKING LLC"),)
+    assert ln_name_spans("CONTOSO LN HOLDINGS LLC DES:PAYMENT", holder="NORTHWIND LABS INC") == (
+        ("LOAN HOLDINGS LLC", "     HOLDINGS LLC"),)
+    # A word that only starts like a purpose word is no purpose word ('LN PAYNE ...', 'LN DEPOT ...').
+    assert ln_name_spans("LN PAYNE TRUCKING LLC") == (("LOAN PAYNE TRUCKING LLC", "     PAYNE TRUCKING LLC"),)
+    assert ln_name_spans("LN DEPOT SUPPLY LLC") == (("LOAN DEPOT SUPPLY LLC", "     DEPOT SUPPLY LLC"),)
+
+
 def test_r24_the_named_sender_layouts_after_a_designation_stay_held():
     for bank, text in (
         ("Bank of America", "ONLINE TRANSFER FROM CHK 1234 CONFIRMATION AB12CD34E CONTOSO SUPPLY LLC"),

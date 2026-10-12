@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import cache
 
 #: 5.6 (true revenue spec §5.2, §20; final review I2): the receiver-name labels, where a bank prints the account
 #: holder on an incoming ACH row: Bank of America's INDN, Chase's IND NAME, PNC's RECEIVER NAME and its short RECV
@@ -119,6 +120,50 @@ _LN_NAME_LEGAL_FORMS = (
 _LN_NAME_MAX_WORDS = 4
 #: R3-46: the ACH or EFT posting label before a name ('ACH CREDIT LN TRUCKING LLC'), whose CREDIT is no loan product.
 _ACH_CREDIT = (["ACH", "CREDIT"], ["EFT", "CREDIT"])
+#: Audit round 4, R4-13 (§7.11; the owner's standing rule that loans never become revenue, standard C2): a loan's purpose
+#: printed right after LN ('LN DEPOSIT', 'LN CREDIT', 'LN FORGIVENESS', 'LN SERVICING', 'LN REFI', 'LN PAY', 'LN INT',
+#: 'LN ESCROW'): the loan's own wording, never a customer company's name. Read by ln_name_spans only, never by
+#: _loan_or_lane (_LOAN_WORD_AFTER_LN is unchanged, so the normalizer's output does not move).
+_LN_LOAN_PURPOSE_AFTER = re.compile(
+    r" (?:DEPOSIT|DEP|CREDIT|FORGIVENESS|FORGIVEN|FORGIVE|SERVICING|SERVICER|SVCG|SVC|SRV|REFI|REFINANCE|PAY|PAYOFF|PYT"
+    r"|INT|INTEREST|ESCROW)\b"
+)
+#: R4-13: the bank-form words that end a bank's name before LN ('<bank> LN ...'; CREDIT UNION read by its UNION), after
+#: a trailing N A or NA is dropped.
+_LN_BANK_FORM_WORDS = frozenset({"BANK", "BK", "BANCORP", "BANKING", "FSB", "CU", "FCU", "UNION"})
+#: R4-13: the listed sending banks' names whose trailing BANK is dropped are names too (CHASE, PNC, TD, CITIZENS,
+#: REGIONS, HUNTINGTON, SANTANDER, ALLY), never these, which name no bank alone.
+_LN_BANK_NAME_NOT_ALONE = frozenset({"US", "U S", "ROYAL", "NATIONAL"})
+
+
+@cache
+def _ln_bank_names() -> tuple[tuple[str, ...], ...]:
+    """R4-13: the listed sending banks' names (the registry's P2P_SENDING_BANK_NAMES, read at call time: the registry
+    imports this module at its load) and each such name without its trailing BANK (_LN_BANK_NAME_NOT_ALONE aside), as
+    word tuples."""
+    from .classification_registry import P2P_SENDING_BANK_NAMES
+
+    names = {tuple(name.split()) for name in P2P_SENDING_BANK_NAMES}
+    for name in P2P_SENDING_BANK_NAMES:
+        words = name.split()
+        if len(words) > 1 and words[-1] == "BANK" and " ".join(words[:-1]) not in _LN_BANK_NAME_NOT_ALONE:
+            names.add(tuple(words[:-1]))
+    return tuple(sorted(names, key=len, reverse=True))
+
+
+def _bank_before_ln(tokens: list[str]) -> bool:
+    """R4-13: the words before LN end in a bank's name or form (_LN_BANK_FORM_WORDS, _ln_bank_names), once a trailing
+    N A or NA is dropped ('JPMORGAN CHASE BANK N A LN ...', 'TRUIST LN ...', 'WOODGROVE BANK LN ...')."""
+    before = list(tokens)
+    if before[-2:] == ["N", "A"]:
+        before = before[:-2]
+    elif before[-1:] == ["NA"]:
+        before = before[:-1]
+    if not before:
+        return False
+    if before[-1] in _LN_BANK_FORM_WORDS:
+        return True
+    return any(tuple(before[-len(name):]) == name for name in _ln_bank_names())
 
 
 def _ln_form_after(tokens: list[str], start: int) -> tuple[int, int] | None:
@@ -135,7 +180,7 @@ def _ln_form_after(tokens: list[str], start: int) -> tuple[int, int] | None:
     return None
 
 
-def ln_name_spans(description: str) -> tuple[tuple[str, str], ...]:
+def ln_name_spans(description: str, *, holder: str | None = None) -> tuple[tuple[str, str], ...]:
     """Audit round 3, R3-B07 (R3-46; true revenue spec §7.11): the company names that hold LN, read on the row as
     normalize_transaction_description builds it before its LN rule (whose output this never changes). An LN is one
     when the LN rule would read it LOAN (no street address before it), no loan-payment word follows it
@@ -146,8 +191,14 @@ def ln_name_spans(description: str) -> tuple[tuple[str, str], ...]:
     ('CONTOSO LN HOLDINGS LLC', 'CONTOSO LN LLC'). None on a row that prints transfer wording (the classifier's
     _TRANSFER_WORDING, read at call time: the classifier imports this module at its own load), where 'FROM LN <name>'
     designates the holder's own loan account. Each name is returned as the normalized row prints it (LN read LOAN) and
-    with that LOAN blanked to spaces of its length, for the credit decision's strong non-revenue reading only."""
-    from .transaction_classifier import _TRANSFER_WORDING
+    with that LOAN blanked to spaces of its length, for the credit decision's strong non-revenue reading only.
+
+    Audit round 4, R4-13 (§7.11; the owner's standing rule that loans never become revenue, standard C2): R3-46's name
+    is a customer company's, so an LN is none after a bank's name or form (_bank_before_ln: '<bank> LN ...'), before a
+    loan-purpose word (_LN_LOAN_PURPOSE_AFTER: 'LN DEPOSIT', 'LN SERVICING', 'LN REFI', 'LN PAY'), or where the span's
+    words other than its LN name the holder (`holder`, holder_reading's name; the classifier's holder_named, read at
+    call time): such a row keeps the strong rule's LOAN."""
+    from .transaction_classifier import _TRANSFER_WORDING, holder_named
 
     before = _before_ln_rewrite(description)
     tokens = before.split()
@@ -164,8 +215,13 @@ def ln_name_spans(description: str) -> tuple[tuple[str, str], ...]:
     for found in _LN_WORD.finditer(before):
         if _loan_or_lane(found) != "LOAN" or _LOAN_WORD_AFTER_LN.match(before[found.end():]):
             continue
+        # R4-13: a loan's purpose after LN, or a bank's name or form before it, is the loan's own wording.
+        if _LN_LOAN_PURPOSE_AFTER.match(before[found.end():]):
+            continue
         index = starts.index(found.start())
         if index and tokens[index - 1] in _LOAN_PRODUCT_WORDS and tokens[max(index - 2, 0): index] not in _ACH_CREDIT:
+            continue
+        if index and _bank_before_ln(tokens[:index]):
             continue
         form = _ln_form_after(tokens, index + 1)
         if form is None:
@@ -178,11 +234,15 @@ def ln_name_spans(description: str) -> tuple[tuple[str, str], ...]:
                 continue
             first = index - 1
         name = printed[first:end]
+        # R4-13: the holder's own name after LN is the holder's loan, never a customer.
+        if holder and holder_named(" ".join(word for at, word in enumerate(name) if at != index - first), holder):
+            continue
         blanked = [" " * len(word) if at == index - first else word for at, word in enumerate(name)]
         spans.append((" ".join(name), " ".join(blanked)))
     return tuple(spans)
 
 
-def ln_name_word(description: str) -> bool:
-    """Audit round 3, R3-B07 (R3-46): the row prints a company name that holds LN (ln_name_spans)."""
-    return bool(ln_name_spans(description))
+def ln_name_word(description: str, *, holder: str | None = None) -> bool:
+    """Audit round 3, R3-B07 (R3-46): the row prints a company name that holds LN (ln_name_spans; audit round 4, R4-13:
+    read with the holder's name, `holder`)."""
+    return bool(ln_name_spans(description, holder=holder))
