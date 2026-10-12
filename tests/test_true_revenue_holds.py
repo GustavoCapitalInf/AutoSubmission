@@ -2239,6 +2239,102 @@ def test_q9_b_a_zelle_tenant_s_rent_is_never_lessor_evidence():
     assert rules_reading(zelle) == P2P
 
 
+# Audit round 4, R4-62 (the underwriter's Q9 (b) of 2026-10-02, which puts no limit on the rail; under the Zelle Yes
+# default the usual P2P holds apply, and financing_named_payer is none of them): a person's rent LEASE memo printed
+# straight after the sender on a person-to-person or named-transfer row counts as lessor_rent where the lessor is
+# already established (the holder's property-management name), as the same rent does by ACH. Fabricated persons.
+_R4_62_LESSOR = "CONTOSO PROPERTY MANAGEMENT LLC"
+_R4_62_AMOUNT = 1450.35
+_R4_62_ZELLE = (
+    ("ZELLE PAYMENT FROM ROBIN SAMPLE LEASE PAYMENT CONF 000000001", "Bank of America"),
+    ("Zelle Payment From Robin Sample Lease Payment Jpm00abc000", "Chase"),
+    ("ZELLE PAYMENT FROM DANA SAMPLE LEASE PMT UNIT 2", "Bank of America"),
+)
+_R4_62_OTHER_RAILS = (
+    ("INTERAC E-TRANSFER FROM ROBIN SAMPLE LEASE PAYMENT", "Royal Bank of Canada"),
+    ("E-TRANSFER FROM DANA SAMPLE LEASE PMT", "Royal Bank of Canada"),
+    ("RTP CREDIT FROM ROBIN SAMPLE LEASE PAYMENT REF 0001", None),
+    ("REAL TIME PAYMENT CREDIT FROM DANA SAMPLE LEASE PMT", None),
+    ("ONLINE TRANSFER FROM LEE SAMPLE LEASE PAYMENT", None),
+    ("VENMO CASHOUT FROM LEE SAMPLE LEASE PAYMENT", None),
+)
+
+
+def _r4_62(row, bank, *, holder=_R4_62_LESSOR, zelle=True, debits=()):
+    """The P2P credit's record (`row`, on `bank`'s layout) at `holder`, under the Zelle setting, beside `debits`."""
+    records = classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date="2055-03-02", description=row, amount=_R4_62_AMOUNT, direction="credit"),
+        *(Transaction(date="2055-03-03", description=text, amount=amount, direction="debit")
+          for text, amount in debits),
+    ]), zelle_true_revenue=zelle)
+    return records[0]
+
+
+def _final(record):
+    return record.revenue_tier, record.revenue_tier_reason
+
+
+@pytest.mark.parametrize(("row", "bank"), _R4_62_ZELLE + _R4_62_OTHER_RAILS,
+                         ids=[row[:34] for row, _bank in _R4_62_ZELLE + _R4_62_OTHER_RAILS])
+def test_r4_62_a_person_s_p2p_lease_rent_counts_at_a_lessor(row, bank):
+    # Today held financing_named_payer: the memo words sat in the payer region and the root fired there.
+    record = _r4_62(row, bank)
+    assert _final(record) == LESSOR
+    assert record.contributes_to_true_revenue and not record.contributes_to_verified_revenue
+
+
+@pytest.mark.parametrize(("row", "bank"), _R4_62_ZELLE, ids=[row[:34] for row, _bank in _R4_62_ZELLE])
+def test_r4_62_zelle_no_still_excludes_the_zelle_rent(row, bank):
+    record = _r4_62(row, bank, zelle=False)
+    assert _final(record) == ("non_revenue", "zelle_excluded")
+    assert rules_reading(record) == LESSOR
+
+
+@pytest.mark.parametrize(("row", "bank"), _R4_62_OTHER_RAILS, ids=[row[:34] for row, _bank in _R4_62_OTHER_RAILS])
+def test_r4_62_the_setting_never_governs_the_other_rails(row, bank):
+    assert _final(_r4_62(row, bank, zelle=False)) == LESSOR
+
+
+@pytest.mark.parametrize("zelle", [False, True], ids=["zelle-no", "zelle-yes"])
+@pytest.mark.parametrize(("row", "bank"), _R4_62_ZELLE + _R4_62_OTHER_RAILS,
+                         ids=[row[:34] for row, _bank in _R4_62_ZELLE + _R4_62_OTHER_RAILS])
+def test_r4_62_no_lessor_keeps_the_hold(row, bank, zelle):
+    record = _r4_62(row, bank, holder=HOLDER, zelle=zelle)
+    assert (rules_reading(record) if not zelle else _final(record)) == FINANCING
+
+
+def test_r4_62_the_hidden_loan_guard_and_the_non_rent_leases_still_hold():
+    paid_back = _r4_62(*_R4_62_ZELLE[0], debits=(("ZELLE PAYMENT TO ROBIN SAMPLE CONF 000000002", -300.00),))
+    assert _final(paid_back) == FINANCING
+    for row in ("ZELLE PAYMENT FROM ROBIN SAMPLE LEASE FUNDING", "ZELLE PAYMENT FROM ROBIN SAMPLE LEASE TO OWN",
+                "ZELLE PAYMENT FROM ROBIN SAMPLE CAPITAL LEASE PAYMENT"):
+        assert _final(_r4_62(row, "Bank of America")) == FINANCING, row
+
+
+@pytest.mark.parametrize(("row", "bank", "expected"), [
+    # The forms with no FROM already counted, and a RENT memo stays a counted person-to-person credit.
+    ("ZELLE CREDIT ROBIN SAMPLE LEASE PAYMENT", None, LESSOR),
+    ("E-TRANSFER AUTODEPOSIT ROBIN SAMPLE LEASE PAYMENT", "Royal Bank of Canada", LESSOR),
+    ("ZELLE PAYMENT FROM ROBIN SAMPLE RENT MARCH", "Bank of America", P2P),
+])
+def test_r4_62_the_controls_keep_their_readings(row, bank, expected):
+    assert _final(_r4_62(row, bank)) == expected
+
+
+@pytest.mark.parametrize(("payer", "p2p", "memo"), [
+    ("ROBIN SAMPLE LEASE PAYMENT CONF 000000001", True, True),
+    ("DANA SAMPLE LEASE PMT UNIT 2", True, True),
+    ("ROBIN SAMPLE LEASE PAYMENT", False, False),
+    ("ROBIN SAMPLE CAPITAL LEASE PAYMENT", True, False),
+    ("ROBIN SAMPLE LEASE FUNDING", True, False),
+    ("NORTHWIND LEASE PAYMENT", True, False),
+    ("CONTOSO CAFE LLC LEASE PMT", False, True),
+    ("LEASE HOLDINGS LLC LEASE PMT", True, False),
+])
+def test_r4_62_the_rent_memo_reading(payer, p2p, memo):
+    assert tr._rent_memo_payer(payer, p2p=p2p) is memo
+
+
 def test_q9_the_guard_passes_over_a_card_purchase_and_the_bank_s_receiving_fee():
     rows = [(_NW_PAYABLES.format(n=1), 4200.0), ("CHECKCARD 0302 NORTHWIND FINANCIAL GROUP SAMPLEVILLE CA", -50.0)]
     _released(_q9_credits(rows, holder=_PLUMBING)[0], FINANCE_NAMED)

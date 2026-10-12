@@ -5007,6 +5007,10 @@ def finance_named_release(
     finance_named_customer. (b): the statement's business is in leasing or property (`lessor`, _lessor_business), no
     special payer arm fired, and every place that fired is a rent LEASE alone (_rent_only), a payer place only as a memo
     printed after the payer's first company form with no root before the form's end (_rent_memo_payer): lessor_rent.
+    Audit round 4, R4-62: on a person-to-person or named-transfer row (_channel 'person_to_person') a payer place is a
+    rent memo after a sender whose name reads as a person's with no root too ('ZELLE PAYMENT FROM <person> LEASE
+    PAYMENT', 'INTERAC E-TRANSFER FROM <person> LEASE PMT'); the Zelle No exclusion and the lessor fact's Zelle skip
+    are unchanged.
 
     Last, the hidden-loan guard: None when the payer also collects from the account (_payer_collects: any lender or
     other posted debit naming it, the bank's receiving fee and a card charge aside; a documented over-hold)."""
@@ -5033,7 +5037,9 @@ def finance_named_release(
             classifier._originator_segment(classifier._without_receiver_value(text)), DEALER_FUNDING_PAYERS
         ) is not None
         reason = LENDER_PAID_FOR_SERVICES if lender else FINANCE_NAMED_CUSTOMER
-    elif lessor and not places.payer_arm and _rent_only_places(places):
+    elif lessor and not places.payer_arm and _rent_only_places(
+        places, p2p=_channel(text, record.bank) == "person_to_person"
+    ):
         reason = LESSOR_RENT
     if reason is None:
         return None
@@ -5058,19 +5064,35 @@ def _rent_only(words: str) -> bool:
     return _RENT_LEASE.search(words) is not None and _FINANCING_ROOT.search(_RENT_LEASE.sub(" ", words)) is None
 
 
-def _rent_memo_payer(payer: str) -> bool:
+def _rent_memo_payer(payer: str, *, p2p: bool = False) -> bool:
     """Q9 (b): a payer place that is a rent memo the region swallowed: a first company form (_Q9_FORM_WORD), the words
     after it a rent LEASE alone, and no root before the form's end ('<NAME> LLC LEASE PMT'). A payer named 'LEASE
-    HOLDINGS LLC' (LEASE before its form) is no memo."""
+    HOLDINGS LLC' (LEASE before its form) is no memo.
+
+    Audit round 4, R4-62 (the underwriter's Q9 (b) of 2026-10-02, which puts no limit on the rail): with `p2p` (a
+    person-to-person or named-transfer row, where the sender prints after FROM and its memo straight after it), a payer
+    place whose first rent LEASE (_RENT_LEASE) no company form precedes is a rent memo too when the words before it read
+    as a person's name (_p2p_person_name, which skips reference tokens), no root prints among them, and the words from
+    the LEASE on are a rent LEASE alone ('ROBIN SAMPLE LEASE PAYMENT', 'DANA SAMPLE LEASE PMT UNIT 2'). A LEASE FUND,
+    LEASE TO OWN or a root before the LEASE ('<person> CAPITAL LEASE PAYMENT') is no memo."""
     form = _Q9_FORM_WORD.search(payer)
+    if form is not None and _rent_only(payer[form.end():]) and _FINANCING_ROOT.search(payer[: form.end()]) is None:
+        return True
+    if not p2p:
+        return False
+    lease = _RENT_LEASE.search(payer)
+    if lease is None or (form is not None and form.start() < lease.start()):
+        return False
+    before = payer[: lease.start()]
     return (
-        form is not None and _rent_only(payer[form.end():]) and _FINANCING_ROOT.search(payer[: form.end()]) is None
+        _p2p_person_name(before) and _FINANCING_ROOT.search(before) is None and _rent_only(payer[lease.start():])
     )
 
 
-def _rent_only_places(places: _RootPlaces) -> bool:
-    """Q9 (b): every place that fired is a rent LEASE alone; a payer place only as a rent memo (_rent_memo_payer)."""
-    if places.payer is not None and not _rent_memo_payer(places.payer):
+def _rent_only_places(places: _RootPlaces, *, p2p: bool = False) -> bool:
+    """Q9 (b): every place that fired is a rent LEASE alone; a payer place only as a rent memo (_rent_memo_payer, with
+    `p2p` on a person-to-person or named-transfer row: audit round 4, R4-62)."""
+    if places.payer is not None and not _rent_memo_payer(places.payer, p2p=p2p):
         return False
     return all(_rent_only(place) for place in (places.entry, places.row) if place is not None)
 
