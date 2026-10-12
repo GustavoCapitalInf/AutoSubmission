@@ -326,7 +326,8 @@ console.log(JSON.stringify({{tags: rows.map(transactionCategory), reasons: rows.
         {"label": "True revenue", "glyph": "REV", "tone": "green"},
         {"label": "Held: Payer or entry suggests financing", "glyph": "?", "tone": "amber"},
         {"label": "Non-revenue", "glyph": "X", "tone": "neutral"},
-        {"label": "Unverified deposit", "glyph": "?", "tone": "amber"},
+        # Review round 1: a credit saved before 5.6 awaiting review reads in the page's words, never "Unverified".
+        {"label": "Review required", "glyph": "?", "tone": "amber"},
     ]
     assert result["reasons"][1] == ""
     assert result["reasons"][2] == ("Payer or entry suggests financing. The payer or the entry names funding, a loan or "
@@ -429,10 +430,11 @@ const actions = (html) => [...html.matchAll(/data-revenue-review-action="([a-z]+
 console.log(JSON.stringify({{controls: rows.map((tx) => actions(revenueReviewControls(tx))),
   pickable: rows.map((tx) => pendingReviewTarget(tx) !== null)}}));
 """)
-    assert result["controls"] == [["confirm", "reject"], ["confirm", "reject"], ["reject"], ["reset"], ["reset"], [],
-                                  []]
-    # The multi-select offers the credits left unverified and not yet decided.
-    assert result["pickable"] == [True, True, False, False, False, False, False]
+    # Review round 1 of the owner's request of 2026-10-11 (spec §10's head): a counted credit, in True revenue, shows
+    # what a verified one shows, Mark Non-Revenue only (the server still accepts its confirm).
+    assert result["controls"] == [["confirm", "reject"], ["reject"], ["reject"], ["reset"], ["reset"], [], []]
+    # The multi-select offers the held credits not yet decided.
+    assert result["pickable"] == [True, False, False, False, False, False, False]
 
 
 @needs_node
@@ -471,14 +473,15 @@ def test_an_older_analysis_opens_its_review_on_its_unverified_deposits():
     # so its review view lists the deposits it left unverified (what its badge counts), each with Confirm and Mark.
     older = run_dashboard(_open("o", _served(_untiered(_payload()))) + REVIEW_VIEW)
     assert older["filter"] == "unverified_deposit"
-    assert older["count"] == "2 unverified deposits" and older["badge"] == "2"
+    # Review round 1 of the owner's request of 2026-10-11: counted in the page's words, never "unverified".
+    assert older["count"] == "2 deposits to review" and older["badge"] == "2"
     assert older["rows"] == [["MOBILE DEPOSIT", ["confirm", "reject"]],
                              ["FABRIKAM FUNDING LLC DES:PAYMENT ID:1", ["confirm", "reject"]]]
     # With none left, the empty view names the way to true revenue.
     settled = _served(_untiered(_payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0),
                                           (5, "INTERNAL TRANSFER FROM SAVINGS", 100.0)])))
     none_left = run_dashboard(_open("s", settled) + REVIEW_VIEW)
-    assert none_left["filter"] == "unverified_deposit" and none_left["count"] == "0 unverified deposits"
+    assert none_left["filter"] == "unverified_deposit" and none_left["count"] == "0 deposits to review"
     assert "Analysed with older classification rules: Re-analyze to compute true revenue." in none_left["text"]
     # A 5.6 analysis is unchanged: its held credits.
     current = run_dashboard(_open("c", _served(_payload())) + REVIEW_VIEW)
@@ -1711,7 +1714,8 @@ console.log(JSON.stringify({rows, evidenceHtml, evidence, header, filtered, memo
 def test_yes_a_statement_counts_its_zelle_deposits():
     """The twin under Yes (the owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17, the default): the three
     Zelle deposits count (person-to-person), the True card says so, the Non-Revenue note names no Zelle deposits, and
-    each Zelle row carries the Zelle chip and Confirm Revenue / Mark Non-Revenue."""
+    each Zelle row carries the Zelle chip and Mark Non-Revenue (the owner's request of 2026-10-11, its review round 1:
+    a counted credit, in True revenue, offers what a verified one offers, no Confirm Revenue)."""
     result = run_dashboard(METRIC_ROWS + LEDGER + _open("z", _served(_payload(_ZELLE_ROWS))) + """
 const rows = metricRows(els.metricsGrid.innerHTML);
 const zelleRows = [...els.transactionTable.innerHTML.matchAll(/<tr[^>]*>([\\s\\S]*?)<\\/tr>/g)].map((m) => m[1])
@@ -1727,7 +1731,7 @@ console.log(JSON.stringify({rows, zelleRows, all, memo: els.summaryBox.textConte
                                                " · Zelle deposits in True revenue: $1,500.00 (3)")
     assert figures["Non-Revenue"]["note"] == "Own-account transfers, funding, refunds and other known non-revenue"
     assert result["zelleRows"] == [text for _day, text, _amount in _ZELLE_ROWS[2:]]
-    assert [actions for text, actions in result["all"] if text.startswith("ZELLE")] == [["confirm", "reject"]] * 3
+    assert [actions for text, actions in result["all"] if text.startswith("ZELLE")] == [["reject"]] * 3
     assert "; Zelle deposits counted as True revenue $1,500.00." in result["memo"]
 
 

@@ -64,11 +64,14 @@ console.log(JSON.stringify({note: trueNote(), evidenceRows, filters, large, all,
     row = next(row for row in result["evidenceRows"] if row[0] == "Large deposits to source")
     assert row[1:3] == ["2", "$270,000.00"] and "Source it" in row[3]
     assert result["large"] == {"count": "2 large deposits to source", "rows": [DEPOSIT, WIRE]}
-    # U3: each flagged row asks for its source; every other row reads as before; the review controls are unchanged.
+    # U3: each flagged row asks for its source; every other row reads as before. The owner's request of 2026-10-11
+    # (spec §10's head, its review round 1): a flagged deposit is counted, in True revenue, so it offers what every
+    # credit in True revenue offers, Mark Non-Revenue only (the flag never changes its controls).
     notes = {row["desc"]: row["large"] for row in result["all"]}
     assert notes[DEPOSIT] == [NOTE_39] and notes[WIRE] == [NOTE_31]
     assert all(not notes[desc] for desc in notes if desc not in (DEPOSIT, WIRE))
-    assert all(row["review"] == [True, True] for row in result["flaggedRows"])
+    flagged = [row for row in result["flaggedRows"] if row["desc"] in (DEPOSIT, WIRE)]
+    assert len(flagged) == 2 and all(row["review"] == [False, True] for row in flagged)
 
 
 @needs_node

@@ -1092,11 +1092,19 @@ def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_
     assert ("true_revenue_evidence_3", "original_description") not in {(row[0], row[1]) for row in rows}
     held = {field: value for section, field, value in rows if section == "excluded_pending_review_evidence_1"}
     assert (held["revenue_tier"], held["revenue_tier_reason"]) == ("excluded_pending_review", "financing_named_payer")
-    # A package with a member analysed before 5.6 has no established True revenue, so no True section; the older
-    # member's credits are in no section of a hidden tier; the held member's section stays.
-    _older_rows, older_sections = sections_of(_package(_payload(), _untiered(_payload(month=4))))
-    assert "true_revenue_evidence" not in older_sections and "excluded_pending_review_evidence" in older_sections
+    # A package with a member analysed before 5.6 has no established True revenue, yet (review round 1) the 5.6
+    # member's credits in True revenue keep their section, built from the served verified and counted lists, and the
+    # older member's credits are in sections named in the page's words (`revenue_evidence`, `review_required_evidence`),
+    # never in a section of a hidden tier; the held member's section stays.
+    older_rows, older_sections = sections_of(_package(_payload(), _untiered(_payload(month=4))))
+    assert {"true_revenue_evidence", "excluded_pending_review_evidence", "revenue_evidence", "review_required_evidence",
+            "non_revenue_evidence"} <= older_sections
     assert not older_sections & {"verified_revenue_evidence", "counted_flagged_evidence", "unverified_deposit_evidence"}
+    older = {field: value for section, field, value in older_rows if section == "review_required_evidence_1"}
+    assert "revenue_tier" not in older and older["source_job"] == "job-2"
+    assert older["revenue_classification"] == "review_required"
+    assert {value for section, field, value in older_rows
+            if section.startswith("true_revenue_evidence_") and field == "source_job"} == {"job-1"}
     ledger = [row for row in _csv_cells(_package_csv(package)) if row[0] == "package_transaction"]
     assert ledger[0][2:] == ["source_document", "source_account", "source_currency", "date", "description", "amount",
                              "classification", "tier", "reason", "review_status"]
@@ -1113,11 +1121,12 @@ def test_the_package_downloads_split_the_evidence_by_tier_and_name_its_unit_and_
 
 
 def test_r3_53_a_held_row_s_evidence_never_says_it_is_counted():
-    """Audit round 3, R3-B15 (R3-53; §5.3): the JSON download (the served payload) writes a held row's `revenue_reason`
-    beside `revenue_tier` excluded_pending_review. A hold that re-tiers a counted re-statement (here the underwriter's
-    Q2 release of a repair shop's insurer credit, which the debit for its own amount holds as payer_also_debited) names
-    the hold by its own label there, never "counted and flagged". Since the owner's request of 2026-10-11 the package
-    downloads' evidence sections write the hold's code and no rule sentence."""
+    """Audit round 3, R3-B15 (R3-53; §5.3): the JSON download (the served payload) and the package downloads' evidence
+    sections write a held row's `revenue_reason` beside `revenue_tier` excluded_pending_review. A hold that re-tiers a
+    counted re-statement (here the underwriter's Q2 release of a repair shop's insurer credit, which the debit for its
+    own amount holds as payer_also_debited) names the hold by its own label there, never "counted and flagged". Since
+    the owner's request of 2026-10-11 (review round 1) the package downloads write it as "held for review (<label>)",
+    without "never verified", which names the verified tier; the JSON download keeps the served sentence."""
     from analysis.revenue import REVENUE_TIER_REASONS
     from analysis.serialization import document_report_to_dict
     from webapp.app import _package_rows
@@ -1132,14 +1141,13 @@ def test_r3_53_a_held_row_s_evidence_never_says_it_is_counted():
         assert record["revenue_tier_reason"] == "payer_also_debited"
         assert "counted and flagged" not in record["revenue_reason"]
         assert f"never verified, and held for review ({label})" in record["revenue_reason"]
-    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the package downloads write the hold's reason
-    # code and no rule sentence (the sentence names the verified tier: "never verified"); the JSON download, above,
-    # keeps it.
     package_rows = _package_rows(_package(payload))
+    reasons = [value for section, field, value in package_rows
+               if section.startswith("excluded_pending_review_evidence_") and field == "revenue_reason"]
+    assert reasons and all(f"held for review ({label})" in value for value in reasons)
     held_rows = [(field, value) for section, field, value in package_rows
                  if section.startswith("excluded_pending_review_evidence_")]
     assert ("revenue_tier_reason", "payer_also_debited") in held_rows
-    assert not any(field == "revenue_reason" for field, _value in held_rows)
     assert not any("counted and flagged" in str(value) or "never verified" in str(value) for _field, value in held_rows)
 
 

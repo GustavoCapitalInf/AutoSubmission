@@ -780,14 +780,21 @@ def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
 _POSTED_CREDIT_COLUMNS = ("date", "description", "amount", "currency", "tier", "reason", "review_status")
 
 
+def _tier_cell(record: dict) -> str:
+    """A ledger row's `tier` cell, from a record as the downloads read it (`_downloads_view`): its tier, or (review
+    round 1 of the owner's request of 2026-10-11) for a credit analysed before 5.6, which has none, its state in the
+    page's words (`revenue`, `review_required` or `non_revenue`, as its tag reads); empty for a row with neither."""
+    return record.get("revenue_tier") or record.get("revenue_classification") or ""
+
+
 def _posted_credit_table(analysis: dict) -> list[tuple]:
     """Audit B11 (I32): one row per posted credit, so an underwriter can check, deposit by deposit, which credits make
     up True (the ledger otherwise sits in one JSON cell, over a spreadsheet's cell limit on most statements): a
     `columns` row, then `(section, n, date, description, amount, currency, tier, reason, review status)`.
     The tier and reason are the payload's codes (analysis/revenue.py), as the downloads read them (`_downloads_view`:
-    a credit in True revenue is `true_revenue`, with no reason). Every account of a document payload has its own
-    block, under its section prefix. A block written after the flat rows (`_analysis_rows` stays three columns for its
-    readers); its statement text reaches a file only through `_escaped_rows`."""
+    a credit in True revenue is `true_revenue`, with no reason; `_tier_cell` before 5.6). Every account of a document
+    payload has its own block, under its section prefix. A block written after the flat rows (`_analysis_rows` stays
+    three columns for its readers); its statement text reaches a file only through `_escaped_rows`."""
     analysis = _downloads_view(analysis)
     if is_document_payload(analysis):
         accounts = payload_accounts(analysis, surface="webapp/app.py::_posted_credit_table")
@@ -810,7 +817,7 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
         if amount <= 0 or record.get("is_posted") is False:
             continue
         rows.append(("posted_credit", len(rows) + 1, transaction.get("date") or "",
-                     transaction.get("description") or "", amount, currency, record.get("revenue_tier") or "",
+                     transaction.get("description") or "", amount, currency, _tier_cell(record),
                      record.get("revenue_tier_reason") or "", record.get("revenue_review_status") or ""))
         tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
     if not rows:
@@ -885,21 +892,64 @@ _TRUE_REVENUE_TIER = "true_revenue"
 #: Every key that names a hidden tier, its figures or an alias of them, left out wherever it sits: `verified_revenue_*`
 #: (with `avg_monthly_verified_revenue` and the records' `contributes_to_verified_revenue`), `counted_flagged_*`,
 #: `unverified_deposit_*` (5.4's name for counted plus held), `potential_revenue*` and `confirmed_true_revenue*` (the
-#: aliases of those two) and the Zelle figures' `verified` and `counted_flagged` slots (merged first, below).
+#: aliases of those two) and the Zelle figures' `verified` and `counted_flagged` slots (merged first, below). A payload
+#: analysed before 5.6 has no tier: its 5.4 lists and its deposits to review are renamed first (`_OLDER_KEY_WORDS`).
 _HIDDEN_TIER_KEY = re.compile(r"verified|counted_flagged|potential_revenue|confirmed_true_revenue")
-#: A classification record's fields that say which hidden tier the rules read: its 5.4 state (`verified_revenue` or
-#: `unverified_deposit`), and the rule that read it and its sentence ("counted and flagged, never verified"). Its tier,
-#: its held or non-revenue reason, its review status and every other field stay.
-_HIDDEN_RECORD_KEYS = frozenset({"revenue_classification", "revenue_initial_classification", "revenue_matched_rule",
-                                 "revenue_reason"})
+#: A classification record's 5.4 state (`verified_revenue`, `unverified_deposit` or `non_revenue`), current and initial.
+#: Review round 1: on a credit with a tier (5.6 on), the tier says what the state says without the verified and
+#: counted split, so the state is left out unless it is `non_revenue`; on a credit analysed before 5.6 (no tier) the
+#: state is its only revenue reading and is written in the page's words (`_OLDER_STATE_WORDS`).
+_STATE_KEYS = frozenset({"revenue_classification", "revenue_initial_classification"})
+#: The page's words for a pre-5.6 credit's state, as its tag reads (app.js transactionCategory: "Revenue", "Review
+#: required", "Non-revenue"): never 5.4's `verified_revenue` or `unverified_deposit`.
+_OLDER_STATE_WORDS = {
+    "verified_revenue": "revenue", "unverified_deposit": "review_required", "non_revenue": "non_revenue",
+}
+#: Review round 1: a pre-5.6 account's revenue view (`_older_revenue_view`) writes its 5.4 lists under the page's words,
+#: and its deposits to review (what its review view lists and its badge counts) with their count and total. A 5.6 view's
+#: `unverified_deposit_*` is counted plus held, an alias of a hidden tier, and is left out.
+_OLDER_KEY_WORDS = {
+    "verified_revenue_evidence": "revenue_evidence",
+    "unverified_deposit_evidence": "review_required_evidence",
+    "unverified_deposit_count": "review_required_count",
+    "unverified_deposit_total": "review_required_total",
+}
+#: A record's rule and its sentence (`revenue_matched_rule`, `revenue_reason`): why the rules read it as they did.
+#: Review round 1: a credit in True revenue carries neither (a counted one's says the source is not confirmed); a held
+#: or non-revenue one keeps both, the words naming a hidden tier rewritten (`_SENTENCE_REWRITES`, `_ZELLE_READING`),
+#: and a rule or sentence that still names one after that is left out.
+_RULE_KEYS = frozenset({"revenue_matched_rule", "revenue_reason"})
+_HIDDEN_TIER_WORDS = re.compile(r"verified|counted and flagged|counted_flagged|counted, not verified", re.IGNORECASE)
+#: The rewrites of a held or non-revenue sentence, in order: R3-53's hold of a counted re-statement ("never verified,
+#: and held for review (<label>)"), the $1 floor's hold of a verified credit ("is never verified and never counted") and
+#: the holder's own push a rule verified ("never revenue and never verified;").
+_SENTENCE_REWRITES = (
+    ("never verified, and held for review (", "held for review ("),
+    ("is never verified and never counted", "is never counted in True revenue"),
+    (" and never verified;", ";"),
+)
+#: Q3's sentence on a Zelle deposit the policy excluded ends on the rules' reading (analysis/true_revenue.py
+#: `_zelle_excluded`): "...; the rules read it as: <label>." A reading in a hidden tier ("Verified revenue", a counted
+#: reason's label) is written "True revenue.", as the page says it (app.js zellePriorSentence); a held one keeps its
+#: label.
+_ZELLE_READING = "the rules read it as: "
 #: The counted tier's reason codes (analysis/revenue.py REVENUE_TIER_REASONS), left out wherever a record carries one:
 #: on a credit counted in True revenue, on one a reviewer confirmed and on one a reviewer rejected (which keeps it).
 _COUNTED_REASONS = frozenset(code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "counted_flagged")
+#: Review round 1: the lender classifier's sentence on a row no lender, insurance or category rule read (most credits,
+#: analysis/transaction_classifier.py), whose "verified" is a lender's, never a revenue tier, written without the word.
+_UNMATCHED_ROW_REASONS = {
+    "No verified lender, insurance, or operational-category rule matched.":
+        "No lender, insurance, or operational-category rule matched.",
+}
 #: The verified withholding basis (WITHHOLDING_DENOMINATOR_MODE=verified_revenue, R2-OW14; never chosen on screen), as
-#: the page names it (app.js WITHHOLDING_BASIS_LABELS): its mode, its label and its definition; the True basis's
-#: definition in the page's words. Its figures are unchanged.
+#: the page names it (app.js WITHHOLDING_BASIS_LABELS): its mode (`narrower_revenue_basis`, a downloads-only code naming
+#: no tier; the backend's mode stays `verified_revenue`), its label and its definition, and in a note's sentence, in
+#: lower case as the page's rate note names it; the True basis's definition in the page's words. Its figures are
+#: unchanged.
 _NARROWER_BASIS_MODE = "narrower_revenue_basis"
 _NARROWER_BASIS_LABEL = "Narrower revenue basis"
+_NARROWER_BASIS_IN_A_NOTE = "the narrower revenue basis"
 _BASIS_DEFINITIONS = {
     "verified_revenue": "a part of true revenue only",
     "true_revenue": "true revenue: posted credits minus known non-revenue and the deposits held for review",
@@ -948,27 +998,87 @@ def _context_signals_without_hidden_tiers(signals: object) -> object:
     return tuple(kept) if isinstance(signals, tuple) else kept
 
 
+def _older_revenue_view(node: dict) -> bool:
+    """Whether `node` is an account's revenue view (its metrics or detection) analysed before 5.6: it lists 5.4's
+    unverified deposits and no held tier (5.6's `excluded_pending_review_evidence` is a list; before it, None or
+    absent). A package's lists always carry the held tier, so a package is never read as one."""
+    return "unverified_deposit_evidence" in node and not isinstance(node.get("excluded_pending_review_evidence"), list)
+
+
+def _zelle_prior_tier(signals: object) -> str | None:
+    """The tier the rules gave a Zelle deposit the policy excluded (its `zelle_prior:<tier>:<reason>` signal), or
+    None."""
+    for signal in signals if isinstance(signals, (list, tuple)) else ():
+        if isinstance(signal, str) and signal.startswith(_ZELLE_PRIOR):
+            return signal[len(_ZELLE_PRIOR):].split(":", 1)[0]
+    return None
+
+
+def _reason_without_hidden_tiers(key: str, value: object, record: dict) -> object:
+    """A held or non-revenue record's rule or sentence as the downloads write it (review round 1): the sentence with the
+    words that name a hidden tier rewritten (`_SENTENCE_REWRITES`; a Zelle deposit's reading in a hidden tier as "True
+    revenue."), and None (left out) where the rule or the rewritten sentence still names one."""
+    if not isinstance(value, str):
+        return value
+    if key == "revenue_reason":
+        for old, new in _SENTENCE_REWRITES:
+            value = value.replace(old, new)
+        reading = value.rfind(_ZELLE_READING)
+        if reading >= 0 and _zelle_prior_tier(record.get("revenue_context_signals")) in _HIDDEN_TIERS:
+            value = f"{value[:reading + len(_ZELLE_READING)]}True revenue."
+    return None if _HIDDEN_TIER_WORDS.search(value) else value
+
+
 def _downloads_view(node: object) -> object:
     """A served payload (statement, document or package), or any part of it, as the CSV and XLSX downloads write it
     (the owner's request of 2026-10-11): a copy in which no key names a hidden tier (`_HIDDEN_TIER_KEY`), a
-    classification record's hidden tier reads `true_revenue` (current and initial), its counted reason, 5.4 state and
-    rule are left out (`_HIDDEN_RECORD_KEYS`), the Zelle figures carry one True revenue slot, and the verified
-    withholding basis reads as the page names it. Every figure is unchanged; the input is never mutated."""
+    classification record's hidden tier reads `true_revenue` (current and initial, and a package pass's `tier_before`),
+    its counted reason is left out, its 5.4 state is left out (a tier says it) or, before 5.6, written in the page's
+    words (`_STATE_KEYS`), its rule and sentence are kept only out of True revenue, and without a hidden tier's words
+    (`_RULE_KEYS`), a counted credit awaits no review, a pre-5.6 view's lists are renamed (`_OLDER_KEY_WORDS`), the
+    Zelle figures carry one True revenue slot, and the verified withholding basis reads as the page names it. Every
+    figure is unchanged; the input is never mutated."""
     if isinstance(node, (list, tuple)):
         items = [_downloads_view(item) for item in node]
         return tuple(items) if isinstance(node, tuple) else items
     if not isinstance(node, dict):
         return node
+    record = "revenue_classification" in node
+    tiered = isinstance(node.get("revenue_tier"), str)
+    older = _older_revenue_view(node)
     out: dict = {}
     for key, value in node.items():
+        if older and key in _OLDER_KEY_WORDS:
+            out[_OLDER_KEY_WORDS[key]] = _downloads_view(value)
+            continue
         if key == "by_tier" and isinstance(value, dict):
             value = _zelle_by_tier_without_hidden_tiers(value)
-        if _HIDDEN_TIER_KEY.search(str(key)) or key in _HIDDEN_RECORD_KEYS:
+        if record and key in _STATE_KEYS:
+            if not tiered:
+                out[key] = _OLDER_STATE_WORDS.get(value, value)
+            elif value == "non_revenue":
+                out[key] = value
             continue
-        if key in ("revenue_tier", "revenue_initial_tier") and value in _HIDDEN_TIERS:
+        if record and key in _RULE_KEYS:
+            if node.get("revenue_tier") in _HIDDEN_TIERS:
+                continue
+            if value is not None:
+                value = _reason_without_hidden_tiers(key, value, node)
+                if value is None:
+                    continue
+            out[key] = value
+            continue
+        if _HIDDEN_TIER_KEY.search(str(key)):
+            continue
+        if key in ("revenue_tier", "revenue_initial_tier", "tier_before") and value in _HIDDEN_TIERS:
             value = _TRUE_REVENUE_TIER
-        elif key == "revenue_tier_reason" and value in _COUNTED_REASONS:
+        elif key in ("revenue_tier_reason", "reason_before") and value in _COUNTED_REASONS:
             value = None
+        elif key == "revenue_review_status" and value == "pending" and node.get("revenue_tier") == "counted_flagged":
+            # A counted credit is in True revenue; the page offers it no review a verified one lacks (review round 1).
+            value = "not_required"
+        elif key == "reason" and value in _UNMATCHED_ROW_REASONS:
+            value = _UNMATCHED_ROW_REASONS[value]
         elif key == "revenue_context_signals":
             value = _context_signals_without_hidden_tiers(value)
         elif key in ("withholding_denominator_mode", "mode") and value == "verified_revenue":
@@ -981,8 +1091,9 @@ def _downloads_view(node: object) -> object:
             modes = [mode for mode in value if mode != "verified_revenue"]
             value = tuple(modes) if isinstance(value, tuple) else modes
         elif key == "notes" and isinstance(value, (list, tuple)):
-            # A withholding note names its basis by its label ("... because Verified revenue is zero or missing").
-            notes = [note.replace("Verified revenue", _NARROWER_BASIS_LABEL) if isinstance(note, str) else note
+            # A withholding note names its basis by its label mid-sentence ("... because Verified revenue is zero or
+            # missing"), so the narrower basis is named there in lower case.
+            notes = [note.replace("Verified revenue", _NARROWER_BASIS_IN_A_NOTE) if isinstance(note, str) else note
                      for note in value]
             value = tuple(notes) if isinstance(value, tuple) else notes
         else:
@@ -1118,6 +1229,7 @@ def _returned_funder_payment_words(item: dict) -> str:
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     """The package's flat export sheet, read as the downloads read it (the owner's request of 2026-10-11, true revenue
     spec §2.2, §10.8: `_downloads_view`, no Verified revenue and no "Counted, not verified")."""
+    evidence_sections = _package_evidence_sections(package)
     package = _downloads_view(package)
     rows: list[tuple[str, str, object]] = []
     totals = package.get("totals") or {}
@@ -1265,19 +1377,38 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
         for key, value in evidence.items():
             rows.append((f"insurance_evidence_{idx}", key, "" if value is None else value))
     # Audit B11 (I32): one evidence section per tier, so credits in True and held ones (out of it) no longer share a
-    # section. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the credits in True revenue are one
-    # section, `true_revenue_evidence_N` (the served True evidence: none where the package's True is not established),
-    # where they were a Verified and a Counted section, and 5.4's unverified list (counted plus held, and a member
-    # analysed before 5.6) is no section; the held and non-revenue sections are unchanged.
-    for section, records in (
-        ("true_revenue_evidence", package.get("true_revenue_evidence") or []),
-        ("excluded_pending_review_evidence", package.get("excluded_pending_review_evidence") or []),
-        ("non_revenue_evidence", package.get("non_revenue_evidence") or []),
-    ):
-        for idx, evidence in enumerate(records, start=1):
+    # section (`_package_evidence_sections`), each record read as the downloads read it.
+    for section, records in evidence_sections:
+        for idx, evidence in enumerate(_downloads_view(records), start=1):
             for key, value in evidence.items():
                 rows.append((f"{section}_{idx}", key, "" if value is None else value))
     return rows
+
+
+def _package_evidence_sections(package: dict) -> tuple[tuple[str, list], ...]:
+    """Audit B11 (I32): the package's revenue evidence, one section per tier, from the served lists, every posted credit
+    of every member in exactly one. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8) and its review
+    round 1: the credits in True revenue are one section, `true_revenue_evidence` (the members' verified credits, then
+    their counted ones, as the served True evidence lists them), where they were a Verified and a Counted section,
+    written even where the package's True is N/A (a member analysed before 5.6), so a 5.6 member's credits are never in
+    no section; then the held credits; a member analysed before 5.6 (no tier) has its credits under its states in the
+    page's words, `revenue_evidence` and `review_required_evidence` (5.4's unverified deposits, its review set); then
+    every member's non-revenue credits."""
+    verified = [record for record in package.get("verified_revenue_evidence") or [] if isinstance(record, dict)]
+    unverified = [record for record in package.get("unverified_deposit_evidence") or [] if isinstance(record, dict)]
+
+    def tiered(record: dict) -> bool:
+        return isinstance(record.get("revenue_tier"), str)
+
+    return (
+        ("true_revenue_evidence", [record for record in verified if tiered(record)]
+         + [record for record in unverified if record.get("revenue_tier") == "counted_flagged"]),
+        ("excluded_pending_review_evidence",
+         [record for record in unverified if record.get("revenue_tier") == "excluded_pending_review"]),
+        ("revenue_evidence", [record for record in verified if not tiered(record)]),
+        ("review_required_evidence", [record for record in unverified if not tiered(record)]),
+        ("non_revenue_evidence", package.get("non_revenue_evidence") or []),
+    )
 
 
 #: Audit B11 (I32): the columns of the package downloads' ledger table. The owner's request of 2026-10-11 (true revenue
@@ -1303,7 +1434,7 @@ def _package_transaction_table(package: dict) -> list[tuple]:
                      "" if transaction.get("source_account") is None else transaction["source_account"],
                      transaction.get("source_currency") or "", transaction.get("date") or "",
                      transaction.get("description") or "", _num(transaction.get("amount")),
-                     record.get("classification") or "", record.get("revenue_tier") or "",
+                     record.get("classification") or "", _tier_cell(record),
                      record.get("revenue_tier_reason") or "", record.get("revenue_review_status") or ""))
         tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
     if not rows:

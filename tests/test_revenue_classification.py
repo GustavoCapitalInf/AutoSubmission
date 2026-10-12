@@ -801,10 +801,11 @@ def test_revenue_review_api_updates_records_metrics_package_and_exports():
     ] == "confirmed"
     assert downloaded["statement"]["transactions"][0]["classification"]["revenue_classification"] == "verified_revenue"
     # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the CSV carries the decision but names no
-    # Verified revenue (the JSON download, above, keeps the state).
+    # Verified revenue (the JSON download, above, keeps the state). Review round 1: this statement was analysed before
+    # 5.6 (no tier), so its credit's state is written in the page's words, "revenue" as its tag reads.
     csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
-    assert "posted_credit,1,2054-01-02,Mobile deposit,441.0,USD,,,confirmed" in csv_body
-    assert "revenue_classification" not in csv_body
+    assert "posted_credit,1,2054-01-02,Mobile deposit,441.0,USD,revenue,,confirmed" in csv_body
+    assert '""revenue_classification"": ""revenue""' in csv_body
     assert "verified_revenue" not in csv_body
 
     rejected = client.post(

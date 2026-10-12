@@ -175,9 +175,56 @@ console.log(JSON.stringify({zelle: chips(row("ZELLE FROM JOHN SAMPLE")), zelleRe
     assert result["wire"] == ["Large deposit: 92.0% of True revenue. Ask for its source."]
     assert result["held"] == ["Reason: Payer or entry suggests financing. The payer or the entry names funding, a loan or an "
                               "advance."]
-    # Behaviour is unchanged: the review controls are the server's.
+    # A held credit keeps Confirm Revenue and Mark Non-Revenue. A counted credit, in True revenue, shows what a verified
+    # one shows, Mark Non-Revenue only: a Confirm on a row tagged True revenue would read "in True revenue but not
+    # confirmed", the counted tier under another name (review round 1; the server still accepts a confirm).
     assert result["heldControls"] == ['data-revenue-review-action="confirm"', 'data-revenue-review-action="reject"']
-    assert result["countedControls"] == ['data-revenue-review-action="confirm"', 'data-revenue-review-action="reject"']
+    assert result["countedControls"] == ['data-revenue-review-action="reject"']
+
+
+#: Each ledger row tagged True revenue: whether it offers Confirm Revenue, Mark Non-Revenue and a multi-select box; and
+#: the held row's (FABRIKAM FUNDING) the same.
+ROW_CONTROLS = r"""
+const ledgerRows = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((m) => m[1]);
+const controlsOf = (row) => ({confirm: row.includes('data-revenue-review-action="confirm"'),
+  reject: row.includes('data-revenue-review-action="reject"'), box: row.includes('class="tx-select"')});
+const trueRows = (html) => ledgerRows(html).filter((row) => row.includes('<span class="chip-text">True revenue</span>'))
+  .map(controlsOf);
+const heldRows = (html) => ledgerRows(html).filter((row) => row.includes("FABRIKAM FUNDING")).map(controlsOf);
+"""
+
+
+@needs_node
+def test_a_row_in_true_revenue_offers_no_confirm_and_no_select_box(tmp_path, monkeypatch):
+    """Review round 1 (the owner's request of 2026-10-11): a credit in True revenue, verified or counted, offers Mark
+    Non-Revenue only and no multi-select box, on the statement ledger, the statement window and the package ledger;
+    a held credit keeps Confirm Revenue, Mark Non-Revenue and its box."""
+    served = _served(_payload(ROWS))
+    statement = run_dashboard(ROW_CONTROLS + _open("s", served) + r"""
+showMainRevenueEvidence("all");
+const page = {true: trueRows(els.transactionTable.innerHTML), held: heldRows(els.transactionTable.innerHTML)};
+modalJobId = "s"; setModalAnalysis(currentAnalysis); renderStatementModal("s", currentAnalysis, "");
+showModalRevenueEvidence("all");
+const studio = {true: trueRows(els.statementModalTransactions.innerHTML),
+                held: heldRows(els.statementModalTransactions.innerHTML)};
+console.log(JSON.stringify({page, studio}));
+""")
+    package = _package({"mar": _payload(ROWS, 3), "apr": _payload(ROWS, 4)}, tmp_path, monkeypatch)
+    packaged = run_dashboard(ROW_CONTROLS + f"""
+currentJobIds = ['mar', 'apr']; renderPackageAnalysis({json.dumps(package)});
+""" + r"""
+showMainRevenueEvidence("all");
+console.log(JSON.stringify({true: trueRows(els.transactionTable.innerHTML), held: heldRows(els.transactionTable.innerHTML)}));
+""")
+    only_reject = {"confirm": False, "reject": True, "box": False}
+    # The verified credit and the four counted ones of each statement.
+    assert statement["page"]["true"] == [only_reject] * 5
+    assert packaged["true"] == [only_reject] * 10
+    assert statement["page"]["held"] == [{"confirm": True, "reject": True, "box": True}]
+    assert packaged["held"] == [{"confirm": True, "reject": True, "box": True}] * 2
+    # The statement window draws no multi-select at all; its rows offer the same buttons.
+    assert statement["studio"]["true"] == [only_reject] * 5
+    assert statement["studio"]["held"] == [{"confirm": True, "reject": True, "box": False}]
 
 
 PACKAGE_WALK = r"""
@@ -304,6 +351,83 @@ console.log(JSON.stringify({reason: revenueReviewReason(moved), notes: packageMa
     assert result["notes"] == ["Transfer out of CONTOSO BANK ••2020 on 2031-03-03 (savings.pdf), 1 day earlier. Confirm "
                                "Revenue counts it in True revenue; Mark Non-Revenue keeps it out."]
     assert result["older"] == {"label": "Revenue", "glyph": "REV", "tone": "green"}
+
+
+@needs_node
+def test_an_older_statement_page_names_no_tier_either():
+    """Review round 1: a statement saved before 5.6 carries no tier and is read under its own rules (T10), in the page's
+    words: a credit its rules read as revenue is tagged "Revenue", one awaiting review "Review required" (5.4's
+    unverified deposit), and its review view counts the deposits to review. No "Verified" or "Unverified" anywhere.
+    (Stored before the tiers, its Zelle deposit was excluded under the policy of its day, and is shown as analysed.)"""
+    from tests.test_webapp_true_revenue import _untiered
+
+    served = _served(_untiered(_payload(ROWS)))
+    assert served["metrics"]["unverified_deposit_count"] == 4 and served["metrics"]["revenue_review_items"] is None
+    result = run_dashboard(PAGE_TEXT + _open("s", served) + STATEMENT_WALK + r"""
+navigate("review"); look();
+const review = {filter: transactionFilter, count: els.transactionCount.textContent, badge: els.reviewCount.textContent};
+console.log(JSON.stringify({text: seen.join("\n"), glyphs: [...seenGlyphs], ledger, review}));
+""")
+    assert _tier_words(result["text"]) == []
+    assert not {"VER", "CNT"} & set(result["glyphs"])
+    tag_words = {"revenue": "Revenue", "review_required": "Review required", "non_revenue": "Non-revenue"}
+    tags = {description: tag for description, tag in _tags(result["ledger"]) if description in OLDER_TIERS}
+    assert tags == {description: tag_words[state] for description, state in OLDER_TIERS.items()}
+    assert result["review"] == {"filter": "unverified_deposit", "count": "4 deposits to review", "badge": "4"}
+    # With none left to review, the empty view says so in the same words.
+    settled = _served(_untiered(_payload([ROWS[0], ROWS[3]])))
+    empty = run_dashboard(_open("s", settled) + r"""
+navigate("review");
+console.log(JSON.stringify({count: els.transactionCount.textContent,
+  text: els.transactionTable.innerHTML.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()}));
+""")
+    assert empty["count"] == "0 deposits to review"
+    assert empty["text"] == ("No transactions found No deposit is left to review. Analysed with older classification "
+                             "rules: Re-analyze to compute true revenue.")
+
+
+@needs_node
+def test_a_review_refusal_that_names_a_tier_reads_in_the_page_words():
+    """Review round 1: the server's two refusal texts that name the tiers (a confirm on a credit a rule verified, a
+    review of a credit that is not reviewable) reach the screen in the page's words, in the row's alert and in the
+    multi-select's notification; any other refusal reads as the server wrote it. The server's texts are unchanged."""
+    from webapp.app import _DECLARED_REVIEW_REFUSALS
+
+    verified, unreviewable = ("a credit a rule verified can only be marked non-revenue",
+                              "only automatically unverified deposits can be reviewed")
+    assert {verified, unreviewable} <= set(_DECLARED_REVIEW_REFUSALS)
+    served = _served(_payload(ROWS))
+    responses = {"/analysis/s/revenue-review": {"status": 400, "json": {"error": verified}},
+                 "/analysis/s/revenue-reviews": {"status": 400, "json": {"error": unreviewable}}}
+    result = run_dashboard(PAGE_TEXT + _open("s", served) + f"""
+Object.assign(FAKE_RESPONSES, {json.dumps(responses)});
+""" + r"""
+const alerts = []; window.alert = (message) => alerts.push(message);
+const said = []; notify = (message, tone) => said.push([message, tone]);
+const words = [reviewRefusalWords("a credit a rule verified can only be marked non-revenue"),
+  reviewRefusalWords("only automatically unverified deposits can be reviewed"), reviewRefusalWords("fabricated refusal")];
+showMainRevenueEvidence("all");
+const attrsOf = (tag) => Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
+const tags = (pattern) => [...els.transactionTable.innerHTML.matchAll(pattern)].map((m) => attrsOf(m[1]));
+const button = fakeElement("row");
+Object.assign(button.attributes, tags(/<button class="table-action[^"]*" type="button"([^>]*)>/g)
+  .find((attrs) => attrs["data-revenue-review-action"] === "confirm"));
+await submitRevenueReview(button); await settle();
+const box = fakeElement("box"); box.checked = true; box.closest = () => box;
+Object.assign(box.attributes, tags(/<input type="checkbox" class="tx-select"([^>]*)>/g)[0]);
+els.transactionTable.listeners.change[0]({target: box});
+const press = fakeElement("confirm"); press.attributes["data-bulk-review"] = "confirm"; press.closest = () => press;
+els.bulkReviewBar.listeners.click[0]({target: press}); await settle(); await settle();
+console.log(JSON.stringify({words, alerts, red: said.filter(([, tone]) => tone === "red").map(([message]) => message)}));
+""")
+    assert result["words"] == [
+        "This deposit is already in True revenue: it can only be marked non-revenue. Open the statement again to see "
+        "where it stands.",
+        "This deposit can no longer be reviewed. Open the statement again to see where it stands.",
+        "fabricated refusal"]
+    assert result["alerts"] == [result["words"][0]]
+    assert len(result["red"]) == 1 and result["red"][0].endswith(": " + result["words"][1])
+    assert _tier_words("\n".join(result["alerts"] + result["red"])) == []
 
 
 @needs_node
@@ -449,6 +573,30 @@ def test_the_statement_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_th
         assert tiers["MOBILE DEPOSIT"] == ("true_revenue", ""), name
         assert tiers["FABRIKAM FUNDING LLC DES:PAYMENT ID:1"] == ("excluded_pending_review", "financing_named_payer"), name
         assert sum(float(row[4]) for row in credits[1:] if row[6] == "true_revenue") == 21750.0, name
+        # Review round 1: a credit in True revenue awaits no review, verified or counted alike (the served copy keeps a
+        # counted credit `pending`); the held credit is still pending.
+        status = {row[3]: row[8] for row in credits[1:]}
+        assert {status[row[3]] for row in credits[1:] if row[6] == "true_revenue"} == {"not_required"}, name
+        assert status["FABRIKAM FUNDING LLC DES:PAYMENT ID:1"] == "pending", name
+        # Review round 1: the held and non-revenue evidence keep the rule and the sentence that say why; a credit in
+        # True revenue carries neither (the counted one's would say it is not confirmed).
+        held = json.loads(cells[("metrics", "excluded_pending_review_evidence")])
+        assert [(record["revenue_matched_rule"], record["revenue_reason"]) for record in held] == [
+            ("unknown_credit_source_requires_review",
+             "The posted credit source is not identified strongly enough to confirm or exclude revenue.")], name
+        out = json.loads(cells[("metrics", "non_revenue_evidence")])
+        assert [(record["revenue_matched_rule"], record["revenue_reason"]) for record in out] == [
+            ("non_operating_credit", "Credit matched identifiable financing, own-account transfer, reward, interest, "
+                                     "contribution, or other non-operating proceeds evidence.")], name
+        assert out[0]["revenue_classification"] == "non_revenue", name
+        in_true = json.loads(cells[("metrics", "true_revenue_evidence")])
+        assert len(in_true) == 5 and not any(
+            {"revenue_matched_rule", "revenue_reason", "revenue_classification"} & set(record) for record in in_true)
+        assert {record["revenue_review_status"] for record in in_true} == {"not_required"}, name
+        # Review round 1: the lender classifier's default sentence, on most credits, names no verified anything.
+        assert not any("No verified lender" in str(cell) for row in table for cell in row), name
+        assert {record["reason"] for record in in_true} >= {
+            "No lender, insurance, or operational-category rule matched."}, name
     # The JSON download is the backend's: both tiers, every figure and every record field.
     served = client.get(f"/download/{job}/json").get_json()
     assert served["metrics"]["verified_revenue_total"] == 700.0
@@ -494,6 +642,199 @@ def test_the_package_csv_and_excel_drop_the_hidden_tiers_and_the_json_keeps_them
     assert served["verified_revenue_evidence"] and served["counted_flagged_evidence"]
 
 
+OLDER_TIERS = {"NORTHWIND SUPPLY LLC DES:PAYMENT ID:1": "revenue", "MOBILE DEPOSIT": "review_required",
+               "FABRIKAM FUNDING LLC DES:PAYMENT ID:1": "review_required", "INTERNAL TRANSFER FROM SAVINGS": "non_revenue",
+               "WIRE TRANSFER FROM SAMPLE TRADING LLC": "review_required", "ZELLE FROM JOHN SAMPLE": "non_revenue",
+               "BRANCH DEPOSIT": "review_required"}
+
+
+def test_an_older_statement_download_names_each_credit_in_the_page_words():
+    """Review round 1: a statement saved before 5.6 carries no tier, so its 5.4 state is each credit's only revenue
+    reading. The downloads write it in the page's words, never 5.4's names: the ledger's tier column and each record
+    read `revenue`, `review_required` (5.4's unverified deposit, the page's "Review required") or `non_revenue`, and the
+    deposits to review (the page's review view and badge) are `review_required_count`, `_total` and `_evidence`, beside
+    `revenue_evidence` and `non_revenue_evidence`."""
+    from tests.test_webapp_true_revenue import _untiered
+    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+
+    served = _displayed(_untiered(_payload(ROWS)), settings={}, export=True)
+    assert served["metrics"]["unverified_deposit_count"] == 4 and served["metrics"]["true_revenue_evidence"] is None
+    for name, table in (("csv", _csv(_analysis_csv(served))), ("xlsx", _sheet_rows(_analysis_xlsx(served)))):
+        assert _hidden_cells(table) == [], name
+        credits = [row for row in table if row[0] == "posted_credit"]
+        assert {row[3]: (row[6], row[7]) for row in credits[1:]} == {
+            description: (state, "") for description, state in OLDER_TIERS.items()}, name
+        cells = {(row[0], row[1]): row[2] for row in table if len(row) == 3}
+        # The count its badge shows; its money is empty, as every revenue figure of a statement whose revenue is not
+        # established is (audit B11, I51), the JSON download keeping it.
+        assert float(cells[("metrics", "review_required_count")]) == 4.0, name
+        assert cells[("metrics", "review_required_total")] == "", name
+        for section in ("metrics", "detection"):
+            review = json.loads(cells[(section, "review_required_evidence")])
+            assert {record["original_description"]: record["revenue_classification"] for record in review} == {
+                description: state for description, state in OLDER_TIERS.items() if state == "review_required"}, name
+            revenue = json.loads(cells[(section, "revenue_evidence")])
+            assert [(record["original_description"], record["revenue_classification"]) for record in revenue] == [
+                ("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "revenue")], name
+            out = json.loads(cells[(section, "non_revenue_evidence")])
+            assert [record["revenue_classification"] for record in out] == ["non_revenue", "non_revenue"], name
+        # A deposit to review keeps the sentence that says why.
+        assert {record["revenue_reason"] for record in review} >= {
+            "The posted credit source is not identified strongly enough to confirm or exclude revenue."}, name
+
+
+def test_a_package_mixing_an_older_statement_writes_every_credit_in_one_section():
+    """Review round 1: in a package with a member saved before 5.6 the package's True revenue is N/A, yet every posted
+    credit of every member is still written in one evidence section: the 5.6 member's credits in True revenue in
+    `true_revenue_evidence_N` (built from the served verified and counted lists), its held ones and both members'
+    non-revenue ones as before, and the older member's in `revenue_evidence_N` and `review_required_evidence_N`. Its
+    ledger reads each older credit in the page's words."""
+    from tests.test_webapp_true_revenue import _package as package_of
+    from tests.test_webapp_true_revenue import _untiered
+    from webapp.app import _package_csv, _package_xlsx
+
+    package = package_of(_payload(ROWS), _untiered(_payload(ROWS, 4)))
+    assert package["true_revenue_evidence"] is None
+    assert _hidden_cells(_sheet_rows(_package_xlsx(package))) == []
+    table = _csv(_package_csv(package))
+    assert _hidden_cells(table) == []
+    sections: dict[str, list[dict]] = {}
+    for row in table:
+        match = re.fullmatch(r"([a-z_]+_evidence)_(\d+)", str(row[0])) if len(row) == 3 else None
+        if match and match[1] in {"true_revenue_evidence", "excluded_pending_review_evidence", "revenue_evidence",
+                                  "review_required_evidence", "non_revenue_evidence"}:
+            record = sections.setdefault(match[1], {}).setdefault(match[2], {})
+            record[row[1]] = row[2]
+    described = {section: sorted((record["source_job"], record["original_description"]) for record in records.values())
+                 for section, records in sections.items()}
+    assert described == {
+        "true_revenue_evidence": sorted(("job-1", description) for description in (
+            "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", "MOBILE DEPOSIT", "WIRE TRANSFER FROM SAMPLE TRADING LLC",
+            "ZELLE FROM JOHN SAMPLE", "BRANCH DEPOSIT")),
+        "excluded_pending_review_evidence": [("job-1", "FABRIKAM FUNDING LLC DES:PAYMENT ID:1")],
+        "revenue_evidence": [("job-2", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1")],
+        "review_required_evidence": sorted(("job-2", description) for description, state in OLDER_TIERS.items()
+                                           if state == "review_required"),
+        "non_revenue_evidence": [("job-1", "INTERNAL TRANSFER FROM SAVINGS"), ("job-2", "INTERNAL TRANSFER FROM SAVINGS"),
+                                 ("job-2", "ZELLE FROM JOHN SAMPLE")],
+    }
+    assert {record["revenue_tier"] for record in sections["true_revenue_evidence"].values()} == {"true_revenue"}
+    assert {record["revenue_classification"] for record in sections["review_required_evidence"].values()} == {
+        "review_required"}
+    ledger = [row for row in table if row[0] == "package_transaction"]
+    tiers = {(row[2], row[6]): row[9] for row in ledger[1:] if float(row[7]) > 0}
+    assert {description: tier for (document, description), tier in tiers.items() if document == "statement-2.pdf"} == (
+        OLDER_TIERS)
+    assert {tier for (document, _description), tier in tiers.items() if document == "statement-1.pdf"} == {
+        "true_revenue", "excluded_pending_review", "non_revenue"}
+
+
+def _record(tier, *, state, reason=None, rule=None, sentence=None, status="not_required", signals=(), **extra):
+    return {"revenue_classification": state, "revenue_initial_classification": state, "revenue_tier": tier,
+            "revenue_initial_tier": tier, "revenue_tier_reason": reason, "revenue_matched_rule": rule,
+            "revenue_reason": sentence, "revenue_review_status": status, "revenue_context_signals": list(signals),
+            **extra}
+
+
+#: (record, what the downloads write of it): a key absent from the second dict is left out.
+SCRUBBED = [
+    # A hold that re-tiers a counted re-statement (R3-53): the hold's own label, no "never verified".
+    (_record("excluded_pending_review", state="unverified_deposit", reason="payer_also_debited",
+             rule="insurer_customer_payment_requires_review", status="pending",
+             sentence="An insurer pays the business for its work (REPAIR): never verified, and held for review (The payer "
+                      "is also debited in this statement)."),
+     {"revenue_tier": "excluded_pending_review", "revenue_matched_rule": "insurer_customer_payment_requires_review",
+      "revenue_reason": "An insurer pays the business for its work (REPAIR): held for review (The payer is also debited "
+                        "in this statement).", "revenue_review_status": "pending"}),
+    # The $1 floor's hold of a verified credit.
+    (_record("excluded_pending_review", state="unverified_deposit", reason="micro_deposit", status="pending",
+             rule="credit_under_micro_deposit_floor",
+             sentence="A credit under $1 is never verified and never counted (the absolute micro-deposit floor): the rule "
+                      "that read it (named_payer_company_form) is overruled, and it is held for review."),
+     {"revenue_matched_rule": "credit_under_micro_deposit_floor",
+      "revenue_reason": "A credit under $1 is never counted in True revenue (the absolute micro-deposit floor): the rule "
+                        "that read it (named_payer_company_form) is overruled, and it is held for review."}),
+    # The holder's own push a rule verified: its rule names the tier and is left out; its sentence is kept without it.
+    (_record("excluded_pending_review", state="unverified_deposit", reason="holder_name", status="pending",
+             rule="holder_own_push_never_verified",
+             sentence="The row's originator is its own receiver: the holder moves its own money in, which is never "
+                      "revenue and never verified; the rule that read it (x) is overruled, and it is held for review."),
+     {"revenue_reason": "The row's originator is its own receiver: the holder moves its own money in, which is never "
+                        "revenue; the rule that read it (x) is overruled, and it is held for review."}),
+    # A Zelle deposit the policy excluded, which the rules verified or counted: they read it as True revenue.
+    (_record("non_revenue", state="non_revenue", reason="zelle_excluded", rule="zelle_policy",
+             signals=("credit_direction", "zelle_policy", "zelle_prior:verified:"),
+             sentence="A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec "
+                      "§19.1); the rules read it as: Verified revenue."),
+     {"revenue_classification": "non_revenue", "revenue_initial_classification": "non_revenue",
+      "revenue_matched_rule": "zelle_policy",
+      "revenue_context_signals": ["credit_direction", "zelle_policy", "zelle_prior:true_revenue"],
+      "revenue_reason": "A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec "
+                        "§19.1); the rules read it as: True revenue."}),
+    (_record("non_revenue", state="non_revenue", reason="zelle_excluded", rule="zelle_policy",
+             signals=("zelle_prior:counted_flagged:check_deposit",),
+             sentence="A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec "
+                      "§19.1); the rules read it as: Check deposit."),
+     {"revenue_classification": "non_revenue", "revenue_initial_classification": "non_revenue",
+      "revenue_matched_rule": "zelle_policy",
+      "revenue_reason": "A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec "
+                        "§19.1); the rules read it as: True revenue."}),
+    # ... and one the rules held keeps the hold's label.
+    (_record("non_revenue", state="non_revenue", reason="zelle_excluded", rule="zelle_policy",
+             signals=("zelle_prior:excluded_pending_review:holder_name",),
+             sentence="A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec "
+                      "§19.1); the rules read it as: From the holder's own name or brand."),
+     {"revenue_classification": "non_revenue", "revenue_initial_classification": "non_revenue",
+      "revenue_matched_rule": "zelle_policy",
+      "revenue_reason": "A Zelle deposit, excluded from true revenue by the owner's policy (the underwriter's Q3, spec "
+                        "§19.1); the rules read it as: From the holder's own name or brand."}),
+    # A verified credit a reviewer rejected: its sentence stays, its rule (named for the tier) does not.
+    (_record("non_revenue", state="non_revenue", rule="verified_named_payer_company_form", status="rejected",
+             sentence="A named company pays the business by ACH or EFT.", revenue_initial_classification="verified_revenue",
+             revenue_initial_tier="verified"),
+     {"revenue_classification": "non_revenue", "revenue_initial_tier": "true_revenue",
+      "revenue_reason": "A named company pays the business by ACH or EFT.", "revenue_review_status": "rejected"}),
+    # A sentence still naming a tier after the rewrites is left out rather than written.
+    (_record("non_revenue", state="non_revenue", rule="non_operating_credit",
+             sentence="Maintained operating source 'X' printed; the credit is verified as operating revenue."),
+     {"revenue_classification": "non_revenue", "revenue_initial_classification": "non_revenue",
+      "revenue_matched_rule": "non_operating_credit"}),
+    # A counted credit awaits no review in the downloads, and names no rule or sentence; nor does a verified one.
+    (_record("counted_flagged", state="unverified_deposit", reason="check_deposit", status="pending",
+             rule="deposit_source_requires_review", sentence="The credit is a deposit or incoming transfer without enough "
+                                                             "evidence to confirm operating revenue."),
+     {"revenue_tier": "true_revenue", "revenue_initial_tier": "true_revenue", "revenue_tier_reason": None,
+      "revenue_review_status": "not_required"}),
+    (_record("verified", state="verified_revenue", rule="verified_named_payer_company_form",
+             sentence="A named company pays the business by ACH or EFT."),
+     {"revenue_tier": "true_revenue", "revenue_review_status": "not_required"}),
+    # A deposit a package pass took out of True names the tier it had as True revenue.
+    (_record("non_revenue", state="non_revenue", rule="returned_deposit_cross_statement",
+             package_match={"kind": "returned_deposit", "moved": True, "tier_before": "counted_flagged",
+                            "reason_before": "check_deposit"}),
+     {"revenue_classification": "non_revenue", "revenue_initial_classification": "non_revenue",
+      "revenue_matched_rule": "returned_deposit_cross_statement",
+      "revenue_reason": None,
+      "package_match": {"kind": "returned_deposit", "moved": True, "tier_before": "true_revenue",
+                        "reason_before": None}}),
+]
+
+
+@pytest.mark.parametrize(("record", "written"), SCRUBBED)
+def test_a_record_s_reason_is_kept_where_it_names_no_hidden_tier(record, written):
+    """Review round 1: the downloads keep a held or non-revenue credit's rule and sentence, the words that say why it is
+    out of True revenue, rewriting only the words that name a hidden tier; a rule or sentence still naming one is left
+    out. A credit in True revenue carries neither, nor its 5.4 state."""
+    from webapp.app import _downloads_view
+
+    view = _downloads_view(record)
+    for key in ("revenue_reason", "revenue_matched_rule", "revenue_classification", "revenue_initial_classification"):
+        assert (key in view) == (key in written), key
+    for key, value in written.items():
+        assert view[key] == value, key
+    assert not HIDDEN_IN_DOWNLOADS.search(json.dumps(view))
+
+
 def test_a_download_on_the_verified_basis_names_it_without_the_word():
     from webapp.app import _analysis_csv, _displayed
 
@@ -514,3 +855,12 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     assert "verified_revenue" not in cells[("metrics", "withholding_denominator_options")]
     # The served copy, which the JSON download writes, is the backend's.
     assert served["metrics"]["withholding_denominator_mode"] == "verified_revenue"
+    # Review round 1: inside a note the basis is named mid-sentence, in lower case, as the page's rate note names it.
+    unpaid = _payload([row for row in ROWS if not row[1].startswith("NORTHWIND")])
+    unpaid["metrics"]["withholding_denominator_mode"] = "verified_revenue"
+    rebuild_serialized_revenue_views(unpaid)
+    assert "withholding rate is unavailable because Verified revenue is zero or missing" in unpaid["metrics"]["notes"]
+    unpaid_rows = _csv(_analysis_csv(_displayed(unpaid, settings={}, export=True)))
+    notes = json.loads({(row[0], row[1]): row[2] for row in unpaid_rows if len(row) == 3}[("metrics", "notes")])
+    assert "withholding rate is unavailable because the narrower revenue basis is zero or missing" in notes
+    assert not any("Verified" in note or "Narrower" in note for note in notes)

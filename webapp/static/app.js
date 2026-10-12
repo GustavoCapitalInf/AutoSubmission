@@ -1768,7 +1768,8 @@ function transactionClassification(tx) {
 // 5.6 (true revenue spec §10.6): a credit's tag is its tier, a held one naming its reason. The owner's request of
 // 2026-10-11 (§2.2, §10.6): a credit in True revenue carries one tag, "True revenue", whether a rule verified it, a rule
 // counted it or a reviewer confirmed it (the backend keeps the tiers apart). An analysis saved before 5.6 carries no
-// tier, so its credits keep their revenue state's tag ("Revenue" for one its rules read as revenue). R2-OW03: a
+// tier, so its credits keep their revenue state's tag in the page's words ("Revenue" for one its rules read as revenue,
+// "Review required" for one they left to review, 5.4's unverified deposit; review round 1). R2-OW03: a
 // non_revenue row that carries a non-revenue code (the Zelle policy's, Q12's display reason) names it too; a reviewer's
 // rejection keeps its counted or held code, which is none, and reads "Non-revenue".
 const TRUE_REVENUE_TAG = Object.freeze({ label: "True revenue", glyph: "REV", tone: "green" });
@@ -1793,7 +1794,7 @@ function transactionCategory(tx) {
     return { label: "Revenue", glyph: "REV", tone: "green" };
   }
   if (txAmount(tx) > 0 && revenueState === "unverified_deposit") {
-    return { label: "Unverified deposit", glyph: "?", tone: "amber" };
+    return { label: "Review required", glyph: "?", tone: "amber" };
   }
   if (txAmount(tx) > 0 && revenueState === "non_revenue") {
     return { label: "Non-revenue", glyph: "X", tone: "neutral" };
@@ -1945,7 +1946,9 @@ function packageDebitFlags(pkg) {
 }
 
 // T10, §10.7: an analysis saved before 5.6 carries no tier and is reviewed under the rules it was analysed with, so its
-// review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill.
+// review view lists the deposits it left unverified, the rows its badge counts. This filter has no pill. The owner's
+// request of 2026-10-11 (review round 1): the page names them "deposits to review" and tags each "Review required",
+// never 5.4's "unverified deposit".
 const OLDER_REVIEW_FILTER = "unverified_deposit";
 
 // Whether a ledger was analysed before 5.6: a credit carries a revenue state and none carries a tier.
@@ -1961,7 +1964,7 @@ function ledgerCarriesNoTier(transactions) {
 function revenueFilterLabel(filter, count) {
   const lower = (text) => text.charAt(0).toLowerCase() + text.slice(1);
   if (filter === "true_revenue") return "in true revenue";
-  if (filter === OLDER_REVIEW_FILTER) return count === 1 ? "unverified deposit" : "unverified deposits";
+  if (filter === OLDER_REVIEW_FILTER) return count === 1 ? "deposit to review" : "deposits to review";
   const heldReason = heldReasonFilter(filter);
   if (heldReason) return `held: ${lower(revenueReasonLabel({ revenue_tier_reason: heldReason }))}`;
   const excludedReason = excludedReasonFilter(filter);
@@ -2160,10 +2163,13 @@ function reviewAccountOf(tx, fallbackAccount = null) {
 }
 
 // A deposit the classifier left for review and nobody has decided yet: its statement, account and row, or null. The
-// row's own Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these.
+// row's own Confirm and Mark buttons and the multi-select's checkbox are offered for exactly these. The owner's request
+// of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): a counted credit is in True revenue and reads as
+// a verified one does, so it is offered no box: a box marks a deposit awaiting review.
 function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
   const record = transactionClassification(tx);
   if (record.revenue_initial_classification !== "unverified_deposit") return null;
+  if (record.revenue_tier === "counted_flagged") return null;
   // Audit round 3, R3-B02 (R3-21; spec §10.7): a credit that returns a confirmed funder's payment is never confirmed,
   // so it has no multi-select box: a bulk Confirm never carries it, and the all-or-nothing batch never refuses on it.
   if (record.returns_funder_payment) return null;
@@ -2178,6 +2184,10 @@ function pendingReviewTarget(tx, fallbackJobId = null, fallbackAccount = null) {
 // credit a rule verified, "" for anything else. An analysis saved before 5.6 carries no tier and keeps its rules: only
 // a credit left unverified is reviewed. R2-OW03 (the underwriter's Q3, "I can review"): "confirm" (Confirm Revenue only)
 // for a Zelle deposit the owner's policy excluded; the server refuses a reject on it, the row being non-revenue already.
+// The owner's request of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): a counted credit is tagged
+// True revenue like a verified one, so it shows what a verified one shows, "reject": a Confirm Revenue beside the True
+// revenue tag would read "in True revenue but not yet confirmed", the counted tier under another name, and confirming
+// it moves no figure the page shows. The server still accepts its confirm (the backend is unchanged).
 function revenueReviewKind(record) {
   // Audit round 3, R3-B02 (R3-21): a credit that returns a confirmed funder's payment (rule D's pair) is the business's
   // own payment coming back: the server refuses its Confirm, so a held or counted one shows Mark Non-Revenue only and a
@@ -2188,7 +2198,9 @@ function revenueReviewKind(record) {
     if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
       && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "";
   }
-  if (record.revenue_initial_classification === "unverified_deposit") return "both";
+  if (record.revenue_initial_classification === "unverified_deposit") {
+    return record.revenue_tier === "counted_flagged" ? "reject" : "both";
+  }
   if (record.revenue_initial_classification === "verified_revenue" && typeof record.revenue_tier === "string") return "reject";
   if (record.revenue_initial_classification === "non_revenue" && typeof record.revenue_tier === "string"
     && REVIEWABLE_NON_REVENUE_REASONS.includes(record.revenue_tier_reason)) return "confirm";
@@ -2521,7 +2533,7 @@ function renderTransactionRows(tableEl, countEl, transactions, filter, currency 
     const note = filter === "all" ? "No statement returned transaction rows."
       : filter === "nsf" && !canonicalEntity ? nsfDaysEmptyNote(nsfDays)
       : filter === OLDER_REVIEW_FILTER
-        ? "No deposit is left unverified. Analysed with older classification rules: Re-analyze to compute true revenue."
+        ? "No deposit is left to review. Analysed with older classification rules: Re-analyze to compute true revenue."
       : "No rows matched this filter.";
     tableEl.innerHTML = `
       <tr>
@@ -2750,6 +2762,22 @@ function clearBulkSelection({ refocus = false } = {}) {
   syncBulkReview({ refocus });
 }
 
+// The owner's request of 2026-10-11 (true revenue spec §2.2, §10's head; review round 1): the server's two review
+// refusals that name the tiers (webapp/app.py _DECLARED_REVIEW_REFUSALS, unchanged) in the page's words. The page never
+// offers either action; they are reached through a stale page, such as a decision made in another tab.
+const REVIEW_REFUSAL_WORDS = Object.freeze({
+  "a credit a rule verified can only be marked non-revenue":
+    "This deposit is already in True revenue: it can only be marked non-revenue. Open the statement again to see where "
+    + "it stands.",
+  "only automatically unverified deposits can be reviewed":
+    "This deposit can no longer be reviewed. Open the statement again to see where it stands.",
+});
+
+// A review refusal as the page words it: one of the two above, else the server's own text.
+function reviewRefusalWords(message) {
+  return REVIEW_REFUSAL_WORDS[message] || message;
+}
+
 // A response's JSON body, or {} when it has none (an error page from a proxy, an empty body): the refusal then reads
 // "Revenue review failed (status)" instead of a parser's complaint.
 async function responseJson(response) {
@@ -2842,7 +2870,9 @@ async function submitBulkReview(decision) {
         body: JSON.stringify({ decisions }),
       });
       const payload = await responseJson(response);
-      if (!response.ok || !payload.analysis) throw new Error(payload.error || `Revenue review failed (${response.status})`);
+      if (!response.ok || !payload.analysis) {
+        throw new Error(reviewRefusalWords(payload.error) || `Revenue review failed (${response.status})`);
+      }
       applied += picks.length;
       picks.forEach(({ key }) => bulkSelection.delete(key));
       latest = { jobId, analysis: payload.analysis };
@@ -7049,7 +7079,7 @@ async function submitRevenueReview(button) {
     });
     const payload = await responseJson(response);
     if (!response.ok || !payload.analysis) {
-      throw new Error(payload.error || `Revenue review failed (${response.status})`);
+      throw new Error(reviewRefusalWords(payload.error) || `Revenue review failed (${response.status})`);
     }
     saved = { jobId, analysis: payload.analysis };
     if (modalJobId === jobId) {
