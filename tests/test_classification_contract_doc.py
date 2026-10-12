@@ -4803,3 +4803,44 @@ def test_r4_b11_is_recorded():
         assert words in contract, words
     for placeholder in ("MEASURE" + "_R4B11",):
         assert placeholder not in text, placeholder
+
+
+def test_r4_b08_late_review_is_recorded():
+    """Audit round 4, R4-B08 late review (findings 1 and 2, minors 3 and 4; carried by R4-B12): §5.2's one-word arm,
+    its R4-30 paragraph and its R4-58 sentence, §9.3's R4-B08 line, the R4-30 and R4-58 §20 lines amended in place,
+    R4-B08's in-all line (its drafted measurement, the orchestrator's Option A) and the late review's own line; the
+    contract's bullet; the code's docstrings."""
+    text = SPEC.read_text(encoding="utf-8")
+    flat = re.sub(r"\s+", " ", text)
+    for words in ("audit round 4, R4-B08 late review (minor 3, §20): and a payer whose test words are that one word",
+                  "Audit round 4, R4-B08 late review (finding 2, §20): a name-like noise lead is printed by its "
+                  "abbreviation too",
+                  "audit round 4, R4-B08 late review, finding 1, §20: a name with one test word only where the glued "
+                  "reading prints no other test word",
+                  "Its late review (audit round 4, R4-B08 late review, carried by R4-B12; 671e975; §20)"):
+        assert words in flat, words
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **A name-like noise word leads a name as printed**",
+         "amended by audit round 4, R4-B08 late review, finding 2, §20 below"),
+        ("- **A name-like noise word leads a name as printed**", "(amended by the same late review, minor 3)"),
+        ("- **A name printed with an apostrophe is read both as printed and glued**",
+         "amended by audit round 4, R4-B08 late review, finding 1, §20 below"),
+        ("- **A name printed with an apostrophe is read both as printed and glued**",
+         "Recorded effect (R4-B08 late review, minor 4;"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    in_all = _amendment_line(amendments, "- **Audit round 4, R4-B08 in all** (")
+    for words in ("39b3cfb", "c1ed823", "23f14ee", "1c53510", "2c12eea", "83ec132", "90755d0", "Option A"):
+        assert words in in_all, words
+    late = _amendment_line(amendments, "- **R4-B08 late review: ")
+    for words in ("671e975", "_glued_one_word_reading", "_prints_printed_lead", "_noise_led_run", "0 accounts differ"):
+        assert words in late, words
+    assert "- Audit round 4, R4-B08 late review (findings 1 and 2, minors 3 and 4; 671e975):" in _flat(CONTRACT)
+    for reader in (transaction_classifier._reading_names_holder, transaction_classifier._prints_printed_lead,
+                   transaction_classifier._glued_one_word_reading, transaction_classifier._noise_led_run,
+                   transaction_classifier.holder_named, transaction_classifier._brand_word_match,
+                   transaction_classifier._holder_name_words_match):
+        assert "R4-B08 late review" in re.sub(r"\s+", " ", reader.__doc__), reader.__name__
+    for placeholder in ("MEASURE" + "_R4B08LATE",):
+        assert placeholder not in text, placeholder
