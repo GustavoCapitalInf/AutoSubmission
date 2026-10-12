@@ -388,6 +388,23 @@ def test_r4_91_controls(zelle):
                               zelle=zelle) == [_NON_SALE_HELD]
 
 
+@pytest.mark.parametrize("zelle", [True, False], ids=["zelle_yes", "zelle_no"])
+def test_r4_91_a_wholesale_auction_s_non_sale_credit_is_held_too(zelle):
+    # The auction branch reads the same recurrence veto (§7.8): an auction payout form printing a non-sale word before
+    # its receiver fields (Verified wholesale_auction_payout_form at c1cebca) leaves the pool, takes the auction's
+    # refusal rule and is held as non_sale_purpose; the plain payout and a word after the receiver field stay Verified.
+    rows = [("ACV AUCTIONS INC PAYMENTS 0001 REBATE", 1234.56),
+            ("ACV AUCTIONS INC PAYMENTS 0002", 1235.56),
+            ("MANHEIM US DES:ACH PAYMNT ID:0003 INDN:NORTHWIND MOTORS LLC CO ID:0000000001 CCD REBATE", 1236.56)]
+    statement = Statement(account_name="NORTHWIND MOTORS LLC", bank="Bank of America", transactions=[
+        Transaction(date=f"2054-04-{index + 2:02d}", description=text, amount=amount, direction="credit")
+        for index, (text, amount) in enumerate(rows)
+    ])
+    records = classify_statement_transactions(statement, zelle_true_revenue=zelle)
+    assert [rules_reading(record) for record in records] == [_NON_SALE_HELD, ("verified", None), ("verified", None)]
+    assert records[0].revenue_matched_rule == "auction_credit_prints_financing_or_consumer_word"
+
+
 def test_r4_91_the_platform_non_sale_reader():
     from analysis import transaction_classifier as classifier
 
