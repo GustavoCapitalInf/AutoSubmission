@@ -604,3 +604,59 @@ def test_r4_14_the_relayed_numbered_form_and_the_province_reader():
         assert tc.province_words_only(name), name
     for name in ("NEW YORK", "ONTARIO LTD", "NORTH MOUNTAIN PAVING", "", "1234567", "AND"):
         assert not tc.province_words_only(name), name
+
+
+# Audit round 4, R4-25 (§8.5 Q5; standard A5 counts a named third party's wire): after BANKING or a non-English bank
+# word, a US non-bank company form (LLC, L L C, INC, INCORPORATED, PLLC, LLP, LP) is a company's, never the bank's own;
+# the forms banks use (SA, AG, NV, BV, PLC, LTD, LIMITED, CORP, CORPORATION, CO, PTY, GMBH) keep R3-14's reading.
+R4_25_LOOKALIKES = ("BANCO PIZZA LLC", "LA BANQUE BISTRO LLC", "BANCA CONSULTING LLC", "TACOS EL BANCO INC",
+                    "BANQUE CAFE INC", "CONTOSO BANKING LLC", "SAMPLE BANCAIRE PLLC")
+R4_25_FEDWIRE = ("FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: {orig} REF: CHASE NYC/CTR/BNF=NORTHWIND LABS INC "
+                 "SAMPLEVILLE OH 43000 US TRN: 000000{n} IMAD: 0000")
+
+
+@pytest.mark.parametrize("name", R4_25_LOOKALIKES)
+def test_r4_25_a_lookalike_company_with_a_us_form_is_no_bank(name):
+    from analysis.transaction_classifier import bank_by_form
+
+    assert not bank_by_form(name)
+
+
+@pytest.mark.parametrize("name", ["BANCO PIZZA LLC", "LA BANQUE BISTRO LLC", "CONTOSO BANKING LLC"])
+@pytest.mark.parametrize("layout", ["bofa", "fedwire"])
+def test_r4_25_a_lookalike_s_wire_counts_and_never_verifies_as_a_repeat_sender(name, layout):
+    if layout == "bofa":
+        bank, rows = "Bank of America", [(R314_BOFA.format(orig=name, bank="SAMPLE BANK", n=n), amount)
+                                         for n, amount in ((1, 4321.09), (2, 5432.10))]
+    else:
+        bank, rows = "Chase", [(R4_25_FEDWIRE.format(orig=name, n=n), amount)
+                               for n, amount in ((1, 4321.09), (2, 5432.10))]
+    assert _r314(rows[:1], bank=bank) == [R314_NAMED]
+    assert _r314(rows, bank=bank) == [R314_NAMED, R314_NAMED]
+
+
+@pytest.mark.parametrize("name", [
+    "WESTPAC BANKING CORP", "NORDKAPP BANKING CORPORATION LIMITED", "BANCO SOLARIEGO SA", "BANQUE LACUSTRE SA",
+    "UNION BANCAIRE DU LAC SA", "SPARKASSE RHEINTAL", "BANCA ALPINA DI TRENTO SPA",
+])
+def test_r4_25_controls_a_bank_s_own_form_is_still_a_bank(name):
+    from analysis.transaction_classifier import bank_by_form
+
+    assert bank_by_form(name)
+
+
+@pytest.mark.parametrize("name", ["CONTOSO BANKING", "CONTOSO BANKING SOFTWARE", "EL BANCO RESTAURANT CORP",
+                                  "SPARKASSE TOOLS GMBH", "CONTOSO BANK LLC"])
+def test_r4_25_recorded_residuals_a_lookalike_with_no_form_or_a_bank_s_form_still_reads_as_a_bank(name):
+    from analysis.transaction_classifier import bank_by_form
+
+    assert bank_by_form(name)
+    printed = R314_BOFA.format(orig=name, bank="SAMPLE BANK", n=1)
+    assert _r314([(printed, 4321.09)], bank="Bank of America") == [R314_FINANCING]
+
+
+def test_r4_25_controls_a_company_whose_name_holds_a_bank_word_keeps_its_reading():
+    from analysis.transaction_classifier import bank_by_form
+
+    assert not bank_by_form("CONTOSO BANKING SOLUTIONS LLC")
+    assert not bank_by_form("LEFT BANK BAKERY LLC")

@@ -1982,6 +1982,11 @@ BANK_FORM_ORIGINATOR = re.compile(
 #: Audit round 3, R3-B07 (R3-14): a non-English bank word leads or sits inside the bank's own name ('BANCO <name> SA',
 #: 'BANCA <name> DI <town> SPA', 'UNION BANCAIRE PRIVEE UBP SA'), so a company form after it is the bank's own.
 _NON_ENGLISH_BANK_WORDS = frozenset({"BANCO", "BANCA", "BANQUE", "BANCAIRE", "SPARKASSE"})
+#: Audit round 4, R4-25 (§8.5 Q5; standard A5 counts a named third party's wire): the US non-bank company forms. After
+#: BANKING or a non-English bank word (_NON_ENGLISH_BANK_WORDS) such a form is a company's, never the bank's own
+#: ('BANCO PIZZA LLC', 'LA BANQUE BISTRO LLC', 'CONTOSO BANKING LLC'); the forms banks use (SA, AG, NV, BV, PLC, LTD,
+#: LIMITED, CORP, CORPORATION, CO, PTY, GMBH) keep R3-14's reading.
+_US_COMPANY_FORMS = frozenset({"LLC", "L L C", "INC", "INCORPORATED", "PLLC", "LLP", "LP"})
 BANK_SETTLEMENT_ORIGINATOR = re.compile(
     r"(?<![A-Z])(?:MERCHANT\w*|MERCH SVCS|BANKCARD\w*|CARD (?:SERVICES|SVCS)|PAYMENTECH|PROCESSING|SETTLEMENT\w*)\b"
     r"|\b(?:MERCH|MRCH|BNKCD|BKCD|STLMT)\b"
@@ -2054,7 +2059,11 @@ def bank_by_form(region: str, after: str = "", *, city_state_end: bool = False) 
     are the region's address context (originator_address), read for the address's state only. Audit round 3, R3-B07
     (R3-14): a non-English bank word (_NON_ENGLISH_BANK_WORDS) leads or sits inside the bank's own name, so any company
     form after it is the bank's own; BANKING keeps the English rule ('WESTPAC BANKING CORP' is a bank, 'CONTOSO BANKING
-    SOLUTIONS LLC' is not)."""
+    SOLUTIONS LLC' is not). Audit round 4, R4-25: a US non-bank company form (_US_COMPANY_FORMS: LLC, L L C, INC,
+    INCORPORATED, PLLC, LLP, LP) after BANKING or a non-English bank word is a company's ('BANCO PIZZA LLC', 'LA BANQUE
+    BISTRO LLC', 'CONTOSO BANKING LLC'); a bank's own form keeps the reading ('BANCO <name> SA', 'WESTPAC BANKING
+    CORP'), and so does a name with no form ('CONTOSO BANKING', the recorded residual, as is A3-G's English '<X> BANK
+    LLC')."""
     relay = next((label for label in _RELAY_ORIGINATOR_LABEL.finditer(region or "") if label.start() > 0), None)
     if relay is not None:
         after = region[relay.start():] + after
@@ -2066,6 +2075,8 @@ def bank_by_form(region: str, after: str = "", *, city_state_end: bool = False) 
     if form is None:
         return True
     if form.start() < found.start():
+        return False
+    if (found.group(0) in _NON_ENGLISH_BANK_WORDS or found.group(0) == "BANKING") and form.group(0) in _US_COMPANY_FORMS:
         return False
     if found.group(0) in _NON_ENGLISH_BANK_WORDS:
         return True
