@@ -684,6 +684,12 @@ _LOAN_PAYMENT_WORDS = frozenset("""
 PMT PMTS PYMT PYMTS PAYMENT PAYMENTS PAYMT PAYMNT PMNT PYMNT REPAYMENT REPAYMENTS DISB DISBURSEMENT ADV ADVANCE
 PROCEEDS DRAW
 """.split())
+#: Audit round 4, R4-66: the state codes the normalizer's address-lane arm reads (analysis/description_text.py
+#: _US_STATE_CODES, copied: the census reads other checkouts): the 50 states, DC and PR.
+_US_STATE_CODES = frozenset("""
+AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC
+SD TN TX UT VT VA WA WV WI WY DC PR
+""".split())
 _ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 #: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).
 _CLAIM_54 = _on_masked(r"\bH(?:C|E)?CLAIMPMT\b")
@@ -2208,23 +2214,42 @@ def _ln_where_loan(base_text: str, after_text: str) -> list[int]:
     return positions
 
 
+def _address_after_ln(words: list[str], index: int) -> bool:
+    """Audit round 4, R4-66 (§7.11): the normalizer's second lane arm, read on the masked text: a number or a mask right
+    before LN (no alphabetic word between), then one to three alphabetic town words, none a loan-product word, a state's
+    code (_US_STATE_CODES) and a masked ZIP (#####, an optional #### after it)."""
+    if index < 1 or not re.fullmatch(r"[\d#]+", words[index - 1]):
+        return False
+    after = words[index + 1:]
+    for towns in range(1, 4):
+        if len(after) < towns + 2:
+            return False
+        run = after[:towns]
+        if not all(word.isalpha() for word in run):
+            return False
+        if after[towns] in _US_STATE_CODES and re.fullmatch(r"[\d#]{5}", after[towns + 1]):
+            return not set(run) & _LOAN_PRODUCT_WORDS
+    return False
+
+
 def _street_ln_release(base: dict, after: dict) -> bool:
     """I8 (G7b): the street-LN guard's own release (§7.11), read on the census's masked text: narrowing 5's LOAN that
     the later text prints LN, each LN ending a street address (a number, then one to three alphabetic words, none a
-    loan-product word) and followed by no loan-payment word."""
+    loan-product word) and followed by no loan-payment word. Audit round 4, R4-66: or each LN after a house number and
+    before a town, a state's code and a ZIP (_address_after_ln), with no loan-payment word after it."""
     positions = _ln_where_loan(base["text"], after["text"]) if base["method"] in LOAN_READING_METHODS else []
     words = after["text"].split()
     for index in positions:
+        if index + 1 < len(words) and words[index + 1] in _LOAN_PAYMENT_WORDS:
+            return False
+        if _address_after_ln(words, index):
+            continue
         run = []
         at = index - 1
         while at >= 0 and len(run) < 3 and words[at].isalpha():
             run.append(words[at])
             at -= 1
-        if (
-            not run or at < 0 or not re.fullmatch(r"[\d#]+", words[at])
-            or set(run) & _LOAN_PRODUCT_WORDS
-            or (index + 1 < len(words) and words[index + 1] in _LOAN_PAYMENT_WORDS)
-        ):
+        if not run or at < 0 or not re.fullmatch(r"[\d#]+", words[at]) or set(run) & _LOAN_PRODUCT_WORDS:
             return False
     return bool(positions)
 

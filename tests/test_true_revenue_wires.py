@@ -738,3 +738,48 @@ def test_r3_42_control_an_originator_label_keeps_the_labelled_reading():
     assert _tiers([(text, 2345.67)]) == [NAMED]
     # Huntington's bare label reads its label word only, and no sender.
     assert tc._wire_sender_after_label("INCOMING FEDWIRE TRANSFER") == ""
+
+
+# Audit round 4, R4-66 (§7.11; the owner's Q5 of 2026-09-28, standard A5): an originator's address printed as a house
+# number, LN, a town, a state's code and a ZIP reads LN as a lane, so the named sender's wire is counted; a loan the
+# row prints elsewhere (its OBI memo's LOAN PAYMENT) keeps it non_revenue. Holder CONTOSO REALTY LLC on Chase.
+R4_66_FEDWIRE = ("FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: FABRIKAM HOLDINGS {addr} UNITED STATES REF: CHASE "
+                 "NYC/CTR/BNF=CONTOSO REALTY LLC SAMPLEVILLE OH 43000 US TRN: 1111111111FF{obi}")
+R4_66_HOLDER = "CONTOSO REALTY LLC"
+
+
+@pytest.mark.parametrize("addr", ["77 Ln Maple Grove MN 55311-0000", "4410 LN SAMPLETON IL 62701"])
+def test_r4_66_a_named_sender_s_address_lane_counts_its_wire(addr):
+    text = R4_66_FEDWIRE.format(addr=addr, obi="")
+    [record] = _records([(text, 23456.78)], holder=R4_66_HOLDER, bank="Chase")
+    assert (record.revenue_tier, record.revenue_tier_reason) == NAMED
+    assert " LN " in record.normalized_description and " LOAN " not in record.normalized_description
+
+
+def test_r4_66_control_a_loan_payment_memo_keeps_the_wire_non_revenue():
+    text = R4_66_FEDWIRE.format(addr="77 Ln Maple Grove MN 55311-0000",
+                                obi=" OBI=/URI/LOAN PAYMENT FROM FABRIKAM HOLDINGS")
+    [record] = _records([(text, 23456.78)], holder=R4_66_HOLDER, bank="Chase")
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
+    assert "77 LN MAPLE GROVE MN" in record.normalized_description
+
+
+def test_r4_66_controls_debits_keep_their_readings():
+    import dataclasses
+
+    [loan] = _records([("FABRIKAM BANK LN PMT 1234", -1234.56)], bank="Chase")
+    assert loan.normalized_description == "FABRIKAM BANK LOAN PMT 1234"
+    assert loan.classification == "potential_lender"
+    # The address's LN reads as a lane and the debit keeps its classification ('other') and every lender reading; the
+    # row printed with LOAN is the base's reading. The one other move: the base's financing-keyword review (an 'other'
+    # row's LOAN beside a payment word: canonical 'Unidentified lender obligation', review required) no longer reads an
+    # address's lane as a loan.
+    [lane] = _records([("ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LN MAPLE GROVE MN 55311", -432.10)], bank="Chase")
+    [spelled] = _records([("ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LOAN MAPLE GROVE MN 55311", -432.10)], bank="Chase")
+    assert lane.normalized_description == "ONLINE PAYMENT TO FABRIKAM SUPPLY 77 LN MAPLE GROVE MN 55311"
+    assert lane.classification == spelled.classification == "other"
+    assert (spelled.match_method, lane.match_method) == ("financing_keyword_review", "default")
+    moved = {"original_description", "normalized_description", "canonical_entity", "match_method", "matched_rule",
+             "confidence_score", "reason", "review_required"}
+    fields = [field.name for field in dataclasses.fields(lane) if field.name not in moved]
+    assert [getattr(lane, name) for name in fields] == [getattr(spelled, name) for name in fields]

@@ -224,6 +224,34 @@ def test_a_text_the_street_ln_guard_changed_is_listed_and_never_financing_into_t
     assert "G7b" not in _run(street_base, street)["guards"]
 
 
+def test_r4_66_an_address_lane_after_a_house_number_is_the_guard_s_own_release():
+    # Audit round 4, R4-66 (§7.11): the normalizer's second lane arm, a house number right before LN and a town, a
+    # state's code and a ZIP right after it, is declared: the text change is listed and G7b accepts it into True.
+    base = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule",
+                                                text="B O FABRIKAM ## LOAN MAPLE GROVE MN ##### ####")])})
+    after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
+                                                 reason="wire_named_sender",
+                                                 text="B O FABRIKAM ## LN MAPLE GROVE MN ##### ####")])})
+    run = _run(base, after)
+    assert run["street_ln_changes"][0]["base"] == "non_revenue|strong_non_revenue_rule"
+    assert "G7b" not in run["guards"]
+    assert census._street_ln_release({"method": "strong_non_revenue_rule", "text": "## LOAN SAMPLETON IL #####"},
+                                     {"text": "## LN SAMPLETON IL #####"})
+    # A loan-payment word after LN, a loan-product word among the town words, no state and ZIP, or no number before
+    # LN: still a G7b failure.
+    for old, new in (
+        ("## LOAN PMT MAPLE GROVE MN #####", "## LN PMT MAPLE GROVE MN #####"),
+        ("## LOAN AUTO SAMPLETON IL #####", "## LN AUTO SAMPLETON IL #####"),
+        ("## LOAN SAMPLETON", "## LN SAMPLETON"),
+        ("## LOAN SAMPLETON XX #####", "## LN SAMPLETON XX #####"),
+        ("DEPOSIT LOAN SAMPLETON IL #####", "DEPOSIT LN SAMPLETON IL #####"),
+    ):
+        loan = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule", text=old)])})
+        moved = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
+                                                     reason="wire_named_sender", text=new)])})
+        assert _run(loan, moved)["guards"]["G7b"]["failures"] == 1, old
+
+
 def test_a_verified_row_demoted_without_a_declared_cause_fails_the_census():
     base = _snap("5.4", {"a": _account([_credit(0, 5000, "verified_revenue", "operating_income_descriptor")])})
     after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",

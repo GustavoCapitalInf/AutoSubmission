@@ -324,6 +324,35 @@ def test_a_street_ln_is_a_lane_and_every_other_ln_a_loan(printed, normalized):
     assert normalize(printed) == normalized
 
 
+# Audit round 4, R4-66 (§7.11; the owner's Q5 of 2026-09-28, standard A5): a house number right before LN and a town, a
+# state's code and a ZIP right after it ('<n> LN <town> <ST> <ZIP>') is an address's lane too; both ends are needed (a
+# loan account's number can print before LN), and a loan-payment word after LN or a loan-product word among the town
+# words keeps LOAN.
+_R4_66_ADDRESS_LANE_CASES = [
+    ("77 Ln Maple Grove MN 55311-0000", "77 LN MAPLE GROVE MN 55311 0000"),
+    ("4410 LN SAMPLETON IL 62701", "4410 LN SAMPLETON IL 62701"),
+    ("77 LN SAMPLETON IL 62701 UNITED STATES", "77 LN SAMPLETON IL 62701 UNITED STATES"),
+    ("B/O: FABRIKAM HOLDINGS 77 Ln Maple Grove MN 55311-0000",
+     "B O FABRIKAM HOLDINGS 77 LN MAPLE GROVE MN 55311 0000"),
+]
+_R4_66_LOAN_CASES = [
+    ("1234 LN PMT SAMPLETON IL 62701", "1234 LOAN PMT SAMPLETON IL 62701"),
+    ("1234 LN SAMPLETON", "1234 LOAN SAMPLETON"),
+    ("1234 LN 62701", "1234 LOAN 62701"),
+    ("1234 LN AUTO SAMPLETON IL 62701", "1234 LOAN AUTO SAMPLETON IL 62701"),
+    ("LN 1234 SAMPLETON IL 62701", "LOAN 1234 SAMPLETON IL 62701"),
+    ("TRUIST LN PYMT", "TRUIST LOAN PYMT"),
+    ("1234 COMMERCIAL LN PMT", "1234 COMMERCIAL LOAN PMT"),
+    ("000123 AUTO LN DISB", "000123 AUTO LOAN DISB"),
+]
+
+
+@pytest.mark.parametrize(("printed", "normalized"), _R4_66_ADDRESS_LANE_CASES + _R4_66_LOAN_CASES)
+def test_r4_66_a_house_number_before_ln_and_an_address_after_it_is_a_lane(printed, normalized):
+    assert normalize(printed) == normalized
+    assert normalize(normalize(printed)) == normalized
+
+
 #: S2.1 review, finding 2 (§7.11): every payment spelling after LN says loan, the spellings the normalizer later
 #: rewrites (PAYMT) among them, so a second normalization reads what the first did.
 _LN_PAYMENT_SPELLING_CASES = [

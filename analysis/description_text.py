@@ -43,6 +43,21 @@ _LOAN_WORD_AFTER_LN = re.compile(
     r" (?:PMTS?|PYMTS?|PAYMENTS?|PAYMT|PAYMNT|PMNT|PYMNT|REPAYMENTS?|DISB|DISBURSEMENT|ADV|ADVANCE|PROCEEDS|DRAW)\b"
 )
 _LN_WORD = re.compile(r"\bLN\b")
+#: Audit round 4, R4-66 (true revenue spec §7.11; the owner's Q5 of 2026-09-28, standard A5): the second lane arm. A
+#: house number right before LN ('77 LN', no alphabetic word between) and, right after it, one to three town words, a
+#: state's two-letter code and a ZIP, its four-digit extension optional ('<n> LN <town> <ST> <ZIP>': '77 LN MAPLE GROVE
+#: MN 55311 0000', the ZIP's hyphen normalized to a space). Both ends are needed: a loan account's number can print
+#: before LN. _LOAN_WORD_AFTER_LN and _LOAN_PRODUCT_WORDS guard this arm as they guard the street arm. The 50 states,
+#: DC and PR (a local copy: true_revenue, which holds _US_STATE_TAIL, imports this module).
+_HOUSE_NUMBER_BEFORE_LN = re.compile(r"(?:^| )\d+ $")
+_US_STATE_CODES = (
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME",
+    "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
+    "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC", "PR",
+)
+_ADDRESS_AFTER_LN = re.compile(
+    r" ((?:[A-Z]+ ){1,3})(?:" + "|".join(_US_STATE_CODES) + r") \d{5}(?: \d{4})?(?![0-9])"
+)
 #: 5.6 (true revenue spec §20, A3-G review): a SWIFT field-50F line number printed with its slash right after a wire's
 #: originator label ('ORIG:1/NORTHWIND', 'B/O 1/NORTHWIND'; lines 1 to 3 hold the name, the address and the country
 #: and town). It is never part of the name, and the slash is lost below, so the number is dropped here, where the
@@ -51,7 +66,9 @@ _SWIFT_LINE_NUMBER = re.compile(r"(\b(?:ORIG|ORG|ORIGINATOR|B/O|BY ORDER OF)\b\s
 
 
 def _loan_or_lane(match: re.Match[str]) -> str:
-    """LN reads LOAN, except where it ends a street address (5.5, §7.11)."""
+    """LN reads LOAN, except where it ends a street address (5.5, §7.11). Audit round 4, R4-66: or where a house number
+    stands right before it and a town, a state's code and a ZIP right after it (_HOUSE_NUMBER_BEFORE_LN,
+    _ADDRESS_AFTER_LN), with no loan-payment word after LN and no loan-product word among the town words."""
     text = match.string
     street = _STREET_BEFORE_LN.search(text[: match.start()])
     if (
@@ -60,6 +77,14 @@ def _loan_or_lane(match: re.Match[str]) -> str:
         and not set(street.group(1).split()) & _LOAN_PRODUCT_WORDS
     ):
         return "LN"
+    if _HOUSE_NUMBER_BEFORE_LN.search(text[: match.start()]) is not None:
+        address = _ADDRESS_AFTER_LN.match(text, match.end())
+        if (
+            address is not None
+            and not _LOAN_WORD_AFTER_LN.match(text[match.end():])
+            and not set(address.group(1).split()) & _LOAN_PRODUCT_WORDS
+        ):
+            return "LN"
     return "LOAN"
 
 
