@@ -3816,6 +3816,103 @@ def test_r3_b14_r1_the_arms_controls():
         assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
 
 
+# Audit round 4, R4-36 (the underwriter's Q9 (c) and Q11 (b) of 2026-10-02): a card purchase in an auction's town is no
+# dealer evidence in whatever card wording a bank prints it (the classifier may leave these rows unclassed pos). Each
+# card debit sits beside a repossession agency's Westlake PAYABLES (counted lender_paid_for_services, never Verified)
+# and beside a non-dealer's Ritchie Bros seller payout (non_revenue asset_sale_proceeds). Fabricated rows; the bank is
+# the one whose statements print the form (None where any bank may).
+_R4_36_PAYABLES = (
+    "WESTLAKE FINANCI DES:PAYABLES ID:EFT0000001 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", 3150.40)
+_R4_36_AUTO_PAY = ("WESTLAKE FINANCI DES:AUTO PAY ID:1 INDN:CONTOSO RECOVERY LLC CO ID:1 CCD", -512.00)
+_R4_36_LANDSCAPER = "NORTHWIND LANDSCAPING LLC"
+_R4_36_SELLER_PAYOUT = (
+    "RITCHIE BROS DES:SELLER PAYOUT ID:1 INDN:NORTHWIND LANDSCAPING LLC CO ID:1 CCD", 18500.65)
+_R4_36_CARD_ROWS = (
+    ("CHK CARD 0302 CONTOSO DINER MANHEIM PA USA", None),
+    ("CHECK CRD PURCHASE 03/02 CONTOSO DINER MANHEIM PA USA", None),
+    ("DEBIT CARD ACH PURCHASE CONTOSO DINER MANHEIM PA USA", None),
+    ("CHK CARD 0302 CONTOSO DINER MANHEIM PA", None),
+    ("DBT CRD 0302 03/02 000000 CONTOSO FUEL MANHEIM PA 0000", "LINKBANK"),
+    ("DBT CRD 0302 03/02 000000 CONTOSO FUEL MANHEIM PA 0000", "Altabank"),
+    ("DBT CRD 0302 03/02 000000 CONTOSO FUEL MANHEIM PA 0000", None),
+    ("0000 DBT PURCHASE CONTOSO FUEL MANHEIM PA", "Citizens Bank"),
+    ("DEBIT CARD PURCH CONTOSO FUEL MANHEIM PA", "Citibank"),
+    ("DBCRD PMT CONTOSO FUEL MANHEIM PA", "TD Bank"),
+    ("DEBIT CARD RECURRING CONTOSO FUEL MANHEIM PA", "Truist"),
+    ("VISA DDA PUR CONTOSO FUEL MANHEIM PA", None),
+    ("CARD 0302 CONTOSO FUEL MANHEIM PA", None),
+)
+_R4_36_CARD_AMOUNT = -120.35
+_R4_36_AUCTION_ROWS = (
+    "ACH DEBIT MANHEIM REMARKETING 0000000001",
+    "BUSINESS TO BUSINESS ACH DEBIT ACV AUCTIONS ACH PAYMNT",
+    "OUTGOING WIRE MANHEIM ATLANTA GA USA",
+    "CHECK 1001 MANHEIM",
+)
+
+
+def _r4_36_records(rows, holder: str, bank: str | None):
+    return classify_statement_transactions(Statement(account_name=holder, bank=bank, transactions=[
+        Transaction(date=f"2055-03-{index + 2:02d}", description=text, amount=amount,
+                    direction="credit" if amount > 0 else "debit")
+        for index, (text, amount) in enumerate(rows)
+    ]))
+
+
+@pytest.mark.parametrize(("card", "bank"), _R4_36_CARD_ROWS, ids=[f"{row[:24]}-{bank}" for row, bank in _R4_36_CARD_ROWS])
+def test_r4_36_card_wording_is_never_an_auction_purchase(card, bank):
+    # Today each card debit is read as an auction purchase: the payables are Verified.
+    rows = [_R4_36_PAYABLES, (card, _R4_36_CARD_AMOUNT)]
+    record = _r4_36_records(rows, _R3_52_AGENCY, bank)[0]
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+    # The hidden-loan guard: beside the lender's own AUTO PAY debit, held (today Verified).
+    held = _r4_36_records([*rows, _R4_36_AUTO_PAY], _R3_52_AGENCY, bank)[0]
+    assert _q7_reading(held) == (
+        "excluded_pending_review", "financing_named_payer", "unverified_deposit", "lender_paid_for_services", None)
+    assert not held.contributes_to_true_revenue
+
+
+@pytest.mark.parametrize(("card", "bank"), _R4_36_CARD_ROWS, ids=[f"{row[:24]}-{bank}" for row, bank in _R4_36_CARD_ROWS])
+def test_r4_36_a_non_dealer_s_asset_sale_beside_a_card_purchase_is_non_revenue(card, bank):
+    # Today counted: the card debit made the landscaper's statement a dealer's.
+    record = _r4_36_records([_R4_36_SELLER_PAYOUT, (card, _R4_36_CARD_AMOUNT)], _R4_36_LANDSCAPER, bank)[0]
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "asset_sale_proceeds")
+    assert not record.contributes_to_true_revenue
+
+
+@pytest.mark.parametrize("auction", _R4_36_AUCTION_ROWS)
+def test_r4_36_an_ach_wire_or_check_purchase_at_the_auction_is_still_dealer_evidence(auction):
+    record = _r4_36_records([_R4_36_PAYABLES, (auction, -8400.15)], _R3_52_AGENCY, None)[0]
+    assert _q7_reading(record) == (
+        "verified", None, "verified_revenue", "auto_lender_dealer_funding", "auto_dealer_funding")
+
+
+@pytest.mark.parametrize(("card", "bank"), [
+    ("CONTOSO DINER MANHEIM PA USA", "Lead Bank (Found)"),
+    ("CHECKCARD 0302 CONTOSO DINER MANHEIM PA", "Bank of America"),
+    ("POS PURCHASE 0302 CONTOSO FUEL MANHEIM PA", None),
+])
+def test_r4_36_the_card_forms_r3_52_read_are_unchanged(card, bank):
+    record = _r4_36_records([_R4_36_PAYABLES, (card, _R4_36_CARD_AMOUNT)], _R3_52_AGENCY, bank)[0]
+    assert _q7_reading(record) == (*LENDER_SERVICE, "unverified_deposit", "lender_paid_for_services", None)
+
+
+@pytest.mark.parametrize(("text", "card"), [
+    *((row, True) for row, _bank in _R4_36_CARD_ROWS),
+    *((row, False) for row in _R4_36_AUCTION_ROWS),
+    ("ACH DEBIT CARDINAL HEALTH 0001", False),
+    ("ACH DEBIT MANHEIM AUCTIONS ATLANTA GA USA", False),
+])
+def test_r4_36_the_card_purchase_debit_reading(text, card):
+    from dataclasses import replace
+
+    from analysis.description_text import normalize_transaction_description
+    from analysis.transaction_classifier import revenue_text
+
+    record = replace(_one(text, -120.35), classification="other")
+    assert tr._card_purchase_debit(record, revenue_text(normalize_transaction_description(text))) is card
+
+
 def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():
     from analysis import true_revenue
 

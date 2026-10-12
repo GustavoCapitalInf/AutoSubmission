@@ -4273,7 +4273,10 @@ def _dealer_activity(
     without the holder's names too (without_receiver_and_holder), so a dealer advance whose unlabelled receiver is the
     holder's own name printing RECOVERY, TRANSPORT or COMMISSIONS stays evidence; a card form's '<ST> USA|CAN' tail on a
     wire, ACH or check row is no card purchase (_card_purchase_debit); and the floor-plan form reads its glued words
-    (FLOORPLANINT, FLOORPLANPAYOFF, FLOORPLANADV, FLOORPLANXPRESS)."""
+    (FLOORPLANINT, FLOORPLANPAYOFF, FLOORPLANADV, FLOORPLANXPRESS). Audit round 4, R4-36 (Q9 (c), Q11 (b)): the
+    auction arm's card purchase is also one printing card wording in any bank's form (_card_purchase_debit's
+    _CARD_WORDING_DEBIT: 'CHK CARD', 'DBT CRD', 'DEBIT CARD PURCH', 'DBCRD PMT', 'VISA DDA PUR', a leading 'CARD
+    <nnnn>'), whatever its tail, so a card purchase in an auction's town is never an auction purchase."""
     classifier = _classifier()
     for index in indexes:
         record = records[index]
@@ -4311,10 +4314,18 @@ def _card_purchase_debit(record: TransactionClassification, text: str) -> bool:
     _CARD_FORM_DEBIT: DEBIT CARD PURCHASE, DBCRD PUR, POS DB|DEBIT|PUR, POINT OF SALE, a glued PURCHASE<digits>, a
     charge ending in a state or province code and its country). Review round 1 (finding 5): that tail, Found's and
     Bluevine's card-charge form, is no card purchase on a row that prints a wire, ACH or check form
-    (_NON_CARD_DEBIT_FORM: 'OUTGOING WIRE <auction> ATLANTA GA USA', 'ACH DEBIT <auction> ... GA USA')."""
+    (_NON_CARD_DEBIT_FORM: 'OUTGOING WIRE <auction> ATLANTA GA USA', 'ACH DEBIT <auction> ... GA USA').
+
+    Audit round 4, R4-36 (the underwriter's Q9 (c) and Q11 (b) of 2026-10-02): and card wording anywhere on the row
+    (_CARD_WORDING_DEBIT: CHK CARD, CHECK CRD, DEBIT CARD, DBT CRD, DBCRD, DBT PURCHASE, DEBIT CARD PURCH, VISA DDA
+    PUR, a leading CARD <nnnn>), in whatever card form a bank prints it, whatever its tail and whatever wire, ACH or
+    check word it also prints ('DEBIT CARD ACH PURCHASE <merchant> MANHEIM PA USA'). An ACH, wire or check purchase at
+    the auction printing no card wording stays dealer evidence."""
     classifier = _classifier()
     stripped = text.strip()
     if record.classification == "pos" or classifier._CARD_FORM_DEBIT_PREFIX.search(stripped) is not None:
+        return True
+    if _CARD_WORDING_DEBIT.search(stripped) is not None:
         return True
     card = _CARD_FORM_DEBIT.search(stripped)
     if card is None:
@@ -4422,6 +4433,16 @@ _CARD_FORM_DEBIT = re.compile(
 #: _card_purchase_debit alone (the counter-debit reader keeps _CARD_FORM_DEBIT whole).
 _CARD_FORM_TAIL = re.compile(r"(?<![A-Z])[A-Z]{2} (?:USA|CAN)$")
 _NON_CARD_DEBIT_FORM = re.compile(r"(?<![A-Z])(?:WIRE|ACH|CHECK|CHK|CHEQUE)\b")
+#: Audit round 4, R4-36 (the underwriter's Q9 (c) and Q11 (b) of 2026-10-02; §8.7): a card purchase's wording in the
+#: forms the banks print it that the classifier may leave unclassed pos: CHK CARD, CHECK CRD, DEBIT CARD, DBT CRD,
+#: DBCRD, a CARD, CRD, DBT or DEBIT PURCH... ('0000 DBT PURCHASE', 'DEBIT CARD PURCH'), VISA DDA PUR..., and a
+#: leading CARD <nnnn> (with RECURRING before it). Read anywhere on the row by _card_purchase_debit alone, whatever the
+#: row's tail and whatever WIRE, ACH or CHECK word it also prints ('DEBIT CARD ACH PURCHASE'): a card purchase in an
+#: auction's town is no dealer evidence. Never a word that only starts like CARD ('ACH DEBIT CARDINAL HEALTH').
+_CARD_WORDING_DEBIT = re.compile(
+    r"(?<![A-Z])(?:(?:CHECK|CHK|DEBIT|DBT) ?(?:CARD|CRD)|DBCRD|(?:CARD|CRD|DBT|DEBIT) PURCH\w*|VISA DDA PUR\w*)(?![A-Z])"
+    r"|^(?:RECURRING )?CARD \d{4}\b"
+)
 #: Audit round 2, R2-B02 (R02; standard A6): an ATM, ABM or cash withdrawal: the holder taking cash out names a place,
 #: never a payer, so it never holds a deposit (a transfer made at an ATM stays circular money).
 _CASH_WITHDRAWAL_DEBIT = re.compile(
