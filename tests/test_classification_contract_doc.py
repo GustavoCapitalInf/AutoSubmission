@@ -5209,3 +5209,60 @@ def test_r4_b13_review_round_2_is_recorded():
     for placeholder in ("MEASURE" + "_R4B13R2", "TESTS" + "_R4B13R2", "CODECOMMIT" + "_R4B13R2"):
         assert placeholder not in text, placeholder
         assert placeholder not in contract, placeholder
+
+
+#: Audit round 4, R4-B13 review round 3: the code commit (findings 1 and 2; finding 3 recorded).
+R4_B13_R3_CODE_COMMIT = "6ecf27f"
+
+
+def test_r4_b13_review_round_3_is_recorded():
+    """Audit round 4, R4-B13 review round 3 (findings 1 to 3): the code's docstrings and new readers; §7.11's
+    street-LN bullet, §8.5's Held, §9.3, the R4-66 and R4-53 lines and the round-2 line amended in place, the round's
+    own line; the contract's bullets."""
+    from analysis import description_text
+
+    def doc(reader):
+        return re.sub(r"\s+", " ", reader.__doc__)
+
+    for reader in (description_text._loan_or_lane, description_text._names_before_house,
+                   true_revenue._labelled_originator_name, true_revenue._town_words, true_revenue._wire_names_nobody):
+        assert "R4-B13 review round 3" in doc(reader), reader.__name__
+    assert "_NO_NAME_BEFORE_HOUSE = frozenset({" in inspect.getsource(description_text)
+    assert {"OA", "TA", "AS"} <= true_revenue._TRADE_NAME_MARKERS
+    text = SPEC.read_text(encoding="utf-8")
+    wrong = re.sub(r"\s+", " ", _section(text, "\n### 7.11 ", "\n### 7.12 "))
+    assert ("amended by R4-B13 review round 3, §20 below: and only where a name prints between the last originator "
+            "label and the house number") in wrong
+    wires = re.sub(r"\s+", " ", _section(text, "\n### 8.5 ", "\n### 8.6 "))
+    for words in ("R4-B13 review round 3, §20: the trade-name markers a town word never is include the operating-as "
+                  "and trading-as forms",
+                  "recorded residual (fail open to the base's reading, 0 corpus rows on a labelled layout): a real "
+                  "town whose name holds `THE`, `OF`, `AND` or a company-name word"):
+        assert words in wires, words
+    assert "Its review round 3 (§20) narrows R4-66's arm to an address printed after a name" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **A house number before `LN` and an address after it is a lane**",
+         "(Amended by R4-B13 review round 3, §20 below: the label was read anywhere before the number"),
+        ("- **A labelled originator's address is never its name**",
+         "amended by R4-B13 review round 3, §20 below: the trade-name markers include `OA`, `TA` and `AS`"),
+        ("- **A labelled originator's address is never its name**",
+         "and (R4-B13 review round 3, §20 below; fail open to the base's reading, 0 corpus rows on a labelled "
+         "layout) a noise-only originator whose town's name holds"),
+        ("- **R4-B13 review round 2: ", "(amended by R4-B13 review round 3, §20 below: the markers were only"),
+        ("- **R4-B13 review round 2: ", "(amended by R4-B13 review round 3, §20 below: and the arm reads only an "
+                                        "address printed after a name"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    line = _amendment_line(amendments, "- **R4-B13 review round 3: ")
+    for words in (R4_B13_R3_CODE_COMMIT, "`_TRADE_NAME_MARKERS`", "`_SPACED_TRADE_NAME_MARKER`",
+                  "`description_text._names_before_house`", "`_NO_NAME_BEFORE_HOUSE`",
+                  "(finding 3, R4-53) recorded, no code change"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    assert f"- Audit round 4, R4-B13 review round 3 (findings 1 to 3; {R4_B13_R3_CODE_COMMIT}):" in contract
+    assert "and since its review round 3 only where a name prints between the label and the number" in contract
+    assert "since its review round 3 also `OA`, `TA`, a spaced `O A` or `T A`, and `AS`" in contract
+    for placeholder in ("MEASURE" + "_R4B13R3", "TESTS" + "_R4B13R3", "CODECOMMIT" + "_R4B13R3"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in contract, placeholder
