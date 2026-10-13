@@ -3688,8 +3688,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     # Audit round 3, final review (R3-FF), F6: the floor's unit moved app.js again, past the -9 the Accept run served.
     # Audit round 3, R3-MERGE: the hosting line's merge-back moved it past both lines' values, to -11. The owner's
     # request of 2026-10-10 (active positions by month): the Active Positions column and the memos' line, to -12.
-    # The owner's own design (2026-10-11, display only): to -13.
-    assert "app.js?v=true-revenue-13" in html
+    # The owner's own design (2026-10-11, display only): to -13. The owner's request of 2026-10-11 (no Verified revenue
+    # and no "Counted, not verified" on the page): to -14.
+    assert "app.js?v=true-revenue-14" in html
     assert all(f"true-revenue-{value}\"" not in html for value in (7, 8, 9, 10, 11, 12))
 
 
@@ -3897,8 +3898,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
     assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 38)
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
     # The owner's request of 2026-10-10 (active positions by month) moved the page to true-revenue-12, computed when
-    # served (no version move); the owner's own design (2026-10-11, display only) to -13.
-    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
+    # served (no version move); the owner's own design (2026-10-11, display only) to -13; the owner's request of
+    # 2026-10-11 to hide Verified revenue and "Counted, not verified" (display and downloads only) to -14.
+    assert '<script src="/static/app.js?v=true-revenue-14"></script>' in html
     note = re.sub(r"\s*#\s*", " ", (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8"))
     for words in ("33 -> 34 (owner report 2026-10-08, Capital One daily ledger)",
                   "34 -> 35 (owner report 2026-10-08, Bank of America NSF)",
@@ -3944,12 +3946,19 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "exactly two statements move, both from withheld to validated", "0 console errors"):
         assert words in line, words
     assert not _cent_figures(line)
-    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, and the owner's
-    # Amerifi Capital ruling (2026-10-11) the last of §20 after it.
+    # The owner's request of 2026-10-10 (active positions by month) adds its line after the merge's, the owner's
+    # Amerifi Capital ruling (2026-10-11) its line after it, and his request of 2026-10-11 (hide Verified revenue and
+    # "Counted, not verified") the last of §20.
     positions = _amendment_line(amendments, "- **Active positions by month** (")
     amerifi = _amendment_line(amendments, AMERIFI_LINE_START)
-    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip() + "\n" + amerifi.rstrip())
-    assert not _cent_figures(positions)
+    hidden = _amendment_line(amendments, "- **Verified revenue and \"Counted, not verified\" leave the page and the CSV "
+                                         "and Excel downloads** (")
+    assert amendments.rstrip().endswith(line.rstrip() + "\n" + positions.rstrip() + "\n" + amerifi.rstrip() + "\n"
+                                        + hidden.rstrip())
+    assert not _cent_figures(positions) and not _cent_figures(hidden)
+    for words in ("the owner's request of 2026-10-11", "§2.2", "§10.8", "`_downloads_view`", "`true-revenue-14`",
+                  "no version, stored output or figure moves"):
+        assert words in hidden, words
     contract = _flat(CONTRACT)
     assert ("- Audit round 3, R3-MERGE: the merge-back of the hosting line (`fix/boa-nsf` `f2e9ae1`, merge commit "
             "7e254cf) moves `ANALYSIS_STAGE_VERSION` 36 → 37 in the merge commit") in contract
@@ -4002,7 +4011,10 @@ def test_the_specs_the_plan_and_the_contract_record_the_amerifi_capital_ruling()
                   "G7 (the lender census, cached;", "moves 0 rows in 0 statements",
                   "AMERIFI CAPITAL GROUP", "reads on credits only"):
         assert words in line, words
-    assert amendments.rstrip().endswith(line.rstrip())
+    # On the hosting line the owner's request of 2026-10-11 to hide Verified and Counted adds its line after this one.
+    hidden = _amendment_line(amendments, "- **Verified revenue and \"Counted, not verified\" leave the page and the CSV "
+                                         "and Excel downloads** (")
+    assert amendments.rstrip().endswith(line.rstrip() + "\n" + hidden.rstrip())
     assert not _cent_figures(line)
     lender = _flat(ROOT / "docs" / "superpowers" / "specs" / "2026-09-24-lender-detection-design.md")
     for words in ("*Amendment (owner, 2026-10-11; classification 5.9, `ANALYSIS_STAGE_VERSION` 38):* **Amerifi Capital "

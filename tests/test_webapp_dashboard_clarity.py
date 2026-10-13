@@ -651,8 +651,9 @@ def test_the_page_s_default_hero_label_and_table_header():
         "True Deposits Per Month", "Active Positions", "Withholding Rate", "Ledger ($)", "NSF", "Action"]
     # Audit round 3, R3-MERGE: the merged app.js asks for the next free value above both lines (-8 the hosting line's).
     # The owner's request of 2026-10-10 (active positions by month): "Active Positions" right before "Withholding
-    # Rate", and app.js asked for as true-revenue-12. The owner's own design (2026-10-11, display only): -13.
-    assert '<script src="/static/app.js?v=true-revenue-13"></script>' in html
+    # Rate", and app.js asked for as true-revenue-12. The owner's own design (2026-10-11, display only): -13. His
+    # request of 2026-10-11 to hide Verified revenue and "Counted, not verified": -14.
+    assert '<script src="/static/app.js?v=true-revenue-14"></script>' in html
 
 
 # ---------------------------------------------------------------------------------- C: the Monthly Statements
@@ -910,7 +911,8 @@ console.log(JSON.stringify({{card: monthlyCard({json.dumps(package)}), trueNote:
     if counted:
         assert "Zelle deposits in True revenue: " in result["trueNote"]
     else:
-        assert "Zelle deposits excluded: " in result["trueNote"] and " · counted after review: " in result["trueNote"]
+        # The owner's request of 2026-10-11: the part a review counted is "counted in True revenue".
+        assert "Zelle deposits excluded: " in result["trueNote"] and " · counted in True revenue: " in result["trueNote"]
     assert result["helper"] == "undefined"
     source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
     assert "monthlyZelleDetail" not in source
@@ -933,11 +935,10 @@ const charts = (pkg) => Object.fromEntries(["both", "total", "true"].map((view) 
 }));
 """
 #: The swatch that names each colour a bar can draw (webapp/templates/index.html gives each pair one background).
-SWATCH_OF = {"bar-total": "legend-swatch", "bar-true": "legend-swatch-true", "bar-part": "legend-swatch-true",
-             "bar-part-verified": "legend-swatch-verified"}
+#: The owner's request of 2026-10-11 (true revenue spec §2.2, §10.3): no verified part, so no verified shade or swatch.
+SWATCH_OF = {"bar-total": "legend-swatch", "bar-true": "legend-swatch-true", "bar-part": "legend-swatch-true"}
 TOTAL_KEY = ["legend-swatch", "Total deposits"]
 TRUE_KEY = ["legend-swatch legend-swatch-true", "True revenue"]
-VERIFIED_KEY = ["legend-swatch legend-swatch-verified", "of which verified"]
 LEDGER_KEY = [None, "and ledger (average daily balance) per statement"]
 
 
@@ -946,8 +947,8 @@ def test_every_bar_takes_only_the_colours_its_key_shows_in_every_view():
     # The owner's follow-up of 2026-10-07: "for the Monthly deposits there are like 4 different colors while the color
     # key contains only two color identifiers" (the True view drew pale bars, the tallest in the accent, and the
     # verified part darker). Now no bar is highlighted ('peak' is gone); the True view's bars are all the True revenue
-    # colour with their verified part; the Total view's bars are all the neutral Total colour and its key gains the
-    # Total swatch.
+    # colour; the Total view's bars are all the neutral Total colour and its key gains the Total swatch. The owner's
+    # request of 2026-10-11: no verified part, shade or key entry in any view.
     rows = [_row("contoso", 1),
             _row("fabrikam", 2, credits=150000.0, true_revenue_total=90000.0, verified_revenue_total=30000.0),
             _row("northwind", 3, credits=80000.0, true_revenue_total=50000.0, verified_revenue_total=0.0)]
@@ -960,18 +961,16 @@ def test_every_bar_takes_only_the_colours_its_key_shows_in_every_view():
         # No colour on a bar that the key does not show (a bare "bar" class draws no colour of its own).
         assert {SWATCH_OF[name] for name in drawn - {"bar"}} <= swatches, view
     both, true_only, total = result["both"], result["true"], result["total"]
-    # Both: unchanged (the Total bar neutral, its True part in the accent, the verified part inside it).
+    # Both: the Total bar neutral, its True part in the accent.
     assert [bar["bar"] for bar in both["bars"]] == ["bar bar-total"] * 3
     assert [bar["parts"] for bar in both["bars"]] == [
-        [["bar-part", "60.0"], ["bar-part bar-part-verified", "20.0"]],
-        [["bar-part", "60.0"], ["bar-part bar-part-verified", "20.0"]],
-        [["bar-part", "62.5"]]]
-    assert both["key"] == [TOTAL_KEY, TRUE_KEY, VERIFIED_KEY]
-    # True: every bar, the tallest included, in the True revenue colour, its verified part present.
+        [["bar-part", "60.0"]], [["bar-part", "60.0"]], [["bar-part", "62.5"]]]
+    assert both["key"] == [TOTAL_KEY, TRUE_KEY]
+    # True: every bar, the tallest included, in the True revenue colour, with no part inside it.
     assert [bar["bar"] for bar in true_only["bars"]] == ["bar bar-true"] * 3
-    assert [bar["parts"] for bar in true_only["bars"]] == [[["bar-part bar-part-verified", "33.3"]],
-                                                          [["bar-part bar-part-verified", "33.3"]], []]
-    assert true_only["key"] == [TRUE_KEY, VERIFIED_KEY, LEDGER_KEY]
+    assert [bar["parts"] for bar in true_only["bars"]] == [[], [], []]
+    assert true_only["key"] == [TRUE_KEY, LEDGER_KEY]
+    assert all("verified" not in chart["html"] for chart in result.values())
     # Total: every bar the Both view's neutral Total colour, and its key names it.
     assert [bar["bar"] for bar in total["bars"]] == ["bar bar-total"] * 3
     assert all(bar["parts"] == [] for bar in total["bars"])
@@ -1005,18 +1004,19 @@ def test_the_bar_colours_are_the_key_colours_in_both_themes_and_no_bar_is_highli
     assert _declared(rules, ".bar", "background") is None
     assert not any("accent-muted" in body for selector, body in rules if re.search(r"\.bar\b", selector))
     pairs = {".bar.bar-total": ".legend-swatch", ".bar.bar-true": ".legend-swatch-true",
-             ".bar-part": ".legend-swatch-true", ".bar-part-verified": ".legend-swatch-verified"}
+             ".bar-part": ".legend-swatch-true"}
     for bar, swatch in pairs.items():
         assert _declared(rules, bar, "background") == _declared(rules, swatch, "background") is not None, bar
     assert _declared(rules, ".legend-swatch", "background") == "var(--border-2)"
     assert _declared(rules, ".legend-swatch-true", "background") == "var(--accent)"
-    assert _declared(rules, ".legend-swatch-verified", "background") == "var(--verified)"
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.3): no verified shade, swatch or figure.
+    assert not any("verified" in selector for selector, _body in rules)
     # The figures above the bars keep their colours.
     assert _declared(rules, ".bar-value", "color") == "var(--text-2)"
     assert _declared(rules, ".bar-value-true", "color") == "var(--accent-text)"
-    assert _declared(rules, ".bar-value-verified", "color") == "var(--verified)"
-    # Both themes resolve the same tokens: each theme sets the neutral, the verified shade and the accent. The owner's
-    # own design (2026-10-11): light is the root (the default) and dark the data-theme rule, each with its own accent.
+    # Both themes resolve the same tokens: each theme sets the neutral and the accent (the verified shade is gone). The
+    # owner's own design (2026-10-11): light is the root (the default) and dark the data-theme rule, each with its own
+    # accent.
     light, dark = _tokens(rules, ':root, :root[data-theme="light"]'), _tokens(rules, ':root[data-theme="dark"]')
-    assert {"--border-2", "--verified", "--accent"} <= set(light)
-    assert {"--border-2", "--verified", "--accent"} <= set(dark)
+    assert {"--border-2", "--accent"} <= set(light) and "--verified" not in light
+    assert {"--border-2", "--accent"} <= set(dark) and "--verified" not in dark
