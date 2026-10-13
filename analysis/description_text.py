@@ -64,11 +64,28 @@ _ADDRESS_AFTER_LN = re.compile(
 #: before its house number, B O, ORIGINATOR (NAME), ORIG, ORG or BY ORDER OF (the originator labels of the classifier's
 #: _WIRE_ORIGINATOR_LABEL and _RELAY_ORIGINATOR_LABEL, with their guards: never ORIG CO NAME, ORIG ID or a purpose's ORG
 #: TO BNF; a local copy, read on _before_ln_rewrite's text, since the classifier imports this module), so a debit's or
-#: an unlabelled row's '<n> LN <town> <ST> <ZIP>' keeps its LOAN.
+#: an unlabelled row's '<n> LN <town> <ST> <ZIP>' keeps its LOAN. R4-B13 review round 2 (finding 4): never an ID
+#: field's label either (ORG ID, ORIGINATOR ID, as ORIG ID), which the classifier's labels read.
 _ORIGINATOR_LABEL_BEFORE_LN = re.compile(
-    r"\b(?:B O|BY ORDER OF|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)"
-    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
+    r"\b(?:B O|BY ORDER OF|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b| ID\b)"
+    r"|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)|ORG(?! TO BNF\b| TO BENEFICIARY\b| ID\b))\b"
 )
+#: R4-B13 review round 2 (finding 4; the brief's G7 narrowing): the arm reads only a row that opens as an incoming wire,
+#: so a debit, an ACH or deposit credit, or a book-transfer debit that prints an originator label before its address
+#: keeps LOAN: the classifier's incoming-wire labels (_INCOMING_WIRE_LABEL's alternatives, copied here and pinned
+#: against it, since the classifier imports this module) and its book-transfer credits (_BOOK_TRANSFER_FROM's BOOK
+#: TRANSFER CREDIT and WIRE TYPE BOOK IN), read at the row's start (a leading space allowed: _before_ln_rewrite turns
+#: leading punctuation into one).
+_INCOMING_WIRE_LABELS = (
+    r"WIRE TYPE (?:WIRE|INTL|FX) IN\b|USD WIRE IN\b|[A-Z]{3} WIRE IN\b|FEDWIRE CREDIT\b|CHIPS CREDIT\b|WT FED"
+    r"|WIRE TSF\b|WIRE TRANSFERS? (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
+    r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
+    r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
+    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b"
+    r"|INTERNATIONAL IWT\b"
+    r"|INCOMING FEDWIRE\b|INBOUND (?:FEDWIRE|WIRE)\b|INCOMING CHIPS\b"
+)
+_INCOMING_WIRE_START = re.compile(r"^ ?(?:" + _INCOMING_WIRE_LABELS + r"|BOOK TRANSFER CREDIT\b|WIRE TYPE BOOK IN\b)")
 #: 5.6 (true revenue spec §20, A3-G review): a SWIFT field-50F line number printed with its slash right after a wire's
 #: originator label ('ORIG:1/NORTHWIND', 'B/O 1/NORTHWIND'; lines 1 to 3 hold the name, the address and the country
 #: and town). It is never part of the name, and the slash is lost below, so the number is dropped here, where the
@@ -82,7 +99,9 @@ def _loan_or_lane(match: re.Match[str]) -> str:
     _ADDRESS_AFTER_LN), with no loan-payment word after LN and no loan-product word among the town words. R4-B13 review
     round 1 (findings 1 and 6): that second arm reads only an address a wire's originator label prints before the
     house number (_ORIGINATOR_LABEL_BEFORE_LN), and never with a loan-purpose word (R4-13's _LN_LOAN_PURPOSE_AFTER) after
-    LN or among the town words."""
+    LN or among the town words. R4-B13 review round 2 (finding 4): and only on a row that opens as an incoming wire
+    (_INCOMING_WIRE_START), never with an ID field's label (ORG ID, ORIGINATOR ID), so a labelled debit, ACH or deposit
+    credit keeps LOAN."""
     text = match.string
     street = _STREET_BEFORE_LN.search(text[: match.start()])
     if (
@@ -92,7 +111,11 @@ def _loan_or_lane(match: re.Match[str]) -> str:
     ):
         return "LN"
     house = _HOUSE_NUMBER_BEFORE_LN.search(text[: match.start()])
-    if house is not None and _ORIGINATOR_LABEL_BEFORE_LN.search(text[: house.start()]) is not None:
+    if (
+        house is not None
+        and _INCOMING_WIRE_START.match(text) is not None
+        and _ORIGINATOR_LABEL_BEFORE_LN.search(text[: house.start()]) is not None
+    ):
         address = _ADDRESS_AFTER_LN.match(text, match.end())
         if (
             address is not None

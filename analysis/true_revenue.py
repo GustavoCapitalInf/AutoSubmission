@@ -3321,7 +3321,10 @@ def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Seq
     region is read without the originator's address (_labelled_originator_name: 'B/O: BUSINESS LLC <town> <ST>
     <ZIP>', 'B/O: OPERATING ACCOUNT <town> <ST>'). Neither test reads a region that prints a name word glued to digits
     (_glued_name_word, measured on the corpus: '1XCONTOSO LLC <ST>'), which keeps its reading; since R4-B13 review
-    round 1 (finding 8) only a region that such a word leads, digits first."""
+    round 1 (finding 8) only a region that such a word leads, digits first (review round 2, finding 1: or letters
+    first, 'CONTOSO9 SERVICES LLC <town> <ST>', never a reference label's). R4-B13 review round 2 (finding 2): the
+    address cut reads a spaced trade-name marker (D B A, A K A, F K A), which payer_name's single-letter drop removes,
+    as its one word, so the trade name after it is never read as a town."""
     if _wire_label_only(region):
         return True
     classifier = _classifier()
@@ -3330,13 +3333,20 @@ def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Seq
     name = classifier.payer_name(region)
     # R4-B13 (measured): a name word glued to digits ('1XCONTOSO LLC <ST>'), which payer_name drops, is the sender's
     # own name, so neither R4-14's province test nor R4-53's address cut may leave such a region naming nobody: it
-    # keeps the reading it had before them (review round 1: only a leading, digits-first word; never 'REF12ABC').
+    # keeps the reading it had before them (review round 1: only a leading word, never 'REF12ABC'; review round 2:
+    # letters then digits too, 'CONTOSO9', never a reference label's, 'TXN12345').
     glued = _glued_name_word(region)
     if not glued and classifier.province_words_only(name):
         return True
     words = name.split()
     if labelled and not glued:
-        words = _labelled_originator_name(words)
+        # Review round 2 (finding 2): the cut reads the region with a spaced marker joined ('D B A' as 'DBA'); the
+        # words it drops (an address tail, which never holds a marker) are the same last words of `words`.
+        marked = classifier.payer_name(
+            _SPACED_TRADE_NAME_MARKER.sub(lambda found: found.group(0).replace(" ", ""), region)
+        ).split()
+        dropped = len(marked) - len(_labelled_originator_name(marked))
+        words = words[: len(words) - dropped]
     nobody = _WIRE_LABEL_ONLY_WORDS | _wire_designation_words()
     return all(word in nobody for word in words) and not _wire_generic_company(words, labelled, holder_names)
 
@@ -3347,11 +3357,14 @@ def _glued_name_word(region: str) -> bool:
     the sender's own name, so R4-14's province test and R4-53's address cut never read the region as naming nobody.
     R4-B13 review round 1 (finding 8): only the region's first token, digits then three or more letters
     (_GLUED_NAME_WORD, the corpus's shape), so a glued reference before a designation and its address ('REF12ABC
-    BUSINESS LLC <town> <ST>', 'AC12345XYZ OPERATING ACCOUNT <town> <ST>') never keeps the address as a name."""
+    BUSINESS LLC <town> <ST>', 'AC12345XYZ OPERATING ACCOUNT <town> <ST>') never keeps the address as a name. R4-B13
+    review round 2 (finding 1): or three or more letters then digits ('CONTOSO9 SERVICES LLC <town> <ST>', 'TAILSPIN360
+    MANAGEMENT LLC <town> <ST>', 'WIRE TRANSFER FROM CONTOSO9 BC'), whose letters are no reference label's
+    (_GLUED_REFERENCE_LETTERS: 'TXN12345 BUSINESS LLC <town> <ST>' still names nobody)."""
     tokens = (region or "").split()
-    return (
-        bool(tokens) and _GLUED_NAME_WORD.fullmatch(tokens[0]) is not None and _classifier()._is_payer_word(tokens[0])
-    )
+    if not tokens or _GLUED_NAME_WORD.fullmatch(tokens[0]) is None or not _classifier()._is_payer_word(tokens[0]):
+        return False
+    return "".join(character for character in tokens[0] if character.isalpha()) not in _GLUED_REFERENCE_LETTERS
 
 
 def _sending_bank_after_label(text: str, region: str, bank: str | None) -> bool:
@@ -4161,8 +4174,22 @@ _ORIGINATOR_ONE_WORD_ACCOUNTS = frozenset({"ACCOUNT", "ACCT", "DDA"})
 _ORIGINATOR_COUNTRIES = (("US",), ("USA",), ("CA",), ("CAN",), ("CANADA",), ("UNITED", "STATES"))
 _ORIGINATOR_TOWN_WORDS = 3
 #: R4-B13 review round 1 (finding 8): a name word glued to digits that leads the region, digits then three or more
-#: letters ('1XCONTOSO', the corpus's measured shape), never a glued reference ('REF12ABC', 'AC12345XYZ').
-_GLUED_NAME_WORD = re.compile(r"\d+[A-Z]{3,}")
+#: letters ('1XCONTOSO', the corpus's measured shape), never a glued reference ('REF12ABC', 'AC12345XYZ'). R4-B13
+#: review round 2 (finding 1): or three or more letters then digits ('CONTOSO9', 'TAILSPIN360', the common brand
+#: shape, which f6f10a2's guard covered), never letters, digits, then letters ('REF12ABC') and never a reference
+#: label's letters glued to its number (_GLUED_REFERENCE_LETTERS: 'TXN12345', 'ACC1234', 'INV12345'; the generic
+#: ones, REF, ACCT, TRN, ID, NO, CHK, DDA, SAV, ACH, CONF, the classifier's _is_payer_word refuses already).
+_GLUED_NAME_WORD = re.compile(r"\d+[A-Z]{3,}|[A-Z]{3,}\d+")
+_GLUED_REFERENCE_LETTERS = frozenset({
+    "REF", "REFNO", "ACCT", "ACC", "AC", "TRN", "TXN", "INV", "INVOICE", "ID", "NO", "NUM", "PO", "CHK", "CK", "CHECK",
+    "ORDER", "CUST", "BATCH", "ABA", "BBI", "XFER", "LOAN",
+})
+#: R4-B13 review round 2 (finding 2; an originator's address is never its name, and the cut reads only an address):
+#: the words an address's town never holds: a trade-name marker (_TRADE_NAME_MARKERS; a spaced D B A, A K A or F K A,
+#: whose single letters payer_name drops, is read as its one word before the cut, _SPACED_TRADE_NAME_MARKER), a
+#: connector (_WIRE_NAME_CONNECTORS), a legal form (_WIRE_LEGAL_FORMS) or a company-name word (_WIRE_COMPANY_NAME_WORDS).
+_TRADE_NAME_MARKERS = frozenset({"DBA", "AKA", "FKA"})
+_SPACED_TRADE_NAME_MARKER = re.compile(r"(?<![A-Z0-9])(?:D B A|A K A|F K A)(?![A-Z0-9])")
 
 
 @cache
@@ -4183,16 +4210,34 @@ def _without_country(words: Sequence[str]) -> int:
     return 0
 
 
+def _town_words(words: Sequence[str]) -> bool:
+    """R4-B13 review round 2 (finding 2): every word may be an address's town word: alphabetic, and no trade-name
+    marker (_TRADE_NAME_MARKERS), connector (_WIRE_NAME_CONNECTORS), legal form (_WIRE_LEGAL_FORMS) or company-name
+    word (_WIRE_COMPANY_NAME_WORDS), so 'DBA <name> <ST>', 'OF <name> <town> <ST>', 'AND <name> <ST>', 'THE <name> <ST>'
+    and 'SELECT <town> <ST>' are never read as a town and its state."""
+    return all(
+        word.isalpha()
+        and word not in _TRADE_NAME_MARKERS
+        and word not in _WIRE_NAME_CONNECTORS
+        and word not in _WIRE_LEGAL_FORMS
+        and word not in _WIRE_COMPANY_NAME_WORDS
+        for word in words
+    )
+
+
 def _address_tail(words: Sequence[str]) -> bool:
     """R4-B13 review round 1 (finding 2): the words are an address's tail and nothing else: one to three alphabetic
     town words, a state's or province's code (_originator_states) and a country code optional after it
-    (_ORIGINATOR_COUNTRIES)."""
+    (_ORIGINATOR_COUNTRIES). R4-B13 review round 2: the town words are none of _town_words's refused words (finding 2:
+    'LLC DBA <name> <town> <ST>' keeps its trade name), and a bare state's or province's code, a country optional, is
+    a tail too (finding 3: Chase's B/O '<name> LLC <ST> <ZIP>' layout; the named-form test of rule (a) still needs a
+    name word before the form)."""
     body = list(words[: len(words) - _without_country(words)])
     return (
-        len(body) >= 2
+        len(body) >= 1
         and body[-1] in _originator_states()
         and len(body) - 1 <= _ORIGINATOR_TOWN_WORDS
-        and all(town.isalpha() for town in body[:-1])
+        and _town_words(body[:-1])
     )
 
 
@@ -4223,7 +4268,11 @@ def _labelled_originator_name(words: list[str]) -> list[str]:
           SAMPLETON OH' is unchanged). R4-B13 review round 1 (finding 3): MARKET is read only after MONEY, and the run
           is two designation words or more, or ACCOUNT, ACCT or DDA alone (_ORIGINATOR_ONE_WORD_ACCOUNTS), so 'MARKET
           <name> <town> <ST>', 'SAV <name> <town> <ST>' and 'CHECKING <name> <town> <ST>' are unchanged.
-      (c) Otherwise, the words unchanged."""
+      (c) Otherwise, the words unchanged.
+    R4-B13 review round 2: in (a) and (b) no town word is a trade-name marker, a connector, a legal form or a
+    company-name word (_town_words: 'HOLDINGS LLC DBA <name> <town> <ST>', 'SERVICES CO OF <name> <town> <ST>',
+    'BUSINESS CHECKING DBA <name> <ST>' and 'OPERATING ACCOUNT OF <name> <ST>' are unchanged), and in (a) a bare
+    state's or province's code is an address's tail ('BUSINESS LLC OH' reads 'BUSINESS LLC')."""
     words = list(words)
     for index, word in enumerate(words):
         if word not in _WIRE_LEGAL_FORMS:
@@ -4246,7 +4295,7 @@ def _labelled_originator_name(words: list[str]) -> list[str]:
             body[length - 1] in _ORIGINATOR_ACCOUNT_WORDS
             and (length >= 2 or body[0] in _ORIGINATOR_ONE_WORD_ACCOUNTS)
             and 1 <= len(towns) <= _ORIGINATOR_TOWN_WORDS
-            and all(town.isalpha() for town in towns)
+            and _town_words(towns)
         ):
             return body[:length]
     return words

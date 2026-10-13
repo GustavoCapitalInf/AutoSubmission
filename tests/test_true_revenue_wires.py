@@ -1114,3 +1114,199 @@ def test_r4_b13_r1_a_glued_reference_is_no_name_word(orig):
 ])
 def test_r4_b13_r1_a_province_reads_by_its_whole_name(text, reading):
     assert _tiers([(text, 2345.67)]) == [reading]
+
+
+# R4-B13 review round 2 (findings 1 to 4; R3-40's ruling under the underwriter's Q1 of 2026-10-02, "an originator's
+# address is never its name", read only on an address; Q5 of 2026-09-28 counts a named sender; the brief's G7
+# narrowing): a leading name word that glues letters then digits ('CONTOSO9', the common brand shape) is the sender's
+# own name, as a digits-first one is, never a reference label's ('TXN12345'); an address tail never holds a trade-name
+# marker (DBA, AKA, FKA, a spaced D B A), a connector, a legal form or a company-name word, so the name after the form
+# keeps the base's reading; a bare state's or province's code after a named form is an address tail too; and the
+# address lane reads only a row that opens as an incoming wire.
+R4_B13_R2_GLUED_NAMES = [
+    ("CONTOSO9 SERVICES LLC SAMPLETON OH 43000", R4_B13_R1_REPEAT),
+    ("FABRIKAM9 GROUP HOLDINGS LLC SAMPLETON OH 43000", R4_B13_R1_REPEAT),
+    ("TAILSPIN360 MANAGEMENT LLC SAMPLETON OH", R4_B13_R1_REPEAT),
+    ("ADATUM66 HOLDINGS LLC SAMPLETON OH", R4_B13_R1_REPEAT),
+    ("CONTOSO24 SERVICES INC TORONTO ON", R4_B13_R1_REPEAT),
+    ("FABRIKAM3 ENTERPRISES LLC MAPLE GROVE MN", R4_B13_R1_REPEAT),
+    ("CONTOSO54 SOLUTIONS INC MAPLE GROVE MN US", R4_B13_R1_REPEAT),
+    ("LITWARE7 GROUP LLC SAMPLETON OH 43000", R4_B13_R1_REPEAT),
+    ("LITWARE7 BUSINESS CHECKING SAMPLETON OH", R4_B13_R1_NAMED_ONLY),
+    ("CONTOSO9 OPERATING ACCOUNT SAMPLETON OH", R4_B13_R1_NAMED_ONLY),
+]
+
+
+@pytest.mark.parametrize(("orig", "twice"), R4_B13_R2_GLUED_NAMES)
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r2_a_leading_letters_then_digits_name_word_keeps_the_base_reading(orig, twice, template):
+    # Finding 1: payer_name drops every token that holds a digit, so the cut or the province test would leave such a
+    # name's noise words alone; the glued guard reads the word as the sender's own name.
+    assert _r4_53(orig, 1, template=template) == [NAMED]
+    assert _r4_53(orig, 2, template=template) == twice
+
+
+def test_r4_b13_r2_a_letters_then_digits_name_on_bank_of_america_keeps_the_base_reading():
+    rows = [(R4_B13_R1_BOFA.format(orig="LITWARE7 GROUP LLC SAMPLETON OH 43000", n=n), amount)
+            for n, amount in ((1, 2345.67), (2, 3456.78))]
+    assert _tiers(rows[:1], bank="Bank of America") == [NAMED]
+    assert _tiers(rows, bank="Bank of America") == R4_B13_R1_REPEAT
+
+
+@pytest.mark.parametrize("text", ["WIRE TRANSFER FROM CONTOSO9 BC", "WIRE TRANSFER IN 1234 CONTOSO9 ONTARIO",
+                                  "WIRE TRANSFER IN 1234 TAILSPIN360 ALBERTA"])
+def test_r4_b13_r2_a_letters_then_digits_name_before_a_province_names_its_sender(text):
+    assert _tiers([(text, 2345.67)]) == [NAMED]
+
+
+@pytest.mark.parametrize("orig", ["TXN12345 BUSINESS LLC SAMPLETON OH", "ACC1234 OPERATING ACCOUNT SAMPLETON OH",
+                                  "TRN12345 GROUP LLC SAMPLETON OH 43000", "ACCT1234 BUSINESS LLC SAMPLETON OH",
+                                  "CHK12345 BUSINESS CHECKING SAMPLETON OH"])
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r2_a_glued_reference_label_is_no_name_word(orig, template):
+    # Finding 1: a reference label's letters glued to its number (TXN, ACC, TRN, ACCT, CHK) are no sender's name, so a
+    # designation with its address still names nobody.
+    assert _r4_53(orig, 1, template=template) == [NO_SENDER]
+    assert _r4_53(orig, 2, template=template) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize(("region", "glued"), [
+    ("1XCONTOSO LLC SAMPLETON OH", True),
+    ("CONTOSO9 SERVICES LLC SAMPLETON OH", True),
+    ("TAILSPIN360 MANAGEMENT LLC", True),
+    ("CONTOSO9 BC", True),
+    ("REF12ABC BUSINESS LLC SAMPLETON OH", False),
+    ("AC12345XYZ OPERATING ACCOUNT SAMPLETON OH", False),
+    ("INV12345 BUSINESS LLC SAMPLETON OH", False),
+    ("ACC1234 OPERATING ACCOUNT SAMPLETON OH", False),
+    ("TXN12345 BUSINESS LLC SAMPLETON OH", False),
+    ("TRN12345 GROUP LLC SAMPLETON OH", False),
+    ("BUSINESS LLC CONTOSO9", False),
+    ("000000000001 ON M5V 3Y2", False),
+])
+def test_r4_b13_r2_the_glued_name_word_reads_a_leading_name_either_way(region, glued):
+    assert tr._glued_name_word(region) is glued
+
+
+R4_B13_R2_TRADE_NAMES = [
+    ("K HOLDINGS LLC DBA FABRIKAM SAMPLETON OH 43000", R4_B13_R1_REPEAT),
+    ("R AND J HOLDINGS LLC DBA CONTOSO PIZZA OH 43000", R4_B13_R1_REPEAT),
+    ("M AND K HOLDINGS LLC DBA FABRIKAM PIZZA OH", R4_B13_R1_REPEAT),
+    ("SERVICES LLC DBA FABRIKAM OH", R4_B13_R1_REPEAT),
+    ("K HOLDINGS LLC AKA FABRIKAM SAMPLETON OH", R4_B13_R1_REPEAT),
+    ("K GROUP LLC FKA FABRIKAM OH 43000", R4_B13_R1_REPEAT),
+    ("J SERVICES INC D B A CONTOSO OH", R4_B13_R1_REPEAT),
+    ("J SERVICES INC A K A CONTOSO OH", R4_B13_R1_REPEAT),
+    ("GROUP INC AND FABRIKAM OH 43000", R4_B13_R1_REPEAT),
+    ("HOLDINGS LLC THE FABRIKAM OH", R4_B13_R1_REPEAT),
+    ("SERVICES LLC SELECT SAMPLETON OH", R4_B13_R1_REPEAT),
+    ("SERVICES CO OF OHIO SAMPLETON OH 43000", R4_B13_R1_NAMED_ONLY),
+    ("MANAGEMENT CO OF AMERICA SAMPLETON OH", R4_B13_R1_NAMED_ONLY),
+    ("BUSINESS CHECKING DBA FABRIKAM OH", R4_B13_R1_NAMED_ONLY),
+    ("OPERATING ACCOUNT OF FABRIKAM OH", R4_B13_R1_NAMED_ONLY),
+    ("BUSINESS CHECKING AND FABRIKAM OH", R4_B13_R1_NAMED_ONLY),
+]
+
+
+@pytest.mark.parametrize(("orig", "twice"), R4_B13_R2_TRADE_NAMES)
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r2_a_trade_name_or_a_connector_after_the_cut_keeps_the_base_reading(orig, twice, template):
+    # Finding 2: the words after the form or the designation are no address when they hold a trade-name marker, a
+    # connector, a legal form or a company-name word, so the trade name or the name after them still names the sender.
+    assert _r4_53(orig, 1, template=template) == [NAMED]
+    assert _r4_53(orig, 2, template=template) == twice
+
+
+@pytest.mark.parametrize("orig", ["K D B A SERVICES LLC SAMPLETON OH", "K DBA SERVICES LLC SAMPLETON OH"])
+def test_r4_b13_r2_a_trade_name_marker_before_the_form_reads_as_one_word(orig):
+    # Finding 2: a spaced D B A, which payer_name's single-letter drop removes, reads as DBA does: a noise-only trade
+    # name with its address still names nobody, spaced or not.
+    assert _r4_53(orig, 1) == [NO_SENDER]
+    assert _r4_53(orig, 2) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize(("words", "name"), [
+    (["HOLDINGS", "LLC", "DBA", "FABRIKAM", "SAMPLETON", "OH"], ["HOLDINGS", "LLC", "DBA", "FABRIKAM", "SAMPLETON", "OH"]),
+    (["HOLDINGS", "LLC", "AKA", "FABRIKAM", "OH"], ["HOLDINGS", "LLC", "AKA", "FABRIKAM", "OH"]),
+    (["SERVICES", "CO", "OF", "OHIO", "SAMPLETON", "OH"], ["SERVICES", "CO", "OF", "OHIO", "SAMPLETON", "OH"]),
+    (["GROUP", "INC", "AND", "FABRIKAM", "OH"], ["GROUP", "INC", "AND", "FABRIKAM", "OH"]),
+    (["HOLDINGS", "LLC", "THE", "FABRIKAM", "OH"], ["HOLDINGS", "LLC", "THE", "FABRIKAM", "OH"]),
+    (["SERVICES", "LLC", "SELECT", "SAMPLETON", "OH"], ["SERVICES", "LLC", "SELECT", "SAMPLETON", "OH"]),
+    (["BUSINESS", "CHECKING", "DBA", "FABRIKAM", "OH"], ["BUSINESS", "CHECKING", "DBA", "FABRIKAM", "OH"]),
+    (["OPERATING", "ACCOUNT", "OF", "FABRIKAM", "OH"], ["OPERATING", "ACCOUNT", "OF", "FABRIKAM", "OH"]),
+    # Finding 3: a bare state's or province's code, a country optional, is an address tail.
+    (["BUSINESS", "LLC", "OH"], ["BUSINESS", "LLC"]),
+    (["SERVICES", "INC", "TX", "US"], ["SERVICES", "INC"]),
+    (["GROUP", "LLC", "ON", "CANADA"], ["GROUP", "LLC"]),
+    (["CONTOSO", "CO", "US"], ["CONTOSO", "CO", "US"]),
+    (["BUSINESS", "LLC"], ["BUSINESS", "LLC"]),
+])
+def test_r4_b13_r2_the_address_cut_reads_only_an_address(words, name):
+    assert tr._labelled_originator_name(words) == name
+
+
+def test_r4_b13_r2_a_spaced_trade_name_marker_keeps_the_name_after_it():
+    assert not tr._wire_names_nobody("J SERVICES INC D B A CONTOSO OH", labelled=True)
+    assert tr._wire_names_nobody("J SERVICES INC D B A", labelled=True)
+
+
+@pytest.mark.parametrize("orig", ["BUSINESS LLC OH 43000", "GROUP HOLDINGS LLC OH 43000", "SERVICES INC TX 75001 US",
+                                  "BUSINESS LLC OH"])
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r2_a_designation_form_with_a_bare_state_names_no_sender(orig, template):
+    # Finding 3: a legal form followed by a state's code, its ZIP or a country optional (Chase's B/O layout), is cut
+    # there, so a noise-only name with only its state names nobody, once and on a repeat.
+    assert _r4_53(orig, 1, template=template) == [NO_SENDER]
+    assert _r4_53(orig, 2, template=template) == [NO_SENDER, NO_SENDER]
+
+
+@pytest.mark.parametrize(("orig", "once", "twice"), [
+    ("CONTOSO LLC OH 43000", [NAMED], [REPEAT_WIRE, REPEAT_WIRE]),
+    ("SELECT HOLDINGS LLC OH 43000", [NAMED], [REPEAT_WIRE, REPEAT_WIRE]),
+    ("1XCONTOSO LLC OH 43000", [NAMED], [NAMED, NAMED]),
+])
+def test_r4_b13_r2_controls_a_named_form_with_a_bare_state_keeps_its_reading(orig, once, twice):
+    assert _r4_53(orig, 1) == once
+    assert _r4_53(orig, 2) == twice
+
+
+@pytest.mark.parametrize("text", [
+    "ACH DEBIT ORIG NAME WOODGROVE LENDING 1234567 LN SAMPLETON OH 43000",
+    "ACH DEBIT ORIG CO NM WOODGROVE LENDING 1234567 LN SAMPLETON OH 43000",
+    "BOOK TRANSFER DEBIT A/C: WOODGROVE LENDING LLC ORG: NORTHWIND LABS INC 77 LN SAMPLETON OH 43000",
+    "ORIG CO NAME:WOODGROVE LENDING ORIG ID:1234 DESC DATE: CO ENTRY DESCR:PAYMENT SEC:CCD "
+    "IND NAME:NORTHWIND LABS 1234567 LN SAMPLETON OH 43000",
+])
+def test_r4_b13_r2_a_labelled_debit_reads_as_at_the_base(text):
+    # Finding 4: the address lane reads only a row that opens as an incoming wire, so a debit printing an originator
+    # label before '<n> LN <town> <ST> <ZIP>' reads as its LOAN-spelled twin in every field, alone and in a series.
+    _read_as_printed_loan([(text, -1234.56)], bank="Chase")
+    series = _read_as_printed_loan([(text, -1234.56)] * 4, bank="Chase")
+    assert " LOAN " in series[0].normalized_description
+
+
+@pytest.mark.parametrize("text", [
+    "ACH CREDIT WOODGROVE BANK ORG ID 1234 1234567 LN SAMPLETON OH 43000",
+    "ACH CREDIT WOODGROVE BANK ORIGINATOR ID 1234 1234567 LN SAMPLETON OH 43000",
+    "ACH CREDIT WOODGROVE BANK B O 1234567 LN SAMPLETON OH 43000",
+    "REMOTE DEPOSIT ORG 1234 WOODGROVE 1234567 LN SAMPLETON OH 43000",
+    "DEPOSIT ORG WOODGROVE 1234567 LN SAMPLETON OH 43000",
+    "INCOMING WIRE ORG ID 1234 FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000 REF 1",
+])
+def test_r4_b13_r2_a_labelled_non_wire_or_id_row_keeps_the_credit_s_loan(text):
+    # Finding 4: a row that opens as no incoming wire, or whose label is an ID field (ORG ID, ORIGINATOR ID), keeps
+    # the strong rule's non_revenue, as at the base.
+    [record] = _read_as_printed_loan([(text, 23456.78)], bank="Chase")
+    assert (record.revenue_tier, record.revenue_match_method) == ("non_revenue", "strong_non_revenue_rule")
+
+
+@pytest.mark.parametrize("text", [
+    "INCOMING WIRE ORG FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000 REF 1",
+    "WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:20540302001234 ORIG:FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000 "
+    "ID:0001 SND BK:SAMPLE BANK ID:0002 PMT DET:SAMPLE 1",
+    "BOOK TRANSFER CREDIT B/O: FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000 REF: /TIME/09:00 0000001",
+])
+def test_r4_b13_r2_controls_an_incoming_wire_s_originator_address_is_still_a_lane(text):
+    [record] = _records([(text, 23456.78)], bank="Chase")
+    assert " 77 LN SAMPLETON OH 43000" in record.normalized_description
+    assert (record.revenue_tier, record.revenue_tier_reason) == NAMED

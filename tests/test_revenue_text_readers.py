@@ -331,13 +331,22 @@ def test_a_street_ln_is_a_lane_and_every_other_ln_a_loan(printed, normalized):
 # label prints before the number (B/O, ORIG, ORG, ORIGINATOR, BY ORDER OF), so a debit's or an unlabelled row's shape
 # keeps LOAN (the three unlabelled lane cases are re-pinned as loans below); and (finding 6) a loan-purpose word
 # (R4-13's) after LN or among the town words keeps LOAN too.
+#: R4-B13 review round 2 (finding 4): and only on a row that opens as an incoming wire (the classifier's
+#: _INCOMING_WIRE_LABEL, or a book-transfer credit), never with an ID field's label (ORG ID, ORIGINATOR ID); the
+#: labelled lane cases are re-pinned with their wire's opening words, and their bare fragments read LOAN below.
 _R4_66_ADDRESS_LANE_CASES = [
-    ("B/O: FABRIKAM HOLDINGS 77 Ln Maple Grove MN 55311-0000",
-     "B O FABRIKAM HOLDINGS 77 LN MAPLE GROVE MN 55311 0000"),
-    ("ORIG:FABRIKAM 4410 LN SAMPLETON IL 62701", "ORIG FABRIKAM 4410 LN SAMPLETON IL 62701"),
-    ("ORG=FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES", "ORG FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES"),
-    ("ORIGINATOR NAME: FABRIKAM 77 LN SAMPLETON IL 62701", "ORIGINATOR NAME FABRIKAM 77 LN SAMPLETON IL 62701"),
-    ("BY ORDER OF: FABRIKAM 77 LN SAMPLETON IL 62701", "BY ORDER OF FABRIKAM 77 LN SAMPLETON IL 62701"),
+    ("FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: FABRIKAM HOLDINGS 77 Ln Maple Grove MN 55311-0000",
+     "FEDWIRE CREDIT VIA SAMPLE BANK 011000000 B O FABRIKAM HOLDINGS 77 LN MAPLE GROVE MN 55311 0000"),
+    ("WIRE TYPE:WIRE IN ORIG:FABRIKAM 4410 LN SAMPLETON IL 62701",
+     "WIRE TYPE WIRE IN ORIG FABRIKAM 4410 LN SAMPLETON IL 62701"),
+    ("INCOMING WIRE ORG=FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES",
+     "INCOMING WIRE ORG FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES"),
+    ("WT FED#01234 ORIGINATOR NAME: FABRIKAM 77 LN SAMPLETON IL 62701",
+     "WT FED 01234 ORIGINATOR NAME FABRIKAM 77 LN SAMPLETON IL 62701"),
+    ("CHIPS CREDIT VIA: SAMPLE BANK/0001 BY ORDER OF: FABRIKAM 77 LN SAMPLETON IL 62701",
+     "CHIPS CREDIT VIA SAMPLE BANK 0001 BY ORDER OF FABRIKAM 77 LN SAMPLETON IL 62701"),
+    ("BOOK TRANSFER CREDIT B/O: FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000",
+     "BOOK TRANSFER CREDIT B O FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000"),
 ]
 _R4_66_LOAN_CASES = [
     ("1234 LN PMT SAMPLETON IL 62701", "1234 LOAN PMT SAMPLETON IL 62701"),
@@ -365,6 +374,24 @@ _R4_66_LOAN_CASES = [
     ("B/O: FABRIKAM 1234 LN PMT SAMPLETON IL 62701", "B O FABRIKAM 1234 LOAN PMT SAMPLETON IL 62701"),
     ("B/O: FABRIKAM 1234 LN AUTO SAMPLETON IL 62701", "B O FABRIKAM 1234 LOAN AUTO SAMPLETON IL 62701"),
     ("1234 LN PAYOFF IN 46201", "1234 LOAN PAYOFF IN 46201"),
+    # R4-B13 review round 2 (finding 4): a label on a row that opens as no incoming wire (the round-1 fragments, a
+    # debit, an ACH or deposit credit, a book-transfer debit), or an ID field's label on a wire.
+    ("B/O: FABRIKAM HOLDINGS 77 Ln Maple Grove MN 55311-0000",
+     "B O FABRIKAM HOLDINGS 77 LOAN MAPLE GROVE MN 55311 0000"),
+    ("ORIG:FABRIKAM 4410 LN SAMPLETON IL 62701", "ORIG FABRIKAM 4410 LOAN SAMPLETON IL 62701"),
+    ("ORG=FABRIKAM 77 LN SAMPLETON IL 62701 UNITED STATES", "ORG FABRIKAM 77 LOAN SAMPLETON IL 62701 UNITED STATES"),
+    ("ACH DEBIT ORIG NAME WOODGROVE LENDING 1234567 LN SAMPLETON OH 43000",
+     "ACH DEBIT ORIG NAME WOODGROVE LENDING 1234567 LOAN SAMPLETON OH 43000"),
+    ("BOOK TRANSFER DEBIT A/C: WOODGROVE LENDING LLC ORG: NORTHWIND LABS INC 77 LN SAMPLETON OH 43000",
+     "BOOK TRANSFER DEBIT A C WOODGROVE LENDING LLC ORG NORTHWIND LABS INC 77 LOAN SAMPLETON OH 43000"),
+    ("ACH CREDIT WOODGROVE BANK ORG ID 1234 1234567 LN SAMPLETON OH 43000",
+     "ACH CREDIT WOODGROVE BANK ORG ID 1234 1234567 LOAN SAMPLETON OH 43000"),
+    ("REMOTE DEPOSIT ORG 1234 WOODGROVE 1234567 LN SAMPLETON OH 43000",
+     "REMOTE DEPOSIT ORG 1234 WOODGROVE 1234567 LOAN SAMPLETON OH 43000"),
+    ("INCOMING WIRE ORG ID 1234 FABRIKAM 77 LN SAMPLETON OH 43000",
+     "INCOMING WIRE ORG ID 1234 FABRIKAM 77 LOAN SAMPLETON OH 43000"),
+    ("INCOMING WIRE ORIGINATOR ID 1234 FABRIKAM 77 LN SAMPLETON OH 43000",
+     "INCOMING WIRE ORIGINATOR ID 1234 FABRIKAM 77 LOAN SAMPLETON OH 43000"),
 ]
 
 
@@ -379,6 +406,28 @@ def test_r4_b13_r1_the_lane_arm_s_labels_are_the_classifier_s_originator_labels(
                  "ORG TO BNF FABRIKAM", "ORIGINATOR TO BENEFICIARY FABRIKAM", "ORGANIC FABRIKAM", "BORG FABRIKAM"):
         classifier = bool(tc._WIRE_ORIGINATOR_LABEL.search(text) or tc._RELAY_ORIGINATOR_LABEL.search(text))
         assert bool(description_text._ORIGINATOR_LABEL_BEFORE_LN.search(text)) == classifier, text
+    # R4-B13 review round 2 (finding 4): the copy also refuses an ID field's label, which the classifier's labels read.
+    for text in ("ORG ID 1234", "ORIGINATOR ID 1234"):
+        assert tc._WIRE_ORIGINATOR_LABEL.search(text)
+        assert description_text._ORIGINATOR_LABEL_BEFORE_LN.search(text) is None, text
+
+
+def test_r4_b13_r2_the_lane_arm_reads_the_classifier_s_incoming_wire_openings():
+    # R4-B13 review round 2 (finding 4): the address lane reads only a row that opens as an incoming wire: the
+    # classifier's _INCOMING_WIRE_LABEL (copied, pinned here; description_text cannot import the classifier) and its
+    # book-transfer credits (_BOOK_TRANSFER_FROM's BOOK TRANSFER CREDIT and WIRE TYPE BOOK IN).
+    from analysis import description_text
+    from analysis import transaction_classifier as tc
+
+    assert tc._INCOMING_WIRE_LABEL.pattern == "^(?:" + description_text._INCOMING_WIRE_LABELS + ")"
+    for text in ("FEDWIRE CREDIT VIA SAMPLE BANK", "CHIPS CREDIT VIA SAMPLE BANK", "WIRE TYPE WIRE IN DATE",
+                 "WIRE TYPE INTL IN", "INCOMING WIRE ORG FABRIKAM", "WT FED 01234", "WIRE TRANSFER FROM FABRIKAM",
+                 "BOOK TRANSFER CREDIT B O FABRIKAM", "WIRE TYPE BOOK IN DATE", " FEDWIRE CREDIT VIA SAMPLE BANK"):
+        assert description_text._INCOMING_WIRE_START.match(text), text
+    for text in ("ACH DEBIT ORIG NAME FABRIKAM", "ACH CREDIT FABRIKAM", "BOOK TRANSFER DEBIT A C FABRIKAM",
+                 "REMOTE DEPOSIT ORG 1234", "DEPOSIT ORG FABRIKAM", "FEDWIRE DEBIT VIA SAMPLE BANK",
+                 "ONLINE PAYMENT TO FABRIKAM", "WIRE TYPE WIRE OUT DATE", "ORIG CO NAME FABRIKAM"):
+        assert description_text._INCOMING_WIRE_START.match(text) is None, text
 
 
 @pytest.mark.parametrize(("printed", "normalized"), _R4_66_ADDRESS_LANE_CASES + _R4_66_LOAN_CASES)

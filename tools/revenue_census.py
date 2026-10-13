@@ -692,10 +692,23 @@ SD TN TX UT VT VA WA WV WI WY DC PR
 """.split())
 #: Audit round 4, R4-B13 review round 1 (findings 1 and 6): the arm's originator labels (analysis/description_text.py
 #: _ORIGINATOR_LABEL_BEFORE_LN, copied) and R4-13's loan-purpose words (_LN_LOAN_PURPOSE_AFTER's), which the arm
-#: refuses after LN and among the town words.
+#: refuses after LN and among the town words. R4-B13 review round 2 (finding 4): never an ID field's label (ORG ID,
+#: ORIGINATOR ID), and only on a row that opens as an incoming wire (_INCOMING_WIRE_START, copied with a number read as
+#: digits or masks, which no word boundary ends after a '#'; tests/test_revenue_census.py pins both copies against the
+#: normaliser's).
 _ORIGINATOR_LABEL_BEFORE_LN = re.compile(
-    r"\b(?:B O|BY ORDER OF|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)"
-    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
+    r"\b(?:B O|BY ORDER OF|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b| ID\b)"
+    r"|ORIG(?! CO NAME\b)(?! ID\b)(?! TO BNF\b)|ORG(?! TO BNF\b| TO BENEFICIARY\b| ID\b))\b"
+)
+_INCOMING_WIRE_START = re.compile(
+    r"^ ?(?:WIRE TYPE (?:WIRE|INTL|FX) IN\b|USD WIRE IN\b|[A-Z]{3} WIRE IN\b|FEDWIRE CREDIT\b|CHIPS CREDIT\b|WT FED"
+    r"|WIRE TSF\b|WIRE TRANSFERS? (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
+    r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
+    r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
+    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?[\d#]+(?![A-Z0-9#])"
+    r"|INTERNATIONAL IWT\b"
+    r"|INCOMING FEDWIRE\b|INBOUND (?:FEDWIRE|WIRE)\b|INCOMING CHIPS\b"
+    r"|BOOK TRANSFER CREDIT\b|WIRE TYPE BOOK IN\b)"
 )
 _LN_LOAN_PURPOSE_WORDS = frozenset("""
 DEPOSIT DEP CREDIT FORGIVENESS FORGIVEN FORGIVE SERVICING SERVICER SVCG SVC SRV REFI REFINANCE PAY PAYOFF PYT INT INTEREST
@@ -2230,8 +2243,11 @@ def _address_after_ln(words: list[str], index: int) -> bool:
     before LN (no alphabetic word between), then one to three alphabetic town words, none a loan-product word, a state's
     code (_US_STATE_CODES) and a masked ZIP (#####, an optional #### after it). R4-B13 review round 1 (findings 1 and
     6): only after a wire's originator label (_ORIGINATOR_LABEL_BEFORE_LN, before the number), and with no loan-purpose
-    word (_LN_LOAN_PURPOSE_WORDS) among the town words, as the normalizer reads it."""
+    word (_LN_LOAN_PURPOSE_WORDS) among the town words, as the normalizer reads it. R4-B13 review round 2 (finding 4):
+    and only on a row that opens as an incoming wire (_INCOMING_WIRE_START), never after an ID field's label."""
     if index < 1 or not re.fullmatch(r"[\d#]+", words[index - 1]):
+        return False
+    if _INCOMING_WIRE_START.match(" ".join(words)) is None:
         return False
     if _ORIGINATOR_LABEL_BEFORE_LN.search(" ".join(words[: index - 1])) is None:
         return False

@@ -227,17 +227,24 @@ def test_a_text_the_street_ln_guard_changed_is_listed_and_never_financing_into_t
 def test_r4_66_an_address_lane_after_a_house_number_is_the_guard_s_own_release():
     # Audit round 4, R4-66 (§7.11): the normalizer's second lane arm, a house number right before LN and a town, a
     # state's code and a ZIP right after it, is declared: the text change is listed and G7b accepts it into True.
+    # R4-B13 review round 2 (finding 4): the accepted shapes open as an incoming wire, as the normaliser's arm needs.
     base = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule",
-                                                text="B O FABRIKAM ## LOAN MAPLE GROVE MN ##### ####")])})
+                                                text="FEDWIRE CREDIT VIA SAMPLE BANK ######### B O FABRIKAM ## LOAN "
+                                                     "MAPLE GROVE MN ##### ####")])})
     after = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
                                                  reason="wire_named_sender",
-                                                 text="B O FABRIKAM ## LN MAPLE GROVE MN ##### ####")])})
+                                                 text="FEDWIRE CREDIT VIA SAMPLE BANK ######### B O FABRIKAM ## LN "
+                                                      "MAPLE GROVE MN ##### ####")])})
     run = _run(base, after)
     assert run["street_ln_changes"][0]["base"] == "non_revenue|strong_non_revenue_rule"
     assert "G7b" not in run["guards"]
     assert census._street_ln_release(
-        {"method": "strong_non_revenue_rule", "text": "ORIG FABRIKAM ## LOAN SAMPLETON IL #####"},
-        {"text": "ORIG FABRIKAM ## LN SAMPLETON IL #####"},
+        {"method": "strong_non_revenue_rule", "text": "WIRE TYPE WIRE IN ORIG FABRIKAM ## LOAN SAMPLETON IL #####"},
+        {"text": "WIRE TYPE WIRE IN ORIG FABRIKAM ## LN SAMPLETON IL #####"},
+    )
+    assert census._street_ln_release(
+        {"method": "strong_non_revenue_rule", "text": "WIRE CREDIT REF#### ORG FABRIKAM ## LOAN SAMPLETON IL #####"},
+        {"text": "WIRE CREDIT REF#### ORG FABRIKAM ## LN SAMPLETON IL #####"},
     )
     # A loan-payment word after LN, a loan-product word among the town words, no state and ZIP, or no number before
     # LN: still a G7b failure. R4-B13 review round 1 (findings 1 and 6): so is the shape with no originator label before
@@ -254,11 +261,33 @@ def test_r4_66_an_address_lane_after_a_house_number_is_the_guard_s_own_release()
         ("ORIG CO NAME FABRIKAM ## LOAN SAMPLETON IL #####", "ORIG CO NAME FABRIKAM ## LN SAMPLETON IL #####"),
         ("B O FABRIKAM ## LOAN PAYOFF IN #####", "B O FABRIKAM ## LN PAYOFF IN #####"),
         ("B O FABRIKAM ## LOAN PRIN AND INT OH #####", "B O FABRIKAM ## LN PRIN AND INT OH #####"),
+        # R4-B13 review round 2 (finding 4): a label on a row that opens as no incoming wire, and an ID field's label.
+        ("B O FABRIKAM ## LOAN MAPLE GROVE MN ##### ####", "B O FABRIKAM ## LN MAPLE GROVE MN ##### ####"),
+        ("ACH CREDIT FABRIKAM ORG ID #### ## LOAN SAMPLETON IL #####",
+         "ACH CREDIT FABRIKAM ORG ID #### ## LN SAMPLETON IL #####"),
+        ("REMOTE DEPOSIT ORG #### FABRIKAM ## LOAN SAMPLETON IL #####",
+         "REMOTE DEPOSIT ORG #### FABRIKAM ## LN SAMPLETON IL #####"),
+        ("INCOMING WIRE ORG ID #### FABRIKAM ## LOAN SAMPLETON IL #####",
+         "INCOMING WIRE ORG ID #### FABRIKAM ## LN SAMPLETON IL #####"),
+        ("INCOMING WIRE ORIGINATOR ID #### FABRIKAM ## LOAN SAMPLETON IL #####",
+         "INCOMING WIRE ORIGINATOR ID #### FABRIKAM ## LN SAMPLETON IL #####"),
     ):
         loan = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule", text=old)])})
         moved = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
                                                      reason="wire_named_sender", text=new)])})
         assert _run(loan, moved)["guards"]["G7b"]["failures"] == 1, old
+
+
+def test_r4_b13_r2_the_census_reads_the_lane_arm_s_own_label_and_wire_opening():
+    # R4-B13 review round 2 (finding 4): the census's copies of the normaliser's originator labels and incoming-wire
+    # openings (read on the masked text, a digit masked as '#', which no word boundary ends) never drift from the
+    # normaliser's.
+    from analysis import description_text
+
+    assert census._ORIGINATOR_LABEL_BEFORE_LN.pattern == description_text._ORIGINATOR_LABEL_BEFORE_LN.pattern
+    assert r"\d" not in description_text._INCOMING_WIRE_START.pattern.replace(r"\d+\b", "")
+    assert census._INCOMING_WIRE_START.pattern == description_text._INCOMING_WIRE_START.pattern.replace(
+        r"\d+\b", r"[\d#]+(?![A-Z0-9#])")
 
 
 def test_a_verified_row_demoted_without_a_declared_cause_fails_the_census():
