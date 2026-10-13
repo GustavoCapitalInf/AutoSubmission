@@ -1396,6 +1396,16 @@ def test_r4_b13_r3_controls_the_marker_refusal_moves_no_other_reading(orig, once
     assert _r4_b13_r3(orig, 2, template, bank) == twice
 
 
+@pytest.mark.parametrize("orig", ["O A LLC SAMPLETON OH", "T A LLC SAMPLETON OH", "D B A LLC SAMPLETON OH"])
+@pytest.mark.parametrize(("template", "bank"), R4_B13_R3_LAYOUTS)
+def test_r4_b13_r3_recorded_a_name_of_single_letters_and_a_spaced_marker_names_no_sender(orig, template, bank):
+    # Finding 1, recorded consequence (0 corpus rows print O A or T A): the joined O A or T A is the one word before
+    # the form, so the cut reads the town as an address and the single letters payer_name drops leave no name, as a
+    # spaced D B A already did at e79dc51 (R4-53's reading: the address alone is no name); the base counted the town.
+    assert _r4_b13_r3(orig, 1, template, bank) == [NO_SENDER]
+    assert _r4_b13_r3(orig, 2, template, bank) == [NO_SENDER, NO_SENDER]
+
+
 R4_B13_R3_NAMELESS_LANES = [
     "INCOMING WIRE ORG 0001234567 LN SAMPLETON OH 43000 REF {n}",
     "FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: 0001234567 LN SAMPLETON OH 43000 REF: CHASE NYC/CTR/"
