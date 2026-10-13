@@ -271,6 +271,15 @@ def test_r4_66_an_address_lane_after_a_house_number_is_the_guard_s_own_release()
          "INCOMING WIRE ORG ID #### FABRIKAM ## LN SAMPLETON IL #####"),
         ("INCOMING WIRE ORIGINATOR ID #### FABRIKAM ## LOAN SAMPLETON IL #####",
          "INCOMING WIRE ORIGINATOR ID #### FABRIKAM ## LN SAMPLETON IL #####"),
+        # R4-B13 review round 3 (finding 2): no name between the label and the number (an account's position), or only
+        # a label or account-reference word there.
+        ("INCOMING WIRE ORG ########## LOAN SAMPLETON OH #####", "INCOMING WIRE ORG ########## LN SAMPLETON OH #####"),
+        ("FEDWIRE CREDIT VIA SAMPLE BANK ######### B O ## LOAN SAMPLETON OH #####",
+         "FEDWIRE CREDIT VIA SAMPLE BANK ######### B O ## LN SAMPLETON OH #####"),
+        ("WIRE FROM FABRIKAM ORG ####### LOAN SAMPLETON OH #####",
+         "WIRE FROM FABRIKAM ORG ####### LN SAMPLETON OH #####"),
+        ("INCOMING WIRE ORG ACCT ########## LOAN SAMPLETON OH #####",
+         "INCOMING WIRE ORG ACCT ########## LN SAMPLETON OH #####"),
     ):
         loan = _snap("5.4", {"a": _account([_credit(0, 5000, "non_revenue", "strong_non_revenue_rule", text=old)])})
         moved = _snap("5.6", {"a": _account([_credit(0, 5000, "unverified_deposit", "x", tier="counted_flagged",
@@ -288,6 +297,28 @@ def test_r4_b13_r2_the_census_reads_the_lane_arm_s_own_label_and_wire_opening():
     assert r"\d" not in description_text._INCOMING_WIRE_START.pattern.replace(r"\d+\b", "")
     assert census._INCOMING_WIRE_START.pattern == description_text._INCOMING_WIRE_START.pattern.replace(
         r"\d+\b", r"[\d#]+(?![A-Z0-9#])")
+
+
+def test_r4_b13_r3_the_census_reads_the_lane_arm_s_name_before_the_number():
+    # R4-B13 review round 3 (finding 2): the census's copy of the words that name nobody between the originator label
+    # and the house number is the normaliser's, and an account number before the name still releases the lane.
+    from analysis import description_text
+
+    assert census._NO_NAME_BEFORE_HOUSE == description_text._NO_NAME_BEFORE_HOUSE
+    assert census._street_ln_release(
+        {"method": "strong_non_revenue_rule",
+         "text": "INCOMING WIRE ORG ########## FABRIKAM HOLDINGS ## LOAN SAMPLETON OH #####"},
+        {"text": "INCOMING WIRE ORG ########## FABRIKAM HOLDINGS ## LN SAMPLETON OH #####"},
+    )
+    assert census._street_ln_release(
+        {"method": "strong_non_revenue_rule",
+         "text": "INCOMING WIRE ORG ACCT ########## FABRIKAM ## LOAN SAMPLETON OH #####"},
+        {"text": "INCOMING WIRE ORG ACCT ########## FABRIKAM ## LN SAMPLETON OH #####"},
+    )
+    assert not census._street_ln_release(
+        {"method": "strong_non_revenue_rule", "text": "INCOMING WIRE ORG REF ########## LOAN SAMPLETON OH #####"},
+        {"text": "INCOMING WIRE ORG REF ########## LN SAMPLETON OH #####"},
+    )
 
 
 def test_a_verified_row_demoted_without_a_declared_cause_fails_the_census():

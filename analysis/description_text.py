@@ -86,6 +86,29 @@ _INCOMING_WIRE_LABELS = (
     r"|INCOMING FEDWIRE\b|INBOUND (?:FEDWIRE|WIRE)\b|INCOMING CHIPS\b"
 )
 _INCOMING_WIRE_START = re.compile(r"^ ?(?:" + _INCOMING_WIRE_LABELS + r"|BOOK TRANSFER CREDIT\b|WIRE TYPE BOOK IN\b)")
+#: R4-B13 review round 3 (finding 2; R4-53's ruling, an originator's address is never its name; the underwriter's Q1 of
+#: 2026-10-02 holds a wire with no sender; the industry vote's warning that a digits-only token before LN can be a loan
+#: account): the arm reads only an address printed after a name, so between the last originator label and the house
+#: number at least one word of two letters or more prints that is none of these label and account-reference words. A
+#: label followed straight by the number ('ORG 0001234567 LN <town> <ST> <ZIP>', 'B/O: 77 LN …', 'ORG ACCT <n> LN …'),
+#: an account's position with no name, keeps LOAN. tools/revenue_census.py copies the set (pinned).
+_NO_NAME_BEFORE_HOUSE = frozenset({
+    "BY", "ORDER", "OF", "ORIGINATOR", "NAME", "NM", "ORIG", "ORG", "CUST", "CUSTOMER", "ACCT", "ACCOUNT", "AC", "ACC",
+    "NO", "NBR", "NUM", "NUMBER", "ID", "REF", "DDA",
+})
+
+
+def _names_before_house(text: str) -> bool:
+    """R4-B13 review round 3 (finding 2): the words between the last originator label of `text` (the row up to its house
+    number) and its end print a name: a word of two letters or more that is no label or account-reference word
+    (_NO_NAME_BEFORE_HOUSE)."""
+    labels = list(_ORIGINATOR_LABEL_BEFORE_LN.finditer(text))
+    return bool(labels) and any(
+        word.isalpha() and len(word) >= 2 and word not in _NO_NAME_BEFORE_HOUSE
+        for word in text[labels[-1].end():].split()
+    )
+
+
 #: 5.6 (true revenue spec §20, A3-G review): a SWIFT field-50F line number printed with its slash right after a wire's
 #: originator label ('ORIG:1/NORTHWIND', 'B/O 1/NORTHWIND'; lines 1 to 3 hold the name, the address and the country
 #: and town). It is never part of the name, and the slash is lost below, so the number is dropped here, where the
@@ -101,7 +124,9 @@ def _loan_or_lane(match: re.Match[str]) -> str:
     house number (_ORIGINATOR_LABEL_BEFORE_LN), and never with a loan-purpose word (R4-13's _LN_LOAN_PURPOSE_AFTER) after
     LN or among the town words. R4-B13 review round 2 (finding 4): and only on a row that opens as an incoming wire
     (_INCOMING_WIRE_START), never with an ID field's label (ORG ID, ORIGINATOR ID), so a labelled debit, ACH or deposit
-    credit keeps LOAN."""
+    credit keeps LOAN. R4-B13 review round 3 (finding 2): and only where a name prints between the last originator
+    label and the house number (_names_before_house), so a label followed straight by the number, an account's
+    position ('INCOMING WIRE ORG <n> LN <town> <ST> <ZIP>', 'B/O: 77 LN …'), keeps LOAN."""
     text = match.string
     street = _STREET_BEFORE_LN.search(text[: match.start()])
     if (
@@ -114,7 +139,7 @@ def _loan_or_lane(match: re.Match[str]) -> str:
     if (
         house is not None
         and _INCOMING_WIRE_START.match(text) is not None
-        and _ORIGINATOR_LABEL_BEFORE_LN.search(text[: house.start()]) is not None
+        and _names_before_house(text[: house.start()])
     ):
         address = _ADDRESS_AFTER_LN.match(text, match.end())
         if (

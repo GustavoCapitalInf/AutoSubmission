@@ -1310,3 +1310,145 @@ def test_r4_b13_r2_controls_an_incoming_wire_s_originator_address_is_still_a_lan
     [record] = _records([(text, 23456.78)], bank="Chase")
     assert " 77 LN SAMPLETON OH 43000" in record.normalized_description
     assert (record.revenue_tier, record.revenue_tier_reason) == NAMED
+
+
+# R4-B13 review round 3 (findings 1 to 3; R3-40's ruling under the underwriter's Q1 of 2026-10-02, "an originator's
+# address is never its name", read only on an address; Q5 of 2026-09-28 counts a named sender): every trade-name marker
+# is refused as an address's town word, the operating-as and trading-as forms (O/A, T/A, spaced O A and T A joined
+# for the cut, and the AS of TRADING AS, OPERATING AS, DOING BUSINESS AS) beside DBA, AKA and FKA, so a noise-only
+# legal name printing its trade name and an address keeps the base's reading on every labelled layout; the address
+# lane reads only an address that follows a name (a label followed straight by the number is an account's position,
+# LOAN); and a town whose name holds a connector or a company-name word is a recorded residual read as at the base.
+R4_B13_R3_RBC = ("BOOK TRANSFER CREDIT B/O: ROYAL BANK OF CANADA PAYMENT CENTRE TORONTO ON CANADA ORG: 000000000001 "
+                 "{orig} REF: RFB GOODS AND SERVICES TRN 000{n}")
+R4_B13_R3_LAYOUTS = [(R4_53_FEDWIRE, "Chase"), (R4_B13_R1_ORG, "Chase"), (R4_B13_R3_RBC, "Chase"),
+                     (R4_B13_R1_BOFA, "Bank of America")]
+R4_B13_R3_TRADE_NAMES = [
+    "K HOLDINGS LTD O/A FABRIKAM TORONTO ON",
+    "K HOLDINGS LTD O/A FABRIKAM TORONTO ON CANADA",
+    "K HOLDINGS LTD O/A FABRIKAM CALGARY AB",
+    "K GROUP INC O/A CONTOSO ON",
+    "SERVICES INC O/A CONTOSO OH 43000",
+    "K HOLDINGS LLC T/A FABRIKAM SAMPLETON OH",
+    "K HOLDINGS LLC TRADING AS FABRIKAM OH",
+    "K HOLDINGS LLC OPERATING AS FABRIKAM OH",
+    "K HOLDINGS LTD O/A FABRIKAM PIZZA ON",
+    "SERVICES INC O A CONTOSO OH",
+    "K HOLDINGS LLC OA FABRIKAM OH",
+    "K HOLDINGS LLC TA FABRIKAM SAMPLETON OH",
+    # Controls, unchanged: four or more words before the state are no tail; no address at all.
+    "K HOLDINGS LLC DOING BUSINESS AS FABRIKAM OH",
+    "K HOLDINGS LTD O/A FABRIKAM",
+]
+
+
+def _r4_b13_r3(orig, times, template, bank):
+    rows = [(template.format(orig=orig, n=n + 1), (2345.67, 3456.78)[n]) for n in range(times)]
+    return _tiers(rows, bank=bank)
+
+
+@pytest.mark.parametrize("orig", R4_B13_R3_TRADE_NAMES)
+@pytest.mark.parametrize(("template", "bank"), R4_B13_R3_LAYOUTS)
+def test_r4_b13_r3_an_operating_as_or_trading_as_name_keeps_the_base_reading(orig, template, bank):
+    # Finding 1: O/A and T/A collapse to nothing (payer_name drops single letters) and TRADING AS read as two town
+    # words, so the cut left the noise-only legal name: held where the base counted it and Verified it on a repeat.
+    assert _r4_b13_r3(orig, 1, template, bank) == [NAMED]
+    assert _r4_b13_r3(orig, 2, template, bank) == R4_B13_R1_REPEAT
+
+
+@pytest.mark.parametrize(("words", "name"), [
+    ("HOLDINGS LTD OA FABRIKAM TORONTO ON", "HOLDINGS LTD OA FABRIKAM TORONTO ON"),
+    ("HOLDINGS LLC TA FABRIKAM SAMPLETON OH", "HOLDINGS LLC TA FABRIKAM SAMPLETON OH"),
+    ("HOLDINGS LLC TRADING AS FABRIKAM OH", "HOLDINGS LLC TRADING AS FABRIKAM OH"),
+    ("HOLDINGS LLC OPERATING AS FABRIKAM OH", "HOLDINGS LLC OPERATING AS FABRIKAM OH"),
+    ("BUSINESS CHECKING AS FABRIKAM OH", "BUSINESS CHECKING AS FABRIKAM OH"),
+    # Controls: an address's tail is still cut.
+    ("HOLDINGS LTD TORONTO ON", "HOLDINGS LTD"),
+    ("BUSINESS LLC SAMPLETON OH", "BUSINESS LLC"),
+])
+def test_r4_b13_r3_the_address_cut_never_reads_a_trade_name_marker_as_a_town(words, name):
+    assert tr._labelled_originator_name(words.split()) == name.split()
+
+
+def test_r4_b13_r3_a_spaced_operating_as_marker_keeps_the_name_after_it():
+    assert not tr._wire_names_nobody("K HOLDINGS LTD O A FABRIKAM TORONTO ON", labelled=True)
+    assert not tr._wire_names_nobody("K HOLDINGS LLC T A FABRIKAM SAMPLETON OH", labelled=True)
+    assert tr._wire_names_nobody("K HOLDINGS LTD O A", labelled=True)
+    assert tr._wire_names_nobody("HOLDINGS LTD TORONTO ON", labelled=True)
+
+
+@pytest.mark.parametrize(("orig", "once", "twice"), [
+    # A spaced O A or T A before the form reads as the joined word does, as a spaced D B A does (review round 2): a
+    # noise-only name with its address names nobody.
+    ("K O A SERVICES LLC SAMPLETON OH", [NO_SENDER], [NO_SENDER, NO_SENDER]),
+    ("K T A SERVICES LLC SAMPLETON OH", [NO_SENDER], [NO_SENDER, NO_SENDER]),
+    ("K D B A SERVICES LLC SAMPLETON OH", [NO_SENDER], [NO_SENDER, NO_SENDER]),
+    # A numbered company keeps its reading (counted, never Verified); a two-letter word before the form names it.
+    ("1234567 ONTARIO INC O/A FABRIKAM TORONTO ON", [NAMED], [NAMED, NAMED]),
+    ("K OA SERVICES LLC SAMPLETON OH", [NAMED], R4_B13_R1_REPEAT),
+    # The designation addresses stay held (the brief's T53a/T53b).
+    ("BUSINESS LLC SAMPLETON OH 43000 US", [NO_SENDER], [NO_SENDER, NO_SENDER]),
+    ("SERVICES INC TORONTO ON", [NO_SENDER], [NO_SENDER, NO_SENDER]),
+])
+@pytest.mark.parametrize(("template", "bank"), R4_B13_R3_LAYOUTS)
+def test_r4_b13_r3_controls_the_marker_refusal_moves_no_other_reading(orig, once, twice, template, bank):
+    assert _r4_b13_r3(orig, 1, template, bank) == once
+    assert _r4_b13_r3(orig, 2, template, bank) == twice
+
+
+R4_B13_R3_NAMELESS_LANES = [
+    "INCOMING WIRE ORG 0001234567 LN SAMPLETON OH 43000 REF {n}",
+    "FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: 0001234567 LN SAMPLETON OH 43000 REF: CHASE NYC/CTR/"
+    "BNF=NORTHWIND LABS INC TRN: 000000{n} IMAD: 0000",
+    "WIRE TYPE:WIRE IN DATE:540302 TIME:1200 ET TRN:20540302001234 ORIG:0001234567 LN SAMPLETON OH 43000 ID:0001 "
+    "SND BK:SAMPLE BANK ID:0002 PMT DET:SAMPLE {n}",
+    "WT FED#0123{n} SAMPLE BANK /ORG=0001234567 LN SAMPLETON OH 43000 SRF# 0001",
+    "FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: 77 LN SAMPLETON OH 43000 REF: CHASE NYC/CTR/"
+    "BNF=NORTHWIND LABS INC TRN: 000000{n} IMAD: 0000",
+    "WIRE FROM FABRIKAM ORG 1234567 LN SAMPLETON OH 43000 REF {n}",
+    "WIRE FROM WOODGROVE BANK ORG 1234567 LN SAMPLETON OH 43000 REF {n}",
+    "INCOMING WIRE ORG ACCT 0001234567 LN SAMPLETON OH 43000 REF {n}",
+    "INCOMING WIRE ORG REF 0001234567 LN SAMPLETON OH 43000 REF {n}",
+]
+
+
+@pytest.mark.parametrize("template", R4_B13_R3_NAMELESS_LANES)
+def test_r4_b13_r3_a_label_followed_straight_by_the_number_keeps_the_strong_rule_s_loan(template):
+    # Finding 2 (R4-53's ruling; Q1 of 2026-10-02 holds a wire with no sender; the industry vote's warning that a
+    # digits-only token before LN can be a loan account): no name prints between the originator label and the number,
+    # so the number is an account's and LN its loan; the 'sender' would be the address alone. Each row reads as its
+    # LOAN-spelled twin in every field, once and on a repeat.
+    rows = [(template.format(n=n + 1), (23456.78, 34567.89)[n]) for n in range(2)]
+    for records in (_read_as_printed_loan(rows[:1], bank="Chase"), _read_as_printed_loan(rows, bank="Chase")):
+        assert {(record.revenue_tier, record.revenue_match_method) for record in records} == {
+            ("non_revenue", "strong_non_revenue_rule")}
+        assert " LOAN SAMPLETON OH 43000" in records[0].normalized_description
+
+
+@pytest.mark.parametrize("text", [
+    "INCOMING WIRE ORG 0001234567 FABRIKAM HOLDINGS 77 LN SAMPLETON OH 43000 REF 1",
+    "FEDWIRE CREDIT VIA: SAMPLE BANK/011000000 B/O: FABRIKAM HOLDINGS 0001234567 LN SAMPLETON OH 43000 REF: CHASE "
+    "NYC/CTR/BNF=NORTHWIND LABS INC TRN: 0000001 IMAD: 0000",
+])
+def test_r4_b13_r3_controls_a_named_originator_s_address_is_still_a_lane(text):
+    [record] = _records([(text, 23456.78)], bank="Chase")
+    assert " LN SAMPLETON OH 43000" in record.normalized_description
+    assert (record.revenue_tier, record.revenue_tier_reason) == NAMED
+
+
+@pytest.mark.parametrize(("orig", "twice"), [
+    ("BUSINESS LLC CITY OF SAMPLEVILLE CA 90000", R4_B13_R1_REPEAT),
+    ("GROUP HOLDINGS LLC TOWN AND SAMPLETON MO 63000", R4_B13_R1_REPEAT),
+    ("BUSINESS LLC ISLE OF SAMPLE SC 29000", R4_B13_R1_REPEAT),
+    ("BUSINESS LLC THE SAMPLELANDS TX 77000", R4_B13_R1_REPEAT),
+    ("SERVICES INC THE SAMPLES OR", R4_B13_R1_REPEAT),
+    ("BUSINESS LLC COMMERCIAL SAMPLETON OH", R4_B13_R1_REPEAT),
+])
+@pytest.mark.parametrize("template", [R4_53_FEDWIRE, R4_B13_R1_ORG])
+def test_r4_b13_r3_residual_a_town_holding_a_connector_or_a_company_word_reads_as_at_the_base(orig, twice, template):
+    # Finding 3, recorded (fail open to the base's reading, 0 corpus rows on a labelled layout): the town-word
+    # refusals that keep a trade name or a connector out of an address (review round 2) also refuse a real town whose
+    # name holds THE, OF, AND or a company-name word, so a noise-only originator in such a town is counted once and
+    # Verified on a repeat, as at the base, never held.
+    assert _r4_53(orig, 1, template=template) == [NAMED]
+    assert _r4_53(orig, 2, template=template) == twice

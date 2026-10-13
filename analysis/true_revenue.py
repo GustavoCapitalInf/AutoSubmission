@@ -3324,7 +3324,8 @@ def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Seq
     round 1 (finding 8) only a region that such a word leads, digits first (review round 2, finding 1: or letters
     first, 'CONTOSO9 SERVICES LLC <town> <ST>', never a reference label's). R4-B13 review round 2 (finding 2): the
     address cut reads a spaced trade-name marker (D B A, A K A, F K A), which payer_name's single-letter drop removes,
-    as its one word, so the trade name after it is never read as a town."""
+    as its one word, so the trade name after it is never read as a town. R4-B13 review round 3 (finding 1): so are a
+    spaced O A and T A ('<form> O/A <name> TORONTO ON', the operating-as and trading-as markers)."""
     if _wire_label_only(region):
         return True
     classifier = _classifier()
@@ -3340,8 +3341,9 @@ def _wire_names_nobody(region: str, *, labelled: bool = False, holder_names: Seq
         return True
     words = name.split()
     if labelled and not glued:
-        # Review round 2 (finding 2): the cut reads the region with a spaced marker joined ('D B A' as 'DBA'); the
-        # words it drops (an address tail, which never holds a marker) are the same last words of `words`.
+        # Review round 2 (finding 2): the cut reads the region with a spaced marker joined ('D B A' as 'DBA'; review
+        # round 3: 'O A' and 'T A' too); the words it drops (an address tail, which never holds a marker) are the same
+        # last words of `words`.
         marked = classifier.payer_name(
             _SPACED_TRADE_NAME_MARKER.sub(lambda found: found.group(0).replace(" ", ""), region)
         ).split()
@@ -4188,8 +4190,12 @@ _GLUED_REFERENCE_LETTERS = frozenset({
 #: the words an address's town never holds: a trade-name marker (_TRADE_NAME_MARKERS; a spaced D B A, A K A or F K A,
 #: whose single letters payer_name drops, is read as its one word before the cut, _SPACED_TRADE_NAME_MARKER), a
 #: connector (_WIRE_NAME_CONNECTORS), a legal form (_WIRE_LEGAL_FORMS) or a company-name word (_WIRE_COMPANY_NAME_WORDS).
-_TRADE_NAME_MARKERS = frozenset({"DBA", "AKA", "FKA"})
-_SPACED_TRADE_NAME_MARKER = re.compile(r"(?<![A-Z0-9])(?:D B A|A K A|F K A)(?![A-Z0-9])")
+#: R4-B13 review round 3 (finding 1): every trade-name marker, the operating-as and trading-as forms too: OA and TA
+#: (O/A, the Canadian 'operating as', and T/A, 'trading as', printed spaced as O A and T A once the slash is
+#: normalized, joined for the cut as D B A is) and AS (TRADING AS, OPERATING AS, DOING BUSINESS AS), so 'LTD O/A <name>
+#: TORONTO ON' and 'LLC TRADING AS <name> OH' keep their trade name.
+_TRADE_NAME_MARKERS = frozenset({"DBA", "AKA", "FKA", "OA", "TA", "AS"})
+_SPACED_TRADE_NAME_MARKER = re.compile(r"(?<![A-Z0-9])(?:D B A|A K A|F K A|O A|T A)(?![A-Z0-9])")
 
 
 @cache
@@ -4214,7 +4220,11 @@ def _town_words(words: Sequence[str]) -> bool:
     """R4-B13 review round 2 (finding 2): every word may be an address's town word: alphabetic, and no trade-name
     marker (_TRADE_NAME_MARKERS), connector (_WIRE_NAME_CONNECTORS), legal form (_WIRE_LEGAL_FORMS) or company-name
     word (_WIRE_COMPANY_NAME_WORDS), so 'DBA <name> <ST>', 'OF <name> <town> <ST>', 'AND <name> <ST>', 'THE <name> <ST>'
-    and 'SELECT <town> <ST>' are never read as a town and its state."""
+    and 'SELECT <town> <ST>' are never read as a town and its state. R4-B13 review round 3 (finding 1): nor 'OA <name>
+    <town> <ST>', 'TA <name> <ST>' or 'TRADING AS <name> <ST>' (the operating-as and trading-as markers). Recorded
+    residual (finding 3; fail open to the base's reading, 0 corpus rows on a labelled layout): a real town whose name
+    holds THE, OF, AND or a company-name word ('CITY OF <name>', 'THE <name>', 'COMMERCIAL <name>') is refused too, so
+    a noise-only originator printed in it keeps the base's count; a THE-led town cannot be told from 'THE <name>'."""
     return all(
         word.isalpha()
         and word not in _TRADE_NAME_MARKERS
@@ -4272,7 +4282,9 @@ def _labelled_originator_name(words: list[str]) -> list[str]:
     R4-B13 review round 2: in (a) and (b) no town word is a trade-name marker, a connector, a legal form or a
     company-name word (_town_words: 'HOLDINGS LLC DBA <name> <town> <ST>', 'SERVICES CO OF <name> <town> <ST>',
     'BUSINESS CHECKING DBA <name> <ST>' and 'OPERATING ACCOUNT OF <name> <ST>' are unchanged), and in (a) a bare
-    state's or province's code is an address's tail ('BUSINESS LLC OH' reads 'BUSINESS LLC')."""
+    state's or province's code is an address's tail ('BUSINESS LLC OH' reads 'BUSINESS LLC'). R4-B13 review round 3
+    (finding 1): the trade-name markers a town word never is include OA, TA and AS ('HOLDINGS LTD OA <name> TORONTO
+    ON', 'HOLDINGS LLC TRADING AS <name> OH' are unchanged)."""
     words = list(words)
     for index, word in enumerate(words):
         if word not in _WIRE_LEGAL_FORMS:

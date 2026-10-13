@@ -714,6 +714,12 @@ _LN_LOAN_PURPOSE_WORDS = frozenset("""
 DEPOSIT DEP CREDIT FORGIVENESS FORGIVEN FORGIVE SERVICING SERVICER SVCG SVC SRV REFI REFINANCE PAY PAYOFF PYT INT INTEREST
 ESCROW
 """.split())
+#: R4-B13 review round 3 (finding 2): the label and account-reference words that name nobody between the last
+#: originator label and the house number (analysis/description_text.py _NO_NAME_BEFORE_HOUSE, copied and pinned): the
+#: arm reads only an address printed after a name.
+_NO_NAME_BEFORE_HOUSE = frozenset("""
+BY ORDER OF ORIGINATOR NAME NM ORIG ORG CUST CUSTOMER ACCT ACCOUNT AC ACC NO NBR NUM NUMBER ID REF DDA
+""".split())
 _ACCOUNT_VERIFICATION_55 = _on_masked(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 #: §7.7: 5.4's claim-payment descriptor, and 5.5's claim entry (glued on either side).
 _CLAIM_54 = _on_masked(r"\bH(?:C|E)?CLAIMPMT\b")
@@ -2244,12 +2250,19 @@ def _address_after_ln(words: list[str], index: int) -> bool:
     code (_US_STATE_CODES) and a masked ZIP (#####, an optional #### after it). R4-B13 review round 1 (findings 1 and
     6): only after a wire's originator label (_ORIGINATOR_LABEL_BEFORE_LN, before the number), and with no loan-purpose
     word (_LN_LOAN_PURPOSE_WORDS) among the town words, as the normalizer reads it. R4-B13 review round 2 (finding 4):
-    and only on a row that opens as an incoming wire (_INCOMING_WIRE_START), never after an ID field's label."""
+    and only on a row that opens as an incoming wire (_INCOMING_WIRE_START), never after an ID field's label. R4-B13
+    review round 3 (finding 2): and only where a name prints between the last originator label and the number (a word
+    of two letters or more, none of _NO_NAME_BEFORE_HOUSE), as the normaliser's _names_before_house reads it."""
     if index < 1 or not re.fullmatch(r"[\d#]+", words[index - 1]):
         return False
     if _INCOMING_WIRE_START.match(" ".join(words)) is None:
         return False
-    if _ORIGINATOR_LABEL_BEFORE_LN.search(" ".join(words[: index - 1])) is None:
+    before = " ".join(words[: index - 1])
+    labels = list(_ORIGINATOR_LABEL_BEFORE_LN.finditer(before))
+    if not labels or not any(
+        word.isalpha() and len(word) >= 2 and word not in _NO_NAME_BEFORE_HOUSE
+        for word in before[labels[-1].end():].split()
+    ):
         return False
     after = words[index + 1:]
     for towns in range(1, 4):
