@@ -5153,3 +5153,59 @@ def test_r4_b13_review_round_1_is_recorded():
     for placeholder in ("MEASURE" + "_R4B13R1", "CODECOMMIT" + "_R4B13R1"):
         assert placeholder not in text, placeholder
         assert placeholder not in contract, placeholder
+
+
+#: Audit round 4, R4-B13 review round 2: the code commit (findings 1 to 4).
+R4_B13_R2_CODE_COMMIT = "3eada85"
+
+
+def test_r4_b13_review_round_2_is_recorded():
+    """Audit round 4, R4-B13 review round 2 (findings 1 to 4): the code's docstrings and new readers; §7.11's
+    street-LN bullet, §8.5's Held, §9.3, the R4-66 and R4-53 lines and the round-1 line amended in place, the round's
+    own line; the contract's bullets."""
+    from analysis import description_text
+
+    def doc(reader):
+        return re.sub(r"\s+", " ", reader.__doc__)
+
+    assert "R4-B13 review round 2" in doc(description_text._loan_or_lane)
+    for reader in (true_revenue._labelled_originator_name, true_revenue._glued_name_word, true_revenue._address_tail,
+                   true_revenue._town_words, true_revenue._wire_names_nobody):
+        assert "R4-B13 review round 2" in doc(reader), reader.__name__
+    description_source = inspect.getsource(description_text)
+    for words in ("_INCOMING_WIRE_LABELS = (", "_INCOMING_WIRE_START = re.compile("):
+        assert words in description_source, words
+    revenue_source = inspect.getsource(true_revenue)
+    for words in ("_GLUED_REFERENCE_LETTERS = frozenset({", "_TRADE_NAME_MARKERS = frozenset({",
+                  "_SPACED_TRADE_NAME_MARKER = re.compile("):
+        assert words in revenue_source, words
+    text = SPEC.read_text(encoding="utf-8")
+    wrong = re.sub(r"\s+", " ", _section(text, "\n### 7.11 ", "\n### 7.12 "))
+    assert ("amended by R4-B13 review round 2, §20 below: and only on a row that opens as an incoming wire") in wrong
+    wires = re.sub(r"\s+", " ", _section(text, "\n### 8.5 ", "\n### 8.6 "))
+    assert ("R4-B13 review round 2, §20: an address's town words are never a trade-name marker") in wires
+    assert "Its review round 2 (§20) narrows R4-66's arm to a row that opens as an incoming wire" in text
+    assert "amended by R4-B13 review round 2, §20: and only on a row that opens as an incoming wire" in text
+    amendments = text.split("\n## 20. Implementation amendments", 1)[1]
+    for start, words in (
+        ("- **A house number before `LN` and an address after it is a lane**",
+         "(Corrected by R4-B13 review round 2, §20 below: the label was read on any row"),
+        ("- **A labelled originator's address is never its name**",
+         "amended by R4-B13 review round 2, §20 below: no town word is a trade-name marker"),
+        ("- **A labelled originator's address is never its name**",
+         "amended by R4-B13 review round 2, §20 below: or three or more letters then digits"),
+        ("- **R4-B13 review round 1: ", "(corrected by R4-B13 review round 2, §20 below: a labelled debit"),
+        ("- **R4-B13 review round 1: ", "(amended by R4-B13 review round 2, §20 below: town words that are no"),
+        ("- **R4-B13 review round 1: ", "(amended by R4-B13 review round 2, §20 below: or three or more letters"),
+    ):
+        assert words in _amendment_line(amendments, start), (start, words)
+    line = _amendment_line(amendments, "- **R4-B13 review round 2: ")
+    for words in (R4_B13_R2_CODE_COMMIT, "`_INCOMING_WIRE_START`", "`_GLUED_REFERENCE_LETTERS`", "`_town_words`",
+                  "`_SPACED_TRADE_NAME_MARKER`", "(finding 3, R4-53)"):
+        assert words in line, words
+    contract = _flat(CONTRACT)
+    assert f"- Audit round 4, R4-B13 review round 2 (findings 1 to 4; {R4_B13_R2_CODE_COMMIT}):" in contract
+    assert "and since its review round 2 only on a row that opens as an incoming wire" in contract
+    for placeholder in ("MEASURE" + "_R4B13R2", "TESTS" + "_R4B13R2", "CODECOMMIT" + "_R4B13R2"):
+        assert placeholder not in text, placeholder
+        assert placeholder not in contract, placeholder
