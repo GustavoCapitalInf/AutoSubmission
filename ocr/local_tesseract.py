@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import os
 import re
 import shutil
@@ -37,11 +38,22 @@ DOCUMENT_DEADLINE_SECONDS = 3600.0
 
 _PPM_PAGE = re.compile(r"-(\d+)\.ppm\Z")
 
+#: The OSError numbers that say the HOST failed, not the document (final review of the audit 2026-10-13, finding 1):
+#: a full disk, a failing disk, a read-only disk, a disk quota, memory refused by the system (a fork or an allocation
+#: the kernel turned down; `MemoryError` is Python's own). Windows maps its disk-full and out-of-memory codes to
+#: ENOSPC and ENOMEM. Any other error in the raster steps is Poppler or PIL refusing the document, which reads as None.
+HOST_FAILURE_ERRNOS = frozenset(
+    code for code in (errno.ENOSPC, errno.EIO, errno.EROFS, getattr(errno, "EDQUOT", None), errno.ENOMEM)
+    if code is not None
+)
+
 
 class LocalOcrIncomplete(RuntimeError):
     """The rung could not read every page for a reason that is not a property of the pages: a process past its time
-    limit (`LocalOcrTimeout`), fewer rendered pages than the document has, a tesseract killed by a signal, or a
-    tesseract that could not be started or whose output could not be read.
+    limit (`LocalOcrTimeout`), fewer rendered pages than the document has, a tesseract killed by a signal, a
+    tesseract that could not be started or whose output could not be read, or a host failure (`_host_failed`: a full,
+    failing or read-only disk, a disk quota, memory run out) while the PDF was written and counted, a page range was
+    rendered, or a rendered page was opened or saved.
 
     Raised, never answered with a partial read (a blank page beside read ones would be analysed and published) or
     with None (`webapp.artifact_cache.cached_ocr` keeps a None for these bytes and settings, so a passing host problem
@@ -53,6 +65,22 @@ class LocalOcrIncomplete(RuntimeError):
 class LocalOcrTimeout(LocalOcrIncomplete):
     """A pdftoppm or tesseract process ran past STEP_TIMEOUT_SECONDS, or the document passed
     DOCUMENT_DEADLINE_SECONDS."""
+
+
+def _host_failed(failure: BaseException) -> bool:
+    """Whether `failure`, or an exception it was raised from or during, says the host failed: `MemoryError`, or an
+    OSError whose number is in HOST_FAILURE_ERRNOS. The chain matters: pdf2image's pdfinfo turns every OSError of its
+    own process start into `PDFInfoNotInstalledError`, raised while that OSError is handled."""
+    seen: set[int] = set()
+    current: BaseException | None = failure
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, MemoryError):
+            return True
+        if isinstance(current, OSError) and current.errno in HOST_FAILURE_ERRNOS:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _step_timeout(deadline: float) -> float:
@@ -111,8 +139,9 @@ def parse_local_tesseract(pdf_bytes: bytes, source_file: str = "", *, dpi: int =
     Pages are rendered RASTER_CHUNK_PAGES at a time into this call's temporary folder and read one at a time, each
     raw page deleted once its PNG is written (audit 2026-10-13, INTAKE-1/BE-3): the PNG tesseract reads for every page
     is byte-identical to the whole-document raster's. None, as before: no tesseract binary, a document Poppler cannot
-    render, or fewer than TEXT_FLOOR_CHARS characters read. `LocalOcrIncomplete` (REL-01): a time limit passed or
-    the host failed mid-read; never a partial read.
+    count or render or whose rendered page PIL cannot open, or fewer than TEXT_FLOOR_CHARS characters read.
+    `LocalOcrIncomplete` (REL-01): a time limit passed or the host failed mid-read, in tesseract or in the raster
+    steps (`_host_failed`, the final review's finding 1); never a partial read.
     """
     if shutil.which("tesseract") is None:
         return None
@@ -127,7 +156,9 @@ def parse_local_tesseract(pdf_bytes: bytes, source_file: str = "", *, dpi: int =
             page_count = pdf_page_count_at(pdf_path, timeout=timeout)
         except PDFPopplerTimeoutError:
             raise LocalOcrTimeout("pdfinfo ran past its time limit") from None
-        except Exception:
+        except Exception as failure:
+            if _host_failed(failure):
+                raise LocalOcrIncomplete("the host failed while the PDF was written or counted") from None
             return None
         for first in range(1, page_count + 1, RASTER_CHUNK_PAGES):
             last = min(first + RASTER_CHUNK_PAGES - 1, page_count)
@@ -140,7 +171,9 @@ def parse_local_tesseract(pdf_bytes: bytes, source_file: str = "", *, dpi: int =
                 )
             except PDFPopplerTimeoutError:
                 raise LocalOcrTimeout("pdftoppm ran past its time limit") from None
-            except Exception:
+            except Exception as failure:
+                if _host_failed(failure):
+                    raise LocalOcrIncomplete("the host failed while pdftoppm rendered pages") from None
                 return None
             _check_rendered(ppm_paths, first, last)
             for idx, ppm_path in enumerate(ppm_paths, start=first):
@@ -148,10 +181,17 @@ def parse_local_tesseract(pdf_bytes: bytes, source_file: str = "", *, dpi: int =
                 out_base = tmpdir / f"page_{idx}"
                 try:
                     opened = Image.open(ppm_path)
-                except Exception:
+                except Exception as failure:
+                    if _host_failed(failure):
+                        raise LocalOcrIncomplete("the host failed while a rendered page was opened") from None
                     return None
                 with opened as image:  # closed before the raw page is deleted (Windows refuses an open file)
-                    image.save(image_path)  # outside the try, as before: a save error propagates
+                    try:
+                        image.save(image_path)
+                    except Exception as failure:
+                        if _host_failed(failure):
+                            raise LocalOcrIncomplete("the host failed while a rendered page was saved") from None
+                        raise  # as before: any other save error propagates
                 os.remove(ppm_path)
                 pages.append(_read_page(image_path, out_base, deadline))
                 image_path.unlink()

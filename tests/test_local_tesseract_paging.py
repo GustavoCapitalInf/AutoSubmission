@@ -8,12 +8,16 @@ BE-3, REL-01).
 * Time: every pdftoppm and tesseract process has a time limit and the document a deadline. A limit passed, a short
   render, a tesseract killed by a signal, or a tesseract that cannot be started raises `LocalOcrIncomplete`: never a
   partial read (a blank page beside read ones) and never `None` (which the artifact cache would keep for these bytes).
+* Host failures in the raster steps (final review of the audit, finding 1): a full, failing or read-only disk, a disk
+  quota, or memory run out while the PDF is written and counted, a page range is rendered, or a rendered page is
+  opened and saved raises `LocalOcrIncomplete` too. Only Poppler's refusal of the document itself still reads as None.
 
 Every PDF here is fabricated (SAMPLE pages carrying a page number and noise); Tesseract is stubbed so the tests read
 the exact PNG bytes the rung hands over. The tests that render need Poppler and skip without it.
 """
 from __future__ import annotations
 
+import errno
 import hashlib
 import io
 import random
@@ -23,7 +27,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, UnidentifiedImageError
+from pdf2image.exceptions import PDFInfoNotInstalledError, PDFPageCountError, PDFSyntaxError
 
 import ocr.local_tesseract as rung
 from ocr.rasterize import pdf_page_count, rasterize_pdf
@@ -356,6 +361,217 @@ def test_a_refused_read_is_never_cached_and_a_later_read_succeeds(stub, tmp_path
     assert result.cached is False
     assert _page_digests(result.value) == _oracle_png_digests(pdf_bytes)
     assert read().cached is True
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Host failures in the raster steps refuse the read too (final review of the audit, finding 1). Before, every
+# exception there read as None, which the artifact cache keeps: a full disk made "no text" permanent for those bytes.
+# Only Poppler's refusal of the document itself still reads as None.
+# ---------------------------------------------------------------------------------------------------------------------
+
+_HOST_OS_ERRORS = [
+    pytest.param(lambda: OSError(errno.ENOSPC, "No space left on device"), id="ENOSPC"),
+    pytest.param(lambda: OSError(errno.EIO, "Input/output error"), id="EIO"),
+    pytest.param(lambda: OSError(errno.EROFS, "Read-only file system"), id="EROFS"),
+    pytest.param(lambda: OSError(errno.EDQUOT, "Disk quota exceeded"), id="EDQUOT"),
+    pytest.param(lambda: OSError(errno.ENOMEM, "Cannot allocate memory"), id="ENOMEM"),
+]
+_HOST_FAILURES = [*_HOST_OS_ERRORS, pytest.param(MemoryError, id="MemoryError")]
+
+
+def _raising(make):
+    def raise_it(*args, **kwargs):
+        raise make()
+    return raise_it
+
+
+def _fake_render(monkeypatch):
+    """pdftoppm without Poppler: one tiny grey colour PPM (P6, pdftoppm's own format) per page asked for, named as
+    pdftoppm names them, written as raw bytes (so a test may replace PIL's save)."""
+    def render(pdf_path, output_folder, *, first_page, last_page, **kwargs):
+        paths = []
+        for number in range(first_page, last_page + 1):
+            path = Path(output_folder) / f"sample-{number}.ppm"
+            path.write_bytes(b"P6\n8 8\n255\n" + bytes([128]) * 192)
+            paths.append(str(path))
+        return paths
+
+    monkeypatch.setattr(rung, "pdf_page_count_at", lambda *a, **k: 2)
+    monkeypatch.setattr(rung, "rasterize_pages_to_files", render)
+
+
+@pytest.mark.parametrize("failure", _HOST_FAILURES)
+def test_a_host_failure_while_the_pages_are_counted_refuses(stub, monkeypatch, failure):
+    monkeypatch.setattr(rung, "pdf_page_count_at", _raising(failure))
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+    assert stub.calls == []
+
+
+@pytest.mark.parametrize("failure", _HOST_OS_ERRORS)
+def test_a_host_failure_pdfinfo_reports_as_not_installed_refuses(stub, monkeypatch, failure):
+    """pdf2image's pdfinfo turns every OSError of its own process start (a fork refused for memory, say) into
+    PDFInfoNotInstalledError; the host's error is the exception it was raised during."""
+    def count(*args, **kwargs):
+        try:
+            raise failure()
+        except OSError:
+            raise PDFInfoNotInstalledError("Unable to get page count. Is poppler installed and in PATH?")
+
+    monkeypatch.setattr(rung, "pdf_page_count_at", count)
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+
+
+def test_writing_the_pdf_to_a_full_disk_refuses(stub, monkeypatch):
+    real_write = Path.write_bytes
+
+    def write(self, data):
+        if self.name == "document.pdf":
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_write(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", write)
+    monkeypatch.setattr(rung, "pdf_page_count_at", lambda *a, **k: pytest.fail("counted a PDF never written"))
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+
+
+@pytest.mark.parametrize("failure", _HOST_FAILURES)
+def test_a_host_failure_while_a_page_range_renders_refuses(stub, monkeypatch, failure):
+    monkeypatch.setattr(rung, "pdf_page_count_at", lambda *a, **k: 2)
+    monkeypatch.setattr(rung, "rasterize_pages_to_files", _raising(failure))
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+    assert stub.calls == []
+
+
+def test_a_raster_folder_on_a_read_only_disk_refuses(stub, monkeypatch):
+    _fake_render(monkeypatch)
+    real_mkdir = Path.mkdir
+
+    def mkdir(self, *args, **kwargs):
+        if self.name.startswith("raster_"):
+            raise OSError(errno.EROFS, "Read-only file system")
+        return real_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+
+
+@pytest.mark.parametrize("failure", _HOST_FAILURES)
+def test_a_host_failure_while_a_rendered_page_is_opened_refuses(stub, monkeypatch, failure):
+    _fake_render(monkeypatch)
+    monkeypatch.setattr(rung.Image, "open", _raising(failure))
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+    assert stub.calls == []
+
+
+@pytest.mark.parametrize("failure", _HOST_FAILURES)
+def test_a_host_failure_while_a_page_is_saved_refuses(stub, monkeypatch, failure):
+    _fake_render(monkeypatch)
+    monkeypatch.setattr(Image.Image, "save", _raising(failure))
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+    assert stub.calls == []
+
+
+def test_the_fake_render_reads_every_page_when_the_host_is_healthy(stub, monkeypatch):
+    """The control for the four tests above: the same stand-ins, nothing failing, two pages read."""
+    _fake_render(monkeypatch)
+    stub_text = "SAMPLE TEXT " * 30
+    monkeypatch.setattr(rung, "_read_page", lambda *a, **k: stub_text)
+    document = rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+    assert document is not None and document.pages == [stub_text, stub_text]
+
+
+def test_a_save_error_that_is_not_the_host_still_propagates_as_before(stub, monkeypatch):
+    _fake_render(monkeypatch)
+    monkeypatch.setattr(Image.Image, "save", _raising(lambda: ValueError("unknown file extension")))
+    with pytest.raises(ValueError):
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf")
+
+
+def _wrapped_missing_pdfinfo():
+    try:
+        raise FileNotFoundError(errno.ENOENT, "No such file or directory")
+    except OSError:
+        try:
+            raise PDFInfoNotInstalledError("Unable to get page count. Is poppler installed and in PATH?")
+        except PDFInfoNotInstalledError as wrapped:
+            return wrapped
+
+
+@pytest.mark.parametrize("refusal", [
+    pytest.param(lambda: PDFPageCountError("Unable to get page count.\nSyntax Error: SAMPLE"), id="page-count"),
+    pytest.param(lambda: ValueError("broken"), id="value-error"),
+    pytest.param(lambda: OSError("pdfinfo could not read it"), id="oserror-without-errno"),
+    pytest.param(_wrapped_missing_pdfinfo, id="pdfinfo-not-found"),
+])
+def test_poppler_refusing_the_document_while_counting_still_reads_as_none(stub, monkeypatch, refusal):
+    monkeypatch.setattr(rung, "pdf_page_count_at", _raising(refusal))
+    assert rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf") is None
+
+
+@pytest.mark.parametrize("refusal", [
+    pytest.param(lambda: PDFSyntaxError("Syntax Error: SAMPLE"), id="syntax-error"),
+    pytest.param(lambda: ValueError("broken"), id="value-error"),
+    pytest.param(lambda: OSError("pdftoppm could not run"), id="oserror-without-errno"),
+])
+def test_poppler_refusing_a_page_range_still_reads_as_none(stub, monkeypatch, refusal):
+    monkeypatch.setattr(rung, "pdf_page_count_at", lambda *a, **k: 2)
+    monkeypatch.setattr(rung, "rasterize_pages_to_files", _raising(refusal))
+    assert rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf") is None
+
+
+@pytest.mark.parametrize("refusal", [
+    pytest.param(lambda: UnidentifiedImageError("cannot identify image file"), id="not-an-image"),
+    pytest.param(lambda: FileNotFoundError(errno.ENOENT, "No such file or directory"), id="no-such-file"),
+])
+def test_a_rendered_page_pil_cannot_open_still_reads_as_none(stub, monkeypatch, refusal):
+    _fake_render(monkeypatch)
+    monkeypatch.setattr(rung.Image, "open", _raising(refusal))
+    assert rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="sample.pdf") is None
+
+
+def test_a_host_failure_refusal_names_nothing_from_the_document(stub, monkeypatch):
+    monkeypatch.setattr(rung, "pdf_page_count_at", lambda *a, **k: 1)
+    monkeypatch.setattr(rung, "rasterize_pages_to_files",
+                        _raising(lambda: OSError(errno.ENOSPC, "SAMPLE-SECRET", "SAMPLE-SECRET.pdf")))
+    with pytest.raises(rung.LocalOcrIncomplete) as caught:
+        rung.parse_local_tesseract(b"%PDF-SAMPLE", source_file="SAMPLE-SECRET.pdf")
+    assert type(caught.value) is rung.LocalOcrIncomplete  # a host failure, not a time limit
+    assert "SAMPLE-SECRET" not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_a_host_failure_is_never_cached_and_a_later_read_succeeds(stub, monkeypatch, tmp_path):
+    """Through the artifact cache: a full disk while rendering leaves no entry (the None it used to answer would have
+    been kept for these bytes), and the next read of the same bytes reads every page."""
+    _poppler_or_skip()
+    from webapp.artifact_cache import ArtifactCache, cached_ocr
+    from webapp.storage import Storage
+
+    cache = ArtifactCache(Storage(tmp_path / "data"))
+    pdf_bytes = _fabricated_scan(3)
+
+    def read():
+        return cached_ocr(pdf_bytes, compute=lambda: rung.parse_local_tesseract(pdf_bytes, source_file="s.pdf"),
+                          cache=cache, source_file="s.pdf", force_ocr=False, allow_local_ocr=True,
+                          allow_visual_ocr=False)
+
+    real_render = rung.rasterize_pages_to_files
+    monkeypatch.setattr(rung, "rasterize_pages_to_files",
+                        _raising(lambda: OSError(errno.ENOSPC, "No space left on device")))
+    with pytest.raises(rung.LocalOcrIncomplete):
+        read()
+    assert cache.storage.cache_entries("ocr") == []
+    monkeypatch.setattr(rung, "rasterize_pages_to_files", real_render)
+    result = read()
+    assert result.cached is False
+    assert _page_digests(result.value) == _oracle_png_digests(pdf_bytes)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
