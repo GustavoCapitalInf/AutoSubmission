@@ -6984,7 +6984,9 @@ els.nsfCarryOverToggle.addEventListener("change", () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ nsf_carry_over: wanted }),
   })
-    .then((response) => response.json().then((payload) => ({ response, payload })))
+    // Audit 2026-10-13, F9: as the other settings saves, a body that is not JSON (a proxy's error page) reads
+    // "Save failed (<status>)", never a JSON parser's complaint.
+    .then((response) => responseJson(response).then((payload) => ({ response, payload })))
     .then(({ response, payload }) => {
       if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
       els.nsfCarryOverToggle.checked = payload.settings.nsf_carry_over === true;

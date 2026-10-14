@@ -15,7 +15,10 @@ The poll tests run the poller's waits at once and record what it asked for, so t
 
 F5: a status request that fails for a moment (a dropped connection, a proxy's 5xx, 408 or 429) is asked again, each
 wait longer, up to five times in a row before the page reports it; any other failure (404: the server does not know
-the job) is reported at once, and a failure that comes back for an upload no longer on screen is not drawn at all."""
+the job) is reported at once, and a failure that comes back for an upload no longer on screen is not drawn at all.
+
+F9: a refused save of the NSF switch whose body is not JSON (a proxy's error page) reads "Save failed (<status>)", as
+the Zelle and flag saves do, instead of a JSON parser's complaint."""
 import copy
 import inspect
 import json
@@ -538,3 +541,41 @@ console.log(JSON.stringify({{ before, after, current: currentJobId }}));
     assert result["after"]["heading"] == "Processing statement" and result["after"]["busy"] is True
     assert result["after"]["red"] == [] and result["current"] == "new"
     assert result["after"]["waits"] == []
+
+
+# ------------------------------------------------------------------------------------------ F9: the NSF switch save
+def _nsf_save(answer):
+    """Settings loaded (the switch off), then the switch turned on and the save answered with `answer`."""
+    loaded = {"json": {"settings": {"nsf_carry_over": False, "zelle_true_revenue": True}}}
+    return run_dashboard(f"""
+FAKE_RESPONSES["/api/settings"] = {json.dumps(loaded)};
+loadSettings(); await settle();
+FAKE_RESPONSES["/api/settings"] = {json.dumps(answer)};
+els.nsfCarryOverToggle.checked = true;
+els.nsfCarryOverToggle.dispatch("change", {{}});
+await settle(); await settle();
+console.log(JSON.stringify({{ status: els.settingsStatus.textContent,
+  state: els.settingsStatus.getAttribute("data-state"), checked: els.nsfCarryOverToggle.checked,
+  disabled: els.nsfCarryOverToggle.disabled,
+  posts: REQUESTS.filter((request) => request.method === "POST").map((request) => JSON.parse(request.body)) }}));
+""")
+
+
+@pytest.mark.parametrize("status, body", [(502, "<html><head><title>502 Bad Gateway</title></head></html>"),
+                                          (500, "<!doctype html><title>500 Internal Server Error</title>"),
+                                          (503, ""), (200, "<html>fabricated sign-in page</html>")])
+def test_a_refused_nsf_setting_save_names_its_status_not_a_parser_error(status, body):
+    """A body that is not JSON reads "Save failed (<status>)" (a 200 one too: no save the server did not confirm),
+    and the switch is put back and can be used again."""
+    result = _nsf_save({"status": status, "text": body})
+    assert result == {"status": f"Save failed ({status})", "state": "error", "checked": False, "disabled": False,
+                      "posts": [{"nsf_carry_over": True}]}
+
+
+def test_the_nsf_setting_save_still_reads_the_server_s_refusal_and_its_confirmation():
+    refused = _nsf_save({"status": 400, "json": {"error": "invalid settings update"}})
+    assert refused["status"] == "invalid settings update" and refused["state"] == "error"
+    assert refused["checked"] is False and refused["disabled"] is False
+    saved = _nsf_save({"json": {"settings": {"nsf_carry_over": True, "zelle_true_revenue": True}}})
+    assert saved["status"] == "Saved. NSF counts now carry the balance over inactive days."
+    assert saved["state"] is None and saved["checked"] is True and saved["disabled"] is False
