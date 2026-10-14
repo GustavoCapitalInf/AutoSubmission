@@ -4,10 +4,14 @@ Ruling B's discipline is labelled evidence FIRST, review SECOND, admission
 THIRD. Phase 2.3 measures; it admits nothing. That claim is worth exactly as
 much as its enforcement, so it is enforced three ways:
 
-* **by blob** — `ocr/escalation.py` is byte-identical to its content at this
-  branch's base. Not "`ADMITTED_TRIGGERS` is unchanged" (a set can be
-  rebuilt from the same names while the router around it moves), but the
-  whole module, every line of it;
+* **by implementation pin** — every top-level class and function of
+  `ocr/escalation.py`, dumped as a syntax tree, hashes to one pinned digest.
+  Not "`ADMITTED_TRIGGERS` is unchanged" (a set can be rebuilt from the same
+  names while the router around it moves), but every name, string, operator
+  and statement of the router's implementation. Comments, blank lines and
+  line endings are outside the pin; so is the interpreter (the dump is made
+  the same on Python 3.12 and 3.14) and the locale (the source is read as
+  UTF-8);
 * **by vocabulary** — the admitted trigger set, the extractor order and the
   router's field set restated here independently of that module's own tests,
   so a change has to defeat two files;
@@ -28,6 +32,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,13 +49,18 @@ from ocr.extraction_quality import EQ_ROW_COLUMNS
 ROOT = Path(__file__).resolve().parents[1]
 ESCALATION = ROOT / "ocr" / "escalation.py"
 
-#: The branch this cell was cut from (`train13`, the Phase 2.3 opening
-#: commit) and the SHA-256 of `ocr/escalation.py` there, over the file's bytes
-#: with line endings normalised to LF — this repository checks out CRLF on
-#: Windows and LF on the Linux CI runner, and a pin that fired on a line
-#: ending would be a pin on the platform, not on the router.
-BASE_COMMIT = "26f94f5"
-ESCALATION_SHA256_AT_BASE = "E8367533D6D394CA7F34A131E21DBC8AC122DE120E358CE03A1598FD374384EC"
+#: The SHA-256 of the router's implementation, as `router_implementation_digest`
+#: reads it. A pin on the router, never on the platform: this repository checks
+#: out CRLF on Windows and LF on the Linux CI runner, CI and the hosting image
+#: run Python 3.12 while the development host runs 3.14, and Windows decodes a
+#: file in its own code page unless told otherwise. The previous pin of the
+#: same source (`fe664d53...`) reproduced only on Python 3.13+ reading UTF-8,
+#: so it was red on CI and on a default Windows console whatever the router
+#: did. This value was measured identical on 3.12.10, 3.14.4 and 3.14.5, under
+#: cp1252 and UTF-8 mode, with CRLF and LF line endings, and it stands for the
+#: same `ocr/escalation.py` the previous pin did: re-pinning blessed no change
+#: to the router (audit 2026-10-13, HYG-02).
+ROUTER_IMPLEMENTATION_SHA256 = "c8cfce8cdb54ae594afe79889e04cd45e59267f4e3d63c779ebb883ceb619cfa"
 
 #: Where an extraction-quality figure must never appear. `ocr/escalation.py`
 #: is the router itself; `analysis/` is the layer that produces a financial
@@ -60,8 +70,22 @@ GUARDED = ("ocr/escalation.py", "analysis", "webapp")
 EQ_COLUMNS = tuple(column for column, _, _ in EQ_ROW_COLUMNS)
 
 
-def normalised(path: Path) -> bytes:
-    return path.read_bytes().replace(b"\r\n", b"\n")
+def router_implementation_digest(source: str) -> str:
+    """The router's implementation, hashed: every top-level class and function
+    of the module, dumped without positions, in source order.
+
+    `ast.dump` stopped printing empty fields (an empty `decorator_list`, a
+    `None` return annotation) in Python 3.13; `show_empty=True` prints them
+    again there, so 3.12 and 3.14 dump the same text. The digest is a pure
+    function of the SOURCE TEXT, so a mutant can be planted in a copy held in
+    this process rather than in the tree."""
+    nodes = (node for node in ast.parse(source).body
+             if isinstance(node, (ast.ClassDef, ast.FunctionDef)))
+    same_on_every_version = {"show_empty": True} if sys.version_info >= (3, 13) else {}
+    implementation = "\n".join(
+        ast.dump(node, include_attributes=False, **same_on_every_version) for node in nodes
+    )
+    return hashlib.sha256(implementation.encode("utf-8")).hexdigest()
 
 
 def offences(source: str, label: str) -> list[str]:
@@ -102,17 +126,58 @@ def guarded_modules() -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
-# by blob
+# by implementation pin
 # ---------------------------------------------------------------------------
 
 def test_router_implementation_preserves_phase2_extraction_quality_exclusion():
     # Phase 3.1 expressly adds two webapp pair triggers and one extractor.
     # Preserve the stronger invariant on every class/function implementation:
     # extraction-quality measurements still cannot silently change admission.
-    nodes = (node for node in ast.parse(ESCALATION.read_text()).body
-             if isinstance(node, (ast.ClassDef, ast.FunctionDef)))
-    implementation = "\n".join(ast.dump(node, include_attributes=False) for node in nodes)
-    assert hashlib.sha256(implementation.encode()).hexdigest() == "fe664d53cf255c267cc87f1e7c6798c9cf4655facce08284ed596109258da50d"
+    digest = router_implementation_digest(ESCALATION.read_text(encoding="utf-8"))
+    assert digest == ROUTER_IMPLEMENTATION_SHA256, (
+        f"ocr/escalation.py's implementation moved (Python "
+        f"{'.'.join(map(str, sys.version_info[:3]))}): {digest}"
+    )
+
+
+def test_the_router_pin_reads_the_same_on_every_checkout():
+    """CRLF (a Windows checkout) and LF (the Linux runner) are one router, and
+    the explicit UTF-8 read is load-bearing rather than decorative: the module
+    carries non-ASCII text, and decoding it in the Windows code page moves the
+    digest, which is exactly how the previous pin went red on a default
+    Windows console."""
+    raw = ESCALATION.read_bytes()
+    lf = raw.replace(b"\r\n", b"\n")
+    crlf = lf.replace(b"\n", b"\r\n")
+    assert router_implementation_digest(lf.decode("utf-8")) == ROUTER_IMPLEMENTATION_SHA256
+    assert router_implementation_digest(crlf.decode("utf-8")) == ROUTER_IMPLEMENTATION_SHA256
+    assert any(byte > 0x7F for byte in raw)
+    assert router_implementation_digest(raw.decode("cp1252", errors="replace")) != ROUTER_IMPLEMENTATION_SHA256
+
+
+@pytest.mark.parametrize("before, after, note", [
+    ('refused=("no_admitted_trigger",)', 'refused=("no_admitted_triggers",)', "a refusal literal"),
+    ("e not in inputs.attempted", "e in inputs.attempted", "a membership test flipped"),
+    ("extractor = remaining[0]\n", "extractor = remaining[-1]\n", "the preference order reversed"),
+])
+def test_a_router_change_planted_in_a_scratch_copy_moves_the_pin(before, after, note):
+    """The pin is not vacuous: one changed literal, operator or index in the
+    router's decision moves it. Planted in a copy of the source held in this
+    process; the tree is never touched."""
+    source = ESCALATION.read_text(encoding="utf-8")
+    assert source.count(before) == 1, note
+    assert router_implementation_digest(source.replace(before, after, 1)) != ROUTER_IMPLEMENTATION_SHA256, note
+
+
+def test_a_comment_planted_in_a_scratch_copy_leaves_the_pin():
+    """And it is a pin on the implementation, not on the text: a comment and a
+    blank line change no node."""
+    source = ESCALATION.read_text(encoding="utf-8")
+    anchor = "        extractor = remaining[0]\n"
+    assert source.count(anchor) == 1
+    planted = source.replace(anchor, anchor + "\n        # a reviewer's note, not code\n", 1)
+    assert planted != source
+    assert router_implementation_digest(planted) == ROUTER_IMPLEMENTATION_SHA256
 
 
 # ---------------------------------------------------------------------------
