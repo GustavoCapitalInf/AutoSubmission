@@ -136,24 +136,24 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
 ## Tests
 
 ```bash
-python -m pip install -r requirements-vlm.txt numpy   # test-only, see below
-python -m pytest                                      # the default suite
-python -m pytest -m corpus                            # the 34 corpus tests, the gate among them
+python -m pip install -r requirements-dev.txt   # both runtime files plus the test-only packages
+python -m pytest                                # the default suite
+python -m pytest -m corpus                      # the 34 corpus tests, the gate among them
 ```
 
-- `requirements-vlm.txt` (pypdfium2, jsonschema) and `numpy` are needed only because the suite still imports
-  retired code. Without them 35 test files fail to collect and pytest stops before running any test (exit 2).
-  They go away with the removal.
+- `requirements-dev.txt` adds pytest, `jsonschema`, `pypdfium2` and `numpy` to the two runtime files. The last
+  three are needed only because the suite still imports retired code (`vlm/`). Without them 35 test files fail to
+  collect and pytest stops before running any test (exit 2). They go away with the removal.
 - `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests in `tests/test_live_smoke.py` and
   `tests/test_paddle_live.py` belong to retired endpoints: do not run them. The one local `live` check is the
   Tesseract drift test: `python -m pytest -m live tests/test_new_statement_corpus.py`.
-- **Known failures** (the audit baseline of 2026-10-13, Windows): 16 failed, 23,877 passed, 54 skipped,
-  39 deselected, in about 39 minutes. Twelve are Windows environment artefacts: 8 need the symlink privilege
-  (`WinError 1314`), 3 check POSIX permission bits, 1 is a text-encoding mismatch. Four are guard tests waiting for
-  fixes: `test_corpus_gate_outcomes::test_every_production_caller_of_the_analysis_is_classified`,
-  `test_extraction_quality_admission::test_router_implementation_preserves_phase2_extraction_quality_exclusion`,
-  `test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr` and
-  `test_stated_counts::test_the_observer_is_not_wired_into_any_production_module`. Any other failure is new.
+- **Known failures** (after the audit fixes of 2026-10-13, Windows, Python 3.14): 14 failed, 25,350 passed,
+  54 skipped, 39 deselected, in about 15 minutes. Twelve are Windows environment artefacts: 8 need the symlink
+  privilege (`WinError 1314`), 3 check POSIX permission bits, 1 is a text-encoding mismatch. Two are guard tests
+  that trip on the retired visual-pair code and wait for its removal:
+  `test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr` (the two model revision pins in
+  `ocr/visual_pair_config.py`) and `test_stated_counts::test_the_observer_is_not_wired_into_any_production_module`
+  (a confidence label in `webapp/worker.py`). Any other failure is new.
 
 ## Corpus gate (required before merge)
 
@@ -178,9 +178,12 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
   `Bank Statements/**`); other PDFs there are counted, never named. Adding a statement means regenerating the
   audits and `git add -f`.
 - Run it locally before merging anything that touches parsing, reconciliation, ADB, balance metrics,
-  serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml`) is meant to
-  run the suite and then the gate on every pull request and every push to `main`, but it is red today: it does
-  not install the test-only packages, so the suite stops at collection and the gate step is skipped.
+  serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml`, Ubuntu 24.04,
+  Python 3.12) runs on every pull request and every push to `main`: it checks that the shipped entry points import
+  with the two runtime files alone, installs `requirements-dev.txt`, runs the suite, and runs the gate whether or
+  not the suite passed (the job fails if either fails). Nothing makes a merge wait for it: GitHub's branch
+  protection is not available on this repository's plan. Until the visual-pair code is removed, the suite step is
+  expected to fail on the two guard tests named under Tests.
 - The gate never rewrites the audits. Regenerating the truth set is a separate, deliberate act:
   `python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache`, then the same with
   `balance_forensic_audit.py`. Both read every PDF under the path they are given, not the pinned manifest, and
