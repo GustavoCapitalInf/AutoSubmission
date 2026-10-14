@@ -8,6 +8,7 @@ the validator is a verifier, never an optimizer, and
 `tests/test_pipeline_escalation_fence.py` characterised the removed behaviour
 at the base tree and pins its absence."""
 from __future__ import annotations
+import math
 import os
 import re
 from dataclasses import dataclass, field, replace
@@ -1435,6 +1436,24 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
     )
 
 
+#: Audit 2026-10-13 (REC-5): below this magnitude a float's cents are exact enough that two amounts within clause 1's
+#: 0.005 of each other fall in the same or a neighbouring whole-cent bucket (the float error of |amount| x 100 stays
+#: far under half a cent); at or above it a posting is compared with every posting, as before.
+_TRANSFER_BUCKET_LIMIT = 1e12
+
+
+def _transfer_bucket(posting: tuple[int, int, str, float, str]) -> tuple[object, int] | None:
+    """(date, whole cents of the magnitude) of an R-d posting, or None when it must be compared with every posting."""
+    amount = posting[3]
+    if not math.isfinite(amount) or abs(amount) >= _TRANSFER_BUCKET_LIMIT:
+        return None
+    try:
+        hash(posting[2])
+    except TypeError:
+        return None
+    return posting[2], round(abs(amount) * 100)
+
+
 def identify_internal_transfers(
     accounts: Sequence[Report],
 ) -> tuple[list[InternalTransfer], list[str]]:
@@ -1506,9 +1525,35 @@ def identify_internal_transfers(
             and left[3] * right[3] < 0
         )
 
+    # Audit 2026-10-13 (REC-5, speed only): a posting's candidates come from a (date, whole cents of the magnitude)
+    # index, its own bucket and the two neighbouring cents, which hold every posting clause 1's < 0.005 tolerance can
+    # admit; `admissible()` above stays the authority and tests each candidate verbatim, in posting order, so every
+    # counterpart list is the one the test of every pair built. The index is on date and cents only, never on the
+    # account (clause 1's own test refuses a same-account counterpart). A posting whose amount is not finite, or too
+    # large for its cents to be exact in a float, or whose date cannot be a key, keeps the test of every posting and
+    # is a candidate of every posting.
+    buckets: dict[tuple[object, int], list[int]] = {}
+    unbucketed: list[int] = []
+    for index, posting in enumerate(postings):
+        key = _transfer_bucket(posting)
+        if key is None:
+            unbucketed.append(index)
+        else:
+            buckets.setdefault(key, []).append(index)
+
+    def candidates(left) -> Sequence[int]:
+        key = _transfer_bucket(left)
+        if key is None:
+            return range(len(postings))
+        date, cents = key
+        return sorted([
+            *buckets.get((date, cents - 1), ()), *buckets.get(key, ()), *buckets.get((date, cents + 1), ()),
+            *unbucketed,
+        ])
+
     counterparts: dict[int, list[int]] = {
-        index: [other for other, right in enumerate(postings)
-                if other != index and admissible(left, right)]
+        index: [other for other in candidates(left)
+                if other != index and admissible(left, postings[other])]
         for index, left in enumerate(postings)
     }
     ambiguous = any(len(found) > 1 for found in counterparts.values())
