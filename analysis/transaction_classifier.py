@@ -1163,8 +1163,47 @@ _PAIR_FAMILY_PATTERNS = (
 )
 
 
+#: Audit 2026-10-13 (F2, speed only): a tuple of rule patterns read as ONE compiled alternation, kept by the tuple's id
+#: beside the tuple itself (so an id is never reused while its entry is kept; the callers pass module constants, about
+#: 85 tuples). Searching `(?:p1)|(?:p2)|...` finds a match exactly when one of the patterns matches somewhere, and the
+#: alternation is built only where that holds by construction: a tuple of str patterns with one set of flags, no
+#: VERBOSE flag (a `#` comment would swallow the patterns joined after it), no group reference or conditional group,
+#: and an alternation that compiles. Anything else keeps the loop. tests/test_matches_any_alternation.py pins both.
+_ALTERNATIONS: dict[int, tuple[Sequence[object], re.Pattern[str] | None]] = {}
+_GROUP_REFERENCE = re.compile(r"\\\d|\(\?P=|\(\?\(")
+_ALTERNATION_LIMIT = 256
+
+
+def _alternation(patterns: Sequence[object]) -> re.Pattern[str] | None:
+    if not isinstance(patterns, tuple):
+        return None
+    found = _ALTERNATIONS.get(id(patterns))
+    if found is not None and found[0] is patterns:
+        return found[1]
+    combined = None
+    if (
+        patterns
+        and all(isinstance(pattern, re.Pattern) and isinstance(pattern.pattern, str) for pattern in patterns)
+        and len({pattern.flags for pattern in patterns}) == 1
+        and not patterns[0].flags & re.VERBOSE
+        and not any(_GROUP_REFERENCE.search(pattern.pattern) for pattern in patterns)
+    ):
+        try:
+            combined = re.compile("|".join(f"(?:{pattern.pattern})" for pattern in patterns), patterns[0].flags)
+        except re.error:
+            combined = None
+    if len(_ALTERNATIONS) >= _ALTERNATION_LIMIT:
+        # A caller building a tuple per call (a mutation tool) never grows this past the limit.
+        _ALTERNATIONS.clear()
+    _ALTERNATIONS[id(patterns)] = (patterns, combined)
+    return combined
+
+
 def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
-    return any(pattern.search(text) is not None for pattern in patterns)
+    combined = _alternation(patterns)
+    if combined is None:
+        return any(pattern.search(text) is not None for pattern in patterns)
+    return combined.search(text) is not None
 
 
 def prints_internal_transfer_designation(description: str) -> bool:
