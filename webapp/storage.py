@@ -287,12 +287,19 @@ class Storage:
     connection (see the module docstring's concurrency notes).
     """
 
-    def __init__(self, data_dir: str | Path | None = None) -> None:
+    def __init__(self, data_dir: str | Path | None = None, *, read_only: bool = False) -> None:
+        """``read_only`` (audit 2026-10-13, BE-1): the store the web app falls back to when the normal one cannot be
+        opened or written at start-up (a full data volume). It creates, migrates and writes nothing — not at
+        construction, and every connection is opened ``mode=ro``, so a write raises instead of landing — and it
+        checks nothing either: the caller asks ``schema_version()`` before serving from it."""
         from ocr.private_artifacts import validate_private_artifact_path
 
+        self.read_only = read_only
         self.data_dir = validate_private_artifact_path(data_dir) if data_dir is not None else default_data_dir()
-        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "webapp.db"
+        if read_only:
+            return
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
     # ------------------------------------------------------------------
@@ -300,6 +307,11 @@ class Storage:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            # No journal-mode PRAGMA: it needs the write path that failed. The database is already in WAL mode.
+            conn = sqlite3.connect(f"{self.db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            return conn
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -715,6 +727,15 @@ class Storage:
                 (analysis_json, job_id),
             )
         return True
+
+    def in_flight_job_ids(self) -> list[str]:
+        """The jobs left queued/processing, read only (a read-only start-up shows them interrupted without writing)."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"SELECT id FROM jobs WHERE status IN ({','.join('?' * len(_IN_FLIGHT_STATUSES))})",
+                _IN_FLIGHT_STATUSES,
+            ).fetchall()
+            return [row["id"] for row in rows]
 
     def mark_interrupted_jobs(self, note: str) -> list[str]:
         """Startup re-hydration: any job that was queued/processing when the

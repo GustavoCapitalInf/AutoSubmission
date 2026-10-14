@@ -14,6 +14,11 @@ PROJECT_ROOT = Path(__file__).parent
 _WEBAPP_TEST_DATA_DIR = tempfile.mkdtemp(prefix="webapp_data_test_")
 os.environ["WEBAPP_DATA_DIR"] = _WEBAPP_TEST_DATA_DIR
 
+# Audit 2026-10-13 (BE-1): the web app refuses uploads that would leave its data volume below a free-space floor
+# (256 MB by default). The suite writes to a temporary folder on whatever disk the runner has, so it turns the floor
+# off here, at import time like the line above; the floor's own tests (tests/test_webapp_disk_guard.py) set it.
+os.environ["WEBAPP_MIN_FREE_MB"] = "0"
+
 
 @pytest.fixture(scope="session", autouse=True)
 def webapp_data_dir():

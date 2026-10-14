@@ -480,10 +480,28 @@ class JobStore:
             "interrupted: the server stopped while this job was queued or "
             "processing; re-upload the statement to reprocess it"
         ),
+        *,
+        persist: bool = True,
     ) -> list[str]:
         """Startup re-hydration: explicitly mark every job that was in flight
         when the process died. Nothing is silently lost — the job row stays
-        queryable with status 'interrupted' and this explanatory error."""
+        queryable with status 'interrupted' and this explanatory error.
+
+        ``persist=False`` (audit 2026-10-13, BE-1): a read-only start-up cannot
+        write, so this process shows those jobs interrupted with the same note
+        while their rows stay as they were; the next start that can write
+        marks them durably."""
+        if not persist:
+            ids = self._storage.in_flight_job_ids()
+            for job_id in ids:
+                job = self.get(job_id)
+                if job is not None:
+                    with self._lock:
+                        job.status = "interrupted"
+                        job.stage = "interrupted"
+                        job.error = note
+                        job.pdf_bytes = None
+            return ids
         ids = self._storage.mark_interrupted_jobs(note)
         with self._lock:
             for job_id in ids:

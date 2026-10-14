@@ -1,10 +1,14 @@
 from __future__ import annotations
 import io
 import csv
+import errno
 import hashlib
 import json
 import os
 import re
+import shutil
+import sqlite3
+import sys
 import threading
 import zipfile
 from collections import Counter, deque
@@ -81,6 +85,7 @@ from analysis.transaction_classifier import (
 )
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
+from .storage import SCHEMA_VERSION, Storage
 from .worker import run_job
 from .reanalysis import replay_reviews, rerun_analysis
 
@@ -94,20 +99,121 @@ MAX_UPLOAD_PAGES = 500
 # every in-flight job at once, so the stock four would head-of-line block.
 SERVER_THREADS = 16
 
+#: The free space the data volume keeps (audit 2026-10-13, BE-1). Nothing ever deletes a job, document, PDF or
+#: artifact (retention is an owner decision), and on 2026-10-06 the demo's full volume stopped the server from
+#: starting. An upload, or a Re-analyze, that would leave less than this is refused with 507 before anything is
+#: written. Default 256 MB; `WEBAPP_MIN_FREE_MB` overrides it (0 turns the floor off).
+DEFAULT_MIN_FREE_MB = 256
+
+
+def _min_free_bytes(raw: str | None) -> int:
+    """`WEBAPP_MIN_FREE_MB` as bytes. A value that is not a whole number of megabytes (0 or more) falls back to the
+    default with a warning on stderr: a typo in this variable must never stop the server from starting."""
+    if raw is None or not raw.strip():
+        return DEFAULT_MIN_FREE_MB * 1024 * 1024
+    try:
+        megabytes = int(raw.strip())
+    except ValueError:
+        megabytes = -1
+    if megabytes < 0:
+        sys.stderr.write(
+            f"WEBAPP_MIN_FREE_MB={raw!r} is not a whole number of megabytes; using {DEFAULT_MIN_FREE_MB}\n"
+        )
+        return DEFAULT_MIN_FREE_MB * 1024 * 1024
+    return megabytes * 1024 * 1024
+
+
+MIN_FREE_BYTES = _min_free_bytes(os.environ.get("WEBAPP_MIN_FREE_MB"))
+
+#: The refusals the floor answers with (507): fixed text, never a measured figure or a path.
+STORAGE_NEARLY_FULL = "the server's storage is nearly full; no statement was accepted"
+STORAGE_NEARLY_FULL_REASON = "the server's storage is nearly full"
+
+
+def _data_volume_nearly_full(incoming_bytes: int = 0) -> bool:
+    """True when writing `incoming_bytes` would leave the data volume below MIN_FREE_BYTES. A free-space figure that
+    cannot be read answers False: the guard fails open on itself only, it never refuses work by its own error."""
+    try:
+        free = shutil.disk_usage(store.storage.data_dir).free
+    except OSError:
+        return False
+    return free - incoming_bytes < MIN_FREE_BYTES
+
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+#: How the store opened at start-up (audit 2026-10-13, BE-1): None normally; STORE_READ_ONLY when it could not be
+#: opened or written but can be read (saved statements are served, every write is refused); STORE_UNAVAILABLE when
+#: it cannot be read either (only the page itself is served). Before, a store that could not be written stopped the
+#: import of this module, so the host restarted the server until it gave up and nothing could be served at all.
+STORE_READ_ONLY = "read_only"
+STORE_UNAVAILABLE = "unavailable"
+
+#: The 503 answers of a degraded start-up: fixed text.
+STORAGE_READ_ONLY_ERROR = (
+    "the server's storage could not be written when it started (the data volume may be full); saved statements can "
+    "be viewed, but nothing can be uploaded, reviewed, re-analyzed, packaged, saved or downloaded until space is "
+    "freed and the server is restarted"
+)
+STORAGE_UNAVAILABLE_ERROR = (
+    "the server's storage could not be opened when it started (the data volume may be full); free space and restart "
+    "the server"
+)
+
+
+#: The failures that mean the data volume cannot be written: SQLite's primary result codes SQLITE_READONLY (8),
+#: SQLITE_IOERR (10; the outage's "disk I/O error" at the journal-mode PRAGMA), SQLITE_FULL (13) and
+#: SQLITE_CANTOPEN (14), and the matching OS errors. A busy or locked database, a permission problem or a schema the
+#: code does not understand is none of these: it still stops the start, as before, so a restart can clear it.
+_SQLITE_VOLUME_FAILURES = frozenset({8, 10, 13, 14})
+_OS_VOLUME_FAILURES = frozenset(
+    code for code in (errno.ENOSPC, errno.EIO, errno.EROFS, getattr(errno, "EDQUOT", None)) if code is not None
+)
+
+
+def _volume_failure(exc: BaseException) -> bool:
+    if isinstance(exc, sqlite3.Error):
+        code = getattr(exc, "sqlite_errorcode", None)
+        return isinstance(code, int) and (code & 0xFF) in _SQLITE_VOLUME_FAILURES
+    if isinstance(exc, OSError):
+        return exc.errno in _OS_VOLUME_FAILURES
+    return False
+
+
+def _open_store() -> tuple[JobStore, list[str], str | None]:
+    """The durable store (D-1) and the startup re-hydration, without letting a full volume stop the server.
+
+    Startup re-hydration: any job left queued/processing by a previous process
+    is explicitly marked `interrupted` with an explanatory error — never
+    silently lost. Completed jobs need nothing: their artifacts already serve
+    from storage. (Auto-resume is deliberately not attempted: the one-worker
+    queue holds no durable claim on partially processed OCR state, so a clean,
+    explicit interruption the analyst can see beats a half-blind retry.)
+
+    Audit 2026-10-13 (BE-1): only a failure of the data volume itself (`_volume_failure`: `disk I/O error` at the
+    journal-mode PRAGMA, `database or disk is full` while marking interrupted jobs, a read-only or full filesystem)
+    falls back to a read-only store. Anything else (a locked database, a schema the code does not understand, a
+    refused data directory) still stops the start: those are not a full disk, and serving them would be wrong."""
+    try:
+        opened = JobStore()
+        return opened, opened.mark_interrupted(), None
+    except (sqlite3.Error, OSError) as exc:
+        if not _volume_failure(exc):
+            raise
+    fallback = JobStore(Storage(read_only=True))
+    try:
+        if fallback.storage.schema_version() != SCHEMA_VERSION:
+            return fallback, [], STORE_UNAVAILABLE
+        return fallback, fallback.mark_interrupted(persist=False), STORE_READ_ONLY
+    except (sqlite3.Error, OSError):
+        return fallback, [], STORE_UNAVAILABLE
+
+
 # Durable store (D-1): SQLite + on-disk PDFs under WEBAPP_DATA_DIR
 # (default `webapp_data/` at repo root). See webapp/storage.py for the
 # single-writer concurrency contract.
-store = JobStore()
-
-# Startup re-hydration: any job left queued/processing by a previous process
-# is explicitly marked `interrupted` with an explanatory error — never
-# silently lost. Completed jobs need nothing: their artifacts already serve
-# from storage. (Auto-resume is deliberately not attempted: the one-worker
-# queue holds no durable claim on partially processed OCR state, so a clean,
-# explicit interruption the analyst can see beats a half-blind retry.)
-_INTERRUPTED_ON_STARTUP: list[str] = store.mark_interrupted()
+store, _INTERRUPTED_ON_STARTUP, STORE_STATE = _open_store()
 
 _job_queue: deque[tuple[str, bytes, str, bool, str]] = deque()
 _job_queue_lock = threading.Lock()
@@ -5980,6 +6086,11 @@ def upload():
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))
 
+    # The free-space floor (audit 2026-10-13, BE-1): validation answers first, then nothing is written when the
+    # batch would leave the data volume below MIN_FREE_BYTES.
+    if _data_volume_nearly_full(sum(len(pdf_bytes) for _name, pdf_bytes, _pages, _profile in accepted)):
+        return jsonify({"error": STORAGE_NEARLY_FULL}), 507
+
     # Store the whole batch before queueing any of it (audit 2026-10-13, BE-4).
     # A storage failure on file k used to leave files 1..k-1 queued and
     # processed under ids the dashboard never received (it got an HTML 500).
@@ -6394,6 +6505,10 @@ def reanalyze(job_id):
         pdf_bytes = store.pdf_bytes(job_id)
         if pdf_bytes is None:
             return jsonify({"error": "the original PDF is not stored"}), 409
+        # The free-space floor (audit 2026-10-13, BE-1): a re-analysis appends the whole replaced analysis to the
+        # append-only audit log, so it is refused, writing nothing, when the volume is below the floor.
+        if _data_volume_nearly_full():
+            return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": STORAGE_NEARLY_FULL_REASON}), 507
         rerun = rerun_analysis(store, job, pdf_bytes)
         if rerun.analysis is None:
             return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": rerun.reason}), 422
@@ -6589,6 +6704,41 @@ def download(job_id, fmt):
     if fmt in ("md", "html"):
         headers.update(_REPORT_HEADERS)
     return Response(content, mimetype=mimetype, headers=headers)
+
+
+#: What a read-only start-up still serves (audit 2026-10-13, BE-1): GET routes that read the store and write nothing
+#: to the data volume. Everything else is refused with 503: the POST routes, and the two downloads, which write an
+#: export audit row (served without it, the audit trail would lose them). A route added later is refused until it is
+#: named here. `healthz` is the hosting line's probe.
+_READ_ONLY_ENDPOINTS = frozenset({
+    "index", "static", "healthz", "get_settings", "status", "live", "rendered_skeleton_route", "render", "markdown",
+    "analysis", "package_analysis", "page", "result",
+})
+#: What a start-up whose store cannot be read at all still serves: the page and the probe.
+_UNAVAILABLE_ENDPOINTS = frozenset({"index", "static", "healthz"})
+
+
+def _storage_degraded_error():
+    text = STORAGE_READ_ONLY_ERROR if STORE_STATE == STORE_READ_ONLY else STORAGE_UNAVAILABLE_ERROR
+    return jsonify({"error": text}), 503
+
+
+@app.before_request
+def _refuse_what_a_degraded_store_cannot_do():
+    """A degraded start-up (`_open_store`) answers what it can and refuses the rest with fixed text; a normal one is
+    untouched. On the hosting line the password gate must stay ahead of this hook."""
+    if STORE_STATE is None:
+        return None
+    allowed = _READ_ONLY_ENDPOINTS if STORE_STATE == STORE_READ_ONLY else _UNAVAILABLE_ENDPOINTS
+    if request.method in ("GET", "HEAD") and request.endpoint in allowed:
+        return None
+    return _storage_degraded_error()
+
+
+if STORE_STATE is not None:
+    # A read the read-only store cannot serve after all (its connection needs the volume too) answers with the same
+    # fixed text instead of a 500 page. Registered only on a degraded start-up, so a normal one is unchanged.
+    app.register_error_handler(sqlite3.Error, lambda _exc: _storage_degraded_error())
 
 
 def _server_config() -> tuple[str, int]:
