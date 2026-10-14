@@ -694,6 +694,54 @@ def test_the_html_download_of_a_stored_report_carries_the_policy_in_its_head():
     assert body.replace(meta + "\n", "", 1) == stored
 
 
+def test_the_html_download_does_not_repeat_a_policy_the_report_already_carries():
+    from ocr.render import REPORT_CSP, markdown_to_html
+
+    rendered = markdown_to_html("SAMPLE STATEMENT", title="report.pdf")
+    job = _report_job(rendered)
+    body = app.test_client().get(f"/download/{job.id}/html").get_data(as_text=True)
+    assert body == rendered
+    assert body.count(f'content="{REPORT_CSP}"') == 1
+
+
+def test_a_crafted_text_layer_reaches_the_review_page_as_text_end_to_end(monkeypatch):
+    """The finding's path, end to end: a fabricated PDF whose text layer prints an <img onerror> and a <script>
+    element, through the real upload and the real worker (deterministic parse). The refused statement's "Review
+    extraction" page and its html download show the markup as text, under the sandboxing policy."""
+    fitz = pytest.importorskip("fitz")
+    import webapp.app as webapp_app
+
+    image_tag = "<img src=x onerror=\"document.title='INJECTED'\">"
+    script_tag = "<script>document.title='INJECTED2'</script>"
+    doc = fitz.open()
+    for _ in range(2):
+        page = doc.new_page()
+        lines = ["SAMPLE BANK STATEMENT (fabricated)", "01/04 ACH DEPOSIT CONTOSO 100.00", image_tag, script_tag]
+        lines += [f"filler line {i} with ordinary words for the native text gate" for i in range(25)]
+        for n, line in enumerate(lines):
+            page.insert_text((72, 72 + 13 * n), line, fontsize=9)
+    pdf = doc.tobytes()
+    doc.close()
+
+    monkeypatch.setattr(webapp_app, "_enqueue_job", lambda job_id, pdf_bytes, filename, force_ocr, parse_mode:
+                        webapp_app.run_job(job_id, pdf_bytes, filename, webapp_app.store, force_ocr, parse_mode))
+    client = app.test_client()
+    resp = client.post("/upload", data={"files": (io.BytesIO(pdf), "crafted.pdf"), "parse_mode": "deterministic"},
+                       content_type="multipart/form-data")
+    assert resp.status_code == 200, resp.get_json()
+    job_id = resp.get_json()["jobs"][0]["id"]
+    assert client.get(f"/status/{job_id}").get_json()["status"] == "done"
+    assert image_tag in client.get(f"/markdown/{job_id}").get_data(as_text=True)  # the evidence keeps the text
+
+    for route in (f"/result/{job_id}", f"/download/{job_id}/html"):
+        served = client.get(route)
+        body = served.get_data(as_text=True)
+        assert image_tag not in body and script_tag not in body
+        assert "<img" not in body and "<script" not in body
+        assert "&lt;img src=x onerror=" in body and "&lt;script&gt;" in body
+        assert served.headers["Content-Security-Policy"].startswith("sandbox; default-src 'none'")
+
+
 def test_a_policy_printed_in_the_statement_body_does_not_stand_in_for_the_head_one():
     from ocr.render import REPORT_CSP
 

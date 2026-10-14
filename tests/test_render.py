@@ -1,3 +1,4 @@
+import pytest
 from PIL import Image
 
 from ocr.render import (
@@ -139,3 +140,116 @@ def test_promote_headers_promotes_titlecase_known_sections():
 def test_promote_headers_rendered_as_h2():
     html = markdown_to_html("DEPOSITS AND ADDITIONS\n\nSome content", title="x")
     assert "<h2>DEPOSITS AND ADDITIONS</h2>" in html
+
+
+# --- Audit 2026-10-13, EXP-1: statement text is shown, never obeyed -------------------------------------------------
+# A PDF's text layer is untrusted. Markup it prints is shown as text; only the bare table markup the visual-OCR rung
+# prints its tables in passes through (attributes dropped), and the document's own header comment stays a comment.
+# A normal statement renders exactly as before. Fabricated text only.
+
+_NATIVE_SAMPLE = (
+    "<!-- source: sample.pdf | pages: 2 | model: native-pdf-text | empty: 0 -->\n\n\n\n"
+    "--- Page 1 ---\n\n"
+    "CONTOSO BAKERY LLC\n"
+    "DEPOSITS AND ADDITIONS\n"
+    "03/02 ACH CREDIT FABRIKAM PAYROLL 1,250.00\n"
+    "03/05 TRANSFER FROM SAMPLE & SONS 300.00\n"
+    "    indented memo line\n\n"
+    "| Date | Description | Amount |\n|---|---|---|\n| 03/09 | NORTHWIND SUPPLY | 75.10 |\n\n"
+    "--- Page 2 ---\n\n"
+    "Total deposits *2* items 1,550.00 <500 limit\n"
+    "Ending balance $2,000.00\n"
+)
+
+
+def _body(page: str) -> str:
+    return page[page.index("<body>\n") + len("<body>\n"):page.index("\n</body>")]
+
+
+def test_a_normal_statement_renders_exactly_as_before():
+    """The body the renderer produced before EXP-1 for this fabricated native statement, byte for byte."""
+    assert _body(markdown_to_html(_NATIVE_SAMPLE, title="sample.pdf")) == (
+        "<!-- source: sample.pdf | pages: 2 | model: native-pdf-text | empty: 0 -->\n\n"
+        "<p>--- Page 1 ---</p>\n<p>CONTOSO BAKERY LLC</p>\n<h2>DEPOSITS AND ADDITIONS</h2>\n"
+        "<p>03/02 ACH CREDIT FABRIKAM PAYROLL 1,250.00\n03/05 TRANSFER FROM SAMPLE &amp; SONS 300.00\n"
+        "    indented memo line</p>\n"
+        "<table>\n<thead>\n<tr>\n<th>Date</th>\n<th>Description</th>\n<th>Amount</th>\n</tr>\n</thead>\n"
+        "<tbody>\n<tr>\n<td>03/09</td>\n<td>NORTHWIND SUPPLY</td>\n<td>75.10</td>\n</tr>\n</tbody>\n</table>\n"
+        "<p>--- Page 2 ---</p>\n<p>Total deposits <em>2</em> items 1,550.00 &lt;500 limit\n"
+        "Ending balance $2,000.00</p>"
+    )
+
+
+@pytest.mark.parametrize("markup", [
+    "<img src=x onerror=\"document.title='INJECTED'\">",
+    "<script>document.title='INJECTED'</script>",
+    "<svg onload=\"document.title='INJECTED'\"></svg>",
+    "<iframe src=\"https://example.invalid\"></iframe>",
+    "<a href=\"https://example.invalid\">Statement checks passed</a>",
+    "<div style=\"position:fixed;inset:0;background:white\">Statement checks passed</div>",
+    "<!-- --><img src=x onerror=\"document.title='INJECTED'\">",
+    "<form action=\"https://example.invalid\"><input name=a></form>",
+])
+@pytest.mark.parametrize("where", ["own line", "inline", "in a visual table"])
+def test_markup_in_statement_text_is_shown_as_text(markup, where):
+    if where == "own line":
+        page = f"03/02 SAMPLE DEPOSIT 10.00\n\n{markup}\n\nEnding balance $10.00"
+    elif where == "inline":
+        page = f"03/02 SAMPLE DEPOSIT {markup} 10.00"
+    else:
+        page = f"<table><tr><td>03/02</td><td>SAMPLE {markup}</td><td>10.00</td></tr></table>"
+    body = _body(markdown_to_html(f"--- Page 1 ---\n\n{page}", title="x"))
+    for tag in ("<img", "<script", "<svg", "<iframe", "<a ", "<div", "<form", "<input", "<!--"):
+        assert tag not in body.lower(), (tag, body)
+    assert "&lt;" in body
+
+
+def test_a_visual_ocr_table_still_renders_as_a_table_without_attributes():
+    md = ('<TABLE border="1"><tr><th colspan="2">Date</th></tr>'
+          '<tr><td onclick="document.title=1">03/02</td><td>CONTOSO &amp; SONS</td></tr><tr><td>A<br/>B</td></tr></TABLE>')
+    body = render_fragment(md)
+    assert body == ("<table><tr><th>Date</th></tr><tr><td>03/02</td><td>CONTOSO &amp; SONS</td></tr>"
+                    "<tr><td>A<br>B</td></tr></table>")
+
+
+def test_angle_bracket_text_is_shown_not_hidden():
+    """Before EXP-1 a browser hid `<SUPPLY>` and `<REF 1234>` as unknown tags; the analyst now sees them."""
+    body = render_fragment("NORTHWIND <SUPPLY> ORDER <REF 1234> AND <500")
+    assert body == "<p>NORTHWIND &lt;SUPPLY&gt; ORDER &lt;REF 1234&gt; AND &lt;500</p>"
+
+
+def test_markup_in_code_text_displays_once_escaped():
+    assert render_fragment("    memo <b>SAMPLE</b> & co") == "<pre><code>memo &lt;b&gt;SAMPLE&lt;/b&gt; &amp; co\n</code></pre>"
+    assert render_fragment("ref `<b>` x") == "<p>ref <code>&lt;b&gt;</code> x</p>"
+
+
+def test_a_hostile_source_name_cannot_close_the_header_comment():
+    """The upload gate refuses `-->` in a file name, but `--!>` also closes an HTML comment: such a header is shown as
+    text rather than kept as a comment."""
+    md = ("<!-- source: a--!><img src=x onerror=alert(1)>b.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
+          "\n\n\n\n--- Page 1 ---\n\nSAMPLE")
+    body = _body(markdown_to_html(md, title="x"))
+    assert "<img" not in body
+    assert "<!--" not in body
+
+
+def test_the_report_page_carries_its_content_security_policy():
+    from ocr.render import REPORT_CSP_META
+
+    page = markdown_to_html("SAMPLE", title="x")
+    head = page.split("</head>", 1)[0]
+    assert head.count(REPORT_CSP_META) == 1
+    assert head.index('<meta charset="utf-8">') < head.index(REPORT_CSP_META)
+    assert "sandbox" not in REPORT_CSP_META  # a meta tag cannot carry sandbox
+    assert REPORT_CSP_META not in rendered_skeleton()
+
+
+def test_boxed_regions_show_markup_as_text_and_still_embed_crops():
+    img = Image.new("RGB", (1000, 1000), (200, 50, 50))
+    raw = ("<|det|>text [10,10,90,40]<|/det|>SAMPLE <img src=x onerror=alert(1)>"
+           "<|det|>table [10,50,90,80]<|/det|><table><tr><td>03/02</td><td>10.00</td></tr></table>"
+           "<|det|>image [100,100,400,400]<|/det|>")
+    out = render_boxed([raw], page_images=[img])
+    assert "<img src=x" not in out and "&lt;img src=x" in out
+    assert "<table><tr><td>03/02</td><td>10.00</td></tr></table>" in out
+    assert out.count('<img class="doc-image" src="data:image/png;base64,') == 1

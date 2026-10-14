@@ -841,7 +841,12 @@ OCR_STAGE_VERSION = 5
 # (`tests/test_artifact_cache.py`).
 ANALYSIS_STAGE_VERSION = 38
 #: Bump when the HTML renderer's output changes for unchanged settings.
-REPORT_STAGE_VERSION = 1
+#: 1 -> 2: audit 2026-10-13, EXP-1 (`ocr/render.py`): markup printed in statement text is shown as text, the visual-OCR
+#: table markup let through loses its attributes, the header comment is kept only when it carries no angle bracket,
+#: and the page head carries the report's Content-Security-Policy meta tag. Text with no markup renders as before; a
+#: v1 report would keep serving live markup and no policy. OCR and analysis stay cached. Pinned in
+#: `tests/test_artifact_cache.py`.
+REPORT_STAGE_VERSION = 2
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
 #: joins the OCR settings key at :data:`OCR_STAGE_VERSION` 5+ so a change to
 #: what `StatementMarkdown` records (independent of which extractor or binary
