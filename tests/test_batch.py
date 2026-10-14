@@ -502,3 +502,180 @@ def test_exp2_a_failed_document_still_writes_its_record(monkeypatch, tmp_path, c
     assert (records[0]["outcome"]["class"], records[0]["outcome"]["error_type"]) == ("failed", "RuntimeError")
     assert records[0]["outcome"]["escalated"] is False
     assert "Telemetry: 1 records" in capsys.readouterr().err
+
+
+# --- Audit 2026-10-13, EXP-3: batch.py opens --out, and writes the header, before it analyses the first document, then
+# writes and flushes each row as it is produced. A bad --out path (or a file another program holds locked) fails before
+# any analysis, and an interrupted run keeps every row it finished and says on stderr that it is incomplete. A clean
+# run writes the same rows, in the same order, byte for byte. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _statements(tmp_path, count):
+    folder = tmp_path / "statements"
+    folder.mkdir()
+    for index in range(1, count + 1):
+        (folder / f"SAMPLE_{index}.md").write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    return folder
+
+
+def _counting(calls, *, interrupt_on=None, fail_on=None, during=None):
+    def analyze(markdown, **kwargs):
+        calls.append(markdown)
+        if during is not None:
+            during(len(calls))
+        if len(calls) == interrupt_on:
+            raise KeyboardInterrupt
+        if len(calls) == fail_on:
+            raise RuntimeError("fabricated failure")
+        return _z1()
+    return analyze
+
+
+def _csv_lines(path):
+    with open(path, newline="", encoding="utf-8") as handle:
+        return list(csv.reader(handle))
+
+
+def test_exp3_a_bad_out_path_fails_before_any_document_is_analysed(monkeypatch, tmp_path):
+    import pytest
+
+    calls = []
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "no_such_folder" / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    with pytest.raises(OSError):
+        batch.main()
+    assert calls == []
+    assert not out.exists()
+
+
+def test_exp3_each_row_is_on_disk_before_the_next_document_is_analysed(monkeypatch, tmp_path):
+    calls, seen = [], {}
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "triage.csv"
+
+    def during(call):
+        seen[call] = len(_csv_lines(out))
+
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls, during=during))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    # The header is written before the first analysis, and each finished row before the next one starts.
+    assert seen == {1: 1, 2: 2, 3: 3}
+    assert len(_csv_lines(out)) == 4
+
+
+def test_exp3_an_interrupt_keeps_the_rows_already_written(monkeypatch, tmp_path, capsys):
+    import pytest
+
+    calls = []
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls, interrupt_on=2))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    with pytest.raises(KeyboardInterrupt):
+        batch.main()
+    header, *rows = _csv_lines(out)
+    assert header == batch.FIELDS
+    assert [row[0] for row in rows] == ["SAMPLE_1.md"]
+    err = capsys.readouterr().err
+    assert "INCOMPLETE: 1 of 3 files analysed" in err
+    assert "Wrote " not in err
+
+
+def test_exp3_a_failed_document_keeps_its_place_between_the_others(monkeypatch, tmp_path, capsys):
+    calls = []
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls, fail_on=2))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [(row["file"], row["error"]) for row in rows] == [
+        ("SAMPLE_1.md", ""), ("SAMPLE_2.md", "RuntimeError"), ("SAMPLE_3.md", "")]
+    err = capsys.readouterr().err
+    assert f"Wrote 3 rows to {out}  (3 flagged for review)" in err
+    assert "INCOMPLETE" not in err
+
+
+def test_exp3_a_clean_run_writes_the_rows_byte_for_byte(monkeypatch, tmp_path):
+    import io
+    from pathlib import Path
+
+    calls = []
+    folder = _statements(tmp_path, 2)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    expected = io.StringIO(newline="")
+    writer = csv.DictWriter(expected, fieldnames=batch.FIELDS)
+    writer.writeheader()
+    writer.writerows(batch._csv_row(batch._row(Path(name), account))
+                     for name in ("SAMPLE_1.md", "SAMPLE_2.md") for account in _z1().accounts)
+    assert out.read_bytes() == expected.getvalue().encode("utf-8")
+
+
+def test_exp3_a_two_account_document_whose_second_row_fails_keeps_the_first(monkeypatch, tmp_path):
+    from analysis.pipeline import DocumentReport
+
+    account = _z1().accounts[0]
+    real_row, built = batch._row, []
+
+    def second_fails(path, report, zelle_true_revenue=True):
+        built.append(report)
+        if len(built) == 2:
+            raise ValueError("fabricated")
+        return real_row(path, report, zelle_true_revenue)
+
+    folder = _statements(tmp_path, 1)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "_row", second_fails)
+    monkeypatch.setattr(batch, "analyze_document", lambda markdown, **kwargs: DocumentReport(accounts=[account, account]))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [(row["file"], row["bank"] != "", row["error"]) for row in rows] == [
+        ("SAMPLE_1.md", True, ""), ("SAMPLE_1.md", False, "ValueError")]
+
+
+def test_exp3_the_telemetry_sink_is_closed_when_the_run_is_interrupted(monkeypatch, tmp_path):
+    import pytest
+
+    class Recording:
+        written, closed = 0, False
+
+        def write(self, record):
+            self.written += 1
+
+        def close(self):
+            self.closed = True
+
+    sink = Recording()
+    folder = _statements(tmp_path, 2)
+    monkeypatch.setattr(batch, "open_jsonl_sink", lambda path, run_id: sink)
+    monkeypatch.setattr(batch, "analyze_document", _counting([], interrupt_on=2))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(tmp_path / "triage.csv")])
+    with pytest.raises(KeyboardInterrupt):
+        batch.main()
+    assert sink.closed is True
+
+
+def test_exp3_the_csv_on_stdout_leaves_stdout_open(monkeypatch, tmp_path, capsys):
+    folder = _statements(tmp_path, 2)
+    monkeypatch.setattr(batch, "analyze_document", _counting([]))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    assert not sys.stdout.closed
+    rows = list(csv.DictReader(capsys.readouterr().out.splitlines()))
+    assert [row["file"] for row in rows] == ["SAMPLE_1.md", "SAMPLE_2.md"]
