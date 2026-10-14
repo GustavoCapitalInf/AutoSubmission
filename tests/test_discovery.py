@@ -359,14 +359,16 @@ def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path:
 # --- the offline guarantee --------------------------------------------------
 
 
-def test_no_model_extraction_can_happen(tree: Path, monkeypatch):
-    """parse_mode='deterministic' makes the LLM branch unreachable."""
+def test_no_model_extraction_can_happen(tree: Path):
+    """There is no extraction model to call: the hosted extractor was deleted
+    in slice S3 of the model-code removal (this test used to stub it to fail),
+    and the analysis module discovery runs holds no handle to one."""
+    import importlib.util
+
     import analysis.pipeline as pipeline
 
-    monkeypatch.setattr(
-        pipeline, "extract_statement",
-        lambda *a, **k: pytest.fail("discovery must never call the extraction model"),
-    )
+    assert not hasattr(pipeline, "extract_statement")
+    assert importlib.util.find_spec("analysis.extract") is None
     row = _runner(tree).process("BankX/statement.pdf", "BankX")
     assert row.parser_id == "chase"
 

@@ -759,8 +759,6 @@ def test_stage_version_parameter_reconstructs_the_pre_v5_key_byte_for_byte():
     "changed",
     [
         {"parse_mode": "deterministic"},
-        {"analysis_settings": _AnalysisSettings(model="gemini-other")},
-        {"analysis_settings": _AnalysisSettings(escalation_model="gemini-pro")},
         {"analysis_settings": _AnalysisSettings(withholding_denominator_mode="verified_revenue")},
     ],
 )
@@ -769,6 +767,114 @@ def test_every_analysis_knob_partitions_the_key(changed):
     assert analysis_settings_key(**baseline) != analysis_settings_key(
         **{**baseline, **changed}
     )
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"model": "gemini-other"},
+        {"escalation_model": "gemini-pro"},
+        {"model": "gemini-other", "escalation_model": "gemini-pro"},
+    ],
+)
+@pytest.mark.parametrize("parse_mode", ["auto", "deterministic"])
+def test_frozen_the_hosted_model_names_do_not_partition_the_key(changed, parse_mode):
+    """DECLARED FLIP (model-code removal, slice S3; plan D3). These two
+    entries of the parametrize above used to partition the key: the stand-in's
+    `model` / `escalation_model` named the hosted extractor. The extractor is
+    gone and the key carries both names as frozen literals for every call, so a
+    settings object that names other models now shares the default entry."""
+    baseline = analysis_settings_key(parse_mode=parse_mode, analysis_settings=_AnalysisSettings())
+    assert analysis_settings_key(
+        parse_mode=parse_mode, analysis_settings=_AnalysisSettings(**changed)
+    ) == baseline
+
+
+def _old_analysis_key_material(parse_mode: str) -> dict:
+    """The analysis key's material as `analysis_settings_key` built it at the
+    S2 head (3dc2e17) on a default environment, spelled out with literals:
+    `analysis.config.load_settings()`'s defaults for the two model names and
+    the basis, the opt-in absent, the structurer off, and the live registry."""
+    from analysis.parser_registry import registry_fingerprint
+
+    return {
+        "stage_version": 39,
+        "parse_mode": parse_mode,
+        "model": "gemini-3.5-flash-lite",
+        "escalation_model": "gemini-3.5-flash",
+        "withholding_denominator_mode": "true_revenue",
+        "parser_registry": registry_fingerprint(),
+        "reconstruction_mode": "off",
+        "generic_structurer": False,
+        "hosted_extraction_opt_in": False,
+    }
+
+
+def _clean_analysis_environment(monkeypatch) -> None:
+    for name in ("GEMINI_MODEL", "GEMINI_ESCALATION_MODEL", "GEMINI_API_KEY", "HOSTED_EXTRACTION_OPT_IN",
+                 "WITHHOLDING_DENOMINATOR_MODE", "RECONSTRUCTION_MODE", "GENERIC_STRUCTURER_ENABLED"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("parse_mode", ["auto", "deterministic"])
+def test_the_analysis_key_equals_the_old_shape_built_from_literals(monkeypatch, parse_mode):
+    """THE ANALYSIS-KEY FREEZE PIN (model-code removal, slice S3; plan D3). No
+    stored analysis is re-keyed: for both modes, with no settings object and
+    with the default `Settings`, the key is the `_fingerprint` of exactly the
+    dict the S2 head hashed, rebuilt here from literals."""
+    from analysis.config import load_settings
+    from webapp.artifact_cache import _fingerprint
+
+    _clean_analysis_environment(monkeypatch)
+    expected = _fingerprint(_old_analysis_key_material(parse_mode))
+    assert analysis_settings_key(parse_mode=parse_mode) == expected
+    assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=load_settings()) == expected
+    assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=_AnalysisSettings()) == expected
+
+
+@pytest.mark.parametrize("name,value", [
+    ("GEMINI_MODEL", "gemini-3.5-pro-experiment"),
+    ("GEMINI_ESCALATION_MODEL", "gemini-3.5-pro"),
+    # The removed opt-in, spelled from two halves so no tracked file carries the
+    # whole literal (it opened the hosted extraction until slice S3).
+    ("HOSTED_EXTRACTION_OPT_IN", "I_ACCEPT_" + "HOSTED_MODEL_EXTRACTION"),
+    ("HOSTED_EXTRACTION_OPT_IN", "1"),
+])
+@pytest.mark.parametrize("parse_mode", ["auto", "deterministic"])
+def test_the_retired_analysis_environment_no_longer_moves_the_key(monkeypatch, name, value, parse_mode):
+    """DECLARED re-key for a non-default environment only (plan D3): GEMINI_MODEL
+    and GEMINI_ESCALATION_MODEL reached the key through `load_settings()`, and
+    the exact opt-in literal through the removed fence's predicate. Nothing
+    reads them into the key now; on a default environment it is unchanged (the
+    test above), and here the override is inert."""
+    from webapp.artifact_cache import _fingerprint
+
+    _clean_analysis_environment(monkeypatch)
+    monkeypatch.setenv(name, value)
+    assert analysis_settings_key(parse_mode=parse_mode) == _fingerprint(_old_analysis_key_material(parse_mode))
+
+
+def test_computing_an_analysis_key_imports_no_pipeline_and_no_model_client():
+    """The key no longer imports `analysis.pipeline` (it read the removed
+    fence's predicate from there): a fresh process that derives both analysis
+    keys holds neither the pipeline nor any model client."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys\n"
+        "from webapp.artifact_cache import analysis_settings_key\n"
+        "analysis_settings_key(parse_mode='auto')\n"
+        "analysis_settings_key(parse_mode='deterministic')\n"
+        "banned = ('analysis.pipeline', 'analysis.extract', 'google.genai', 'openai', 'vlm')\n"
+        "print(sorted(m for m in sys.modules if any(m == b or m.startswith(b + '.') for b in banned)))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", probe], cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert result.stdout.strip().splitlines()[-1] == "[]"
 
 
 def test_analysis_key_ignores_the_api_key():
@@ -1163,13 +1269,22 @@ def test_cached_analysis_computes_once_and_partitions_on_settings(cache):
     assert second.value == {"statement": {"bank": "Test Bank"}}
     assert len(calls) == 1
 
-    # A changed extraction model re-analyzes rather than serving the old model's
-    # answer.
+    # DECLARED FLIP (model-code removal, slice S3): a stand-in naming another
+    # extraction model used to re-analyze here. The model names are frozen key
+    # material now, so it is a cache HIT.
     third = cached_analysis(
         "# md", compute=compute, cache=cache, parse_mode="auto",
         analysis_settings=_AnalysisSettings(model="gemini-other"),
     )
-    assert third.cached is False and len(calls) == 2
+    assert third.cached is True and len(calls) == 1
+
+    # A changed analysis knob that still reaches the output re-analyzes rather
+    # than serving the old answer.
+    fourth = cached_analysis(
+        "# md", compute=compute, cache=cache, parse_mode="auto",
+        analysis_settings=_AnalysisSettings(withholding_denominator_mode="verified_revenue"),
+    )
+    assert fourth.cached is False and len(calls) == 2
 
 
 def test_the_sheet_partition_is_analysis_key_material(cache):
@@ -1389,7 +1504,12 @@ def test_stages_are_independent(cache):
     cycle(_AnalysisSettings())
     assert (len(ocr_calls), len(analysis_calls)) == (1, 1)
 
+    # DECLARED FLIP (model-code removal, slice S3): another model name is frozen
+    # key material now, so this is a cache HIT on both stages.
     cycle(_AnalysisSettings(model="gemini-other"))
+    assert (len(ocr_calls), len(analysis_calls)) == (1, 1)
+
+    cycle(_AnalysisSettings(withholding_denominator_mode="verified_revenue"))
     # Re-analyzed, NOT re-read.
     assert (len(ocr_calls), len(analysis_calls)) == (1, 2)
 
@@ -1498,9 +1618,16 @@ def test_changed_analysis_settings_reanalyze_without_reocr(monkeypatch, data_dir
     _run(store)
     assert (counter.ocr, counter.analysis) == (1, 1)
 
-    # A different extraction model must not be served the old model's answer —
-    # but it must not re-OCR either.
+    # DECLARED FLIP (model-code removal, slice S3; the environment form of the
+    # frozen key): GEMINI_MODEL used to re-analyze here. Nothing reads it into
+    # the key now, so this is a cache HIT.
     monkeypatch.setenv("GEMINI_MODEL", "gemini-3.5-pro-experiment")
+    _run(store)
+    assert (counter.ocr, counter.analysis) == (1, 1)
+
+    # A changed analysis setting that still reaches the output must not be
+    # served the old answer — but it must not re-OCR either.
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "verified_revenue")
     _run(store)
     assert (counter.ocr, counter.analysis) == (1, 2)
 
@@ -1947,22 +2074,12 @@ def test_reconstruction_mode_partitions_the_analysis_settings_key():
 
 
 
-def test_hosted_extraction_opt_in_partitions_the_analysis_settings_key(monkeypatch):
-    """P22-FENCE review F3 (Ocean's composition item): a payload produced
-    with the hosted-extraction opt-in literal in the environment must not be
-    served to a process without it. The key reads the fence's own predicate
-    (`analysis.pipeline.hosted_extraction_opted_in`), so the two cannot
-    disagree about what "opted in" means."""
-    from analysis.pipeline import HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL
+# `test_hosted_extraction_opt_in_partitions_the_analysis_settings_key` (P22-FENCE
+# review F3) was deleted in slice S3 of the model-code removal with the opt-in it
+# keyed on: `hosted_extraction_opt_in` is the frozen literal False now, pinned by
+# `test_the_analysis_key_equals_the_old_shape_built_from_literals` and
+# `test_the_retired_analysis_environment_no_longer_moves_the_key`.
 
-    monkeypatch.delenv(HOSTED_EXTRACTION_OPT_IN_ENV, raising=False)
-    without = analysis_settings_key(analysis_settings=_AnalysisSettings())
-    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
-    with_literal = analysis_settings_key(analysis_settings=_AnalysisSettings())
-    assert with_literal != without
-    # Any other value is NOT the opt-in: same key as absent (the fence's rule).
-    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, "yes")
-    assert analysis_settings_key(analysis_settings=_AnalysisSettings()) == without
 
 def test_the_retired_environment_variable_does_not_touch_the_analysis_key(monkeypatch):
     """M10 at the key: `GENERIC_STRUCTURER_ENABLED` is inert."""

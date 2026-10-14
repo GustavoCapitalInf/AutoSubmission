@@ -122,9 +122,12 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     string) for every production call, so the production key is unchanged.
 
 ``analysis`` (:func:`analysis_settings_key`)
-    ``parse_mode`` (``auto`` | ``deterministic``), ``model``,
-    ``escalation_model``, ``withholding_denominator_mode`` — the whole of
-    ``analysis.config.Settings`` that reaches the output, plus
+    ``parse_mode`` (``auto`` | ``deterministic``), ``withholding_denominator_mode``
+    — the part of ``analysis.config.Settings`` that reaches the output; ``model``
+    and ``escalation_model`` (frozen key material since slice S3 of the
+    model-code removal: the literals :data:`FROZEN_ANALYSIS_MODEL` /
+    :data:`FROZEN_ANALYSIS_ESCALATION_MODEL`, the names of the removed hosted
+    extractor, never read from the settings), plus
     ``stage_version`` = :data:`ANALYSIS_STAGE_VERSION`, plus
     ``parser_registry`` = ``analysis.parser_registry.registry_fingerprint()``,
     plus ``generic_structurer`` =
@@ -153,6 +156,11 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     settings object (``structurer_enabled(analysis_settings)``) — one place
     decides what "enabled" means. ``off`` today and always: no artifact in the
     archive was written under any other value.
+
+    ``hosted_extraction_opt_in`` (P22-FENCE review F3) = the frozen literal
+    ``False`` (:data:`FROZEN_HOSTED_EXTRACTION_OPT_IN`) since slice S3: it
+    recorded whether the removed hosted extractor's operator opt-in was set,
+    and no default environment ever set it.
 
     Since Phase 2.2 the analysis INPUT hash also carries the sha of the
     evidence a geometry-fed analysis consumed (absent for text-only) — see
@@ -1095,6 +1103,20 @@ class _FrozenOcrSettings:
 
 FROZEN_OCR_SETTINGS = _FrozenOcrSettings()
 
+#: FROZEN KEY MATERIAL (model-code removal, slice S3; plan D3). The three
+#: analysis-key fields that described the hosted extractor and its opt-in:
+#: the defaults `analysis.config.load_settings()` produced on an environment
+#: that set neither GEMINI_MODEL nor GEMINI_ESCALATION_MODEL, and the opt-in
+#: absent. The extractor and the opt-in are gone; dropping or changing any of
+#: these would re-key every stored analysis, so `analysis_settings_key` writes
+#: them as these literals for every call. They name models nothing calls; they
+#: are key material only, read by nothing else. GEMINI_MODEL,
+#: GEMINI_ESCALATION_MODEL and HOSTED_EXTRACTION_OPT_IN no longer move the key
+#: (declared in the S3 report).
+FROZEN_ANALYSIS_MODEL = "gemini-3.5-flash-lite"
+FROZEN_ANALYSIS_ESCALATION_MODEL = "gemini-3.5-flash"
+FROZEN_HOSTED_EXTRACTION_OPT_IN = False
+
 #: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
 #: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
 #: unguarded ``from ocr.rasterize import RASTER_VERSION`` would let a missing
@@ -1405,12 +1427,20 @@ def analysis_settings_key(
     different sources would let the key and the rung disagree. The retired
     ``GENERIC_STRUCTURER_ENABLED`` variable is not consulted at all.
 
-    ``hosted_extraction_opt_in`` (P22-FENCE review F3, Ocean's composition
-    item) is the fence's own predicate ``hosted_extraction_opted_in()`` read
-    from the process environment: an auto-mode payload produced under the
-    opt-in literal must never be served later to a process without it (a
-    cache hit is not a call, but it is the same payload). The boolean is
-    derived by the fence, never recomposed here.
+    FROZEN KEY MATERIAL (model-code removal, slice S3; plan D3). ``model``
+    ``"gemini-3.5-flash-lite"``, ``escalation_model`` ``"gemini-3.5-flash"``
+    and ``hosted_extraction_opt_in`` ``False`` are literals for EVERY call,
+    including one that passes a settings object. They named the hosted
+    extractor (``analysis/extract.py``) and its operator opt-in, both removed:
+    nothing they described can change an analysis any more, but dropping or
+    changing any of them would re-key every stored analysis. The literals are
+    the values every default environment wrote (``analysis.config.
+    load_settings``'s defaults, and the opt-in absent), so every entry in the
+    archive keeps its key. Only a process that had overridden ``GEMINI_MODEL``
+    / ``GEMINI_ESCALATION_MODEL`` or set the exact opt-in literal re-keys once,
+    under these frozen defaults (declared). ``parse_mode`` stays real key
+    material: Auto and Deterministic only read alike now, and are still cached
+    apart, as they always were.
     """
     if analysis_settings is None:
         from analysis.config import load_settings as _load_analysis_settings
@@ -1419,20 +1449,23 @@ def analysis_settings_key(
     # Function-local, like ``analysis.config``: importing this module must stay
     # cheap, and the structurer package is only needed when a key is derived.
     from analysis.structurer import structurer_enabled
-    from analysis.pipeline import hosted_extraction_opted_in
     return _fingerprint(
         {
             "stage_version": ANALYSIS_STAGE_VERSION,
             "parse_mode": str(parse_mode),
-            "model": str(getattr(analysis_settings, "model", "")),
-            "escalation_model": str(getattr(analysis_settings, "escalation_model", "")),
+            # Frozen key material (see the docstring): never read from
+            # ``analysis_settings`` or the environment.
+            "model": FROZEN_ANALYSIS_MODEL,
+            "escalation_model": FROZEN_ANALYSIS_ESCALATION_MODEL,
             "withholding_denominator_mode": str(
                 getattr(analysis_settings, "withholding_denominator_mode", "")
             ),
             "parser_registry": registry_fingerprint(),
             "reconstruction_mode": str(getattr(analysis_settings, "reconstruction_mode", "off")),
             "generic_structurer": bool(structurer_enabled(analysis_settings)),
-            "hosted_extraction_opt_in": bool(hosted_extraction_opted_in()),
+            # Frozen key material: the removed opt-in was never set by any
+            # default environment.
+            "hosted_extraction_opt_in": FROZEN_HOSTED_EXTRACTION_OPT_IN,
         }
     )
 

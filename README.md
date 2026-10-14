@@ -48,10 +48,9 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-analysis.txt
 ```
 
-Both files are needed. They still list two packages for the retired code: `google-genai`
-(`requirements-analysis.txt`), which is imported at load time, and `openai` (`requirements.txt`), which is
-not. No API key is needed, whatever the header of `requirements-analysis.txt` says. Every command below assumes
-the venv is active.
+Both files are needed. They still list two packages for the retired code, `google-genai`
+(`requirements-analysis.txt`) and `openai` (`requirements.txt`); nothing imports either any more. No API key is
+needed, whatever the header of `requirements-analysis.txt` says. Every command below assumes the venv is active.
 
 **2. System tools.**
 
@@ -210,10 +209,11 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 
 A gitignored `.env` at the repository root is read at start and fills in any variable the shell leaves unset.
 Any variable not listed here belongs to the retired model paths: leave it unset. Above all never set
-`HOSTED_EXTRACTION_OPT_IN`, `OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`, `OCR_REMOTE_OPT_IN` or
+`OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`, `OCR_REMOTE_OPT_IN` or
 `VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN`, in the shell or in `.env`: each re-opens a model path, for the CLIs
-as much as for the web app. Do not copy the tracked `.env.*.example` templates, and empty an old `.env` of model
-settings. `run.ps1` pins those five to `0` for the web app it starts.
+as much as for the web app. `HOSTED_EXTRACTION_OPT_IN` and the `GEMINI_*` settings no longer do anything: the
+hosted extraction they opened was removed. Do not copy the tracked `.env.*.example` templates, and empty an old
+`.env` of model settings. `run.ps1` still pins all five switches to `0` for the web app it starts.
 
 ## Product rules
 

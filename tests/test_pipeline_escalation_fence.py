@@ -1,4 +1,5 @@
-"""P22-FENCE (Phase 2.2 cell F; ruling R9; Ruling A in code).
+"""P22-FENCE (Phase 2.2 cell F; ruling R9; Ruling A in code), after slice S3
+of the model-code removal (owner ruling 2026-10-13: the product uses no model).
 
 This file was committed FIRST as a characterisation (commit 034a855): every
 test in it PASSED at the cell's base (`train12` `b23cb50`, code tree
@@ -11,53 +12,38 @@ commit that removed the edge it characterised:
   reconciled the alternate, and "prefer[red] whichever extraction's summary
   reconciles, falling back to fewer overall issues" (`REPO_VALIDATOR_MEMO.md`
   §9 row 8) — Gustavo's R9 verbatim: "multiple extractions -> compare
-  financial reconciliation -> prefer whichever extraction reconciles". The
-  characterisation reproduced it on a fake extractor whose PRIMARY fails and
-  whose ALTERNATE reconciles (the base adopted the alternate: two calls,
-  `model_used == settings.escalation_model`, `escalated is True`); the
-  inverted test proves the alternate is never asked for.
-* **Edge 2 — the Class-B -> hosted hop (FENCED, this commit).** In the webapp's
-  default `parse_mode="auto"`, a dispatch that is `unclaimed`,
-  `parser_exception` or `ambiguous` fell through to `extract_statement` with
-  NO opt-in of any kind in the environment — the hop Ruling A refused as
-  doctrine ("No 'parser failure -> hosted model' hop"). The card names the
-  first two outcomes; the third reaches the SAME call site (measured at base,
-  commit 034a855) and is fenced by the same gate. Without the exact literal
-  `HOSTED_EXTRACTION_OPT_IN == <literal>` in the live process environment,
-  auto mode now raises EXACTLY what deterministic mode raises for that
-  dispatch, with `hosted_extraction == "refused_no_opt_in"` recorded on the
-  exception; with it, the ONE hosted extraction runs.
+  financial reconciliation -> prefer whichever extraction reconciles".
+* **Edge 2 — the Class-B -> hosted hop (FENCED by P22-FENCE, then REMOVED in
+  slice S3).** In the webapp's default `parse_mode="auto"`, a dispatch that is
+  `unclaimed`, `parser_exception` or `ambiguous` fell through to the hosted
+  extractor; P22-FENCE put the hop behind an exact operator opt-in literal,
+  and slice S3 deleted the extractor (`analysis/extract.py`), the opt-in and
+  the `hosted_extraction` refusal record together. Auto mode now raises
+  EXACTLY what deterministic mode raises (the anchor tests at the end).
 
-The tripwires (card item 4), each named after what it forbids rather than
-after a gate: (a) at most ONE `extract_statement` call in the module, inside
-the body `analyze_markdown` delegates to; (b) no comparison of, or selection
-between, two `reconcile(...)` results ANYWHERE in `analysis/pipeline.py` —
-defined CONCRETELY below as three layers of AST rules over the module text
-(name integrity N1–N6, selection B1–B7, re-invocation O1–O2), each layer's
-block comment naming what it does and what it deliberately does not;
-(c) the opt-in literal is in no tracked
-file but its definition; (d) deterministic mode cannot reach the hosted call,
-opt-in or not (the dynamic PRIVACY-3 tests in
-`tests/test_privacy3_boundaries.py` stay green beside the static half here).
+The hosted-path tests (the inverted edge-1 characterisation, the per-outcome
+fence and opt-in tests, the exact-literal and read-at-call-site tests, the
+literal-in-no-tracked-file scan, the fence-position pin and the opted-in
+webapp test) were deleted with their subject in slice S3; git history keeps
+them (last held at `3dc2e17`).
 
-Mutation table (the cell's W3 section records every run): M1 a second
-`extract_statement` call -> (a); M2 `if alt_recon.ok: stmt = alt` -> (b) and
-the inverted edge-1 test; M3 a truthy comparison -> the exact-literal test;
-M4 the literal read at import -> the set-after-import test; M5 auto mode
-reaching the extractor without the literal -> the per-outcome fence tests;
-M6 `escalated` derived from anything -> the pinned-False tests; M7
-deterministic mode reaching the hosted call -> (d).
+The tripwires that stay, each named after what it forbids rather than after a
+gate: (a) NO `extract_statement` call anywhere in the module (it was "at most
+one"); (b) no comparison of, or selection between, two `reconcile(...)`
+results ANYWHERE in `analysis/pipeline.py` — defined CONCRETELY below as three
+layers of AST rules over the module text (name integrity N1–N6, selection
+B1–B7, re-invocation O1–O2), each layer's block comment naming what it does and
+what it deliberately does not; `extract_statement` stays a GUARDED name with
+no canonical import, so re-importing, naming or calling it in the module, or
+defining it anywhere under `analysis/`, turns red; (d) auto mode equals
+deterministic mode for every dispatch that produces no statement.
 
-Hygiene: no network (the extractor is a monkeypatched fake at the
-`analysis.pipeline` import site); `GEMINI_API_KEY` is asserted absent; every
-fixture is synthetic furniture with invented figures and dates in 2054; the
-literal is never spelled here — it is read off the module.
+Hygiene: no network and no model (there is none to call); every fixture is
+synthetic furniture with invented figures and dates in 2054.
 """
 from __future__ import annotations
 
 import ast
-import os
-import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -65,15 +51,15 @@ import pytest
 
 from analysis import parser_registry as pr
 from analysis import pipeline
-from analysis.config import Settings, load_settings
-from analysis.schema import Statement, Transaction
 
 ROOT = Path(__file__).resolve().parent.parent
 PIPELINE_SOURCE = ROOT / "analysis" / "pipeline.py"
 
-OPT_IN_ENV = pipeline.HOSTED_EXTRACTION_OPT_IN_ENV
-OPT_IN_LITERAL = pipeline.HOSTED_EXTRACTION_OPT_IN_LITERAL
-REFUSED_NO_OPT_IN = pipeline.HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
+#: The removed opt-in's environment name and literal, kept here only to prove
+#: they are inert. The literal is spelled from two halves so no tracked file
+#: carries it whole (the deleted tripwire (c)'s rule, kept in spirit).
+RETIRED_OPT_IN_ENV = "HOSTED_EXTRACTION_OPT_IN"
+RETIRED_OPT_IN_LITERAL = "I_ACCEPT_" + "HOSTED_MODEL_EXTRACTION"
 
 #: The deterministic refusal `webapp/worker.py` allow-lists and
 #: `tests/test_escalation_router.py` pins.
@@ -96,74 +82,6 @@ AMBIGUOUS_MARKDOWN = (
     "<!-- source: s.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
     "\n\n--- Page 1 ---\nP22FENCE SYNTHETIC AMBIGUOUS REGISTRATION PROBE\n"
 )
-
-
-def _statement(amount: float) -> Statement:
-    """One posting of `amount` between a 1,000.00 opening and a 1,500.00
-    closing, no stated totals. `reconcile`'s only check that can fire is the
-    sum identity (`ok = not issues`; `summary_ok` stays `None` without stated
-    totals), so `amount == 500.0` reconciles and anything else does not."""
-    return Statement(
-        bank=None,
-        period_start="2054-01-01",
-        period_end="2054-01-31",
-        beginning_balance=1000.00,
-        ending_balance=1500.00,
-        transactions=[Transaction(
-            date="2054-01-05",
-            description="A POSTING",
-            amount=amount,
-            direction="credit",
-        )],
-    )
-
-
-def _failing_statement() -> Statement:
-    return _statement(100.00)
-
-
-def _reconciling_statement() -> Statement:
-    return _statement(500.00)
-
-
-class _FakeExtractor:
-    """Stands in for `analysis.pipeline.extract_statement` and COUNTS: `calls`
-    is the list of `model=` arguments in call order. `by_model` maps a model
-    name to a factory so every call returns a fresh Statement; a model with
-    no factory is an unexpected call and fails loudly."""
-
-    def __init__(self, by_model):
-        self.by_model = by_model
-        self.calls: list[str | None] = []
-
-    def __call__(self, markdown, *, settings=None, model=None):
-        self.calls.append(model)
-        if model not in self.by_model:
-            raise AssertionError(f"unexpected hosted extraction with model {model!r}")
-        return self.by_model[model]()
-
-
-def _settings() -> Settings:
-    """Two DIFFERENT model names: the removed selection required
-    `escalation_model != model`, so this is the setting under which it WOULD
-    fire if it were ever re-added."""
-    return Settings(api_key="", model="model-a", escalation_model="model-b")
-
-
-@pytest.fixture
-def clean_environment(monkeypatch):
-    """No hosted key, no opt-in of any kind, no structurer: the environment an
-    ordinary webapp process has."""
-    assert "GEMINI_API_KEY" not in os.environ, "GEMINI_API_KEY must never be set"
-    monkeypatch.delenv(OPT_IN_ENV, raising=False)
-    monkeypatch.delenv("GENERIC_STRUCTURER_ENABLED", raising=False)
-
-
-@pytest.fixture
-def opted_in(clean_environment, monkeypatch):
-    """The operator's deliberate act: the exact literal, in the environment,
-    set AFTER `analysis.pipeline` was imported (which it was, at collection)."""
-    monkeypatch.setenv(OPT_IN_ENV, OPT_IN_LITERAL)
 
 
 @contextmanager
@@ -215,230 +133,31 @@ def _no_registration():
     yield
 
 
-#: The three dispatch outcomes that reach the hosted call site, each with the
-#: fixture that produces it, the exception deterministic mode raises for it,
-#: and the review flag the hosted path carries it as.
+#: The three dispatch outcomes that produce no statement (the ones that reached
+#: the removed hosted call site), each with the fixture that produces it, the
+#: exception deterministic mode raises for it, and the page text the fixture's
+#: one sheet carries (for the worker's own seam).
 OUTCOMES = {
-    "unclaimed": (UNCLAIMED_MARKDOWN, _no_registration, RuntimeError, None),
-    "parser_exception": (CRASHING_MARKDOWN, _crashing_registration, pr.ParserCrashError, "parser_exception"),
-    "ambiguous": (AMBIGUOUS_MARKDOWN, _ambiguous_registrations, pr.AmbiguousParserError, "parser_ambiguous"),
+    "unclaimed": (UNCLAIMED_MARKDOWN, _no_registration, RuntimeError,
+                  "completely unrecognisable text, no template furniture"),
+    "parser_exception": (CRASHING_MARKDOWN, _crashing_registration, pr.ParserCrashError,
+                         "P22FENCE SYNTHETIC CRASHING REGISTRATION PROBE"),
+    "ambiguous": (AMBIGUOUS_MARKDOWN, _ambiguous_registrations, pr.AmbiguousParserError,
+                  "P22FENCE SYNTHETIC AMBIGUOUS REGISTRATION PROBE"),
 }
 
 
 # ---------------------------------------------------------------------------
-# Edge 1 — the reconciliation-based selection between two hosted extractions
+# `escalated` is pinned False (M6), and tripwire (a): no extraction call at all
 # ---------------------------------------------------------------------------
-
-
-def test_the_alternate_extraction_that_reconciles_is_never_adopted(opted_in, monkeypatch):
-    """THE INVERTED CHARACTERISATION (R9). At the base tree this test, under
-    its former name `test_characterisation_base_adopts_the_alternate_
-    extraction_that_reconciles` (commit 034a855), PASSED on the unsafe
-    behaviour: the primary extraction failed reconciliation, so the base
-    extracted AGAIN with `settings.escalation_model`, reconciled that, and
-    ADOPTED it because its reconciliation passed — two hosted calls,
-    `model_used == settings.escalation_model`, `escalated is True`.
-
-    Now the same fixture — an alternate that WOULD reconcile if asked for —
-    is never asked for. Exactly ONE hosted call, with `settings.model`; the
-    primary's failed reconciliation STANDS (a failing validator is a finding,
-    not a search objective); `escalated` is pinned False. Mutant M2 (re-adding
-    `if alt_recon.ok: stmt = alt`) turns the call count back to two and the
-    adopted amount back to the alternate's, and fails here."""
-    fake = _FakeExtractor({
-        "model-a": _failing_statement,
-        "model-b": _reconciling_statement,
-    })
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-    settings = _settings()
-
-    report = pipeline.analyze_markdown(
-        UNCLAIMED_MARKDOWN, parse_mode="auto", settings=settings,
-    )
-
-    assert fake.calls == [settings.model], (
-        "a second hosted extraction ran — the R9 selection is back"
-    )
-    assert settings.escalation_model not in fake.calls
-    assert report.model_used == settings.model
-    assert report.escalated is False
-    assert report.reconciliation.ok is False, (
-        "the primary's failed reconciliation must stand; nothing may be "
-        "adopted because it reconciles"
-    )
-    assert [t.amount for t in report.statement.transactions] == [100.00]
-
-
-# ---------------------------------------------------------------------------
-# Edge 2 — the auto-mode Class-B -> hosted hop, fenced (M5)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("outcome", list(OUTCOMES))
-def test_without_the_literal_auto_mode_takes_the_deterministic_outcome(
-    outcome, clean_environment, monkeypatch,
-):
-    """THE INVERTED CHARACTERISATION of edge 2 (Ruling A). At base each of
-    these dispatches reached the hosted extractor in auto mode with nothing
-    set (commit 034a855). Now, with the variable ABSENT, auto mode raises the
-    SAME class with the SAME message deterministic mode raises for the
-    dispatch — the document takes the deterministic-mode outcome
-    (`failed / no_parser_matched`, `review / parser_exception`,
-    `review / parser_ambiguous` in the telemetry vocabulary, exactly as
-    deterministic mode is classified today) — the extractor is never called,
-    and the refusal is recorded on the exception object, where the
-    deterministic-mode exception carries no such record."""
-    markdown, registrations, expected, _flag = OUTCOMES[outcome]
-    fake = _FakeExtractor({})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-    settings = _settings()
-
-    with registrations():
-        with pytest.raises(expected) as deterministic:
-            pipeline.analyze_markdown(markdown, parse_mode="deterministic", settings=settings)
-        with pytest.raises(expected) as auto:
-            pipeline.analyze_markdown(markdown, parse_mode="auto", settings=settings)
-
-    assert fake.calls == [], "auto mode reached the hosted extractor with no opt-in"
-    assert type(auto.value) is type(deterministic.value)
-    # Re-review N1: the message is the deterministic message, BYTE FOR BYTE —
-    # a closed suffix was tried between the two closures and reverted because
-    # the webapp's exact-match allow-list then withheld the one actionable
-    # refusal. The attribute is the refusal's only record on the object; a
-    # durable record is the worker owner's (publish the attribute when present).
-    assert str(auto.value) == str(deterministic.value)
-    assert auto.value.hosted_extraction == REFUSED_NO_OPT_IN
-    assert not hasattr(deterministic.value, "hosted_extraction")
-    if outcome == "unclaimed":
-        assert str(auto.value) == NO_PARSER_MATCHED
-
-
-def test_the_refusal_token_is_closed_and_never_in_the_message():
-    assert REFUSED_NO_OPT_IN == "refused_no_opt_in"
-    assert not hasattr(pipeline, "HOSTED_EXTRACTION_REFUSAL_SUFFIX")
-
-
-@pytest.mark.parametrize("outcome", list(OUTCOMES))
-def test_with_the_literal_the_single_hosted_extraction_runs(outcome, opted_in, monkeypatch):
-    """The operator opted in: the ONE hosted extraction runs, with
-    `settings.model`, once; the dispatch's finding is carried as its review
-    flag exactly as the base carried it; nothing escalates."""
-    markdown, registrations, _expected, flag = OUTCOMES[outcome]
-    fake = _FakeExtractor({"model-a": _reconciling_statement})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-    settings = _settings()
-
-    with registrations():
-        report = pipeline.analyze_markdown(markdown, parse_mode="auto", settings=settings)
-
-    assert fake.calls == [settings.model]
-    assert report.model_used == settings.model
-    assert report.escalated is False
-    if flag is not None:
-        assert flag in report.integrity.flags
-
-
-# ---------------------------------------------------------------------------
-# The literal: exact, read at the call site, never widening deterministic mode
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("value", [
-    "1", "true", "yes", "TRUE",
-    OPT_IN_LITERAL.lower(),
-    OPT_IN_LITERAL + "\n",
-    " " + OPT_IN_LITERAL,
-    OPT_IN_LITERAL + " ",
-    "I_ACCEPT_REMOTE_PAID_OCR",       # the OCR rung's literal does not stand in
-], ids=["1", "true", "yes", "TRUE", "lowercase", "trailing-newline",
-        "leading-space", "trailing-space", "the-ocr-literal"])
-def test_only_the_exact_literal_opts_in(value, clean_environment, monkeypatch):
-    """M3: a truthy comparison (`if os.environ.get(...)`) admits "1" and every
-    other value here; the exact `==` admits none of them."""
-    fake = _FakeExtractor({})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-    monkeypatch.setenv(OPT_IN_ENV, value)
-
-    with pytest.raises(RuntimeError, match=NO_PARSER_MATCHED) as refused:
-        pipeline.analyze_markdown(UNCLAIMED_MARKDOWN, parse_mode="auto", settings=_settings())
-
-    assert fake.calls == []
-    assert refused.value.hosted_extraction == REFUSED_NO_OPT_IN
-    assert pipeline.hosted_extraction_opted_in() is False
-
-
-def test_the_literal_is_read_at_the_call_site_not_at_import(clean_environment, monkeypatch):
-    """M4: `analysis.pipeline` was imported at collection with the variable
-    absent. A module-level read would have frozen `False`; the call-site read
-    sees the variable set NOW, and sees it unset again in the same process."""
-    fake = _FakeExtractor({"model-a": _reconciling_statement})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-    settings = _settings()
-
-    monkeypatch.setenv(OPT_IN_ENV, OPT_IN_LITERAL)
-    pipeline.analyze_markdown(UNCLAIMED_MARKDOWN, parse_mode="auto", settings=settings)
-    assert fake.calls == [settings.model]
-
-    monkeypatch.delenv(OPT_IN_ENV)
-    with pytest.raises(RuntimeError, match=NO_PARSER_MATCHED):
-        pipeline.analyze_markdown(UNCLAIMED_MARKDOWN, parse_mode="auto", settings=settings)
-    assert fake.calls == [settings.model], "a call happened with the variable unset"
-
-
-def test_the_injection_seam_compares_exactly():
-    assert pipeline.hosted_extraction_opted_in({}) is False
-    assert pipeline.hosted_extraction_opted_in({OPT_IN_ENV: OPT_IN_LITERAL}) is True
-    assert pipeline.hosted_extraction_opted_in({OPT_IN_ENV: "1"}) is False
-    assert pipeline.hosted_extraction_opted_in({OPT_IN_ENV: OPT_IN_LITERAL.lower()}) is False
-
-
-@pytest.mark.parametrize("outcome", list(OUTCOMES))
-def test_deterministic_mode_never_reaches_the_hosted_call_even_when_opted_in(
-    outcome, opted_in, monkeypatch,
-):
-    """Tripwire (d), dynamic half, M7. The opt-in widens AUTO mode only:
-    deterministic mode — every run of record, discovery, the gate, the corpus
-    slice — raises before the fence is even evaluated, literal or no literal.
-    (`tests/test_privacy3_boundaries.py` proves the same with the structurer
-    on; both must stay green.)"""
-    markdown, registrations, expected, _flag = OUTCOMES[outcome]
-    fake = _FakeExtractor({"model-a": _reconciling_statement})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-
-    with registrations():
-        with pytest.raises(expected) as refused:
-            pipeline.analyze_markdown(markdown, parse_mode="deterministic", settings=_settings())
-
-    assert fake.calls == []
-    assert not hasattr(refused.value, "hosted_extraction"), (
-        "deterministic mode reached the fence: it must raise before it"
-    )
-
-
-# ---------------------------------------------------------------------------
-# `escalated` is pinned False (M6)
-# ---------------------------------------------------------------------------
-
-
-def test_escalated_is_false_on_the_hosted_path_whose_primary_fails(opted_in, monkeypatch):
-    """The one shape the removed block escalated on: a hosted result that
-    fails reconciliation with an alternate model configured. Pinned False, and
-    the alternate model is never consulted."""
-    fake = _FakeExtractor({"model-a": _failing_statement, "model-b": _reconciling_statement})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-    settings = _settings()
-
-    report = pipeline.analyze_markdown(UNCLAIMED_MARKDOWN, parse_mode="auto", settings=settings)
-
-    assert report.escalated is False
-    assert report.model_used == settings.model
-    assert fake.calls == [settings.model]
 
 
 def test_escalated_is_assigned_only_the_constant_false_in_the_module():
     """Static half of M6: every binding of the name `escalated` in
     `analysis/pipeline.py` is the constant `False` — never a tuple unpack, an
-    augmented assignment, a walrus, or a computed value."""
+    augmented assignment, a walrus, or a computed value. (Its dynamic half ran
+    on the hosted path and was deleted with it in slice S3; the field stays on
+    every payload for shape stability.)"""
     tree = ast.parse(PIPELINE_SOURCE.read_text(encoding="utf-8"))
     bindings = []
     for node in ast.walk(tree):
@@ -459,11 +178,6 @@ def test_escalated_is_assigned_only_the_constant_false_in_the_module():
         assert isinstance(node.value, ast.Constant) and node.value.value is False, ast.unparse(node)
 
 
-# ---------------------------------------------------------------------------
-# Tripwire (a): at most ONE `extract_statement` call, where `analyze_markdown` delegates
-# ---------------------------------------------------------------------------
-
-
 def _calls_to(tree: ast.AST, name: str) -> list[ast.Call]:
     return [
         node for node in ast.walk(tree)
@@ -481,59 +195,18 @@ def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
     raise AssertionError(f"{name} is not a top-level function of analysis/pipeline.py")
 
 
-def test_at_most_one_extract_statement_call_in_the_module_inside_the_analysis_body():
-    """M1: a second call anywhere — guarded however it likes — fails here.
-    `analyze_markdown` is a thin call onto `_analyse`, which is where the one
-    call lives; the card's "analyze_markdown contains at most ONE" is read
-    over that delegation, and the delegation itself is pinned."""
+def test_no_extract_statement_call_in_the_module():
+    """Tripwire (a), tightened in slice S3 from "at most ONE call, inside the
+    body `analyze_markdown` delegates to" to NONE: the hosted extractor is
+    deleted, so any call — guarded however it likes — fails here (and the name
+    rules below refuse the name before it can be called). The delegation
+    `analyze_markdown` -> `_analyse` is still pinned."""
     tree = ast.parse(PIPELINE_SOURCE.read_text(encoding="utf-8"))
-    calls = _calls_to(tree, "extract_statement")
-    assert len(calls) <= 1, f"{len(calls)} extract_statement calls in analysis/pipeline.py"
-    assert len(_calls_to(_function(tree, "analyze_markdown"), "extract_statement")) == 0
+    assert _calls_to(tree, "extract_statement") == []
     assert _calls_to(_function(tree, "analyze_markdown"), "_analyse"), (
         "analyze_markdown no longer delegates to _analyse"
     )
-    if calls:
-        assert _calls_to(_function(tree, "_analyse"), "extract_statement") == calls
-
-
-def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence():
-    """Static half of tripwires (d) and M5: in the statement list that holds
-    the one `extract_statement` call, an `if parse_mode == 'deterministic':
-    raise ...` precedes it, and `if not hosted_extraction_opted_in(): raise
-    ...` sits between that raise and the call. Nothing else may stand between
-    the fence and the call."""
-    tree = ast.parse(PIPELINE_SOURCE.read_text(encoding="utf-8"))
-    [call] = _calls_to(tree, "extract_statement")
-    parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
-    statement = call
-    while not isinstance(statement, ast.stmt):
-        statement = parents[statement]
-    block = parents[statement]
-    siblings = next(
-        field for field in ("body", "orelse", "finalbody")
-        if isinstance(getattr(block, field, None), list) and statement in getattr(block, field)
-    )
-    stmts = getattr(block, siblings)
-    index = stmts.index(statement)
-    before = stmts[:index]
-
-    def _guard(node, test_source):
-        return (
-            isinstance(node, ast.If)
-            and ast.unparse(node.test) == test_source
-            and len(node.body) == 1 and isinstance(node.body[0], ast.Raise)
-            and not node.orelse
-        )
-
-    deterministic = [i for i, node in enumerate(before) if _guard(node, "parse_mode == 'deterministic'")]
-    fence = [i for i, node in enumerate(before) if _guard(node, "not hosted_extraction_opted_in()")]
-    assert deterministic, "the deterministic-mode raise no longer precedes the hosted call"
-    assert fence, "the fence no longer precedes the hosted call"
-    assert deterministic[-1] < fence[-1] == index - 1, (
-        "the fence must be the statement immediately before the hosted call, "
-        "after the deterministic-mode raise"
-    )
+    assert not hasattr(pipeline, "extract_statement")
 
 
 # ---------------------------------------------------------------------------
@@ -544,13 +217,16 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 #
 # THE CHECK, CONCRETELY. Three layers over the whole text of `analysis/pipeline.py`.
 #
-# NAME INTEGRITY (`name_integrity_violations`): the identifiers `reconcile` and
-# `extract_statement` are the ONLY handles to the two functions; each is bound
-# exactly once, by its canonical import, and is used only to CALL:
-#   N1  `from .reconcile import reconcile` and `from .extract import
-#       extract_statement` are the only bindings — exactly one `ImportFrom` per
-#       name, relative level 1, no `asname`, and the modules `reconcile` /
-#       `extract` are named by no other `Import` / `ImportFrom`;
+# NAME INTEGRITY (`name_integrity_violations`): the identifier `reconcile` is
+# the ONLY handle to its function; it is bound exactly once, by its canonical
+# import, and is used only to CALL. `extract_statement` stays a GUARDED name
+# with NO canonical import since slice S3 of the model-code removal deleted
+# its module: it may not be imported, named or called at all (a RETIRED name):
+#   N1  `from .reconcile import reconcile` is the only binding of `reconcile` —
+#       exactly one `ImportFrom`, relative level 1, no `asname`; the module
+#       `reconcile` is named by no other `Import` / `ImportFrom`, and the module
+#       `extract` and the retired name `extract_statement` by none at all; the
+#       retired name appears nowhere in the module, not even as a call;
 #   N2  neither name is ever a Store/Del target, a parameter, a `global` /
 #       `nonlocal`, a walrus, `for`, `with` or comprehension target, or an
 #       import alias;
@@ -628,16 +304,22 @@ def test_the_one_hosted_call_sits_behind_the_deterministic_raise_and_the_fence()
 #
 # What no single-module scan can see: a helper whose body lives in ANOTHER
 # module — hence the module-wide guard below over every module under
-# `analysis/`, INCLUDING the two definers (re-review N4: their own `def` is
-# the one binding each may carry).
+# `analysis/`, INCLUDING the definer (re-review N4: its own `def` is the one
+# binding it may carry; since slice S3 `reconcile.py` is the only definer, and
+# a module under `analysis/` that defines `extract_statement` again is refused).
 
+#: Both stay GUARDED: `extract_statement` (the removed hosted extractor) is kept
+#: here on purpose, so that any reintroduction — an import, a name, a call, an
+#: attribute, a string, a definition anywhere under `analysis/` — turns red.
 GUARDED_NAMES = frozenset({"reconcile", "extract_statement"})
 #: guarded name -> (the relative module it is imported from, the names that
-#: canonical `ImportFrom` may carry)
+#: canonical `ImportFrom` may carry). `extract_statement` has NO entry since
+#: slice S3: there is no permitted import of it, and so no permitted use.
 CANONICAL_IMPORTS = {
     "reconcile": ("reconcile", frozenset({"reconcile", "ReconResult"})),
-    "extract_statement": ("extract", frozenset({"extract_statement"})),
 }
+#: The guarded names with no canonical import: not even a call is permitted.
+RETIRED_NAMES = GUARDED_NAMES - frozenset(CANONICAL_IMPORTS)
 GUARDED_MODULES = frozenset({"reconcile", "extract"})
 DYNAMIC_DOORS = frozenset({
     "getattr", "setattr", "globals", "locals", "vars", "__import__", "eval", "exec", "compile",
@@ -699,7 +381,7 @@ def name_integrity_violations(source: str) -> list[str]:
     tree = ast.parse(source)
     parents = _parents(tree)
     violations: list[str] = []
-    canonical_count = {name: 0 for name in GUARDED_NAMES}
+    canonical_count = {name: 0 for name in CANONICAL_IMPORTS}
     only_called = GUARDED_NAMES | {"_analyse"}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
@@ -707,7 +389,11 @@ def name_integrity_violations(source: str) -> list[str]:
             for alias in node.names:
                 if alias.asname in only_called:
                     violations.append(f"N2 `{alias.name}` imported as guarded name `{alias.asname}`")
-                if alias.name in GUARDED_NAMES:
+                if alias.name in RETIRED_NAMES:
+                    violations.append(
+                        f"N1 `{alias.name}` imported from {'.' * node.level}{node.module}: it has no permitted import"
+                    )
+                elif alias.name in GUARDED_NAMES:
                     wanted_module, _allowed = CANONICAL_IMPORTS[alias.name]
                     if alias.asname is not None:
                         violations.append(f"N1 `{alias.name}` imported as `{alias.asname}`")
@@ -718,13 +404,18 @@ def name_integrity_violations(source: str) -> list[str]:
                 elif alias.name in GUARDED_MODULES and (node.module in (None, "", "analysis") or module == "analysis"):
                     violations.append(f"N1 module `{alias.name}` imported via `from {'.' * node.level}{node.module or ''} import`")
             if module in GUARDED_MODULES and (node.module or "") in GUARDED_MODULES | {f"analysis.{m}" for m in GUARDED_MODULES}:
-                guarded = next(name for name, (mod, _a) in CANONICAL_IMPORTS.items() if mod == module)
-                allowed = CANONICAL_IMPORTS[guarded][1]
-                for alias in node.names:
-                    if alias.name not in allowed or alias.asname is not None:
-                        violations.append(f"N1 `from {'.' * node.level}{node.module} import {alias.name}` is not the canonical import")
-                if node.level != 1:
-                    violations.append(f"N1 `{node.module}` imported at level {node.level}")
+                guarded = next((name for name, (mod, _a) in CANONICAL_IMPORTS.items() if mod == module), None)
+                if guarded is None:
+                    # The module of a retired name (`extract`, slice S3): no
+                    # import from it is canonical, whatever it names.
+                    violations.append(f"N1 `{ast.unparse(node)}`: the module `{module}` has no permitted import")
+                else:
+                    allowed = CANONICAL_IMPORTS[guarded][1]
+                    for alias in node.names:
+                        if alias.name not in allowed or alias.asname is not None:
+                            violations.append(f"N1 `from {'.' * node.level}{node.module} import {alias.name}` is not the canonical import")
+                    if node.level != 1:
+                        violations.append(f"N1 `{node.module}` imported at level {node.level}")
             if any(alias.name.split(".")[0] in FORBIDDEN_IMPORTS for alias in node.names) or (node.module or "").split(".")[0] in FORBIDDEN_IMPORTS:
                 violations.append(f"N6 import of a dynamic door: {ast.unparse(node)}")
         elif isinstance(node, ast.Import):
@@ -736,6 +427,8 @@ def name_integrity_violations(source: str) -> list[str]:
                 if leaf in GUARDED_MODULES or alias.asname in only_called:
                     violations.append(f"N1 `{ast.unparse(node)}`")
         elif isinstance(node, ast.Name) and node.id in only_called:
+            if node.id in RETIRED_NAMES:
+                violations.append(f"N1 the retired name `{node.id}` appears: {ast.unparse(parents[node])}")
             if not isinstance(node.ctx, ast.Load):
                 violations.append(f"N2 `{node.id}` bound: {ast.unparse(parents[node])}")
             else:
@@ -934,7 +627,10 @@ def _mutant(*edits: tuple[str, str]) -> str:
 ANCHOR_ESCALATED = "    escalated = False\n"
 ANCHOR_RECON = "    recon = reconcile(stmt, parser_id=claiming)\n"
 ANCHOR_IMPORT_RECONCILE = "from .reconcile import reconcile, ReconResult\n"
-ANCHOR_IMPORT_EXTRACT = "from .extract import extract_statement\n"
+#: Was the anchor `from .extract import extract_statement`; that import left with
+#: the module in slice S3, so the import mutants below anchor on the reconcile
+#: import, and re-adding the removed import is itself a mutant.
+REMOVED_IMPORT_EXTRACT = "from .extract import extract_statement\n"
 ANCHOR_DEF_ANALYSE = "def _analyse(markdown: str, *, settings: Settings | None = None,\n"
 
 
@@ -1217,20 +913,23 @@ def test_a_module_level_lambda_that_calls_analyse_is_caught_too():
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _r = reconcile\n    alt_recon = _r(stmt, parser_id=claiming)\n"),), "N3"),
     (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from .reconcile import reconcile as verify\n"),), "N1"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _hosted = extract_statement\n"),), "N3"),
-    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from .extract import extract_statement as _second\n"),), "N1"),
-    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from . import extract as _extract_module\n"),), "N1"),
-    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from . import extract as _ex\n"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + REMOVED_IMPORT_EXTRACT),), "N1"),
+    (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    stmt = extract_statement(markdown)\n"),), "N1"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from .extract import extract_statement as _second\n"),), "N1"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from . import extract as _extract_module\n"),), "N1"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from . import extract as _ex\n"),
       (ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _ex.extract_statement\n")), "N4"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _f = getattr(os, \"extract_statement\")\n"),), "N5"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _f = getattr(os, \"path\")\n"),), "N6"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _f = globals()[\"extract_statement\"]\n"),), "N6"),
-    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "import importlib\n"),), "N6"),
-    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "import analysis.extract\n"),), "N1"),
-    (((ANCHOR_IMPORT_EXTRACT, ANCHOR_IMPORT_EXTRACT + "from .config import Settings as reconcile\n"),), "N2"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "import importlib\n"),), "N6"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "import analysis.extract\n"),), "N1"),
+    (((ANCHOR_IMPORT_RECONCILE, ANCHOR_IMPORT_RECONCILE + "from .config import Settings as reconcile\n"),), "N2"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    reconcile = None\n"),), "N2"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _m = __import__(\"sys\").modules\n"),), "N6"),
     (((ANCHOR_ESCALATED, ANCHOR_ESCALATED + "    _run = _analyse\n"),), "N3"),
-], ids=["alias-reconcile", "import-as-reconcile", "alias-extract", "import-as-extract",
+], ids=["alias-reconcile", "import-as-reconcile", "alias-extract", "reimport-removed-extract",
+        "call-removed-extract", "import-as-extract",
         "module-import-as", "module-attribute", "getattr-string", "getattr-any", "globals-lookup",
         "importlib", "absolute-module-import", "asname-shadow", "rebinding", "dunder-import",
         "alias-analyse"])
@@ -1248,18 +947,21 @@ def test_a_reconcile_inside_a_comprehension_or_while_is_caught():
         assert any(v.startswith(("B2", "B3", "B5")) for v in violations), (shape, violations)
 
 
-# --- the module-wide guard: every module under analysis/, the definers included
+# --- the module-wide guard: every module under analysis/, the definer included
 
 
 ANALYSIS_ROOT = ROOT / "analysis"
-DEFINERS = {"analysis/reconcile.py": "reconcile", "analysis/extract.py": "extract_statement"}
+#: `analysis/extract.py` -> `extract_statement` left this map in slice S3 with
+#: the module: no module under `analysis/` may define `extract_statement` now.
+DEFINERS = {"analysis/reconcile.py": "reconcile"}
 
 
 def module_guard_violations(relative: str, source: str) -> list[str]:
     """For one module under `analysis/` other than `pipeline.py`: it may not
     import, alias, bind or reach `reconcile` / `extract_statement`. A definer
     may carry exactly its own `def` (and call itself) and nothing else of
-    either name — re-review N4 closed the wholesale exemption."""
+    either name — re-review N4 closed the wholesale exemption. Since slice S3
+    no module may define `extract_statement` at all."""
     tree = ast.parse(source)
     parents = _parents(tree)
     own = DEFINERS.get(relative)
@@ -1295,8 +997,10 @@ def module_guard_violations(relative: str, source: str) -> list[str]:
 def test_no_other_module_under_analysis_imports_reconcile_or_extract_statement():
     """The module-wide guard (review F1 item 3; re-review N4): no module under
     `analysis/` other than `pipeline.py` may bind, import, alias or reach
-    `reconcile` / `extract_statement` — the two definers included, each
-    allowed exactly its own top-level `def`."""
+    `reconcile` / `extract_statement` — the definer included, allowed exactly
+    its own top-level `def`; and `analysis/extract.py` is gone."""
+    import importlib.util
+
     offenders: list[str] = []
     for path in sorted(ANALYSIS_ROOT.rglob("*.py")):
         relative = path.relative_to(ROOT).as_posix()
@@ -1304,140 +1008,112 @@ def test_no_other_module_under_analysis_imports_reconcile_or_extract_statement()
             continue
         offenders.extend(module_guard_violations(relative, path.read_text(encoding="utf-8")))
     assert offenders == [], offenders
+    assert not (ANALYSIS_ROOT / "extract.py").exists()
+    assert importlib.util.find_spec("analysis.extract") is None
 
 
 @pytest.mark.parametrize("relative,edit", [
-    ("analysis/extract.py", "from .reconcile import reconcile\n"),
-    ("analysis/extract.py", "from . import reconcile as _rc\n"),
     ("analysis/reconcile.py", "from .extract import extract_statement\n"),
     ("analysis/reconcile.py", "_alias = reconcile\n"),
-], ids=["extract-imports-reconcile", "extract-imports-module", "reconcile-imports-extract", "reconcile-aliases-itself"])
+], ids=["reconcile-imports-extract", "reconcile-aliases-itself"])
 def test_a_definer_reaching_the_other_name_or_aliasing_its_own_is_caught(relative, edit):
     """Re-review N4's probe: a `reconcile` import added to `extract.py` passed
-    the wholesale exemption. The definers are now scanned like every other
-    module, their own `def` being the one binding allowed."""
+    the wholesale exemption. The definer is scanned like every other module,
+    its own `def` being the one binding allowed. (The two `extract.py` cases
+    left with that module in slice S3; the next test replaces them.)"""
     source = (ROOT / relative).read_text(encoding="utf-8")
     assert module_guard_violations(relative, source) == []
     assert module_guard_violations(relative, source + "\n" + edit) != []
 
 
-# ---------------------------------------------------------------------------
-# Tripwire (c): the literal is in no tracked file but its definition
-# ---------------------------------------------------------------------------
-
-
-def _tracked_files() -> list[str]:
-    listing = subprocess.run(
-        ["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, check=True,
-    ).stdout
-    return [path for path in listing.decode("utf-8").split("\0") if path]
-
-
-def test_the_opt_in_literal_appears_in_no_tracked_file_but_its_definition():
-    """Every TRACKED file outside `docs/`, of every type, read as bytes: the
-    literal occurs exactly once in the whole tree, in `analysis/pipeline.py`
-    (its definition). A `.env`, a workflow, a script, a settings file, a
-    fixture or a test that spelled it would be a tracked opt-in, which is the
-    one thing an opt-in must never be.
-
-    `docs/` is prose — the cards that RULED the literal name it, and a document
-    cannot set an environment variable — but nothing under `docs/` that could
-    be executed or sourced may carry it either: only `.md` files there may.
-
-    `git ls-files`, not a filesystem walk, on purpose: an untracked local
-    `.env` carrying the literal is exactly the operator's deliberate act this
-    fence exists to require, not a violation."""
-    tracked = _tracked_files()
-    assert len(tracked) > 100, "not looking at the repository"
-    needle = OPT_IN_LITERAL.encode("utf-8")
-    hits: dict[str, int] = {}
-    docs_hits: list[str] = []
-    for relative in tracked:
-        path = ROOT / relative
-        if not path.is_file():
-            continue
-        count = path.read_bytes().count(needle)
-        if not count:
-            continue
-        if relative.startswith("docs/"):
-            if not relative.endswith(".md"):
-                docs_hits.append(relative)
-            continue
-        hits[relative] = count
-    assert hits == {"analysis/pipeline.py": 1}, hits
-    assert docs_hits == [], docs_hits
-
-
-def test_this_file_never_spells_the_literal():
-    assert OPT_IN_LITERAL.encode("utf-8") not in Path(__file__).read_bytes()
+@pytest.mark.parametrize("relative,source", [
+    ("analysis/extract.py", "def extract_statement(markdown, *, settings=None, model=None):\n    return None\n"),
+    ("analysis/hosted.py", "def extract_statement(markdown):\n    return None\n"),
+    ("analysis/hosted.py", "from .reconcile import reconcile\n"),
+], ids=["the-deleted-definer-restored", "a-new-definer", "a-new-module-imports-reconcile"])
+def test_restoring_or_moving_the_hosted_extractor_under_analysis_is_caught(relative, source):
+    """Slice S3: `extract_statement` has no definer. Restoring
+    `analysis/extract.py` with its `def`, defining the name in any other module
+    under `analysis/`, or a new module reaching `reconcile`, is refused by the
+    same module-wide guard."""
+    assert module_guard_violations(relative, source) != []
 
 
 # ---------------------------------------------------------------------------
-# The webapp's auto mode, through the worker's own analysis seam
+# THE ANCHOR (model-code removal, slice S3; plan D2): auto equals deterministic
 # ---------------------------------------------------------------------------
 
 
-def _document():
+def _raised(markdown: str, parse_mode: str, entry: str) -> BaseException:
+    analyse = pipeline.analyze_document if entry == "document" else pipeline.analyze_markdown
+    with pytest.raises(RuntimeError) as raised:
+        analyse(markdown, parse_mode=parse_mode)
+    return raised.value
+
+
+@pytest.mark.parametrize("retired_opt_in", [None, RETIRED_OPT_IN_LITERAL, "1"],
+                         ids=["opt-in-unset", "old-opt-in-literal", "opt-in-truthy"])
+@pytest.mark.parametrize("entry", ["markdown", "document"])
+@pytest.mark.parametrize("outcome", list(OUTCOMES))
+def test_auto_equals_deterministic(outcome, entry, retired_opt_in, monkeypatch):
+    """Adapted from P22-FENCE's card-item-5 test (auto without the literal ==
+    deterministic). For every dispatch that produces no statement — `unclaimed`,
+    `parser_exception`, `ambiguous` — auto mode raises the SAME class with the
+    SAME message (and the same args) as deterministic mode, through both entry
+    points, and neither carries a `hosted_extraction` record: there is no
+    hosted path left to refuse. The removed opt-in, set to its old exact
+    literal or to anything else, changes nothing (declared: until slice S3 the
+    exact literal sent auto mode to the hosted extractor)."""
+    markdown, registrations, expected, _page = OUTCOMES[outcome]
+    monkeypatch.delenv("GENERIC_STRUCTURER_ENABLED", raising=False)
+    monkeypatch.delenv("RECONSTRUCTION_MODE", raising=False)
+    if retired_opt_in is None:
+        monkeypatch.delenv(RETIRED_OPT_IN_ENV, raising=False)
+    else:
+        monkeypatch.setenv(RETIRED_OPT_IN_ENV, retired_opt_in)
+
+    with registrations():
+        deterministic = _raised(markdown, "deterministic", entry)
+        auto = _raised(markdown, "auto", entry)
+
+    assert type(deterministic) is expected
+    assert type(auto) is type(deterministic)
+    assert str(auto) == str(deterministic)
+    assert auto.args == deterministic.args
+    assert not hasattr(auto, "hosted_extraction")
+    assert not hasattr(deterministic, "hosted_extraction")
+    assert auto.__context__ is None and auto.__cause__ is None
+    if outcome == "unclaimed":
+        assert str(auto) == NO_PARSER_MATCHED
+
+
+def _document(page: str):
     from ocr.document import StatementMarkdown
 
-    return StatementMarkdown(
-        source_file="s.pdf",
-        model="native-pdf-text",
-        pages=["completely unrecognisable text, no template furniture"],
-    )
+    return StatementMarkdown(source_file="s.pdf", model="native-pdf-text", pages=[page])
 
 
-def test_webapp_auto_mode_without_the_literal_equals_deterministic_mode_on_an_unclaimed_synthetic(
-    clean_environment, monkeypatch,
-):
-    """Card item 5: `webapp.worker._analyze_doc` — the seam `run_job` calls in
-    both modes — returns the SAME (markdown, html, analysis, analysis_error)
-    for an unclaimed synthetic in `auto` as in `deterministic`: no payload,
-    the declared refusal `webapp/worker.py` allow-lists (the one analysis
-    error a user can act on), and the extractor never reached. This is the
-    user-facing change: a webapp user in auto mode without the literal now
-    gets the deterministic refusal where the base gave them a hosted
-    extraction.
-
-    Re-review N1: a closed suffix on the pipeline's message was tried between
-    the two closures; the worker's exact-match allow-list then withheld the
-    refusal as a crash text, so it was reverted and this test pins the
-    declared literal again. A durable "refused for want of the opt-in" record
-    is the worker owner's composition item — publish the exception's
-    `hosted_extraction` attribute when present — never a message change."""
+@pytest.mark.parametrize("outcome", list(OUTCOMES))
+def test_webapp_auto_mode_equals_deterministic_mode_through_the_worker_seam(outcome, monkeypatch):
+    """Card item 5, through `webapp.worker._analyze_doc` — the seam `run_job`
+    calls in both modes: the SAME (markdown, html, analysis, analysis_error) in
+    `auto` as in `deterministic` for each outcome, no payload, and for the
+    unclaimed synthetic the declared refusal `webapp/worker.py` allow-lists
+    (the one analysis error a user can act on). The old opt-in literal in the
+    environment changes nothing."""
     from webapp import worker
 
-    fake = _FakeExtractor({})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-
-    auto = worker._analyze_doc(_document(), "s.pdf", "auto")
-    deterministic = worker._analyze_doc(_document(), "s.pdf", "deterministic")
+    _markdown, registrations, _expected, page = OUTCOMES[outcome]
+    monkeypatch.setenv(RETIRED_OPT_IN_ENV, RETIRED_OPT_IN_LITERAL)
+    with registrations():
+        auto = worker._analyze_doc(_document(page), "s.pdf", "auto")
+        deterministic = worker._analyze_doc(_document(page), "s.pdf", "deterministic")
 
     assert auto == deterministic
-    markdown, html, analysis, analysis_error = auto
+    _md, _html, analysis, analysis_error = auto
     assert analysis is None
-    assert analysis_error == NO_PARSER_MATCHED
-    assert fake.calls == []
-    with pytest.raises(RuntimeError) as refused:
-        pipeline.analyze_document(_document().to_markdown(), parse_mode="auto")
-    assert str(refused.value) == NO_PARSER_MATCHED
-    assert refused.value.hosted_extraction == REFUSED_NO_OPT_IN
+    assert analysis_error
+    if outcome == "unclaimed":
+        assert analysis_error == NO_PARSER_MATCHED
 
 
-def test_webapp_auto_mode_with_the_literal_runs_the_single_hosted_extraction(opted_in, monkeypatch):
-    """Card item 5: with the literal, the worker's auto mode runs ONE hosted
-    extraction on the fake and publishes it with `escalated` False."""
-    from webapp import worker
-
-    model = load_settings().model
-    fake = _FakeExtractor({model: _reconciling_statement})
-    monkeypatch.setattr(pipeline, "extract_statement", fake)
-
-    markdown, html, analysis, analysis_error = worker._analyze_doc(_document(), "s.pdf", "auto")
-
-    assert analysis_error is None
-    assert analysis is not None
-    assert fake.calls == [model]
-    assert analysis["escalated"] is False
-    assert analysis["model_used"] == model
-    assert analysis["parse_mode"] == "auto"

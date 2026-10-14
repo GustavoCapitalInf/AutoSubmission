@@ -877,15 +877,9 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only omission probe at the document seam; publishes no verdict, "
         "and already supplies the reconstructed page partition"
     ),
-    # W3 §EXTRACTPRIV. Calls the analysis to prove the LLM branch is NOT
-    # reachable in deterministic mode: `extract_statement` is replaced by a
-    # recording sentinel and the assertion is that it records nothing. It
-    # analyses one string literal, never a document, and publishes no verdict —
-    # so there is no intake object to supply and nothing for `sheets` to
-    # describe. Excused rather than declared, deliberately: adding it to
-    # ANALYSIS_CALL_SITES would assert that this probe should pass sheets,
-    # which would be a false statement about what it measures.
-    "tools/extractpriv_reachability.py": "reachability probe over a literal; asserts the call never happens",
+    # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
+    # stood here until slice S3 of the model-code removal deleted it with the
+    # hosted extractor whose unreachability it probed.)
     # W3 §WELCH's family replay, excused on the same two grounds as §REGFP's
     # sweep: it publishes no verdict — it prints an outcome CLASS and reason
     # per content_sha256, row counts, and the distribution of caller-named

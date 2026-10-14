@@ -69,7 +69,8 @@ def _credits(rows: list[tuple[str, str]]) -> Statement:
 # ---------------------------------------------------------------------------
 
 def test_the_mark_is_not_part_of_the_extraction_response_schema():
-    """The extractor is told nothing new (tests/test_extraction_schema_prompt_surface.py's digest holds)."""
+    """The JSON schema gains nothing (it was the hosted extractor's response schema until slice S3 of the model-code
+    removal deleted the extractor and its schema digest test)."""
     assert "payer_text_unread" not in json.dumps(Statement.model_json_schema())
 
 

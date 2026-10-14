@@ -1692,10 +1692,9 @@ def test_the_escalation_guard_is_gone_and_the_escalation_model_is_never_read():
     structurer's grounding. R9 removed the escalation call, its guard and the
     reconciliation-based selection behind it outright, so the clause this
     test defended no longer exists to be reordered. What it defended still
-    holds, and now structurally: the one `extract_statement` call left in the
-    module sits after the deterministic-mode raises (the AST tripwires in
-    `tests/test_pipeline_escalation_fence.py` pin that), and the dynamic test
-    below still proves no call is made.
+    holds, and now structurally in every mode: slice S3 of the model-code
+    removal deleted the one hosted call R9 left (`analysis/extract.py`), and
+    the test below pins that the module holds no handle to it.
 
     Asserted on the AST, in the inverse direction: no `If` in
     `analysis/pipeline.py` tests `settings.escalation_model`, and the name
@@ -1716,115 +1715,61 @@ def test_the_escalation_guard_is_gone_and_the_escalation_model_is_never_read():
     assert reads == [], "analysis/pipeline.py reads `escalation_model` again (R9)"
 
 
-def test_deterministic_mode_never_calls_the_extractor_even_with_the_structurer_on(
-    monkeypatch,
-):
-    """The dynamic half. `extract_statement` is replaced by a recorder, so a
-    call is a test failure rather than a vendor charge ($0 vendor, binding)."""
-    from analysis import pipeline
+def pipeline_hosted_extraction_handles(source: str) -> list[str]:
+    """Every way `analysis/pipeline.py`'s text could reach the removed hosted
+    extractor: the name `extract_statement` as a name, an attribute, a
+    parameter, an import alias or a string; any import of the module
+    `extract` (relative or absolute, `from . import extract` included); and a
+    read of the hosted model's name off the settings (`.model`, which
+    `model_used` started from until slice S3). Empty when clean."""
+    tree = ast.parse(source)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.split(".")[-1] == "extract" or any(
+                alias.name in {"extract", "extract_statement"} or alias.asname == "extract_statement"
+                for alias in node.names
+            ):
+                found.append(f"import: {ast.unparse(node)}")
+        elif isinstance(node, ast.Import):
+            if any(alias.name.split(".")[-1] == "extract" for alias in node.names):
+                found.append(f"import: {ast.unparse(node)}")
+        elif isinstance(node, ast.Name) and node.id == "extract_statement":
+            found.append(f"name: {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr in {"extract_statement", "model"}:
+            found.append(f"attribute: {ast.unparse(node)}")
+        elif isinstance(node, ast.arg) and node.arg == "extract_statement":
+            found.append(f"parameter: {node.arg}")
+        elif isinstance(node, ast.Constant) and node.value == "extract_statement":
+            found.append("string: 'extract_statement'")
+    return found
 
-    calls: list[str] = []
 
-    def recorder(markdown, **kwargs):
-        calls.append("called")
-        raise AssertionError("deterministic mode reached the hosted model")
+def test_the_pipeline_holds_no_handle_to_a_hosted_extractor():
+    """PIPELINE-PARSEMODE's property, now structural in every mode (model-code
+    removal, slice S3). The two dynamic tests that stood here replaced the
+    hosted extractor with a recorder and proved deterministic mode never
+    called it, the structurer on or off; the extractor is deleted, so there is
+    nothing left to record. What replaces them: `analysis/pipeline.py` has no
+    `extract_statement` name and no import of an `extract` module, and reads
+    no `.model` off its settings. A planted handle of each form fails."""
+    import importlib.util
 
-    monkeypatch.setattr(pipeline, "extract_statement", recorder)
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
-    for markdown in (
-        f"UNSUPPORTED BANK STATEMENT {CANARY}",
-        f"--- Page 1 ---\n{CANARY} {DIGITS}\nBeginning Balance 1,000.00\n",
+    source = (PROJECT_ROOT / "analysis" / "pipeline.py").read_text(encoding="utf-8")
+    assert pipeline_hosted_extraction_handles(source) == []
+    assert importlib.util.find_spec("analysis.extract") is None
+    for planted in (
+        "from .extract import extract_statement\n",
+        "from . import extract\n",
+        "import analysis.extract\n",
+        "from analysis.extract import extract_statement as _hosted\n",
+        "_hosted = extract_statement\n",
+        "_hosted = getattr(object(), 'extract_statement', None)\n",
+        "model_used = settings.model\n",
     ):
-        with pytest.raises(RuntimeError):
-            pipeline.analyze_markdown(markdown, parse_mode="deterministic")
-    assert calls == []
+        assert pipeline_hosted_extraction_handles(source + "\n" + planted), planted
 
-
-def test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch(
-    monkeypatch,
-):
-    """The structurer branch EXERCISED in deterministic mode, not merely
-    asserted on the AST.
-
-    HISTORY, kept because the fixture is built for it: until P22-FENCE (Phase
-    2.2, ruling R9) the escalation guard's first clause, `parse_mode !=
-    "deterministic"`, was the one thing stopping a deterministic-mode run from
-    making a hosted-model call on the structurer branch — the structurer only
-    publishes a statement whose ledger GROUNDS, so `recon.ok` was True and the
-    guard's `needs_escalation` was False by coincidence rather than by the
-    MODE (§EXTRACTPRIV XP9 finding 2 measured that over four constructed
-    variants), and this test removed the coincidence: a structurer that
-    publishes a statement which does NOT reconcile, two different models, and
-    a recorder in place of the extractor; without the clause ("mutant M23")
-    the recorder fired.
-
-    NOW: the guard, the second extraction and the selection behind it no
-    longer exist (R9), and the ONE hosted call left in `analysis/pipeline.py`
-    sits after the deterministic-mode raises and behind the operator opt-in
-    (`tests/test_pipeline_escalation_fence.py` pins both). This test keeps its
-    fixture and its assertion — no hosted call in deterministic mode with the
-    structurer on and a non-reconciling statement published — because that is
-    the $0-vendor property, whichever mechanism carries it. Note (review F6):
-    with the deterministic raise deleted and no opt-in set, the fence refuses
-    with the identical message, so this test alone no longer distinguishes the
-    two guards; the opted-in deterministic test and the static ordering test in
-    the fence file are the ones that do.
-    """
-    from analysis import pipeline
-    from analysis.config import Settings
-    from analysis.schema import Statement, Transaction
-
-    calls: list[str] = []
-
-    def recorder(markdown, **kwargs):
-        calls.append("called")
-        raise AssertionError("deterministic mode reached the hosted model")
-
-    def ungrounded(markdown, **kwargs):
-        """A statement the structurer 'published' whose summary cannot close:
-        the printed totals disagree with the one row, so `reconcile` fails and
-        `needs_escalation` is True."""
-        return Statement(
-            bank=None,
-            account_name=None,
-            account_number=None,
-            period_start="2054-01-01",
-            period_end="2054-01-31",
-            days_in_period=31,
-            beginning_balance=1000.00,
-            ending_balance=9999.00,
-            stated_total_credits=5000.00,
-            stated_total_debits=250.00,
-            transactions=[Transaction(
-                date="2054-01-05",
-                description="A POSTING",
-                amount=100.00,
-                direction="credit",
-                running_balance=1100.00,
-            )],
-        )
-
-    monkeypatch.setattr(pipeline, "extract_statement", recorder)
-    monkeypatch.setattr(pipeline, "structure_unclaimed", ungrounded)
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
-    settings = Settings(
-        api_key="",
-        model="model-a",
-        escalation_model="model-b",          # != model, so that clause passes
-    )
-
-    report = pipeline.analyze_markdown(
-        f"UNSUPPORTED BANK STATEMENT {CANARY} {DIGITS}",
-        parse_mode="deterministic",
-        settings=settings,
-    )
-
-    assert calls == [], "deterministic mode made a hosted-model call"
-    assert report.reconciliation.ok is False, (
-        "the fixture must NOT reconcile, or the guard's other clauses would "
-        "have stopped the call and this test would prove nothing"
-    )
-    assert settings.escalation_model != settings.model
 
 
 # ---------------------------------------------------------------------------

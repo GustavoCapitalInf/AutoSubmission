@@ -13,7 +13,8 @@ away rather than eliminated.
 WHY THIS IS SAFE, and it is a property of the package rather than a hope:
 `analysis/` imports nothing from this repository outside itself. Every
 non-relative import in the package is stdlib or third-party (measured:
-`dotenv`, `google.genai`, `pydantic` and stdlib), so a copy of the directory
+`dotenv`, `google.genai`, `pydantic` and stdlib; `google.genai` left with
+`analysis/extract.py` in slice S3 of the model-code removal), so a copy of the directory
 under a DIFFERENT package name is an entire second analysis stack, consistent
 with itself. Relative imports (`from .money import ...`) resolve to whatever package
 the module actually lives in, which is the whole mechanism.

@@ -1,9 +1,11 @@
 """Normalized bank-statement data model.
 
-This is the hand-off contract between the LLM extraction stage (which fills these
-objects from the OCR markdown) and the deterministic stages (reconciliation,
-metrics, detection) that do all the math. Amounts are always signed: negative =
-money leaving the account (debit), positive = money entering (credit).
+This is the hand-off contract between the readers (the deterministic parsers,
+which fill these objects from the document's native text or local OCR markdown;
+until slice S3 of the model-code removal, also a hosted LLM extraction stage)
+and the deterministic stages (reconciliation, metrics, detection) that do all
+the math. Amounts are always signed: negative = money leaving the account
+(debit), positive = money entering (credit).
 """
 from __future__ import annotations
 from typing import Literal
@@ -65,9 +67,10 @@ from pydantic.json_schema import SkipJsonSchema
 #       and naming them in the payload is what makes that debt visible instead
 #       of indistinguishable from a read.
 #   model_extracted
-#       The LLM extraction stage returned the currency (`analysis/extract.py`,
-#       reached from `pipeline.py` only when no deterministic parser claimed the
-#       document and `parse_mode="auto"`). The platform did not verify the
+#       A model returned the currency: the hosted LLM extraction stage
+#       (`analysis/extract.py`, removed in slice S3 of the model-code removal;
+#       stored payloads it produced keep the label) and the visual pair's
+#       currency bridge until slice S4. The platform did not verify the
 #       evidence, and the model may not certify its own provenance: whatever
 #       `currency_source` the model fills into the response schema is DISCARDED
 #       and replaced by this class at the boundary.
@@ -116,16 +119,16 @@ class Transaction(BaseModel):
     # type or section label because the payer text the statement printed for the row could not be read (an
     # indeterminate flush of merchant blocks, a description overlay that failed closed). The true-revenue pass then
     # counts the row as 'payer text not read', never as Q2's 'no payer printed', which is for a row whose statement
-    # prints no payer. Kept out of the extraction response schema (`SkipJsonSchema`, so the extractor is told nothing
-    # new and tests/test_extraction_schema_prompt_surface.py's digest holds) and out of every serialized transaction
+    # prints no payer. Kept out of the JSON schema (`SkipJsonSchema`; it was the hosted extractor's response schema
+    # until slice S3 of the model-code removal, and the marker stays, inert) and out of every serialized transaction
     # that does not carry it (`_serialize`), so no stored payload gains a key it did not have.
     payer_text_unread: SkipJsonSchema[bool] = False
     # Audit round 2, R2-B07 (R07): on a credit the parser marked (`payer_text_unread`) because a flush of several rows'
     # merchant blocks could not be attributed, the flush's text, joined: what the statement printed for SOME row of
     # that flush, never proven this row's, so it is no description. The true-revenue pass reads it only to hold a
     # marked credit whose run prints a lender's block (never to verify, to name a payer or to count a lender credit),
-    # and the review card prints it so a reviewer can release a customer's row. Kept out of the extraction response
-    # schema and out of every serialized transaction that does not carry it, as `payer_text_unread` is.
+    # and the review card prints it so a reviewer can release a customer's row. Kept out of the JSON schema and out
+    # of every serialized transaction that does not carry it, as `payer_text_unread` is.
     unread_payer_text: SkipJsonSchema[str] = ""
 
     @model_serializer(mode="wrap")
@@ -159,12 +162,14 @@ class Statement(BaseModel):
     # it from one of these.
     #
     # DELIBERATELY A COMMENT AND NOT A DOCSTRING, which is the one place this
-    # class cannot say it: `analysis/extract.py`:222 passes `Statement` as the
+    # class cannot say it: `analysis/extract.py` passed `Statement` as the
     # extraction call's `response_schema`, and pydantic publishes a model's
-    # docstring as its JSON-schema `description` — so a docstring here is
+    # docstring as its JSON-schema `description` — so a docstring here was
     # prompt text sent to the extractor, and prose addressed to implementers
-    # would silently become an instruction addressed to a model. The words
-    # belong to the reader of this file; the schema keeps the shape it had.
+    # would silently have become an instruction addressed to a model. The
+    # extractor was removed in slice S3 of the model-code removal and nothing
+    # sends the schema anywhere now; the comment stays a comment so the schema
+    # keeps the shape it had.
 
     # `populate_by_name` so a caller may use either the canonical field name or
     # a deprecated alias declared below; both resolve to the same storage.

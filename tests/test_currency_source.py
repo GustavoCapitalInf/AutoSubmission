@@ -487,54 +487,10 @@ class TestInstitutionDefault:
         assert parse_scotiabank_statement(document) is None
 
 
-class TestModelExtracted:
-    """`model_extracted` — and a model may not certify its own provenance."""
-
-    def test_the_llm_branchs_currency_is_labelled_as_the_models(self, monkeypatch):
-        import analysis.extract as extract
-
-        monkeypatch.setattr(
-            extract, "_get_client", lambda _settings: _StubClient(
-                Statement(currency="CAD")
-            )
-        )
-        stmt = extract.extract_statement("--- Page 1 ---\n", settings=_StubSettings())
-        assert (stmt.currency, stmt.currency_source) == ("CAD", "model_extracted")
-
-    def test_a_source_the_model_filled_in_itself_is_discarded(self, monkeypatch):
-        """`Statement` is this call's `response_schema`, so `currency_source` is
-        a field the model can fill. A returned `printed` is a language model
-        asserting that it read evidence, which is precisely the claim nothing
-        here can verify."""
-        import analysis.extract as extract
-
-        monkeypatch.setattr(
-            extract, "_get_client", lambda _settings: _StubClient(
-                Statement(currency="CAD", currency_source="printed")
-            )
-        )
-        stmt = extract.extract_statement("--- Page 1 ---\n", settings=_StubSettings())
-        assert stmt.currency_source == "model_extracted"
-
-
-class _StubSettings:
-    model = "stub-model"
-    escalation_model = "stub-model"
-
-
-class _StubModels:
-    def __init__(self, parsed):
-        self._parsed = parsed
-
-    def generate_content(self, **_kwargs):
-        return type("_Resp", (), {"parsed": self._parsed})()
-
-
-class _StubClient:
-    """Offline by construction — no vendor call is made anywhere in this file."""
-
-    def __init__(self, parsed):
-        self.models = _StubModels(parsed)
+# `TestModelExtracted` (the hosted extractor labelled its currency `model_extracted` and discarded any source the model
+# filled in itself) was deleted in slice S3 of the model-code removal with `analysis/extract.py`, its subject.
+# `model_extracted` stays a member of the closed vocabulary (above): stored payloads carry it, and the visual pair's
+# currency bridge sets it until slice S4.
 
 
 class TestSchemaDefault:
@@ -606,7 +562,6 @@ PROVENANCE_MODULES = {
     "analysis/chase.py",
     "analysis/cibc.py",
     "analysis/desjardins.py",
-    "analysis/extract.py",
     "analysis/farmers_merchants.py",
     "analysis/found_lead.py",
     "analysis/frost.py",
