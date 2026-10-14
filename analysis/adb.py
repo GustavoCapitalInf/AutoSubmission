@@ -65,6 +65,20 @@ UNDERWRITING_ADB_ALTERNATE_BASES = (
     "beginning_of_day",
 )
 
+#: The validations that are RECORDED and decide nothing: never in the
+#: `required` list of `compute_average_daily_balance`, so `ok` (and the
+#: published ADB) is the same whatever they say. The bank's printed average is
+#: evidence, never a definition (the doctrine above); a bank-printed daily
+#: balance that disagrees with the rows is used anyway (REC-1 step 1). Readers
+#: that print the validations name these as advisory (the statement CSV/XLSX,
+#: `webapp/app.py::_adb_rows`; the audit's final review, finding 3), so a
+#: False here is not read as a failed required check. telemetry's
+#: `ADVISORY_CODES` lists the same names (pinned by a test).
+ADVISORY_VALIDATIONS = frozenset({
+    "agrees_with_bank_stated_average",
+    "bank_daily_balances_agree_with_rows",
+})
+
 
 def _decimal(value: float | int | str | Decimal) -> Decimal:
     return value if isinstance(value, Decimal) else Decimal(str(value))

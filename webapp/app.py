@@ -42,6 +42,7 @@ from analysis.revenue import (
     withholding_basis_publishable,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
+from analysis.adb import ADVISORY_VALIDATIONS as ADB_ADVISORY_VALIDATIONS
 from analysis.cadence import describe_cadence
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
@@ -537,7 +538,12 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
     """The Average Daily Balance working, one row per calendar day, so an
     underwriter can re-add the column in a spreadsheet and land on the same
     figure. Kept out of the flattened `metrics` section, where the whole daily
-    ledger would collapse into a single unreadable JSON cell."""
+    ledger would collapse into a single unreadable JSON cell.
+
+    A validation reads "pass" or "FAIL"; one of `ADB_ADVISORY_VALIDATIONS`,
+    which decides nothing, reads "advisory pass" or "advisory FAIL", so its
+    False on a published ADB is not read as a failed required check (the
+    audit's final review, finding 3)."""
     adb = metrics.get("adb")
     if not isinstance(adb, dict):
         return []
@@ -558,7 +564,10 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
     if validated:
         rows.append(("adb", "daily_balance_sum", adb.get("daily_balance_sum", "")))
     for name, passed in (adb.get("validations") or {}).items():
-        rows.append(("adb_validation", name, "pass" if passed else "FAIL"))
+        verdict = "pass" if passed else "FAIL"
+        if name in ADB_ADVISORY_VALIDATIONS:
+            verdict = f"advisory {verdict}"
+        rows.append(("adb_validation", name, verdict))
     for warning in adb.get("warnings") or []:
         rows.append(("adb_warning", "", warning))
     if validated:

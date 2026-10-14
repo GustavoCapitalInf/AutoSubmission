@@ -160,3 +160,83 @@ def test_the_telemetry_vocabulary_names_both_codes_as_advisory():
     assert "adb_state:bank_daily_balances_disagree_with_rows" in diagnosis["codes"]
     assert "adb_state:unmapped_warning" not in diagnosis["codes"]
     assert diagnosis["primary_class"] == "advisory_only"
+
+
+# --- The statement CSV/XLSX names an advisory check as advisory (the audit's final review, finding 3) ---------------
+# The export wrote every ADB validation as "pass" or "FAIL", so this check's False read as a failed required check on
+# a statement whose ADB is published. An advisory check now reads "advisory pass" / "advisory FAIL"; a required one is
+# written as before.
+
+
+def _export_rows(stmt: Statement) -> list[tuple]:
+    from dataclasses import asdict
+
+    from analysis.metrics import compute_metrics
+    from webapp.app import _analysis_rows
+
+    return _analysis_rows({"metrics": asdict(compute_metrics(stmt))})
+
+
+def _validation_cells(rows) -> dict[str, object]:
+    return {field: value for section, field, value in rows if section == "adb_validation"}
+
+
+def test_the_advisory_checks_are_the_ones_telemetry_names_advisory():
+    from analysis.adb import ADVISORY_VALIDATIONS
+    from telemetry.diagnostics import ADB_CHECKS, ADVISORY_CODES
+
+    assert ADVISORY_VALIDATIONS == {code[len("adb:"):] for code in ADVISORY_CODES if code.startswith("adb:")}
+    assert ADVISORY_VALIDATIONS == {CHECK, "agrees_with_bank_stated_average"}
+    assert ADVISORY_VALIDATIONS <= ADB_CHECKS
+
+
+def test_a_failed_advisory_check_is_exported_as_advisory_on_a_published_adb():
+    rows = _export_rows(_statement({"2054-02-02": 150.0, "2054-02-03": 900.0, "2054-02-04": 150.0}))
+    cells = _validation_cells(rows)
+    assert cells[CHECK] == "advisory FAIL"
+    assert ("adb", "ok", True) in rows  # the ADB is published: no required check failed
+    assert {name: cell for name, cell in cells.items() if name != CHECK} and all(
+        cell == "pass" for name, cell in cells.items() if name != CHECK)
+
+
+def test_a_passing_advisory_check_is_exported_as_advisory_too():
+    cells = _validation_cells(_export_rows(_statement({"2054-02-02": 150.0, "2054-02-05": 150.0})))
+    assert cells[CHECK] == "advisory pass"
+
+
+def test_the_printed_average_comparison_is_exported_as_advisory():
+    stmt = _statement({})
+    stmt.bank_reported_average_balance = 125.0  # the calendar-day ADB of this ledger is 140.00
+    rows = _export_rows(stmt)
+    assert _validation_cells(rows)["agrees_with_bank_stated_average"] == "advisory FAIL"
+    assert ("adb", "ok", True) in rows
+    stmt.bank_reported_average_balance = 140.0
+    assert _validation_cells(_export_rows(stmt))["agrees_with_bank_stated_average"] == "advisory pass"
+
+
+def test_a_failed_required_check_is_exported_as_before():
+    stmt = _statement({"2054-02-03": 900.0})
+    stmt.ending_balance = 175.0  # the rows reach 150.00
+    rows = _export_rows(stmt)
+    cells = _validation_cells(rows)
+    assert cells["final_balance_matches_statement_closing"] == "FAIL"
+    assert cells[CHECK] == "advisory FAIL"
+    assert ("adb", "ok", False) in rows
+    assert all(cell in ("pass", "FAIL") for name, cell in cells.items() if name != CHECK)
+
+
+def test_the_csv_and_xlsx_downloads_carry_the_label():
+    import io
+    import zipfile
+    from dataclasses import asdict
+
+    from analysis.metrics import compute_metrics
+    from webapp.app import _analysis_csv, _analysis_xlsx
+
+    payload = {"metrics": asdict(compute_metrics(
+        _statement({"2054-02-02": 150.0, "2054-02-03": 900.0, "2054-02-04": 150.0})))}
+    assert f"adb_validation,{CHECK},advisory FAIL\r\n" in _analysis_csv(payload)
+    with zipfile.ZipFile(io.BytesIO(_analysis_xlsx(payload))) as book:
+        sheet = book.read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert f"<t>{CHECK}</t>" in sheet
+    assert "<t>advisory FAIL</t>" in sheet
