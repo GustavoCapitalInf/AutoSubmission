@@ -1,5 +1,10 @@
 from __future__ import annotations
 from evidence.native import native_evidence_from_pdf
+# Import order is part of the .env contract (plan D20, measured by P16): `ocr.rasterize` reads POPPLER_PATH when it is
+# imported, and this module has always imported it BEFORE `ocr.document` -> `ocr.config` loads the .env, so an entry
+# point that reaches the ladder first (parse.py) keeps the value it always held. The visual rung that called its
+# functions is gone (slice S2 of the model-code removal); the import stays, in the same place, for that order only.
+from . import rasterize as _rasterize  # noqa: F401
 from .document import StatementMarkdown, native_evidence_describes
 from .inspect import DocumentProfile, inspect_pdf
 from .local_tesseract import parse_local_tesseract

@@ -164,6 +164,24 @@ def test_every_parameter_after_source_file_is_keyword_only():
         parse_statement(b"%PDF-fake", "s.pdf", 300)  # dpi used to be the third positional
 
 
+def test_the_ladder_still_imports_rasterize_before_the_dotenv_loads():
+    """Plan D20 / P16: `ocr.rasterize` reads POPPLER_PATH at import, and this
+    module has always imported it before `ocr.document` -> `ocr.config` loads
+    the .env. The visual rung that used its functions is gone; the order stays
+    (an entry point that reaches the ladder first keeps the value it held)."""
+    import ast
+
+    import ocr.pipeline as pipeline_module
+
+    tree = ast.parse(inspect.getsource(pipeline_module))
+    order = []
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.level == 1:
+            order.extend([node.module] if node.module else [alias.name for alias in node.names])
+    assert "rasterize" in order and "document" in order, order
+    assert order.index("rasterize") < order.index("document"), order
+
+
 # ---------------------------------------------------------------------------
 # P21-ROUTING (Phase 2.1): the Paddle rung. `ocr.paddle_rung.read_document`
 # is mocked at its ONE call site (`ocr.pipeline`'s lazy import) — the rung's
