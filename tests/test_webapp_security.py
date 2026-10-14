@@ -637,3 +637,75 @@ def test_raw_ocr_surfaces_are_documented_residual_exposure():
     assert ACCOUNT in client.get(f"/markdown/{job.id}").get_data(as_text=True)
     assert ACCOUNT in client.get(f"/result/{job.id}").get_data(as_text=True)
     assert ACCOUNT in client.get(f"/download/{job.id}/md").get_data(as_text=True)
+
+
+# --------------------------------------------------------------------------
+# 6. Statement text served as a page (audit 2026-10-13, EXP-1)
+# --------------------------------------------------------------------------
+# A PDF's text layer is untrusted (an applicant's, possibly forged, statement). The report pages that carry it
+# (/result, the html and md downloads, /markdown) are served with a sandboxing Content-Security-Policy and nosniff, so
+# markup in a statement can never run a script in the app's origin; a saved html download carries the same policy
+# (without `sandbox`, which a meta tag cannot carry) inside its head, so it is inert when opened from disk.
+
+_INJECTED = "<img src=x onerror=\"document.title='INJECTED'\">"
+
+
+def _report_job(html: str, markdown: str = "# md"):
+    job = store.create("report.pdf")
+    store.set_result(job.id, markdown, html, analysis=_analysis_payload())
+    return job
+
+
+@pytest.mark.parametrize("route", ["/result/{id}", "/download/{id}/html", "/download/{id}/md", "/markdown/{id}"])
+def test_report_routes_serve_a_sandboxing_csp_and_nosniff(route):
+    job = _report_job(f"<p>{_INJECTED}</p>", markdown=_INJECTED)
+    resp = app.test_client().get(route.format(id=job.id))
+    assert resp.status_code == 200
+    policy = resp.headers.get("Content-Security-Policy", "")
+    directives = [d.strip() for d in policy.split(";")]
+    assert directives[0] == "sandbox"
+    for needed in ("default-src 'none'", "style-src 'unsafe-inline'", "img-src data:", "form-action 'none'",
+                   "base-uri 'none'"):
+        assert needed in directives, (needed, policy)
+    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_the_report_routes_keep_their_content_types():
+    """/result stays a utf-8 html page and /markdown a utf-8 text page (its charset was written twice before)."""
+    job = _report_job("<p>md</p>")
+    client = app.test_client()
+    assert client.get(f"/result/{job.id}").headers["Content-Type"] == "text/html; charset=utf-8"
+    assert client.get(f"/markdown/{job.id}").headers["Content-Type"] == "text/plain; charset=utf-8"
+    assert client.get(f"/result/{job.id}").get_data(as_text=True) == "<p>md</p>"
+
+
+def test_the_html_download_of_a_stored_report_carries_the_policy_in_its_head():
+    """A report stored before the renderer carried the meta tag gets it at serve time, inside its head; the rest of
+    the stored bytes are served unchanged."""
+    from ocr.render import REPORT_CSP
+
+    stored = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>x</title>\n</head>\n<body>\n" \
+        f"<p>{_INJECTED}</p>\n</body>\n</html>\n"
+    job = _report_job(stored)
+    body = app.test_client().get(f"/download/{job.id}/html").get_data(as_text=True)
+    meta = f'<meta http-equiv="Content-Security-Policy" content="{REPORT_CSP}">'
+    head = body.split("</head>", 1)[0]
+    assert head.count(meta) == 1
+    assert body.replace(meta + "\n", "", 1) == stored
+
+
+def test_a_policy_printed_in_the_statement_body_does_not_stand_in_for_the_head_one():
+    from ocr.render import REPORT_CSP
+
+    fake = f'<meta http-equiv="Content-Security-Policy" content="{REPORT_CSP}">'
+    stored = f"<html><head><title>x</title></head><body><p>{fake}</p>{_INJECTED}</body></html>"
+    job = _report_job(stored)
+    body = app.test_client().get(f"/download/{job.id}/html").get_data(as_text=True)
+    assert fake in body.split("</head>", 1)[0]
+
+
+def test_the_other_downloads_are_unchanged_by_the_report_policy():
+    job = _report_job("<p>md</p>")
+    client = app.test_client()
+    for fmt in ("json", "csv", "xlsx"):
+        assert "Content-Security-Policy" not in client.get(f"/download/{job.id}/{fmt}").headers

@@ -118,6 +118,15 @@ body.hide-regions .region { border-color: transparent !important; padding: 0; ma
 body.hide-regions .region-tag { display: none; }
 """
 
+#: The report page's Content-Security-Policy (audit 2026-10-13, EXP-1). The page carries statement text, which is
+#: untrusted (an applicant's PDF, possibly forged), and needs nothing but its inline <style>, inline style attributes
+#: and data: image crops: no script, no form, no external resource. The webapp serves the report routes with
+#: REPORT_CSP_HEADER (adds `sandbox`, which only a header can carry) and nosniff; a saved html download carries
+#: REPORT_CSP_META in its head, so it is inert when opened from disk too.
+REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'"
+REPORT_CSP_HEADER = "sandbox; " + REPORT_CSP
+REPORT_CSP_META = f'<meta http-equiv="Content-Security-Policy" content="{REPORT_CSP}">'
+
 _PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>

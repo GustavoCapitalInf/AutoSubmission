@@ -18,7 +18,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from ocr.config import load_settings as load_ocr_settings
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
-from ocr.render import rendered_skeleton, render_boxed
+from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META, rendered_skeleton, render_boxed
 from analysis.payload_shape import (
     DOCUMENT_KEY as _DOCUMENT_KEY,
     account_content_digest,
@@ -6077,7 +6077,33 @@ def markdown(job_id):
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
-    return Response(job.markdown, mimetype="text/plain; charset=utf-8")
+    return Response(job.markdown, mimetype="text/plain", headers=_REPORT_HEADERS)
+
+
+#: Audit 2026-10-13, EXP-1: the routes that serve statement text as it was read (/result, /markdown, the html and md
+#: downloads) carry a sandboxing Content-Security-Policy (no script, form or external resource; the report needs only
+#: its inline styles and data: crops) and nosniff, so markup a PDF's text layer prints never runs in the app's origin.
+_REPORT_HEADERS = {"Content-Security-Policy": REPORT_CSP_HEADER, "X-Content-Type-Options": "nosniff"}
+
+
+def _inert_report(html: str) -> str:
+    """The html download with the report's Content-Security-Policy meta tag in its head, so the saved file is inert
+    when opened from disk (a meta tag cannot carry `sandbox`; the policy still forbids every script). Reports
+    rendered since EXP-1 already carry it and are served as stored; one stored earlier gets it inserted after its
+    charset line (or right after <head>, or at the very start when it has no head), every other byte unchanged. Only
+    the head counts: a copy of the tag printed in the statement's body does not stand in for it."""
+    head_end = html.find("</head>")
+    head = html[:head_end] if head_end >= 0 else ""
+    if REPORT_CSP_META in head:
+        return html
+    charset = '<meta charset="utf-8">\n'
+    at = head.find(charset)
+    if at >= 0:
+        cut = at + len(charset)
+    else:
+        start = head.find("<head>")
+        cut = start + len("<head>") if start >= 0 else 0
+    return html[:cut] + REPORT_CSP_META + "\n" + html[cut:]
 
 
 @app.route("/analysis/<job_id>")
@@ -6504,7 +6530,7 @@ def result(job_id):
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
-    return job.html
+    return Response(job.html, mimetype="text/html", headers=_REPORT_HEADERS)
 
 
 @app.route("/download/<job_id>/<fmt>")
@@ -6534,13 +6560,14 @@ def download(job_id, fmt):
         # /markdown. Masking the analyst's source view would corrupt it.
         content = job.markdown if fmt == "md" else job.html
         mimetype = "text/markdown" if fmt == "md" else "text/html"
+        if fmt == "html" and isinstance(content, str):
+            content = _inert_report(content)
     store.record_export(job_id=job_id, detail={"format": fmt})
     base_name = _safe_download_name(job.filename.rsplit(".", 1)[0])
-    return Response(
-        content,
-        mimetype=mimetype,
-        headers={"Content-Disposition": f'attachment; filename="{base_name}.{fmt}"'},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="{base_name}.{fmt}"'}
+    if fmt in ("md", "html"):
+        headers.update(_REPORT_HEADERS)
+    return Response(content, mimetype=mimetype, headers=headers)
 
 
 def _server_config() -> tuple[str, int]:
