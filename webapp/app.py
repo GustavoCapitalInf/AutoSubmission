@@ -5987,9 +5987,10 @@ def upload():
             pdf_bytes=pdf_bytes,
         )
         # O-1: persist the preflight profile with the document row and flag a
-        # re-upload of identical bytes (the earliest prior job with this hash).
+        # re-upload of identical bytes (the earliest prior job with this hash,
+        # read in the transaction that created the job: audit BE-2).
         store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
-        duplicate_of = store.storage.duplicate_of(job.id)
+        duplicate_of = job.duplicate_of
         _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
@@ -6019,11 +6020,10 @@ def status(job_id):
         "force_ocr": job.force_ocr,
         "parse_mode": job.parse_mode,
         # O-1 additive surfacing: the document hash and, when these exact
-        # bytes were uploaded before, the earliest prior job holding them.
+        # bytes were uploaded before, the earliest prior job holding them
+        # (asked of storage at most once per job: audit BE-2).
         "content_sha256": job.content_sha256,
-        "duplicate_of": (
-            store.storage.duplicate_of(job_id) if job.content_sha256 else None
-        ),
+        "duplicate_of": store.duplicate_of(job_id) if job.content_sha256 else None,
     })
 
 

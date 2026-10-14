@@ -48,6 +48,11 @@ class Job:
     page_count: int = 0
     stage: str = "queued"
     content_sha256: str | None = None
+    # The earliest prior job holding the same bytes (`Storage.duplicate_of`), once known: set from the creation
+    # transaction for a job created here, read once for a job loaded from storage (audit 2026-10-13, BE-2). Final once
+    # known, None included: see `Storage.record_upload`.
+    duplicate_of: str | None = None
+    duplicate_of_known: bool = False
     # Per-page live OCR buffers, keyed by 0-based page index. Pages are OCR'd
     # concurrently, so buffers fill out of order; `live_text` renders them back
     # in page order with the "--- Page N ---" markers the viewer keys boxes on.
@@ -159,30 +164,43 @@ class JobStore:
             force_ocr=force_ocr,
             parse_mode=parse_mode,
         )
-        document_id = None
         if pdf_bytes is not None:
             job.content_sha256 = content_sha256(pdf_bytes)
             job.pdf_bytes = pdf_bytes  # held in RAM only while queued/processing
             self._storage.save_pdf(job.content_sha256, pdf_bytes)
-            document_id = self._storage.record_document(
-                job.content_sha256, filename, len(pdf_bytes), page_count
-            )
-        self._storage.create_job(
+        # One transaction: the document row, the job row and the upload audit row, and the duplicate answer read
+        # inside it (audit 2026-10-13, BE-2).
+        job.duplicate_of = self._storage.record_upload(
             job.id,
             filename=filename,
-            document_id=document_id,
+            content_sha256=job.content_sha256,
+            byte_size=len(pdf_bytes) if pdf_bytes is not None else 0,
             force_ocr=force_ocr,
             parse_mode=parse_mode,
             page_count=page_count,
         )
-        self._storage.append_audit(
-            "upload",
-            job_id=job.id,
-            detail={"filename": filename, "content_sha256": job.content_sha256},
-        )
+        job.duplicate_of_known = True
         with self._lock:
             self._jobs[job.id] = job
         return job
+
+    def duplicate_of(self, job_id: str) -> str | None:
+        """The earliest prior job holding the same bytes as this job, or None: `Storage.duplicate_of`, asked at most
+        once per job (audit 2026-10-13, BE-2). The dashboard polls /status every 1.4 s for every job in flight, and
+        each storage call opened a connection and ran two queries while the worker held the interpreter, so a poll
+        took tens to hundreds of milliseconds. The answer is final once the job exists (`Storage.record_upload`
+        says why), so the first one is kept on the job."""
+        job = self.get(job_id)
+        if job is None or not job.content_sha256:
+            return None
+        with self._lock:
+            if job.duplicate_of_known:
+                return job.duplicate_of
+        value = self._storage.duplicate_of(job_id)
+        with self._lock:
+            if not job.duplicate_of_known:
+                job.duplicate_of, job.duplicate_of_known = value, True
+            return job.duplicate_of
 
     def get(self, job_id: str) -> Job | None:
         with self._lock:

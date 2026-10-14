@@ -480,16 +480,56 @@ class Storage:
     # documents / jobs
     # ------------------------------------------------------------------
 
-    def record_document(
-        self, sha256_upper: str, filename: str, byte_size: int, page_count: int
-    ) -> int:
+    def record_upload(
+        self,
+        job_id: str,
+        *,
+        filename: str,
+        content_sha256: str | None,
+        byte_size: int = 0,
+        force_ocr: bool = False,
+        parse_mode: str = "auto",
+        page_count: int = 0,
+    ) -> str | None:
+        """Record one upload in ONE transaction: its document row (when it has bytes), its job row and its `upload`
+        audit row. Returns the earliest PRIOR job whose document holds the same bytes, or None.
+
+        Audit 2026-10-13 (BE-2): one transaction is what makes that answer final. `duplicate_of` finds a prior
+        document only through its job row, and the document and job rows used to be written in two transactions, so
+        two concurrent uploads of the same new bytes could commit A's document, then all of B, then A's job: B's
+        answer was None at its upload and named A a moment later. Now no document row is ever visible without its
+        job row; SQLite has one writer at a time and AUTOINCREMENT ids only grow, so document ids follow commit
+        order; and no document or job row is ever deleted or renumbered. Every document with a lower id therefore
+        has its job row when this transaction commits, and the answer read here, inside it, is the one
+        `duplicate_of` gives at any later time, None included. Retention work that deletes or renumbers documents or
+        jobs must revisit this and the `Job.duplicate_of` memo built on it (`webapp/jobs.py`)."""
         with closing(self._connect()) as conn, conn:
-            cursor = conn.execute(
-                "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (sha256_upper, filename, byte_size, page_count, utc_now_iso()),
+            document_id = None
+            if content_sha256 is not None:
+                cursor = conn.execute(
+                    "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (content_sha256, filename, byte_size, page_count, utc_now_iso()),
+                )
+                document_id = int(cursor.lastrowid)
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, filename, status, stage, force_ocr,"
+                " parse_mode, page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?, ?)",
+                (job_id, document_id, filename, int(force_ocr), parse_mode, page_count, utc_now_iso()),
             )
-            return int(cursor.lastrowid)
+            self._insert_audit(
+                conn, "upload", job_id=job_id, detail={"filename": filename, "content_sha256": content_sha256},
+            )
+            if document_id is None:
+                return None
+            prior = conn.execute(
+                "SELECT jobs.id FROM jobs"
+                " JOIN documents ON documents.id = jobs.document_id"
+                " WHERE documents.content_sha256 = ? AND documents.id < ?"
+                " ORDER BY documents.id LIMIT 1",
+                (content_sha256, document_id),
+            ).fetchone()
+            return prior["id"] if prior else None
 
     def set_document_profile(self, job_id: str, profile_json: str) -> None:
         """Attach the preflight DocumentProfile (as opaque JSON) to the
