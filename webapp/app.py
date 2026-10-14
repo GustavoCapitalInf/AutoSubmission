@@ -1513,9 +1513,19 @@ def _package_csv(package: dict) -> str:
     return buf.getvalue()
 
 
+#: Characters XML 1.0 forbids in a document (C0 controls other than tab, LF and CR; U+FFFE and U+FFFF) and lone
+#: surrogates, which UTF-8 cannot encode. Audit 2026-10-13, EXP-7: one of them in a cell made sheet1.xml ill-formed
+#: (the whole workbook refused to open), and a lone surrogate made the download raise.
+_XML_FORBIDDEN = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿\ud800-\udfff]")
+
+
 def _xml_escape(value: object) -> str:
+    """Text for an XLSX inline string (its only caller is `_xlsx_cell`). Each character XML forbids becomes U+FFFD, the
+    replacement character: SUBSTITUTED, never deleted, so a leading control can never let a formula lead start the
+    cell after `_escape_formula` has looked at it, and the cell keeps its length in UTF-16 units. The CSV and the JSON
+    downloads keep the text as read."""
     return (
-        str(value)
+        _XML_FORBIDDEN.sub("�", str(value))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")

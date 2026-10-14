@@ -426,6 +426,81 @@ def test_csv_export_still_reports_negative_money_as_a_number():
 
 
 # --------------------------------------------------------------------------
+# 4b. XLSX characters XML 1.0 forbids (audit 2026-10-13, EXP-7)
+# --------------------------------------------------------------------------
+# One control character (or U+FFFE / U+FFFF) in a cell made sheet1.xml ill-formed, so the whole workbook failed to
+# open; a lone surrogate made the download raise. The XLSX path now SUBSTITUTES U+FFFD for each such character (never
+# deletes it: a deleted leading control would let "=..." start the cell). The CSV and the JSON keep the text as read.
+
+_XML_FORBIDDEN = ["\x00", "\x01", "\x08", "\x0b", "\x0c", "\x0e", "\x1f", "￾", "￿", "\ud800", "\udfff"]
+
+
+@pytest.mark.parametrize("char", _XML_FORBIDDEN, ids=lambda c: f"U+{ord(c):04X}")
+def test_xlsx_sheet_stays_well_formed_with_a_forbidden_character(char):
+    from xml.etree import ElementTree
+
+    from webapp.app import _rows_xlsx
+
+    blob = _rows_xlsx([("posted_credit", "description", f"SAMPLE DEPOSIT{char}REF")])
+    sheet = _sheet_xml(blob)
+    ElementTree.fromstring(sheet)  # raises ParseError when the sheet is ill-formed
+    assert "<t>SAMPLE DEPOSIT�REF</t>" in sheet
+
+
+@pytest.mark.parametrize("char", _XML_FORBIDDEN, ids=lambda c: f"U+{ord(c):04X}")
+def test_xlsx_with_a_forbidden_character_opens_in_a_spreadsheet_reader(char):
+    openpyxl = pytest.importorskip("openpyxl")
+    from webapp.app import _rows_xlsx
+
+    blob = _rows_xlsx([("posted_credit", "description", f"SAMPLE{char}")])
+    workbook = openpyxl.load_workbook(io.BytesIO(blob))
+    values = [cell.value for row in workbook.active.iter_rows() for cell in row]
+    assert "SAMPLE�" in values
+
+
+@pytest.mark.parametrize("char", ["\t", "\n", "\r", "\x7f", "\x85", "é", "\U0001f600"])
+def test_xlsx_keeps_the_characters_xml_allows(char):
+    from webapp.app import _xml_escape
+
+    assert _xml_escape(f"A{char}B") == f"A{char}B"
+
+
+def test_xml_escape_still_escapes_markup_exactly_as_before():
+    from webapp.app import _xml_escape
+
+    assert _xml_escape('CONTOSO & <FABRIKAM> "SAMPLE"') == "CONTOSO &amp; &lt;FABRIKAM&gt; &quot;SAMPLE&quot;"
+    assert _xml_escape(-12.5) == "-12.5"
+
+
+def test_a_leading_control_never_lets_a_formula_lead_start_the_cell():
+    """Substitute, never delete: `_escape_formula` does not see a leading U+0001 as a formula lead, so deleting it would
+    leave "=HYPERLINK(...)" at the start of the cell with no apostrophe."""
+    from webapp.app import _rows_xlsx
+
+    sheet = _sheet_xml(_rows_xlsx([("statement", "bank", '\x01=HYPERLINK("http://example.invalid")')]))
+    assert '<t>�=HYPERLINK(&quot;http://example.invalid&quot;)</t>' in sheet
+    assert "<t>=" not in sheet
+    assert "<f>" not in sheet
+
+
+def test_package_xlsx_with_a_control_character_in_a_file_name_opens_and_the_csv_keeps_the_name():
+    from xml.etree import ElementTree
+
+    job = store.create("SAMPLE\x0bstatement.pdf")
+    store.set_result(job.id, "# md", "<h1>md</h1>", analysis=_analysis_payload())
+    client = app.test_client()
+
+    xlsx = client.get(f"/package_download/xlsx?ids={job.id}")
+    assert xlsx.status_code == 200
+    sheet = _sheet_xml(xlsx.get_data())
+    ElementTree.fromstring(sheet)
+    assert "SAMPLE�statement.pdf" in sheet
+
+    csv_body = client.get(f"/package_download/csv?ids={job.id}").get_data(as_text=True)
+    assert "SAMPLE\x0bstatement.pdf" in csv_body
+
+
+# --------------------------------------------------------------------------
 # 5. Account-number masking at the webapp boundary (R-25)
 # --------------------------------------------------------------------------
 
