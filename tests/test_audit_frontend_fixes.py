@@ -11,7 +11,11 @@ or three amounts), and every string is the one a freshly built formatter writes.
 
 F3: a job the server marked `interrupted` (it restarted while the job was queued or processing) ends the poll like an
 `error`: a single upload shows the server's note, and a package counts the member as finished and failed, then loads.
-The poll tests run the poller's waits at once and record what it asked for, so they too depend on no timer."""
+The poll tests run the poller's waits at once and record what it asked for, so they too depend on no timer.
+
+F5: a status request that fails for a moment (a dropped connection, a proxy's 5xx, 408 or 429) is asked again, each
+wait longer, up to five times in a row before the page reports it; any other failure (404: the server does not know
+the job) is reported at once, and a failure that comes back for an upload no longer on screen is not drawn at all."""
 import copy
 import inspect
 import json
@@ -249,7 +253,8 @@ def _interrupted_note():
 
 
 # /status/<job> answers from a plan per job (`PLANS`, set by the test): each step a status reply, {http: <code>} for
-# an error page, or "network" for a request that never reached the server; the last step repeats. The poller's waits
+# an error page, "network" for a request that never reached the server, or "hold" for one that waits until the test
+# drops it (`dropHeld`); the last step repeats. The poller's waits
 # (1 s or more) run at once and are recorded in `waits`; `finish()` lets anything pending run, then stops the poll.
 POLL = r"""
 const realSetTimeout = globalThis.setTimeout;
@@ -264,6 +269,12 @@ globalThis.setTimeout = (callback, ms, ...rest) => {
   return realSetTimeout(callback, ms, ...rest);
 };
 const asked = {};
+const heldStatus = [];
+// A held status request ("hold") that now fails as a dropped connection does.
+const dropHeld = async (job) => {
+  heldStatus.filter((entry) => entry.job === job).forEach((entry) => entry.reject(new TypeError("Failed to fetch")));
+  await settle();
+};
 globalThis.fetch = ((realFetch) => (url, options = {}) => {
   const match = /^\/status\/([^/?]+)$/.exec(String(url));
   if (!match) return realFetch(url, options);
@@ -273,6 +284,7 @@ globalThis.fetch = ((realFetch) => (url, options = {}) => {
   const plan = PLANS[job];
   const step = plan[Math.min(asked[job] - 1, plan.length - 1)];
   if (step === "network") return Promise.reject(new TypeError("Failed to fetch"));
+  if (step === "hold") return new Promise((resolve, reject) => heldStatus.push({ job, reject }));
   if (step.http) return Promise.resolve(new Response(step.text || "<html>error</html>",
     { status: step.http, headers: { "Content-Type": "text/html" } }));
   return Promise.resolve(new Response(JSON.stringify(step), { status: 200, headers: { "Content-Type": "application/json" } }));
@@ -420,3 +432,109 @@ console.log(JSON.stringify({ ...page(), view: [currentView, activeNav] }));
 """, PACKAGE=package)
     assert member["asked"] == {"p1": 1, "p2": 1} and member["fetched"].count("/package_analysis") == 1
     assert member["view"] == ["results", "packages"]
+
+
+# --------------------------------------------------------------------------- F5: a status request that fails briefly
+SINGLE_LOADS = """
+FAKE_RESPONSES["/analysis/j"] = { json: { analysis: B, analysis_error: null } };
+FAKE_RESPONSES["/markdown/j"] = { text: "" };
+upload("j");
+await until(() => currentView === "results" || els.statusHeading.textContent === "Processing failed", 400);
+await finish();
+console.log(JSON.stringify({ ...page(), view: currentView, recent: recentAnalyses.map((item) => item.key) }));
+"""
+
+
+def test_a_status_request_that_fails_for_a_moment_is_asked_again_and_the_results_load():
+    """A dropped connection, then a proxy's 502, then the answer: three requests, each wait longer, and the results
+    load (and the statement is in Recent) instead of a failure the server never had."""
+    result = _poll({"j": ["network", {"http": 502}, _status("done")]}, SINGLE_LOADS, B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 3} and result["waits"] == [1400, 2800]
+    assert result["view"] == "results" and "/analysis/j" in result["fetched"]
+    assert result["red"] == [] and result["recent"] == ["j"]
+
+
+@pytest.mark.parametrize("code", [408, 429, 500, 502, 503, 504])
+def test_every_transient_status_failure_is_asked_again(code):
+    result = _poll({"j": [{"http": code}, _status("done")]}, SINGLE_LOADS, B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 2} and result["waits"] == [1400]
+    assert result["view"] == "results" and result["red"] == []
+
+
+@pytest.mark.parametrize("code", [400, 403, 404])
+def test_a_status_failure_that_is_not_transient_is_reported_at_once(code):
+    result = _poll({"j": [{"http": code}, _status("done")]}, SINGLE_LOADS, B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 1} and result["waits"] == []
+    assert result["heading"] == "Processing failed" and result["message"] == f"Status failed ({code})"
+    assert "/analysis/j" not in result["fetched"]
+
+
+def test_status_failures_that_go_on_are_reported_after_five_retries():
+    """Six 502s in a row: the first request and five retries, waiting 1.4 s more each time (21 s in all), then the
+    failure is reported with its status; the progress bar is cleared."""
+    result = _poll({"j": [{"http": 502}] * 6 + [_status("done")]}, SINGLE_LOADS, B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 6} and result["waits"] == [1400, 2800, 4200, 5600, 7000]
+    assert result["heading"] == "Processing failed" and result["message"] == "Status failed (502)"
+    assert result["busy"] is False and result["red"] == ["Processing failed: Status failed (502)"]
+
+
+def test_a_connection_that_stays_down_is_reported_after_the_retries():
+    result = _poll({"j": ["network"]}, SINGLE_LOADS, B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 6}
+    assert result["heading"] == "Processing failed" and result["message"] == "Status failed (Failed to fetch)"
+
+
+def test_only_failures_in_a_row_count_toward_the_retries():
+    """Five failures, an answer, five more failures, then done: the count starts again after each answer."""
+    plan = [{"http": 502}] * 5 + [_status("processing")] + [{"http": 503}] * 5 + [_status("done")]
+    result = _poll({"j": plan}, SINGLE_LOADS, B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 12} and result["view"] == "results" and result["red"] == []
+    assert result["waits"] == [1400, 2800, 4200, 5600, 7000, 1400, 1400, 2800, 4200, 5600, 7000]
+
+
+def test_a_restart_inside_the_retries_ends_at_the_interrupted_answer():
+    """The proxy answers 502 while the server restarts, then the new process answers `interrupted`: the poll ends
+    with the server's note (F3), never an endless spinner."""
+    note = _interrupted_note()
+    result = _poll({"j": [{"http": 502}, {"http": 502}, _status("interrupted", error=note)]}, SINGLE_LOADS,
+                   B=_statement(ROWS_B, 2))
+    assert result["asked"] == {"j": 3} and result["waits"] == [1400, 2800]
+    assert result["heading"] == "Processing failed" and result["message"] == note and result["busy"] is False
+
+
+def test_a_package_member_whose_status_fails_for_a_moment_recovers(tmp_path, monkeypatch):
+    b = _statement(ROWS_B, 2)
+    package = _package_payload(tmp_path, monkeypatch, [("p1", "done", b, None), ("p2", "done", b, None)])
+    result = _poll({"p1": [{"http": 502}, _status("done")], "p2": [_status("processing"), _status("done")]}, """
+FAKE_RESPONSES["/package_analysis"] = { json: PACKAGE };
+upload("p1", "p2");
+await until(() => activeNav === "packages" || els.statusHeading.textContent === "Processing failed");
+await finish();
+console.log(JSON.stringify({ ...page(), view: [currentView, activeNav] }));
+""", PACKAGE=package)
+    assert result["asked"] == {"p1": 2, "p2": 2} and result["waits"] == [1400]
+    assert result["fetched"].count("/package_analysis") == 1 and result["view"] == ["results", "packages"]
+    assert result["red"] == []
+
+
+@pytest.mark.parametrize("earlier", [["old"], ["old1", "old2"]], ids=["statement", "package"])
+def test_a_late_status_failure_from_an_earlier_upload_is_not_drawn_over_the_next_one(earlier):
+    """A status request of the previous upload (a statement or a package) fails after the next upload started: the
+    next upload's page stays as it is, with no failure and no red notification."""
+    plans = {job: ["hold"] for job in [*earlier, "new"]}
+    result = _poll(plans, f"""
+upload(...{json.dumps(earlier)});
+await settle();
+upload("new");
+await settle();
+const before = page();
+for (const job of {json.dumps(earlier)}) await dropHeld(job);
+await settle();
+const after = page();
+await finish();
+console.log(JSON.stringify({{ before, after, current: currentJobId }}));
+""")
+    assert result["before"]["heading"] == "Processing statement"
+    assert result["after"]["heading"] == "Processing statement" and result["after"]["busy"] is True
+    assert result["after"]["red"] == [] and result["current"] == "new"
+    assert result["after"]["waits"] == []

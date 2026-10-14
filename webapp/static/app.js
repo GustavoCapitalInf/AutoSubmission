@@ -5007,13 +5007,39 @@ function uploadFiles(fileList) {
 // package's own figures count it (webapp/app.py, _PENDING_JOB_STATUSES).
 const ENDED_JOB_STATUSES = new Set(["done", "error", "interrupted"]);
 const FAILED_JOB_STATUSES = new Set(["error", "interrupted"]);
+// Audit 2026-10-13, F5: a status request that fails for a moment (the connection dropped; a proxy answered 5xx, 408 or
+// 429 while the server restarted or was busy) is asked again, each wait longer (1.4 s, 2.8 s, ... about 21 s in all),
+// before the page reports it: the job runs on at the server, and a page that gave up could not get back to it. Any
+// other failure (404: the server does not know the job) is reported at once, as before. Only failures in a row count.
+const STATUS_RETRIES = 5;
+const STATUS_RETRY_MS = 1400;
 
-function pollPackage(jobIds) {
-  if (pollTimer) clearTimeout(pollTimer);
-  Promise.all(jobIds.map((jobId) => fetch(`/status/${jobId}`).then((response) => {
-    if (!response.ok) throw new Error(`Status failed (${response.status})`);
+function fetchStatus(jobId) {
+  return fetch(`/status/${jobId}`).then((response) => {
+    if (!response.ok) {
+      const error = new Error(`Status failed (${response.status})`);
+      error.transient = response.status >= 500 || response.status === 408 || response.status === 429;
+      throw error;
+    }
     return response.json();
-  })))
+  }, (failure) => {
+    const error = new Error(`Status failed (${failure && failure.message ? failure.message : "no connection"})`);
+    error.transient = true;
+    throw error;
+  });
+}
+
+// Schedules `poll` again after a transient status failure (through pollTimer, so a new poll still cancels it); false
+// once the retries are spent or the failure is not transient.
+function retryStatus(error, failures, poll) {
+  if (!error || error.transient !== true || failures >= STATUS_RETRIES) return false;
+  pollTimer = setTimeout(poll, STATUS_RETRY_MS * (failures + 1));
+  return true;
+}
+
+function pollPackage(jobIds, failures = 0) {
+  if (pollTimer) clearTimeout(pollTimer);
+  Promise.all(jobIds.map((jobId) => fetchStatus(jobId)))
     .then((statuses) => {
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
       statuses.forEach((status, index) => updateQueueEntry(jobIds[index], status));
@@ -5038,16 +5064,17 @@ function pollPackage(jobIds) {
       ]);
       pollTimer = setTimeout(() => pollPackage(jobIds), 1400);
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => {
+      // A failure for a package no longer on screen (another upload started) is not drawn over it, as its answer is not.
+      if (jobIds.join(",") !== currentJobIds.join(",")) return;
+      if (retryStatus(error, failures, () => pollPackage(jobIds, failures + 1))) return;
+      renderError(error.message || String(error));
+    });
 }
 
-function pollJob(jobId) {
+function pollJob(jobId, failures = 0) {
   if (pollTimer) clearTimeout(pollTimer);
-  fetch(`/status/${jobId}`)
-    .then((response) => {
-      if (!response.ok) throw new Error(`Status failed (${response.status})`);
-      return response.json();
-    })
+  fetchStatus(jobId)
     .then((status) => {
       if (jobId !== currentJobId) return;
       updateQueueEntry(jobId, status);
@@ -5075,7 +5102,12 @@ function pollJob(jobId) {
       ]);
       pollTimer = setTimeout(() => pollJob(jobId), 1400);
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => {
+      // A failure for a statement no longer on screen (another upload started) is not drawn over it.
+      if (jobId !== currentJobId) return;
+      if (retryStatus(error, failures, () => pollJob(jobId, failures + 1))) return;
+      renderError(error.message || String(error));
+    });
 }
 
 // The job ids and upload details of the analysis on screen, recorded whenever one finishes drawing. A reopen
