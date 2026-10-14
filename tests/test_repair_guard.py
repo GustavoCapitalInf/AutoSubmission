@@ -82,7 +82,7 @@ def _claimed(statement: Statement, parser_id: str = "seam_parser") -> Dispatch:
 def raising_repair(monkeypatch):
     """One step of the repair stage raises, with the document in its message.
 
-    `repair_b1_beginning_balance` stands in for the twelve steps the stage runs
+    `repair_b1_beginning_balance` stands in for the seven steps the stage runs
     — the point is the SEAM, so which one raises is deliberately not part of
     the property under test.
     """

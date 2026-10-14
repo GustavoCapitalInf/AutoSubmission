@@ -62,13 +62,8 @@ from . import parser_registry_entries as _parser_registry_entries  # noqa: F401 
 from .structurer import STRUCTURER_MODEL, structure_unclaimed
 from .bank_repairs import (
     repair_b1_beginning_balance,
-    repair_capital_one_running_amount,
-    repair_chase_remote_deposit_count_column,
-    repair_regions_transactions,
     repair_santander_signs_from_balances,
     repair_scotiabank_misc_payment_sign,
-    repair_single_row_signs_from_balances,
-    repair_truist_converted_checks,
 )
 
 
@@ -145,13 +140,31 @@ def apply_statement_repairs(
         stmt = repair(markdown, stmt)
     stmt = repair_first_community_posted_activity(stmt)
     stmt = repair_b1_beginning_balance(stmt)
-    stmt = repair_capital_one_running_amount(stmt)
-    stmt = repair_chase_remote_deposit_count_column(stmt)
-    stmt = repair_regions_transactions(markdown, stmt)
-    stmt = repair_truist_converted_checks(stmt)
+    # R10 items S-1..S-3 are fenced under Gustavo's ruling: the three legacy
+    # amount rewrites remain defined in bank_repairs.py,
+    # with their doctrine reasons, but nothing under analysis/ calls them.
+    # The ceremony tripwire covers these and the S-4 direction rewrite below.
+    # R10 item S-5: the retained legacy check-row repair is fenced; its
+    # duplicate witness can be the same row it removes.
     stmt = repair_santander_signs_from_balances(stmt)
     stmt = repair_scotiabank_misc_payment_sign(stmt)
-    stmt = repair_single_row_signs_from_balances(stmt)
+    # `repair_single_row_signs_from_balances` is NOT run (STOP item S-4,
+    # ruled). It walks the ledger a printed-balance step at a time and, where
+    # a segment's sum disagrees with the step, flips the sign of the FIRST row
+    # whose flip reconciles the segment — several plausible readings, tested
+    # against a reconciliation, and whichever balances is published. That is
+    # the anti-optimizer pattern, and the ruling's own words for it are
+    # "several independently plausible interpretations → REVIEW / REFUSE".
+    # The function stays defined in `analysis/bank_repairs.py` as the record
+    # of what ran; nothing calls it, and
+    # `tests/test_bank_repairs_ceremony.py` refuses any caller under
+    # `analysis/`. It fired on 0 of its 201 candidate documents on the run of
+    # record, which is why the union replay across this fence is identical.
+    #
+    # The five fences were reviewed on `wave23-precision` and never composed
+    # into the shipped line; the audit of 2026-10-13 (PARSERS-1) ported them.
+    # A statement that only one of these rewrites made reconcile is now
+    # refused or routed to review on the figures the paper printed.
     # Statement periods that cross a year boundary: parsers stamp one year on
     # every MM/DD row, so re-derive the year from the period before anything
     # chronological (ADB, daily ledger) is built on these dates.
@@ -578,12 +591,14 @@ def assess_document_integrity(
     # document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
     #
     # THE NOTE NAMES THE STAGE, NOT ONE REPAIR, and the precision is the point.
-    # `apply_statement_repairs` is TWELVE steps and only ONE is a bank-summary
-    # repair; the other eleven are nine further bank-specific repairs,
-    # `assign_transaction_years` and `normalize_statement`. Saying "a
-    # bank-summary repair raised" would be wrong twice over: it misnames the
-    # eleven, and on a raise late in the stage the bank-summary repair had
-    # already SUCCEEDED and is being discarded with everything else.
+    # `apply_statement_repairs` is SEVEN steps and only ONE is a bank-summary
+    # repair; the other six are four further bank-specific repairs,
+    # `assign_transaction_years` and `normalize_statement` (it was twelve
+    # until the five ruled fences, S-1..S-5, took five repairs off the path).
+    # Saying "a bank-summary repair raised" would be wrong twice over: it
+    # misnames the six, and on a raise late in the stage the bank-summary
+    # repair had already SUCCEEDED and is being discarded with everything
+    # else.
     #
     # WHAT THE DISCARD COSTS, disclosed rather than implied: because
     # `assign_transaction_years` is inside the stage, a statement whose period
@@ -970,13 +985,13 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # The repair stage is discarded ATOMICALLY — the unrepaired statement
         # stands, which is exactly what this branch published before repairs
         # existed. Deliberately not per-repair: recovering WHICH step of the
-        # stage raised would mean running the ten repairs, the year assignment
+        # stage raised would mean running the five repairs, the year assignment
         # and the normalization independently, and that changes what the stage
         # DOES — today the first raise stops the rest — which this card is
         # explicit is out of scope. For the same reason the class name is NOT
         # attributed to `dispatch.registration`: only the keyed summary repair
         # belongs to the claiming parser, so naming it as the author of one of
-        # the nine unconditional repairs' crashes would be exactly the
+        # the four unconditional repairs' crashes would be exactly the
         # misattribution this seam exists to prevent.
         #
         # NOT applied to the LLM-branch repair call below, and that is a
@@ -1135,8 +1150,9 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     # `normalize_statement` and `apply_statement_repairs` are applied exactly as
     # they were to the claimed statement, so the accounts of one document are
     # treated alike. The repairs are keyed on the CLAIMING registration or on
-    # each repair's own printed guard, so none of them can reach a document this
-    # reader did not claim.
+    # the bank label the claiming parser published (each repair's own guard
+    # reads `stmt.bank`, which a parser sets, not the page), so none of them
+    # can reach a document this reader did not claim.
     accounts = [primary]
     for account in published[1:]:
         sibling = apply_statement_repairs(
