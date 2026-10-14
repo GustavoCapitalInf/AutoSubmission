@@ -1,11 +1,13 @@
-"""The local Tesseract rung reads one page at a time (audit 2026-10-13: INTAKE-1, BE-3).
+"""The local Tesseract rung reads one page at a time and fails closed on a host failure (audit 2026-10-13: INTAKE-1,
+BE-3, REL-01).
 
 * Memory: the rung renders the document in bounded page ranges into files and decodes one page at a time, instead of
   holding every page of the whole document in memory before the first page is read. The pixels Tesseract reads are
   unchanged: the PNG handed to Tesseract for every page is byte-identical to the one the whole-document raster
   (`ocr.rasterize.rasterize_pdf`, the rung's former input) produces.
-* A short render (fewer pages than the document has, or other pages than asked for) raises `LocalOcrIncomplete`:
-  never a short read and never `None` (which the artifact cache would keep for these bytes).
+* Time: every pdftoppm and tesseract process has a time limit and the document a deadline. A limit passed, a short
+  render, a tesseract killed by a signal, or a tesseract that cannot be started raises `LocalOcrIncomplete`: never a
+  partial read (a blank page beside read ones) and never `None` (which the artifact cache would keep for these bytes).
 
 Every PDF here is fabricated (SAMPLE pages carrying a page number and noise); Tesseract is stubbed so the tests read
 the exact PNG bytes the rung hands over. The tests that render need Poppler and skip without it.
@@ -18,6 +20,7 @@ import random
 import subprocess
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image, ImageDraw
@@ -228,7 +231,7 @@ def test_no_tesseract_binary_reads_as_none(monkeypatch):
 
 
 # ---------------------------------------------------------------------------------------------------------------------
-# A short render refuses the whole read: never a short read, never a None.
+# Host failures refuse the whole read: never a partial read, never a None.
 # ---------------------------------------------------------------------------------------------------------------------
 
 
@@ -254,3 +257,174 @@ def test_a_render_that_names_other_pages_refuses(stub, monkeypatch):
     monkeypatch.setattr(rung, "rasterize_pages_to_files", reversed_pages)
     with pytest.raises(rung.LocalOcrIncomplete):
         rung.parse_local_tesseract(_fabricated_scan(3), source_file="sample.pdf")
+
+
+def test_a_tesseract_past_its_time_limit_refuses_the_whole_read(stub):
+    _poppler_or_skip()
+    stub.fail = {2: subprocess.TimeoutExpired(["tesseract"], 1.0)}
+    with pytest.raises(rung.LocalOcrTimeout):
+        rung.parse_local_tesseract(_fabricated_scan(3), source_file="sample.pdf")
+    assert issubclass(rung.LocalOcrTimeout, rung.LocalOcrIncomplete)
+
+
+def test_every_tesseract_call_carries_a_time_limit(stub):
+    _poppler_or_skip()
+    rung.parse_local_tesseract(_fabricated_scan(2), source_file="sample.pdf")
+    assert stub.timeouts and all(0 < limit <= rung.STEP_TIMEOUT_SECONDS for limit in stub.timeouts)
+
+
+def test_a_pdftoppm_past_its_time_limit_refuses_the_whole_read(stub, monkeypatch):
+    _poppler_or_skip()
+    from pdf2image.exceptions import PDFPopplerTimeoutError
+
+    seen = []
+
+    def slow(pdf_path, output_folder, *, timeout=None, **kwargs):
+        seen.append(timeout)
+        raise PDFPopplerTimeoutError("Run poppler timeout.")
+
+    monkeypatch.setattr(rung, "rasterize_pages_to_files", slow)
+    with pytest.raises(rung.LocalOcrTimeout):
+        rung.parse_local_tesseract(_fabricated_scan(2), source_file="sample.pdf")
+    assert seen and 0 < seen[0] <= rung.STEP_TIMEOUT_SECONDS
+
+
+def test_the_document_deadline_bounds_every_step_and_refuses_past_it(stub, monkeypatch):
+    _poppler_or_skip()
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(rung, "time", SimpleNamespace(monotonic=lambda: clock["now"]))
+    monkeypatch.setattr(rung, "DOCUMENT_DEADLINE_SECONDS", 150.0)
+    real_stub = _StubTesseract.__call__
+
+    def advancing(self, cmd, *args, **kwargs):
+        result = real_stub(self, cmd, *args, **kwargs)
+        clock["now"] += 100.0  # every page takes 100 s of the 150 s deadline
+        return result
+
+    monkeypatch.setattr(_StubTesseract, "__call__", advancing)
+    with pytest.raises(rung.LocalOcrTimeout):
+        rung.parse_local_tesseract(_fabricated_scan(3), source_file="sample.pdf")
+    # page 1 had the full step limit, page 2 only what was left of the deadline, page 3 never ran
+    assert stub.timeouts == [rung.STEP_TIMEOUT_SECONDS, 50.0]
+
+
+def test_a_tesseract_killed_by_a_signal_refuses(stub):
+    """A negative return code is a POSIX signal (the kernel's OOM killer sends SIGKILL): the host failed, not the page."""
+    _poppler_or_skip()
+    stub.fail = {1: -9}
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(_fabricated_scan(2), source_file="sample.pdf")
+
+
+def test_a_tesseract_that_cannot_start_refuses(stub):
+    _poppler_or_skip()
+    stub.fail = {1: OSError("cannot start")}
+    with pytest.raises(rung.LocalOcrIncomplete):
+        rung.parse_local_tesseract(_fabricated_scan(2), source_file="sample.pdf")
+
+
+def test_the_refusal_names_nothing_from_the_document(stub):
+    _poppler_or_skip()
+    stub.fail = {1: subprocess.TimeoutExpired(["tesseract", "SAMPLE-SECRET"], 1.0)}
+    with pytest.raises(rung.LocalOcrTimeout) as caught:
+        rung.parse_local_tesseract(_fabricated_scan(1), source_file="SAMPLE-SECRET.pdf")
+    assert "SAMPLE-SECRET" not in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__suppress_context__
+
+
+def test_a_refused_read_is_never_cached_and_a_later_read_succeeds(stub, tmp_path):
+    """Through the artifact cache the worker reads with: a timed-out read leaves no entry (None would have been kept),
+    and the next read of the same bytes reads every page."""
+    _poppler_or_skip()
+    from webapp.artifact_cache import ArtifactCache, cached_ocr
+    from webapp.storage import Storage
+
+    cache = ArtifactCache(Storage(tmp_path / "data"))
+    pdf_bytes = _fabricated_scan(3)
+
+    def read():
+        return cached_ocr(pdf_bytes, compute=lambda: rung.parse_local_tesseract(pdf_bytes, source_file="s.pdf"),
+                          cache=cache, source_file="s.pdf", force_ocr=False, allow_local_ocr=True,
+                          allow_visual_ocr=False)
+
+    stub.fail = {2: subprocess.TimeoutExpired(["tesseract"], 1.0)}
+    with pytest.raises(rung.LocalOcrTimeout):
+        read()
+    assert cache.storage.cache_entries("ocr") == []
+    stub.fail = {}
+    result = read()
+    assert result.cached is False
+    assert _page_digests(result.value) == _oracle_png_digests(pdf_bytes)
+    assert read().cached is True
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# The callers: the web worker ends the job in a terminal error, the discovery run fails the document and goes on.
+# ---------------------------------------------------------------------------------------------------------------------
+
+
+class _ReadDoc:
+    model = "local-tesseract-ocr"
+    pages = ["SAMPLE"]
+
+    def to_markdown(self):
+        return "SAMPLE"
+
+
+def test_the_worker_ends_a_job_whose_read_timed_out_in_error_and_caches_nothing(monkeypatch, tmp_path):
+    from webapp.jobs import JobStore
+    from webapp.storage import Storage
+    from webapp.worker import run_job
+
+    store = JobStore(Storage(tmp_path / "data"))
+    monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
+
+    def timed_out(*args, **kwargs):
+        raise rung.LocalOcrTimeout("tesseract ran past its time limit")
+
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", timed_out)
+    first = store.create("scan.pdf", pdf_bytes=b"%PDF-SAMPLE-scan")
+    run_job(first.id, b"%PDF-SAMPLE-scan", "scan.pdf", store, parse_mode="deterministic")
+    failed = store.get(first.id)
+    assert failed.status == "error"
+    assert failed.error == (
+        "reading stage failed: LocalOcrTimeout "
+        "(message withheld; an exception message can quote statement text)"
+    )
+    assert store.cache.storage.cache_entries("ocr") == []
+
+    # The same bytes again, the host healthy: read afresh (no cached "no text"), and the job reaches analysis.
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", lambda *a, **k: _ReadDoc())
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
+    monkeypatch.setattr("webapp.worker.document_to_json", lambda report: {"quality": {"level": "transaction_level"}})
+    again = store.create("scan.pdf", pdf_bytes=b"%PDF-SAMPLE-scan")
+    run_job(again.id, b"%PDF-SAMPLE-scan", "scan.pdf", store, parse_mode="deterministic")
+    assert store.get(again.id).status == "done"
+    assert store.get(again.id).parse_model == "local-tesseract-ocr"
+
+
+def test_a_discovery_run_fails_a_refused_read_closed_and_goes_on(monkeypatch, tmp_path):
+    from discovery.inventory import DedupIndex
+    from discovery.runner import MODE_SCANNED, DiscoveryRunner
+
+    root = tmp_path / "root"
+    (root / "SampleBank").mkdir(parents=True)
+    (root / "SampleBank" / "first.pdf").write_bytes(_fabricated_scan(1, seed=1))
+    (root / "SampleBank" / "second.pdf").write_bytes(_fabricated_scan(1, seed=2))
+    calls = []
+
+    def fake_rung(pdf_bytes, source_file="", **kwargs):
+        calls.append(source_file)
+        if source_file == "first.pdf":
+            raise rung.LocalOcrTimeout("tesseract ran past its time limit")
+        return None
+
+    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", fake_rung)
+    runner = DiscoveryRunner(root, mode=MODE_SCANNED, run_id="test-run", sink=None, cache=None, dedup=DedupIndex())
+    first = runner.process("SampleBank/first.pdf", "SampleBank")
+    second = runner.process("SampleBank/second.pdf", "SampleBank")
+    assert calls == ["first.pdf", "second.pdf"]
+    assert (first.outcome_class, first.outcome_reason, first.error_type, first.source_path) == (
+        "failed", "ocr_failed", "LocalOcrTimeout", "none")
+    # the second read, healthy and empty, is the ordinary "Tesseract ran and read nothing usable"
+    assert (second.outcome_class, second.outcome_reason) == ("deferred", "deferred_visual_ocr")

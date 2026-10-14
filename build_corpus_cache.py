@@ -23,7 +23,7 @@ import json
 from pathlib import Path
 
 from corpus_artifacts import MANIFEST_NAME, sha256_hex
-from ocr.local_tesseract import parse_local_tesseract
+from ocr.local_tesseract import LocalOcrIncomplete, parse_local_tesseract
 # The production native-text ladder itself — see
 # `ocr/native_text.py::native_statement`. The cache is built from exactly the
 # bytes production reads because it calls the same function, not a copy of it.
@@ -53,7 +53,12 @@ def main() -> None:
         if native_document(pdf_bytes, path.name) is not None:
             continue
         print(f"[{index}] OCR {path}", flush=True)
-        document = parse_local_tesseract(pdf_bytes, source_file=path.name)
+        try:
+            document = parse_local_tesseract(pdf_bytes, source_file=path.name)
+        except LocalOcrIncomplete as exc:
+            # A read the rung could not finish (a time limit, a host failure) stops the rebuild like an empty one:
+            # a committed artifact is never written from a partial read.
+            raise SystemExit(f"local Tesseract could not finish {path} ({type(exc).__name__})") from None
         if document is None:
             raise SystemExit(f"local Tesseract produced no usable text for {path}")
         markdown = document.to_markdown()
