@@ -2354,14 +2354,17 @@ def test_an_llm_extraction_gets_its_repair_by_bank_label():
 
 
 def test_every_summary_repair_is_keyed_on_a_live_registration():
-    """The ids in `_SUMMARY_REPAIRS` are registry keys, so a renamed parser
-    would silently switch its repair off. This is what makes that loud."""
+    """The ids in `_SUMMARY_REPAIRS` (and, since the audit of 2026-10-13,
+    PARSERS-1, in `_STATEMENT_REPAIRS`: the three kept bank repairs) are
+    registry keys, so a renamed parser would silently switch its repair off.
+    This is what makes that loud."""
     from analysis import parser_registry
-    from analysis.pipeline import _SUMMARY_REPAIRS
+    from analysis.pipeline import _STATEMENT_REPAIRS, _SUMMARY_REPAIRS
 
-    assert _SUMMARY_REPAIRS, "the table must not be empty"
-    for parser_id in _SUMMARY_REPAIRS:
-        assert parser_registry.by_id(parser_id).id == parser_id
+    for table in (_SUMMARY_REPAIRS, _STATEMENT_REPAIRS):
+        assert table, "the table must not be empty"
+        for parser_id in table:
+            assert parser_registry.by_id(parser_id).id == parser_id
 
 
 def test_parse_regions_native_text_sections():

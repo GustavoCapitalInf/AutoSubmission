@@ -508,3 +508,111 @@ def test_the_s3_dropped_row_is_no_longer_masked():
     staged, recon = _staged("chase", STAGE_CASES[2][2])
     assert [round(t.amount, 2) for t in staged.transactions] == [1025.0]
     assert recon.ok is False
+
+
+# ---------------------------------------------------------------------------
+# the three kept bank repairs: keyed on the CLAIMING registration
+# ---------------------------------------------------------------------------
+#
+# A separate change from the fence (the rulings did not ask for it). The
+# three kept repairs were gated only on a substring of `stmt.bank`, so a
+# reader of another family that published a label carrying the substring,
+# or a hosted extraction naming the bank loosely, got a repair written for
+# another bank's paper. `apply_statement_repairs` now runs each only for the
+# registration that owns it (`_registration_for`, the same resolution the
+# two summary repairs use). Restriction-only: each repair keeps its own
+# label guard, so the key can only stop a repair, never start one.
+
+#: (owning registration id, the repair, a shape that repair changes)
+KEPT_CASES = (
+    ("santander", repair_santander_signs_from_balances, _santander_case),
+    ("scotiabank", repair_scotiabank_misc_payment_sign, _scotiabank_case),
+)
+
+
+def _claimed_by_another_reader(bank: str):
+    """A claim by a registration that is not the repair's owner but publishes
+    the owner's bank label. Built directly, so the live registry is untouched."""
+    from analysis.parser_registry import Dispatch, Marker, Registration
+
+    registration = Registration(
+        id="sample_other_reader", bank=bank, markers=(Marker("m", lambda text: True),),
+        parse=lambda markdown: None,
+    )
+    return Dispatch("claimed", registration=registration)
+
+
+def test_the_kept_bank_repairs_are_keyed_on_their_own_registrations():
+    from analysis import parser_registry
+    from analysis.bank_repairs import repair_b1_beginning_balance
+    from analysis.pipeline import _STATEMENT_REPAIRS
+
+    assert _STATEMENT_REPAIRS == {
+        "b1": repair_b1_beginning_balance,
+        "santander": repair_santander_signs_from_balances,
+        "scotiabank": repair_scotiabank_misc_payment_sign,
+    }
+    declared = _declared()
+    for parser_id, repair in _STATEMENT_REPAIRS.items():
+        registration = parser_registry.by_id(parser_id)
+        assert registration.id == parser_id
+        # the repair's own guard admits its owner's label, or the key would
+        # silently switch the repair off
+        literals = declared[repair.__name__][1]
+        assert any(literal in registration.bank.upper() for literal in literals), (parser_id, literals)
+
+
+@pytest.mark.parametrize("owner,repair,build", KEPT_CASES, ids=[c[0] for c in KEPT_CASES])
+def test_a_kept_bank_repair_still_fires_for_the_registration_that_owns_it(owner, repair, build):
+    from analysis.pipeline import apply_statement_repairs
+
+    printed = build()
+    staged = apply_statement_repairs("", printed, dispatch=_claimed(owner))
+    assert _as_printed(staged) == _as_printed(repair(printed)) != _as_printed(printed)
+
+
+@pytest.mark.parametrize("owner,repair,build", KEPT_CASES, ids=[c[0] for c in KEPT_CASES])
+def test_a_kept_bank_repair_does_not_fire_for_another_reader_publishing_its_label(owner, repair, build):
+    from analysis.pipeline import apply_statement_repairs
+
+    printed = build()
+    assert repair(printed) != printed, "the label guard alone would still fire"
+    staged = apply_statement_repairs("", printed, dispatch=_claimed_by_another_reader(printed.bank))
+    assert _as_printed(staged) == _as_printed(printed)
+
+
+@pytest.mark.parametrize("owner,repair,build", KEPT_CASES, ids=[c[0] for c in KEPT_CASES])
+def test_an_unclaimed_extraction_gets_a_kept_repair_only_by_the_owners_exact_label(owner, repair, build):
+    """The R-3 fallback, as the summary repairs have it: a statement no parser
+    claimed gets the knowledge of the registration whose label it names
+    EXACTLY. A label that merely contains the bank's name gets nothing."""
+    from analysis.parser_registry import Dispatch
+    from analysis.pipeline import apply_statement_repairs
+
+    printed = build()
+    named = apply_statement_repairs("", printed, dispatch=Dispatch("unclaimed"))
+    assert _as_printed(named) == _as_printed(repair(printed))
+    loose = printed.model_copy(update={"bank": f"SAMPLE {printed.bank.upper()} LABEL"})
+    assert repair(loose) != loose, "the label guard alone would still fire"
+    unnamed = apply_statement_repairs("", loose, dispatch=Dispatch("unclaimed"))
+    assert _as_printed(unnamed) == _as_printed(loose)
+
+
+def test_the_b1_repair_runs_only_for_its_owner(monkeypatch):
+    """`normalize_statement` already drops the row this repair drops, so its
+    effect cannot be seen in the stage's output; the key is pinned on the
+    call instead."""
+    from analysis import pipeline
+
+    calls = []
+
+    def spy(stmt):
+        calls.append(stmt.bank)
+        return stmt
+
+    monkeypatch.setitem(pipeline._STATEMENT_REPAIRS, "b1", spy)
+    printed = _statement("B1Bank", [_txn(2, "SYNTHETIC ROW", -1000.0)], 50000.0, 49000.0)
+    pipeline.apply_statement_repairs("", printed, dispatch=_claimed("b1"))
+    assert calls == ["B1Bank"]
+    pipeline.apply_statement_repairs("", printed, dispatch=_claimed_by_another_reader("B1Bank"))
+    assert calls == ["B1Bank"]

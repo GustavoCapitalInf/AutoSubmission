@@ -107,6 +107,19 @@ _SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
     "regions": repair_regions_summary,
 }
 
+#: The three kept bank repairs of `analysis/bank_repairs.py`, keyed the same
+#: way (audit 2026-10-13, PARSERS-1). Each used to run on every statement and
+#: was gated only on a SUBSTRING of `stmt.bank`, so a reader of another family
+#: that published a label carrying the substring, or a hosted extraction that
+#: named the bank loosely, got a repair written for another bank's paper. Each
+#: keeps that guard, so the key can only stop a repair firing, never start one.
+#: The same test holds these ids to the registry.
+_STATEMENT_REPAIRS: dict[str, Callable[[Statement], Statement]] = {
+    "b1": repair_b1_beginning_balance,
+    "santander": repair_santander_signs_from_balances,
+    "scotiabank": repair_scotiabank_misc_payment_sign,
+}
+
 
 def apply_statement_repairs(
     markdown: str, stmt: Statement, *, dispatch: Dispatch | None = None
@@ -139,15 +152,16 @@ def apply_statement_repairs(
     if repair is not None:
         stmt = repair(markdown, stmt)
     stmt = repair_first_community_posted_activity(stmt)
-    stmt = repair_b1_beginning_balance(stmt)
+    # The three kept bank repairs, for their owner only (`_STATEMENT_REPAIRS`).
+    statement_repair = _STATEMENT_REPAIRS.get(owner.id) if owner is not None else None
+    if statement_repair is not None:
+        stmt = statement_repair(stmt)
     # R10 items S-1..S-3 are fenced under Gustavo's ruling: the three legacy
     # amount rewrites remain defined in bank_repairs.py,
     # with their doctrine reasons, but nothing under analysis/ calls them.
     # The ceremony tripwire covers these and the S-4 direction rewrite below.
     # R10 item S-5: the retained legacy check-row repair is fenced; its
     # duplicate witness can be the same row it removes.
-    stmt = repair_santander_signs_from_balances(stmt)
-    stmt = repair_scotiabank_misc_payment_sign(stmt)
     # `repair_single_row_signs_from_balances` is NOT run (STOP item S-4,
     # ruled). It walks the ledger a printed-balance step at a time and, where
     # a segment's sum disagrees with the step, flips the sign of the FIRST row
@@ -591,12 +605,14 @@ def assess_document_integrity(
     # document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
     #
     # THE NOTE NAMES THE STAGE, NOT ONE REPAIR, and the precision is the point.
-    # `apply_statement_repairs` is SEVEN steps and only ONE is a bank-summary
-    # repair; the other six are four further bank-specific repairs,
+    # `apply_statement_repairs` is FIVE steps and only ONE is a bank-summary
+    # repair; the other four are the First Community repair, the claiming
+    # registration's kept bank repair (`_STATEMENT_REPAIRS`),
     # `assign_transaction_years` and `normalize_statement` (it was twelve
-    # until the five ruled fences, S-1..S-5, took five repairs off the path).
+    # until the five ruled fences, S-1..S-5, took five repairs off the path
+    # and the audit of 2026-10-13 keyed the remaining three on their owner).
     # Saying "a bank-summary repair raised" would be wrong twice over: it
-    # misnames the six, and on a raise late in the stage the bank-summary
+    # misnames the four, and on a raise late in the stage the bank-summary
     # repair had already SUCCEEDED and is being discarded with everything
     # else.
     #
@@ -985,14 +1001,15 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # The repair stage is discarded ATOMICALLY — the unrepaired statement
         # stands, which is exactly what this branch published before repairs
         # existed. Deliberately not per-repair: recovering WHICH step of the
-        # stage raised would mean running the five repairs, the year assignment
+        # stage raised would mean running the repairs, the year assignment
         # and the normalization independently, and that changes what the stage
         # DOES — today the first raise stops the rest — which this card is
         # explicit is out of scope. For the same reason the class name is NOT
-        # attributed to `dispatch.registration`: only the keyed summary repair
-        # belongs to the claiming parser, so naming it as the author of one of
-        # the four unconditional repairs' crashes would be exactly the
-        # misattribution this seam exists to prevent.
+        # attributed to `dispatch.registration`: only the registration-keyed
+        # repairs belong to the claiming parser, so naming it as the author of
+        # a crash in the label-gated First Community repair, the year
+        # assignment or the normalization would be exactly the misattribution
+        # this seam exists to prevent.
         #
         # NOT applied to the LLM-branch repair call below, and that is a
         # boundary rather than an omission: `extract_statement` on that
@@ -1149,10 +1166,10 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     #
     # `normalize_statement` and `apply_statement_repairs` are applied exactly as
     # they were to the claimed statement, so the accounts of one document are
-    # treated alike. The repairs are keyed on the CLAIMING registration or on
-    # the bank label the claiming parser published (each repair's own guard
-    # reads `stmt.bank`, which a parser sets, not the page), so none of them
-    # can reach a document this reader did not claim.
+    # treated alike. The repairs are keyed on the CLAIMING registration, and
+    # the one that is not (First Community's) on the bank label the claiming
+    # parser published (`stmt.bank`, which a parser sets, not the page), so
+    # none of them can reach a document this reader did not claim.
     accounts = [primary]
     for account in published[1:]:
         sibling = apply_statement_repairs(

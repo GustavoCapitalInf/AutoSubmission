@@ -82,14 +82,17 @@ def _claimed(statement: Statement, parser_id: str = "seam_parser") -> Dispatch:
 def raising_repair(monkeypatch):
     """One step of the repair stage raises, with the document in its message.
 
-    `repair_b1_beginning_balance` stands in for the seven steps the stage runs
-    — the point is the SEAM, so which one raises is deliberately not part of
-    the property under test.
+    `repair_first_community_posted_activity` stands in for the five steps the
+    stage runs — the point is the SEAM, so which one raises is deliberately
+    not part of the property under test. (It was the B1 repair until the
+    audit of 2026-10-13 keyed that one on its own registration, PARSERS-1: it
+    no longer runs for this fixture's claiming parser. The First Community
+    repair is still called for every statement and reads its label inside.)
     """
     def boom(stmt):
         raise ValueError(f"invalid literal for int(): {PROVOKING_TOKEN}")
 
-    monkeypatch.setattr("analysis.pipeline.repair_b1_beginning_balance", boom)
+    monkeypatch.setattr("analysis.pipeline.repair_first_community_posted_activity", boom)
 
 
 @pytest.fixture
@@ -231,7 +234,7 @@ def test_the_discard_publishes_uncorrected_dates_on_a_year_boundary(monkeypatch)
     def boom(stmt):
         raise ValueError(f"invalid literal for int(): {PROVOKING_TOKEN}")
 
-    monkeypatch.setattr("analysis.pipeline.repair_b1_beginning_balance", boom)
+    monkeypatch.setattr("analysis.pipeline.repair_first_community_posted_activity", boom)
     discarded = analyze_markdown(MARKDOWN, parse_mode="deterministic")
     assert [t.date for t in discarded.statement.transactions] == [
         "2053-12-15", "2053-01-09"   # ← the January row keeps the wrong year
