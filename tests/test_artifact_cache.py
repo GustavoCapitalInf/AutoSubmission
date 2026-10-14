@@ -486,7 +486,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_38():
+def test_analysis_stage_version_is_pinned_at_39():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -543,8 +543,13 @@ def test_analysis_stage_version_is_pinned_at_38():
     lender, its debits read as a potential lender until then) moves the
     classification 5.8 -> 5.9 and the stage with it, so Re-analyze misses a
     stage-37 entry still stamped 5.8: 37 -> 38 (on the hosting line, ahead of
-    audit round 4, whose last batch takes 39). This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 38
+    audit round 4). The code audit of 2026-10-13 (one pull request) changes
+    stored analysis output (the integrity block of a sum check that failed by
+    at most a dollar or could not run, the advisory daily-balance check, the
+    year-crossing readers, the money grammar's refusals, the fenced bank
+    repairs) with no classification change, so it moves the stage alone:
+    38 -> 39, its one move; round 4 takes 40 or above. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 39
 
 
 def test_paddle_model_token_is_not_in_free_models():

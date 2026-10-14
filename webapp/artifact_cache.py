@@ -839,7 +839,26 @@ OCR_STAGE_VERSION = 5
 # the hosting line ahead of true revenue audit round 4, whose last batch
 # therefore takes 39 (and 5.10). OCR stays cached. Pinned in the same change
 # (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 38
+# 38 -> 39: the code audit of 2026-10-13 (one pull request, branch
+# `audit/2026-10-13`; this is its ONE stage move, made in batch A03). It
+# supersedes the line above: 39 is the audit's, so true revenue audit round 4
+# takes 40 or above. What a warm cache keyed on 38 would serve wrongly: the
+# integrity block of a document whose sum check failed by at most a dollar or
+# could not run (REC-4: `ledger_sum_mismatch` at one cent, the new
+# `ledger_sum_uncheckable`, their notes and risk level); the ADB's
+# `validations` and `warnings` and the account's `notes` on every statement
+# that publishes a bank-printed daily balance (REC-1 step 1, the advisory
+# `bank_daily_balances_agree_with_rows`); every reading of a PNC, IBC,
+# Columbia Bank or First Community statement whose period crosses a year
+# boundary or prints a row or printed cell outside its period (PARSERS-2),
+# and of a CIBC-named document carrying IBC's product phrase (PARSERS-8); and
+# a money token the raising or strict grammar now refuses (PARSERS-4). The
+# batch's other analysis changes need the same invalidation and are covered
+# by this one move: A02's five fenced bank repairs and the re-keyed three
+# (an archive replay moved nothing; an upload could). CLASSIFICATION_VERSION
+# stays 5.9: no classification changed. OCR stays cached. Pinned in the same
+# change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 39
 #: Bump when the HTML renderer's output changes for unchanged settings.
 #: 1 -> 2: audit 2026-10-13, EXP-1 (`ocr/render.py`): markup printed in statement text is shown as text, the visual-OCR
 #: table markup let through loses its attributes, the header comment is kept only when it carries no angle bracket,

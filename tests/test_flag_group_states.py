@@ -89,7 +89,9 @@ def test_the_classification_and_analysis_stage_versions_move_together():
     assert CLASSIFICATION_VERSION == "5.9"
     assert classify_transaction("FABRICATED ROW", -10.0).classification_version == "5.9"
     assert classify_transaction("NORTHWIND INC PAYMENT", 100.00).classification_version == "5.9"
-    assert ANALYSIS_STAGE_VERSION == 38
+    # 5.9/39: the code audit of 2026-10-13 changes stored analysis output and no classification, so the stage moves
+    # alone (like R3-MERGE's 36 -> 37); 5.9 stays.
+    assert ANALYSIS_STAGE_VERSION == 39
 
 
 @pytest.mark.parametrize("group", STATE_GROUPS, ids=lambda group: group.state)

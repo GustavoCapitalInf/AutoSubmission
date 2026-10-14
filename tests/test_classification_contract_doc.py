@@ -3636,8 +3636,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
 
     # Audit round 3, R3-MERGE: the hosting line's merge-back moved the stage on to 37 (no classification change); R3-B25's
-    # own move (33 -> 36) stays recorded below. The owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38.
-    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # own move (33 -> 36) stays recorded below. The owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38;
+    # the code audit of 2026-10-13 moved the stage alone to 39.
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     spec = SPEC.read_text(encoding="utf-8")
     sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
     versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
@@ -3894,8 +3895,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
     figure); the contract's version line after R3-FF's; the handoff's versions, hosting-line, table and merge-back words."""
     from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
 
-    # The owner's Amerifi Capital ruling (2026-10-11) moved both past the merge's, to 5.9 and 38.
-    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # The owner's Amerifi Capital ruling (2026-10-11) moved both past the merge's, to 5.9 and 38; the code audit of
+    # 2026-10-13 moved the stage alone to 39 (no classification change).
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     html = (ROOT / "webapp" / "templates" / "index.html").read_text(encoding="utf-8")
     # The owner's request of 2026-10-10 (active positions by month) moved the page to true-revenue-12, computed when
     # served (no version move); the owner's own design (2026-10-11, display only) to -13; the owner's request of
@@ -3907,9 +3909,10 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
                   "36 -> 37: TRUE-REVENUE audit round 3, R3-MERGE, the merge-back of the hosting line (`fix/boa-nsf` "
                   "f2e9ae1) into this branch, in the merge commit itself", "CLASSIFICATION_VERSION stays 5.8"):
         assert words in note, words
-    # The Amerifi Capital ruling's 37 -> 38 note follows the merge's.
+    # The Amerifi Capital ruling's 37 -> 38 note follows the merge's, and the code audit's 38 -> 39 note follows it.
     assert note.index("# 33 -> 36:".replace("# ", " ")) < note.index(" 36 -> 37: TRUE-REVENUE") < note.index(
-        " 37 -> 38: LENDER-DETECTION Amerifi Capital ruling") < note.index("ANALYSIS_STAGE_VERSION = 38")
+        " 37 -> 38: LENDER-DETECTION Amerifi Capital ruling") < note.index(
+        " 38 -> 39: the code audit of 2026-10-13") < note.index("ANALYSIS_STAGE_VERSION = 39")
     spec = SPEC.read_text(encoding="utf-8")
     sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
     versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
@@ -3985,7 +3988,9 @@ def test_the_specs_the_plan_and_the_contract_record_the_amerifi_capital_ruling()
     amendment and version lines, the master plan's version line and the contract's head and version lines name it."""
     from webapp.artifact_cache import ANALYSIS_STAGE_VERSION
 
-    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # The code audit of 2026-10-13 moved the stage alone, 38 -> 39 (no classification change); the ruling's own
+    # 37 -> 38 stays recorded below.
+    assert (transaction_classifier.CLASSIFICATION_VERSION, ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     spec = SPEC.read_text(encoding="utf-8")
     sections, amendments = spec.split("\n## 20. Implementation amendments", 1)
     versions = sections.split("### 9.3 Versions", 1)[1].split("\n## 10.", 1)[0]
