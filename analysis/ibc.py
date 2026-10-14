@@ -174,8 +174,19 @@ def _with_daily_running_balances(txns: list[Transaction], daily: dict[str, float
     return ordered
 
 
+#: The issuer's name as a WORD (audit 2026-10-13 PARSERS-8). The substring
+#: "IBC" also fires inside "CIBC", which every CIBC statement prints and which
+#: RBC, TD and BMO documents carry in counterparty text: IBC's claim then rested
+#: on its product phrase alone, and every such document published a false
+#: `ibc` near-miss. Measured over the main checkout's OCR cache by the
+#: verifier: the word form keeps 3 of the 3 documents that print the product
+#: phrase. Only a glued spelling ("IBCBANK", printed by none of them) is lost.
+#: Not the legal name (none of the three prints it), and not an unanchored
+#: domain (``ibc.com`` sits inside ``cibc.com``).
+_ISSUER_WORD_RE = re.compile(r"(?<![A-Za-z])IBC(?![A-Za-z])")
+
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "IBC" in t),
+    required("bank_name", lambda t: _ISSUER_WORD_RE.search(t) is not None),
     required("product", lambda t: "Biz Rite Account Recap" in t),
 )
 
