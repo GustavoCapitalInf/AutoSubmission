@@ -375,6 +375,10 @@ _HOST_OS_ERRORS = [
     pytest.param(lambda: OSError(errno.EROFS, "Read-only file system"), id="EROFS"),
     pytest.param(lambda: OSError(errno.EDQUOT, "Disk quota exceeded"), id="EDQUOT"),
     pytest.param(lambda: OSError(errno.ENOMEM, "Cannot allocate memory"), id="ENOMEM"),
+    pytest.param(lambda: OSError(errno.EAGAIN, "Resource temporarily unavailable"), id="EAGAIN"),
+    pytest.param(lambda: OSError(errno.EMFILE, "Too many open files"), id="EMFILE"),
+    pytest.param(lambda: OSError(errno.ENFILE, "Too many open files in system"), id="ENFILE"),
+    pytest.param(lambda: OSError(errno.EACCES, "Permission denied"), id="EACCES"),
 ]
 _HOST_FAILURES = [*_HOST_OS_ERRORS, pytest.param(MemoryError, id="MemoryError")]
 
