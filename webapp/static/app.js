@@ -5002,6 +5002,12 @@ function uploadFiles(fileList) {
     });
 }
 
+// Audit 2026-10-13, F3: a job ends done, error or interrupted (webapp/jobs.py: the server restarted while it was queued
+// or processing, and its error says so), and the poll stops at any of the three; interrupted is a failure, as the
+// package's own figures count it (webapp/app.py, _PENDING_JOB_STATUSES).
+const ENDED_JOB_STATUSES = new Set(["done", "error", "interrupted"]);
+const FAILED_JOB_STATUSES = new Set(["error", "interrupted"]);
+
 function pollPackage(jobIds) {
   if (pollTimer) clearTimeout(pollTimer);
   Promise.all(jobIds.map((jobId) => fetch(`/status/${jobId}`).then((response) => {
@@ -5012,8 +5018,8 @@ function pollPackage(jobIds) {
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
       statuses.forEach((status, index) => updateQueueEntry(jobIds[index], status));
       renderQueue();
-      const finished = statuses.filter((status) => status.status === "done" || status.status === "error").length;
-      const errors = statuses.filter((status) => status.status === "error" || status.analysis_error).length;
+      const finished = statuses.filter((status) => ENDED_JOB_STATUSES.has(status.status)).length;
+      const errors = statuses.filter((status) => FAILED_JOB_STATUSES.has(status.status) || status.analysis_error).length;
       const totalPages = statuses.reduce((sum, status) => sum + (numberOrNull(status.page_count) || 0), 0);
       if (finished === statuses.length) {
         setProgress(false);
@@ -5052,8 +5058,8 @@ function pollJob(jobId) {
         loadResults(jobId);
         return;
       }
-      if (status.status === "error") {
-        renderError(status.error || "Processing failed");
+      if (FAILED_JOB_STATUSES.has(status.status)) {
+        renderError(status.error || (status.status === "interrupted" ? "Processing was interrupted" : "Processing failed"));
         return;
       }
       els.statusHeading.textContent = "Processing statement";
