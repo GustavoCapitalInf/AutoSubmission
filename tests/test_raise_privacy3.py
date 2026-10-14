@@ -1015,6 +1015,11 @@ _CANNOT_ECHO = {
     "analysis/chase.py:_parse_chase_business_export: int(raw_year)": _DIGITS_ONLY_GROUP,
     "analysis/chase.py:_summary_row: int(counted.group(1))": _DIGITS_ONLY_GROUP,
     "analysis/chase.py:parse_chase_statement: int(instances)": _ISDIGIT_GUARDED,
+    # Audit 2026-10-13 PARSERS-2: the grid reader dates its cells through the
+    # printed period, so it converts `_GRID_CELL`'s two `(\d{2})` groups itself
+    # (it used to hand them to a `date()` inside a try).
+    "analysis/columbia_bank.py:_daily_snapshots: int(day)": _DIGITS_ONLY_GROUP,
+    "analysis/columbia_bank.py:_daily_snapshots: int(month)": _DIGITS_ONLY_GROUP,
     "analysis/columbia_bank.py:_rows: int(embedded_day)": _DIGITS_ONLY_GROUP,
     "analysis/columbia_bank.py:_rows: int(embedded_month)": _DIGITS_ONLY_GROUP,
     "analysis/columbia_bank.py:_rows: int(match.group('day'))": _DIGITS_ONLY_GROUP,
