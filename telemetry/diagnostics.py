@@ -85,7 +85,14 @@ from analysis.payload_shape import payload_accounts, refuse_document_payload
 #:     account-opening fold's sibling). Advisory, so it re-classes nothing
 #:     and decides no failure class; the code set grew, so a v5 and a v6
 #:     rollup are not comparable on the code axis.
-DIAGNOSTICS_VERSION = 6
+#: 7 - Audit 2026-10-13, REC-4: `integrity:ledger_sum_uncheckable` added,
+#:     the flag `assess_document_integrity` raises when the sum check could
+#:     not run (no beginning or ending balance), classed
+#:     `summary_field_missing` with `recon:sum_check_inputs_missing`, the
+#:     issue it accompanies, so no document's primary class moves; and
+#:     `integrity:ledger_sum_mismatch` now fires at the sum check's own
+#:     one-cent tolerance instead of a dollar (same code, more documents).
+DIAGNOSTICS_VERSION = 7
 
 #: The explicit label for a document whose claiming parser could not be
 #: established. Defined here, in the lower layer, because both the telemetry
@@ -145,6 +152,9 @@ ADB_CHECKS: frozenset[str] = frozenset({
 INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "summary_math_inconsistent",
     "ledger_sum_mismatch",
+    # Audit 2026-10-13 REC-4: the sum check could not run (no beginning or no
+    # ending balance), so its finding is unknown rather than clean.
+    "ledger_sum_uncheckable",
     "running_balance_breaks",
     "credit_detail_coverage_mismatch",
     "debit_detail_coverage_mismatch",
@@ -357,6 +367,9 @@ CLASS_OF: dict[str, str] = {
     "adb_state:out_of_period_transactions": "period_integrity",
     # an input the checks need was not published at all
     "recon:sum_check_inputs_missing": "summary_field_missing",
+    # REC-4 (v7): the integrity flag that accompanies the issue above, in the
+    # issue's own class, so adding it moves no document's primary class
+    "integrity:ledger_sum_uncheckable": "summary_field_missing",
     "adb:opening_balance_matches_statement": "summary_field_missing",
     "adb_state:beginning_balance_absent": "summary_field_missing",
     "adb_state:closing_balance_absent": "summary_field_missing",

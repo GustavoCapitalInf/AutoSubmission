@@ -113,7 +113,8 @@ withheld, and letting it choose a class would misdirect remediation.
 | Flag | Class |
 |---|---|
 | `summary_math_inconsistent` | summary_identity |
-| `ledger_sum_mismatch` | ledger_identity |
+| `ledger_sum_mismatch` | ledger_identity (since v7 at the sum check's own one-cent tolerance, not a dollar) |
+| `ledger_sum_uncheckable` | summary_field_missing (v7, audit 2026-10-13 REC-4: the sum check could not run; the class of `recon:sum_check_inputs_missing`, which it accompanies) |
 | `running_balance_breaks` | balance_continuity |
 | `credit_detail_coverage_mismatch` | detail_coverage |
 | `debit_detail_coverage_mismatch` | detail_coverage |
@@ -603,6 +604,23 @@ comparable on the code axis.
 carry-in from the page; the pinned 109-statement corpus has none (the gate
 is unchanged), and the cached Capital One archive has two such statements,
 both withheld before and validated after.
+
+### v7 — audit 2026-10-13: `integrity:ledger_sum_uncheckable` (REC-4)
+
+**One integrity code added, one threshold aligned.** `analysis/reconcile.py`
+fails the sum check (beginning + rows == ending) at more than one cent, and
+when the beginning or ending balance is missing. The integrity block flagged
+`ledger_sum_mismatch` only above one dollar and had no flag for a sum check
+that could not run, so a document whose reconciliation had failed could
+publish integrity `clear` with no flag. `ledger_sum_mismatch` now fires at
+reconcile's own tolerance (`reconcile.SUM_CHECK_TOLERANCE`), and the new
+`ledger_sum_uncheckable` fires when the sum check could not run (and the
+reconciliation failed). The new code is classed `summary_field_missing`, the
+class of `recon:sum_check_inputs_missing`, which every such document already
+carries, so no document's primary class moves; `ledger_sum_mismatch`'s class
+is unchanged. Both conditions need a failed reconciliation, which never
+publishes an ADB, so no outcome moves either (withheld outranks flags).
+`VOCABULARY` 61 → 62, `CLASS_OF` 53 → 54, `ADVISORY_CODES` unchanged.
 
 ---
 

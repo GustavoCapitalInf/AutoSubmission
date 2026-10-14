@@ -318,13 +318,18 @@ def test_the_diagnostics_version_moves_when_the_vocabulary_does():
     # previous-balance-day carry-in into the opening balance. Vocabulary
     # 60 -> 61 and advisory 7 -> 8; nothing re-classed, CLASS_OF unchanged.
     # See `W3_2_TAXONOMY.md` §11 v6.
+    #
+    # v7 - audit 2026-10-13, REC-4: `integrity:ledger_sum_uncheckable` added
+    # and classed `summary_field_missing` (with the reconcile issue it
+    # accompanies). Vocabulary 61 -> 62, CLASS_OF 53 -> 54, advisory
+    # unchanged. See `W3_2_TAXONOMY.md` §11 v7.
     assert (
         diagnostics.DIAGNOSTICS_VERSION,
         len(VOCABULARY),
         len(CLASS_OF),
         len(ADVISORY_CODES),
         len(diagnostics.DIAGNOSABLE_CLASSES),
-    ) == (6, 61, 53, 8, 2)
+    ) == (7, 62, 54, 8, 2)
     # 60/7, not 59/6: the batch-5 train composed TWO vocabulary changes into
     # the one v4 bump — this cell's `integrity:repair_exception` and
     # ADB-SPLIT's advisory `adb_state:initialization_event_folded` — the same

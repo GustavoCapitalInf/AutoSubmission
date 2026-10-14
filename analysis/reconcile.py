@@ -14,6 +14,11 @@ from .schema import Statement
 
 # Money is compared to the cent; allow a hair of float slop.
 _TOL = 0.01
+#: The sum check's tolerance under a public name, for the one consumer outside
+#: this module that must apply the SAME threshold: the integrity block's
+#: `ledger_sum_mismatch` flag (`analysis/pipeline.py`, audit 2026-10-13 REC-4),
+#: which used to restate it as a dollar.
+SUM_CHECK_TOLERANCE = _TOL
 
 
 @dataclass

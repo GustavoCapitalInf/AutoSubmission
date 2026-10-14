@@ -18,7 +18,7 @@ from .count_semantics import claiming_parser_id, counts_comparable
 from .schema import Statement
 from .dates import assign_transaction_years
 from .extract import extract_statement
-from .reconcile import reconcile, ReconResult
+from .reconcile import SUM_CHECK_TOLERANCE, reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
 from .transaction_classifier import (
@@ -529,9 +529,23 @@ def assess_document_integrity(
     if recon.summary_ok is False:
         flags.append("summary_math_inconsistent")
         notes.append("bank-stated summary totals do not reconcile to beginning and ending balances")
-    if recon.sum_delta is not None and abs(recon.sum_delta) > 1.0:
+    # The sum check's own threshold (audit 2026-10-13 REC-4). It used to be a
+    # dollar, so a reconciliation that failed by 0.02-1.00 published integrity
+    # "clear" with no flag; every other reconcile issue already carried a flag
+    # at reconcile's own threshold. A sum check that could not run (no
+    # beginning or ending balance to hold the rows to) is flagged too: it is
+    # a check whose finding is unknown, and an unknown finding is routed to
+    # review rather than reported as clear. `not recon.ok` keeps a caller's own
+    # passing ReconResult from being flagged for a field it never filled.
+    if recon.sum_delta is not None and abs(recon.sum_delta) > SUM_CHECK_TOLERANCE:
         flags.append("ledger_sum_mismatch")
         notes.append("transaction sum does not reconcile to the printed ending balance")
+    elif recon.sum_delta is None and not recon.ok:
+        flags.append("ledger_sum_uncheckable")
+        notes.append(
+            "the sum check could not run: the statement publishes no beginning or "
+            "no ending balance to hold the transactions to"
+        )
     if recon.continuity_breaks:
         flags.append("running_balance_breaks")
         notes.append(f"{recon.continuity_breaks} printed running-balance continuity break(s) detected")
