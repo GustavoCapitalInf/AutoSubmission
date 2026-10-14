@@ -118,7 +118,14 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
   option their `--help` describes as visual OCR or a model, and the hint in their no-text error to rerun with
   one: those are the retired paths.
 - `analyze.py` and `batch.py` take `--zelle-true-revenue {yes,no}` (default yes) and read no web app setting.
-- `batch.py` writes telemetry to `telemetry_runs/<run_id>.jsonl` (or `--telemetry FILE`).
+- `analyze.py` reads Markdown only: given a PDF, it prints one error line and exits 2 (run `parse.py` first, or
+  `batch.py` on the PDF).
+- `batch.py` opens `--out` before it reads the first statement and writes each row as its statement finishes: a
+  path it cannot write fails at once, and a stopped run keeps the finished rows and prints `INCOMPLETE: k of n files
+  analysed` on stderr.
+- Without `--out`, the three tools write UTF-8 to stdout, as their files are; `batch.py`'s stdout CSV is the
+  `--out` file byte for byte.
+- `batch.py` writes one telemetry record per statement to `telemetry_runs/<run_id>.jsonl` (or `--telemetry FILE`).
   `python -m telemetry.report --sqlite <data directory>` reads the web app's records instead.
 - `python -m discovery` also runs `--profile-only` (intake), `--digital` (offline rungs) or `--scanned` (plus
   local Tesseract) over `--root`, after checking it against the frozen archive baseline (`--skip-baseline` for
