@@ -8042,6 +8042,20 @@ def classify_statement_readings(
         return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
 
 
+def classify_statement_reversals(
+    statement: Statement,
+    *,
+    min_recurring_count: int = 3,
+) -> list[TransactionClassification]:
+    """Audit 2026-10-13 (F4, speed only): the records through statement passes 1 to 6, for a reader of the reversal
+    pass's fields alone (reconcile's coverage check). Pass 4 sets `settlement_reversal` and `reversed_by` and nothing
+    after it writes either (pass 7, 7b, 7c and the duplicate finalisation leave them, and every record's amount, as
+    they are; tests/test_reconcile_reversal_prefix.py holds the source check), so they are both readings' values,
+    without the true-revenue pass. Every other field may differ from classify_statement_transactions'."""
+    with match_memo():
+        return _classify_statement_prefix(statement, min_recurring_count)[0]
+
+
 def _classify_statement_prefix(
     statement: Statement, min_recurring_count: int,
 ) -> tuple[list[TransactionClassification], dict[int, int]]:

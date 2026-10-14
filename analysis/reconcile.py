@@ -212,9 +212,11 @@ def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
         or _coverage_mismatch(debits, debit_target)
     )
     if stmt.transactions and needs_reversal_coverage:
-        from .transaction_classifier import classify_statement_transactions
+        # Audit 2026-10-13 (F4, speed only): only the reversal pass's two fields and the amounts are read here, final
+        # after pass 4, so the true-revenue pass is not run for them (classify_statement_reversals).
+        from .transaction_classifier import classify_statement_reversals
 
-        classifications = classify_statement_transactions(stmt)
+        classifications = classify_statement_reversals(stmt)
         reversal_credits = round(
             sum(
                 record.amount
