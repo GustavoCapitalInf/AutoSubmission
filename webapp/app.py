@@ -64,6 +64,7 @@ from analysis.holder_name import PREMIUM_TRUST_WORDS
 from analysis.true_revenue import zelle_deposit
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY, ZELLE_ROW_TAG, apply_zelle_view
 from analysis.payee_matcher import match_known_payee
+from spreadsheet_safety import FORMULA_LEAD, NUMERIC_CELL, escape_formula
 from analysis.transaction_classifier import (
     _CONSUMER_P2P_RAIL,
     _PUSH_RAIL,
@@ -404,26 +405,11 @@ def _masked(payload: object) -> object:
     return payload
 
 
-_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
-
-
-# Money-shaped only. `float()` would also accept "-nan" and "+inf", which a
-# spreadsheet reads as the start of a formula rather than as a number.
-_NUMERIC_CELL = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
-
-
-def _escape_formula(value: object) -> object:
-    """Neutralize a spreadsheet formula-injection cell by prefixing an
-    apostrophe, which Excel and LibreOffice both read as "this is text".
-
-    Negative money (`-1234.56`) parses as a number in both, so it is left
-    alone — escaping it would turn every debit in the export into a string and
-    break the underwriter's arithmetic to defend against nothing."""
-    if not isinstance(value, str) or not value.startswith(_FORMULA_LEAD):
-        return value
-    if _NUMERIC_CELL.match(value):
-        return value
-    return "'" + value
+# The formula-injection rule (R-24) lives in `spreadsheet_safety`, which `batch.py` shares (audit 2026-10-13, EXP-6);
+# these names stay importable from here.
+_FORMULA_LEAD = FORMULA_LEAD
+_NUMERIC_CELL = NUMERIC_CELL
+_escape_formula = escape_formula
 
 
 def _escaped_rows(rows: list[tuple[str, str, object]]) -> list[tuple]:

@@ -390,3 +390,66 @@ def test_r3_16_the_error_row_leaves_the_large_deposit_cells_empty(monkeypatch, t
     with open(out, newline="", encoding="utf-8") as handle:
         [row] = list(csv.DictReader(handle))
     assert (row["large_unsourced_deposit_count"], row["large_unsourced_deposit_total"]) == ("", "")
+
+
+# --- Audit 2026-10-13, EXP-6: the triage CSV neutralises a spreadsheet formula in a cell, as every webapp download
+# does (one rule, `spreadsheet_safety.escape_formula`). The file name is the operator's, and the bank and account come
+# from the document: a cell that starts with = + - @ tab or CR gains a leading apostrophe; a money-shaped value such as
+# a negative figure stays a number. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _triage(monkeypatch, tmp_path, name, analyze):
+    source = tmp_path / name
+    source.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", analyze)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(source), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_exp6_a_formula_led_file_name_bank_and_account_are_written_as_text(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE, bank="@SAMPLE BANK", number="=2+2")
+    [row] = _triage(monkeypatch, tmp_path, "=1+1.md", lambda markdown, **kwargs: document)
+    assert (row["file"], row["bank"], row["account"]) == ("'=1+1.md", "'@SAMPLE BANK", "'=2+2")
+
+
+def test_exp6_negative_money_stays_a_number(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document([(fx.KAPITUS, -850.00, 9)])
+    [row] = _triage(monkeypatch, tmp_path, "+SAMPLE.md", lambda markdown, **kwargs: document)
+    assert row["cash_flow"] == "-850.00"
+    assert row["total_debits"] == "850.00"
+    assert row["file"] == "'+SAMPLE.md"
+
+
+def test_exp6_the_error_row_writes_a_formula_led_file_name_as_text(monkeypatch, tmp_path):
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    [row] = _triage(monkeypatch, tmp_path, "-1+1.md", boom)
+    assert (row["file"], row["needs_review"], row["error"]) == ("'-1+1.md", "REVIEW", "RuntimeError")
+
+
+def test_exp6_plain_cells_are_written_unchanged(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE)
+    [row] = _triage(monkeypatch, tmp_path, "SAMPLE statement.md", lambda markdown, **kwargs: document)
+    plain = batch._row(tmp_path / "SAMPLE statement.md", document.accounts[0])
+    assert row == {key: str(value) for key, value in plain.items()}
+
+
+def test_exp6_batch_and_the_webapp_share_one_formula_rule():
+    import spreadsheet_safety
+    from webapp import app as webapp_app
+
+    assert webapp_app._escape_formula is spreadsheet_safety.escape_formula
+    assert webapp_app._FORMULA_LEAD is spreadsheet_safety.FORMULA_LEAD
+    assert webapp_app._NUMERIC_CELL is spreadsheet_safety.NUMERIC_CELL
+    assert batch.escape_formula is spreadsheet_safety.escape_formula

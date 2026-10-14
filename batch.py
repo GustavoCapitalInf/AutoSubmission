@@ -28,6 +28,7 @@ from analysis.active_positions import statement_active_positions
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
+from spreadsheet_safety import escape_formula
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -281,6 +282,14 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     }
 
 
+def _csv_row(row: dict) -> dict:
+    """A row as the CSV writes it (audit 2026-10-13, EXP-6): every cell through the webapp downloads' formula rule
+    (`spreadsheet_safety.escape_formula`). The file name is the operator's and the bank and account come from the
+    document, so a text cell that starts with = + - @ tab or CR gains a leading apostrophe; money-shaped values,
+    negative figures included, and counts stay as they are. `rows` itself is unchanged."""
+    return {key: escape_formula(value) for key, value in row.items()}
+
+
 def _emit(
     sink,
     run_id: str,
@@ -442,7 +451,7 @@ def main() -> None:
     out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
     w = csv.DictWriter(out, fieldnames=FIELDS)
     w.writeheader()
-    w.writerows(rows)
+    w.writerows(_csv_row(r) for r in rows)
     if args.out:
         out.close()
         need = sum(1 for r in rows if r["needs_review"])
