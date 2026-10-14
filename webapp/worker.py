@@ -44,19 +44,19 @@ def document_to_json(document: DocumentReport) -> dict:
 # product uses no model (owner ruling, 2026-10-13), so no read and no analysis
 # reaches a model service in either mode, and `parse_mode` only reaches the
 # analysis and its cache key. The ladder reports each rung through on_stage,
-# mapped here to the dashboard's historical stage labels (the `visual_ocr`
-# label stays for the ladder's own vocabulary; the worker never enables it).
+# mapped here to the dashboard's historical stage labels. The ladder has no
+# visual rung any more (slice S2), so `reading_visual_ocr` is only a stored
+# historical stage value now; the dashboard still labels it.
 _STAGE_NAMES = {
     "native": "reading",
     "local_ocr": "reading_local_ocr",
-    "visual_ocr": "reading_visual_ocr",
 }
 
 #: The named stages this module publishes at its exception boundary. Constants
 #: of ours, never anything read out of a document, so a stage name cannot
 #: itself be a leak. `preflight`/`reading`/`analysis` are the three coarse
 #: phases `run_job` runs in; the store's finer `stage` column
-#: (`reading_visual_ocr`, `analyzing`, …) still records which rung was live.
+#: (`reading_local_ocr`, `analyzing`, …) still records which rung was live.
 _PHASE_PREFLIGHT = "preflight"
 _PHASE_READING = "reading"
 _PHASE_ANALYSIS = "analysis"
@@ -330,7 +330,6 @@ def _read_document(
     allow_local_ocr: bool,
     allow_visual_ocr: bool,
     on_stage,
-    on_delta,
     on_replace,
     timer: StageTimer | None = None,
 ) -> StatementMarkdown | None:
@@ -354,7 +353,6 @@ def _read_document(
             allow_local_ocr=allow_local_ocr,
             allow_visual_ocr=allow_visual_ocr,
             on_stage=on_stage,
-            on_page_delta=on_delta,
             on_page_replace=on_replace,
         ),
         cache=cache,
@@ -421,9 +419,6 @@ def run_job(
         def on_stage(rung: str) -> None:
             store.set_stage(job_id, _STAGE_NAMES[rung])
 
-        def on_delta(page: int, chunk: str) -> None:
-            store.append_page_live(job_id, page, chunk)
-
         def on_replace(page: int, text: str) -> None:
             store.set_page_live(job_id, page, text)
 
@@ -432,7 +427,7 @@ def run_job(
             phase = _PHASE_READING
             return _read_document(
                 job_id, store, cache, pdf_bytes, filename, profile,
-                on_stage=on_stage, on_delta=on_delta, on_replace=on_replace,
+                on_stage=on_stage, on_replace=on_replace,
                 timer=timer, **flags,
             )
 

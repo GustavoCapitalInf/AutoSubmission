@@ -652,16 +652,22 @@ def test_case12_scanned_paddle_and_scanned_visual_never_both_enabled():
     """Two-engine escalation is not possible in this phase: a runner's
     `enabled_extractors` holds at most one member (D4, design item 8).
 
-    MINOR-7: all SIX modes, not four — `profile-only` and `dry-run` are
-    structurally just as `<=1` as the other four (the `__init__` expression
-    is a single conditional with no mode left unhandled), but a pin that
-    exercises only four of six is completeness debt worth closing rather
-    than leaving implicit."""
-    for mode in ("scanned-visual", "scanned-paddle", "scanned", "digital", "profile-only", "dry-run"):
+    MINOR-7: every constructible mode — `profile-only` and `dry-run` are
+    structurally just as `<=1` as the others (the `__init__` expression is a
+    single conditional with no mode left unhandled), but a pin that exercises
+    only some of them is completeness debt worth closing rather than leaving
+    implicit. `scanned-visual` was retired in slice S2 of the model-code
+    removal: the runner refuses to be constructed with it, so no runner can
+    enable the visual rung at all, and only `paddle` can ever be enabled."""
+    for mode in ("scanned-paddle", "scanned", "digital", "profile-only", "dry-run"):
         runner = DiscoveryRunner(
             Path("."), run_id="t", sink=None, cache=None, dedup=DedupIndex(), mode=mode,
         )
         assert len(runner.enabled_extractors) <= 1, mode
+        assert runner.enabled_extractors <= {"paddle"}, mode
+    with pytest.raises(ValueError):
+        DiscoveryRunner(Path("."), run_id="t", sink=None, cache=None, dedup=DedupIndex(),
+                        mode="scanned-visual")
 
 
 # ---------------------------------------------------------------------------
@@ -755,11 +761,10 @@ def test_cli_starts_when_the_paddle_worker_is_usable(monkeypatch, tmp_path):
 @pytest.mark.parametrize("fail_mode", ["connection_refused", "http_500", "malformed_json"])
 def test_case18_transport_failures_fail_closed_with_no_second_attempt(scan_tree, monkeypatch, fail_mode):
     _tesseract(monkeypatch, None)  # RECOVERY
-
-    def _visual_spy(self, *a, **k):
-        pytest.fail("_read_visual must never be called from --scanned-paddle mode")
-
-    monkeypatch.setattr(DiscoveryRunner, "_read_visual", _visual_spy)
+    # The `_read_visual` spy that stood here ("never called from
+    # --scanned-paddle mode") went with `_read_visual` itself (slice S2): there
+    # is no visual read method left to call.
+    assert not hasattr(DiscoveryRunner, "_read_visual")
 
     with FakeWorker(
         identity_overrides={"provider": "local", "execution_class": "local_free"}, fail_mode=fail_mode,
@@ -1063,35 +1068,6 @@ def test_a_drift_followed_by_a_failed_recompute_keeps_the_finding_on_the_row(
     assert second.cache_finding == CACHE_FINDING_EVIDENCE_DRIFT
 
 
-def test_read_visual_records_the_drift_finding_when_its_recompute_fails(scan_tree, monkeypatch, tmp_path):
-    """The `_read_visual` mirror of the test above, at the method seam: a
-    drifted VISUAL artifact and a `parse_statement` that raises on the
-    recompute → the error type is returned AND `_last_visual_finding`
-    carries the drift for `_project_cache_finding` to project."""
-    import json as _json
-
-    from discovery.runner import MODE_SCANNED_VISUAL
-    from ocr.inspect import inspect_pdf
-    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT, cache_key, ocr_settings_key, open_cache
-
-    cache = open_cache(tmp_path / "data")
-    profile = inspect_pdf(SCAN_BYTES)
-    settings_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)
-    from tests.test_artifact_cache import _doc_with_evidence
-
-    cache.put_ocr(profile.content_sha256, settings_key, _doc_with_evidence())
-    path = cache._artifact_path("ocr", cache_key("ocr", profile.content_sha256, settings_key))
-    payload = _json.loads(path.read_text(encoding="utf-8"))
-    payload["artifact"]["document"]["pages"] = ["drifted"]
-    path.write_text(_json.dumps(payload), encoding="utf-8")
-
-    def _raise(*a, **k):
-        raise RuntimeError("visual endpoint unreachable")
-
-    monkeypatch.setattr("ocr.pipeline.parse_statement", _raise)
-    runner = DiscoveryRunner(
-        scan_tree, mode=MODE_SCANNED_VISUAL, run_id="t", sink=None, cache=cache, dedup=DedupIndex(),
-    )
-    document, markdown, error = runner._read_visual(SCAN_BYTES, "scan.pdf", profile)
-    assert (document, markdown, error) == (None, None, "RuntimeError")
-    assert runner._last_visual_finding == CACHE_FINDING_EVIDENCE_DRIFT
+# `test_read_visual_records_the_drift_finding_when_its_recompute_fails` (the
+# `_read_visual` mirror of the test above) was deleted with `_read_visual` and
+# its `_last_visual_finding` in slice S2 of the model-code removal.

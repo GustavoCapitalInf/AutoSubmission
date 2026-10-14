@@ -427,25 +427,24 @@ class _Pipeline:
     in force. Everything between them (the worker, the artifact cache, the job store) is real, so an upload leaves the
     reading cached exactly as production does.
 
-    `announce = False` makes a reader that names no stage before it reads, and `stream = True` one that streams text
-    through the live view before it reads: each takes one of the re-analysis's guards out of the way of the other."""
+    `announce = False` makes a reader that names no stage before it reads. (A reader that streamed text through the
+    live view before it read, `stream = True`, left with the visual rung's `on_page_delta` stream in slice S2: the
+    worker passes no stream callback any more.)"""
 
     def __init__(self, monkeypatch, store):
         self.monkeypatch, self.store = monkeypatch, store
         self.reads = 0
         self.announce = True
-        self.stream = False
         self.payload = None
         self.analysis_failure = None
         monkeypatch.setattr("webapp.worker.parse_statement", self._read)
         monkeypatch.setattr("webapp.worker.analyze_document", self._analyze)
         monkeypatch.setattr("webapp.worker.document_to_json", lambda document: copy.deepcopy(self.payload))
 
-    def _read(self, pdf_bytes, source_file="", on_stage=None, on_page_delta=None, **kwargs):
+    def _read(self, pdf_bytes, source_file="", on_stage=None, **kwargs):
         from ocr.document import StatementMarkdown
 
-        if self.stream and on_page_delta is not None:
-            on_page_delta(0, "FABRICATED")
+        assert "on_page_delta" not in kwargs  # the worker streams nothing (slice S2)
         if self.announce and on_stage is not None:
             on_stage("native")
         self.reads += 1
@@ -800,18 +799,11 @@ def test_a_cached_reading_that_fails_its_own_checks_is_not_read_again(pipeline, 
     assert pipeline.reads == 1  # stopped where the ladder named its rung, before the rung read
 
 
-def test_a_reading_that_streams_before_it_names_a_stage_is_stopped(pipeline, private_store):
-    """A cached reading that fails its own checks is read again after the lookup answered a hit; a reader that streams
-    its text before it names a stage is stopped at its first streamed chunk."""
-    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
-
-    job_id = pipeline.upload(_payload())
-    pipeline.new_rules(_payload(SHIFTED_ROWS))
-    pipeline.drift_ocr()
-    pipeline.announce, pipeline.stream = False, True
-    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
-    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
-    assert pipeline.reads == 1
+# `test_a_reading_that_streams_before_it_names_a_stage_is_stopped` was deleted with its subject in slice S2: the
+# streaming read was the visual rung's `on_page_delta` live stream, and the worker passes no stream callback any more.
+# `webapp/reanalysis.py`'s `_CacheOnly.append_page_live` guard is left as it is (the re-analysis rules are not
+# edited); nothing in the worker can reach it now. A reader that names no stage is still pinned by
+# `test_a_reading_answered_again_by_a_reader_that_names_no_stage_is_not_written_back` above.
 
 
 def test_a_forced_job_is_refused_before_any_cache_lookup(pipeline, private_store, monkeypatch):

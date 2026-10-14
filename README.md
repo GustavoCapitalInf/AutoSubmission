@@ -114,9 +114,9 @@ python -m discovery --dry-run                        # intake and outcome over t
 python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb comparison, offline
 ```
 
-- `parse.py` and `batch.py` read native text only (no Tesseract), so use the web app for scans. Ignore every
-  option their `--help` describes as visual OCR or a model, and the hint in their no-text error to rerun with
-  one: those are the retired paths.
+- `parse.py` and `batch.py` read native text only (no Tesseract), so use the web app for scans. A PDF without
+  native text gets the error "this CLI reads native PDF text only" (their `--visual` and `--model` options went
+  with the retired visual OCR).
 - `analyze.py` and `batch.py` take `--zelle-true-revenue {yes,no}` (default yes) and read no web app setting.
 - `analyze.py` reads Markdown only: given a PDF, it prints one error line and exits 2 (run `parse.py` first, or
   `batch.py` on the PDF).
@@ -129,7 +129,8 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
   `python -m telemetry.report --sqlite <data directory>` reads the web app's records instead.
 - `python -m discovery` also runs `--profile-only` (intake), `--digital` (offline rungs) or `--scanned` (plus
   local Tesseract) over `--root`, after checking it against the frozen archive baseline (`--skip-baseline` for
-  scoped runs). Ignore its retired `--scanned-*` and `--research-*` modes. Its cache is the web app's data
+  scoped runs). Ignore its retired `--scanned-paddle` and `--research-*` modes (`--scanned-visual` is gone). Its
+  cache is the web app's data
   directory unless you pass `--no-cache`. Reports go to the gitignored `discovery_reports/<run_id>/`.
 - The benchmark verifies its manifest's PDF hashes first and writes masked reports to `benchmark_reports/`.
 

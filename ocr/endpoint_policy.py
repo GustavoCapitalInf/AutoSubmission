@@ -12,9 +12,11 @@ This module is the enforcement authority. It classifies a base URL
 structurally (scheme + host only — never a network call, never a DNS lookup
 beyond what `ipaddress`/`urlsplit` do on the literal string) and decides
 whether the endpoint policy allows it. It does not build a client and does
-not send anything; callers (`ocr.ocr_client._build_client`,
-`ocr.availability.probe_visual_ocr`) call `check_endpoint` and refuse BEFORE
-either of those happens.
+not send anything; callers call `check_endpoint` and refuse BEFORE either of
+those happens. (The visual OCR callers, `ocr.ocr_client._build_client` and
+`ocr.availability.probe_visual_ocr`, were deleted in slice S2 of the
+model-code removal; the Paddle client and the visual pair remain until this
+module goes in slice S5.)
 
 There is exactly one visual endpoint per process: this module has no
 fallback list, no second URL, no retry-a-different-host logic of any kind —

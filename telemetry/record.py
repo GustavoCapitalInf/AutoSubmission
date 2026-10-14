@@ -463,19 +463,14 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     (H3_SCHEMA §9).
 
     OQ3 provenance (MAJOR-2, PHASE2_P20SEAM_REVIEW.md): every OCR-stage call
-    entry also carries `endpoint_class` and `remote_opt_in`, read from
-    `ocr.config.load_settings()` AT RECORD TIME — the identical pattern
-    `webapp.artifact_cache.ocr_settings_key` already uses (loaded fresh when
-    not supplied, so a caller that never itself touches the OCR service still
-    records correctly if `OCR_BASE_URL` / `OCR_REMOTE_OPT_IN` changed under
-    it). Deliberately NOT threaded through `StatementMarkdown`:
-    `ocr/document.py`'s object is the OCR RESULT (what text a rung produced),
-    not a place to carry an intake SETTING, and re-reading `load_settings()`
-    here is exactly as cheap as `ocr_settings_key`'s own re-read. The fields
-    describe the run's CURRENT endpoint configuration, not necessarily the
-    one THIS document's rung used (a native/local read touched no endpoint at
-    all) — recorded anyway on every OCR entry because OQ3's "recorded opt-in"
-    is a property of the RUN's audit trail, not only of a live network call.
+    entry also carries `endpoint_class` and `remote_opt_in`. They used to be
+    read from the visual OCR settings (`ocr.config.load_settings()`) at record
+    time; since slice S2 of the model-code removal they are the fixed
+    historical constants `"loopback"` and `False` (M12): the values that
+    settings object held on every default environment, naming an endpoint
+    (the retired local visual OCR server) that no longer exists. The record
+    shape is unchanged. The visual-pair entry below still reads its own
+    measured fields.
 
     F-7 (MAJOR-3): an unrecognised model token (`source_path_unrecognized_
     model`) is reported the SAME shape as a visual read — one call per page,
@@ -485,37 +480,23 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     model"`, distinct from both `"visual_ocr"` and every `source_path_for`
     value, so a rollup can tell the three apart.
 
-    NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
-    `ProvenanceTokenError` for a hostile `OCR_MODEL`; caught here so a
-    misconfigured environment costs `endpoint_class` / `remote_opt_in`
-    (both `None`) rather than the whole record — every `_emit` call site
-    wraps this function's caller (`build_record`) in `except Exception:
-    pass`, so an uncaught raise here would silently drop a telemetry record
-    for a document that otherwise processed fine.
+    NEW-6 (re-review, closure 1cc759e) is closed by construction since S2:
+    nothing here reads the environment any more, so a hostile `OCR_MODEL`
+    can no longer cost these two fields (it used to make them `None`).
     """
     calls: list[dict] = []
     if doc is not None:
         path = source_path_for(doc.model)
         unrecognized = source_path_unrecognized_model(doc.model)
-        # NEW-6 (re-review, closure 1cc759e): load_settings() validates
-        # OCR_MODEL and raises ProvenanceTokenError for a hostile value
-        # (BLOCK-1's own closure). Read defensively — a misconfigured
-        # environment costs these two fields, never the whole record: every
-        # `_emit` call site wraps the WHOLE build_record(...) call
-        # (model_calls_for included) in `except Exception: pass`
-        # (H3_SCHEMA I4, "cannot fail a job"), so an uncaught raise here
-        # would silently drop the entire telemetry record for a document
-        # that otherwise processed fine, rather than degrading two fields
-        # of it.
-        try:
-            from ocr.config import ProvenanceTokenError, load_settings as _load_ocr_settings
-
-            ocr_settings = _load_ocr_settings()
-            endpoint_class = ocr_settings.endpoint_class
-            remote_opt_in = ocr_settings.remote_opt_in
-        except ProvenanceTokenError:
-            endpoint_class = None
-            remote_opt_in = None
+        # Historical constant (M12): the endpoint class the retired visual OCR
+        # settings classified their default base URL as. It names an endpoint
+        # (the local visual OCR server) that no longer exists; kept so the
+        # record's shape and values stay what every default environment wrote.
+        endpoint_class = "loopback"
+        # Historical constant (M12): the retired visual OCR settings' remote
+        # opt-in on every default environment. The endpoint it described no
+        # longer exists; kept so the record's shape and values are unchanged.
+        remote_opt_in = False
         if path == "visual" or unrecognized:
             reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
             known = [value for value in reported if value is not None]

@@ -35,12 +35,27 @@ class _FakeDoc:
         return "# Hello"
 
 
+def _assert_no_visual_rung():
+    """The visual OCR rung these tests used to forbid (by patching
+    `ocr.pipeline.load_settings`) no longer exists (slice S2): its client
+    module cannot be found and the ladder holds no visual-settings loader."""
+    import importlib.util
+
+    import ocr.pipeline
+
+    assert importlib.util.find_spec("ocr.ocr_client") is None
+    assert not hasattr(ocr.pipeline, "load_settings")
+
+
 def test_run_job_success(monkeypatch, store):
     job = store.create("s.pdf")
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, **kwargs):
-        if on_page_delta:
-            on_page_delta(0, "streamed chunk")  # simulate live streaming of page 1
+    def fake_parse(pdf_bytes, source_file="", on_page_replace=None, **kwargs):
+        # The visual rung's `on_page_delta` stream left with it (slice S2); the
+        # live buffer is filled through the ladder's `on_page_replace`.
+        assert "on_page_delta" not in kwargs
+        if on_page_replace:
+            on_page_replace(0, "replayed page")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
@@ -56,7 +71,7 @@ def test_run_job_success(monkeypatch, store):
     assert fetched.analysis == {"quality": {"level": "transaction_level"}, "parse_mode": "auto"}
     assert fetched.analysis_error is None
     assert fetched.parse_model == "test-model"
-    assert "streamed chunk" in fetched.live_text  # worker forwarded the stream
+    assert "replayed page" in fetched.live_text  # worker forwarded the ladder's pages
 
 
 def test_run_job_failure(monkeypatch, store):
@@ -162,8 +177,7 @@ def test_deterministic_run_reports_native_text_required_without_force_ocr(monkey
     # rather than reach for visual OCR.
     monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", lambda *a, **k: None)
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("visual OCR rung must not run"))
+    _assert_no_visual_rung()
 
     run_job(job.id, b"%PDF-fake", "scan.pdf", store, force_ocr=False, parse_mode="deterministic")
 
@@ -188,8 +202,7 @@ def test_auto_run_uses_local_ocr_before_remote_visual_ocr(monkeypatch, store):
     monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
                         lambda pdf_bytes, source_file="", **k: LocalDoc())
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("remote visual OCR must not run"))
+    _assert_no_visual_rung()
     monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
@@ -210,8 +223,7 @@ def test_deterministic_run_uses_local_ocr_before_reporting_no_text(monkeypatch, 
     monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
                         lambda pdf_bytes, source_file="", **k: LocalDoc())
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("remote OCR should not run"))
+    _assert_no_visual_rung()
     monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 

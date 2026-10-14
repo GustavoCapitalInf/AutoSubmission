@@ -3,7 +3,7 @@ toolchain, tree, settings keys, corpus inventory, cache posture, environment.
 
     python tools/train/provenance.py --checkout <tree> --root "<corpus root>" \
         --data-dir <cache dir> --out <run dir>/provenance.json \
-        [--label X] [--hash-corpus] [--mode digital|scanned|scanned-visual|profile-only|dry-run]
+        [--label X] [--hash-corpus] [--mode digital|scanned|profile-only|dry-run]
 
 Written before a run (the cold-cache proof: the cache's entry counts are 0)
 and again after it (into the run directory). Every field is measured on this
@@ -419,7 +419,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hash-corpus", action="store_true",
                         help="also hash every PDF under --root (distinct sha count; ~1 GB read)")
     parser.add_argument("--mode", default=None,
-                        help="the discovery run's actual mode (digital/scanned/scanned-visual/"
+                        help="the discovery run's actual mode (digital/scanned/"
                              "profile-only/dry-run) — records run_of_record.partitions computed "
                              "from THIS run's flags (P20-ARTIFACTS). Omit to leave partitions "
                              "unrecorded, as every provenance.json before this cell does.")

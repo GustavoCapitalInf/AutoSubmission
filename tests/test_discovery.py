@@ -372,24 +372,22 @@ def test_no_model_extraction_can_happen(tree: Path, monkeypatch):
 
 
 def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
-    """`ocr.pipeline` imports `ocr.ocr_client` lazily inside the visual rung,
-    so `allow_visual_ocr=False` means no model client exists in the process.
-    P21-ROUTING: the SAME property holds for `ocr.paddle_rung` /
-    `ocr.paddle_client` — a `MODE_DIGITAL` run never reaches the forced
-    Paddle branch either, so neither module is ever imported (`ocr.paddle_
-    config` is a separate, deliberately lightweight module `ocr.config`
-    already imports unconditionally for OQ2's `RESERVED_MODEL_PREFIXES`, and
-    is NOT checked here — see `test_artifact_cache.py::test_ocr_settings_
-    key_only_calls_load_paddle_settings_for_the_paddle_branch` for that
-    distinction's own test)."""
+    """The visual OCR client (`ocr.ocr_client`) was deleted in slice S2 of the
+    model-code removal: it cannot be found at all, and nothing tries to
+    import it. P21-ROUTING: `ocr.paddle_rung` / `ocr.paddle_client` are not
+    imported either — a `MODE_DIGITAL` run never reaches the forced Paddle
+    branch (`ocr.paddle_config` is a separate, deliberately lightweight module
+    `discovery.runner` imports for its refusal vocabulary, and is NOT checked
+    here — see `test_artifact_cache.py::test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch`
+    for that distinction's own test)."""
     code = (
-        "import sys; from pathlib import Path;"
+        "import sys, importlib.util; from pathlib import Path;"
         "from discovery.runner import DiscoveryRunner, MODE_DIGITAL;"
         "from discovery.inventory import DedupIndex;"
         f"r = DiscoveryRunner(Path({str(tree)!r}), mode=MODE_DIGITAL, run_id='t',"
         " sink=None, cache=None, dedup=DedupIndex());"
         "r.process('BankX/statement.pdf', 'BankX');"
-        "print('ocr.ocr_client' in sys.modules,"
+        "print(importlib.util.find_spec('ocr.ocr_client') is not None,"
         " 'ocr.paddle_rung' in sys.modules, 'ocr.paddle_client' in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True,

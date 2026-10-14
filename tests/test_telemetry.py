@@ -151,41 +151,34 @@ def test_visual_model_tokens_matching_is_case_sensitive_by_design():
     assert source_path_unrecognized_model("baidu/Unlimited-OCR") is False
 
 
-def test_model_calls_for_records_endpoint_provenance_on_every_ocr_entry(monkeypatch):
+def test_model_calls_for_records_the_historical_endpoint_constants_on_every_ocr_entry(monkeypatch):
     """MAJOR-2 (PHASE2_P20SEAM_REVIEW.md): `endpoint_class` / `remote_opt_in`
-    are read from `ocr.config.load_settings()` AT RECORD TIME (the same
-    pattern `webapp.artifact_cache.ocr_settings_key` uses) and land on EVERY
-    OCR-stage call entry — native/tesseract/none included, not only visual."""
+    land on EVERY OCR-stage call entry — native/tesseract/none included, not
+    only visual. Since slice S2 of the model-code removal they are the fixed
+    historical constants "loopback" / False (M12), the values every default
+    environment wrote: the visual OCR settings they were read from are gone,
+    so the environment no longer moves them (declared: an OCR_BASE_URL /
+    OCR_REMOTE_OPT_IN override used to change these two fields)."""
     import types
 
     from ocr.endpoint_policy import OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL
 
-    monkeypatch.setenv("OCR_BASE_URL", "https://foo.runpod.net/v1")
-    monkeypatch.setenv(OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL)
-
     native_doc = types.SimpleNamespace(model="native-pdf-text", pages=["a"], page_integrity=[])
-    calls = model_calls_for(native_doc, None)
-    assert len(calls) == 1
-    assert calls[0]["purpose"] == "native"
-    assert calls[0]["endpoint_class"] == "remote"
-    assert calls[0]["remote_opt_in"] is True
-
-    monkeypatch.delenv(OCR_REMOTE_OPT_IN_ENV, raising=False)
-    monkeypatch.setenv("OCR_BASE_URL", "http://localhost:8000/v1")
-    calls = model_calls_for(native_doc, None)
-    assert calls[0]["endpoint_class"] == "loopback"
-    assert calls[0]["remote_opt_in"] is False
+    for env in ({}, {"OCR_BASE_URL": "https://foo.runpod.net/v1", OCR_REMOTE_OPT_IN_ENV: OCR_REMOTE_OPT_IN_LITERAL}):
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        calls = model_calls_for(native_doc, None)
+        assert len(calls) == 1
+        assert calls[0]["purpose"] == "native"
+        assert calls[0]["endpoint_class"] == "loopback"
+        assert calls[0]["remote_opt_in"] is False
 
 
-def test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_model(monkeypatch):
-    """NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
-    `ProvenanceTokenError` for a hostile `OCR_MODEL` (BLOCK-1's own
-    closure). Every `_emit` call site wraps `build_record(...)` — which
-    calls `model_calls_for` — in `except Exception: pass` (H3_SCHEMA I4,
-    "cannot fail a job"), so an uncaught raise here would silently drop the
-    WHOLE telemetry record for a document that otherwise processed fine.
-    `model_calls_for` must instead degrade only `endpoint_class` /
-    `remote_opt_in` to `None` and still return the rest of the call entry."""
+def test_model_calls_for_keeps_the_whole_record_on_a_hostile_ocr_model(monkeypatch):
+    """NEW-6 (re-review, closure 1cc759e), closed by construction since S2:
+    nothing in `model_calls_for` reads the environment, so a hostile
+    `OCR_MODEL` can no longer cost the two endpoint fields (it used to make
+    them `None`; declared failure -> success, M5)."""
     import types
 
     monkeypatch.setenv("OCR_MODEL", "evil-model\n")  # BLOCK-1's own hostile shape
@@ -196,8 +189,33 @@ def test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_mod
     assert len(calls) == 1
     assert calls[0]["model"] == "native-pdf-text"
     assert calls[0]["purpose"] == "native"
-    assert calls[0]["endpoint_class"] is None
-    assert calls[0]["remote_opt_in"] is None
+    assert calls[0]["endpoint_class"] == "loopback"
+    assert calls[0]["remote_opt_in"] is False
+
+
+def test_the_record_module_reads_no_ocr_settings():
+    import ast
+    import inspect
+
+    import telemetry.record as record_module
+
+    tree = ast.parse(inspect.getsource(record_module))
+    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert "ocr.config" not in modules
+    names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    names |= {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    assert not names & {"load_settings", "_load_ocr_settings", "environ", "getenv"}
+
+
+def test_price_for_does_not_invent_a_remote_price():
+    """Moved from tests/test_ocr_endpoint_policy.py (slice S2)."""
+    from telemetry.prices import price_for
+
+    # A remote endpoint changes nothing about which models are priced: an
+    # unlisted model prices to None (unknown), never a guessed number, and
+    # `endpoint_class` is not a `price_for` input at all — it cannot become
+    # one without adding a price the audit did not cite.
+    assert price_for("some-remote-vendor-model") is None
 
 
 def test_model_calls_for_reports_unrecognized_model_honestly():
@@ -236,9 +254,9 @@ def test_model_calls_for_reports_unrecognized_model_honestly():
     assert visual_calls[0]["completion_tokens"] == call["completion_tokens"] == 500
 
     # MAJOR-2: endpoint provenance is on THIS branch too, not only the
-    # native/tesseract/none branch.
-    assert "endpoint_class" in call and "remote_opt_in" in call
-    assert "endpoint_class" in visual_calls[0] and "remote_opt_in" in visual_calls[0]
+    # native/tesseract/none branch, with the fixed historical values (M12).
+    for entry in (call, visual_calls[0]):
+        assert entry["endpoint_class"] == "loopback" and entry["remote_opt_in"] is False
 
 
 def test_model_calls_for_reports_one_call_per_paddle_page():

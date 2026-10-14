@@ -5,18 +5,26 @@ validated Tesseract read unusable.
 Nothing here reaches a server. Cases 1-4 are proved twice: once as a pure
 unit test of `EscalationRouter.decide` (fast, exact), and once as an
 integration test through `DiscoveryRunner` for the cases that matter most
-operationally (Class B and Class C never scheduling the visual rung).
+operationally (Class B and Class C never scheduling an escalation read).
+
+Model-code removal, slice S2: the integration tests ran in the retired
+`--scanned-visual` mode with the visual OCR client faked. The runner refuses
+that mode now, so they run in `--scanned-paddle` (the one escalating mode left
+until slice S5) with every Paddle read forbidden or faked at `_read_paddle`;
+the three whose subject was the visual client itself (a visual recovery read,
+a visual upgrade read, the client's endpoint refusal) were deleted with it.
 """
 from __future__ import annotations
 
 import csv
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 from discovery.runner import (
     GATE_ASSESSED_SOURCES,
-    MODE_SCANNED_VISUAL,
+    MODE_SCANNED_PADDLE,
     DiscoveryRunner,
     DocumentRow,
     _evidence_for_row,
@@ -98,15 +106,28 @@ def _tesseract(monkeypatch, text: str | None):
 
 
 def _forbid_visual(monkeypatch):
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("the visual rung must not run"))
+    """No escalation read may run: the visual OCR client no longer exists at
+    all, and the mode's one escalation rung (`_read_paddle`) fails the test."""
+    assert importlib.util.find_spec("ocr.ocr_client") is None
+    monkeypatch.setattr(DiscoveryRunner, "_read_paddle",
+                        lambda self, *a, **k: pytest.fail("no escalation read may run"))
+
+
+def _failing_escalation_read(monkeypatch, calls: list):
+    """An escalation read that is attempted and fails (a transport failure),
+    recorded in `calls`: what the budget tests need, with no Paddle internals."""
+    def failing(self, raw, source_file, profile):
+        calls.append(source_file)
+        return None, None, "PaddleTransportError"
+
+    monkeypatch.setattr(DiscoveryRunner, "_read_paddle", failing)
 
 
 def _runner(root: Path, **kwargs) -> DiscoveryRunner:
     kwargs.setdefault("dedup", DedupIndex())
     kwargs.setdefault("sink", None)
     kwargs.setdefault("cache", None)
-    return DiscoveryRunner(root, mode=MODE_SCANNED_VISUAL, run_id="test-run", **kwargs)
+    return DiscoveryRunner(root, mode=MODE_SCANNED_PADDLE, run_id="test-run", **kwargs)
 
 
 @pytest.fixture
@@ -421,29 +442,11 @@ def test_the_most_specific_admitted_trigger_is_reported_not_the_declaration_orde
     )
 
 
-def test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text(
-    scan_tree, monkeypatch,
-):
-    """MINOR-8, end to end: a real recovery (the offline ladder produced
-    nothing at all for a scanned document) must report
-    `offline_rungs_produced_no_text` on the row, never `image_only_document`
-    — the two are always co-admitted for a scanned document, so only the
-    reporting priority tells them apart."""
-    from corpus_artifacts import cached_markdown
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-    _tesseract(monkeypatch, None)
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: claimable)
-
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
-    assert row.visual_rung == "recovered"
-    assert row.escalation_trigger == OFFLINE_RUNGS_PRODUCED_NO_TEXT
+# `test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text`
+# drove a visual recovery read; it was deleted with the visual OCR client
+# (slice S2). The same end-to-end trigger report on a recovery is pinned for the
+# Paddle rung by `tests/test_paddle_routing.py::test_case1_recovery_names_paddle_and_local_free_recovers`,
+# and the reporting priority itself by the unit test above.
 
 
 def test_the_paddle_slot_is_filled_between_tesseract_and_visual():
@@ -631,8 +634,8 @@ def test_claimed_and_validated_is_no_failure():
 def test_case1_usable_unclaimed_tesseract_text_never_escalates(scan_tree, monkeypatch):
     """The governing invariant's central proof: a Class-B Tesseract read
     (long, legible, alphanumeric-dense — nothing an extraction-quality gate
-    would ever call unusable) that no parser claims must NEVER schedule the
-    visual rung, in `--scanned-visual` mode, with escalation on."""
+    would ever call unusable) that no parser claims must NEVER schedule an
+    escalation read, in an escalating mode, with escalation on."""
     _tesseract(monkeypatch, USABLE_UNCLAIMABLE)
     _forbid_visual(monkeypatch)
 
@@ -745,30 +748,10 @@ def test_case2_claimed_but_financially_failing_never_escalates(scan_tree, monkey
     assert row.failure_class == C_VALIDATION
 
 
-def test_case3_a_below_floor_read_is_the_legal_class_a_trigger(scan_tree, monkeypatch):
-    """CASE 3: a read below the floor -> A, the router names visual with
-    trigger `extractor_output_unusable`. The visual read here ALSO fails to
-    claim (a different flavour of noise), so the original tesseract read
-    stays of record — proving the ROUTER's decision (the escalation actually
-    ran) independent of whether the second read happens to be adopted."""
-    _tesseract(monkeypatch, "scan noise\nlllll ooooo\n0000 ....\nno recognisable statement structure")
-
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr(
-        "ocr.ocr_client.ocr_page",
-        lambda image, *, settings, client, on_delta=None: "different noise, still unclaimable",
-    )
-
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
-
-    assert row.evidence_quality == "unusable"
-    assert row.escalation_trigger == EXTRACTOR_OUTPUT_UNUSABLE
-    assert row.visual_rung == "no_upgrade"
-    assert row.source_path == "local_tesseract"
+# `test_case3_a_below_floor_read_is_the_legal_class_a_trigger` drove a visual
+# upgrade read (the router naming visual on `extractor_output_unusable`); it was
+# deleted with the visual OCR client (slice S2). The Paddle rung's upgrade on
+# the same trigger is `tests/test_paddle_routing.py::test_case1_u_extract_shape_upgrade_also_names_paddle`.
 
 
 def test_case4_stop_a_validated_document_is_never_re_escalated(scan_tree, monkeypatch):
@@ -785,35 +768,13 @@ def test_case4_stop_a_validated_document_is_never_re_escalated(scan_tree, monkey
     row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
     assert row.dispatch_outcome == "claimed"
     assert row.visual_rung == "not_attempted"
+    assert row.paddle_rung == "not_attempted"
 
 
-def test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt(scan_tree, monkeypatch):
-    """P20-ROUTER review, MAJOR-1's replacement mutation-table row 5:
-    endpoint policy is enforced in exactly ONE place — `ocr_client._build_client`
-    (cell B2) — which fails closed BEFORE any client object exists. The
-    router never sees this at all; a refused/unreachable endpoint surfaces
-    as the visual rung's OWN transport failure, and the document is
-    terminal, with exactly one attempt (no retry, no second extractor)."""
-    from ocr.config import load_settings
-
-    _tesseract(monkeypatch, None)  # RECOVERY: the offline ladder found nothing
-    calls: list = []
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-
-    def refused(settings):
-        calls.append(settings)
-        raise RuntimeError("endpoint refused: not opted in")
-
-    monkeypatch.setattr("ocr.ocr_client._build_client", refused)
-
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
-
-    assert row.visual_rung == "failed"
-    assert (row.outcome_class, row.outcome_reason) == ("failed", "ocr_failed")
-    assert row.error_type == "RuntimeError"
-    assert len(calls) == 1
-    assert row.source_path == "none"
+# `test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt`
+# pinned the visual OCR client's endpoint refusal (`ocr_client._build_client`);
+# it was deleted with the client (slice S2). The Paddle rung's transport
+# failures are `tests/test_paddle_routing.py::test_case18_transport_failures_fail_closed_with_no_second_attempt`.
 
 
 # ---------------------------------------------------------------------------
@@ -822,17 +783,12 @@ def test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt(sca
 
 def test_the_escalation_budget_refuses_past_its_ceiling(scan_tree, monkeypatch):
     _tesseract(monkeypatch, None)  # RECOVERY: unconditionally Class A
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: "junk that claims nothing")
+    _forbid_visual(monkeypatch)  # the budget refuses BEFORE any read
 
     runner = _runner(scan_tree, visual_escalation=True, escalation_budget=0)
     row = runner.process("BankZ/scan.pdf", "BankZ")
     assert row.visual_rung == "not_attempted"
+    assert row.paddle_rung == "not_attempted"
     assert row.outcome_class == "failed"
     assert row.outcome_reason == "escalation_refused"
     assert row.escalation_refused == "escalation_budget_exhausted"
@@ -847,21 +803,15 @@ def test_the_escalation_budget_refuses_past_its_ceiling(scan_tree, monkeypatch):
 
 
 def test_the_escalation_budget_permits_exactly_its_ceiling(scan_tree, monkeypatch):
-    from corpus_artifacts import cached_markdown
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
     _tesseract(monkeypatch, None)
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: claimable)
+    calls: list = []
+    _failing_escalation_read(monkeypatch, calls)
 
     runner = _runner(scan_tree, visual_escalation=True, escalation_budget=1)
     row = runner.process("BankZ/scan.pdf", "BankZ")
-    assert row.visual_rung == "recovered"
+    assert calls == ["scan.pdf"]  # the one permitted escalation read was attempted
+    assert row.escalation_extractor == "paddle"
+    assert row.paddle_rung == "failed"
     assert runner.escalations_used == 1
 
 
@@ -876,26 +826,21 @@ def test_cli_run_computes_and_publishes_the_escalation_budget(tmp_path, monkeypa
     """P20-ROUTER item 2f, end to end through `discovery.cli.run()`: the
     budget is computed once, before any document is processed, threaded into
     the runner, and reported in `summary.json` — and it is `None` (unbounded)
-    for every mode other than `--scanned-visual`."""
+    for every mode other than `--scanned-paddle` (it was `--scanned-visual`
+    too until that mode was retired in slice S2)."""
     import discovery.cli as cli
 
     (tmp_path / "BankZ").mkdir()
     (tmp_path / "BankZ" / "scan.pdf").write_bytes(SCAN_BYTES)
     _tesseract(monkeypatch, None)  # RECOVERY for the one scanned document
-    from ocr.config import load_settings
-    from corpus_artifacts import cached_markdown
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: claimable)
+    calls: list = []
+    _failing_escalation_read(monkeypatch, calls)
 
     summary = cli.run(
-        tmp_path, MODE_SCANNED_VISUAL, tmp_path / "out",
+        tmp_path, MODE_SCANNED_PADDLE, tmp_path / "out",
         skip_baseline=True, use_cache=False, visual_escalation=True,
     )
+    assert calls == ["scan.pdf"]
     assert summary["escalation_budget"] == 1  # one scanned-profile document
     assert summary["escalations_used"] == 1
 

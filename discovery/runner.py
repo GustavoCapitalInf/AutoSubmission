@@ -8,50 +8,32 @@ Desjardins all have layout-specific readers that come first), which showed up
 as five phantom failures. Discovery measures coverage; measuring it through a
 different reader than production uses would make every number a fiction.
 
-Offline by construction in every mode except `--scanned-visual`:
+Offline by construction in every mode but the Paddle ones:
 
 - `parse_mode="deterministic"` — the LLM extraction branch is unreachable, so
-  no Gemini call can occur even in principle. TRUE IN EVERY MODE, including
-  `--scanned-visual`: the visual rung reads pixels into markdown, it does not
-  extract, and no paid vendor is reachable from any discovery mode.
-- `allow_visual_ocr=False` — `ocr.pipeline` imports `ocr.ocr_client` lazily
-  *inside* the visual rung, so in the offline modes the model client module is
-  never even imported. A test asserts exactly that.
-- Local Tesseract only in `--scanned` / `--scanned-visual`, never in tranche 0/1.
+  no Gemini call can occur even in principle. TRUE IN EVERY MODE.
+- `allow_visual_ocr=False` — always: the visual OCR rung and its client were
+  removed (model-code removal, slice S2; owner ruling of 2026-10-13: the
+  product uses no model). `ocr.pipeline` refuses `allow_visual_ocr=True`.
+- Local Tesseract only in `--scanned` (and the Paddle modes), never in
+  tranche 0/1.
 
 Documents the mode cannot read are RECORDED, never skipped: a scanned document
-in an offline tranche is `deferred_scanned`, and a document that would need the
-visual rung is `deferred_visual_ocr`.
+in an offline tranche is `deferred_scanned`, and a document the offline ladder
+(Tesseract included) read nothing from is `deferred_visual_ocr` (the historical
+name of "the offline ladder read nothing").
 
-The visual rung (W3-5, `--scanned-visual`)
-------------------------------------------
-`--scanned-visual` is the SAME production ladder with its last rung enabled: it
-is `--scanned` plus the local Unlimited-OCR server (our own GPU, `$0` vendor).
-Discovery's policy around it stays offline-first, and there are exactly two ways
-a document reaches it:
-
-1. **Recovery** — the offline rungs produced nothing at all. In `--scanned`
-   that document is `deferred_visual_ocr`; here it gets the visual read.
-2. **Upgrade** — the offline read came from local Tesseract and no parser
-   claimed the text it produced (discovery class 5: a text-QUALITY failure, not
-   a layout-knowledge one). The visual rung reads the same pages again and the
-   result is adopted only if it actually claims. A NATIVE-text document that
-   goes unclaimed is a layout problem and is never escalated — spending GPU time
-   re-reading text we already have perfectly is the one thing this rung must
-   not do.
-
-Both paths call `parse_statement(force_ocr=True, allow_visual_ocr=True)`, which
-is the same rung the webapp uses, through the same D-3 cache, with the same O-3
-truncation assessment. The offline rungs are not re-run (they already ran, and
-`force_ocr` is part of the cache key), so the two reads occupy two disjoint
-cache partitions of the same bytes.
-
-The deferral taxonomy does not soften: a document the visual rung ALSO cannot
-serve stops being `deferred` and becomes an explicit terminal `failed` —
-`ocr_failed` when the rung raised (server down mid-run: that document fails
-closed, the run continues), and when it produced text nobody parsed, whichever
-of `no_parser_matched` / `parser_declined` the dispatch earned. Nothing is lost
-silently.
+The retired visual rung (W3-5, `--scanned-visual`)
+--------------------------------------------------
+`--scanned-visual` was `--scanned` plus the local Unlimited-OCR server, reached
+two ways: RECOVERY (the offline rungs produced nothing) and UPGRADE (an
+unclaimed Tesseract read was re-read). Both are gone with the rung:
+`MODE_SCANNED_VISUAL` stays a retired name (in `LOCAL_OCR_MODES`, so the mode
+vocabulary is append-only) and `DiscoveryRunner` refuses to be constructed with
+it. The same two paths remain for the Paddle rung (`--scanned-paddle`) until
+slice S5: `parse_statement(force_ocr=True, allow_paddle_ocr=True)` through the
+same D-3 cache, in its own partition, and a document that rung also cannot
+serve becomes an explicit terminal `failed`. Nothing is lost silently.
 """
 from __future__ import annotations
 
@@ -117,10 +99,13 @@ from .inventory import DedupIndex
 MODE_PROFILE_ONLY = "profile-only"
 MODE_DIGITAL = "digital"
 MODE_SCANNED = "scanned"
+#: RETIRED (model-code removal, slice S2): the visual OCR rung's mode. The name
+#: stays in the vocabulary (append-only, and in `LOCAL_OCR_MODES`) so historical
+#: rows and provenance records keep their meaning; `DiscoveryRunner` refuses it.
 MODE_SCANNED_VISUAL = "scanned-visual"
 #: P21-ROUTING (Phase 2.1). The Paddle discovery mode: as `--scanned`, plus
-#: the Paddle escalation rung in place of the visual one. Mutually exclusive
-#: with every other mode (the CLI's mode group enforces it).
+#: the Paddle escalation rung. Mutually exclusive with every other mode (the
+#: CLI's mode group enforces it).
 MODE_SCANNED_PADDLE = "scanned-paddle"
 #: P22-TRUTHTABLE (Phase 2.2, D7/D8). The RESEARCH mode: the operator's NAMED
 #: population is read by Paddle through the router, regardless of profile, into
@@ -190,8 +175,8 @@ PARSER_ID_UNAVAILABLE = "unavailable"
 #: CACHE_FINDING_EVIDENCE_DRIFT` — not imported, for the same reason
 #: `telemetry.run_of_record._VISUAL_ROW_OUTCOMES` and `telemetry.record.
 #: VISUAL_MODEL_TOKENS` are literal mirrors rather than imports: this module
-#: already lazily imports `webapp.artifact_cache` inside `_read`/`_read_visual`
-#: /`_read_paddle` specifically so a `cache=None` run never pulls the module
+#: already lazily imports `webapp.artifact_cache` inside `_read`/`_read_paddle`
+#: specifically so a `cache=None` run never pulls the module
 #: in at all, and a module-level import for one string constant would defeat
 #: that. `tests/test_discovery.py` holds the two equal by test.
 CACHE_FINDING_EVIDENCE_DRIFT = "cached_evidence_drift"
@@ -1044,7 +1029,6 @@ class DiscoveryRunner:
     """Processes documents one at a time; owns no routing decisions of its own."""
 
     _last_ocr_cached = False
-    _last_visual_cached = False
     _last_paddle_cached = False
     #: P21-ROUTING closure (MAJOR-1). `None` on every ordinary read; the
     #: `CacheResult.finding` value (e.g. `CACHE_FINDING_EVIDENCE_DRIFT`) when
@@ -1052,12 +1036,12 @@ class DiscoveryRunner:
     #: copy failed its own round-trip check. Read by `process()` right after
     #: each `_read*` call and projected onto `row.cache_finding` — a
     #: per-instance attribute, not a per-call return value, for the same
-    #: reason `_last_ocr_cached` etc. already are: `_read`/`_read_visual`/
-    #: `_read_paddle`'s own return tuples are pinned shapes callers and tests
-    #: already destructure, and widening them is a bigger, riskier change
-    #: than one more instance attribute read immediately after the call.
+    #: reason `_last_ocr_cached` etc. already are: `_read`/`_read_paddle`'s
+    #: own return tuples are pinned shapes callers and tests already
+    #: destructure, and widening them is a bigger, riskier change than one
+    #: more instance attribute read immediately after the call. (The retired
+    #: visual rung's `_last_visual_*` pair left with `_read_visual`, slice S2.)
     _last_ocr_finding: str | None = None
-    _last_visual_finding: str | None = None
     _last_paddle_finding: str | None = None
     #: P21-ROUTING closure (MINOR-2). The `.reason` of the last `PaddleRefused`
     #: `_read_paddle` caught, or `""` when its last call did not refuse.
@@ -1086,6 +1070,14 @@ class DiscoveryRunner:
         research_partition: str = "",
         holdout_sha16: frozenset[str] = frozenset(),
     ) -> None:
+        if mode == MODE_SCANNED_VISUAL:
+            # Model-code removal, slice S2: the visual OCR rung this mode added
+            # was removed (the product uses no model). Refused at construction,
+            # before anything is read, rather than run as a silent `--scanned`.
+            raise ValueError(
+                f"discovery mode {MODE_SCANNED_VISUAL!r} is retired: the visual OCR rung was removed; "
+                f"use {MODE_SCANNED!r}"
+            )
         self.root = root
         self.mode = mode
         self.run_id = run_id
@@ -1093,7 +1085,6 @@ class DiscoveryRunner:
         self.cache = cache
         self.dedup = dedup if dedup is not None else DedupIndex.with_pinned_corpus()
         self.allow_local_ocr = mode in LOCAL_OCR_MODES
-        self.allow_visual_ocr = mode == MODE_SCANNED_VISUAL
         # D7/D8. The research inputs are refused at CONSTRUCTION, in both
         # directions: research mode without them cannot run (an unpopulated
         # research run would read the whole archive with Paddle, which is the
@@ -1140,13 +1131,12 @@ class DiscoveryRunner:
         #: member, or none: two-engine escalation is not possible in this
         #: phase (design item 8).
         self.enabled_extractors: frozenset[str] = (
-            frozenset({"visual"}) if mode == MODE_SCANNED_VISUAL
-            else frozenset({"paddle"}) if mode in (MODE_SCANNED_PADDLE, MODE_RESEARCH_PADDLE)
+            frozenset({"paddle"}) if mode in (MODE_SCANNED_PADDLE, MODE_RESEARCH_PADDLE)
             else frozenset()
         )
         # Escalation is a policy knob ON TOP of the rung: `--no-visual-escalation`
-        # recovers the documents nothing could read without spending GPU time
-        # re-reading Tesseract/visual output. Generalised (Phase 2.1) to gate
+        # (the historical name) recovers the documents nothing could read
+        # without re-reading Tesseract output. Generalised (Phase 2.1) to gate
         # whichever single extractor this mode enables, if any.
         self.visual_escalation = bool(visual_escalation) and bool(self.enabled_extractors)
         self.allow_artifacts = mode == MODE_DRY_RUN
@@ -1155,7 +1145,7 @@ class DiscoveryRunner:
         #: (every test in this tree, `discovery/cli.py` before it opts in)
         #: keeps its exact historical behaviour. `discovery/cli.py::run()`
         #: sets this from `estimate_class_a_population` before processing a
-        #: `--scanned-visual` run, and `process()` REFUSES to escalate past
+        #: `--scanned-paddle` run, and `process()` REFUSES to escalate past
         #: it — a safety valve on top of the router, never a substitute for
         #: it (the router's own admission rules still apply first).
         self.escalation_budget = escalation_budget
@@ -1181,10 +1171,8 @@ class DiscoveryRunner:
         the set of `_last_*` class attributes, so a future attribute cannot
         be added without its reset."""
         self._last_ocr_cached = False
-        self._last_visual_cached = False
         self._last_paddle_cached = False
         self._last_ocr_finding = None
-        self._last_visual_finding = None
         self._last_paddle_finding = None
         self._last_paddle_refusal_reason = ""
 
@@ -1248,79 +1236,21 @@ class DiscoveryRunner:
             "deferred_scanned" if self.allow_local_ocr else "deferred_offline_rungs"
         )
 
-    def _read_visual(self, raw: bytes, source_file: str, profile):
-        """(document, markdown, error_type). The visual rung, cached, fail-closed.
-
-        `force_ocr=True` goes straight to the visual rung: the offline rungs
-        either already ran on this document or provably cannot serve it, and
-        re-running them would only burn time. It is also what keeps this read in
-        its own D-3 partition — `force_ocr`, `allow_local_ocr` and
-        `allow_visual_ocr` are all cache-key material, as are the visual service
-        knobs (`ocr_model`, `ocr_base_url`, `ngram_size`, `window_size`,
-        `dpi`, `fallback_dpi`), so a visual artifact can never be served for an
-        offline read or across a model/endpoint change.
-
-        The endpoint can die mid-run. `ocr_page` retries and then re-raises, so
-        that exception is caught HERE and returned as an error type: this
-        document fails closed and the run continues. A failure is never cached —
-        `cached_ocr` only stores what `compute` returned.
-        """
-        from ocr.pipeline import parse_statement
-
-        def compute():
-            return parse_statement(
-                raw,
-                source_file=source_file,
-                profile=profile,
-                force_ocr=True,
-                allow_local_ocr=False,
-                allow_visual_ocr=True,
-            )
-
-        self._last_visual_finding = None
-        try:
-            if self.cache is None:
-                document, cached = compute(), False
-            else:
-                from webapp.artifact_cache import cached_ocr
-
-                result = cached_ocr(
-                    raw,
-                    compute=compute,
-                    cache=self.cache,
-                    source_file=source_file,
-                    content_hash=profile.content_sha256,
-                    force_ocr=True,
-                    allow_local_ocr=False,
-                    allow_visual_ocr=True,
-                )
-                document, cached = result.value, result.cached
-                self._last_visual_finding = result.finding
-        except Exception as exc:
-            self._last_visual_cached = False
-            # MINOR-D: a drift observed just before a recompute that then
-            # FAILED still travels — `cached_ocr` attaches the finding to the
-            # exception it lets through, and the row records it beside
-            # `error_type` rather than losing it with the failed read.
-            self._last_visual_finding = self._cache_finding_of(exc)
-            return None, None, type(exc).__name__
-        self._last_visual_cached = cached
-        if document is None:
-            return None, None, None
-        return document, document.to_markdown(), None
-
     def _read_paddle(self, raw: bytes, source_file: str, profile):
         """(document, markdown, error). The Paddle rung, cached, fail-closed.
 
-        Mirrors `_read_visual` exactly, swapping the extractor:
         `force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
         allow_paddle_ocr=True, paddle_data_scope="customer"` — the LITERAL
         the runner reads the archive under (D8's privacy boundary; pinned by
         AST in `tests/test_paddle_routing.py`, never `"synthetic"` here).
-        `PaddleRefused` and `PaddleTransportError` are caught HERE, exactly
-        like `_read_visual` catches `Exception`, and returned as an error
-        token rather than propagating: this document fails closed and the
-        run continues.
+        `force_ocr=True` keeps this read in its own D-3 partition and skips the
+        offline rungs, which already ran on this document. `PaddleRefused` and
+        `PaddleTransportError` are caught HERE, as every other exception is,
+        and returned as an error token rather than propagating: this document
+        fails closed and the run continues. A failure is never cached —
+        `cached_ocr` only stores what `compute` returned. (The retired visual
+        rung's `_read_visual`, which this method mirrored, was deleted in
+        slice S2 of the model-code removal.)
 
         `error` is `None` on success, the literal `"refused_customer_data"`
         when the rung's OWN authorization gate refused a customer-scope
@@ -1375,7 +1305,7 @@ class DiscoveryRunner:
                 self._last_paddle_finding = result.finding
         except Exception as exc:
             self._last_paddle_cached = False
-            self._last_paddle_finding = self._cache_finding_of(exc)  # MINOR-D, as _read_visual
+            self._last_paddle_finding = self._cache_finding_of(exc)  # MINOR-D
             if isinstance(exc, PaddleRefused):
                 # MINOR-2: the reason travels regardless of WHICH refusal it
                 # is — `remote_customer_data_refused` keeps its own row
@@ -1394,18 +1324,18 @@ class DiscoveryRunner:
 
     def _project_cache_finding(self, row: "DocumentRow") -> None:
         """P21-ROUTING closure (MAJOR-1). Called right after every `_read` /
-        `_read_visual` / `_read_paddle` invocation: whichever rung's last
+        `_read_paddle` invocation: whichever rung's last
         `cached_ocr` call observed a drift is projected onto `row.
         cache_finding`, so the fact that a drift happened survives the
         recompute that immediately follows it inside `cached_ocr` — a
         drifted entry is overwritten in the cache itself, but not on this
         row. Each `_read*` method resets its OWN `_last_*_finding` to `None`
-        at its own call, AND `process()` resets all three (with every other
+        at its own call, AND `process()` resets both (with every other
         per-document `_last_*` attribute) via `_reset_per_document_state`
         before any read — closure-2, MAJOR-A: without that second reset a
         rung that did not run on THIS document still held the previous
         document's finding, and this projection copied it onto the wrong
-        row. So at most one of the three is ever truthy for a single call,
+        row. So at most one of the two is ever truthy for a single call,
         and none of them is ever a previous document's; `row.cache_finding`
         is set (never cleared) so an earlier rung's finding on the SAME
         document (offline, then an escalation) is not lost when a later
@@ -1413,7 +1343,7 @@ class DiscoveryRunner:
         FAILED after a drift (MINOR-D) sets its `_last_*_finding` from the
         exception `cached_ocr` let through, so the finding lands here beside
         `error_type`."""
-        finding = self._last_ocr_finding or self._last_visual_finding or self._last_paddle_finding
+        finding = self._last_ocr_finding or self._last_paddle_finding
         if finding:
             row.cache_finding = finding
 
@@ -1969,9 +1899,9 @@ class DiscoveryRunner:
             #
             # P21-ROUTING: generalised from `not self.allow_visual_ocr` — a
             # mode with NO escalation extractor enabled at all (digital,
-            # scanned, profile-only, dry-run) defers exactly as before;
-            # `--scanned-visual` and `--scanned-paddle` each enable exactly
-            # one and fall through to RECOVERY below instead.
+            # scanned, profile-only, dry-run) defers exactly as before; the
+            # Paddle modes enable exactly one and fall through to RECOVERY
+            # below instead (the retired `--scanned-visual` did too).
             row.outcome_class = "deferred"
             row.outcome_reason = (
                 "deferred_scanned" if note == "deferred_offline_rungs" else "deferred_visual_ocr"
@@ -2002,11 +1932,13 @@ class DiscoveryRunner:
             # `attempted=()` when `allow_local_ocr` is False would let `decide`
             # name `local_tesseract` here — unreachable today, because every
             # mode `visual_escalation` can be true in also has
-            # `allow_local_ocr=True` (`MODE_SCANNED_VISUAL in LOCAL_OCR_MODES`)
+            # `allow_local_ocr=True` (the Paddle modes are in LOCAL_OCR_MODES)
             # — but worth naming: that shape would still fail CLOSED (the
-            # `!= "visual"` check below writes a terminal `escalation_refused`
+            # `!= "paddle"` check below writes a terminal `escalation_refused`
             # row rather than reading Tesseract pixels it was never asked to
-            # read), never open (P20-ROUTER review, MINOR-9).
+            # read), never open (P20-ROUTER review, MINOR-9). Since slice S2
+            # the router can name no other extractor here: no mode enables the
+            # retired visual rung, and a decision naming it would refuse too.
             recovery_decision = self._apply_budget(EscalationRouter.decide(router_inputs(
                 profile=profile, evidence=recovery_evidence, triggers=recovery_triggers,
                 attempted=("local_tesseract",) if self.allow_local_ocr else (),
@@ -2014,7 +1946,7 @@ class DiscoveryRunner:
             )))
             row.escalation_trigger = recovery_decision.trigger or ""
             row.escalation_refused = "; ".join(recovery_decision.refused)
-            if recovery_decision.extractor not in ("visual", "paddle"):
+            if recovery_decision.extractor != "paddle":
                 # Refused (today only reachable via an exhausted budget, or a
                 # mode whose one enabled extractor is not this call's): an
                 # explicit terminal failure, never a silent loss, exactly like
@@ -2038,55 +1970,35 @@ class DiscoveryRunner:
                            error_reason="escalation_refused")
                 return self._finish(row, started)
             row.escalation_extractor = recovery_decision.extractor
-            if recovery_decision.extractor == "visual":
-                with timer.time("visual_ocr"):
-                    document, markdown, visual_error = self._read_visual(raw, name, profile)
-                self._project_cache_finding(row)
-                sheets = list(document.pages) if document is not None else None
-                timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
-                row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
-                if markdown is None:
-                    # The rung was asked and produced nothing: an exception (server
-                    # down) or, only in principle, a cached negative. Either way the
-                    # document is terminal, and `error_type` tells the two apart.
-                    row.visual_rung = VISUAL_FAILED
+            # "paddle" — P21-ROUTING (the retired visual rung's branch was
+            # deleted in slice S2).
+            with timer.time("paddle_ocr"):
+                document, markdown, paddle_error = self._read_paddle(raw, name, profile)
+            self._project_cache_finding(row)
+            self._project_paddle_refusal(row)
+            sheets = list(document.pages) if document is not None else None
+            timer.set_cache("paddle_ocr", _disposition(self.cache, self._last_paddle_cached))
+            row.cache_paddle = timer.as_dict()["paddle_ocr"]["cache"]
+            if markdown is None:
+                # D8: `refused_customer_data` is the rung's OWN
+                # authorization gate refusing before any request left the
+                # machine — a distinct, named finding, never folded into
+                # the generic transport-failure shape below.
+                if paddle_error == "refused_customer_data":
+                    row.paddle_rung = PADDLE_REFUSED_CUSTOMER_DATA
+                    row.outcome_class, row.outcome_reason = "failed", "paddle_refused"
+                    row.error_type = "PaddleRefused"
+                else:
+                    row.paddle_rung = PADDLE_FAILED
                     row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
-                    row.error_type = visual_error
-                    row.source_path = "none"
-                    self._emit(row, profile, None, None, None, collector, timer,
-                               error_type=visual_error, error_reason="ocr_failed",
-                               fallback_reason=_fallback_reason(row.visual_rung))
-                    return self._finish(row, started)
-                row.visual_rung = VISUAL_RECOVERED
-                note = None
-            else:  # "paddle" — P21-ROUTING
-                with timer.time("paddle_ocr"):
-                    document, markdown, paddle_error = self._read_paddle(raw, name, profile)
-                self._project_cache_finding(row)
-                self._project_paddle_refusal(row)
-                sheets = list(document.pages) if document is not None else None
-                timer.set_cache("paddle_ocr", _disposition(self.cache, self._last_paddle_cached))
-                row.cache_paddle = timer.as_dict()["paddle_ocr"]["cache"]
-                if markdown is None:
-                    # D8: `refused_customer_data` is the rung's OWN
-                    # authorization gate refusing before any request left the
-                    # machine — a distinct, named finding, never folded into
-                    # the generic transport-failure shape below.
-                    if paddle_error == "refused_customer_data":
-                        row.paddle_rung = PADDLE_REFUSED_CUSTOMER_DATA
-                        row.outcome_class, row.outcome_reason = "failed", "paddle_refused"
-                        row.error_type = "PaddleRefused"
-                    else:
-                        row.paddle_rung = PADDLE_FAILED
-                        row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
-                        row.error_type = paddle_error
-                    row.source_path = "none"
-                    self._emit(row, profile, None, None, None, collector, timer,
-                               error_type=row.error_type, error_reason=row.outcome_reason,
-                               fallback_reason=_fallback_reason(row.visual_rung, row.paddle_rung))
-                    return self._finish(row, started)
-                row.paddle_rung = PADDLE_RESEARCH if self.research else PADDLE_RECOVERED
-                note = None
+                    row.error_type = paddle_error
+                row.source_path = "none"
+                self._emit(row, profile, None, None, None, collector, timer,
+                           error_type=row.error_type, error_reason=row.outcome_reason,
+                           fallback_reason=_fallback_reason(row.visual_rung, row.paddle_rung))
+                return self._finish(row, started)
+            row.paddle_rung = PADDLE_RESEARCH if self.research else PADDLE_RECOVERED
+            note = None
 
         source = source_section(document)
         _project_source(row, source, committed_artifact=(note == "committed_artifact"))
@@ -2168,45 +2080,9 @@ class DiscoveryRunner:
             row.escalation_refused = "; ".join(decision.refused)
             if decision.extractor is not None:
                 row.escalation_extractor = decision.extractor
-            if decision.extractor == "visual":
-                with timer.time("visual_ocr"):
-                    visual_doc, visual_md, visual_error = self._read_visual(raw, name, profile)
-                self._project_cache_finding(row)
-                timer.set_cache("visual_ocr", _disposition(self.cache, self._last_visual_cached))
-                row.cache_visual = timer.as_dict()["visual_ocr"]["cache"]
-                row.visual_rung = VISUAL_FAILED if visual_error else VISUAL_NO_UPGRADE
-                if visual_md is not None:
-                    visual_collector = DispatchCollector()
-                    visual_sheets = list(visual_doc.pages) if visual_doc is not None else None
-                    self._geometry_source = visual_doc
-                    with timer.time("visual_analysis"):
-                        visual_payload, visual_error_type, visual_cached = self._analyse(
-                            visual_md, visual_collector, visual_sheets
-                        )
-                    if visual_payload is not None:
-                        # CASE 9 (design item 8): the offline read's own model
-                        # is preserved before it is replaced, so a
-                        # disagreement between the two reads is never
-                        # silently lost even though only the adopted read's
-                        # payload is published.
-                        row.offline_source_model = document.model
-                        row.visual_rung = VISUAL_UPGRADED
-                        document, markdown, collector = visual_doc, visual_md, visual_collector
-                        sheets = visual_sheets
-                        payload, error_type, analysis_cached = (
-                            visual_payload, visual_error_type, visual_cached
-                        )
-                        source = source_section(document)
-                        _project_source(row, source)
-                        self._doc_facts.update({
-                            "document": document,
-                            "pages": list(document.pages) if document is not None else [],
-                        })
-                        evidence = _evidence_for_row(document, profile, row.source_path)
-                        row.evidence_quality = (
-                            "usable" if evidence.usable else "unusable"
-                        ) if row.source_path in GATE_ASSESSED_SOURCES else "none"
-            elif decision.extractor == "paddle":  # P21-ROUTING
+            # The retired visual rung's upgrade branch was deleted in slice S2:
+            # no mode enables it, so the router cannot name it here.
+            if decision.extractor == "paddle":  # P21-ROUTING
                 with timer.time("paddle_ocr"):
                     paddle_doc, paddle_md, paddle_error = self._read_paddle(raw, name, profile)
                 self._project_cache_finding(row)

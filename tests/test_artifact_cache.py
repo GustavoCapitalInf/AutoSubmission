@@ -65,12 +65,10 @@ OTHER_PDF = b"%PDF-1.7\nartifact cache fixture body (different)"
 
 @dataclass
 class _OcrSettings:
-    """Stand-in for ocr.config.Settings — only the keyed attributes matter.
-
-    ``endpoint_class`` is not yet a real field of ``ocr.config.Settings``
-    (cell B2 adds it); it is here because ``ocr_settings_key`` already reads
-    it through ``getattr`` with a ``"loopback"`` default, and this fixture is
-    "anything with the same attributes" per that function's own docstring."""
+    """Stand-in for the retired ocr.config.Settings (deleted in slice S2 of
+    the model-code removal) — only the keyed attributes matter, and they are
+    read through ``getattr`` (``ocr_settings_key``'s "anything with the same
+    attributes"). Its defaults are the frozen key literals."""
 
     model: str = "baidu/Unlimited-OCR"
     base_url: str = "http://localhost:8000/v1"
@@ -259,75 +257,166 @@ def test_extractor_is_paddle_only_for_the_forced_paddle_shape():
 
 
 def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default():
-    """`postprocess_state` / `postprocess_admitted` come from `ocr.ocr_client`
-    via getattr with the pinned quarantined defaults (until B1 composes).
-
-    Review BLOCK-2: composition order lands B1 BEFORE this cell
-    (`PHASE2-0-SAFETY.md`: B2 -> B1 -> A -> C -> D), and B1 is chartered to
-    add exactly `POSTPROCESS_STATE = "quarantined"` /
-    `ADMITTED_POSTPROCESS = ()` to `ocr.ocr_client` — the SAME values this
-    module's own defaults pin. Asserting `not hasattr(...)` is a fact about
-    today's tree, not a contract, and fails the moment B1 composes even
-    though nothing this cell depends on changed. Assert the VALUE instead,
-    which is correct whether B1 has landed or not."""
-    import ocr.ocr_client as ocr_client_module
+    """`postprocess_state` / `postprocess_admitted` are the frozen pins
+    "quarantined" / () for EVERY extractor label (model-code removal, slice
+    S2): the visual-labelled key used to read them off the retired client
+    (`ocr.ocr_client.POSTPROCESS_STATE` / `ADMITTED_POSTPROCESS`), whose values
+    were proven equal to these pins at the S1 head before it was deleted. The
+    field still partitions the key: patching the pin moves it."""
+    import webapp.artifact_cache as module
     from webapp.artifact_cache import (
         ADMITTED_POSTPROCESS_DEFAULT,
         POSTPROCESS_STATE_DEFAULT,
         _ocr_postprocess_readout,
     )
 
-    assert getattr(ocr_client_module, "POSTPROCESS_STATE", POSTPROCESS_STATE_DEFAULT) == "quarantined"
-    assert tuple(getattr(ocr_client_module, "ADMITTED_POSTPROCESS", ADMITTED_POSTPROCESS_DEFAULT)) == ()
-    assert _ocr_postprocess_readout("visual") == ("quarantined", ())
-    assert _ocr_postprocess_readout("offline") == ("quarantined", ())
+    assert POSTPROCESS_STATE_DEFAULT == "quarantined"
+    assert ADMITTED_POSTPROCESS_DEFAULT == ()
+    for extractor in ("visual", "offline", "paddle", "visual_pair"):
+        assert _ocr_postprocess_readout(extractor) == ("quarantined", ())
 
-    class _Settings(_OcrSettings):
-        pass
-
-    visual_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                  ocr_settings=_Settings())
-    with unittest.mock.patch.object(ocr_client_module, "POSTPROCESS_STATE", "some-other-state", create=True):
-        changed_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                       ocr_settings=_Settings())
-    assert visual_key != changed_key
+    for shape in ({"force_ocr": True, "allow_local_ocr": False, "allow_visual_ocr": True},
+                  {"force_ocr": False, "allow_local_ocr": True, "allow_visual_ocr": False}):
+        key = ocr_settings_key(ocr_settings=_OcrSettings(), **shape)
+        with unittest.mock.patch.object(module, "POSTPROCESS_STATE_DEFAULT", "some-other-state"):
+            changed_key = ocr_settings_key(ocr_settings=_OcrSettings(), **shape)
+        assert key != changed_key, shape
 
 
 def test_postprocess_admitted_partitions_the_visual_key():
-    """The other new BLOCK-1 gap: `postprocess_admitted` must partition the
-    key on its own — a visual-labelled key computed with one admitted
-    function must differ from the pinned empty-tuple default. Patches
-    `ADMITTED_POSTPROCESS` to a one-member tuple (`create=True`, since B1 has
-    not composed on this tree)."""
-    import ocr.ocr_client as ocr_client_module
+    """The other BLOCK-1 gap: `postprocess_admitted` must partition the key on
+    its own — a key computed with one admitted function must differ from the
+    pinned empty-tuple default. Patches the frozen pin to a one-member tuple."""
+    import webapp.artifact_cache as module
 
-    class _Settings(_OcrSettings):
-        pass
-
-    with unittest.mock.patch.object(ocr_client_module, "ADMITTED_POSTPROCESS", (), create=True):
-        base = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                ocr_settings=_Settings())
-    with unittest.mock.patch.object(ocr_client_module, "ADMITTED_POSTPROCESS", ("strip_det_tags",), create=True):
+    base = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                            ocr_settings=_OcrSettings())
+    with unittest.mock.patch.object(module, "ADMITTED_POSTPROCESS_DEFAULT", ("strip_det_tags",)):
         changed = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                   ocr_settings=_Settings())
+                                   ocr_settings=_OcrSettings())
     assert base != changed
 
 
-def test_postprocess_never_imports_ocr_client_for_an_offline_labelled_call():
-    """The architectural property two other test files already assert for the
-    whole process (`tests/test_discovery.py`, `tests/test_visual_rung.py`):
-    computing an OFFLINE key must not import the model client module. Proven
-    in a subprocess so a prior import elsewhere in the test session cannot
-    hide a regression."""
+def test_computing_any_ocr_key_imports_no_model_module():
+    """Computing an OCR key — offline-labelled AND the historical
+    visual-labelled shape — imports no model client: the visual OCR client
+    module no longer exists (slice S2), and nothing pulls in `openai`.
+    Proven in a subprocess so a prior import elsewhere in the test session
+    cannot hide a regression."""
     code = (
-        "import sys;"
+        "import sys, importlib.util;"
         "from webapp.artifact_cache import ocr_settings_key;"
         "ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False);"
-        "print('ocr.ocr_client' in sys.modules)"
+        "ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True);"
+        "ocr_settings_key();"
+        "print(importlib.util.find_spec('ocr.ocr_client') is None,"
+        " sorted(m for m in sys.modules if m in ('ocr.ocr_client', 'ocr.availability', 'openai')"
+        " or m.startswith(('openai.', 'vlm'))))"
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT)
+    result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, cwd=ROOT)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "False", result.stdout
+    assert result.stdout.strip().splitlines()[-1] == "True []", result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Model-code removal, slice S2: the OCR key's visual-service fields are FROZEN
+# literals (plan D3). Every key a deterministic stage computes on a default
+# environment is unchanged, and the four retired environment names no longer
+# move it (declared in the S2 report).
+# ---------------------------------------------------------------------------
+
+
+def _old_shape_material(*, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool) -> dict:
+    """The OCR settings dict exactly as the S1 tree built it on a default
+    environment (its `ocr.config.load_settings()` defaults), from LITERALS —
+    never from the module under test — plus this host's live toolchain probe,
+    which the key has always carried."""
+    from webapp.artifact_cache import ocr_toolchain_versions
+
+    return {
+        "stage_version": 5,
+        "force_ocr": force_ocr,
+        "allow_local_ocr": allow_local_ocr,
+        "allow_visual_ocr": allow_visual_ocr,
+        "dpi": 300,
+        "fallback_dpi": 250,
+        "ocr_model": "baidu/Unlimited-OCR",
+        "ocr_base_url": "http://localhost:8000/v1",
+        "ngram_size": 35,
+        "window_size": 128,
+        "extractor": "visual" if (force_ocr and allow_visual_ocr) else "offline",
+        "allow_paddle_ocr": False,
+        "postprocess_state": "quarantined",
+        "postprocess_admitted": [],
+        "raster_version": 2,
+        "extraction_schema_version": 3,
+        "endpoint_class": "loopback",
+        **ocr_toolchain_versions(),
+    }
+
+
+#: The call shapes whose keys the cache serves today: the webapp's one read and
+#: discovery's --scanned read (native text, then local Tesseract), discovery's
+#: digital and dry-run read (offline rungs only), the historical visual
+#: reconstruction `tools/train/provenance.py` still records, and the
+#: provenance probe's own-defaults key (`ocr_settings_key()`).
+_FROZEN_KEY_SHAPES = {
+    "webapp_and_tesseract_read": dict(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False),
+    "discovery_digital_read": dict(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False),
+    "visual_reconstruction": dict(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+    "provenance_probe_defaults": dict(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=True),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_FROZEN_KEY_SHAPES))
+def test_the_ocr_key_equals_the_old_shape_built_from_literals(shape):
+    from webapp.artifact_cache import _fingerprint
+
+    flags = _FROZEN_KEY_SHAPES[shape]
+    call = flags if shape != "provenance_probe_defaults" else {}
+    assert ocr_settings_key(**call) == _fingerprint(_old_shape_material(**flags))
+
+
+@pytest.mark.parametrize("name,value", [
+    ("OCR_MODEL", "some/other-model"),
+    ("OCR_BASE_URL", "https://remote.invalid/v1"),
+    ("OCR_NGRAM_SIZE", "40"),
+    ("OCR_WINDOW_SIZE", "1024"),
+])
+def test_the_retired_ocr_environment_no_longer_moves_the_key(monkeypatch, name, value):
+    """DECLARED re-key for a non-default environment only (plan D3): these
+    four names used to reach the key through `ocr.config.load_settings()`;
+    nothing reads them now. On a default environment the key is unchanged
+    (the test above); here the override is simply inert."""
+    before = {shape: ocr_settings_key(**flags) for shape, flags in _FROZEN_KEY_SHAPES.items()}
+    monkeypatch.setenv(name, value)
+    after = {shape: ocr_settings_key(**flags) for shape, flags in _FROZEN_KEY_SHAPES.items()}
+    assert after == before
+
+
+def test_a_hostile_ocr_model_environment_no_longer_fails_a_key(monkeypatch):
+    """Declared M5 move: a hostile OCR_MODEL used to make every key raise
+    `ProvenanceTokenError` (so the job failed); nothing reads it now."""
+    monkeypatch.setenv("OCR_MODEL", "evil-model\n")
+    assert ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False) == ocr_settings_key(
+        force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
+        ocr_settings=_OcrSettings(),
+    )
+
+
+def test_an_explicit_ocr_settings_object_is_still_read_by_getattr():
+    """The historical reconstructions (`telemetry/run_of_record.py`,
+    `tools/train/provenance.py`) pass their own settings object; it is still
+    read attribute by attribute, and the frozen defaults equal `_OcrSettings()`."""
+    from webapp.artifact_cache import FROZEN_OCR_SETTINGS
+
+    for flags in _FROZEN_KEY_SHAPES.values():
+        assert ocr_settings_key(**flags) == ocr_settings_key(**flags, ocr_settings=_OcrSettings())
+    assert (FROZEN_OCR_SETTINGS.model, FROZEN_OCR_SETTINGS.base_url, FROZEN_OCR_SETTINGS.ngram_size,
+            FROZEN_OCR_SETTINGS.window_size, FROZEN_OCR_SETTINGS.endpoint_class) == (
+        "baidu/Unlimited-OCR", "http://localhost:8000/v1", 35, 128, "loopback")
+    other = _OcrSettings(model="other/model")
+    assert ocr_settings_key(ocr_settings=other) != ocr_settings_key()
 
 
 def test_raster_version_partitions_the_key():

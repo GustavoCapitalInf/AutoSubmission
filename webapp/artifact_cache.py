@@ -79,7 +79,11 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     ``force_ocr=True``).
     ``dpi``, ``fallback_dpi`` — rasterization and the mis-segmentation retry.
     ``ocr_model``, ``ocr_base_url``, ``ngram_size``, ``window_size`` — the
-    visual-OCR service knobs from ``ocr.config.Settings``.
+    retired visual-OCR service knobs. Since slice S2 of the model-code removal
+    they are FROZEN literals (:data:`FROZEN_OCR_SETTINGS`, the defaults the
+    retired ``ocr.config.Settings`` held) unless a caller passes its own
+    ``ocr_settings`` (historical reconstruction); the environment no longer
+    moves them.
     ``stage_version`` = :data:`OCR_STAGE_VERSION`.
 
     Joining at v5 (P20-ARTIFACTS, Phase 2.0, OQ8/F-6) — present only when
@@ -99,21 +103,14 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     artifact's own ``model`` field is that record); a third extractor stack
     (PaddleOCR) would add a third label here in a later phase — excluded now.
     ``postprocess_state`` / ``postprocess_admitted`` — the legacy OCR
-    postprocess chain's quarantine state, read from ``ocr.ocr_client`` via
-    ``getattr`` with the pinned defaults ``"quarantined"`` / ``()`` (cell B1
-    owns the module-level constants; until it composes, or for any
-    ``"offline"``-labelled call, the pinned defaults are used directly WITHOUT
-    importing ``ocr.ocr_client`` — that chain is reachable only from the
-    visual rung (``ocr/pipeline.py``), so importing it for an offline read
-    would be a pure regression against the "the model client module is never
-    even imported" property two tests already enforce
-    (``tests/test_discovery.py``, ``tests/test_visual_rung.py``); the value is
-    identical either way because the constants are process-wide, not
-    per-call).
+    postprocess chain's quarantine state: the pinned ``"quarantined"`` /
+    ``()`` for every extractor label (frozen key material since slice S2; the
+    retired client's own constants always held exactly these values).
     ``raster_version`` = ``ocr.rasterize.RASTER_VERSION``.
     ``extraction_schema_version`` = :data:`EXTRACTION_SCHEMA_VERSION`.
     ``endpoint_class`` — from ``ocr_settings`` via ``getattr``, default
-    ``"loopback"`` (cell B2 adds the real field to ``ocr.config.Settings``).
+    ``"loopback"`` (the frozen :data:`FROZEN_OCR_SETTINGS` value when no
+    ``ocr_settings`` is passed).
     ``tesseract_version``, ``poppler_version``, ``pymupdf_version`` — the
     binary/library versions the offline and visual rungs actually depend on
     (F-6), from :func:`ocr_toolchain_versions` — a never-raising, once-per-
@@ -179,18 +176,16 @@ Deliberately EXCLUDED from the keys, with reasons:
   Keying on it now would mint a separate, durably-cached report for every
   rename of the same statement: N copies of one answer, each recomputed, and
   a cache that grows with operator filing habits rather than with documents.
-* ``max_workers`` — page concurrency; ``ocr/config.py`` documents that it does
-  not change output.
-* ``timeout``, ``retries``, ``api_key`` — transport and secrets. Secrets must
-  never be hashed into a key that is written to disk.
-* callbacks (``on_stage``, ``on_page_delta``, ``on_page_replace``,
-  ``page_ocr_fn``) and the preflight ``profile`` — the profile is derived from
-  the bytes already in the key.
+* ``max_workers`` — the retired visual rung's page concurrency, which did not
+  change output (never key material).
+* ``timeout``, ``retries``, ``api_key`` — the retired visual rung's transport
+  and secrets. Secrets must never be hashed into a key that is written to disk.
+* callbacks (``on_stage``, ``on_page_replace``) and the preflight ``profile``
+  — the profile is derived from the bytes already in the key.
 
-Over-partitioning is safe, under-partitioning is not: when the native rung
-wins, the visual-OCR service knobs did not affect the result yet still
-partition the key. That costs a cheap offline recompute after an env change
-and never returns a stale artifact.
+Over-partitioning is safe, under-partitioning is not: the frozen visual-OCR
+service knobs did not affect any offline result yet still partition the key,
+exactly as they always have, so no cached reading is re-keyed.
 
 CODE changes are NOT captured by any key, with one carve-out named below. If
 the OCR ladder or the analysis pipeline changes its output, bump
@@ -1064,13 +1059,41 @@ def cache_key(stage: str, input_sha256: str, settings_key: str) -> str:
 # ----------------------------------------------------------------------
 
 
-#: Pinned defaults for the legacy OCR postprocess chain's quarantine state
-#: (`ocr.ocr_client`, cell B1) — used directly, with no import, whenever a
-#: call is labelled ``"offline"`` (that chain is unreachable from the offline
-#: rungs; see `ocr_settings_key`'s docstring) and as the getattr fallback once
-#: B1's module-level constants are read for a ``"visual"``-labelled call.
+#: Pinned values of the legacy OCR postprocess chain's quarantine state (the
+#: retired visual OCR client's `POSTPROCESS_STATE` / `ADMITTED_POSTPROCESS`,
+#: cell B1). FROZEN KEY MATERIAL since slice S2 of the model-code removal: the
+#: client is gone, and these are the values it held ("quarantined", nothing
+#: admitted; proven equal at the S1 head before it was deleted), so every
+#: extractor label's key keeps exactly the material it always had.
 POSTPROCESS_STATE_DEFAULT = "quarantined"
 ADMITTED_POSTPROCESS_DEFAULT: tuple[str, ...] = ()
+
+#: FROZEN KEY MATERIAL (model-code removal, slice S2; plan D3). The visual OCR
+#: service knobs `ocr_settings_key` has always hashed when no ``ocr_settings``
+#: is passed: the defaults `ocr.config.load_settings()` produced on an
+#: environment that set none of OCR_MODEL / OCR_BASE_URL / OCR_NGRAM_SIZE /
+#: OCR_WINDOW_SIZE, with the endpoint class that base URL classified as. The
+#: client and its settings are gone (owner ruling of 2026-10-13: the product
+#: uses no model), but dropping or changing any of these fields would re-key
+#: every cached reading, Tesseract ones included, so they stay as literals.
+#: They name an endpoint and a model that no longer exist; they are key
+#: material only, read by nothing else. Those four environment names no longer
+#: move the key (declared in the S2 report).
+@dataclass(frozen=True)
+class _FrozenOcrSettings:
+    """The frozen stand-in `ocr_settings_key` reads when no ``ocr_settings`` is
+    passed: the same five attributes, by `getattr`, as an explicitly passed
+    settings object (the historical reconstructions in
+    `telemetry/run_of_record.py` and `tools/train/provenance.py`)."""
+
+    model: str = "baidu/Unlimited-OCR"
+    base_url: str = "http://localhost:8000/v1"
+    ngram_size: int = 35
+    window_size: int = 128
+    endpoint_class: str = "loopback"
+
+
+FROZEN_OCR_SETTINGS = _FrozenOcrSettings()
 
 #: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
 #: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
@@ -1118,13 +1141,12 @@ def _ocr_extractor(
     ``allow_paddle_ocr=True`` — discovery's Paddle rung,
     `discovery/runner.py::_read_paddle`, P21-ROUTING); ``"visual"`` for the
     forced-escalation call shape (``force_ocr=True`` AND
-    ``allow_visual_ocr=True`` — discovery's visual rung,
-    `discovery/runner.py::_read_visual`). Every other shape, including the
-    ambiguous "auto" call (``force_ocr=False``, ``allow_visual_ocr=True``)
-    where a single ``ocr.pipeline.parse_statement`` call lets the offline
-    ladder go first and only falls through to the visual rung internally, is
-    ``"offline"`` — the offline ladder is what CAN run, whatever eventually
-    does. ``allow_local_ocr`` does not enter the decision: it already
+    ``allow_visual_ocr=True`` — discovery's retired visual rung, deleted in
+    slice S2 of the model-code removal; the label stays so historical
+    reconstructions still compute that partition's key). Every other shape,
+    including the old ambiguous "auto" call (``force_ocr=False``,
+    ``allow_visual_ocr=True``), is ``"offline"`` — the offline ladder is what
+    CAN run, whatever eventually does. ``allow_local_ocr`` does not enter the decision: it already
     partitions the key on its own (native vs local-Tesseract share one
     "offline" label and one settings key, exactly as they always have).
 
@@ -1150,25 +1172,14 @@ def _ocr_extractor(
 def _ocr_postprocess_readout(extractor: str) -> tuple[str, tuple[str, ...]]:
     """``(postprocess_state, postprocess_admitted)`` for the OCR settings key.
 
-    The legacy postprocess chain (`ocr.ocr_client`) is imported ONLY for a
-    ``"visual"``-labelled call: ``ocr/pipeline.py`` never even imports that
-    module outside its visual-rung branch, and two tests
-    (`tests/test_discovery.py`, `tests/test_visual_rung.py`) assert the model
-    client module is absent from ``sys.modules`` after an offline-only run.
-    Importing it here unconditionally would silently break that property for
-    every offline document a real cache processes. The value is identical
-    either way — B1's constants are process-wide, not per-call — so skipping
-    the import for ``"offline"`` costs nothing but the import itself."""
-    if extractor != "visual":
-        return POSTPROCESS_STATE_DEFAULT, ADMITTED_POSTPROCESS_DEFAULT
-    from ocr import ocr_client  # lazy: only the visual partition's key needs it
-
-    state = str(getattr(ocr_client, "POSTPROCESS_STATE", POSTPROCESS_STATE_DEFAULT))
-    admitted = tuple(
-        str(item)
-        for item in getattr(ocr_client, "ADMITTED_POSTPROCESS", ADMITTED_POSTPROCESS_DEFAULT)
-    )
-    return state, admitted
+    The frozen pinned values for EVERY extractor label (model-code removal,
+    slice S2). A ``"visual"``-labelled key used to read them off the legacy
+    client (`ocr.ocr_client`), whose module-level constants always equalled
+    these pins; the client is gone, so the visual partition's key — still
+    computed for historical reconstruction (`telemetry/run_of_record.py`,
+    `tools/train/provenance.py`) — keeps exactly the material it had."""
+    del extractor  # every label reads the same frozen pins
+    return POSTPROCESS_STATE_DEFAULT, ADMITTED_POSTPROCESS_DEFAULT
 
 
 def ocr_toolchain_versions() -> dict[str, str]:
@@ -1260,10 +1271,14 @@ def ocr_settings_key(
     production's, and `telemetry/run_of_record.py` refuses a run recorded
     under one as historical truth.
 
-    ``ocr_settings`` is an ``ocr.config.Settings`` (or anything with the same
-    attributes); when omitted it is loaded from the environment, so callers
-    that never touch the OCR service still partition correctly if
-    ``OCR_MODEL`` changes under them.
+    ``ocr_settings`` is anything with the attributes ``model``, ``base_url``,
+    ``ngram_size``, ``window_size`` and ``endpoint_class``, read by
+    ``getattr`` (the historical reconstructions in
+    ``telemetry/run_of_record.py`` and ``tools/train/provenance.py`` pass
+    one). When omitted, the frozen :data:`FROZEN_OCR_SETTINGS` literals are
+    hashed: the defaults the retired ``ocr.config.load_settings()`` produced,
+    so every key on a default environment is unchanged, and the environment
+    no longer moves it (model-code removal, slice S2).
 
     ``stage_version`` defaults to the live :data:`OCR_STAGE_VERSION` (5+: the
     v5 key material below is included). Passing an EXPLICIT older version
@@ -1274,9 +1289,8 @@ def ocr_settings_key(
     own OCR key (batch 8, batch 9) rather than recompute today's shape under
     yesterday's version number — the two are not the same key."""
     if ocr_settings is None:
-        from ocr.config import load_settings as _load_ocr_settings
-
-        ocr_settings = _load_ocr_settings()
+        # Frozen key material (plan D3): never read from the environment.
+        ocr_settings = FROZEN_OCR_SETTINGS
     version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
     partition = _validate_research_partition(research_partition)
     if allow_visual_pair and version < 5:

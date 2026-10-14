@@ -1,1 +1,0 @@
-<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr><tr><td>01/03</td><td>x y ID:123</td><td>$1.00</td></tr></table>

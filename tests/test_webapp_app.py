@@ -26,10 +26,13 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
 
     # O-1 delta: the worker feeds the unified ladder capability flags and a
-    # preflight profile, so worker-level fakes take **kwargs.
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, **kwargs):
-        if on_page_delta:
-            on_page_delta(0, "raw stream")
+    # preflight profile, so worker-level fakes take **kwargs. The live buffer
+    # is filled through the ladder's `on_page_replace` (the visual rung's
+    # `on_page_delta` stream left with it in slice S2).
+    def fake_parse(pdf_bytes, source_file="", on_page_replace=None, **kwargs):
+        assert "on_page_delta" not in kwargs
+        if on_page_replace:
+            on_page_replace(0, "raw stream")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)

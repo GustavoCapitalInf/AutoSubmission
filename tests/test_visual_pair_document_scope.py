@@ -99,20 +99,25 @@ def test_pins_and_closed_configuration(changes):
 
 
 def test_pair_cache_is_partitioned_and_restores_review_evidence(monkeypatch, tmp_path):
-    from ocr.config import load_settings
+    import dataclasses
+    from types import SimpleNamespace
+
     from ocr.document import StatementMarkdown
-    from webapp.artifact_cache import cached_ocr, ocr_settings_key
+    from webapp.artifact_cache import FROZEN_OCR_SETTINGS, cached_ocr, ocr_settings_key
     from webapp.jobs import JobStore
     from webapp.storage import Storage
 
     monkeypatch.setattr("vlm.pair.visual_pair_manifest", lambda: {"synthetic_contract": 1})
-    settings = load_settings()
-    original = ocr_settings_key(ocr_settings=settings)
-    assert original == ocr_settings_key(ocr_settings=replace(settings, allow_visual_pair=True))
-    pair_key = ocr_settings_key(allow_visual_pair=True, ocr_settings=settings)
+    # The retired `ocr.config.Settings` (slice S2) carried an `allow_visual_pair`
+    # switch; a settings object carrying one is still not key material, only the
+    # explicit `allow_visual_pair=` argument is.
+    original = ocr_settings_key()
+    with_switch = SimpleNamespace(**dataclasses.asdict(FROZEN_OCR_SETTINGS), allow_visual_pair=True)
+    assert original == ocr_settings_key(ocr_settings=with_switch)
+    pair_key = ocr_settings_key(allow_visual_pair=True)
     assert pair_key != original
     monkeypatch.setattr("vlm.pair.visual_pair_manifest", lambda: {"synthetic_contract": 2})
-    assert pair_key != ocr_settings_key(allow_visual_pair=True, ocr_settings=settings)
+    assert pair_key != ocr_settings_key(allow_visual_pair=True)
     store = JobStore(Storage(tmp_path / "data"))
     evidence = {"version": 1, "gate": {"admitted": False, "reasons": ["no_rows"]}, "confidence": {"counts": {}}}
     doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic"], visual_pair=evidence)

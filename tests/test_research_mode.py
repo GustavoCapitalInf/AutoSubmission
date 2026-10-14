@@ -41,7 +41,6 @@ from discovery.runner import (
     MODE_RESEARCH_PADDLE,
     MODE_SCANNED,
     MODE_SCANNED_PADDLE,
-    MODE_SCANNED_VISUAL,
     PADDLE_RESEARCH,
     RESEARCH_TRIGGERS,
     DiscoveryRunner,
@@ -192,7 +191,9 @@ def test_a_research_runner_requires_a_population_and_a_partition(tmp_path):
                         population=frozenset({"A" * 64}), research_partition="not valid!")
 
 
-@pytest.mark.parametrize("mode", [MODE_DIGITAL, MODE_SCANNED, MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE,
+# `scanned-visual` left both lists below in slice S2 of the model-code removal:
+# the runner refuses that retired mode before anything else (tests/test_offline_ladder.py).
+@pytest.mark.parametrize("mode", [MODE_DIGITAL, MODE_SCANNED, MODE_SCANNED_PADDLE,
                                   MODE_PROFILE_ONLY, MODE_DRY_RUN])
 def test_a_partition_or_a_population_outside_research_mode_is_refused(tmp_path, mode):
     with pytest.raises(ValueError, match="research"):
@@ -465,7 +466,7 @@ _OFFLINE_READS = (None, "SYNTHETIC LEDGER LINE FOR THE OFFLINE READ " * 12)
 
 
 @pytest.mark.parametrize("offline_text", _OFFLINE_READS)
-@pytest.mark.parametrize("mode", [MODE_DIGITAL, MODE_SCANNED, MODE_SCANNED_VISUAL, MODE_SCANNED_PADDLE, MODE_DRY_RUN])
+@pytest.mark.parametrize("mode", [MODE_DIGITAL, MODE_SCANNED, MODE_SCANNED_PADDLE, MODE_DRY_RUN])
 def test_no_other_mode_can_supply_the_research_trigger(synthetic_root, monkeypatch, mode, offline_text):
     """M11's killer: every router decision made in every other mode over a
     scan AND a native document, on BOTH the recovery path (the offline ladder
@@ -475,7 +476,7 @@ def test_no_other_mode_can_supply_the_research_trigger(synthetic_root, monkeypat
     _tesseract(monkeypatch, offline_text)
     spy = _Spy()
     monkeypatch.setattr(EscalationRouter, "decide", staticmethod(spy))
-    monkeypatch.setattr("ocr.availability.probe_visual_ocr", lambda: None, raising=False)
+    # (the visual OCR probe's monkeypatch that stood here went with `ocr.availability`, slice S2)
     _remote_paid_env(monkeypatch, "http://127.0.0.1:1", remote=False, customer=False)
     runner = DiscoveryRunner(fx["root"], mode=mode, run_id="t", dedup=DedupIndex(), sink=None, cache=None)
     for folder, name in (("SynthA", "scan-a.pdf"), ("SynthB", "native-c.pdf")):

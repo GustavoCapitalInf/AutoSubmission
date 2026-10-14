@@ -1,5 +1,7 @@
 from __future__ import annotations
+import base64
 import html
+import io
 import re
 import markdown
 
@@ -145,7 +147,8 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 # Python-Markdown passes raw HTML through, so markup printed in a PDF's text layer used to reach the report as live
 # HTML. Before rendering, every markup opener in the text ("<" followed by a letter, "/", "!" or "?") becomes a
 # placeholder that the page shows as "&lt;", so the text displays exactly as printed, in code spans and blocks too.
-# Two things pass through: the bare table markup the visual-OCR rung prints its tables in, exactly as it prints it
+# Two things pass through: the bare table markup the retired visual-OCR rung printed its tables in (stored legacy
+# reads still carry it), exactly as it printed it
 # (`<table>`, `<thead>`, `<tbody>`, `<tfoot>`, `<tr>`, `<th>`, `<td>` and their closing tags, lower case, nothing
 # inside the brackets; `<br>`, `<br/>` and `<br />`, written `<br>`), and the document's own header comment
 # (`StatementMarkdown.to_markdown`) when it carries no angle bracket (a hostile source name could close it early).
@@ -212,8 +215,16 @@ _REGION_SPLIT_RE = re.compile(
 )
 
 
+def _crop_data_uri(image, box_px) -> str:
+    # Moved here from the retired visual OCR client (model-code removal, slice S2) unchanged: a stored legacy visual
+    # read's picture regions still render as the same PNG crop of the page image, so /render stays byte-identical.
+    crop = image.convert("RGB").crop(box_px)
+    buf = io.BytesIO()
+    crop.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def _image_region_html(coords, page_image) -> str:
-    from .ocr_client import _crop_data_uri
     w, h = page_image.size
     x0 = max(0, round(coords[0] / 1000 * w)); y0 = max(0, round(coords[1] / 1000 * h))
     x1 = min(w, round(coords[2] / 1000 * w)); y1 = min(h, round(coords[3] / 1000 * h))
@@ -223,9 +234,9 @@ def _image_region_html(coords, page_image) -> str:
 
 
 def _region_html(label: str, coords, content: str, page_image) -> str:
-    # OQ1 = C: the display path never calls `postprocess` (or `apply_admitted`
-    # — the quarantine covers analysis AND display alike). `content` is the
-    # model's raw region text, rendered as-is.
+    # OQ1 = C: the display path never post-processed a region (the retired
+    # client's quarantined chain covered analysis AND display alike).
+    # `content` is the stored read's raw region text, rendered as-is.
     label = label.lower()
     color = REGION_COLORS.get(label, "#5c8cff")
     if page_image is not None and label in _PICTURE_LABELS:
@@ -238,7 +249,7 @@ def _region_html(label: str, coords, content: str, page_image) -> str:
 
 
 def _render_boxed_page(raw: str, page_image) -> str:
-    # OQ1 = C: raw content only — no `postprocess` on the display path.
+    # OQ1 = C: raw content only — no post-processing on the display path.
     parts = _REGION_SPLIT_RE.split(raw)
     regions = []
     for j in range(1, len(parts), 6):

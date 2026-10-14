@@ -28,8 +28,8 @@ TEXT_FLOOR_CHARS = 200
 RASTER_CHUNK_PAGES = 8
 
 #: The longest one pdftoppm call (one range of pages) or one tesseract call (one page) may run, in seconds
-#: (REL-01). The run of record's slowest scanned document took 37 s for 26 pages; 120 s is the remote OCR rung's
-#: own request limit (`ocr/config.py` OCR_TIMEOUT).
+#: (REL-01). The run of record's slowest scanned document took 37 s for 26 pages; 120 s was the retired visual OCR
+#: rung's own request limit (OCR_TIMEOUT, removed with that rung in slice S2 of the model-code removal).
 STEP_TIMEOUT_SECONDS = 120.0
 
 #: The longest one document's read may take, in seconds (REL-01): checked before every step, and every step's limit

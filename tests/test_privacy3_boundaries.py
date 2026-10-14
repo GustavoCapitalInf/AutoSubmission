@@ -174,7 +174,7 @@ def test_the_repository_walk_actually_sees_the_repository():
     turns each of those tests into `assert [] == []`."""
     modules = dict(_repository_modules(include_tests=True))
     assert "analysis/money.py" in modules
-    assert "ocr/availability.py" in modules
+    assert "ocr/local_tesseract.py" in modules
     assert "webapp/worker.py" in modules
     assert "tests/test_privacy3_boundaries.py" in modules
     assert len(modules) > 100, len(modules)
@@ -1828,36 +1828,19 @@ def test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch(
 
 
 # ---------------------------------------------------------------------------
-# 9. `ocr/availability.py` — the invariant its docstring has always claimed
+# 9. `.detail` readers in production
 # ---------------------------------------------------------------------------
-
-from ocr.availability import MAX_DETAIL_CHARS, probe_visual_ocr            # noqa: E402
-
-
-def test_the_probe_detail_is_bounded():
-    """`MAX_DETAIL_CHARS` as a measurement rather than a magic 200. An
-    OpenAI-compatible client can raise with a whole HTML error page attached,
-    and a preflight that floods a terminal is a preflight nobody reads."""
-    def boom():
-        raise RuntimeError("x" * 10_000)
-
-    status = probe_visual_ocr(list_models=boom)
-    assert status.available is False
-    assert len(status.detail) == MAX_DETAIL_CHARS
-    assert status.error_type == "RuntimeError"
-
-
-def test_no_document_can_reach_the_probe():
-    """The census claim, as a signature assertion: `probe_visual_ocr` takes
-    settings, a timeout and an injected lister. There is no parameter that
-    could be a page, a PDF, a markdown string or a cell - which is why this
-    cell did NOT reduce `detail`, and why the reasoning has to be checkable
-    rather than asserted in a log."""
-    import inspect
-
-    assert set(inspect.signature(probe_visual_ocr).parameters) == {
-        "settings", "timeout", "list_models",
-    }
+#
+# Model-code removal, slice S2. This section guarded `ocr/availability.py`, the
+# visual OCR endpoint probe, whose `VisualOcrStatus.detail` (a bounded
+# transport-failure message) was read only by `message()` and printed only to a
+# console. The probe was deleted with the visual OCR client, and the guards
+# whose only subject it was went with it: `MAX_DETAIL_CHARS`, the probe's
+# signature, the `message()` call-site census, the `VisualOcrStatus` holders and
+# the `asdict` / `vars` / `__dict__` clauses scoped to them. The tree-wide half,
+# which never depended on the probe, stays and still bites: a production
+# `.detail` read, by ANY receiver or by `getattr` string, is allowed only where
+# `ALLOWED_DETAIL_READERS` says why.
 
 
 #: Every production `.detail` attribute read in the tree, and WHY each one is
@@ -1867,8 +1850,6 @@ def test_no_document_can_reach_the_probe():
 #: `def telemetry_detail(probe): return probe.detail` (review MINOR-1). A rule
 #: keyed on what someone called their variable is not a rule.
 ALLOWED_DETAIL_READERS = {
-    "ocr/availability.py":
-        "VisualOcrStatus.message() - THE reader, and it renders to a console",
     "ocr/native_text.py":
         "_PageRefusal.detail - a DIFFERENT dataclass on a different object; it "
         "reaches deterministic_coverage_audit's CSV, which W3 SS-WORKERPRIV WP1 "
@@ -1886,24 +1867,12 @@ def _detail_attribute_sites() -> list[str]:
 
 
 def _indirect_detail_reads(modules=None) -> list[str]:
-    """The three ways to read `detail` WITHOUT writing `.detail`.
-
-    `getattr(obj, "detail")` names the field as a string; `asdict(status)` and
-    `vars(status)` / `status.__dict__` take the whole dataclass, `detail`
-    included, and hand it to whatever wanted a dict - a telemetry record, a
-    JSON body, a CSV row. The attribute walk cannot see any of them.
-
-    The dataclass-wide clauses are scoped to modules that actually hold a
-    `VisualOcrStatus`, which `test_only_the_availability_module_names_the_status_class_in_production`
-    pins at one. Elsewhere `asdict` is the serialization layer's ordinary idiom
-    over unrelated dataclasses, and flagging those would be noise, not a guard.
-    """
+    """The way to read `detail` WITHOUT writing `.detail`: `getattr(obj,
+    "detail")` names the field as a string, and the attribute walk cannot see
+    it. (The dataclass-wide `asdict` / `vars` / `__dict__` clauses were scoped
+    to modules holding the deleted `VisualOcrStatus`, and left with it.)"""
     findings: list[str] = []
     for relative, tree in (modules if modules is not None else _repository_modules()):
-        names_status = any(
-            isinstance(node, ast.Name) and node.id == "VisualOcrStatus"
-            for node in ast.walk(tree)
-        )
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Call)
@@ -1914,108 +1883,22 @@ def _indirect_detail_reads(modules=None) -> list[str]:
                 and node.args[1].value == "detail"
             ):
                 findings.append(f"{relative}:{node.lineno}: getattr(..., 'detail')")
-            if not names_status:
-                continue
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in {"asdict", "vars"}
-            ):
-                findings.append(f"{relative}:{node.lineno}: {node.func.id}(...)")
-            if isinstance(node, ast.Attribute) and node.attr == "__dict__":
-                findings.append(f"{relative}:{node.lineno}: __dict__")
     return findings
 
 
-#: `VisualOcrStatus.message()` call sites and how many live in each, updated
-#: by P20-SEAM: `parse.py --visual` and `batch.py --visual` (OQ7) now probe
-#: before allowing the visual rung, and print the SAME console-only shape
-#: `discovery/cli.py` always has — `print(f"error: {status.message()}...",
-#: file=sys.stderr)`, never a telemetry field, a CSV cell or an HTTP body.
-ALLOWED_MESSAGE_CALLERS = {
-    "discovery/cli.py": 2,
-    "parse.py": 1,
-    "batch.py": 1,
-}
-
-
-def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
-    """The invariant `ocr/availability.py`'s module docstring has claimed since
-    Wave 3 - "kept for the operator console only and never travels into
-    telemetry (H-3 sensitivity invariant)" - asserted for the first time.
-
-    Four clauses, and clause 1 is the one the review widened. `detail` is read
-    only in the files `ALLOWED_DETAIL_READERS` names, by ANY receiver;
-    `message()` is called only from the files `ALLOWED_MESSAGE_CALLERS` names;
-    every one of those calls sits inside a `print(..., file=sys.stderr)`; and
-    nothing in production reaches the field the other three ways.
-
-    Asserted by FILE and COUNT, never by line number: a guard that pins
-    `discovery/cli.py:208` turns red the moment an unrelated cell adds a line
-    above it, and a composed train of ten branches is where that happens. The
-    line numbers stay in the failure message, where they help.
-    """
+def test_detail_is_read_in_production_only_where_allowed():
+    """`detail` is read only in the files `ALLOWED_DETAIL_READERS` names, by ANY
+    receiver, and never by `getattr` string. Asserted by FILE, never by line
+    number: a guard that pins a line turns red the moment an unrelated change
+    adds a line above it. The line numbers stay in the failure message."""
     detail_sites = _detail_attribute_sites()
     files = sorted({site.rsplit(":", 1)[0] for site in detail_sites})
     assert files == sorted(ALLOWED_DETAIL_READERS), detail_sites
-    assert sum(s.startswith("ocr/availability.py") for s in detail_sites) == 1, detail_sites
-
-    message_sites = [
-        f"{relative}:{node.lineno}"
-        for relative, tree in _repository_modules()
-        if relative != "ocr/availability.py"
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "message"
-    ]
-    assert sorted({s.rsplit(":", 1)[0] for s in message_sites}) == sorted(
-        ALLOWED_MESSAGE_CALLERS
-    ), message_sites
-    assert len(message_sites) == sum(ALLOWED_MESSAGE_CALLERS.values()), message_sites
-
-    printed = 0
-    for relative, expected in ALLOWED_MESSAGE_CALLERS.items():
-        file_printed = 0
-        tree = ast.parse((PROJECT_ROOT / relative).read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
-                continue
-            if node.func.id != "print":
-                continue
-            if not any(
-                isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Attribute)
-                and inner.func.attr == "message"
-                for argument in node.args
-                for inner in ast.walk(argument)
-            ):
-                continue
-            keywords = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}
-            assert keywords.get("file") == "sys.stderr", (relative, keywords)
-            file_printed += 1
-        assert file_printed == expected, (relative, file_printed, expected)
-        printed += file_printed
-    assert printed == sum(ALLOWED_MESSAGE_CALLERS.values())
-
     assert _indirect_detail_reads() == [], _indirect_detail_reads()
 
 
-def test_only_the_availability_module_names_the_status_class_in_production():
-    """The scope clause `_indirect_detail_reads` rests on. If a second
-    production module ever holds a `VisualOcrStatus`, the `asdict`/`vars`
-    clause has to widen with it, and this is what says so."""
-    holders = sorted({
-        relative
-        for relative, tree in _repository_modules()
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Name) and node.id == "VisualOcrStatus"
-    })
-    assert holders == ["ocr/availability.py"], holders
-
-
-#: The reviewer's bypass, verbatim, plus the three indirect reads. Each must be
-#: FOUND; the three clean shapes must not be.
+#: The reviewer's bypass, verbatim, plus the indirect read. Each must be FOUND;
+#: the clean shape must not be.
 _DETAIL_MUTANTS = [
     ("reviewer-bypass-any-receiver",
      "def telemetry_detail(probe):\n    return probe.detail\n", 1, 0),
@@ -2023,17 +1906,6 @@ _DETAIL_MUTANTS = [
      "def f(x):\n    return x.detail\n", 1, 0),
     ("getattr-by-string",
      "def f(x):\n    return getattr(x, 'detail')\n", 0, 1),
-    ("asdict-the-whole-status",
-     "from dataclasses import asdict\n"
-     "def f(status: VisualOcrStatus):\n    return asdict(status)\n", 0, 1),
-    ("vars-the-whole-status",
-     "def f(status: VisualOcrStatus):\n    return vars(status)\n", 0, 1),
-    ("dunder-dict",
-     "def f(status: VisualOcrStatus):\n    return status.__dict__\n", 0, 1),
-    ("clean-class-name-only",
-     "def f(status: VisualOcrStatus):\n    return type(status).__name__\n", 0, 0),
-    ("clean-unrelated-asdict",
-     "from dataclasses import asdict\ndef f(report):\n    return asdict(report)\n", 0, 0),
     ("clean-unrelated-attribute",
      "def f(row):\n    return row.details\n", 0, 0),
 ]

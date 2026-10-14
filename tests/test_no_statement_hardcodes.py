@@ -1054,8 +1054,9 @@ def test_no_raw_mojibake_sequences_in_ocr():
 
 # ---------------------------------------------------------------------------
 # The issuer-named-string register guard. F-3 / OQ2 (P20-POSTPROCESS item
-# 4-5): the TD markers are admitted ONLY through `ocr.ocr_client.
-# INTAKE_FURNITURE`. Layer-wide over every file in `ocr/` (review MAJOR-2:
+# 4-5): the TD markers were admitted ONLY through `ocr.ocr_client.
+# INTAKE_FURNITURE`, which left with the visual OCR client (slice S2); the
+# register is now `REGISTERED_ISSUER_MARKER_OWNERS`, empty. Layer-wide over every file in `ocr/` (review MAJOR-2:
 # the original scope was 3 files "because ocr/native_text.py carries
 # pre-existing constants" -- measured to cost 0 offenders today when widened,
 # so the narrowing bought nothing while leaving 10 of 13 files unguarded).
@@ -1083,16 +1084,9 @@ ISSUER_NAME_LEXICON = (
     "guardian credit union", "linkbank",
 )
 
-#: ISSUER_NAME_LEXICON entries grouped by the institution they belong to,
-#: keyed by the same string `INTAKE_FURNITURE` uses for `issuer`. Declared
-#: once, here, so a registered issuer's own markers are looked up rather than
-#: re-hardcoded at each call site (review MINOR-R2) -- `tests/
-#: test_ocr_intake_furniture.py`'s exclusivity check and its non-TD sweep
-#: both read this table instead of carrying their own copy of "the TD
-#: markers".
-ISSUER_MARKERS_BY_ISSUER = {
-    "TD": {"td bank", "td business", "most convenient bank", "td canada trust"},
-}
+#: (`ISSUER_MARKERS_BY_ISSUER`, the TD markers grouped for
+#: `tests/test_ocr_intake_furniture.py`, was deleted with that test file and
+#: the visual OCR client it tested, slice S2.)
 
 #: Pre-existing per-issuer structural PDF-parsing constants outside this
 #: card's ownership -- a NAMED ratchet, not a scope exclusion (review
@@ -1167,7 +1161,7 @@ def _issuer_string_hit_count(path: Path) -> int:
 
 def _unregistered_issuer_markers(path: Path, registered: set[str]) -> list[str]:
     """Every issuer-string hit in `path` whose owning name is not in
-    `registered` (INTAKE_FURNITURE)."""
+    `registered` (`REGISTERED_ISSUER_MARKER_OWNERS`)."""
     return [
         f"{path.name}:{lineno}: {owner!r} matches issuer marker {marker!r}"
         for owner, lineno, marker in _issuer_string_hits(path)
@@ -1175,29 +1169,35 @@ def _unregistered_issuer_markers(path: Path, registered: set[str]) -> list[str]:
     ]
 
 
+#: The register of names allowed to own an issuer-named string in `ocr/`
+#: outside `OCR_ISSUER_STRING_BASELINE`. It was the retired visual OCR client's
+#: `INTAKE_FURNITURE` (the TD page-furniture markers); the client was deleted in
+#: slice S2 of the model-code removal, so the register is EMPTY and any
+#: issuer-named string outside the two ratcheted files now fails.
+REGISTERED_ISSUER_MARKER_OWNERS: frozenset[str] = frozenset()
+
+
 def test_every_issuer_named_regex_in_ocr_is_registered():
     """Layer-wide (review MAJOR-2 fix #1). Every file OUTSIDE
     `OCR_ISSUER_STRING_BASELINE` must carry zero issuer-string hits whose
-    owning name is not registered in `INTAKE_FURNITURE`."""
-    from ocr.ocr_client import INTAKE_FURNITURE
-
-    registered = set(INTAKE_FURNITURE)
+    owning name is not in the (now empty) register."""
+    registered = set(REGISTERED_ISSUER_MARKER_OWNERS)
     offenders = []
+    scanned = []
     for path in _ocr_modules():
         if path.name in OCR_ISSUER_STRING_BASELINE:
             continue
+        scanned.append(path.name)
         offenders.extend(_unregistered_issuer_markers(path, registered))
     assert not offenders, (
-        f"issuer-named string(s) outside INTAKE_FURNITURE: {offenders}"
+        f"issuer-named string(s) outside the register: {offenders}"
     )
-    # And the scan is not vacuous: the one issuer marker that DOES exist
-    # outside the ratcheted files is found and IS registered (so the empty
-    # result above is "found and cleared", not "never looked").
-    found_td = any(
-        marker in ("td bank", "most convenient bank")
-        for _, _, marker in _issuer_string_hits(OCR_DIR / "ocr_client.py")
-    )
-    assert found_td, "the scan no longer sees the real TD marker; it would pass vacuously"
+    # The scan is not vacuous: it walked the real ocr/ modules (the TD marker
+    # that used to prove it, in the deleted client, is gone), and the planted
+    # mutant in `test_the_issuer_marker_guard_can_actually_see_an_unregistered_marker`
+    # below proves the same scanning function catches an unregistered marker.
+    assert {"pipeline.py", "local_tesseract.py", "render.py"} <= set(scanned), scanned
+    assert not (OCR_DIR / "ocr_client.py").exists()
 
 
 def test_ocr_issuer_string_baseline_is_not_exceeded():
