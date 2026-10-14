@@ -4,7 +4,10 @@ runs in node on the fake page (tests/webapp_js_harness.py). Fabricated statement
 F1: the statement window draws only the answer for the statement it was last opened for. An answer for a statement
 opened earlier (and closed) is dropped, so its rows never sit in the next statement's window, whose review buttons name
 that next statement's job. The answers are released by hand, in the order each test names, so no test depends on a
-timer."""
+timer.
+
+F2: formatMoney keeps its number formatters instead of building one or two on every call (a ledger row formats two
+or three amounts), and every string is the one a freshly built formatter writes."""
 import copy
 import json
 
@@ -163,3 +166,70 @@ await answer(0, OLDER);
 console.log(JSON.stringify(shown()));
 """, OLDER=older, NEWER=newer)
     assert result == alone_newer
+
+
+# ------------------------------------------------------------------------------------------------- F2: formatMoney
+# The formatter as it was before F2, built afresh on every call: the reference every string is held to.
+FRESH = r"""
+const fresh = (value, currency = "USD") => {
+  const n = numberOrNull(value);
+  if (n === null) return "N/A";
+  const amount = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!currency) return amount;
+  try { return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n); } catch { return `$${amount}`; }
+};
+"""
+
+# Every sign and rounding edge (cents ties, a negative that rounds to zero, -0), large and tiny magnitudes, the
+# strings and non-numbers a payload can carry; the currencies the parsers publish (USD, CAD), others a statement could
+# declare, the unit-less null and empty forms, codes written in lower case and codes Intl refuses.
+VALUES = r"""[0, -0, 0.004, -0.004, 0.005, -0.005, 0.015, -0.015, 1.005, 2.675, -2.675, 10, -10, 1234.5, -1234.56,
+  999999.995, -999999.995, 123456789.125, 1e15, -1e15, 1e21, -1e21, 5e-7, "12.5", "-12.50", "+3", " 7 ", "1e3", "",
+  null, undefined, "abc", NaN, Infinity, -Infinity, true, false, [], {}]"""
+CURRENCIES = r"""["USD", "CAD", "EUR", "GBP", "MXN", "JPY", "CHF", "usd", "cad", null, "", 0, false, "US$", "DOLLARS",
+  "ZZ", "NOTACODE", 5, {}, [], ["CAD"]]"""
+
+
+def test_money_reads_as_a_fresh_formatter_writes_it():
+    """Every value in every currency, in both orders and twice, and with the currency left out (the USD default), reads
+    exactly as a newly built formatter writes it; a code Intl refuses still reads `$<amount>`."""
+    result = run_dashboard(FRESH + f"""
+const values = {VALUES};
+const currencies = {CURRENCIES};
+const differences = [];
+let pairs = 0;
+for (const order of [currencies, [...currencies].reverse()]) {{
+  for (const currency of order) for (const value of values) for (let twice = 0; twice < 2; twice += 1) {{
+    pairs += 1;
+    if (formatMoney(value, currency) !== fresh(value, currency)) differences.push([String(value), String(currency)]);
+  }}
+}}
+for (const value of values) {{
+  pairs += 2;
+  if (formatMoney(value) !== fresh(value)) differences.push([String(value), "default"]);
+  if (formatMoney(value, undefined) !== fresh(value, undefined)) differences.push([String(value), "undefined"]);
+}}
+console.log(JSON.stringify({{ differences, pairs, samples: [formatMoney(-1234.5, "USD"), formatMoney(-1234.5, "CAD"),
+  formatMoney(-1234.5, null), formatMoney(-1234.5, "NOTACODE"), formatMoney(-0.004, "USD"), formatMoney(5)] }}));
+""")
+    assert result["differences"] == []
+    assert result["pairs"] > 3000
+    assert result["samples"] == ["-$1,234.50", "-CA$1,234.50", "-1,234.50", "$-1,234.50", "-$0.00", "$5.00"]
+
+
+def test_money_builds_each_formatter_once():
+    """A thousand amounts over USD, CAD, no unit and a refused code build at most one formatter for the bare figure
+    and one per code, and never fall back to a per-call toLocaleString."""
+    result = run_dashboard(r"""
+const RealNumberFormat = Intl.NumberFormat;
+let built = 0;
+Intl.NumberFormat = new Proxy(RealNumberFormat, { construct(target, args) { built += 1; return Reflect.construct(target, args); } });
+const realLocale = Number.prototype.toLocaleString;
+let localeCalls = 0;
+Number.prototype.toLocaleString = function (...args) { localeCalls += 1; return realLocale.apply(this, args); };
+const codes = ["USD", "CAD", null, "NOTACODE"];
+for (let index = 0; index < 1000; index += 1) formatMoney(index * 37 - 4000, codes[index % codes.length]);
+console.log(JSON.stringify({ built, localeCalls }));
+""")
+    assert result["built"] <= 4
+    assert result["localeCalls"] == 0

@@ -761,17 +761,32 @@ function numberOrNull(value) {
 function formatMoney(value, currency = "USD") {
   const n = numberOrNull(value);
   if (n === null) return "N/A";
-  const amount = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Audit 2026-10-13, F2: building a number formatter costs as much as formatting hundreds of amounts with one, and a
+  // ledger row formats two or three, so the formatters are built once and kept on this function (it stays
+  // self-contained): the bare figure's, and one per currency code as Intl reads it (null for a code Intl refuses).
+  // Every string is exactly the one a freshly built formatter writes.
+  const cache = formatMoney.cache || (formatMoney.cache = {
+    figure: new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    currencies: new Map(),
+  });
+  const amount = cache.figure.format(n);
   // An explicit null currency means the document never declared one. Printing
   // a dollar sign there would assert a denomination nobody proved
   // (CURRENCY DOCTRINE §A), so the magnitude is shown without a unit. Callers
   // that omit the argument still get the USD default they always had.
   if (!currency) return amount;
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n);
-  } catch {
-    return `$${amount}`;
+  const code = String(currency);
+  if (!cache.currencies.has(code)) {
+    let format = null;
+    try {
+      format = new Intl.NumberFormat("en-US", { style: "currency", currency: code });
+    } catch {
+      format = null;
+    }
+    cache.currencies.set(code, format);
   }
+  const format = cache.currencies.get(code);
+  return format ? format.format(n) : `$${amount}`;
 }
 
 // Owner ruling, 2026-09-22: the NSF count is negative-ending days on the basis chosen in Settings.
