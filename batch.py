@@ -340,7 +340,9 @@ def _emit(
             stages=timer.as_dict(),
             model_calls=model_calls_for(doc, payload),
             payload=payload,
-            escalated=bool(report.escalated) if report is not None else False,
+            # Audit 2026-10-13, EXP-2: read from the payload, as webapp/worker.py reads it. This line read an unbound
+            # `report` after a parameter rename, and the except below dropped every record without a word.
+            escalated=bool((payload or {}).get("escalated")),
             error_type=error_type,
         ))
     except Exception:

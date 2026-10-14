@@ -12,6 +12,7 @@ class name only now, matching every other class-name-only sink in this tree.
 from __future__ import annotations
 
 import csv
+import json
 import sys
 
 import batch
@@ -453,3 +454,51 @@ def test_exp6_batch_and_the_webapp_share_one_formula_rule():
     assert webapp_app._FORMULA_LEAD is spreadsheet_safety.FORMULA_LEAD
     assert webapp_app._NUMERIC_CELL is spreadsheet_safety.NUMERIC_CELL
     assert batch.escape_formula is spreadsheet_safety.escape_formula
+
+
+# --- Audit 2026-10-13, EXP-2: batch.py writes one telemetry record per document. `_emit` read an unbound `report`
+# (left behind by a parameter rename), and its blanket `except` dropped every record without a word. The flag is now read
+# from the document's payload, as webapp/worker.py reads it. These tests turn telemetry ON (every other batch.main test
+# here sets TELEMETRY_DISABLED) and point it into tmp_path. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _telemetry_run(monkeypatch, tmp_path, analyze, names):
+    folder = tmp_path / "statements"
+    folder.mkdir()
+    for name in names:
+        (folder / name).write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    jsonl = tmp_path / "telemetry.jsonl"
+    monkeypatch.delenv("TELEMETRY_DISABLED", raising=False)
+    monkeypatch.setattr(batch, "analyze_document", analyze)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(tmp_path / "triage.csv"),
+                                      "--telemetry", str(jsonl)])
+    batch.main()
+    lines = jsonl.read_text(encoding="utf-8").splitlines() if jsonl.exists() else []
+    return lines, [json.loads(line) for line in lines]
+
+
+def test_exp2_batch_writes_one_telemetry_record_per_document(monkeypatch, tmp_path, capsys):
+    from tests import zelle_setting_fixtures as fx
+
+    names = ["NORTHWIND_SAMPLE_1.md", "NORTHWIND_SAMPLE_2.md"]
+    lines, records = _telemetry_run(monkeypatch, tmp_path, lambda markdown, **kwargs: _z1(), names)
+    assert len(records) == 2
+    assert {record["emitter"] for record in records} == {"batch"}
+    assert [record["outcome"]["escalated"] for record in records] == [False, False]
+    assert {record["outcome"]["error_type"] for record in records} == {None}
+    assert "Telemetry: 2 records" in capsys.readouterr().err
+    # Documents are identified by content hash alone (`_emit`'s docstring): no file name, holder or account number.
+    for line in lines:
+        assert "NORTHWIND_SAMPLE" not in line
+        assert fx.HOLDER not in line and fx.ACCOUNT not in line
+
+
+def test_exp2_a_failed_document_still_writes_its_record(monkeypatch, tmp_path, capsys):
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    _, records = _telemetry_run(monkeypatch, tmp_path, boom, ["SAMPLE_1.md"])
+    assert len(records) == 1
+    assert (records[0]["outcome"]["class"], records[0]["outcome"]["error_type"]) == ("failed", "RuntimeError")
+    assert records[0]["outcome"]["escalated"] is False
+    assert "Telemetry: 1 records" in capsys.readouterr().err
