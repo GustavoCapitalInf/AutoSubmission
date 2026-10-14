@@ -4844,9 +4844,11 @@ function renderPreview() {
 }
 
 function sourceContradiction(message) {
-  // A verified contradiction in the statement itself (vlm/source_contradiction.py is_source_contradiction): the
+  // A verified contradiction in the statement itself, as the visual pair refused a statement with it: the
   // statement's own printed figures contradict the transactions it lists, every one of which was read and checked
-  // against the PDF's text. A valid failure of the statement, not of the reading (owner ruling, 2026-09-23).
+  // against the PDF's text. A valid failure of the statement, not of the reading (owner ruling, 2026-09-23). The
+  // pair was removed (model-code removal, slice S4) and nothing produces this refusal now; it stays so jobs stored
+  // with it still show it as the statement's failure (tests/test_stored_job_display.py).
   const text = String(message || "");
   return /^Fail: Statement (?:debit total|credit total|ending balance) \([^()]{1,80}\) contradiction$/.test(text)
     ? text : null;

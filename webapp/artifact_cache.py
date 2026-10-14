@@ -1117,6 +1117,12 @@ FROZEN_ANALYSIS_MODEL = "gemini-3.5-flash-lite"
 FROZEN_ANALYSIS_ESCALATION_MODEL = "gemini-3.5-flash"
 FROZEN_HOSTED_EXTRACTION_OPT_IN = False
 
+#: Model-code removal, slice S4: the fixed refusal of a key or cached read that
+#: asks for the retired visual pair's partition (`allow_visual_pair=True`). The
+#: pair and its settings (`ocr/visual_pair_config.py`) are gone, so that
+#: partition's key cannot be computed; its stored readings are left orphaned.
+VISUAL_PAIR_RETIRED = "the visual pair was removed: no OCR key has a visual-pair partition any more"
+
 #: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
 #: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
 #: unguarded ``from ocr.rasterize import RASTER_VERSION`` would let a missing
@@ -1309,14 +1315,24 @@ def ocr_settings_key(
     with none of the v5 fields present, because at v4 they did not exist. This
     is what lets ``telemetry/run_of_record.py`` reconstruct a historical run's
     own OCR key (batch 8, batch 9) rather than recompute today's shape under
-    yesterday's version number — the two are not the same key."""
+    yesterday's version number — the two are not the same key.
+
+    ``allow_visual_pair=True`` RAISES ``ValueError`` (model-code removal,
+    slice S4): the visual pair was removed, so no key names its partition any
+    more and its stored readings are orphaned, never re-keyed into a
+    deterministic partition. The parameter and its ``False`` default stay
+    (``False`` never entered the material, so every other key is unchanged);
+    ``visual_pair_settings`` was read only on that branch and is ignored. A
+    stored reading that carries ``visual_pair`` evidence still restores
+    through :func:`cached_ocr`, which re-verifies its hash."""
+    if allow_visual_pair:
+        raise ValueError(VISUAL_PAIR_RETIRED)
+    del visual_pair_settings  # read only by the retired visual-pair branch
     if ocr_settings is None:
         # Frozen key material (plan D3): never read from the environment.
         ocr_settings = FROZEN_OCR_SETTINGS
     version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
     partition = _validate_research_partition(research_partition)
-    if allow_visual_pair and version < 5:
-        raise ValueError("visual pair requires OCR stage version 5 or later")
     if partition and version < 5:
         # P22-IDENTITY closure-2 (review F-4): a pre-v5 key has no partition
         # field; silently dropping a research partition there would hand a
@@ -1342,8 +1358,6 @@ def ocr_settings_key(
             force_ocr=force_ocr, allow_local_ocr=allow_local_ocr,
             allow_visual_ocr=allow_visual_ocr, allow_paddle_ocr=allow_paddle_ocr,
         )
-        if allow_visual_pair:
-            extractor = "visual_pair"
         postprocess_state, postprocess_admitted = _ocr_postprocess_readout(extractor)
         try:
             from ocr.rasterize import RASTER_VERSION as _raster_version
@@ -1370,13 +1384,6 @@ def ocr_settings_key(
                 "pymupdf_version": toolchain["pymupdf_version"],
             }
         )
-        if allow_visual_pair:
-            from ocr.visual_pair_config import load_visual_pair_settings, visual_pair_settings_key_material
-
-            settings["allow_visual_pair"] = True
-            settings["visual_pair"] = visual_pair_settings_key_material(
-                visual_pair_settings or load_visual_pair_settings()
-            )
         if partition:
             # D7: present ONLY when non-empty — see the docstring. Every
             # extractor label gets its own research partition.
@@ -1623,7 +1630,13 @@ class ArtifactCache:
 
         P22-IDENTITY (D5, schema 3): ``native_evidence`` serializes the same
         way, and ``native_evidence_sha256`` stores its sha BESIDE it — the
-        sha a restore must reproduce byte-for-byte and re-verify against."""
+        sha a restore must reproduce byte-for-byte and re-verify against.
+
+        ``visual_pair`` / ``visual_pair_sha256`` are written only for a
+        document that carries visual-pair evidence. No reader produces one
+        since the pair was removed (model-code removal, slice S4); the shape
+        stays unchanged so the artifact format, and every stored reading, is
+        exactly what it was."""
         evidence = getattr(document, "evidence", None) if document is not None else None
         native_evidence = getattr(document, "native_evidence", None) if document is not None else None
         return self.put(
@@ -1802,7 +1815,13 @@ def cached_ocr(
     overwritten on that path (nothing was computed to overwrite it with): it
     is found — and reported — again on the next call, never lost and never
     served. An exception with no drift behind it carries no attribute.
+
+    ``allow_visual_pair=True`` raises ``ValueError`` before ``compute`` runs,
+    with or without a cache (model-code removal, slice S4; see
+    :func:`ocr_settings_key`).
     """
+    if allow_visual_pair:
+        raise ValueError(VISUAL_PAIR_RETIRED)
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
     input_sha = content_hash or content_sha256(pdf_bytes)
@@ -1824,6 +1843,8 @@ def cached_ocr(
     if hit:
         try:
             evidence_payload = document.get("evidence") if document is not None else None
+            # Kept after the visual pair's removal (slice S4): a stored reading that carries its evidence still
+            # restores, and only when the evidence reproduces the hash stored beside it.
             if document is not None and document.get("visual_pair") is not None:
                 if _fingerprint(document["visual_pair"]) != document.get("visual_pair_sha256"):
                     raise ProvenanceTokenError("visual pair cache evidence hash mismatch")

@@ -329,10 +329,11 @@ def test_an_out_of_vocabulary_reconstruction_mode_refuses_at_load(monkeypatch):
     monkeypatch.setenv("RECONSTRUCTION_MODE", "on")
     with pytest.raises(ValueError):
         load_settings()
+    # (The inert model fields these calls used to fill left `Settings` in slice S4 of the model-code removal.)
     with pytest.raises(ValueError):
-        Settings(api_key="", model="m", escalation_model="e", reconstruction_mode="Research")
-    assert Settings(api_key="", model="m", escalation_model="e").reconstruction_mode == "off"
-    assert Settings(api_key="", model="m", escalation_model="e", reconstruction_mode=" production ").reconstruction_mode == "production"
+        Settings(reconstruction_mode="Research")
+    assert Settings().reconstruction_mode == "off"
+    assert Settings(reconstruction_mode=" production ").reconstruction_mode == "production"
 
 
 def test_the_rung_never_raises_whatever_it_is_handed(monkeypatch):

@@ -142,8 +142,8 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 ```
 
 - `requirements-dev.txt` adds pytest, `jsonschema`, `pypdfium2` and `numpy` to the two runtime files. The last
-  three are needed only because the suite still imports retired code (`vlm/`). Without them 35 test files fail to
-  collect and pytest stops before running any test (exit 2). They go away with the removal.
+  three were needed only because the suite imported the retired visual-pair code (`vlm/`), which has been
+  removed; their lines leave with the requirement-file clean-up.
 - `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests in `tests/test_live_smoke.py` and
   `tests/test_paddle_live.py` belong to retired endpoints: do not run them. The one local `live` check is the
   Tesseract drift test: `python -m pytest -m live tests/test_new_statement_corpus.py`.
@@ -182,8 +182,7 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
   Python 3.12) runs on every pull request and every push to `main`: it checks that the shipped entry points import
   with the two runtime files alone, installs `requirements-dev.txt`, runs the suite, and runs the gate whether or
   not the suite passed (the job fails if either fails). Nothing makes a merge wait for it: GitHub's branch
-  protection is not available on this repository's plan. Until the visual-pair code is removed, the suite step is
-  expected to fail on the two guard tests named under Tests.
+  protection is not available on this repository's plan.
 - The gate never rewrites the audits. Regenerating the truth set is a separate, deliberate act:
   `python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache`, then the same with
   `balance_forensic_audit.py`. Both read every PDF under the path they are given, not the pinned manifest, and
@@ -209,11 +208,12 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 
 A gitignored `.env` at the repository root is read at start and fills in any variable the shell leaves unset.
 Any variable not listed here belongs to the retired model paths: leave it unset. Above all never set
-`OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`, `OCR_REMOTE_OPT_IN` or
-`VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN`, in the shell or in `.env`: each re-opens a model path, for the CLIs
-as much as for the web app. `HOSTED_EXTRACTION_OPT_IN` and the `GEMINI_*` settings no longer do anything: the
-hosted extraction they opened was removed. Do not copy the tracked `.env.*.example` templates, and empty an old
-`.env` of model settings. `run.ps1` still pins all five switches to `0` for the web app it starts.
+`OCR_REMOTE_OPT_IN`, in the shell or in `.env`: it re-opens the remote OCR endpoint the remaining Paddle research
+path can reach. `OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`,
+`VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN`, `HOSTED_EXTRACTION_OPT_IN` and the `GEMINI_*` settings no longer do
+anything: the visual pair, the legacy visual OCR and the hosted extraction they opened were removed. Do not copy
+the tracked `.env.*.example` templates, and empty an old `.env` of model settings. `run.ps1` still pins all five
+switches to `0` for the web app it starts.
 
 ## Product rules
 

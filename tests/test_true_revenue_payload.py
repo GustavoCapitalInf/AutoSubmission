@@ -399,8 +399,8 @@ def test_the_default_withholding_mode_is_one_constant():
     assert Metrics().withholding_denominator_label == "True revenue"
     assert inspect.signature(compute_metrics).parameters["withholding_denominator_mode"].default == (
         DEFAULT_WITHHOLDING_DENOMINATOR_MODE)
-    assert Settings(api_key="", model="m", escalation_model="m").withholding_denominator_mode == (
-        DEFAULT_WITHHOLDING_DENOMINATOR_MODE)
+    # (The inert model fields this call used to fill left `Settings` in slice S4 of the model-code removal.)
+    assert Settings().withholding_denominator_mode == DEFAULT_WITHHOLDING_DENOMINATOR_MODE
 
 
 def test_a_stored_mode_missing_reads_as_legacy_and_an_invalid_one_reads_as_the_default_given():

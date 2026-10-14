@@ -319,6 +319,100 @@ def test_computing_any_ocr_key_imports_no_model_module():
 
 
 # ---------------------------------------------------------------------------
+# Model-code removal, slice S4: the visual pair's OCR partition is retired.
+# Its key used to hash `ocr/visual_pair_config.py`'s settings (the pair tests
+# that pinned it left with `tests/test_visual_pair_document_scope.py`). Asking
+# for it now refuses with a fixed literal, before any read; every other key is
+# unchanged (`allow_visual_pair=False` never entered the material). A stored
+# reading that carries visual-pair evidence still restores, hash-checked.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("stage_version", [None, 4, 5])
+def test_the_visual_pair_partition_refuses_with_a_fixed_literal(stage_version):
+    from webapp.artifact_cache import VISUAL_PAIR_RETIRED
+
+    assert VISUAL_PAIR_RETIRED == "the visual pair was removed: no OCR key has a visual-pair partition any more"
+    with pytest.raises(ValueError) as refused:
+        ocr_settings_key(allow_visual_pair=True, stage_version=stage_version)
+    assert str(refused.value) == VISUAL_PAIR_RETIRED
+    with pytest.raises(ValueError, match="visual pair was removed"):
+        ocr_settings_key(force_ocr=True, allow_visual_ocr=False, allow_visual_pair=True,
+                         visual_pair_settings=object(), stage_version=stage_version)
+
+
+@pytest.mark.parametrize("with_cache", [True, False])
+def test_a_cached_read_of_the_visual_pair_partition_refuses_before_any_read(cache, with_cache):
+    reads = []
+    with pytest.raises(ValueError, match="visual pair was removed"):
+        cached_ocr(PDF, compute=lambda: reads.append(1) or _doc(), cache=cache if with_cache else None,
+                   source_file="s.pdf", force_ocr=True, allow_visual_ocr=False, allow_visual_pair=True)
+    assert reads == []
+    assert cache.get_ocr(content_sha256(PDF), ocr_settings_key()) == (False, None)
+
+
+def test_the_retired_partition_leaves_every_other_key_and_its_defaults_alone():
+    import inspect
+
+    from webapp import artifact_cache as module
+
+    for function in (module.ocr_settings_key, module.cached_ocr):
+        parameters = inspect.signature(function).parameters
+        assert parameters["allow_visual_pair"].default is False
+        assert parameters["visual_pair_settings"].default is None
+    assert ocr_settings_key(allow_visual_pair=False) == ocr_settings_key()
+    assert ocr_settings_key(visual_pair_settings=object()) == ocr_settings_key()
+    assert ocr_settings_key(allow_local_ocr=True, allow_visual_ocr=False, visual_pair_settings=object()) == \
+        ocr_settings_key(allow_local_ocr=True, allow_visual_ocr=False)
+
+
+def _pair_reading(evidence: dict) -> StatementMarkdown:
+    return StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["FABRICATED PAIR READING"],
+                             visual_pair=evidence)
+
+
+_PAIR_EVIDENCE = {"version": 1, "gate": {"admitted": False, "reasons": ["no_rows"]}, "confidence": {"counts": {}}}
+
+
+def test_a_stored_reading_that_carries_visual_pair_evidence_still_restores(cache):
+    """The artifact shape and the restore path are unchanged, so a stored pair reading loads with its evidence. The
+    reading is stored here under an ordinary key (its own partition's key can no longer be computed)."""
+    key = ocr_settings_key()
+    input_sha = content_sha256(PDF)
+    cache.put_ocr(input_sha, key, _pair_reading(_PAIR_EVIDENCE))
+    _hit, stored = cache.get_ocr(input_sha, key)
+    assert stored["visual_pair"] == _PAIR_EVIDENCE
+    assert stored["visual_pair_sha256"] == _fingerprint_of(_PAIR_EVIDENCE)
+    restored = cached_ocr(PDF, compute=lambda: pytest.fail("re-read a cached reading"), cache=cache,
+                          source_file="renamed.pdf")
+    assert restored.cached and restored.finding is None
+    assert restored.value.visual_pair == _PAIR_EVIDENCE
+    assert (restored.value.model, restored.value.pages, restored.value.source_file) == (
+        "visual-pair-dots-qwen", ["FABRICATED PAIR READING"], "renamed.pdf")
+
+
+def test_a_stored_visual_pair_reading_whose_evidence_hash_drifted_is_never_served(cache):
+    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT
+
+    key = ocr_settings_key()
+    input_sha = content_sha256(PDF)
+    cache.put_ocr(input_sha, key, _pair_reading(_PAIR_EVIDENCE))
+    _hit, stored = cache.get_ocr(input_sha, key)
+    tampered = dict(stored, visual_pair={**_PAIR_EVIDENCE, "gate": {"admitted": True, "reasons": []}})
+    cache.put(STAGE_OCR, input_sha, key, {"document": tampered})
+    fresh = _doc(pages=("fresh read",))
+    result = cached_ocr(PDF, compute=lambda: fresh, cache=cache, source_file="s.pdf")
+    assert not result.cached and result.finding == CACHE_FINDING_EVIDENCE_DRIFT
+    assert result.value.visual_pair is None and result.value.pages == ["fresh read"]
+
+
+def _fingerprint_of(value) -> str:
+    from webapp.artifact_cache import _fingerprint
+
+    return _fingerprint(value)
+
+
+# ---------------------------------------------------------------------------
 # Model-code removal, slice S2: the OCR key's visual-service fields are FROZEN
 # literals (plan D3). Every key a deterministic stage computes on a default
 # environment is unchanged, and the four retired environment names no longer
@@ -881,6 +975,38 @@ def test_analysis_key_ignores_the_api_key():
     assert analysis_settings_key(
         analysis_settings=_AnalysisSettings(api_key="secret")
     ) == analysis_settings_key(analysis_settings=_AnalysisSettings())
+
+
+def test_the_analysis_settings_carry_no_model_field_and_read_no_gemini_environment(monkeypatch):
+    """Model-code removal, slice S4 (plan D17): `analysis.config.Settings` lost `api_key`, `model` and
+    `escalation_model`, and `load_settings` their `GEMINI_*` reads. The analysis key, which carries the two model
+    names as frozen literals, is the same for the slimmer `Settings`, for `load_settings()` whatever the retired
+    variables say, and for no settings object at all."""
+    import ast
+    import dataclasses
+
+    from analysis import config
+    from analysis.config import Settings, load_settings
+    from webapp.artifact_cache import _fingerprint
+
+    assert [field.name for field in dataclasses.fields(Settings)] == [
+        "withholding_denominator_mode", "reconstruction_mode"]
+    for retired in ("api_key", "model", "escalation_model"):
+        with pytest.raises(TypeError):
+            Settings(**{retired: "x"})
+    tree = ast.parse(Path(config.__file__).read_text(encoding="utf-8"))
+    assert not [node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("GEMINI")]
+    _clean_analysis_environment(monkeypatch)
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_ESCALATION_MODEL"):
+        monkeypatch.setenv(name, "fabricated-" + name.lower())
+    settings = load_settings()
+    assert not any(hasattr(settings, retired) for retired in ("api_key", "model", "escalation_model"))
+    for parse_mode in ("auto", "deterministic"):
+        expected = _fingerprint(_old_analysis_key_material(parse_mode))
+        assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=settings) == expected
+        assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=Settings()) == expected
+        assert analysis_settings_key(parse_mode=parse_mode) == expected
 
 
 def test_report_key_partitions_on_title():
@@ -2061,11 +2187,11 @@ def test_reconstruction_mode_partitions_the_analysis_settings_key():
     derived from the SAME settings object."""
     from analysis.config import Settings
 
-    off = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash")
-    research = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash",
-                        reconstruction_mode="research")
-    production = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash",
-                          reconstruction_mode="production")
+    # (The model-name fields these used to fill left `Settings` in slice S4 of the model-code removal; the key
+    # carries the two names as frozen literals.)
+    off = Settings()
+    research = Settings(reconstruction_mode="research")
+    production = Settings(reconstruction_mode="production")
     keys = {analysis_settings_key(parse_mode="deterministic", analysis_settings=s) for s in (off, research, production)}
     assert len(keys) == 3
     # a stand-in without the field reads as `off`

@@ -1,13 +1,15 @@
-"""Settings for the deterministic analysis layer. Reads a gitignored .env at
-import, so a key or setting never lives in tracked code.
+"""Settings for the deterministic analysis layer: the withholding basis and
+the reconstruction mode. Reads a gitignored .env at import, so a setting
+never lives in tracked code.
 
 The analysis layer calls no model (owner ruling 2026-10-13). The hosted
-extractor these settings once named (`analysis/extract.py`) was removed in
-slice S3 of the model-code removal; `api_key`, `model` and `escalation_model`
-(and their `GEMINI_*` reads) are inert since then, read only by the visual
-pair's currency bridge, and leave with it in slice S4. The analysis cache key
-no longer reads them: it carries their old default values as frozen literals
-(`webapp/artifact_cache.py::analysis_settings_key`)."""
+extractor these settings once also named (`analysis/extract.py`) was removed
+in slice S3 of the model-code removal, and its three fields (`api_key`,
+`model`, `escalation_model`) and their `GEMINI_*` environment reads left in
+slice S4 with their last reader, the visual pair's currency bridge. The
+analysis cache key carries the two model names' old default values as frozen
+literals (`webapp/artifact_cache.py::analysis_settings_key`), so no stored
+analysis was re-keyed."""
 from __future__ import annotations
 import os
 from dataclasses import dataclass
@@ -50,18 +52,6 @@ def normalize_reconstruction_mode(value: object) -> str:
 
 @dataclass
 class Settings:
-    api_key: str
-    # INERT since slice S3 of the model-code removal: the hosted extraction
-    # model, whose one call `analysis/pipeline.py` made behind an operator
-    # opt-in until `analysis/extract.py` was removed. The analysis cache key
-    # carries its old default as a frozen literal and no longer reads this
-    # field. Leaves in slice S4 with the visual pair, its last reader.
-    model: str
-    # INERT (R9, P22-FENCE, then slice S3). The second extraction this model was
-    # for was removed from `analysis/pipeline.py` under R9; the analysis cache
-    # key carries its old default as a frozen literal and no longer reads this
-    # field. Leaves in slice S4.
-    escalation_model: str
     # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): True revenue by default; legacy and verified selectable.
     withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE
     # P22-IDENTITY (D6): see `RECONSTRUCTION_MODES`. Validated on construction
@@ -79,9 +69,6 @@ def load_settings() -> Settings:
         default=DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
     )
     return Settings(
-        api_key=os.environ.get("GEMINI_API_KEY", ""),
-        model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        escalation_model=os.environ.get("GEMINI_ESCALATION_MODEL", "gemini-3.5-flash"),
         withholding_denominator_mode=denominator_mode,
         reconstruction_mode=normalize_reconstruction_mode(
             os.environ.get(RECONSTRUCTION_MODE_ENV, RECONSTRUCTION_MODE_DEFAULT)

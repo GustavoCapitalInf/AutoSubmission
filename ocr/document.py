@@ -92,6 +92,8 @@ class StatementMarkdown:
     # Phase 3.1: reviewed source fields, row lineage, gate and receipt binding.
     # Separate from technical telemetry and canonical OCR geometry. Persisted
     # only in the isolated visual-pair cache; contains private document content.
+    # No reader sets it since the visual pair was removed (model-code removal,
+    # slice S4); the field stays so a stored pair reading still restores.
     visual_pair: dict | None = None
 
     def __post_init__(self) -> None:

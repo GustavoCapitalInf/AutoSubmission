@@ -366,17 +366,86 @@ def test_removed_literals_stay_removed(filename):
     assert not hits, f"{filename} reintroduces statement-specific literals: {hits}"
 
 
-def test_no_literal_years_outside_date_parsing():
-    """Layer-wide. Measured blast radius when this was widened: zero."""
+#: The ONE literal year the scan allows, named and value-verified (model-code removal, slice S4): the owner's currency
+#: ruling id carries the ruling's date, and it moved into the layer with the rule (`vlm/currency.py` ->
+#: `analysis/currency_default.py`). Keyed by (module path, constant name) and holding the exact value: only a
+#: single-line, module-level assignment of exactly this string to exactly this name in exactly this module is
+#: skipped. Any other value, name, module or shape is still an offender.
+YEAR_ALLOWANCES = {
+    ("analysis/currency_default.py", "USD_DEFAULT_RULING"): "gustavo_2026_09_22_usd_unless_canadian_bank",
+}
+
+
+def _year_allowance_lines(path: Path) -> set[int]:
+    """The line numbers of `path` that `YEAR_ALLOWANCES` names, verified by value."""
+    module = path.relative_to(ANALYSIS_DIR.parent).as_posix()
+    allowed = set()
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            continue
+        expected = YEAR_ALLOWANCES.get((module, node.targets[0].id))
+        if (expected is not None and isinstance(node.value, ast.Constant) and node.value.value == expected
+                and node.lineno == node.end_lineno):
+            allowed.add(node.lineno)
+    return allowed
+
+
+def _literal_year_offenders() -> list[str]:
     offenders = []
     for path in _parser_modules():
+        allowed = _year_allowance_lines(path)
         for number, line in _code_lines(path):
             if not YEAR_RE.search(line):
                 continue
             if "2000 +" in line or "+= 2000" in line or "+ 2000" in line:
                 continue
+            if number in allowed:
+                continue
             offenders.append(f"{path.name}:{number}: {line.strip()}")
+    return offenders
+
+
+def test_no_literal_years_outside_date_parsing():
+    """Layer-wide. Measured blast radius when this was widened: zero."""
+    offenders = _literal_year_offenders()
     assert not offenders, f"literal year constants: {offenders}"
+
+
+def test_the_one_year_allowance_holds_today_and_names_a_real_constant():
+    from analysis import currency_default
+
+    for (module, name), value in YEAR_ALLOWANCES.items():
+        path = ANALYSIS_DIR.parent / module
+        assert path.is_file(), module
+        assert getattr(currency_default, name) == value
+        assert len(_year_allowance_lines(path)) == 1, (module, name)
+
+
+@pytest.mark.parametrize("filename, source", [
+    ("currency_default.py", 'USD_DEFAULT_RULING = "gustavo_2027_09_22_usd_unless_canadian_bank"\n'),   # value
+    ("currency_default.py", 'OTHER_RULING = "gustavo_2026_09_22_usd_unless_canadian_bank"\n'),         # name
+    ("other_rule.py", 'USD_DEFAULT_RULING = "gustavo_2026_09_22_usd_unless_canadian_bank"\n'),         # module
+    ("currency_default.py", 'USD_DEFAULT_RULING = "gustavo_2026_09_22_usd_unless_canadian_bank"\n'
+                            'CUTOFF = 2031\n'),                                                       # a second year
+    ("currency_default.py", 'USD_DEFAULT_RULING = ("gustavo_2026_09_22_usd_unless_canadian_bank"\n'
+                            '                      + "")\n'),                                         # shape
+])
+def test_the_year_allowance_bites_on_any_other_value_name_module_or_shape(tmp_path, monkeypatch, filename, source):
+    layer = tmp_path / "analysis"
+    layer.mkdir()
+    (layer / filename).write_text(source, encoding="utf-8")
+    monkeypatch.setitem(globals(), "ANALYSIS_DIR", layer)
+    assert _literal_year_offenders(), (filename, source)
+
+
+def test_the_year_allowance_admits_exactly_the_named_assignment(tmp_path, monkeypatch):
+    layer = tmp_path / "analysis"
+    layer.mkdir()
+    (layer / "currency_default.py").write_text(
+        '"""A docstring may say 2026."""\nUSD_DEFAULT_RULING = "gustavo_2026_09_22_usd_unless_canadian_bank"\n',
+        encoding="utf-8")
+    monkeypatch.setitem(globals(), "ANALYSIS_DIR", layer)
+    assert _literal_year_offenders() == []
 
 
 def test_no_exact_amount_constants_anywhere_in_analysis():

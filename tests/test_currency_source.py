@@ -432,13 +432,23 @@ class TestJurisdictionDefault:
         """Doctrine §B's final paragraph: the same shape generalizes to TD, BMO
         and CIBC only after each proves its own jurisdiction evidence base. Until
         then exactly one module may write this class, and this test is what
-        makes a second one a deliberate act."""
+        makes a second one a deliberate act.
+
+        `analysis/currency_default.py` is that deliberate act, made by the
+        owner, not by a reader: Gustavo's rulings of 2026-09-22 and 2026-09-23
+        ("USD unless its a canadian bank"; a Canadian bank keeps its
+        jurisdiction default, CAD, from its printed name) were implemented in
+        the visual pair's `vlm/currency.py`, outside this layer, and moved here
+        unchanged when the pair was removed (model-code removal, slice S4). It
+        is a function no production reader calls today (the text-first reader
+        is its planned caller); the reader that calls it owes the evidence
+        doctrine §B asks for."""
         writers = set()
         for name, tree in _modules():
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and node.value == "jurisdiction_default":
                     writers.add(name)
-        assert writers == {"analysis/rbc.py", "analysis/schema.py"}, sorted(writers)
+        assert writers == {"analysis/rbc.py", "analysis/schema.py", "analysis/currency_default.py"}, sorted(writers)
 
 
 #: One well-formed Scotiabank ledger, the shape `tests/test_scotia_layouts.py`
@@ -489,8 +499,8 @@ class TestInstitutionDefault:
 
 # `TestModelExtracted` (the hosted extractor labelled its currency `model_extracted` and discarded any source the model
 # filled in itself) was deleted in slice S3 of the model-code removal with `analysis/extract.py`, its subject.
-# `model_extracted` stays a member of the closed vocabulary (above): stored payloads carry it, and the visual pair's
-# currency bridge sets it until slice S4.
+# `model_extracted` stays a member of the closed vocabulary (above): stored payloads carry it. The visual pair's
+# currency bridge, its last setter, was removed in slice S4.
 
 
 class TestSchemaDefault:
@@ -579,19 +589,12 @@ PROVENANCE_MODULES = {
     "analysis/welch_state_bank.py",
     "analysis/woodforest.py",
     "corpus_gate.py",
-    # Phase 3.1 visual pair. vlm/currency.py SETS the label: the existing-parser bridge's source, or
-    # "schema_default" under the owner ruling of 2026-09-22 (USD unless Canadian). vlm/pair.py carries that
-    # label into the Statement it builds. vlm/pair_adapter.py reads it only to check the currency proof is
-    # internally consistent (refusing a mismatched proof) and passes it through. None feeds money.
-    "vlm/currency.py",
-    "vlm/pair.py",
-    "vlm/pair_adapter.py",
-    # vlm/pair_accounts.py carries the same label into each account's Statement when a statement is judged account by
-    # account, exactly as vlm/pair.py does for one account. None feeds money.
-    "vlm/pair_accounts.py",
-    # Not a reader: the oracle comparison diffs two already-published payloads and names the label as a
-    # column to compare. It reads no document and publishes nothing.
-    "tools/phase3_pair/oracle_compare.py",
+    # The owner's currency default (ruling of 2026-09-22: USD unless Canadian). It SETS the label in the result it
+    # returns ("schema_default" for USD, "jurisdiction_default" for a Canadian bank's CAD) and reads no money. Moved
+    # here from vlm/currency.py when the visual pair was removed (model-code removal, slice S4); the pair's modules
+    # (vlm/currency.py, vlm/pair.py, vlm/pair_adapter.py, vlm/pair_accounts.py) and its oracle comparison
+    # (tools/phase3_pair/oracle_compare.py) left this set with it. Nothing in production calls it today.
+    "analysis/currency_default.py",
 }
 
 

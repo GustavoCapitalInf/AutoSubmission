@@ -1,4 +1,10 @@
-"""Resolve private visual-pair output locations without creating or reading files."""
+"""Resolve private output locations without creating or reading files.
+
+The web app's default data directory lives under this root (`webapp/storage.py`, the data-directory rule). The
+`VISUAL_PAIR_PRIVATE_ROOT` name, the `phase31-private` default and the `visual_pair_private_*` error codes are
+leftovers of the visual pair, which was removed (model-code removal, slice S4); they are kept unchanged for
+compatibility, so an existing environment, `run.ps1` and every stored location resolve exactly as before.
+"""
 from __future__ import annotations
 
 import os

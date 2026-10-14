@@ -16,8 +16,9 @@ if load_dotenv is not None:
 # model). The visual OCR settings (`Settings`, `load_settings` and their
 # OCR_MODEL / OCR_BASE_URL / OCR_NGRAM_SIZE / OCR_WINDOW_SIZE / OCR_API_KEY /
 # OCR_TIMEOUT / OCR_RETRIES / OCR_MAX_WORKERS / OCR_ALLOW_VISUAL_PAIR /
-# OCR_VISUAL_PAIR_* reads) were the retired Unlimited-OCR client's; nothing in
-# this tree reads those names any more. The OCR cache key keeps their default
+# OCR_VISUAL_PAIR_* reads) were the retired Unlimited-OCR client's and the
+# visual pair's (removed in slice S4); nothing in this tree reads those names
+# any more. The OCR cache key keeps their default
 # values as frozen literals (`webapp.artifact_cache`). What stays here is the
 # provenance-token content policy every `StatementMarkdown` is checked against.
 
@@ -74,11 +75,14 @@ _MONEY_SHAPE_RE = re.compile(r"\d+\.\d{2}(?!\d)")
 #:
 #: The Paddle and visual-pair tokens are LITERALS here since slice S2 (this
 #: module no longer imports `ocr.paddle_config` or `ocr.visual_pair_config`):
-#: "paddle-ocr+ppocrv5" is `ocr.paddle_config.PADDLE_MODEL_TOKEN` and
-#: "visual-pair-dots-qwen" is `ocr.visual_pair_config.MODEL_TOKEN`.
-#: `tests/test_config.py` holds them equal while those modules exist; S4 and
-#: S5 turn that test into a literal pin. `validate_model_token(allow_reserved=
-#: False)` lost its only production caller with `load_settings` (follow-up).
+#: "paddle-ocr+ppocrv5" is `ocr.paddle_config.PADDLE_MODEL_TOKEN`, and
+#: "visual-pair-dots-qwen" was `ocr.visual_pair_config.MODEL_TOKEN` until the
+#: visual pair was removed in slice S4 (stored pair readings still carry it,
+#: and `telemetry.record.VISUAL_PAIR_MODEL_TOKENS` still names it).
+#: `tests/test_config.py` pins the pair token as a literal and holds the Paddle
+#: one equal to its module while that exists; S5 turns it into a literal pin
+#: too. `validate_model_token(allow_reserved=False)` lost its only production
+#: caller with `load_settings` (follow-up).
 RESERVED_MODEL_PREFIXES = (
     "native-pdf-text",
     "local-tesseract-ocr",

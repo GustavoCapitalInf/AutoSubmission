@@ -70,7 +70,8 @@ from pydantic.json_schema import SkipJsonSchema
 #       A model returned the currency: the hosted LLM extraction stage
 #       (`analysis/extract.py`, removed in slice S3 of the model-code removal;
 #       stored payloads it produced keep the label) and the visual pair's
-#       currency bridge until slice S4. The platform did not verify the
+#       currency bridge (removed with the pair in slice S4; its stored payloads
+#       keep the label too). Nothing produces it now. The platform did not verify the
 #       evidence, and the model may not certify its own provenance: whatever
 #       `currency_source` the model fills into the response schema is DISCARDED
 #       and replaced by this class at the boundary.
@@ -275,8 +276,10 @@ class Statement(BaseModel):
     #: ledger day and never changes the ADB divisor. A parser's proof, never a
     #: model's: kept out of the extraction response schema (`SkipJsonSchema`,
     #: so the extractor is told nothing new, as for `account_title`), refused
-    #: from a visual pair's reviewed statement (`vlm/pair_adapter.py`), and
-    #: serialized only when declared (see `_serialize`).
+    #: from a visual pair's reviewed statement while the pair existed (its
+    #: adapter, removed in slice S4 of the model-code removal; a producer that
+    #: builds its own Statement, such as the planned text-first reader, owes the
+    #: same refusal), and serialized only when declared (see `_serialize`).
     pre_period_carry_in_count: SkipJsonSchema[int] = 0
 
     transactions: list[Transaction] = Field(default_factory=list)

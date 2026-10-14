@@ -306,8 +306,8 @@ def _emit(
             error_type=error_type,
             error_reason="analysis_error" if analysis_error and not error_type else None,
             # `refused="contradictory"` was declared here for the visual pair's verified source contradiction
-            # (vlm/source_contradiction.py); no reader of this worker produces one any more, so no record is
-            # refused. The vocabulary member stays (telemetry REFUSED_REASONS is append-only).
+            # (vlm/source_contradiction.py, removed with the pair in slice S4); no reader of this worker produces
+            # one, so no record is refused. The vocabulary member stays (telemetry REFUSED_REASONS is append-only).
         ))
     except Exception:
         return None

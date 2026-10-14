@@ -324,9 +324,12 @@ AMBIGUOUS_INTERNAL_TRANSFER = "ambiguous_internal_transfer"
 
 DOCUMENT_INTEGRITY_NOTES: frozenset[str] = frozenset({AMBIGUOUS_INTERNAL_TRANSFER})
 
-#: How an account a document prints stands in its payload (the visual pair's per-account judgement,
-#: `vlm/pair_accounts.py`): `published` (its own Report is in `accounts`), `idle` (its section prints an unchanged
-#: balance and no activity), `held` (not verified; its reasons say why).
+#: How an account a document prints stands in its payload, from a reader that judged the document account by account:
+#: `published` (its own Report is in `accounts`), `idle` (its section prints an unchanged balance and no activity),
+#: `held` (not verified; its reasons say why). Its first producer, the visual pair's per-account judgement, was
+#: removed with the pair (model-code removal, slice S4); the text-first reader is the planned producer. The roster's
+#: serialization (`analysis/serialization.py`), the web app's package exclusion of an unverified or idle main account
+#: and the dashboard's roster display stay, and stored payloads that carry a roster still load and display.
 ACCOUNT_ROSTER_STATUSES: frozenset[str] = frozenset({"published", "idle", "held"})
 
 
@@ -1275,12 +1278,20 @@ def analyze_statement(
 ) -> DocumentReport:
     """Analyse one already reconstructed account using the ordinary report path.
 
-    The visual-pair adapter owns source validation and its proposal gate, and
-    supplies the final Statement's independent reconciliation. This boundary
-    never repairs, normalises, classifies with a model, or constructs a payload. The
-    same account-report function used by every bank reader computes metrics,
-    classifications, quality and integrity. Multi-account reconstruction needs
-    its own boundary proof and is deliberately not accepted here.
+    The producer owns source validation and supplies the final Statement's
+    independent reconciliation. This boundary never repairs, normalises,
+    classifies with a model, or constructs a payload. The same account-report
+    function used by every bank reader computes metrics, classifications,
+    quality and integrity. Multi-account reconstruction needs its own boundary
+    proof and is deliberately not accepted here: a producer that judges a
+    document account by account calls this once per account and assembles the
+    `DocumentReport` itself (`account_roster`, `identify_internal_transfers`).
+
+    No production caller today. The visual-pair adapter (`vlm/pair_adapter.py`)
+    was the only one and was removed with the pair (model-code removal, slice
+    S4); the text-first reader is the planned producer. The contract is pinned
+    by `tests/test_analyze_statement_contract.py` and the other tests that call
+    this function.
     """
     if not reconciliation.ok:
         raise RuntimeError("reconstructed statement did not reconcile")
