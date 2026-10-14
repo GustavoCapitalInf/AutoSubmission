@@ -511,11 +511,9 @@ def test_research_mode_supplies_exactly_the_research_trigger_for_every_populatio
     assert native.offline_source_model.startswith("native-pdf-text")
 
 
-def test_the_worker_source_names_no_research_trigger():
-    """The webapp's one `decide(` site (`_force_ocr_decision`) never names the
-    research trigger — by source, not by discipline."""
-    source = (ROOT / "webapp" / "worker.py").read_text(encoding="utf-8")
-    assert "OPERATOR_FORCED_PADDLE" not in source and "operator_forced_paddle" not in source
+# test_the_worker_source_names_no_research_trigger pinned the webapp's decide( site (`_force_ocr_decision`), which
+# left with the worker's router calls (model-code removal, slice S1): the worker now has no decide( site at all, and
+# tests/test_escalation_tripwires.py's EXPECTED_DECIDE_CALL_SITES fails on any new one.
 
 
 def test_the_research_trigger_is_named_only_inside_the_research_constant_in_the_runner():

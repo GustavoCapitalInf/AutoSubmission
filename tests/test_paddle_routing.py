@@ -450,10 +450,9 @@ def test_case10_a_paddle_read_never_touches_ocr_client_at_runtime(scan_tree, mon
 # ---------------------------------------------------------------------------
 
 
-def test_case12_worker_enabled_extractors_keeps_paddle_disabled():
-    from webapp.worker import WORKER_ENABLED_EXTRACTORS
-
-    assert WORKER_ENABLED_EXTRACTORS == frozenset({"visual", "visual_pair"})
+# `test_case12_worker_enabled_extractors_keeps_paddle_disabled` pinned the worker's router capability set; the worker
+# has no router call and no capability set since the model-code removal (slice S1), so the pin went with its subject.
+# The call-site pin below still holds the worker to no Paddle read at all.
 
 
 def test_case12_webapp_worker_has_no_allow_paddle_ocr_call_site():
@@ -893,14 +892,8 @@ def test_m1_upgrade_triggers_never_admit_on_dispatch_outcome(scan_tree, monkeypa
     test_case2_usable_unclaimed_never_escalates_to_paddle(scan_tree, monkeypatch)
 
 
-def test_m16_two_engines_enabled_at_once_is_never_constructed():
-    """M16: the worker's constant becoming `{"visual", "paddle"}` is exactly
-    what CASE 12's `enabled_extractors` cardinality test (<=1 member) and the
-    `WORKER_ENABLED_EXTRACTORS == {"visual"}` pin both kill; this test names
-    the mutant directly against the production constant."""
-    from webapp.worker import WORKER_ENABLED_EXTRACTORS
-
-    assert WORKER_ENABLED_EXTRACTORS != frozenset({"visual", "paddle"})
+# `test_m16_two_engines_enabled_at_once_is_never_constructed` named mutant M16 against the worker's
+# WORKER_ENABLED_EXTRACTORS constant, which left with the worker's router calls (model-code removal, slice S1).
 
 
 # ---------------------------------------------------------------------------

@@ -178,7 +178,7 @@ def _is_self_attribute(node: ast.AST) -> bool:
 def _is_module_level_constant_name(node: ast.AST) -> bool:
     # Convention, not introspection: a SCREAMING_SNAKE_CASE bare name is the
     # shape every module-level constant in this tree already uses
-    # (`WORKER_ENABLED_EXTRACTORS`, `ADMITTED_TRIGGERS`, ...). Anything else
+    # (`ADMITTED_TRIGGERS`, `RESEARCH_TRIGGERS`, ...). Anything else
     # (a lowercase local, a parameter) is refused by this predicate, which is
     # the point: a per-document local variable does not get to masquerade as
     # a "constant" merely by sitting in a bare Name node.
@@ -427,11 +427,13 @@ EXCLUDED_FROM_REPO_SCAN = ("ocr/escalation.py",)
 EXCLUDED_TREES_FROM_REPO_SCAN = ("tests/",)
 
 #: The exact, reviewed set of legitimate `decide(` call sites, by file and
-#: count — 2 in `discovery/runner.py` (RECOVERY, UPGRADE), 1 in
-#: `webapp/worker.py` (`_force_ocr_decision`). A new site anywhere changes
-#: this and must be a reviewed decision, not a silent addition.
-# Phase 3.1 adds the explicit webapp-only pair admission seam.
-EXPECTED_DECIDE_CALL_SITES = {"discovery/runner.py": 2, "webapp/worker.py": 2}
+#: count — 2 in `discovery/runner.py` (RECOVERY, UPGRADE). A new site anywhere
+#: changes this and must be a reviewed decision, not a silent addition.
+#: `webapp/worker.py` had 2 (`_force_ocr_decision` and the Phase 3.1 pair
+#: admission seam); both left with the worker's visual reads (model-code
+#: removal, slice S1, declared: production decide( sites 4 -> 2), so a decide(
+#: site in the worker now fails this pin.
+EXPECTED_DECIDE_CALL_SITES = {"discovery/runner.py": 2}
 
 
 #: Directories the FILESYSTEM walk never descends into: VCS/tool caches that
@@ -794,8 +796,7 @@ def test_only_the_escalation_module_and_one_runner_constant_name_the_research_tr
     """D8's structural half. The escalation module DEFINES it; the discovery
     runner names it once, to build its mode constant; the telemetry record
     mirrors the vocabulary. Nothing else in the tree may spell it — not the
-    webapp worker (whose `decide(` site would otherwise be one keystroke from
-    a hosted research read), not `analysis/`, not `tools/`."""
+    webapp worker, not `analysis/`, not `tools/`."""
     allowed = {
         RESEARCH_TRIGGER_SUPPLIER,
         "telemetry/record.py",

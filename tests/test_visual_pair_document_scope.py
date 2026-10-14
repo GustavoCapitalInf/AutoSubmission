@@ -1,13 +1,12 @@
 """An evaluation server authorizes exact PDF bytes, including cache hits."""
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
 from ocr.visual_pair_config import (
     CUSTOMER_DATA_OPT_IN_ENV, CUSTOMER_DATA_OPT_IN_LITERAL,
     CUSTOMER_DOCUMENT_ALLOWLIST_ENV, VisualPairAuthorizationError,
-    VisualPairConfigError, check_remote_authorization, load_visual_pair_settings,
+    VisualPairConfigError, VisualPairSettings, check_remote_authorization, load_visual_pair_settings,
 )
 from vlm.receipts import sha256_bytes
 
@@ -53,56 +52,73 @@ def test_runtime_narrowing_and_stale_settings_both_remain_effective():
         check_remote_authorization(narrow, environ=authorized_env(first, "invalid"), pdf_sha256=first)
 
 
-def test_worker_checks_actual_pdf_bytes_before_cache(monkeypatch, tmp_path):
-    from webapp.jobs import JobStore
-    from webapp.storage import Storage
-    from webapp.worker import _read_visual_pair
-
-    digest = sha256_bytes(b"%PDF fabricated approved")
-    for name, value in authorized_env(digest).items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.setattr("webapp.worker._cached_ocr_timed",
-                        lambda *a, **k: pytest.fail("unauthorized cache lookup"))
-    store = JobStore(Storage(tmp_path / "data"))
-    job = store.create("synthetic.pdf")
-    with pytest.raises(VisualPairAuthorizationError, match="document_not_authorized"):
-        _read_visual_pair(job.id, store, store.cache, b"%PDF fabricated changed", "synthetic.pdf",
-                          SimpleNamespace(content_sha256=digest), timer=None)
-
-
-def test_authorized_exact_document_can_restore_cached_pair_despite_uppercase_storage_hash(monkeypatch, tmp_path):
-    monkeypatch.setenv('VISUAL_PAIR_PRIVATE_ROOT', str(tmp_path / 'private-artifacts'))
-    from ocr.document import StatementMarkdown
-    from ocr.inspect import content_sha256
-    from webapp.artifact_cache import cached_ocr
-    from webapp.jobs import JobStore
-    from webapp.storage import Storage
-    from webapp.worker import _read_visual_pair
-
-    raw = b"%PDF fabricated exact approved cache"
-    digest = sha256_bytes(raw)
-    assert content_sha256(raw) == digest.upper() and digest != digest.upper()
-    for name, value in authorized_env(digest).items():
-        monkeypatch.setenv(name, value)
-    settings = load_visual_pair_settings()
-    store = JobStore(Storage(tmp_path / "data"))
-    job = store.create("synthetic.pdf")
-    evidence = {"version": 1, "gate": {"admitted": False, "reasons": ["no_rows"]}}
-    document = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["FABRICATED HELD READING"],
-                                 visual_pair=evidence)
-    seeded = cached_ocr(raw, compute=lambda: document, cache=store.cache, source_file="synthetic.pdf",
-                        content_hash=content_sha256(raw), force_ocr=True, allow_local_ocr=False,
-                        allow_visual_ocr=False, allow_visual_pair=True, visual_pair_settings=settings)
-    assert not seeded.cached
-    monkeypatch.setattr("vlm.pair.extract_visual_pair", lambda *a, **k: pytest.fail("cached input re-extracted"))
-    restored = _read_visual_pair(job.id, store, store.cache, raw, "synthetic.pdf",
-                                SimpleNamespace(content_sha256=content_sha256(raw)), timer=None)
-    assert restored.pages == document.pages and restored.visual_pair == evidence
-
-
 def test_document_scope_does_not_change_extraction_configuration():
     from ocr.visual_pair_config import visual_pair_settings_key_material
 
     first = load_visual_pair_settings(authorized_env("a" * 64))
     second = load_visual_pair_settings(authorized_env("b" * 64))
     assert visual_pair_settings_key_material(first) == visual_pair_settings_key_material(second)
+
+
+# --- moved from tests/test_visual_pair_worker.py (model-code removal, slice S1) -------------------------------------
+# The webapp worker no longer reads with the visual pair, so that file went with its subject. These pin
+# ocr/visual_pair_config.py's own fences and webapp/artifact_cache.py's pair partition, which stay until the visual
+# pair itself leaves (slice S4): the pair's command-line tools still reach them.
+
+
+def test_customer_authorization_defaults_closed_even_for_loopback():
+    settings = load_visual_pair_settings({})
+    assert settings.execution_class == "remote_paid"
+    assert settings.review_policy == "always_review"
+    with pytest.raises(VisualPairAuthorizationError, match="remote_customer_data_refused"):
+        check_remote_authorization(settings, environ={})
+    check_remote_authorization(settings, data_scope="synthetic", environ={})
+
+
+def test_customer_opt_in_requires_both_settings_and_current_environment():
+    env = {CUSTOMER_DATA_OPT_IN_ENV: CUSTOMER_DATA_OPT_IN_LITERAL}
+    authorized = load_visual_pair_settings(env)
+    check_remote_authorization(authorized, environ=env)
+    with pytest.raises(VisualPairAuthorizationError):
+        check_remote_authorization(authorized, environ={})
+    with pytest.raises(VisualPairAuthorizationError):
+        check_remote_authorization(VisualPairSettings(), environ=env)
+    with pytest.raises(VisualPairAuthorizationError):
+        check_remote_authorization(authorized, data_scope="uploaded-synthetic", environ=env)
+
+
+@pytest.mark.parametrize("changes", [
+    {"proposer_revision": "main"}, {"reviewer_revision": "main"},
+    {"proposer_url": "https://remote.invalid/v1"},
+    {"reviewer_url": "http://127.0.0.1:18022/v1?token=secret"},
+    {"execution_class": "loopback"}, {"execution_class": "local_free"}, {"review_policy": "auto"},
+])
+def test_pins_and_closed_configuration(changes):
+    with pytest.raises(VisualPairConfigError):
+        VisualPairSettings(**changes)
+
+
+def test_pair_cache_is_partitioned_and_restores_review_evidence(monkeypatch, tmp_path):
+    from ocr.config import load_settings
+    from ocr.document import StatementMarkdown
+    from webapp.artifact_cache import cached_ocr, ocr_settings_key
+    from webapp.jobs import JobStore
+    from webapp.storage import Storage
+
+    monkeypatch.setattr("vlm.pair.visual_pair_manifest", lambda: {"synthetic_contract": 1})
+    settings = load_settings()
+    original = ocr_settings_key(ocr_settings=settings)
+    assert original == ocr_settings_key(ocr_settings=replace(settings, allow_visual_pair=True))
+    pair_key = ocr_settings_key(allow_visual_pair=True, ocr_settings=settings)
+    assert pair_key != original
+    monkeypatch.setattr("vlm.pair.visual_pair_manifest", lambda: {"synthetic_contract": 2})
+    assert pair_key != ocr_settings_key(allow_visual_pair=True, ocr_settings=settings)
+    store = JobStore(Storage(tmp_path / "data"))
+    evidence = {"version": 1, "gate": {"admitted": False, "reasons": ["no_rows"]}, "confidence": {"counts": {}}}
+    doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic"], visual_pair=evidence)
+    flags = dict(cache=store.cache, source_file="synthetic.pdf", force_ocr=True,
+                 allow_visual_ocr=False, allow_visual_pair=True)
+    first = cached_ocr(b"synthetic", compute=lambda: doc, **flags)
+    second = cached_ocr(b"synthetic", compute=lambda: pytest.fail("re-read cached input"), **flags)
+    assert not first.cached and second.cached
+    assert second.value.visual_pair == evidence

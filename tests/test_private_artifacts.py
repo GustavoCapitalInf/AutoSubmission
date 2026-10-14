@@ -1,6 +1,5 @@
 """Synthetic path and worker seams only; no private documents or model calls."""
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -89,27 +88,9 @@ def test_cli_refuses_old_ignored_checkout_output(tmp_path, external_root):
     assert not (private.CHECKOUT_ROOT / ".claude").exists()
 
 
-def test_worker_passes_external_evidence_to_extractor(tmp_path, monkeypatch, external_root):
-    from ocr.document import StatementMarkdown
-    from webapp import worker
-
-    observed = []
-    document = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["fabricated"])
-    def extract(pdf, **kwargs):
-        observed.append(kwargs["evidence_dir"])
-        return document
-
-    monkeypatch.setattr("vlm.pair.extract_visual_pair", extract)
-    monkeypatch.setattr(worker, "check_remote_authorization", lambda *a, **k: None)
-    monkeypatch.setattr(worker, "_cached_ocr_timed",
-                        lambda *a, compute, **k: SimpleNamespace(value=compute()))
-    monkeypatch.setattr(worker, "_note_cache", lambda *a, **k: None)
-    store = SimpleNamespace(storage=SimpleNamespace(data_dir=tmp_path / "old-webapp-data"),
-                            set_page_live=lambda *a: None)
-    worker._read_visual_pair("synthetic-job", store, None, b"%PDF-fabricated", "synthetic.pdf",
-                             SimpleNamespace(content_sha256="fabricated"), timer=None)
-    assert observed == [external_root / "visual_pair_evidence"]
-    assert not store.storage.data_dir.exists()
+# The webapp worker's visual-pair evidence write (test_worker_passes_external_evidence_to_extractor) left with the
+# worker's pair read (model-code removal, slice S1): a guard deleted with its only subject. The data-directory rule
+# below is untouched.
 
 
 def test_webapp_default_and_explicit_storage_cannot_recreate_checkout_cache(monkeypatch, external_root):

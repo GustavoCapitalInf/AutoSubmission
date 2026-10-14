@@ -251,20 +251,15 @@ def test_checked_upload_still_echoes_an_ordinary_filename():
     assert error == {"error": "file is not a PDF", "filename": "not-a-pdf.pdf"}
 
 
-def test_upload_can_force_visual_ocr(monkeypatch):
-    seen = {}
+def test_upload_refuses_force_visual_ocr(monkeypatch):
+    """Force visual OCR is retired (owner ruling, 2026-10-13): `force_ocr=1` is refused with the fixed text before any
+    file is checked, stored or queued (tests/test_no_visual_ocr_surface.py pins that nothing is stored)."""
+    from webapp.app import FORCE_OCR_REMOVED
+
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
-    monkeypatch.delenv("OCR_VISUAL_PAIR_LEGACY_VISUAL", raising=False)
-
-    def fake_pair(job_id, store, cache, pdf_bytes, filename, profile, **kwargs):
-        seen["pair"] = True
-        return _FakeDoc()
-
-    monkeypatch.setattr("webapp.worker._read_visual_pair", fake_pair)
-    monkeypatch.setattr("webapp.worker.parse_statement", lambda *args, **kwargs: pytest.fail("legacy reader ran"))
-    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
-    monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
+    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: pytest.fail("the upload was checked"))
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *args: pytest.fail("a job was queued"))
+    monkeypatch.setattr("webapp.worker.parse_statement", lambda *args, **kwargs: pytest.fail("a reader ran"))
 
     client = app.test_client()
     resp = client.post(
@@ -272,9 +267,8 @@ def test_upload_can_force_visual_ocr(monkeypatch):
         data={"force_ocr": "1", "files": (io.BytesIO(_fresh_pdf()), "s.pdf")},
         content_type="multipart/form-data",
     )
-    body = resp.get_json()
-    assert body["jobs"][0]["force_ocr"] is True
-    assert seen["pair"] is True
+    assert resp.status_code == 400
+    assert resp.get_json() == {"error": FORCE_OCR_REMOVED}
 
 
 def test_upload_can_request_deterministic_parse_mode(monkeypatch):

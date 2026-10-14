@@ -98,9 +98,9 @@ local Tesseract, and both run only the deterministic parsers, so today they give
 its output `auto` and is cached separately. A statement no parser claims ends as "no deterministic parser
 matched this statement" in both. Nothing falls back to hosted extraction (Ruling A).
 
-The page still shows a **Force visual OCR** checkbox, and some messages (the scan-failure message, the top-bar
-hint) still mention visual OCR. That is the retired model path: leave the box unticked. A forced job skips
-native text and is refused, so nothing is read.
+There is no Force visual OCR control: an upload that still sends `force_ocr=1` (an old page or a script) is refused
+with HTTP 400 before anything is stored. A job stored with that flag before the change still displays; re-analysing
+it answers that the visual OCR it was read with is retired, and keeps the saved job.
 
 ## Command-line tools
 

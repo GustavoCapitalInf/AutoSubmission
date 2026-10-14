@@ -1214,3 +1214,25 @@ def test_run_ids_are_unique_and_sortable():
     first, second = new_run_id(), new_run_id()
     assert first != second
     assert first[:4].isdigit()
+
+
+def test_pair_telemetry_counts_two_actual_models_and_no_invented_analysis_call():
+    """The visual pair's provenance vocabulary stays (telemetry vocabularies are append-only), so a record of a stored
+    pair reading still classifies its source and counts its two models. Moved from tests/test_visual_pair_worker.py
+    when the worker stopped reading with the pair (model-code removal, slice S1); no model module is involved."""
+    from ocr.document import StatementMarkdown
+    from telemetry.record import model_calls_for, source_path_unrecognized_model
+
+    doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic"],
+        extraction_telemetry={"execution_class": "remote_paid", "customer_data_opt_in": False,
+            "pages": [{"stage": "proposer", "prompt_tokens": 10, "completion_tokens": 15},
+                      {"stage": "reviewer", "prompt_tokens": 20, "completion_tokens": 25}]})
+    assert source_path_for(doc.model) == "visual_pair"
+    assert not source_path_unrecognized_model(doc.model)
+    calls = model_calls_for(doc, {"model_used": "visual-pair-dots-qwen-generic"})
+    assert len(calls) == 2
+    assert [call["calls"] for call in calls] == [1, 1]
+    assert [call["completion_tokens"] for call in calls] == [15, 25]
+    assert all(call["endpoint_class"] == "remote_paid" for call in calls)
+    doc.extraction_telemetry = None
+    assert [call["calls"] for call in model_calls_for(doc, None)] == [0, 0]

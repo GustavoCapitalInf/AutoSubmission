@@ -1,12 +1,8 @@
 """A statement whose own printed figures contradict the transactions it lists is a valid failure, said only when the
 PDF's text layer proves the reading complete and exact (vlm/source_contradiction.py; owner ruling, 2026-09-23).
 Fabricated statements only."""
-import json
-import shutil
-import subprocess
 from dataclasses import replace
 from decimal import Decimal
-from pathlib import Path
 
 import pytest
 
@@ -101,14 +97,6 @@ def test_only_a_well_formed_verdict_becomes_the_refusal():
     assert not is_source_contradiction("Fail: Statement account 1234567 contradiction")
 
 
-def test_the_worker_publishes_the_contradiction_and_withholds_a_forged_one():
-    from webapp.worker import _analysis_failure
-    error = SourceContradictionError("credit_total", Decimal("100.00"), Decimal("120.00"), "CAD")
-    assert _analysis_failure(error) == "Fail: Statement credit total (CA$100.00 listed, CA$120.00 printed) contradiction"
-    forged = RuntimeError("Fail: Statement debit total ($1.00 listed, $2.00 printed) contradiction")
-    assert "message withheld" in _analysis_failure(forged)
-
-
 def test_the_adapter_refuses_a_held_statement_with_its_verified_contradiction():
     from vlm.pair_adapter import VisualPairAdmissionError, analyze_visual_pair
 
@@ -125,51 +113,5 @@ def test_the_adapter_refuses_a_held_statement_with_its_verified_contradiction():
         analyze_visual_pair(_Doc())
 
 
-NODE = shutil.which("node")
-
-
-@pytest.mark.skipif(NODE is None, reason="node is not installed")
-def test_the_dashboard_shows_the_contradiction_as_the_statements_failure():
-    source_js = (Path(__file__).resolve().parents[1] / "webapp/static/app.js").read_text(encoding="utf-8")
-
-    def function(name):
-        return source_js[source_js.index(f"function {name}("):].split("\n}\n")[0] + "\n}\n"
-
-    harness = """
-let currentAnalysis = null;
-const els = {};
-for (const key of ["statusBanner", "statusMark", "statusCopy", "validationValue", "statusHeading", "summaryBox",
-                   "decisionPill", "statusList"]) els[key] = {textContent: "", className: "", innerHTML: ""};
-// The New analysis page's status card line, where a result that opens no results page is explained.
-const toned = new Set();
-els.statusMessage = {textContent: "", hidden: true,
-                     classList: {toggle(name, on) { if (on) toned.add(name); else toned.delete(name); }}};
-function setInitialState() {}
-function setProgress() {}
-function escapeHtml(value) { return String(value); }
-""" + "".join(function(name) for name in ("setBanner", "setStatusMessage", "kvRowsHtml", "statusRowHtml",
-                                          "setStatusRows", "sentenceCase", "friendlyAnalysisError",
-                                          "sourceContradiction", "renderExtractionReview"))
-    results = []
-    for message in ("Fail: Statement debit total ($150.00 listed, $250.00 printed) contradiction",
-                    "visual pair gate refused the document"):
-        script = harness + f"""
-renderExtractionReview({json.dumps(message)});
-console.log(JSON.stringify({{heading: els.statusHeading.textContent, banner: els.statusCopy.textContent,
-                            pill: els.decisionPill.textContent, state: els.statusBanner.className,
-                            message: els.statusMessage.textContent, shown: !els.statusMessage.hidden,
-                            review: toned.has("review")}}));
-"""
-        run = subprocess.run([NODE, "-e", script], capture_output=True, text=True, encoding="utf-8", timeout=15)
-        assert run.returncode == 0, run.stderr
-        results.append(json.loads(run.stdout))
-    failed, held = results
-    assert failed["heading"] == "Fail: Statement debit total ($150.00 listed, $250.00 printed) contradiction"
-    assert failed["pill"] == "Fail" and "error" in failed["state"] and "does not add up" in failed["banner"]
-    # A failure of the statement is explained where the page shows it, in the failure's tone (not "review").
-    assert failed["shown"] and "failure of the statement, not of the reading" in failed["message"]
-    assert failed["review"] is False
-    assert held["heading"] == "Extraction needs review" and held["pill"] == "Review required"
-    # A held read needs review: its reason reads as a sentence of its own, in the review tone.
-    assert held["shown"] and held["review"] is True
-    assert held["message"].startswith("Visual pair gate refused the document. Open Review extraction")
+# The dashboard's display of a stored contradiction moved to tests/test_stored_job_display.py (model-code removal,
+# slice S1), rebuilt on a fabricated message of the stored shape so it needs no vlm import.

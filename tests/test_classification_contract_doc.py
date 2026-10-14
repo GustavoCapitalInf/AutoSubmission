@@ -3691,7 +3691,8 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_b25_s_version_move():
     # request of 2026-10-10 (active positions by month): the Active Positions column and the memos' line, to -12.
     # The owner's own design (2026-10-11, display only): to -13. The owner's request of 2026-10-11 (no Verified revenue
     # and no "Counted, not verified" on the page): to -14. The code audit of 2026-10-13 (its dashboard fixes): to -15.
-    assert "app.js?v=true-revenue-15" in html
+    # The model-code removal (owner ruling 2026-10-13: no Force visual OCR control, the advice texts rewritten): to -16.
+    assert "app.js?v=true-revenue-16" in html
     assert all(f"true-revenue-{value}\"" not in html for value in (7, 8, 9, 10, 11, 12, 13, 14))
 
 
@@ -3902,8 +3903,9 @@ def test_the_spec_the_contract_and_the_handoff_record_r3_merge():
     # The owner's request of 2026-10-10 (active positions by month) moved the page to true-revenue-12, computed when
     # served (no version move); the owner's own design (2026-10-11, display only) to -13; the owner's request of
     # 2026-10-11 to hide Verified revenue and "Counted, not verified" (display and downloads only) to -14; the code
-    # audit of 2026-10-13 (its dashboard fixes, display and polling only) to -15.
-    assert '<script src="/static/app.js?v=true-revenue-15"></script>' in html
+    # audit of 2026-10-13 (its dashboard fixes, display and polling only) to -15; the model-code removal (the upload
+    # panel and the advice texts only; no version move) to -16.
+    assert '<script src="/static/app.js?v=true-revenue-16"></script>' in html
     note = re.sub(r"\s*#\s*", " ", (ROOT / "webapp" / "artifact_cache.py").read_text(encoding="utf-8"))
     for words in ("33 -> 34 (owner report 2026-10-08, Capital One daily ledger)",
                   "34 -> 35 (owner report 2026-10-08, Bank of America NSF)",

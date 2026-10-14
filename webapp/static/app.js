@@ -62,7 +62,6 @@ const els = {
   flagSettingsStatus: document.getElementById("flagSettingsStatus"),
   fileInput: document.getElementById("fileInput"),
   uploadBtn: document.getElementById("uploadBtn"),
-  forceOcrToggle: document.getElementById("forceOcrToggle"),
   dropzone: document.getElementById("dropzone"),
   progressTrack: document.getElementById("progressTrack"),
   statusCard: document.getElementById("statusCard"),
@@ -739,6 +738,7 @@ function labelize(value) {
 }
 
 function processingStageLabel(value) {
+  // The visual_pair_* stages are those of the retired visual pair; they stay readable for jobs stored with them.
   const match = /^(visual_pair_proposing|visual_pair_reviewing):(\d+)\/(\d+)(?::(batch|crop):(\d+)\/(\d+)|:(discovery))?$/.exec(String(value || ""));
   if (match) {
     const label = `${match[1] === "visual_pair_proposing" ? "Reading" : "Checking"} page ${match[2]} of ${match[3]}`;
@@ -3042,10 +3042,10 @@ function integrityLabel(integrity = {}) {
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
-    return "No deterministic parser matched this statement. Enable the configured visual fallback or select Force visual OCR to request a reviewed extraction.";
+    return "No deterministic parser matched this statement. Nothing was guessed; this layout needs a parser before it can be analysed.";
   }
   if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
-    return "This PDF does not contain usable native text, and local OCR could not produce usable statement text. Turn on visual OCR or use Auto mode to retry with the OCR service.";
+    return "This PDF has no usable native text, and local OCR on this machine could not read usable statement text from its pages.";
   }
   return text || "No analysis report was generated";
 }
@@ -4963,7 +4963,6 @@ function uploadFiles(fileList) {
 
   const form = new FormData();
   files.forEach((item) => form.append("files", item));
-  if (els.forceOcrToggle && els.forceOcrToggle.checked) form.append("force_ocr", "1");
   form.append("parse_mode", selectedParseMode());
 
   fetch("/upload", { method: "POST", body: form })

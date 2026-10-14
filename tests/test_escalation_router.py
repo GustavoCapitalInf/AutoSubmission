@@ -866,38 +866,11 @@ def test_the_escalation_budget_permits_exactly_its_ceiling(scan_tree, monkeypatc
 
 
 # ---------------------------------------------------------------------------
-# webapp/worker.py's `_force_ocr_decision` — item 3's own router call site
+# webapp/worker.py's `_force_ocr_decision` (item 3's router call site) left with
+# the worker's visual reads (model-code removal, slice S1): the worker has no
+# router call, and a forced job is refused before preflight
+# (tests/test_webapp_worker.py). The router's own vocabulary is unchanged.
 # ---------------------------------------------------------------------------
-
-def test_force_ocr_decision_admits_when_the_offline_ladder_produced_nothing():
-    """START case (i): `doc is None` (R-shape) — the operator's flag plus the
-    offline-ladder-produced-nothing fact both admit."""
-    from webapp.worker import _force_ocr_decision
-
-    decision = _force_ocr_decision(None, None, None)
-    assert decision.extractor == "visual"
-
-
-def test_force_ocr_decision_admits_when_analysis_did_not_claim():
-    """START case (ii): `doc` exists (a Tesseract read), analysis raised (no
-    claim) — the operator's flag alone is the trigger here, deliberately
-    (see `_force_ocr_decision`'s docstring)."""
-    from webapp.worker import _force_ocr_decision
-
-    decision = _force_ocr_decision(_Doc([USABLE_UNCLAIMABLE]), None, None)
-    assert decision.extractor == "visual"
-    assert decision.trigger == OPERATOR_FORCED_VISUAL
-
-
-def test_force_ocr_decision_stops_the_moment_analysis_exists():
-    """CASE 4 (stop), at this call site: ANY payload — even one that will go
-    on to fail financial validation (Class C) — refuses the flag."""
-    from webapp.worker import _force_ocr_decision
-
-    decision = _force_ocr_decision(_Doc([USABLE_UNCLAIMABLE]), None, {"quality": {}})
-    assert decision.extractor is None
-    assert decision.refused == ("stopped_by_validated",)
-
 
 def test_cli_run_computes_and_publishes_the_escalation_budget(tmp_path, monkeypatch):
     """P20-ROUTER item 2f, end to end through `discovery.cli.run()`: the
