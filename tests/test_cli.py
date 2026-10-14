@@ -136,3 +136,53 @@ def test_main_none_document_fails_closed(monkeypatch, tmp_path, capsys):
     rc = cli.main([str(pdf)])
     assert rc == 1
     assert "--visual" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Audit 2026-10-13, EXP-5: a redirected stdout on Windows is cp1252, and native
+# statement text carries ligatures (U+FB00 to U+FB05) and private-use glyphs it
+# cannot encode: the markdown died with UnicodeEncodeError (exit 1, an empty
+# file). parse.py now writes UTF-8 to stdout, as --out already does. The stdout
+# here is a cp1252 TextIOWrapper, the Windows host's redirected stdout, on any
+# host. Fabricated text only.
+# ---------------------------------------------------------------------------
+
+
+def _cp1252_stdout(monkeypatch):
+    import io
+    import sys
+
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
+    monkeypatch.setattr(sys, "stdout", stream)
+    return stream
+
+
+_LIGATURES = "--- Page 1 ---\n\n03/03 SAMPLE Ofﬁce reﬁnd\n03/08 Staﬀing \n"
+
+
+def test_exp5_ligatures_reach_a_redirected_stdout(monkeypatch, tmp_path):
+    pdf = tmp_path / "s.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    fake_doc = types.SimpleNamespace(to_markdown=lambda: _LIGATURES)
+    monkeypatch.setattr(cli, "parse_statement",
+                        lambda pdf_bytes, source_file="", dpi=200, model=None, allow_visual_ocr=False: fake_doc)
+    stream = _cp1252_stdout(monkeypatch)
+    rc = cli.main([str(pdf)])
+    stream.flush()
+    assert rc == 0
+    assert stream.buffer.getvalue() == (_LIGATURES + "\n").replace("\n", "\r\n").encode("utf-8")
+
+
+def test_exp5_the_redirected_markdown_matches_the_out_file(monkeypatch, tmp_path):
+    pdf = tmp_path / "s.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    out = tmp_path / "s.md"
+    fake_doc = types.SimpleNamespace(to_markdown=lambda: _LIGATURES)
+    monkeypatch.setattr(cli, "parse_statement",
+                        lambda pdf_bytes, source_file="", dpi=200, model=None, allow_visual_ocr=False: fake_doc)
+    assert cli.main([str(pdf), "--out", str(out)]) == 0
+    stream = _cp1252_stdout(monkeypatch)
+    assert cli.main([str(pdf)]) == 0
+    stream.flush()
+    # print adds its own line end; the text itself is the --out file's, character for character.
+    assert stream.buffer.getvalue().decode("utf-8") == out.read_text(encoding="utf-8").replace("\n", "\r\n") + "\r\n"

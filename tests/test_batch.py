@@ -679,3 +679,38 @@ def test_exp3_the_csv_on_stdout_leaves_stdout_open(monkeypatch, tmp_path, capsys
     assert not sys.stdout.closed
     rows = list(csv.DictReader(capsys.readouterr().out.splitlines()))
     assert [row["file"] for row in rows] == ["SAMPLE_1.md", "SAMPLE_2.md"]
+
+
+# --- Audit 2026-10-13, EXP-5: without --out the CSV goes to stdout, which on Windows is cp1252 when redirected and
+# translates every line end: a file name (or any cell) holding a ligature crashed the write with UnicodeEncodeError after
+# the whole run, and csv's own CRLF became CR CR LF, a blank row after every row. The CSV on stdout is now the bytes
+# --out writes: UTF-8, one CRLF per row. The stdout here is a cp1252 TextIOWrapper that translates line ends as the
+# Windows host's does, on any host. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def test_exp5_the_csv_on_a_redirected_stdout_is_the_out_file_byte_for_byte(monkeypatch, tmp_path):
+    import io
+
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE)
+    folder = tmp_path / "statements"
+    folder.mkdir()
+    for name in ("SAMPLE_a.md", "SAMPLE_ﬁle.md"):
+        (folder / name).write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", lambda markdown, **kwargs: document)
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    batch.main()
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder)])
+    batch.main()
+    stream.flush()
+    data = stream.buffer.getvalue()
+    assert data == out.read_bytes()
+    assert b"\r\r\n" not in data
+    header, *rows = list(csv.reader(io.StringIO(data.decode("utf-8"), newline="")))
+    assert header == batch.FIELDS
+    assert sorted(row[0] for row in rows) == ["SAMPLE_a.md", "SAMPLE_ﬁle.md"]

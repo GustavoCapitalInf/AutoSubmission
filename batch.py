@@ -400,6 +400,14 @@ def main() -> None:
     # each row is written and flushed as it is produced (it used to be opened after the last document): a --out that
     # cannot be written fails before any analysis, and an interrupted run keeps every row it finished. The rows, their
     # order and the bytes of a clean run are unchanged; stdout is never closed.
+    if not args.out:
+        # Audit 2026-10-13, EXP-5: the CSV on stdout is the bytes --out writes: UTF-8, and no line-end translation (a
+        # redirected stdout on Windows is cp1252, which cannot encode a ligature in a cell, and its text mode turned
+        # csv's CRLF into CR CR LF, a blank row after every row). A stream without reconfigure is written as it is.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", newline="")
+        except (AttributeError, ValueError, OSError):
+            pass
     out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
     run_id = new_run_id()
     sink = open_jsonl_sink(args.telemetry, run_id)
