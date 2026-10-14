@@ -47,7 +47,7 @@ from .description_text import (
     ln_name_spans,
     normalize_transaction_description,
 )
-from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
+from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, match_memo, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from .true_revenue import (
     DealerFunding,
@@ -7973,8 +7973,11 @@ def classify_statement_transactions(
     False (the default) is the STORED reading, every Zelle deposit excluded by pass 7's Zelle step, which every caller
     that names no reading keeps; True is the counted reading (apply_true_revenue_pass). classify_statement_readings
     gives both at once."""
-    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
-    return _classify_statement_reading(statement, records, duplicate_of, zelle_true_revenue=zelle_true_revenue)
+    # Audit 2026-10-13 (PERF-02, F1; speed only): the matcher answers each of this statement's questions once, and
+    # forgets them when the classification returns (payee_matcher.match_memo).
+    with match_memo():
+        records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+        return _classify_statement_reading(statement, records, duplicate_of, zelle_true_revenue=zelle_true_revenue)
 
 
 def classify_statement_readings(
@@ -7988,11 +7991,13 @@ def classify_statement_readings(
     The shared prefix (the per-row classification, the duplicates, recurrence and D6, passes 1 to 6) runs once; pass 7,
     pass 7b and the duplicate finalisation run once per reading. The second element is None when no credit pass 7 reads
     prints the Zelle rail (true_revenue.zelle_credits_present): such a statement has a single reading."""
-    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
-    stored = _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=False)
-    if not zelle_credits_present(records, set(duplicate_of)):
-        return stored, None
-    return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
+    # Audit 2026-10-13 (PERF-02, F1; speed only): one matcher memo for the prefix and both readings, dropped on return.
+    with match_memo():
+        records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+        stored = _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=False)
+        if not zelle_credits_present(records, set(duplicate_of)):
+            return stored, None
+        return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
 
 
 def _classify_statement_prefix(

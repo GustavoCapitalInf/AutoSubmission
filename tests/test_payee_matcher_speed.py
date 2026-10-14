@@ -175,10 +175,12 @@ def test_every_alias_shape_and_random_text_answers_as_the_unpruned_loop(name, in
     assert found >= len(aliases)
 
 
-def test_the_sweep_covers_every_live_index():
-    """Every registry a classification actually builds an index for is one the sweep above answers."""
+def test_the_sweep_covers_every_live_index(monkeypatch):
+    """Every registry a classification actually builds an index for is one the sweep above answers. (An empty index
+    cache first: other tests install registries of their own.)"""
     from tools.bench_classifier import fabricated_statement
 
+    monkeypatch.setattr(payee_matcher, "_REGISTRY_INDEXES", {})
     transaction_classifier.classify_statement_readings(fabricated_statement(90))
     live = [registry for registry, _index in payee_matcher._REGISTRY_INDEXES.values()]
     swept = _registries()

@@ -7,12 +7,19 @@ dictionary lookups instead of one regular-expression search per alias.
 
 Registries are read-only after import. An index is built once per registry object and is not
 rebuilt when that object is later mutated.
+
+Audit 2026-10-13 (PERF-02, F1; speed only): inside a `match_memo()` scope each index answers a given text once and
+remembers the answer until the scope closes. The statement-level classifications open the scope; outside one nothing
+is remembered. The memo never outlives the classification that opened it, so no description stays in the process
+after the job (the residency rule the privacy guards apply to every cache of document text).
 """
 from __future__ import annotations
 
+import contextvars
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Iterator, Mapping, Sequence
 
 from .classification_registry import (
     CREDIT_ONLY_ALIASES,
@@ -41,6 +48,30 @@ REGISTRY_GLUED_MIN_LETTERS = 4
 #: Audit B6 (I49): a reference code, the token a reference-tied alias must be followed by: letters and digits with at
 #: least one digit.
 _REFERENCE_CODE = re.compile(r"[A-Z0-9]*[0-9][A-Z0-9]*")
+#: Audit 2026-10-13 (PERF-02, F1; speed only): the open scope's answers, keyed by (index, text), or None outside a
+#: scope. A ContextVar, so each job thread of the web app has its own and none is shared.
+_MATCH_MEMO: contextvars.ContextVar[dict[tuple["AliasIndex", str], "PayeeMatch | None"] | None] = (
+    contextvars.ContextVar("payee_match_memo", default=None)
+)
+#: The most answers one scope keeps, a bound on its memory rather than a working size; a statement that asks more
+#: starts the memo afresh, and the answers stay the same.
+MATCH_MEMO_LIMIT = 1 << 16
+_UNANSWERED = object()
+
+
+@contextmanager
+def match_memo() -> Iterator[None]:
+    """Audit 2026-10-13 (PERF-02, F1): remember every index's answers while the block runs, and drop them when it ends
+    (also when it raises). A nested scope shares the outer one. AliasIndex.match is a pure function of an immutable
+    index and the text, and it returns the index's own frozen PayeeMatch, so a remembered answer is the answer."""
+    if _MATCH_MEMO.get() is not None:
+        yield
+        return
+    token = _MATCH_MEMO.set({})
+    try:
+        yield
+    finally:
+        _MATCH_MEMO.reset(token)
 
 
 @dataclass(frozen=True)
@@ -128,6 +159,18 @@ class AliasIndex:
         self._prefixes = frozenset(tokens[:size] for tokens in table for size in range(1, len(tokens)))
 
     def match(self, normalized_text: str) -> PayeeMatch | None:
+        memo = _MATCH_MEMO.get()
+        if memo is None:
+            return self._match(normalized_text)
+        key = (self, normalized_text)
+        found = memo.get(key, _UNANSWERED)
+        if found is _UNANSWERED:
+            if len(memo) >= MATCH_MEMO_LIMIT:
+                memo.clear()
+            found = memo[key] = self._match(normalized_text)
+        return found
+
+    def _match(self, normalized_text: str) -> PayeeMatch | None:
         if not self._table or not normalized_text:
             return None
         runs = [(found.group(), found.start(), found.end()) for found in _TOKEN.finditer(normalized_text)]
