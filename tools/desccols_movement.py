@@ -201,7 +201,7 @@ def command_fallback(args) -> int:
         raw = pdf.read_bytes()
         base._native_pages_cached.cache_clear()
         was = base.native_statement(raw)
-        branch._native_pages_cached.cache_clear()
+        branch.clear_page_caches()
         now = branch.native_statement(raw)
         if was is None and now is None:
             counts["no_native_text"] += 1
