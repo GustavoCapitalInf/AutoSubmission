@@ -867,7 +867,11 @@ ANALYSIS_STAGE_VERSION = 39
 #: and the page head carries the report's Content-Security-Policy meta tag. Text with no markup renders as before; a
 #: v1 report would keep serving live markup and no policy. OCR and analysis stay cached. Pinned in
 #: `tests/test_artifact_cache.py`.
-REPORT_STAGE_VERSION = 2
+#: 2 -> 3: the final review of the same audit, finding 2 (`ocr/render.py`): only the exact, attribute-free table tags
+#: pass through; a table tag carrying anything more or written in capitals, and statement text that only starts like
+#: one ("<TD SAMPLE BANK>"), is shown as text instead of becoming a bare tag that hid its words. A v2 report would keep
+#: hiding them. Value 3 was never used by any branch. OCR and analysis stay cached.
+REPORT_STAGE_VERSION = 3
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
 #: joins the OCR settings key at :data:`OCR_STAGE_VERSION` 5+ so a change to
 #: what `StatementMarkdown` records (independent of which extractor or binary

@@ -1218,10 +1218,15 @@ def test_report_stage_version_pin():
     carries no angle bracket, and writes the report's Content-Security-Policy meta tag into the page head. A report
     cached at v1 for the same markdown and title would keep serving the old, live markup and no policy, so the stage
     moves (the OCR and analysis stages stay cached; a report recompute is cheap). Value 2 was never served by any
-    line before this change. This is that pin."""
+    line before this change.
+
+    2 -> 3 (the audit's final review, finding 2): only the exact, attribute-free table tags pass through, so a table
+    tag carrying anything more, one written in capitals, and statement text that only starts like one ("<TD SAMPLE
+    BANK>") are shown as text; a report cached at v2 would keep hiding those words. Value 3 was never used by any
+    branch. This is that pin."""
     from webapp.artifact_cache import REPORT_STAGE_VERSION
 
-    assert REPORT_STAGE_VERSION == 2
+    assert REPORT_STAGE_VERSION == 3
 
 
 def test_a_report_cached_under_the_previous_stage_is_rendered_again(cache, monkeypatch):
@@ -1239,6 +1244,10 @@ def test_a_report_cached_under_the_previous_stage_is_rendered_again(cache, monke
     fresh = cached_report("# md", compute=compute, cache=cache, title="s.pdf")
     assert fresh.cached is False and fresh.value == "<p>render 2</p>"
     assert len(cache.storage.cache_entries(STAGE_REPORT)) == 2
+    monkeypatch.setattr(module, "REPORT_STAGE_VERSION", 3)
+    fresh = cached_report("# md", compute=compute, cache=cache, title="s.pdf")
+    assert fresh.cached is False and fresh.value == "<p>render 3</p>"
+    assert len(cache.storage.cache_entries(STAGE_REPORT)) == 3
 
 
 def test_cached_report_computes_once(cache):

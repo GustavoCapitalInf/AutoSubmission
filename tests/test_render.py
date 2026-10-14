@@ -144,7 +144,8 @@ def test_promote_headers_rendered_as_h2():
 
 # --- Audit 2026-10-13, EXP-1: statement text is shown, never obeyed -------------------------------------------------
 # A PDF's text layer is untrusted. Markup it prints is shown as text; only the bare table markup the visual-OCR rung
-# prints its tables in passes through (attributes dropped), and the document's own header comment stays a comment.
+# prints its tables in passes through (exact, lower-case, attribute-free tags; the final review's finding 2), and the
+# document's own header comment stays a comment.
 # A normal statement renders exactly as before. Fabricated text only.
 
 _NATIVE_SAMPLE = (
@@ -204,12 +205,41 @@ def test_markup_in_statement_text_is_shown_as_text(markup, where):
     assert "&lt;" in body
 
 
-def test_a_visual_ocr_table_still_renders_as_a_table_without_attributes():
-    md = ('<TABLE border="1"><tr><th colspan="2">Date</th></tr>'
-          '<tr><td onclick="document.title=1">03/02</td><td>CONTOSO &amp; SONS</td></tr><tr><td>A<br/>B</td></tr></TABLE>')
-    body = render_fragment(md)
-    assert body == ("<table><tr><th>Date</th></tr><tr><td>03/02</td><td>CONTOSO &amp; SONS</td></tr>"
-                    "<tr><td>A<br>B</td></tr></table>")
+def test_a_visual_ocr_table_still_renders_as_a_table():
+    """The exact, attribute-free table markup the visual-OCR rung prints passes through; every line break spelling
+    becomes `<br>`; entities are kept."""
+    md = ("<table><thead><tr><th>Date</th><th>Description</th></tr></thead><tbody>"
+          "<tr><td>03/02</td><td>CONTOSO &amp; SONS<br>A<br/>B<br />C</td></tr></tbody>"
+          "<tfoot><tr><td>Total</td><td>10.00</td></tr></tfoot></table>")
+    assert render_fragment(md) == (
+        "<table><thead><tr><th>Date</th><th>Description</th></tr></thead><tbody>"
+        "<tr><td>03/02</td><td>CONTOSO &amp; SONS<br>A<br>B<br>C</td></tr></tbody>"
+        "<tfoot><tr><td>Total</td><td>10.00</td></tr></tfoot></table>")
+
+
+# Final review of the audit, finding 2: the passthrough used to take any tag-shaped text whose first word was a table
+# tag name, in any case, and drop the rest of it, so statement text lost what it printed between the brackets.
+@pytest.mark.parametrize("text, shown", [
+    ("01/02 DEPOSIT <TD SAMPLE BANK> 100.00", "<p>01/02 DEPOSIT &lt;TD SAMPLE BANK&gt; 100.00</p>"),
+    ("01/02 PAYMENT <BR CONTOSO REF 1234> 50.00", "<p>01/02 PAYMENT &lt;BR CONTOSO REF 1234&gt; 50.00</p>"),
+    ("01/02 TRANSFER <TR NORTHWIND> 25.00", "<p>01/02 TRANSFER &lt;TR NORTHWIND&gt; 25.00</p>"),
+])
+def test_statement_text_shaped_like_a_table_tag_keeps_its_words(text, shown):
+    assert render_fragment(text) == shown
+
+
+@pytest.mark.parametrize("tag", [
+    '<td onclick="document.title=1">', '<th colspan="2">', '<table border="1">', "<tr class=x>", "<td >",
+    "<TD>", "<Table>", "</TR>", "<BR>", "</br>", "<br >", "<br clear=all>", "<tbody\n>",
+])
+def test_a_table_tag_with_anything_more_or_in_capitals_is_shown_as_text(tag):
+    body = render_fragment(f"<table><tr><td>03/02</td><td>SAMPLE {tag} FABRIKAM</td></tr></table>")
+    assert body.startswith("<table><tr><td>03/02</td><td>SAMPLE &lt;") and body.endswith(
+        " FABRIKAM</td></tr></table>")
+    for name in ("onclick", "colspan", "border", "class", "clear"):
+        if name in tag:
+            assert f"{name}=" in body  # shown, not dropped
+    assert body.count("<td>") == 2 and body.count("<tr>") == 1 and body.count("<br>") == 0
 
 
 def test_angle_bracket_text_is_shown_not_hidden():

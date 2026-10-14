@@ -145,11 +145,15 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 # Python-Markdown passes raw HTML through, so markup printed in a PDF's text layer used to reach the report as live
 # HTML. Before rendering, every markup opener in the text ("<" followed by a letter, "/", "!" or "?") becomes a
 # placeholder that the page shows as "&lt;", so the text displays exactly as printed, in code spans and blocks too.
-# Two things pass through: the bare table markup the visual-OCR rung prints its tables in (table, thead, tbody, tfoot,
-# tr, th, td, br; attributes dropped, names lower-cased), and the document's own header comment
+# Two things pass through: the bare table markup the visual-OCR rung prints its tables in, exactly as it prints it
+# (`<table>`, `<thead>`, `<tbody>`, `<tfoot>`, `<tr>`, `<th>`, `<td>` and their closing tags, lower case, nothing
+# inside the brackets; `<br>`, `<br/>` and `<br />`, written `<br>`), and the document's own header comment
 # (`StatementMarkdown.to_markdown`) when it carries no angle bracket (a hostile source name could close it early).
-# Text with no markup opener renders byte for byte as before. The parser input, `to_markdown()`, is not touched.
-_TABLE_TAG_RE = re.compile(r"<(/?)(table|thead|tbody|tfoot|tr|th|td|br)\b[^<>]*>", re.IGNORECASE)
+# Anything else is shown as text: a tag carrying an attribute or written in capitals, and statement text that only
+# starts like one ("<TD SAMPLE BANK>" used to pass as a bare <td> and lose its words; final review of the audit,
+# finding 2). Text with no markup opener renders byte for byte as before. The parser input, `to_markdown()`, is not
+# touched.
+_TABLE_TAG_RE = re.compile(r"</?(?:table|thead|tbody|tfoot|tr|th|td)>|<br(?: ?/)?>")
 _MARKUP_OPENER_RE = re.compile(r"<(?=[A-Za-z/!?])")
 _HEADER_COMMENT_RE = re.compile(r"\A<!-- source: [^<>\n]* -->(?=\n|\Z)")
 # Two Unicode noncharacters around "lt": never part of interchange text, and untouched by Markdown (which strips the
@@ -169,7 +173,7 @@ def _neutralize_markup(text: str) -> str:
     out, pos = [kept], 0
     for tag in _TABLE_TAG_RE.finditer(rest):
         out.append(_shown_as_text(rest[pos:tag.start()]))
-        out.append(f"<{tag.group(1)}{tag.group(2).lower()}>")
+        out.append("<br>" if tag.group(0).startswith("<br") else tag.group(0))
         pos = tag.end()
     out.append(_shown_as_text(rest[pos:]))
     return "".join(out)
