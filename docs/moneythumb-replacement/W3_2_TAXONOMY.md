@@ -102,11 +102,19 @@ is greppable straight into `analysis/adb.py`.
 | `running_balances_support_daily_ledger` | balance_continuity |
 | `posting_dates_cover_source` | posting_date_coverage |
 | `agrees_with_bank_stated_average` | *advisory* |
+| `bank_daily_balances_agree_with_rows` | *advisory* (v7, audit 2026-10-13 REC-1 step 1) |
 | anything else | `adb:unmapped` → **unmapped** |
 
 `agrees_with_bank_stated_average` is advisory because it only ever runs when
 `result.ok` is already true — it can never be the reason a document was
 withheld, and letting it choose a class would misdirect remediation.
+
+`bank_daily_balances_agree_with_rows` is advisory because it is never in the
+required set: it records, day over day and before the override, whether each
+bank-printed daily balance equals the carry the rows reach that day, and the
+engine uses the bank's table either way. It is present only on a statement
+that publishes an in-period daily balance. Making it required is an owner
+ruling (REC-1 step 2), which would move it out of this row.
 
 ### 3.2 Source 2 — integrity flags → `integrity:<flag>`
 
@@ -204,6 +212,7 @@ text can reach these strings.
 | `running balances do not support` | `running_balances_unsupported` | balance_continuity |
 | `posting date(s) but the statement` | `posting_dates_incomplete` | posting_date_coverage |
 | `differs from the bank-printed` | `stated_average_disagrees` | *advisory* |
+| `disagree with the balance the transactions reach` | `bank_daily_balances_disagree_with_rows` | *advisory* (v7, REC-1 step 1) |
 | no match | `unmapped_warning` | **unmapped** |
 
 **The overlap with §3.1 is deliberate.** Most warnings are the prose form of a
@@ -620,7 +629,21 @@ class of `recon:sum_check_inputs_missing`, which every such document already
 carries, so no document's primary class moves; `ledger_sum_mismatch`'s class
 is unchanged. Both conditions need a failed reconciliation, which never
 publishes an ADB, so no outcome moves either (withheld outranks flags).
-`VOCABULARY` 61 → 62, `CLASS_OF` 53 → 54, `ADVISORY_CODES` unchanged.
+`VOCABULARY` 61 → 62, `CLASS_OF` 53 → 54.
+
+**Composed into the same bump: two advisory codes (REC-1, step 1).** A
+bank-printed daily balance replaces the reconstructed carry for its day
+(the bank's table outranks reconstruction, by design), and nothing recorded
+whether the two agreed. `analysis/adb.py` now records, before the override,
+each day whose printed balance is not the carry the rows reach that day
+(day over day, from the same carry the override uses), as the validation
+`bank_daily_balances_agree_with_rows` (§3.1) and, when it is false, one
+warning anchored `disagree with the balance the transactions reach` →
+`adb_state:bank_daily_balances_disagree_with_rows` (§3.4). Both advisory:
+the check is never required, so `ok`, the ADB, the NSF days and every
+outcome are unchanged. `VOCABULARY` 62 → 64, `ADVISORY_CODES` 8 → 10,
+`CLASS_OF` unchanged. One version for the batch's two changes, the
+composed-bump policy of v4.
 
 ---
 

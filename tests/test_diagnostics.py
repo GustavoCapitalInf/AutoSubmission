@@ -687,7 +687,8 @@ def test_a_mixed_vocabulary_rollup_says_so():
     # `new` is emitted at whatever the CURRENT vocabulary is, so this literal
     # moves with every bump — which is the point: a rollup spanning versions
     # must name them. v7 is the audit of 2026-10-13 (REC-4's
-    # `integrity:ledger_sum_uncheckable`); v6 was the owner report of
+    # `integrity:ledger_sum_uncheckable` and REC-1's two advisory
+    # daily-balance codes); v6 was the owner report of
     # 2026-10-08 (the advisory
     # `adb_state:pre_period_carry_in_folded` added); v5 was P22-TRUTHTABLE
     # (cell F's consequence: the `recon:escalation_extraction_failed` writer

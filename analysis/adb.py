@@ -12,7 +12,10 @@ replace the ledger reconstructed from the opening balance and signed postings.
 
 When a statement prints a dated daily book/ledger balance history, those explicit
 end-of-day snapshots outrank transaction-date reconstruction. Missing dates
-between snapshots still carry or reconstruct normally.
+between snapshots still carry or reconstruct normally. Whether each snapshot
+agreed with the balance the rows reach that day is RECORDED (the advisory
+validation `bank_daily_balances_agree_with_rows`, audit 2026-10-13 REC-1) and
+decides nothing: the snapshot is used either way.
 
 THE DOCTRINE THIS MODULE IMPLEMENTS (ratified 2026-08-15)
 ---------------------------------------------------------
@@ -630,6 +633,12 @@ def compute_average_daily_balance(
 
     carry = opening
     daily: list[DailyBalance] = []
+    # The days whose printed balance is not the carry the rows reach that day,
+    # recorded BEFORE the printed figure replaces it (audit 2026-10-13 REC-1,
+    # step 1). Day over day, from the same carry the override uses, so a seeded
+    # opening and an earlier override are where the comparison starts. Advisory
+    # only: the override itself is unchanged, see `_validate`.
+    snapshot_disagreements: list[date] = []
     day = start
     while day <= end:
         txns = by_day.get(day, [])
@@ -642,6 +651,8 @@ def compute_average_daily_balance(
         else:
             source = "carried"
         if day in snapshot_map:
+            if carry != snapshot_map[day]:
+                snapshot_disagreements.append(day)
             carry = snapshot_map[day]
             source = "bank_daily_summary"
         daily.append(
@@ -678,6 +689,8 @@ def compute_average_daily_balance(
         snapshot_dates_valid=snapshot_dates_valid,
         source_markdown=source_markdown,
         seeded_total=seeded_total,
+        snapshot_days=len(snapshot_map),
+        snapshot_disagreements=snapshot_disagreements,
     )
     return result
 
@@ -696,6 +709,8 @@ def _validate(
     snapshot_dates_valid: bool,
     source_markdown: str | None = None,
     seeded_total: Decimal = Decimal("0"),
+    snapshot_days: int = 0,
+    snapshot_disagreements: list[date] | None = None,
 ) -> None:
     daily = result.daily_balances
     checks: dict[str, bool] = {}
@@ -865,6 +880,28 @@ def _validate(
                 f"computed ADB {result.underwriting_adb:,.2f} differs from the bank-printed "
                 f"average {stmt.bank_reported_average_balance:,.2f} by {float(gap):,.2f}; the printed "
                 "figure may use collected/available balances or another disclosed basis"
+            )
+
+    # Audit 2026-10-13 REC-1, step 1: ADVISORY, and deliberately NOT in
+    # `required`. A bank-printed daily balance overrides the carry for its day
+    # (the bank's table outranks reconstruction, by design), and until now
+    # nothing recorded whether the two agreed: `running_balances_support_daily_ledger`
+    # reads the ledger after the override, so a wrong printed cell on a day
+    # with no posting, healed by a later cell, passed every check. This
+    # records the disagreement and changes nothing it touches: `ok`, the
+    # override, the ADB and the NSF days are what they were. Present only when
+    # the statement publishes an in-period daily balance. Making it required
+    # is an owner ruling (step 2), not this change.
+    if snapshot_days:
+        disagreeing = list(snapshot_disagreements or ())
+        checks["bank_daily_balances_agree_with_rows"] = not disagreeing
+        if disagreeing:
+            shown = ", ".join(day.isoformat() for day in disagreeing[:6])
+            more = f" (+{len(disagreeing) - 6} more)" if len(disagreeing) > 6 else ""
+            result.warnings.append(
+                f"{len(disagreeing)} bank-printed daily balance(s) disagree with the balance "
+                f"the transactions reach on the same day ({shown}{more}); the bank's daily "
+                "balance was used for those days"
             )
 
     result.validations = checks

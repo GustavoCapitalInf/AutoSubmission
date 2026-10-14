@@ -92,6 +92,11 @@ from analysis.payload_shape import payload_accounts, refuse_document_payload
 #:     issue it accompanies, so no document's primary class moves; and
 #:     `integrity:ledger_sum_mismatch` now fires at the sum check's own
 #:     one-cent tolerance instead of a dollar (same code, more documents).
+#:     Composed into the same bump (one batch, one version, as at the batch-5
+#:     train), REC-1 step 1: the advisory `adb:bank_daily_balances_agree_with_rows`
+#:     and its warning code `adb_state:bank_daily_balances_disagree_with_rows`
+#:     (a bank-printed daily balance that is not the balance the rows reach
+#:     that day). Advisory: never required, it re-classes nothing.
 DIAGNOSTICS_VERSION = 7
 
 #: The explicit label for a document whose claiming parser could not be
@@ -141,6 +146,8 @@ ADB_CHECKS: frozenset[str] = frozenset({
     "running_balances_support_daily_ledger",
     "posting_dates_cover_source",
     "agrees_with_bank_stated_average",
+    # Audit 2026-10-13 REC-1 (v7): advisory, see ADVISORY_CODES.
+    "bank_daily_balances_agree_with_rows",
 })
 
 # --------------------------------------------------------------------------
@@ -265,6 +272,7 @@ ADB_WARNING_ANCHORS: tuple[tuple[str, str], ...] = (
     ("running balances do not support", "adb_state:running_balances_unsupported"),
     ("posting date(s) but the statement", "adb_state:posting_dates_incomplete"),
     ("differs from the bank-printed", "adb_state:stated_average_disagrees"),
+    ("disagree with the balance the transactions reach", "adb_state:bank_daily_balances_disagree_with_rows"),
 )
 ADB_WARNING_UNMAPPED = "adb_state:unmapped_warning"
 
@@ -432,6 +440,13 @@ CLASS_OF: dict[str, str] = {
 ADVISORY_CODES: frozenset[str] = frozenset({
     "adb:agrees_with_bank_stated_average",
     "adb_state:stated_average_disagrees",
+    # Audit 2026-10-13 REC-1, step 1 (v7): a bank-printed daily balance that is
+    # not the balance the rows reach that day. The engine uses the bank's
+    # table either way and the check is never required, so it can never be
+    # the reason a document was withheld: advisory, like the printed-average
+    # comparison above. Making it required is an owner ruling (step 2).
+    "adb:bank_daily_balances_agree_with_rows",
+    "adb_state:bank_daily_balances_disagree_with_rows",
     # The narrow account-opening fold. It is a DISCLOSURE, not a failure:
     # the engine states that it folded proven pre-period openings into the
     # opening balance and left the divisor alone. A document carrying it has
