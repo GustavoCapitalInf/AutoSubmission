@@ -57,6 +57,18 @@ def test_the_flag_still_fires_above_a_dollar_as_it_always_did():
     assert integrity.risk_level == "review"
 
 
+def test_the_shared_threshold_is_a_property_and_not_a_published_field():
+    """`ReconResult.sum_check_failed` carries reconcile's threshold to the
+    integrity block. It is a property, so `asdict` (the published
+    reconciliation block) does not change."""
+    from dataclasses import asdict
+
+    assert ReconResult(ok=False, sum_delta=0.02).sum_check_failed is True
+    assert ReconResult(ok=True, sum_delta=0.01).sum_check_failed is False
+    assert ReconResult(ok=False).sum_check_failed is False
+    assert "sum_check_failed" not in asdict(ReconResult(ok=True))
+
+
 def test_the_threshold_is_reconciles_own():
     """Not a restated constant: the integrity flag and the sum check are the
     same comparison, so a statement either reconciles or carries the flag."""

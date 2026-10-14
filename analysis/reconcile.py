@@ -14,10 +14,11 @@ from .schema import Statement
 
 # Money is compared to the cent; allow a hair of float slop.
 _TOL = 0.01
-#: The sum check's tolerance under a public name, for the one consumer outside
-#: this module that must apply the SAME threshold: the integrity block's
-#: `ledger_sum_mismatch` flag (`analysis/pipeline.py`, audit 2026-10-13 REC-4),
-#: which used to restate it as a dollar.
+#: The sum check's tolerance under a public name (audit 2026-10-13 REC-4). The
+#: integrity block's `ledger_sum_mismatch` flag applies it through
+#: `ReconResult.sum_check_failed` (it used to restate the threshold as a
+#: dollar); `analysis/pipeline.py` keeps its one canonical import of this
+#: module, which its re-invocation fence pins.
 SUM_CHECK_TOLERANCE = _TOL
 
 
@@ -63,6 +64,17 @@ class ReconResult:
     # with two meanings, the defect BOFA-COUNTS was spent removing.
     expected_credit_count: int | None = None
     expected_debit_count: int | None = None
+
+    @property
+    def sum_check_failed(self) -> bool:
+        """The sum check ran and missed by more than its tolerance.
+
+        A PROPERTY, not a field: `asdict` serializes fields only, so the
+        published reconciliation block is unchanged. It is how the integrity
+        block applies the sum check's own threshold rather than restating one
+        (audit 2026-10-13 REC-4: it used to flag only above a dollar).
+        """
+        return self.sum_delta is not None and abs(self.sum_delta) > SUM_CHECK_TOLERANCE
 
 
 def _debit_coverage_target(

@@ -18,7 +18,7 @@ from .count_semantics import claiming_parser_id, counts_comparable
 from .schema import Statement
 from .dates import assign_transaction_years
 from .extract import extract_statement
-from .reconcile import SUM_CHECK_TOLERANCE, reconcile, ReconResult
+from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
 from .transaction_classifier import (
@@ -537,7 +537,7 @@ def assess_document_integrity(
     # a check whose finding is unknown, and an unknown finding is routed to
     # review rather than reported as clear. `not recon.ok` keeps a caller's own
     # passing ReconResult from being flagged for a field it never filled.
-    if recon.sum_delta is not None and abs(recon.sum_delta) > SUM_CHECK_TOLERANCE:
+    if recon.sum_check_failed:
         flags.append("ledger_sum_mismatch")
         notes.append("transaction sum does not reconcile to the printed ending balance")
     elif recon.sum_delta is None and not recon.ok:
