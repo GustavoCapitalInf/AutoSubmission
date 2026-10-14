@@ -15,7 +15,7 @@ The old model-based OCR and extraction paths are retired and are being removed f
 |---|---|---|
 | Intake | Upload checks (100 MB, 25 files, 500 pages, a `%PDF-` header, no encrypted PDF), the whole batch before any job; preflight profile and content hash | `webapp/app.py`, `ocr/inspect.py` |
 | Native text | PyMuPDF reads the PDF's own text: six bank-specific readers, a printed-rows reader, then generic text | `ocr/pipeline.py` (`parse_statement`), `ocr/native_text.py` |
-| Scans | When the native readers return nothing (a scan, or too little text), the pages are rendered at 200 dpi and read by local Tesseract (`--psm 6`); under 200 characters is no read | `ocr/local_tesseract.py`, `ocr/rasterize.py` |
+| Scans | When the native readers return nothing (a scan, or too little text), the pages are rendered at 200 dpi, 8 at a time, and read by local Tesseract (`--psm 6`) one page at a time; under 200 characters is no read. A step past 120 s, a document past an hour, or a host failure fails the job and caches nothing | `ocr/local_tesseract.py`, `ocr/rasterize.py` |
 | Dispatch | 84 registered per-bank parsers score the text; exactly one must claim it. Ambiguous, unclaimed or a parser crash publishes nothing | `analysis/parser_registry.py`, `analysis/parser_registry_entries.py`, `analysis/pipeline.py` |
 | Reconciliation | Opening + postings = ending, running-balance continuity, the bank's printed summary; quality and integrity gates | `analysis/reconcile.py`, `analysis/pipeline.py` |
 | Multi-account | A document with several accounts is split on its printed account sections; each is validated on its own | `analysis/multi_account.py`, `analysis/pipeline.py` (`analyze_document`) |
@@ -86,7 +86,10 @@ choice for a trusted network only. On restart, unfinished jobs are marked `inter
 (`%USERPROFILE%\.local\share\...` on Windows). `WEBAPP_DATA_DIR` sets the folder itself. It must be an absolute
 path outside the checkout, symlinks included, or the app refuses to start. It holds `webapp.db` (SQLite: jobs,
 documents, packages, review decisions, the audit log, the artifact cache, telemetry), the uploaded PDFs as
-`<SHA-256 in upper-case hex>.pdf`, `artifacts/` and `settings.json`. Treat it as customer data.
+`<SHA-256 in upper-case hex>.pdf`, `artifacts/` and `settings.json`. Treat it as customer data. Nothing in it is
+ever deleted, so watch its volume: uploads stop at `WEBAPP_MIN_FREE_MB`, and if the volume cannot be written when the
+app starts (full or read-only) the app starts read-only: saved statements can be viewed, everything else is refused
+until space is freed and the app is restarted.
 
 ## Parse modes
 
@@ -187,6 +190,7 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 | `WEBAPP_HOST` | `127.0.0.1` | Bind address. Beyond loopback it exposes an app with no login. |
 | `WEBAPP_PORT` | `5000` | Port. |
 | `WEBAPP_DATA_DIR` | unset | The data directory; absolute and outside the checkout. |
+| `WEBAPP_MIN_FREE_MB` | `256` | Free space the data volume keeps: an upload or a Re-analyze that would leave less is refused (507) before anything is written. `0` turns it off; a value that is not a whole number falls back to the default. |
 | `VISUAL_PAIR_PRIVATE_ROOT` | `~/.local/share/bank-statement-analysis/phase31-private` | Root of the default data directory (`<root>/webapp_data`). The name is a leftover. |
 | `POPPLER_PATH` | `C:\poppler-24.08.0\Library\bin` | Windows only: the folder holding `pdfinfo.exe`. Set it in the shell: `run.ps1` checks the shell's value, not `.env`. |
 | `WITHHOLDING_DENOMINATOR_MODE` | `true_revenue` | The withholding basis (below). No run file sets it. |
