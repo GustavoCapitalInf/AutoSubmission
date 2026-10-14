@@ -282,6 +282,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -294,6 +295,7 @@ from ocr.document import StatementMarkdown
 from ocr.inspect import content_sha256
 from ocr.truncation import PageIntegrity
 
+from .settings import _replace as _replace_retrying
 from .storage import Storage
 
 __all__ = [
@@ -839,9 +841,37 @@ OCR_STAGE_VERSION = 5
 # the hosting line ahead of true revenue audit round 4, whose last batch
 # therefore takes 39 (and 5.10). OCR stays cached. Pinned in the same change
 # (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 38
+# 38 -> 39: the code audit of 2026-10-13 (one pull request, branch
+# `audit/2026-10-13`; this is its ONE stage move, made in batch A03). It
+# supersedes the line above: 39 is the audit's, so true revenue audit round 4
+# takes 40 or above. What a warm cache keyed on 38 would serve wrongly: the
+# integrity block of a document whose sum check failed by at most a dollar or
+# could not run (REC-4: `ledger_sum_mismatch` at one cent, the new
+# `ledger_sum_uncheckable`, their notes and risk level); the ADB's
+# `validations` and `warnings` and the account's `notes` on every statement
+# that publishes a bank-printed daily balance (REC-1 step 1, the advisory
+# `bank_daily_balances_agree_with_rows`); every reading of a PNC, IBC,
+# Columbia Bank or First Community statement whose period crosses a year
+# boundary or prints a row or printed cell outside its period (PARSERS-2),
+# and of a CIBC-named document carrying IBC's product phrase (PARSERS-8); and
+# a money token the raising or strict grammar now refuses (PARSERS-4). The
+# batch's other analysis changes need the same invalidation and are covered
+# by this one move: A02's five fenced bank repairs and the re-keyed three
+# (an archive replay moved nothing; an upload could). CLASSIFICATION_VERSION
+# stays 5.9: no classification changed. OCR stays cached. Pinned in the same
+# change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 39
 #: Bump when the HTML renderer's output changes for unchanged settings.
-REPORT_STAGE_VERSION = 1
+#: 1 -> 2: audit 2026-10-13, EXP-1 (`ocr/render.py`): markup printed in statement text is shown as text, the visual-OCR
+#: table markup let through loses its attributes, the header comment is kept only when it carries no angle bracket,
+#: and the page head carries the report's Content-Security-Policy meta tag. Text with no markup renders as before; a
+#: v1 report would keep serving live markup and no policy. OCR and analysis stay cached. Pinned in
+#: `tests/test_artifact_cache.py`.
+#: 2 -> 3: the final review of the same audit, finding 2 (`ocr/render.py`): only the exact, attribute-free table tags
+#: pass through; a table tag carrying anything more or written in capitals, and statement text that only starts like
+#: one ("<TD SAMPLE BANK>"), is shown as text instead of becoming a bare tag that hid its words. A v2 report would keep
+#: hiding them. Value 3 was never used by any branch. OCR and analysis stay cached.
+REPORT_STAGE_VERSION = 3
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
 #: joins the OCR settings key at :data:`OCR_STAGE_VERSION` 5+ so a change to
 #: what `StatementMarkdown` records (independent of which extractor or binary
@@ -1451,11 +1481,20 @@ class ArtifactCache:
         return self.root / stage / key[:2] / f"{key}.json"
 
     def _write_payload(self, path: Path, payload: dict) -> int:
+        """Write a payload file through a temporary file of its own and rename it into place (audit 2026-10-13,
+        BE-4): one fixed ``<key>.json.tmp`` was shared by every writer of a key, so two writers of the same entry at
+        once (a CLI pointed at a live server's data directory) could fail each other. The rename is retried briefly
+        on the Windows refusal while a reader has the target open; the temporary file is always removed. The
+        temporary name ends in ``.tmp``, so nothing that lists ``*.json`` payloads ever sees it."""
         path.parent.mkdir(parents=True, exist_ok=True)
         blob = _canonical_json(payload).encode("utf-8")
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_bytes(blob)
-        os.replace(tmp, path)
+        handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem[:16]}-", suffix=".json.tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(blob)
+            _replace_retrying(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         return len(blob)
 
     # -- generic get/put -----------------------------------------------

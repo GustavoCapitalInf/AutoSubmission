@@ -18,11 +18,16 @@ because refusing is what this reader does with a scan it cannot vouch for.
 from __future__ import annotations
 
 import re
+from datetime import date
 
 import pytest
 
 from analysis import columbia_bank as cb, parser_registry as pr
 from analysis import parser_registry_entries  # noqa: F401 — populates the registry
+
+#: Printed periods for the tests that call the grid reader directly.
+MARCH_2054 = (date(2054, 3, 1), date(2054, 3, 31))
+APRIL_2054 = (date(2054, 4, 1), date(2054, 4, 30))
 
 
 # ---------------------------------------------------------------------------
@@ -648,7 +653,10 @@ def test_a_grid_cell_whose_figure_the_scan_preceded_with_a_placeholder_is_refuse
     #: is the empty-column placeholder and the figure is a POSITIVE running
     #: balance between 56,767.53 and 34,167.30.
     block = "03-04 56,767.53   03-16 —  39,692.35   03-26 34,167.30\n"
-    snapshots = cb._daily_snapshots(block, year=2054)
+    # the grid reader dates its cells by the printed period (audit 2026-10-13
+    # PARSERS-2) and also reports a cell from outside it
+    snapshots, foreign = cb._daily_snapshots(block, start=MARCH_2054[0], end=MARCH_2054[1])
+    assert not foreign
     assert [(d.isoformat(), str(v)) for d, v in sorted(snapshots.items())] == [
         ("2054-03-04", "56767.53"),
         ("2054-03-26", "34167.30"),
@@ -684,8 +692,8 @@ def test_the_sign_class_in_the_grid_is_the_shared_one():
 
     for glyph in MINUS_GLYPHS:
         cell = f"04-03 {glyph}100.00\n"
-        assert cb._daily_snapshots(cell, year=2054), glyph
-    assert not cb._daily_snapshots("04-03 —100.00\n", year=2054)
+        assert cb._daily_snapshots(cell, start=APRIL_2054[0], end=APRIL_2054[1])[0], glyph
+    assert not cb._daily_snapshots("04-03 —100.00\n", start=APRIL_2054[0], end=APRIL_2054[1])[0]
 
 
 def test_an_out_of_period_grid_cell_is_evidence_but_not_published():

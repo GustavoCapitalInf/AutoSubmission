@@ -74,6 +74,14 @@ def main(argv=None) -> int:
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
     else:
+        # Audit 2026-10-13, EXP-5: UTF-8, as --out writes. A redirected stdout
+        # on Windows is cp1252, which cannot encode the ligatures and
+        # private-use glyphs native statement text carries (UnicodeEncodeError,
+        # an empty file). A stream without reconfigure is written as it is.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError, OSError):
+            pass
         print(text)
     return 0
 

@@ -426,6 +426,81 @@ def test_csv_export_still_reports_negative_money_as_a_number():
 
 
 # --------------------------------------------------------------------------
+# 4b. XLSX characters XML 1.0 forbids (audit 2026-10-13, EXP-7)
+# --------------------------------------------------------------------------
+# One control character (or U+FFFE / U+FFFF) in a cell made sheet1.xml ill-formed, so the whole workbook failed to
+# open; a lone surrogate made the download raise. The XLSX path now SUBSTITUTES U+FFFD for each such character (never
+# deletes it: a deleted leading control would let "=..." start the cell). The CSV and the JSON keep the text as read.
+
+_XML_FORBIDDEN = ["\x00", "\x01", "\x08", "\x0b", "\x0c", "\x0e", "\x1f", "￾", "￿", "\ud800", "\udfff"]
+
+
+@pytest.mark.parametrize("char", _XML_FORBIDDEN, ids=lambda c: f"U+{ord(c):04X}")
+def test_xlsx_sheet_stays_well_formed_with_a_forbidden_character(char):
+    from xml.etree import ElementTree
+
+    from webapp.app import _rows_xlsx
+
+    blob = _rows_xlsx([("posted_credit", "description", f"SAMPLE DEPOSIT{char}REF")])
+    sheet = _sheet_xml(blob)
+    ElementTree.fromstring(sheet)  # raises ParseError when the sheet is ill-formed
+    assert "<t>SAMPLE DEPOSIT�REF</t>" in sheet
+
+
+@pytest.mark.parametrize("char", _XML_FORBIDDEN, ids=lambda c: f"U+{ord(c):04X}")
+def test_xlsx_with_a_forbidden_character_opens_in_a_spreadsheet_reader(char):
+    openpyxl = pytest.importorskip("openpyxl")
+    from webapp.app import _rows_xlsx
+
+    blob = _rows_xlsx([("posted_credit", "description", f"SAMPLE{char}")])
+    workbook = openpyxl.load_workbook(io.BytesIO(blob))
+    values = [cell.value for row in workbook.active.iter_rows() for cell in row]
+    assert "SAMPLE�" in values
+
+
+@pytest.mark.parametrize("char", ["\t", "\n", "\r", "\x7f", "\x85", "é", "\U0001f600"])
+def test_xlsx_keeps_the_characters_xml_allows(char):
+    from webapp.app import _xml_escape
+
+    assert _xml_escape(f"A{char}B") == f"A{char}B"
+
+
+def test_xml_escape_still_escapes_markup_exactly_as_before():
+    from webapp.app import _xml_escape
+
+    assert _xml_escape('CONTOSO & <FABRIKAM> "SAMPLE"') == "CONTOSO &amp; &lt;FABRIKAM&gt; &quot;SAMPLE&quot;"
+    assert _xml_escape(-12.5) == "-12.5"
+
+
+def test_a_leading_control_never_lets_a_formula_lead_start_the_cell():
+    """Substitute, never delete: `_escape_formula` does not see a leading U+0001 as a formula lead, so deleting it would
+    leave "=HYPERLINK(...)" at the start of the cell with no apostrophe."""
+    from webapp.app import _rows_xlsx
+
+    sheet = _sheet_xml(_rows_xlsx([("statement", "bank", '\x01=HYPERLINK("http://example.invalid")')]))
+    assert '<t>�=HYPERLINK(&quot;http://example.invalid&quot;)</t>' in sheet
+    assert "<t>=" not in sheet
+    assert "<f>" not in sheet
+
+
+def test_package_xlsx_with_a_control_character_in_a_file_name_opens_and_the_csv_keeps_the_name():
+    from xml.etree import ElementTree
+
+    job = store.create("SAMPLE\x0bstatement.pdf")
+    store.set_result(job.id, "# md", "<h1>md</h1>", analysis=_analysis_payload())
+    client = app.test_client()
+
+    xlsx = client.get(f"/package_download/xlsx?ids={job.id}")
+    assert xlsx.status_code == 200
+    sheet = _sheet_xml(xlsx.get_data())
+    ElementTree.fromstring(sheet)
+    assert "SAMPLE�statement.pdf" in sheet
+
+    csv_body = client.get(f"/package_download/csv?ids={job.id}").get_data(as_text=True)
+    assert "SAMPLE\x0bstatement.pdf" in csv_body
+
+
+# --------------------------------------------------------------------------
 # 5. Account-number masking at the webapp boundary (R-25)
 # --------------------------------------------------------------------------
 
@@ -562,3 +637,123 @@ def test_raw_ocr_surfaces_are_documented_residual_exposure():
     assert ACCOUNT in client.get(f"/markdown/{job.id}").get_data(as_text=True)
     assert ACCOUNT in client.get(f"/result/{job.id}").get_data(as_text=True)
     assert ACCOUNT in client.get(f"/download/{job.id}/md").get_data(as_text=True)
+
+
+# --------------------------------------------------------------------------
+# 6. Statement text served as a page (audit 2026-10-13, EXP-1)
+# --------------------------------------------------------------------------
+# A PDF's text layer is untrusted (an applicant's, possibly forged, statement). The report pages that carry it
+# (/result, the html and md downloads, /markdown) are served with a sandboxing Content-Security-Policy and nosniff, so
+# markup in a statement can never run a script in the app's origin; a saved html download carries the same policy
+# (without `sandbox`, which a meta tag cannot carry) inside its head, so it is inert when opened from disk.
+
+_INJECTED = "<img src=x onerror=\"document.title='INJECTED'\">"
+
+
+def _report_job(html: str, markdown: str = "# md"):
+    job = store.create("report.pdf")
+    store.set_result(job.id, markdown, html, analysis=_analysis_payload())
+    return job
+
+
+@pytest.mark.parametrize("route", ["/result/{id}", "/download/{id}/html", "/download/{id}/md", "/markdown/{id}"])
+def test_report_routes_serve_a_sandboxing_csp_and_nosniff(route):
+    job = _report_job(f"<p>{_INJECTED}</p>", markdown=_INJECTED)
+    resp = app.test_client().get(route.format(id=job.id))
+    assert resp.status_code == 200
+    policy = resp.headers.get("Content-Security-Policy", "")
+    directives = [d.strip() for d in policy.split(";")]
+    assert directives[0] == "sandbox"
+    for needed in ("default-src 'none'", "style-src 'unsafe-inline'", "img-src data:", "form-action 'none'",
+                   "base-uri 'none'"):
+        assert needed in directives, (needed, policy)
+    assert resp.headers.get("X-Content-Type-Options") == "nosniff"
+
+
+def test_the_report_routes_keep_their_content_types():
+    """/result stays a utf-8 html page and /markdown a utf-8 text page (its charset was written twice before)."""
+    job = _report_job("<p>md</p>")
+    client = app.test_client()
+    assert client.get(f"/result/{job.id}").headers["Content-Type"] == "text/html; charset=utf-8"
+    assert client.get(f"/markdown/{job.id}").headers["Content-Type"] == "text/plain; charset=utf-8"
+    assert client.get(f"/result/{job.id}").get_data(as_text=True) == "<p>md</p>"
+
+
+def test_the_html_download_of_a_stored_report_carries_the_policy_in_its_head():
+    """A report stored before the renderer carried the meta tag gets it at serve time, inside its head; the rest of
+    the stored bytes are served unchanged."""
+    from ocr.render import REPORT_CSP
+
+    stored = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>x</title>\n</head>\n<body>\n" \
+        f"<p>{_INJECTED}</p>\n</body>\n</html>\n"
+    job = _report_job(stored)
+    body = app.test_client().get(f"/download/{job.id}/html").get_data(as_text=True)
+    meta = f'<meta http-equiv="Content-Security-Policy" content="{REPORT_CSP}">'
+    head = body.split("</head>", 1)[0]
+    assert head.count(meta) == 1
+    assert body.replace(meta + "\n", "", 1) == stored
+
+
+def test_the_html_download_does_not_repeat_a_policy_the_report_already_carries():
+    from ocr.render import REPORT_CSP, markdown_to_html
+
+    rendered = markdown_to_html("SAMPLE STATEMENT", title="report.pdf")
+    job = _report_job(rendered)
+    body = app.test_client().get(f"/download/{job.id}/html").get_data(as_text=True)
+    assert body == rendered
+    assert body.count(f'content="{REPORT_CSP}"') == 1
+
+
+def test_a_crafted_text_layer_reaches_the_review_page_as_text_end_to_end(monkeypatch):
+    """The finding's path, end to end: a fabricated PDF whose text layer prints an <img onerror> and a <script>
+    element, through the real upload and the real worker (deterministic parse). The refused statement's "Review
+    extraction" page and its html download show the markup as text, under the sandboxing policy."""
+    fitz = pytest.importorskip("fitz")
+    import webapp.app as webapp_app
+
+    image_tag = "<img src=x onerror=\"document.title='INJECTED'\">"
+    script_tag = "<script>document.title='INJECTED2'</script>"
+    doc = fitz.open()
+    for _ in range(2):
+        page = doc.new_page()
+        lines = ["SAMPLE BANK STATEMENT (fabricated)", "01/04 ACH DEPOSIT CONTOSO 100.00", image_tag, script_tag]
+        lines += [f"filler line {i} with ordinary words for the native text gate" for i in range(25)]
+        for n, line in enumerate(lines):
+            page.insert_text((72, 72 + 13 * n), line, fontsize=9)
+    pdf = doc.tobytes()
+    doc.close()
+
+    monkeypatch.setattr(webapp_app, "_enqueue_job", lambda job_id, pdf_bytes, filename, force_ocr, parse_mode:
+                        webapp_app.run_job(job_id, pdf_bytes, filename, webapp_app.store, force_ocr, parse_mode))
+    client = app.test_client()
+    resp = client.post("/upload", data={"files": (io.BytesIO(pdf), "crafted.pdf"), "parse_mode": "deterministic"},
+                       content_type="multipart/form-data")
+    assert resp.status_code == 200, resp.get_json()
+    job_id = resp.get_json()["jobs"][0]["id"]
+    assert client.get(f"/status/{job_id}").get_json()["status"] == "done"
+    assert image_tag in client.get(f"/markdown/{job_id}").get_data(as_text=True)  # the evidence keeps the text
+
+    for route in (f"/result/{job_id}", f"/download/{job_id}/html"):
+        served = client.get(route)
+        body = served.get_data(as_text=True)
+        assert image_tag not in body and script_tag not in body
+        assert "<img" not in body and "<script" not in body
+        assert "&lt;img src=x onerror=" in body and "&lt;script&gt;" in body
+        assert served.headers["Content-Security-Policy"].startswith("sandbox; default-src 'none'")
+
+
+def test_a_policy_printed_in_the_statement_body_does_not_stand_in_for_the_head_one():
+    from ocr.render import REPORT_CSP
+
+    fake = f'<meta http-equiv="Content-Security-Policy" content="{REPORT_CSP}">'
+    stored = f"<html><head><title>x</title></head><body><p>{fake}</p>{_INJECTED}</body></html>"
+    job = _report_job(stored)
+    body = app.test_client().get(f"/download/{job.id}/html").get_data(as_text=True)
+    assert fake in body.split("</head>", 1)[0]
+
+
+def test_the_other_downloads_are_unchanged_by_the_report_policy():
+    job = _report_job("<p>md</p>")
+    client = app.test_client()
+    for fmt in ("json", "csv", "xlsx"):
+        assert "Content-Security-Policy" not in client.get(f"/download/{job.id}/{fmt}").headers

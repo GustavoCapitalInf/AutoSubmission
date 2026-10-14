@@ -31,6 +31,7 @@ all 109 against the product.
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import pytest
@@ -200,6 +201,103 @@ def test_the_gate_harness_analyses_the_way_production_does():
                 f"supplies sheets cannot be read from the source. Declare it in "
                 f"ANALYSIS_CALL_SITES instead of excusing it."
             )
+
+
+# --- the two guards above, proven to bite (audit 2026-10-13, HYG-03) ---------
+#
+# Both guards read the tree through this module's `ROOT`, so each proof below
+# copies every module the sweep finds into a scratch folder, points `ROOT` at
+# it, plants ONE change in the copy and runs the guard itself. The working tree
+# is never touched, and the guard that catches the mutant here is the very
+# function that guards the repository.
+
+
+def _without_sheets(source: str, function: str) -> str:
+    """`source` with every `sheets=` dropped from the analysis calls inside
+    `function`."""
+    tree = ast.parse(source)
+    target = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == function
+    )
+    dropped = 0
+    for node in ast.walk(target):
+        if isinstance(node, ast.Call) and _called_name(node) in WATCHED:
+            kept = [keyword for keyword in node.keywords if keyword.arg != "sheets"]
+            dropped += len(node.keywords) - len(kept)
+            node.keywords = kept
+    assert dropped, f"{function} passes no sheets to drop"
+    return ast.unparse(tree)
+
+
+def _with_sheets_splatted(source: str) -> str:
+    """`source` with every analysis call's `sheets=x` rewritten as
+    `**{"sheets": x}`: the same call, unreadable to a static reader."""
+    tree = ast.parse(source)
+    rewritten = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _called_name(node) in WATCHED:
+            for index, keyword in enumerate(node.keywords):
+                if keyword.arg == "sheets":
+                    node.keywords[index] = ast.keyword(
+                        arg=None, value=ast.Dict(keys=[ast.Constant("sheets")], values=[keyword.value])
+                    )
+                    rewritten += 1
+    assert rewritten, "no analysis call passes sheets to splat"
+    return ast.unparse(tree)
+
+
+@pytest.fixture
+def scratch_callers(tmp_path, monkeypatch):
+    """A scratch tree holding a copy of every module the sweep finds in the
+    repository, with this module's `ROOT` pointed at it for one test."""
+    for relative in _callers():
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text((ROOT / relative).read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    return tmp_path
+
+
+def test_the_unmutated_scratch_copy_passes_both_guards(scratch_callers):
+    """The control: every mutant below differs from this copy by one change."""
+    test_every_production_caller_of_the_analysis_is_classified()
+    test_the_gate_harness_analyses_the_way_production_does()
+
+
+def test_a_new_unclassified_caller_turns_the_sweep_red(scratch_callers):
+    planted = scratch_callers / "webapp" / "contoso_new_caller.py"
+    planted.write_text(
+        "from analysis.pipeline import analyze_document\n\n\n"
+        "def publish(markdown):\n"
+        '    return analyze_document(markdown, parse_mode="deterministic")\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(AssertionError, match="contoso_new_caller"):
+        test_every_production_caller_of_the_analysis_is_classified()
+
+
+@pytest.mark.parametrize("relative, function", [
+    ("vlm/pair_adapter.py", "analyze_visual_pair"),
+    ("vlm/currency.py", "resolve_currency"),
+])
+def test_a_declared_visual_caller_that_drops_sheets_turns_the_harness_red(scratch_callers, relative, function):
+    """Why the two visual-pair callers are DECLARED rather than excused: the
+    web app's worker reaches both, and only a declared site is held to the
+    page partition. Were they excused, this mutant would stay green."""
+    path = scratch_callers / relative
+    path.write_text(_without_sheets(path.read_text(encoding="utf-8"), function), encoding="utf-8")
+    with pytest.raises(AssertionError, match="PRODUCTION_SUPPLIES_SHEETS"):
+        test_the_gate_harness_analyses_the_way_production_does()
+
+
+@pytest.mark.parametrize("relative", ["tools/revenue_census.py", "tools/phase3_pair/oracle_compare.py"])
+def test_an_excused_research_tool_that_splats_its_arguments_turns_the_harness_red(scratch_callers, relative):
+    path = scratch_callers / relative
+    path.write_text(_with_sheets_splatted(path.read_text(encoding="utf-8")), encoding="utf-8")
+    with pytest.raises(AssertionError, match="splats"):
+        test_the_gate_harness_analyses_the_way_production_does()
 
 
 def test_every_pinned_expectation_names_a_pinned_document():

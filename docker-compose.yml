@@ -18,7 +18,6 @@ services:
       WEBAPP_AUTH_USER: "${WEBAPP_AUTH_USER:-intern}"
       WEBAPP_AUTH_PASSWORD: "${WEBAPP_AUTH_PASSWORD:?Set WEBAPP_AUTH_PASSWORD in .env (see .env.intern.example)}"
       WEBAPP_DATA_DIR: /data
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     volumes:
       - intern-data:/data
     restart: unless-stopped

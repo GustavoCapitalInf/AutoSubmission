@@ -239,8 +239,8 @@ EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "paddle", "visual", "visu
 # Evidence quality: Class A, decided BEFORE reconstruction or validation.
 # ---------------------------------------------------------------------------
 
-#: Duplicated BY REFERENCE from `ocr/local_tesseract.py`'s own floor (line 42,
-#: `< 200`) — the same number the extractor already enforces before it will
+#: Duplicated BY REFERENCE from `ocr/local_tesseract.py`'s own floor
+#: (`TEXT_FLOOR_CHARS`, `< 200`) — the same number the extractor already enforces before it will
 #: even return a document. Do not tune independently; if that floor changes,
 #: this one changes with it.
 CHAR_FLOOR = 200

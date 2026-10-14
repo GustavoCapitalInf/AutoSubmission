@@ -92,23 +92,36 @@ def fabricated_statement(rows: int = 300) -> Statement:
     return Statement(transactions=transactions)
 
 
-def _seconds(statement: Statement, repeats: int) -> float:
+def _timed(statement: Statement, repeats: int) -> tuple[float, list]:
+    """The best wall time of `repeats` classifications, and the records of the last one."""
     best = float("inf")
+    records: list = []
     for _ in range(repeats):
         started = time.perf_counter()
-        transaction_classifier.classify_statement_transactions(statement)
+        records = transaction_classifier.classify_statement_transactions(statement)
         best = min(best, time.perf_counter() - started)
-    return best
+    return best, records
 
 
-def measure(rows: int = 300) -> dict[str, float]:
-    """Best of three with the compiled matchers; one run with the legacy matchers swapped in."""
+def _seconds(statement: Statement, repeats: int) -> float:
+    return _timed(statement, repeats)[0]
+
+
+def measure(rows: int = 300, *, keep_records: bool = False) -> dict:
+    """Best of three with the compiled matchers; one run with the legacy matchers swapped in.
+
+    With `keep_records`, the result also carries each side's classification records (`current_records`,
+    `legacy_records`), so one legacy pass can serve both the speed check and the no-change check."""
     statement = fabricated_statement(rows)
     _seconds(statement, 1)
-    current = _seconds(statement, 3)
+    current, current_records = _timed(statement, 3)
     with legacy_matchers():
-        legacy = _seconds(statement, 1)
-    return {"rows": rows, "legacy_seconds": legacy, "current_seconds": current, "speedup": legacy / current}
+        legacy, legacy_records = _timed(statement, 1)
+    result: dict = {"rows": rows, "legacy_seconds": legacy, "current_seconds": current, "speedup": legacy / current}
+    if keep_records:
+        result["current_records"] = current_records
+        result["legacy_records"] = legacy_records
+    return result
 
 
 def main() -> int:

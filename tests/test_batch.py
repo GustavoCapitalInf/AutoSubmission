@@ -12,6 +12,7 @@ class name only now, matching every other class-name-only sink in this tree.
 from __future__ import annotations
 
 import csv
+import json
 import sys
 
 import batch
@@ -390,3 +391,326 @@ def test_r3_16_the_error_row_leaves_the_large_deposit_cells_empty(monkeypatch, t
     with open(out, newline="", encoding="utf-8") as handle:
         [row] = list(csv.DictReader(handle))
     assert (row["large_unsourced_deposit_count"], row["large_unsourced_deposit_total"]) == ("", "")
+
+
+# --- Audit 2026-10-13, EXP-6: the triage CSV neutralises a spreadsheet formula in a cell, as every webapp download
+# does (one rule, `spreadsheet_safety.escape_formula`). The file name is the operator's, and the bank and account come
+# from the document: a cell that starts with = + - @ tab or CR gains a leading apostrophe; a money-shaped value such as
+# a negative figure stays a number. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _triage(monkeypatch, tmp_path, name, analyze):
+    source = tmp_path / name
+    source.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", analyze)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(source), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def test_exp6_a_formula_led_file_name_bank_and_account_are_written_as_text(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE, bank="@SAMPLE BANK", number="=2+2")
+    [row] = _triage(monkeypatch, tmp_path, "=1+1.md", lambda markdown, **kwargs: document)
+    assert (row["file"], row["bank"], row["account"]) == ("'=1+1.md", "'@SAMPLE BANK", "'=2+2")
+
+
+def test_exp6_negative_money_stays_a_number(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document([(fx.KAPITUS, -850.00, 9)])
+    [row] = _triage(monkeypatch, tmp_path, "+SAMPLE.md", lambda markdown, **kwargs: document)
+    assert row["cash_flow"] == "-850.00"
+    assert row["total_debits"] == "850.00"
+    assert row["file"] == "'+SAMPLE.md"
+
+
+def test_exp6_the_error_row_writes_a_formula_led_file_name_as_text(monkeypatch, tmp_path):
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    [row] = _triage(monkeypatch, tmp_path, "-1+1.md", boom)
+    assert (row["file"], row["needs_review"], row["error"]) == ("'-1+1.md", "REVIEW", "RuntimeError")
+
+
+def test_exp6_plain_cells_are_written_unchanged(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE)
+    [row] = _triage(monkeypatch, tmp_path, "SAMPLE statement.md", lambda markdown, **kwargs: document)
+    plain = batch._row(tmp_path / "SAMPLE statement.md", document.accounts[0])
+    assert row == {key: str(value) for key, value in plain.items()}
+
+
+def test_exp6_batch_and_the_webapp_share_one_formula_rule():
+    import spreadsheet_safety
+    from webapp import app as webapp_app
+
+    assert webapp_app._escape_formula is spreadsheet_safety.escape_formula
+    assert webapp_app._FORMULA_LEAD is spreadsheet_safety.FORMULA_LEAD
+    assert webapp_app._NUMERIC_CELL is spreadsheet_safety.NUMERIC_CELL
+    assert batch.escape_formula is spreadsheet_safety.escape_formula
+
+
+# --- Audit 2026-10-13, EXP-2: batch.py writes one telemetry record per document. `_emit` read an unbound `report`
+# (left behind by a parameter rename), and its blanket `except` dropped every record without a word. The flag is now read
+# from the document's payload, as webapp/worker.py reads it. These tests turn telemetry ON (every other batch.main test
+# here sets TELEMETRY_DISABLED) and point it into tmp_path. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _telemetry_run(monkeypatch, tmp_path, analyze, names):
+    folder = tmp_path / "statements"
+    folder.mkdir()
+    for name in names:
+        (folder / name).write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    jsonl = tmp_path / "telemetry.jsonl"
+    monkeypatch.delenv("TELEMETRY_DISABLED", raising=False)
+    monkeypatch.setattr(batch, "analyze_document", analyze)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(tmp_path / "triage.csv"),
+                                      "--telemetry", str(jsonl)])
+    batch.main()
+    lines = jsonl.read_text(encoding="utf-8").splitlines() if jsonl.exists() else []
+    return lines, [json.loads(line) for line in lines]
+
+
+def test_exp2_batch_writes_one_telemetry_record_per_document(monkeypatch, tmp_path, capsys):
+    from tests import zelle_setting_fixtures as fx
+
+    names = ["NORTHWIND_SAMPLE_1.md", "NORTHWIND_SAMPLE_2.md"]
+    lines, records = _telemetry_run(monkeypatch, tmp_path, lambda markdown, **kwargs: _z1(), names)
+    assert len(records) == 2
+    assert {record["emitter"] for record in records} == {"batch"}
+    assert [record["outcome"]["escalated"] for record in records] == [False, False]
+    assert {record["outcome"]["error_type"] for record in records} == {None}
+    assert "Telemetry: 2 records" in capsys.readouterr().err
+    # Documents are identified by content hash alone (`_emit`'s docstring): no file name, holder or account number.
+    for line in lines:
+        assert "NORTHWIND_SAMPLE" not in line
+        assert fx.HOLDER not in line and fx.ACCOUNT not in line
+
+
+def test_exp2_a_failed_document_still_writes_its_record(monkeypatch, tmp_path, capsys):
+    def boom(markdown, **kwargs):
+        raise RuntimeError("fabricated failure")
+
+    _, records = _telemetry_run(monkeypatch, tmp_path, boom, ["SAMPLE_1.md"])
+    assert len(records) == 1
+    assert (records[0]["outcome"]["class"], records[0]["outcome"]["error_type"]) == ("failed", "RuntimeError")
+    assert records[0]["outcome"]["escalated"] is False
+    assert "Telemetry: 1 records" in capsys.readouterr().err
+
+
+# --- Audit 2026-10-13, EXP-3: batch.py opens --out, and writes the header, before it analyses the first document, then
+# writes and flushes each row as it is produced. A bad --out path (or a file another program holds locked) fails before
+# any analysis, and an interrupted run keeps every row it finished and says on stderr that it is incomplete. A clean
+# run writes the same rows, in the same order, byte for byte. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _statements(tmp_path, count):
+    folder = tmp_path / "statements"
+    folder.mkdir()
+    for index in range(1, count + 1):
+        (folder / f"SAMPLE_{index}.md").write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    return folder
+
+
+def _counting(calls, *, interrupt_on=None, fail_on=None, during=None):
+    def analyze(markdown, **kwargs):
+        calls.append(markdown)
+        if during is not None:
+            during(len(calls))
+        if len(calls) == interrupt_on:
+            raise KeyboardInterrupt
+        if len(calls) == fail_on:
+            raise RuntimeError("fabricated failure")
+        return _z1()
+    return analyze
+
+
+def _csv_lines(path):
+    with open(path, newline="", encoding="utf-8") as handle:
+        return list(csv.reader(handle))
+
+
+def test_exp3_a_bad_out_path_fails_before_any_document_is_analysed(monkeypatch, tmp_path):
+    import pytest
+
+    calls = []
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "no_such_folder" / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    with pytest.raises(OSError):
+        batch.main()
+    assert calls == []
+    assert not out.exists()
+
+
+def test_exp3_each_row_is_on_disk_before_the_next_document_is_analysed(monkeypatch, tmp_path):
+    calls, seen = [], {}
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "triage.csv"
+
+    def during(call):
+        seen[call] = len(_csv_lines(out))
+
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls, during=during))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    # The header is written before the first analysis, and each finished row before the next one starts.
+    assert seen == {1: 1, 2: 2, 3: 3}
+    assert len(_csv_lines(out)) == 4
+
+
+def test_exp3_an_interrupt_keeps_the_rows_already_written(monkeypatch, tmp_path, capsys):
+    import pytest
+
+    calls = []
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls, interrupt_on=2))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    with pytest.raises(KeyboardInterrupt):
+        batch.main()
+    header, *rows = _csv_lines(out)
+    assert header == batch.FIELDS
+    assert [row[0] for row in rows] == ["SAMPLE_1.md"]
+    err = capsys.readouterr().err
+    assert "INCOMPLETE: 1 of 3 files analysed" in err
+    assert "Wrote " not in err
+
+
+def test_exp3_a_failed_document_keeps_its_place_between_the_others(monkeypatch, tmp_path, capsys):
+    calls = []
+    folder = _statements(tmp_path, 3)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls, fail_on=2))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [(row["file"], row["error"]) for row in rows] == [
+        ("SAMPLE_1.md", ""), ("SAMPLE_2.md", "RuntimeError"), ("SAMPLE_3.md", "")]
+    err = capsys.readouterr().err
+    assert f"Wrote 3 rows to {out}  (3 flagged for review)" in err
+    assert "INCOMPLETE" not in err
+
+
+def test_exp3_a_clean_run_writes_the_rows_byte_for_byte(monkeypatch, tmp_path):
+    import io
+    from pathlib import Path
+
+    calls = []
+    folder = _statements(tmp_path, 2)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", _counting(calls))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    expected = io.StringIO(newline="")
+    writer = csv.DictWriter(expected, fieldnames=batch.FIELDS)
+    writer.writeheader()
+    writer.writerows(batch._csv_row(batch._row(Path(name), account))
+                     for name in ("SAMPLE_1.md", "SAMPLE_2.md") for account in _z1().accounts)
+    assert out.read_bytes() == expected.getvalue().encode("utf-8")
+
+
+def test_exp3_a_two_account_document_whose_second_row_fails_keeps_the_first(monkeypatch, tmp_path):
+    from analysis.pipeline import DocumentReport
+
+    account = _z1().accounts[0]
+    real_row, built = batch._row, []
+
+    def second_fails(path, report, zelle_true_revenue=True):
+        built.append(report)
+        if len(built) == 2:
+            raise ValueError("fabricated")
+        return real_row(path, report, zelle_true_revenue)
+
+    folder = _statements(tmp_path, 1)
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "_row", second_fails)
+    monkeypatch.setattr(batch, "analyze_document", lambda markdown, **kwargs: DocumentReport(accounts=[account, account]))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    with open(out, newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert [(row["file"], row["bank"] != "", row["error"]) for row in rows] == [
+        ("SAMPLE_1.md", True, ""), ("SAMPLE_1.md", False, "ValueError")]
+
+
+def test_exp3_the_telemetry_sink_is_closed_when_the_run_is_interrupted(monkeypatch, tmp_path):
+    import pytest
+
+    class Recording:
+        written, closed = 0, False
+
+        def write(self, record):
+            self.written += 1
+
+        def close(self):
+            self.closed = True
+
+    sink = Recording()
+    folder = _statements(tmp_path, 2)
+    monkeypatch.setattr(batch, "open_jsonl_sink", lambda path, run_id: sink)
+    monkeypatch.setattr(batch, "analyze_document", _counting([], interrupt_on=2))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(tmp_path / "triage.csv")])
+    with pytest.raises(KeyboardInterrupt):
+        batch.main()
+    assert sink.closed is True
+
+
+def test_exp3_the_csv_on_stdout_leaves_stdout_open(monkeypatch, tmp_path, capsys):
+    folder = _statements(tmp_path, 2)
+    monkeypatch.setattr(batch, "analyze_document", _counting([]))
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder)])
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    batch.main()
+    assert not sys.stdout.closed
+    rows = list(csv.DictReader(capsys.readouterr().out.splitlines()))
+    assert [row["file"] for row in rows] == ["SAMPLE_1.md", "SAMPLE_2.md"]
+
+
+# --- Audit 2026-10-13, EXP-5: without --out the CSV goes to stdout, which on Windows is cp1252 when redirected and
+# translates every line end: a file name (or any cell) holding a ligature crashed the write with UnicodeEncodeError after
+# the whole run, and csv's own CRLF became CR CR LF, a blank row after every row. The CSV on stdout is now the bytes
+# --out writes: UTF-8, one CRLF per row. The stdout here is a cp1252 TextIOWrapper that translates line ends as the
+# Windows host's does, on any host. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def test_exp5_the_csv_on_a_redirected_stdout_is_the_out_file_byte_for_byte(monkeypatch, tmp_path):
+    import io
+
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE)
+    folder = tmp_path / "statements"
+    folder.mkdir()
+    for name in ("SAMPLE_a.md", "SAMPLE_ﬁle.md"):
+        (folder / name).write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    out = tmp_path / "triage.csv"
+    monkeypatch.setattr(batch, "analyze_document", lambda markdown, **kwargs: document)
+    monkeypatch.setenv("TELEMETRY_DISABLED", "1")
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder), "--out", str(out)])
+    batch.main()
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
+    monkeypatch.setattr(sys, "stdout", stream)
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(folder)])
+    batch.main()
+    stream.flush()
+    data = stream.buffer.getvalue()
+    assert data == out.read_bytes()
+    assert b"\r\r\n" not in data
+    header, *rows = list(csv.reader(io.StringIO(data.decode("utf-8"), newline="")))
+    assert header == batch.FIELDS
+    assert sorted(row[0] for row in rows) == ["SAMPLE_a.md", "SAMPLE_ﬁle.md"]

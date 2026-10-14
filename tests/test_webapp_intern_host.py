@@ -118,3 +118,22 @@ def test_upload_without_password_is_401_when_auth_is_on(monkeypatch):
     monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "intern-secret")
     resp = app.test_client().post("/upload")
     assert resp.status_code == 401
+
+
+def test_the_password_gate_runs_before_every_other_request_hook():
+    """Flask runs before_request hooks in registration order: the gate must come first, so an unauthenticated
+    request is answered 401 before any other hook (the audit's degraded-store refusal included) says anything."""
+    hooks = app.before_request_funcs[None]
+    assert hooks[0].__name__ == "_gate_intern_auth"
+
+
+def test_a_degraded_store_answers_401_before_its_503_when_auth_is_on(monkeypatch):
+    import webapp.app as app_module
+
+    monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "intern-secret")
+    monkeypatch.setattr(app_module, "STORE_STATE", app_module.STORE_READ_ONLY)
+    client = app.test_client()
+    assert client.post("/upload").status_code == 401
+    authed = client.post("/upload", headers=_basic("intern", "intern-secret"))
+    assert authed.status_code == 503
+    assert client.get("/healthz").status_code == 200

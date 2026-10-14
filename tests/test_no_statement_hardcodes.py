@@ -31,6 +31,7 @@ here so it is visible rather than forgotten.
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
 from pathlib import Path
 
@@ -76,6 +77,16 @@ REMOVED_LITERALS = (
     "PRODIGY",                # item 8 - merchant sign list
     "ACE AUTO GLASS",         # R-4b - customer name used as detection evidence
     "BUILDER ACCOUNT",        # R-4b - customer's ACCOUNT TITLE as detection evidence
+)
+
+#: Removed statement literals whose TEXT must not be written into tracked source at all, this file included: the
+#: ratchet above works by writing the offending string into the repository, and a name that may belong to a real
+#: party is what the standing privacy rule keeps out of it (see
+#: `test_no_worked_example_in_the_llm_prompt_carries_a_figure`). Each entry is (word count, sha256 of the literal's
+#: words): the literal upper-cased, its [A-Z0-9] runs joined by one space. `_literal_digest` computes it.
+REMOVED_LITERAL_DIGESTS = (
+    # Audit 2026-10-13, REC-8: the holder line the Banco Popular reader compared page lines against (a customer name).
+    (5, "58d453a0ac18f02010a7fe1e12d144e2802a57197645f70cdb597037c581a3b2"),
 )
 
 #: Literal years (2010-2039) appearing as code constants. Century pivots
@@ -287,6 +298,64 @@ def test_removed_literals_stay_removed_anywhere_in_analysis():
             if literal.upper() in source:
                 offenders.append(f"{path.name}: {literal}")
     assert not offenders, f"statement-specific literals in analysis/: {offenders}"
+
+
+_DIGEST_WORD_RE = re.compile(r"[A-Z0-9]+")
+
+
+def _literal_digest(literal: str) -> tuple[int, str]:
+    """The (word count, digest) `REMOVED_LITERAL_DIGESTS` holds for `literal`."""
+    words = _DIGEST_WORD_RE.findall(literal.upper())
+    return len(words), hashlib.sha256(" ".join(words).encode("utf-8")).hexdigest()
+
+
+def _digest_hits(paths, digests=REMOVED_LITERAL_DIGESTS) -> list[str]:
+    """Every file whose text holds a run of words matching a removed literal's digest, in any casing and with any
+    spacing or punctuation between the words: code, string constants, comments and docstrings alike."""
+    wanted: dict[int, set[str]] = {}
+    for count, digest in digests:
+        wanted.setdefault(count, set()).add(digest)
+    hits = []
+    for path in paths:
+        words = _DIGEST_WORD_RE.findall(path.read_text(encoding="utf-8").upper())
+        for count, digests_of_count in wanted.items():
+            for start in range(len(words) - count + 1):
+                window = " ".join(words[start:start + count])
+                if hashlib.sha256(window.encode("utf-8")).hexdigest() in digests_of_count:
+                    hits.append(f"{path.name}: word {start}")
+    return hits
+
+
+def test_removed_literal_digests_stay_removed_anywhere_in_analysis_and_ocr():
+    """Audit 2026-10-13, REC-8: `analysis/banco_popular.py` skipped any line equal to one customer's business name.
+    The reader now skips the page-header holder line by position, and this guard keeps the name out of the parser and
+    OCR layers without writing it here (`REMOVED_LITERAL_DIGESTS`)."""
+    paths = sorted(ANALYSIS_DIR.rglob("*.py")) + sorted(OCR_DIR.rglob("*.py"))
+    assert len(paths) > 100, "the scan found almost no modules; it would pass vacuously"
+    hits = _digest_hits(paths)
+    assert not hits, f"a removed statement literal is back (by digest): {hits}"
+
+
+def test_the_digest_scan_can_see_a_planted_literal(tmp_path):
+    """The guard above is not vacuous: a fabricated name planted the way the original was (a `line ==` comparison),
+    and again in other casing and spacing, is found by its digest alone."""
+    planted = "NORTHWIND PLANTED SAMPLE HOLDINGS LLC"
+    module = tmp_path / "planted.py"
+    module.write_text(
+        "def skip(line):\n"
+        f"    return line == {planted!r}\n"
+        "# northwind  planted-sample holdings, llc\n",
+        encoding="utf-8",
+    )
+    clean = tmp_path / "clean.py"
+    clean.write_text("NORTHWIND PLANTED SAMPLE\nHOLDINGS = 1\n# NORTHWIND SAMPLE PLANTED HOLDINGS LLC\n", encoding="utf-8")
+    digest = _literal_digest(planted)
+    assert digest[0] == 5
+    hits = _digest_hits([module], digests=(digest,))
+    assert len(hits) == 2 and all(hit.startswith("planted.py: ") for hit in hits)
+    assert _digest_hits([module], digests=((5, "0" * 64),)) == []
+    # The same words in another order, or cut short, are not the literal.
+    assert _digest_hits([clean], digests=(digest,)) == []
 
 
 @pytest.mark.parametrize("filename", GUARDED_FILES)

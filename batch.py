@@ -28,6 +28,7 @@ from analysis.active_positions import statement_active_positions
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
+from spreadsheet_safety import escape_formula
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -281,6 +282,14 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     }
 
 
+def _csv_row(row: dict) -> dict:
+    """A row as the CSV writes it (audit 2026-10-13, EXP-6): every cell through the webapp downloads' formula rule
+    (`spreadsheet_safety.escape_formula`). The file name is the operator's and the bank and account come from the
+    document, so a text cell that starts with = + - @ tab or CR gains a leading apostrophe; money-shaped values,
+    negative figures included, and counts stay as they are. `rows` itself is unchanged."""
+    return {key: escape_formula(value) for key, value in row.items()}
+
+
 def _emit(
     sink,
     run_id: str,
@@ -331,7 +340,9 @@ def _emit(
             stages=timer.as_dict(),
             model_calls=model_calls_for(doc, payload),
             payload=payload,
-            escalated=bool(report.escalated) if report is not None else False,
+            # Audit 2026-10-13, EXP-2: read from the payload, as webapp/worker.py reads it. This line read an unbound
+            # `report` after a parameter rename, and the except below dropped every record without a word.
+            escalated=bool((payload or {}).get("escalated")),
             error_type=error_type,
         ))
     except Exception:
@@ -385,69 +396,96 @@ def main() -> None:
             sys.exit(1)
         allow_visual_ocr = True
 
+    # Audit 2026-10-13, EXP-3: the CSV is opened, and its header written, before the first document is analysed, and
+    # each row is written and flushed as it is produced (it used to be opened after the last document): a --out that
+    # cannot be written fails before any analysis, and an interrupted run keeps every row it finished. The rows, their
+    # order and the bytes of a clean run are unchanged; stdout is never closed.
+    if not args.out:
+        # Audit 2026-10-13, EXP-5: the CSV on stdout is the bytes --out writes: UTF-8, and no line-end translation (a
+        # redirected stdout on Windows is cp1252, which cannot encode a ligature in a cell, and its text mode turned
+        # csv's CRLF into CR CR LF, a blank row after every row). A stream without reconfigure is written as it is.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", newline="")
+        except (AttributeError, ValueError, OSError):
+            pass
+    out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
     run_id = new_run_id()
     sink = open_jsonl_sink(args.telemetry, run_id)
     seen_hashes: set[str] = set()
+    count = need = finished = 0
+    try:
+        w = csv.DictWriter(out, fieldnames=FIELDS)
+        w.writeheader()
+        out.flush()
 
-    rows = []
-    for path in files:
-        print(f"analyzing {path.name} ...", file=sys.stderr, flush=True)
-        # Telemetry is write-only side-band: every failure below is swallowed
-        # by the sink, and nothing here feeds back into the analysis.
-        timer = StageTimer()
-        collector = DispatchCollector()
-        markdown = doc = profile = None
-        byte_size = 0
-        try:
-            with timer.time("read"):
-                markdown, doc, profile, byte_size = _read_source(
-                    path, allow_visual_ocr=allow_visual_ocr
-                )
-            with timer.time("analysis"):
-                # The intake object's page list when this input was a PDF, and
-                # nothing when it was already-extracted markdown — a .md file
-                # carries no evidence of how many sheets its source had, and
-                # `assess_document_integrity` fail-closes on that silence rather
-                # than re-splitting the text (W3 §PIPEFIX P4b.1). This CLI
-                # publishes an outcome class derived from these flags into its
-                # telemetry JSONL, so it is a production caller (W3 §WIRING W4).
-                analysed = analyze_document(
-                    markdown, on_dispatch=collector,
-                    sheets=doc.pages if doc is not None else None,
-                )
-            # One CSV row per ACCOUNT, in printed order: a sheet that printed
-            # one row per document would publish one account of several and
-            # drop the rest without saying so.
-            rows.extend(_row(path, account, zelle_true_revenue) for account in analysed.accounts)
-            _emit(sink, run_id, path, markdown, doc, profile, byte_size,
-                  collector, timer, seen_hashes, document=analysed)
-        except Exception as e:  # keep going; record the failure in its row
-            traceback.print_exc()
-            # MINOR-8 (PHASE2_P20SEAM_REVIEW.md): the CSV cell carries the
-            # exception CLASS NAME only, never `str(e)` — this branch gained
-            # a new raise path in this card (`ocr.config.ProvenanceTokenError`
-            # on a hostile filename), and that exception's message quotes the
-            # whole `source_file` (`ocr/document.py`'s
-            # `ProvenanceTokenError` docstring). `traceback.print_exc()`
-            # above still prints the full traceback to the CONSOLE for a
-            # developer debugging a run; only the durable CSV artifact is
-            # reduced to the class name, matching every other class-name-only
-            # sink in this tree (`telemetry.record`'s `error_type`,
-            # `webapp/worker.py::_stage_failure`).
-            rows.append({**{k: "" for k in FIELDS}, "file": path.name,
-                         "needs_review": "REVIEW", "error": type(e).__name__})
-            _emit(sink, run_id, path, markdown, doc, profile, byte_size,
-                  collector, timer, seen_hashes, error_type=type(e).__name__)
+        def write(row: dict) -> None:
+            nonlocal count, need
+            w.writerow(_csv_row(row))
+            out.flush()
+            count += 1
+            need += 1 if row["needs_review"] else 0
 
-    out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
-    w = csv.DictWriter(out, fieldnames=FIELDS)
-    w.writeheader()
-    w.writerows(rows)
+        for path in files:
+            print(f"analyzing {path.name} ...", file=sys.stderr, flush=True)
+            # Telemetry is write-only side-band: every failure below is swallowed
+            # by the sink, and nothing here feeds back into the analysis.
+            timer = StageTimer()
+            collector = DispatchCollector()
+            markdown = doc = profile = None
+            byte_size = 0
+            try:
+                with timer.time("read"):
+                    markdown, doc, profile, byte_size = _read_source(
+                        path, allow_visual_ocr=allow_visual_ocr
+                    )
+                with timer.time("analysis"):
+                    # The intake object's page list when this input was a PDF, and
+                    # nothing when it was already-extracted markdown — a .md file
+                    # carries no evidence of how many sheets its source had, and
+                    # `assess_document_integrity` fail-closes on that silence rather
+                    # than re-splitting the text (W3 §PIPEFIX P4b.1). This CLI
+                    # publishes an outcome class derived from these flags into its
+                    # telemetry JSONL, so it is a production caller (W3 §WIRING W4).
+                    analysed = analyze_document(
+                        markdown, on_dispatch=collector,
+                        sheets=doc.pages if doc is not None else None,
+                    )
+                # One CSV row per ACCOUNT, in printed order: a sheet that printed
+                # one row per document would publish one account of several and
+                # drop the rest without saying so. Written one by one, so an
+                # account whose row fails keeps the rows before it (as before).
+                for account in analysed.accounts:
+                    write(_row(path, account, zelle_true_revenue))
+                _emit(sink, run_id, path, markdown, doc, profile, byte_size,
+                      collector, timer, seen_hashes, document=analysed)
+            except Exception as e:  # keep going; record the failure in its row
+                traceback.print_exc()
+                # MINOR-8 (PHASE2_P20SEAM_REVIEW.md): the CSV cell carries the
+                # exception CLASS NAME only, never `str(e)` — this branch gained
+                # a new raise path in this card (`ocr.config.ProvenanceTokenError`
+                # on a hostile filename), and that exception's message quotes the
+                # whole `source_file` (`ocr/document.py`'s
+                # `ProvenanceTokenError` docstring). `traceback.print_exc()`
+                # above still prints the full traceback to the CONSOLE for a
+                # developer debugging a run; only the durable CSV artifact is
+                # reduced to the class name, matching every other class-name-only
+                # sink in this tree (`telemetry.record`'s `error_type`,
+                # `webapp/worker.py::_stage_failure`).
+                write({**{k: "" for k in FIELDS}, "file": path.name,
+                       "needs_review": "REVIEW", "error": type(e).__name__})
+                _emit(sink, run_id, path, markdown, doc, profile, byte_size,
+                      collector, timer, seen_hashes, error_type=type(e).__name__)
+            finished += 1
+    finally:
+        if args.out:
+            out.close()
+        sink.close()
+        if finished < len(files):
+            # An interrupted run: the CSV holds the finished files' rows only, and says nothing of it itself.
+            print(f"\nINCOMPLETE: {finished} of {len(files)} files analysed; the CSV holds their {count} rows only",
+                  file=sys.stderr)
     if args.out:
-        out.close()
-        need = sum(1 for r in rows if r["needs_review"])
-        print(f"\nWrote {len(rows)} rows to {args.out}  ({need} flagged for review)", file=sys.stderr)
-    sink.close()
+        print(f"\nWrote {count} rows to {args.out}  ({need} flagged for review)", file=sys.stderr)
     written = getattr(sink, "written", 0)
     if written:
         print(

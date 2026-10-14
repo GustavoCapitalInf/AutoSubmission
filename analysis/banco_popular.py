@@ -153,20 +153,45 @@ def _section(markdown: str, start: str, end: str) -> str:
     return ""
 
 
-def _row_strings(section: str) -> list[str]:
+_ROW_START = re.compile(r"^\d{2}-\d{2}\s+")
+
+
+def _holder_line(markdown: str) -> str | None:
+    """The holder line as the statement header prints it: the first non-empty line after the first "Account Number"
+    line. Every page header repeats it right after its own "Account Number" line. None when there is no such line, or
+    when that line is itself a row or a page marker (then nothing is skipped as a holder line)."""
+    lines = [raw.strip() for raw in markdown.splitlines() if raw.strip()]
+    for index, line in enumerate(lines):
+        if line.startswith("Account Number"):
+            candidate = lines[index + 1] if index + 1 < len(lines) else None
+            if candidate is None or _ROW_START.match(candidate) or candidate.startswith(("--- Page", "Account Number")):
+                return None
+            return candidate
+    return None
+
+
+def _row_strings(section: str, holder: str | None = None) -> list[str]:
+    """The section's rows, each with its continuation lines. Page furniture is skipped; the page-header holder line is
+    skipped by POSITION (audit 2026-10-13, REC-8): the line right after an "Account Number" line, when it equals the
+    `holder` line the statement header prints. A continuation line that prints the holder's name anywhere else is
+    kept."""
     section = re.sub(r"(Date Reference Description Amount)\s+(?=\d{2}-\d{2})", r"\1\n", section)
     rows: list[str] = []
     current: list[str] = []
+    after_account_number = False
     for raw in section.splitlines():
         line = raw.strip()
         if not line:
+            continue
+        holder_position = after_account_number
+        after_account_number = line.startswith("Account Number")
+        if holder_position and holder is not None and line == holder:
             continue
         if (
             line.startswith("--- Page")
             or line.startswith("ADS")
             or line.startswith(("From:", "To:", "Page ", "Account Number"))
             or "continued" in line.lower()
-            or line == "HORIZON HEALTH AND MANAGEMENT CONSULTING"
         ):
             continue
         if re.match(r"^\d{2}-\d{2}\s+", line):
@@ -184,9 +209,9 @@ def _row_strings(section: str) -> list[str]:
     return rows
 
 
-def _parse_rows(section: str, *, year: int, sign: int) -> list[Transaction]:
+def _parse_rows(section: str, *, year: int, sign: int, holder: str | None = None) -> list[Transaction]:
     txns: list[Transaction] = []
-    for row in _row_strings(section):
+    for row in _row_strings(section, holder):
         amounts = re.findall(r"(?:\d[\d,]*\.\d{2}|\.\d{2})", row)
         if not amounts:
             continue
@@ -212,10 +237,10 @@ def _parse_rows(section: str, *, year: int, sign: int) -> list[Transaction]:
     return txns
 
 
-def _misc_transactions(markdown: str, *, year: int) -> list[Transaction]:
+def _misc_transactions(markdown: str, *, year: int, holder: str | None = None) -> list[Transaction]:
     section = _section(markdown, r"Miscellaneous debits and credits", r"Service Charges")
     txns: list[Transaction] = []
-    for row in _row_strings(section):
+    for row in _row_strings(section, holder):
         m = re.match(r"^(\d{2})-(\d{2})\s+(.+?)\s+([+-])\s*(?:\$)?([\d,]+\.\d{2}|\.\d{2})$", row)
         if not m:
             continue
@@ -255,9 +280,10 @@ def parse_banco_popular_statement(markdown: str) -> Statement | None:
         return None
     credit_section = _section(markdown, r"Additions", r"\nSubtractions\nOther debits")
     debit_section = _section(markdown, r"\nSubtractions\nOther debits", r"(?:\nMiscellaneous debits and credits|\nService Charges)")
-    txns = _parse_rows(credit_section, year=year, sign=1)
-    txns.extend(_parse_rows(debit_section, year=year, sign=-1))
-    txns.extend(_misc_transactions(markdown, year=year))
+    holder = _holder_line(markdown)
+    txns = _parse_rows(credit_section, year=year, sign=1, holder=holder)
+    txns.extend(_parse_rows(debit_section, year=year, sign=-1, holder=holder))
+    txns.extend(_misc_transactions(markdown, year=year, holder=holder))
     if service_charge:
         txns.append(Transaction(
             date=end,

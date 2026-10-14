@@ -144,6 +144,58 @@ def _native_pages(pdf_bytes: bytes) -> list[str] | None:
     return None if pages is None else list(pages)
 
 
+@lru_cache(maxsize=4)
+def _sorted_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
+    """Every page's layout-sorted text (`get_text("text", sort=True)`), memoised on the document's own bytes.
+
+    Audit 2026-10-13 (INTAKE-3 / PERF-01 part a; speed only, owner ruling of 2026-10-13). The sort is PyMuPDF's
+    pure-Python one and the largest single cost of the native read. Two rungs read it: the first rung of the ladder
+    for every native document (its markers, then its rows), and the fifth for every document no earlier rung
+    claimed. Without the memo the same text was built two or three times per page; with it, once per document.
+
+    The value is the one each rung computed for itself, page for page: the same call through `_page_text`, the same
+    `or ""`. The outcomes are remembered as they were answered:
+
+    * None when PyMuPDF is missing, the bytes do not open, or any page's text layer is unreadable
+      (`_UnreadableTextLayer`): a whole-document refusal, which both rungs answer with None, as they did;
+    * any other exception (a mistake in how get_text is called, a defect) escapes and is NOT remembered, because
+      lru_cache never caches an exception: the next call reads again and fails as loudly.
+
+    A TUPLE is held; `_sorted_pages` hands each caller a fresh list. The handle opened here is closed here (the two
+    rungs used to open their own and leave them open). Four entries, as `_native_pages_cached`: the ladder works one
+    document at a time.
+    """
+    try:
+        import fitz
+    except Exception:
+        return None
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+    try:
+        return tuple(_page_text(page, "text", sort=True) or "" for page in doc)
+    except _UnreadableTextLayer:
+        return None
+    finally:
+        try:
+            doc.close()
+        except Exception:  # noqa: BLE001 — a close failure is not an answer
+            pass
+
+
+def _sorted_pages(pdf_bytes: bytes) -> list[str] | None:
+    pages = _sorted_pages_cached(pdf_bytes)
+    return None if pages is None else list(pages)
+
+
+def clear_page_caches() -> None:
+    """Empty both page-text memos (`_native_pages_cached`, `_sorted_pages_cached`): for tests and tools that stub
+    MuPDF under the same bytes, or that time a cold read."""
+    _native_pages_cached.cache_clear()
+    _sorted_pages_cached.cache_clear()
+
+
 def text_layer_refusal(pdf_bytes: bytes) -> str | None:
     """Why MuPDF could not read this PDF's text layer, or None if it could.
 
@@ -220,7 +272,7 @@ class _NavyPendingRow(TypedDict):
     balance: str | None
 
 
-def _navy_transaction_rows(doc, account: str, product: str) -> tuple[list[str], list[str]]:
+def _navy_transaction_rows(pages: list[str], account: str, product: str) -> tuple[list[str], list[str]]:
     """Recover Navy Federal's primary checking rows from the PDF's geometry.
 
     Generic block sorting loses row ownership because the date/description and
@@ -263,8 +315,10 @@ def _navy_transaction_rows(doc, account: str, product: str) -> tuple[list[str], 
             )
         pending = None
 
-    for page in doc:
-        for raw_line in _page_text(page, "text", sort=True).splitlines():
+    # Audit 2026-10-13 (INTAKE-3): the pages' sorted text, as the rung's marker test read it (_sorted_pages_cached),
+    # not a second sort of every page.
+    for page_text in pages:
+        for raw_line in page_text.splitlines():
             line = re.sub(r"\s+", " ", raw_line).strip()
             if not line:
                 continue
@@ -345,19 +399,12 @@ def parse_native_navy_federal(
     pdf_bytes: bytes, source_file: str = ""
 ) -> StatementMarkdown | None:
     """Native Navy Federal extraction with explicit, layout-aware ledger rows."""
-    try:
-        import fitz
-    except Exception:
+    # Audit 2026-10-13 (INTAKE-3 / PERF-01 a): the sorted text is read once per document (_sorted_pages_cached), and
+    # its None is every refusal this rung made itself: no PyMuPDF, bytes that do not open, an unreadable text layer.
+    sorted_pages = _sorted_pages(pdf_bytes)
+    if sorted_pages is None:
         return None
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception:
-        return None
-
-    try:
-        full_text = "\n".join(_page_text(page, "text", sort=True) or "" for page in doc)
-    except _UnreadableTextLayer:
-        return None
+    full_text = "\n".join(sorted_pages)
     upper = full_text.upper()
     if "NAVY FEDERAL" not in upper or "SUMMARY OF YOUR DEPOSIT ACCOUNTS" not in upper:
         return None
@@ -369,10 +416,7 @@ def parse_native_navy_federal(
         return None
     product, account = checking
 
-    try:
-        rows, source_dates = _navy_transaction_rows(doc, account, product)
-    except _UnreadableTextLayer:
-        return None
+    rows, source_dates = _navy_transaction_rows(sorted_pages, account, product)
     pages = _native_pages(pdf_bytes)
     if not pages or not rows:
         return None
@@ -912,18 +956,10 @@ def parse_native_desjardins(pdf_bytes: bytes, source_file: str = "") -> Statemen
     description stream. PyMuPDF's sorted text preserves enough spacing and row
     continuation to parse the ledger deterministically.
     """
-    try:
-        import fitz
-    except Exception:
-        return None
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception:
-        return None
-
-    try:
-        pages = [_page_text(page, "text", sort=True) or "" for page in doc]
-    except _UnreadableTextLayer:
+    # Audit 2026-10-13 (INTAKE-3 / PERF-01 a): the same sorted text the first rung read, from the memo, as a list of
+    # this rung's own; None is every refusal this rung made itself.
+    pages = _sorted_pages(pdf_bytes)
+    if pages is None:
         return None
     full_text = "\n".join(pages).upper()
     if (

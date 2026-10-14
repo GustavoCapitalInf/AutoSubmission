@@ -1126,13 +1126,14 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 #: stage moved to 34 (the owner report of 2026-10-08, a Capital One parser and ADB change with no classification
 #: change) and to 35 (the owner report of 2026-10-08, Bank of America NSF, a parser change with no classification
 #: change); audit round 3, R3-MERGE, its merge-back, moves it to 37 with no classification change, which a stage-32
-#: entry misses the same way. The owner's Amerifi Capital ruling (2026-10-11) moves them to 38 and 5.9.
+#: entry misses the same way. The owner's Amerifi Capital ruling (2026-10-11) moves them to 38 and 5.9, and the code
+#: audit of 2026-10-13 the stage alone to 39 (no classification change), which a stage-32 entry misses the same way.
 STALE_ROWS = [(3, "CONTOSO LLC DES:ACH PAYMENT ID:1", 1000.0), (5, "ONLINE BANKING TRANSFER CONF FABRIKAM", 900.0),
               (9, "SAMPLE SWEEP TRANSFER FROM SAVINGS", 6000.0)]
 STALE_TIERS = [("verified_revenue", "verified", None),
                ("unverified_deposit", "excluded_pending_review", "transfer_no_counterparty"),
                ("non_revenue", "non_revenue", None)]
-STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 38, "5.9"
+STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 39, "5.9"
 #: Audit round 3, R3-B25: the same statement analysed at classification 5.7 and cached at stage 33, as the round-2
 #: rules left it, before the round-3 fix batches (R3-B01 to R3-B24) moved tiers, reasons and lender readings under 5.7.
 ROUND3_STALE_STAGE, ROUND3_STALE_CLASSIFICATION = 33, "5.7"
@@ -1243,8 +1244,9 @@ def test_a_5_7_analysis_is_served_with_the_re_analyze_notice():
     from webapp.app import _displayed
 
     # Audit round 3, R3-MERGE: the hosting line's merge-back moved the stage to 37 (no classification change). The
-    # owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38.
-    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38; the code audit of 2026-10-13 the stage
+    # alone, to 39.
+    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     stale = _round3_stale_payload()
     assert _stamps(stale) == {"5.7"}
     assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
@@ -1268,8 +1270,8 @@ def test_re_analysing_a_5_7_statement_misses_its_stage_33_entry_and_clears_the_n
     from webapp.app import _displayed, _package_analysis, app
 
     # Audit round 3, R3-MERGE: 37 since the hosting line's merge-back, which misses the stage-33 entry the same way;
-    # 38 and 5.9 since the owner's Amerifi Capital ruling (2026-10-11).
-    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (38, "5.9")
+    # 38 and 5.9 since the owner's Amerifi Capital ruling (2026-10-11); 39 since the code audit of 2026-10-13.
+    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (39, "5.9")
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", ROUND3_STALE_STAGE)
     job_id = pipeline.upload(_round3_stale_payload())
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", CURRENT_STAGE)
@@ -1308,7 +1310,8 @@ def test_a_5_8_analysis_is_served_with_the_re_analyze_notice():
     from webapp import artifact_cache
     from webapp.app import _displayed
 
-    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # The code audit of 2026-10-13 moved the stage alone, 38 -> 39 (no classification change).
+    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     stale = _amerifi_stale_payload()
     assert _stamps(stale) == {"5.8"}
     assert _tiers(stale) == STALE_TIERS == _tiers(_payload(STALE_ROWS))
@@ -1324,7 +1327,8 @@ def test_re_analysing_a_5_8_statement_misses_its_stage_37_entry_and_clears_the_n
     from webapp import artifact_cache
     from webapp.app import _displayed, _package_analysis, app
 
-    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (38, "5.9")
+    # 39 since the code audit of 2026-10-13, which misses the stage-37 entry the same way.
+    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (39, "5.9")
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", AMERIFI_STALE_STAGE)
     job_id = pipeline.upload(_amerifi_stale_payload())
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", CURRENT_STAGE)

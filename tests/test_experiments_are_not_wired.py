@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_TREES = ("analysis", "ocr", "webapp", "discovery", "telemetry", "benchmark")
 PRODUCTION_MODULES = (
     "batch.py", "analyze.py", "parse.py", "corpus_gate.py", "corpus_artifacts.py",
-    "conftest.py",
+    "conftest.py", "spreadsheet_safety.py",
 )
 
 _IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+experiments\b", re.MULTILINE)

@@ -1,10 +1,14 @@
 from __future__ import annotations
 import io
 import csv
+import errno
 import hashlib
 import json
 import os
 import re
+import shutil
+import sqlite3
+import sys
 import threading
 import zipfile
 from collections import Counter, deque
@@ -20,7 +24,7 @@ from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthoriz
 from ocr.config import load_settings as load_ocr_settings
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
-from ocr.render import rendered_skeleton, render_boxed
+from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META, rendered_skeleton, render_boxed
 from analysis.payload_shape import (
     DOCUMENT_KEY as _DOCUMENT_KEY,
     account_content_digest,
@@ -40,6 +44,7 @@ from analysis.revenue import (
     withholding_basis_publishable,
 )
 from analysis.nsf_days import apply_nsf_basis_to_payload
+from analysis.adb import ADVISORY_VALIDATIONS as ADB_ADVISORY_VALIDATIONS
 from analysis.cadence import describe_cadence
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY, FLAG_GROUPS
@@ -66,6 +71,7 @@ from analysis.holder_name import PREMIUM_TRUST_WORDS
 from analysis.true_revenue import zelle_deposit
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY, ZELLE_ROW_TAG, apply_zelle_view
 from analysis.payee_matcher import match_known_payee
+from spreadsheet_safety import FORMULA_LEAD, NUMERIC_CELL, escape_formula
 from analysis.transaction_classifier import (
     _CONSUMER_P2P_RAIL,
     _PUSH_RAIL,
@@ -82,6 +88,7 @@ from analysis.transaction_classifier import (
 )
 from .jobs import JobStore
 from .settings import DEFAULTS as SETTINGS_DEFAULTS, load_settings, save_settings
+from .storage import SCHEMA_VERSION, Storage
 from .worker import run_job
 from .reanalysis import replay_reviews, rerun_analysis
 
@@ -95,20 +102,121 @@ MAX_UPLOAD_PAGES = 500
 # every in-flight job at once, so the stock four would head-of-line block.
 SERVER_THREADS = 16
 
+#: The free space the data volume keeps (audit 2026-10-13, BE-1). Nothing ever deletes a job, document, PDF or
+#: artifact (retention is an owner decision), and on 2026-10-06 the demo's full volume stopped the server from
+#: starting. An upload, or a Re-analyze, that would leave less than this is refused with 507 before anything is
+#: written. Default 256 MB; `WEBAPP_MIN_FREE_MB` overrides it (0 turns the floor off).
+DEFAULT_MIN_FREE_MB = 256
+
+
+def _min_free_bytes(raw: str | None) -> int:
+    """`WEBAPP_MIN_FREE_MB` as bytes. A value that is not a whole number of megabytes (0 or more) falls back to the
+    default with a warning on stderr: a typo in this variable must never stop the server from starting."""
+    if raw is None or not raw.strip():
+        return DEFAULT_MIN_FREE_MB * 1024 * 1024
+    try:
+        megabytes = int(raw.strip())
+    except ValueError:
+        megabytes = -1
+    if megabytes < 0:
+        sys.stderr.write(
+            f"WEBAPP_MIN_FREE_MB={raw!r} is not a whole number of megabytes; using {DEFAULT_MIN_FREE_MB}\n"
+        )
+        return DEFAULT_MIN_FREE_MB * 1024 * 1024
+    return megabytes * 1024 * 1024
+
+
+MIN_FREE_BYTES = _min_free_bytes(os.environ.get("WEBAPP_MIN_FREE_MB"))
+
+#: The refusals the floor answers with (507): fixed text, never a measured figure or a path.
+STORAGE_NEARLY_FULL = "the server's storage is nearly full; no statement was accepted"
+STORAGE_NEARLY_FULL_REASON = "the server's storage is nearly full"
+
+
+def _data_volume_nearly_full(incoming_bytes: int = 0) -> bool:
+    """True when writing `incoming_bytes` would leave the data volume below MIN_FREE_BYTES. A free-space figure that
+    cannot be read answers False: the guard fails open on itself only, it never refuses work by its own error."""
+    try:
+        free = shutil.disk_usage(store.storage.data_dir).free
+    except OSError:
+        return False
+    return free - incoming_bytes < MIN_FREE_BYTES
+
+
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+#: How the store opened at start-up (audit 2026-10-13, BE-1): None normally; STORE_READ_ONLY when it could not be
+#: opened or written but can be read (saved statements are served, every write is refused); STORE_UNAVAILABLE when
+#: it cannot be read either (only the page itself is served). Before, a store that could not be written stopped the
+#: import of this module, so the host restarted the server until it gave up and nothing could be served at all.
+STORE_READ_ONLY = "read_only"
+STORE_UNAVAILABLE = "unavailable"
+
+#: The 503 answers of a degraded start-up: fixed text.
+STORAGE_READ_ONLY_ERROR = (
+    "the server's storage could not be written when it started (the data volume may be full); saved statements can "
+    "be viewed, but nothing can be uploaded, reviewed, re-analyzed, packaged, saved or downloaded until space is "
+    "freed and the server is restarted"
+)
+STORAGE_UNAVAILABLE_ERROR = (
+    "the server's storage could not be opened when it started (the data volume may be full); free space and restart "
+    "the server"
+)
+
+
+#: The failures that mean the data volume cannot be written: SQLite's primary result codes SQLITE_READONLY (8),
+#: SQLITE_IOERR (10; the outage's "disk I/O error" at the journal-mode PRAGMA), SQLITE_FULL (13) and
+#: SQLITE_CANTOPEN (14), and the matching OS errors. A busy or locked database, a permission problem or a schema the
+#: code does not understand is none of these: it still stops the start, as before, so a restart can clear it.
+_SQLITE_VOLUME_FAILURES = frozenset({8, 10, 13, 14})
+_OS_VOLUME_FAILURES = frozenset(
+    code for code in (errno.ENOSPC, errno.EIO, errno.EROFS, getattr(errno, "EDQUOT", None)) if code is not None
+)
+
+
+def _volume_failure(exc: BaseException) -> bool:
+    if isinstance(exc, sqlite3.Error):
+        code = getattr(exc, "sqlite_errorcode", None)
+        return isinstance(code, int) and (code & 0xFF) in _SQLITE_VOLUME_FAILURES
+    if isinstance(exc, OSError):
+        return exc.errno in _OS_VOLUME_FAILURES
+    return False
+
+
+def _open_store() -> tuple[JobStore, list[str], str | None]:
+    """The durable store (D-1) and the startup re-hydration, without letting a full volume stop the server.
+
+    Startup re-hydration: any job left queued/processing by a previous process
+    is explicitly marked `interrupted` with an explanatory error — never
+    silently lost. Completed jobs need nothing: their artifacts already serve
+    from storage. (Auto-resume is deliberately not attempted: the one-worker
+    queue holds no durable claim on partially processed OCR state, so a clean,
+    explicit interruption the analyst can see beats a half-blind retry.)
+
+    Audit 2026-10-13 (BE-1): only a failure of the data volume itself (`_volume_failure`: `disk I/O error` at the
+    journal-mode PRAGMA, `database or disk is full` while marking interrupted jobs, a read-only or full filesystem)
+    falls back to a read-only store. Anything else (a locked database, a schema the code does not understand, a
+    refused data directory) still stops the start: those are not a full disk, and serving them would be wrong."""
+    try:
+        opened = JobStore()
+        return opened, opened.mark_interrupted(), None
+    except (sqlite3.Error, OSError) as exc:
+        if not _volume_failure(exc):
+            raise
+    fallback = JobStore(Storage(read_only=True))
+    try:
+        if fallback.storage.schema_version() != SCHEMA_VERSION:
+            return fallback, [], STORE_UNAVAILABLE
+        return fallback, fallback.mark_interrupted(persist=False), STORE_READ_ONLY
+    except (sqlite3.Error, OSError):
+        return fallback, [], STORE_UNAVAILABLE
+
+
 # Durable store (D-1): SQLite + on-disk PDFs under WEBAPP_DATA_DIR
 # (default `webapp_data/` at repo root). See webapp/storage.py for the
 # single-writer concurrency contract.
-store = JobStore()
-
-# Startup re-hydration: any job left queued/processing by a previous process
-# is explicitly marked `interrupted` with an explanatory error — never
-# silently lost. Completed jobs need nothing: their artifacts already serve
-# from storage. (Auto-resume is deliberately not attempted: the one-worker
-# queue holds no durable claim on partially processed OCR state, so a clean,
-# explicit interruption the analyst can see beats a half-blind retry.)
-_INTERRUPTED_ON_STARTUP: list[str] = store.mark_interrupted()
+store, _INTERRUPTED_ON_STARTUP, STORE_STATE = _open_store()
 
 _job_queue: deque[tuple[str, bytes, str, bool, str]] = deque()
 _job_queue_lock = threading.Lock()
@@ -406,26 +514,11 @@ def _masked(payload: object) -> object:
     return payload
 
 
-_FORMULA_LEAD = ("=", "+", "-", "@", "\t", "\r")
-
-
-# Money-shaped only. `float()` would also accept "-nan" and "+inf", which a
-# spreadsheet reads as the start of a formula rather than as a number.
-_NUMERIC_CELL = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
-
-
-def _escape_formula(value: object) -> object:
-    """Neutralize a spreadsheet formula-injection cell by prefixing an
-    apostrophe, which Excel and LibreOffice both read as "this is text".
-
-    Negative money (`-1234.56`) parses as a number in both, so it is left
-    alone — escaping it would turn every debit in the export into a string and
-    break the underwriter's arithmetic to defend against nothing."""
-    if not isinstance(value, str) or not value.startswith(_FORMULA_LEAD):
-        return value
-    if _NUMERIC_CELL.match(value):
-        return value
-    return "'" + value
+# The formula-injection rule (R-24) lives in `spreadsheet_safety`, which `batch.py` shares (audit 2026-10-13, EXP-6);
+# these names stay importable from here.
+_FORMULA_LEAD = FORMULA_LEAD
+_NUMERIC_CELL = NUMERIC_CELL
+_escape_formula = escape_formula
 
 
 def _escaped_rows(rows: list[tuple[str, str, object]]) -> list[tuple]:
@@ -447,7 +540,12 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
     """The Average Daily Balance working, one row per calendar day, so an
     underwriter can re-add the column in a spreadsheet and land on the same
     figure. Kept out of the flattened `metrics` section, where the whole daily
-    ledger would collapse into a single unreadable JSON cell."""
+    ledger would collapse into a single unreadable JSON cell.
+
+    A validation reads "pass" or "FAIL"; one of `ADB_ADVISORY_VALIDATIONS`,
+    which decides nothing, reads "advisory pass" or "advisory FAIL", so its
+    False on a published ADB is not read as a failed required check (the
+    audit's final review, finding 3)."""
     adb = metrics.get("adb")
     if not isinstance(adb, dict):
         return []
@@ -468,7 +566,10 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
     if validated:
         rows.append(("adb", "daily_balance_sum", adb.get("daily_balance_sum", "")))
     for name, passed in (adb.get("validations") or {}).items():
-        rows.append(("adb_validation", name, "pass" if passed else "FAIL"))
+        verdict = "pass" if passed else "FAIL"
+        if name in ADB_ADVISORY_VALIDATIONS:
+            verdict = f"advisory {verdict}"
+        rows.append(("adb_validation", name, verdict))
     for warning in adb.get("warnings") or []:
         rows.append(("adb_warning", "", warning))
     if validated:
@@ -1515,9 +1616,19 @@ def _package_csv(package: dict) -> str:
     return buf.getvalue()
 
 
+#: Characters XML 1.0 forbids in a document (C0 controls other than tab, LF and CR; U+FFFE and U+FFFF) and lone
+#: surrogates, which UTF-8 cannot encode. Audit 2026-10-13, EXP-7: one of them in a cell made sheet1.xml ill-formed
+#: (the whole workbook refused to open), and a lone surrogate made the download raise.
+_XML_FORBIDDEN = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿\ud800-\udfff]")
+
+
 def _xml_escape(value: object) -> str:
+    """Text for an XLSX inline string (its only caller is `_xlsx_cell`). Each character XML forbids becomes U+FFFD, the
+    replacement character: SUBSTITUTED, never deleted, so a leading control can never let a formula lead start the
+    cell after `_escape_formula` has looked at it, and the cell keeps its length in UTF-16 units. The CSV and the JSON
+    downloads keep the text as read."""
     return (
-        str(value)
+        _XML_FORBIDDEN.sub("�", str(value))
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
@@ -5952,6 +6063,11 @@ def update_settings():
     return jsonify({"settings": settings})
 
 
+#: /upload's answer when the batch could not be stored (audit 2026-10-13, BE-4): every job the request created is
+#: marked failed with this text and none is queued. Fixed text, never an exception's.
+UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
@@ -5981,21 +6097,41 @@ def upload():
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))
 
+    # The free-space floor (audit 2026-10-13, BE-1): validation answers first, then nothing is written when the
+    # batch would leave the data volume below MIN_FREE_BYTES.
+    if _data_volume_nearly_full(sum(len(pdf_bytes) for _name, pdf_bytes, _pages, _profile in accepted)):
+        return jsonify({"error": STORAGE_NEARLY_FULL}), 507
+
+    # Store the whole batch before queueing any of it (audit 2026-10-13, BE-4).
+    # A storage failure on file k used to leave files 1..k-1 queued and
+    # processed under ids the dashboard never received (it got an HTML 500).
+    # Now a failure marks every job this request created failed, queues none
+    # of them, and answers with fixed text: never the exception's own.
+    created = []
+    try:
+        for filename, pdf_bytes, page_count, profile in accepted:
+            # Records the document row (with content_sha256) and the job row, and
+            # writes the PDF bytes to the disk store.
+            job = store.create(
+                filename,
+                page_count=page_count,
+                force_ocr=force_ocr,
+                parse_mode=parse_mode,
+                pdf_bytes=pdf_bytes,
+            )
+            created.append(job)
+            # O-1: persist the preflight profile with the document row.
+            store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
+    except Exception:
+        for job in created:
+            try:
+                store.set_error(job.id, UPLOAD_NOT_STORED)
+            except Exception:
+                pass  # best effort: a job still `queued` in storage is marked interrupted at the next start
+        return jsonify({"error": UPLOAD_NOT_STORED}), 503
+
     jobs = []
-    for filename, pdf_bytes, page_count, profile in accepted:
-        # Records the document row (with content_sha256) and the job row, and
-        # writes the PDF bytes to the disk store.
-        job = store.create(
-            filename,
-            page_count=page_count,
-            force_ocr=force_ocr,
-            parse_mode=parse_mode,
-            pdf_bytes=pdf_bytes,
-        )
-        # O-1: persist the preflight profile with the document row and flag a
-        # re-upload of identical bytes (the earliest prior job with this hash).
-        store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
-        duplicate_of = store.storage.duplicate_of(job.id)
+    for job, (filename, pdf_bytes, page_count, profile) in zip(created, accepted):
         _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
@@ -6004,7 +6140,9 @@ def upload():
             "force_ocr": force_ocr,
             "parse_mode": parse_mode,
             "content_sha256": job.content_sha256,
-            "duplicate_of": duplicate_of,
+            # A re-upload of identical bytes names the earliest prior job holding
+            # them, read in the transaction that created the job (audit BE-2).
+            "duplicate_of": job.duplicate_of,
         })
     return jsonify({"jobs": jobs})
 
@@ -6025,11 +6163,10 @@ def status(job_id):
         "force_ocr": job.force_ocr,
         "parse_mode": job.parse_mode,
         # O-1 additive surfacing: the document hash and, when these exact
-        # bytes were uploaded before, the earliest prior job holding them.
+        # bytes were uploaded before, the earliest prior job holding them
+        # (asked of storage at most once per job: audit BE-2).
         "content_sha256": job.content_sha256,
-        "duplicate_of": (
-            store.storage.duplicate_of(job_id) if job.content_sha256 else None
-        ),
+        "duplicate_of": store.duplicate_of(job_id) if job.content_sha256 else None,
     })
 
 
@@ -6083,7 +6220,33 @@ def markdown(job_id):
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
-    return Response(job.markdown, mimetype="text/plain; charset=utf-8")
+    return Response(job.markdown, mimetype="text/plain", headers=_REPORT_HEADERS)
+
+
+#: Audit 2026-10-13, EXP-1: the routes that serve statement text as it was read (/result, /markdown, the html and md
+#: downloads) carry a sandboxing Content-Security-Policy (no script, form or external resource; the report needs only
+#: its inline styles and data: crops) and nosniff, so markup a PDF's text layer prints never runs in the app's origin.
+_REPORT_HEADERS = {"Content-Security-Policy": REPORT_CSP_HEADER, "X-Content-Type-Options": "nosniff"}
+
+
+def _inert_report(html: str) -> str:
+    """The html download with the report's Content-Security-Policy meta tag in its head, so the saved file is inert
+    when opened from disk (a meta tag cannot carry `sandbox`; the policy still forbids every script). Reports
+    rendered since EXP-1 already carry it and are served as stored; one stored earlier gets it inserted after its
+    charset line (or right after <head>, or at the very start when it has no head), every other byte unchanged. Only
+    the head counts: a copy of the tag printed in the statement's body does not stand in for it."""
+    head_end = html.find("</head>")
+    head = html[:head_end] if head_end >= 0 else ""
+    if REPORT_CSP_META in head:
+        return html
+    charset = '<meta charset="utf-8">\n'
+    at = head.find(charset)
+    if at >= 0:
+        cut = at + len(charset)
+    else:
+        start = head.find("<head>")
+        cut = start + len("<head>") if start >= 0 else 0
+    return html[:cut] + REPORT_CSP_META + "\n" + html[cut:]
 
 
 @app.route("/analysis/<job_id>")
@@ -6353,6 +6516,10 @@ def reanalyze(job_id):
         pdf_bytes = store.pdf_bytes(job_id)
         if pdf_bytes is None:
             return jsonify({"error": "the original PDF is not stored"}), 409
+        # The free-space floor (audit 2026-10-13, BE-1): a re-analysis appends the whole replaced analysis to the
+        # append-only audit log, so it is refused, writing nothing, when the volume is below the floor.
+        if _data_volume_nearly_full():
+            return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": STORAGE_NEARLY_FULL_REASON}), 507
         rerun = rerun_analysis(store, job, pdf_bytes)
         if rerun.analysis is None:
             return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": rerun.reason}), 422
@@ -6510,7 +6677,7 @@ def result(job_id):
     job = store.get(job_id)
     if job is None or job.status != "done":
         abort(404)
-    return job.html
+    return Response(job.html, mimetype="text/html", headers=_REPORT_HEADERS)
 
 
 @app.route("/download/<job_id>/<fmt>")
@@ -6540,13 +6707,58 @@ def download(job_id, fmt):
         # /markdown. Masking the analyst's source view would corrupt it.
         content = job.markdown if fmt == "md" else job.html
         mimetype = "text/markdown" if fmt == "md" else "text/html"
+        if fmt == "html" and isinstance(content, str):
+            content = _inert_report(content)
     store.record_export(job_id=job_id, detail={"format": fmt})
     base_name = _safe_download_name(job.filename.rsplit(".", 1)[0])
-    return Response(
-        content,
-        mimetype=mimetype,
-        headers={"Content-Disposition": f'attachment; filename="{base_name}.{fmt}"'},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="{base_name}.{fmt}"'}
+    if fmt in ("md", "html"):
+        headers.update(_REPORT_HEADERS)
+    return Response(content, mimetype=mimetype, headers=headers)
+
+
+#: What a read-only start-up still serves (audit 2026-10-13, BE-1): GET routes that read the store and write nothing
+#: to the data volume. Everything else is refused with 503: the POST routes, and the two downloads, which write an
+#: export audit row (served without it, the audit trail would lose them). A route added later is refused until it is
+#: named here. `healthz` is the hosting line's probe.
+_READ_ONLY_ENDPOINTS = frozenset({
+    "index", "static", "healthz", "get_settings", "status", "live", "rendered_skeleton_route", "render", "markdown",
+    "analysis", "package_analysis", "page", "result",
+})
+#: What a start-up whose store cannot be read at all still serves: the page and the probe.
+_UNAVAILABLE_ENDPOINTS = frozenset({"index", "static", "healthz"})
+
+
+def _storage_degraded_error():
+    text = STORAGE_READ_ONLY_ERROR if STORE_STATE == STORE_READ_ONLY else STORAGE_UNAVAILABLE_ERROR
+    return jsonify({"error": text}), 503
+
+
+# The password gate is registered before every other request hook, so an unauthenticated request is answered 401
+# before any other hook (the degraded-store refusal included) can say anything about the server.
+@app.before_request
+def _gate_intern_auth():
+    if request_is_authorized():
+        return None
+    return unauthorized()
+
+
+@app.before_request
+def _refuse_what_a_degraded_store_cannot_do():
+    """A degraded start-up (`_open_store`) answers what it can and refuses the rest with fixed text; a normal one is
+    untouched. On the hosting line the password gate must stay ahead of this hook."""
+    if STORE_STATE is None:
+        return None
+    allowed = _READ_ONLY_ENDPOINTS if STORE_STATE == STORE_READ_ONLY else _UNAVAILABLE_ENDPOINTS
+    if request.method in ("GET", "HEAD") and request.endpoint in allowed:
+        return None
+    return _storage_degraded_error()
+
+
+if STORE_STATE is not None:
+    # A read the read-only store cannot serve after all (its connection needs the volume too) answers with the same
+    # fixed text instead of a 500 page. Registered only on a degraded start-up, so a normal one is unchanged.
+    app.register_error_handler(sqlite3.Error, lambda _exc: _storage_degraded_error())
 
 
 def _server_config() -> tuple[str, int]:
@@ -6556,13 +6768,6 @@ def _server_config() -> tuple[str, int]:
     host = os.environ.get("WEBAPP_HOST", "").strip() or "127.0.0.1"
     port = os.environ.get("WEBAPP_PORT", "").strip() or "5000"
     return host, int(port)
-
-
-@app.before_request
-def _gate_intern_auth():
-    if request_is_authorized():
-        return None
-    return unauthorized()
 
 
 @app.route("/healthz")

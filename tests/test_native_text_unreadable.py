@@ -146,10 +146,10 @@ class _Doc:
 
 @pytest.fixture(autouse=True)
 def _cold_page_cache():
-    """`_native_pages_cached` memoises on bytes; every case starts cold."""
-    native_text._native_pages_cached.cache_clear()
+    """`_native_pages_cached` and `_sorted_pages_cached` memoise on bytes; every case starts cold."""
+    native_text.clear_page_caches()
     yield
-    native_text._native_pages_cached.cache_clear()
+    native_text.clear_page_caches()
 
 
 def _install(monkeypatch, doc: _Doc) -> None:

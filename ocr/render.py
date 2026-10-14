@@ -118,11 +118,20 @@ body.hide-regions .region { border-color: transparent !important; padding: 0; ma
 body.hide-regions .region-tag { display: none; }
 """
 
+#: The report page's Content-Security-Policy (audit 2026-10-13, EXP-1). The page carries statement text, which is
+#: untrusted (an applicant's PDF, possibly forged), and needs nothing but its inline <style>, inline style attributes
+#: and data: image crops: no script, no form, no external resource. The webapp serves the report routes with
+#: REPORT_CSP_HEADER (adds `sandbox`, which only a header can carry) and nosniff; a saved html download carries
+#: REPORT_CSP_META in its head, so it is inert when opened from disk too.
+REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'"
+REPORT_CSP_HEADER = "sandbox; " + REPORT_CSP
+REPORT_CSP_META = f'<meta http-equiv="Content-Security-Policy" content="{REPORT_CSP}">'
+
 _PAGE_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+{csp_meta}<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <style>{style}</style>
 </head>
@@ -132,23 +141,61 @@ _PAGE_TEMPLATE = """<!DOCTYPE html>
 </html>
 """
 
+# --- Statement text is shown, never obeyed (audit 2026-10-13, EXP-1) -------------------------------------------------
+# Python-Markdown passes raw HTML through, so markup printed in a PDF's text layer used to reach the report as live
+# HTML. Before rendering, every markup opener in the text ("<" followed by a letter, "/", "!" or "?") becomes a
+# placeholder that the page shows as "&lt;", so the text displays exactly as printed, in code spans and blocks too.
+# Two things pass through: the bare table markup the visual-OCR rung prints its tables in, exactly as it prints it
+# (`<table>`, `<thead>`, `<tbody>`, `<tfoot>`, `<tr>`, `<th>`, `<td>` and their closing tags, lower case, nothing
+# inside the brackets; `<br>`, `<br/>` and `<br />`, written `<br>`), and the document's own header comment
+# (`StatementMarkdown.to_markdown`) when it carries no angle bracket (a hostile source name could close it early).
+# Anything else is shown as text: a tag carrying an attribute or written in capitals, and statement text that only
+# starts like one ("<TD SAMPLE BANK>" used to pass as a bare <td> and lose its words; final review of the audit,
+# finding 2). Text with no markup opener renders byte for byte as before. The parser input, `to_markdown()`, is not
+# touched.
+_TABLE_TAG_RE = re.compile(r"</?(?:table|thead|tbody|tfoot|tr|th|td)>|<br(?: ?/)?>")
+_MARKUP_OPENER_RE = re.compile(r"<(?=[A-Za-z/!?])")
+_HEADER_COMMENT_RE = re.compile(r"\A<!-- source: [^<>\n]* -->(?=\n|\Z)")
+# Two Unicode noncharacters around "lt": never part of interchange text, and untouched by Markdown (which strips the
+# STX/ETX pair it uses for its own placeholders from its input). A statement that printed this exact sequence would
+# only see a "<" in its place.
+_LT_PLACEHOLDER = "﷐lt﷑"
+
+
+def _shown_as_text(text: str) -> str:
+    return _MARKUP_OPENER_RE.sub(_LT_PLACEHOLDER, text)
+
+
+def _neutralize_markup(text: str) -> str:
+    header = _HEADER_COMMENT_RE.match(text)
+    kept = header.group(0) if header else ""
+    rest = text[header.end():] if header else text
+    out, pos = [kept], 0
+    for tag in _TABLE_TAG_RE.finditer(rest):
+        out.append(_shown_as_text(rest[pos:tag.start()]))
+        out.append("<br>" if tag.group(0).startswith("<br") else tag.group(0))
+        pos = tag.end()
+    out.append(_shown_as_text(rest[pos:]))
+    return "".join(out)
+
 
 def render_fragment(markdown_text: str) -> str:
     """Render markdown to just the HTML body fragment (no page wrapper/styles).
-    Used for live incremental rendering into an already-styled container."""
-    promoted = promote_headers(markdown_text)
-    return markdown.markdown(promoted, extensions=["tables"])
+    Used for live incremental rendering into an already-styled container.
+    Markup in the text is shown as text (EXP-1, above)."""
+    promoted = _neutralize_markup(promote_headers(markdown_text))
+    return markdown.markdown(promoted, extensions=["tables"]).replace(_LT_PLACEHOLDER, "&lt;")
 
 
 def markdown_to_html(markdown_text: str, title: str = "") -> str:
-    return _PAGE_TEMPLATE.format(title=html.escape(title), style=_STYLE,
+    return _PAGE_TEMPLATE.format(csp_meta=REPORT_CSP_META + "\n", title=html.escape(title), style=_STYLE,
                                  body=render_fragment(markdown_text))
 
 
 def rendered_skeleton() -> str:
     """A full styled page with an empty '#live-root' container, loaded once into
     the viewer's iframe so live fragments can be injected without reloading."""
-    return _PAGE_TEMPLATE.format(title="", style=_STYLE, body='<div id="live-root"></div>')
+    return _PAGE_TEMPLATE.format(csp_meta="", title="", style=_STYLE, body='<div id="live-root"></div>')
 
 
 # Per-region colors, matching the document-panel overlay (app.js BOX_COLORS).

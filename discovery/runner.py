@@ -92,6 +92,7 @@ from ocr.escalation import (
 )
 from ocr.extraction_quality import EQ_ROW_COLUMNS, E_CLASSES, eq_row_values
 from ocr.inspect import inspect_pdf
+from ocr.local_tesseract import LocalOcrIncomplete
 from ocr.paddle_config import REFUSAL_REASONS as PADDLE_REFUSAL_REASONS
 from telemetry import (
     DispatchCollector,
@@ -1942,8 +1943,22 @@ class DiscoveryRunner:
             return self._finish(row, started)
 
         name = Path(relative_path).name
-        with timer.time("ocr"):
-            document, markdown, sheets, note = self._read(raw, name, profile)
+        try:
+            with timer.time("ocr"):
+                document, markdown, sheets, note = self._read(raw, name, profile)
+        except LocalOcrIncomplete as exc:
+            # Audit 2026-10-13 (REL-01): the local Tesseract rung refuses a read it could not finish (a time limit
+            # passed, a short render, a host failure) instead of returning a partial one. The document fails
+            # closed under the visual rung's `ocr_failed` and the run goes on; nothing was cached, so a later run
+            # reads it afresh. Class name only, as for every other failure.
+            self._last_ocr_finding = self._cache_finding_of(exc)
+            self._project_cache_finding(row)
+            row.outcome_class, row.outcome_reason = "failed", "ocr_failed"
+            row.error_type = type(exc).__name__
+            row.source_path = "none"
+            self._emit(row, profile, None, None, None, collector, timer,
+                       error_type=row.error_type, error_reason="ocr_failed")
+            return self._finish(row, started)
         self._project_cache_finding(row)
 
         if markdown is None and not self.enabled_extractors:

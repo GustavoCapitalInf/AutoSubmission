@@ -463,9 +463,13 @@ _WORKER_BOUNDARY_HELPERS = frozenset({"_stage_failure", "_analysis_failure"})
 #: in that file, everything else reduced to the class name. Its behaviour is
 #: pinned by `tests/test_privacy3_boundaries.py`, including the `==` -> `in`
 #: mutant and the coupling to `analysis/revenue.py`'s actual raises.
+#: `_volume_failure` (audit 2026-10-13, BE-1) decides whether a start-up failure is the data volume's own (full,
+#: I/O error, read-only, cannot open) from two integers only: the C layer's `sqlite_errorcode` and an OSError's
+#: `errno`. It returns a bool and never reads a message, `args` or a traceback; `tests/test_webapp_disk_guard.py`
+#: pins that with an exception whose text is a tripwire.
 _BOUNDARY_HELPERS = {
     "worker.py": _WORKER_BOUNDARY_HELPERS,
-    "app.py": frozenset({"_review_refusal"}),
+    "app.py": frozenset({"_review_refusal", "_volume_failure"}),
 }
 
 #: THE LEDGER, and it is now EMPTY. Every place in `webapp/` where a caught

@@ -486,7 +486,7 @@ def test_extraction_schema_version_is_pinned_at_3():
     assert EXTRACTION_SCHEMA_VERSION == 3
 
 
-def test_analysis_stage_version_is_pinned_at_38():
+def test_analysis_stage_version_is_pinned_at_39():
     """LENDER-DETECTION (2026-09-24 design, S2): classification version 5.0 moves
     lender groups and adds the flagged-position payload, and the classifier's
     registry is not key material, so ANALYSIS_STAGE_VERSION went 18 -> 19 in the
@@ -543,8 +543,13 @@ def test_analysis_stage_version_is_pinned_at_38():
     lender, its debits read as a potential lender until then) moves the
     classification 5.8 -> 5.9 and the stage with it, so Re-analyze misses a
     stage-37 entry still stamped 5.8: 37 -> 38 (on the hosting line, ahead of
-    audit round 4, whose last batch takes 39). This is that pin."""
-    assert ANALYSIS_STAGE_VERSION == 38
+    audit round 4). The code audit of 2026-10-13 (one pull request) changes
+    stored analysis output (the integrity block of a sum check that failed by
+    at most a dollar or could not run, the advisory daily-balance check, the
+    year-crossing readers, the money grammar's refusals, the fenced bank
+    repairs) with no classification change, so it moves the stage alone:
+    38 -> 39, its one move; round 4 takes 40 or above. This is that pin."""
+    assert ANALYSIS_STAGE_VERSION == 39
 
 
 def test_paddle_model_token_is_not_in_free_models():
@@ -1205,6 +1210,44 @@ def test_cached_analysis_never_caches_a_failure(cache):
                             analysis_settings=_AnalysisSettings())
     assert len(calls) == 2
     assert cache.storage.cache_entries(STAGE_ANALYSIS) == []
+
+
+def test_report_stage_version_pin():
+    """REPORT_STAGE_VERSION 1 -> 2 (audit 2026-10-13, EXP-1): the renderer shows markup printed in statement text as
+    text, drops every attribute from the visual-OCR table markup it lets through, keeps the header comment only when it
+    carries no angle bracket, and writes the report's Content-Security-Policy meta tag into the page head. A report
+    cached at v1 for the same markdown and title would keep serving the old, live markup and no policy, so the stage
+    moves (the OCR and analysis stages stay cached; a report recompute is cheap). Value 2 was never served by any
+    line before this change.
+
+    2 -> 3 (the audit's final review, finding 2): only the exact, attribute-free table tags pass through, so a table
+    tag carrying anything more, one written in capitals, and statement text that only starts like one ("<TD SAMPLE
+    BANK>") are shown as text; a report cached at v2 would keep hiding those words. Value 3 was never used by any
+    branch. This is that pin."""
+    from webapp.artifact_cache import REPORT_STAGE_VERSION
+
+    assert REPORT_STAGE_VERSION == 3
+
+
+def test_a_report_cached_under_the_previous_stage_is_rendered_again(cache, monkeypatch):
+    import webapp.artifact_cache as module
+
+    calls = []
+
+    def compute():
+        calls.append(1)
+        return f"<p>render {len(calls)}</p>"
+
+    monkeypatch.setattr(module, "REPORT_STAGE_VERSION", 1)
+    assert cached_report("# md", compute=compute, cache=cache, title="s.pdf").cached is False
+    monkeypatch.setattr(module, "REPORT_STAGE_VERSION", 2)
+    fresh = cached_report("# md", compute=compute, cache=cache, title="s.pdf")
+    assert fresh.cached is False and fresh.value == "<p>render 2</p>"
+    assert len(cache.storage.cache_entries(STAGE_REPORT)) == 2
+    monkeypatch.setattr(module, "REPORT_STAGE_VERSION", 3)
+    fresh = cached_report("# md", compute=compute, cache=cache, title="s.pdf")
+    assert fresh.cached is False and fresh.value == "<p>render 3</p>"
+    assert len(cache.storage.cache_entries(STAGE_REPORT)) == 3
 
 
 def test_cached_report_computes_once(cache):

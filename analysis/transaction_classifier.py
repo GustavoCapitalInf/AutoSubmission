@@ -47,7 +47,7 @@ from .description_text import (
     ln_name_spans,
     normalize_transaction_description,
 )
-from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, registry_match
+from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, match_memo, registry_match
 # 5.6: the true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from .true_revenue import (
     DealerFunding,
@@ -1163,8 +1163,47 @@ _PAIR_FAMILY_PATTERNS = (
 )
 
 
+#: Audit 2026-10-13 (F2, speed only): a tuple of rule patterns read as ONE compiled alternation, kept by the tuple's id
+#: beside the tuple itself (so an id is never reused while its entry is kept; the callers pass module constants, about
+#: 85 tuples). Searching `(?:p1)|(?:p2)|...` finds a match exactly when one of the patterns matches somewhere, and the
+#: alternation is built only where that holds by construction: a tuple of str patterns with one set of flags, no
+#: VERBOSE flag (a `#` comment would swallow the patterns joined after it), no group reference or conditional group,
+#: and an alternation that compiles. Anything else keeps the loop. tests/test_matches_any_alternation.py pins both.
+_ALTERNATIONS: dict[int, tuple[Sequence[object], re.Pattern[str] | None]] = {}
+_GROUP_REFERENCE = re.compile(r"\\\d|\(\?P=|\(\?\(")
+_ALTERNATION_LIMIT = 256
+
+
+def _alternation(patterns: Sequence[object]) -> re.Pattern[str] | None:
+    if not isinstance(patterns, tuple):
+        return None
+    found = _ALTERNATIONS.get(id(patterns))
+    if found is not None and found[0] is patterns:
+        return found[1]
+    combined = None
+    if (
+        patterns
+        and all(isinstance(pattern, re.Pattern) and isinstance(pattern.pattern, str) for pattern in patterns)
+        and len({pattern.flags for pattern in patterns}) == 1
+        and not patterns[0].flags & re.VERBOSE
+        and not any(_GROUP_REFERENCE.search(pattern.pattern) for pattern in patterns)
+    ):
+        try:
+            combined = re.compile("|".join(f"(?:{pattern.pattern})" for pattern in patterns), patterns[0].flags)
+        except re.error:
+            combined = None
+    if len(_ALTERNATIONS) >= _ALTERNATION_LIMIT:
+        # A caller building a tuple per call (a mutation tool) never grows this past the limit.
+        _ALTERNATIONS.clear()
+    _ALTERNATIONS[id(patterns)] = (patterns, combined)
+    return combined
+
+
 def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
-    return any(pattern.search(text) is not None for pattern in patterns)
+    combined = _alternation(patterns)
+    if combined is None:
+        return any(pattern.search(text) is not None for pattern in patterns)
+    return combined.search(text) is not None
 
 
 def prints_internal_transfer_designation(description: str) -> bool:
@@ -6033,6 +6072,13 @@ def _reversal_pairs(
     pairs: list[tuple[int, int]] = list(seeded)
     matched_debit_indexes: set[int] = {debit_index for _, debit_index in seeded}
     seeded_credits = {credit_index for credit_index, _ in seeded}
+    # Audit 2026-10-13 (F3, speed only): the posted, non-duplicate debits by their rounded amount, in row order, built
+    # once, so a credit visits only its equal debits and in the order the scan of every row visited them: the pairs,
+    # the marker cache and the refuse calls are the same. A NaN debit is listed nowhere, and the scan never paired one.
+    debits_by_amount: dict[float, list[int]] = {}
+    for debit_index, debit in enumerate(records):
+        if debit_index not in duplicate_indexes and debit.amount < 0 and debit.is_posted:
+            debits_by_amount.setdefault(round(abs(debit.amount), 2), []).append(debit_index)
     for credit_index, credit in enumerate(records):
         if (
             credit_index in duplicate_indexes
@@ -6044,15 +6090,11 @@ def _reversal_pairs(
         credit_has_marker = has_marker(credit_index)
         candidates: list[tuple[int, int]] = []
         credit_date = parse_date(credit.date)
-        for debit_index, debit in enumerate(records):
-            if (
-                debit_index in duplicate_indexes
-                or debit_index in matched_debit_indexes
-                or debit.amount >= 0
-                or not debit.is_posted
-                or round(abs(debit.amount), 2) != round(credit.amount, 2)
-            ):
+        for debit_index in debits_by_amount.get(round(credit.amount, 2), ()):
+            # Checked here, not when the list is built: the debits a credit takes change as the loop goes.
+            if debit_index in matched_debit_indexes:
                 continue
+            debit = records[debit_index]
             if not credit_has_marker and not has_marker(debit_index):
                 continue
             if refuse is not None and refuse(credit_index, debit_index):
@@ -7973,8 +8015,11 @@ def classify_statement_transactions(
     False (the default) is the STORED reading, every Zelle deposit excluded by pass 7's Zelle step, which every caller
     that names no reading keeps; True is the counted reading (apply_true_revenue_pass). classify_statement_readings
     gives both at once."""
-    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
-    return _classify_statement_reading(statement, records, duplicate_of, zelle_true_revenue=zelle_true_revenue)
+    # Audit 2026-10-13 (PERF-02, F1; speed only): the matcher answers each of this statement's questions once, and
+    # forgets them when the classification returns (payee_matcher.match_memo).
+    with match_memo():
+        records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+        return _classify_statement_reading(statement, records, duplicate_of, zelle_true_revenue=zelle_true_revenue)
 
 
 def classify_statement_readings(
@@ -7988,11 +8033,27 @@ def classify_statement_readings(
     The shared prefix (the per-row classification, the duplicates, recurrence and D6, passes 1 to 6) runs once; pass 7,
     pass 7b and the duplicate finalisation run once per reading. The second element is None when no credit pass 7 reads
     prints the Zelle rail (true_revenue.zelle_credits_present): such a statement has a single reading."""
-    records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
-    stored = _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=False)
-    if not zelle_credits_present(records, set(duplicate_of)):
-        return stored, None
-    return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
+    # Audit 2026-10-13 (PERF-02, F1; speed only): one matcher memo for the prefix and both readings, dropped on return.
+    with match_memo():
+        records, duplicate_of = _classify_statement_prefix(statement, min_recurring_count)
+        stored = _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=False)
+        if not zelle_credits_present(records, set(duplicate_of)):
+            return stored, None
+        return stored, _classify_statement_reading(statement, list(records), duplicate_of, zelle_true_revenue=True)
+
+
+def classify_statement_reversals(
+    statement: Statement,
+    *,
+    min_recurring_count: int = 3,
+) -> list[TransactionClassification]:
+    """Audit 2026-10-13 (F4, speed only): the records through statement passes 1 to 6, for a reader of the reversal
+    pass's fields alone (reconcile's coverage check). Pass 4 sets `settlement_reversal` and `reversed_by` and nothing
+    after it writes either (pass 7, 7b, 7c and the duplicate finalisation leave them, and every record's amount, as
+    they are; tests/test_reconcile_reversal_prefix.py holds the source check), so they are both readings' values,
+    without the true-revenue pass. Every other field may differ from classify_statement_transactions'."""
+    with match_memo():
+        return _classify_statement_prefix(statement, min_recurring_count)[0]
 
 
 def _classify_statement_prefix(

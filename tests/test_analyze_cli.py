@@ -168,3 +168,80 @@ def test_a_flag_computed_from_the_report_matches_the_served_copy():
         served = apply_revenue_view(report_to_dict(report))["metrics"]
         assert analyze._revenue_flags(report) == (served["verified_revenue_established"],
                                                   served["revenue_established"])
+
+
+# --- Audit 2026-10-13, EXP-5: a redirected stdout on Windows is cp1252, and statement text carries characters it cannot
+# encode (ligatures such as U+FB03, private-use glyphs): the report crashed with UnicodeEncodeError and wrote nothing.
+# analyze.py now writes UTF-8 to stdout, as --json already does. Given a PDF, it prints one line naming parse.py and
+# batch.py and exits 2 (it used to die with a UnicodeDecodeError traceback). The stdout here is a cp1252 TextIOWrapper,
+# the redirected stdout of the Windows host, on any host. Fabricated rows (tests/zelle_setting_fixtures.py).
+
+
+def _cp1252_stdout(monkeypatch):
+    import io
+    import sys
+
+    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
+    monkeypatch.setattr(sys, "stdout", stream)
+    return stream
+
+
+def _run_analyze(monkeypatch, path, analyze_document):
+    import sys
+
+    monkeypatch.setattr(analyze, "analyze_document", analyze_document)
+    monkeypatch.setattr(sys, "argv", ["analyze.py", str(path)])
+    analyze.main()
+
+
+def test_exp5_a_ligature_in_the_report_reaches_a_redirected_stdout(monkeypatch, tmp_path):
+    from tests import zelle_setting_fixtures as fx
+
+    document = fx.document(fx.FREE, holder="CONTOSO OﬃCE LLC")
+    md = tmp_path / "SAMPLE.md"
+    md.write_text("--- Page 1 ---\n\nfabricated\n", encoding="utf-8")
+    stream = _cp1252_stdout(monkeypatch)
+    _run_analyze(monkeypatch, md, lambda markdown, **kwargs: document)
+    stream.flush()
+    text = stream.buffer.getvalue().decode("utf-8")
+    assert "# Bank of America - CONTOSO OﬃCE LLC" in text
+    assert text == analyze._render(document.accounts[0]).replace("\n", "\r\n") + "\r\n"
+
+
+def test_exp5_the_markdown_is_read_as_before(monkeypatch, tmp_path):
+    """Universal newlines, as `open(..., encoding="utf-8")` read it: a CRLF file reaches the analysis with LF only."""
+    from tests import zelle_setting_fixtures as fx
+
+    document, seen = fx.document(fx.FREE), []
+    md = tmp_path / "SAMPLE.md"
+    md.write_bytes("--- Page 1 ---\r\n\r\nfabricated OﬃCE\r\n".encode("utf-8"))
+    _cp1252_stdout(monkeypatch)
+    _run_analyze(monkeypatch, md, lambda markdown, **kwargs: seen.append(markdown) or document)
+    assert seen == ["--- Page 1 ---\n\nfabricated OﬃCE\n"]
+
+
+def _refused(monkeypatch, capsys, path):
+    import pytest
+
+    def never(markdown, **kwargs):
+        raise AssertionError("a PDF must not reach the analysis")
+
+    with pytest.raises(SystemExit) as stopped:
+        _run_analyze(monkeypatch, path, never)
+    assert stopped.value.code == 2
+    err = capsys.readouterr().err
+    assert len(err.strip().splitlines()) == 1
+    assert err.startswith("error: ") and "parse.py" in err and "batch.py" in err
+    assert "Traceback" not in err
+
+
+def test_exp5_a_pdf_gets_a_one_line_error(monkeypatch, tmp_path, capsys):
+    pdf = tmp_path / "SAMPLE.PDF"
+    pdf.write_bytes(b"%PDF-1.7\n\xe2\xe3\xcf\xd3 fabricated\n")
+    _refused(monkeypatch, capsys, pdf)
+
+
+def test_exp5_a_pdf_under_another_name_gets_the_same_error(monkeypatch, tmp_path, capsys):
+    renamed = tmp_path / "SAMPLE.md"
+    renamed.write_bytes(b"%PDF-1.7\n\xe2\xe3\xcf\xd3 fabricated\n")
+    _refused(monkeypatch, capsys, renamed)

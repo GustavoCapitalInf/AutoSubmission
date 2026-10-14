@@ -158,6 +158,10 @@ let modalAccount = null;
 let modalReviewAccount = null;
 let modalLastFocus = null;
 let modalScrollY = 0;
+// Audit 2026-10-13, F1: the statement window's request number. Each opening and each closing takes a new one, and an
+// answer is drawn only while its opening's number is the latest: an answer for a statement opened (and closed) before
+// the one on screen is dropped, so its rows never fill that window, whose review buttons name the window's own job.
+let modalRequest = 0;
 let transactionFilter = "all";
 let modalTransactionFilter = "all";
 let transactionEntityFilter = null;
@@ -757,17 +761,32 @@ function numberOrNull(value) {
 function formatMoney(value, currency = "USD") {
   const n = numberOrNull(value);
   if (n === null) return "N/A";
-  const amount = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // Audit 2026-10-13, F2: building a number formatter costs as much as formatting hundreds of amounts with one, and a
+  // ledger row formats two or three, so the formatters are built once and kept on this function (it stays
+  // self-contained): the bare figure's, and one per currency code as Intl reads it (null for a code Intl refuses).
+  // Every string is exactly the one a freshly built formatter writes.
+  const cache = formatMoney.cache || (formatMoney.cache = {
+    figure: new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    currencies: new Map(),
+  });
+  const amount = cache.figure.format(n);
   // An explicit null currency means the document never declared one. Printing
   // a dollar sign there would assert a denomination nobody proved
   // (CURRENCY DOCTRINE §A), so the magnitude is shown without a unit. Callers
   // that omit the argument still get the USD default they always had.
   if (!currency) return amount;
-  try {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n);
-  } catch {
-    return `$${amount}`;
+  const code = String(currency);
+  if (!cache.currencies.has(code)) {
+    let format = null;
+    try {
+      format = new Intl.NumberFormat("en-US", { style: "currency", currency: code });
+    } catch {
+      format = null;
+    }
+    cache.currencies.set(code, format);
   }
+  const format = cache.currencies.get(code);
+  return format ? format.format(n) : `$${amount}`;
 }
 
 // Owner ruling, 2026-09-22: the NSF count is negative-ending days on the basis chosen in Settings.
@@ -2984,14 +3003,24 @@ function packageValidationLabel(pkg = {}) {
   return words.join(" · ");
 }
 
+// The sum check's tolerance, analysis/reconcile.py SUM_CHECK_TOLERANCE (one cent; a test pins the two together).
+const SUM_CHECK_TOLERANCE = 0.01;
+
+// An integrity block for a payload stored without one. The sum check reads as the server's
+// (analysis/pipeline.py::assess_document_integrity, audit 2026-10-13 REC-4): a mismatch above the tolerance, and a
+// failed reconciliation with no sum delta (no beginning or ending balance to hold the rows to) is a check that could
+// not run, flagged rather than shown as clear (the audit's final review, finding 4).
 function derivedIntegrity(report = {}) {
   const integrity = report.integrity || {};
   if (integrity.risk_level) return integrity;
   const quality = report.quality || {};
   const reconciliation = report.reconciliation || {};
   const flags = [];
+  const sumDelta = reconciliation.sum_delta;
+  const sumChecked = sumDelta !== null && sumDelta !== undefined && sumDelta !== "" && Number.isFinite(Number(sumDelta));
   if (reconciliation.summary_ok === false) flags.push("summary_math_inconsistent");
-  if (Number.isFinite(Number(reconciliation.sum_delta)) && Math.abs(Number(reconciliation.sum_delta)) > 1) flags.push("ledger_sum_mismatch");
+  if (sumChecked && Math.abs(Number(sumDelta)) > SUM_CHECK_TOLERANCE) flags.push("ledger_sum_mismatch");
+  else if (!sumChecked && reconciliation.ok === false) flags.push("ledger_sum_uncheckable");
   if (Number(reconciliation.continuity_breaks || 0) > 0) flags.push("running_balance_breaks");
   if (quality.corporate_use === "summary_only" || quality.transaction_detail_reliable === false) flags.push("transaction_detail_not_corporate_reliable");
   const high = reconciliation.summary_ok === false || Number(reconciliation.continuity_breaks || 0) >= 3;
@@ -4983,18 +5012,50 @@ function uploadFiles(fileList) {
     });
 }
 
-function pollPackage(jobIds) {
-  if (pollTimer) clearTimeout(pollTimer);
-  Promise.all(jobIds.map((jobId) => fetch(`/status/${jobId}`).then((response) => {
-    if (!response.ok) throw new Error(`Status failed (${response.status})`);
+// Audit 2026-10-13, F3: a job ends done, error or interrupted (webapp/jobs.py: the server restarted while it was queued
+// or processing, and its error says so), and the poll stops at any of the three; interrupted is a failure, as the
+// package's own figures count it (webapp/app.py, _PENDING_JOB_STATUSES).
+const ENDED_JOB_STATUSES = new Set(["done", "error", "interrupted"]);
+const FAILED_JOB_STATUSES = new Set(["error", "interrupted"]);
+// Audit 2026-10-13, F5: a status request that fails for a moment (the connection dropped; a proxy answered 5xx, 408 or
+// 429 while the server restarted or was busy) is asked again, each wait longer (1.4 s, 2.8 s, ... about 21 s in all),
+// before the page reports it: the job runs on at the server, and a page that gave up could not get back to it. Any
+// other failure (404: the server does not know the job) is reported at once, as before. Only failures in a row count.
+const STATUS_RETRIES = 5;
+const STATUS_RETRY_MS = 1400;
+
+function fetchStatus(jobId) {
+  return fetch(`/status/${jobId}`).then((response) => {
+    if (!response.ok) {
+      const error = new Error(`Status failed (${response.status})`);
+      error.transient = response.status >= 500 || response.status === 408 || response.status === 429;
+      throw error;
+    }
     return response.json();
-  })))
+  }, (failure) => {
+    const error = new Error(`Status failed (${failure && failure.message ? failure.message : "no connection"})`);
+    error.transient = true;
+    throw error;
+  });
+}
+
+// Schedules `poll` again after a transient status failure (through pollTimer, so a new poll still cancels it); false
+// once the retries are spent or the failure is not transient.
+function retryStatus(error, failures, poll) {
+  if (!error || error.transient !== true || failures >= STATUS_RETRIES) return false;
+  pollTimer = setTimeout(poll, STATUS_RETRY_MS * (failures + 1));
+  return true;
+}
+
+function pollPackage(jobIds, failures = 0) {
+  if (pollTimer) clearTimeout(pollTimer);
+  Promise.all(jobIds.map((jobId) => fetchStatus(jobId)))
     .then((statuses) => {
       if (jobIds.join(",") !== currentJobIds.join(",")) return;
       statuses.forEach((status, index) => updateQueueEntry(jobIds[index], status));
       renderQueue();
-      const finished = statuses.filter((status) => status.status === "done" || status.status === "error").length;
-      const errors = statuses.filter((status) => status.status === "error" || status.analysis_error).length;
+      const finished = statuses.filter((status) => ENDED_JOB_STATUSES.has(status.status)).length;
+      const errors = statuses.filter((status) => FAILED_JOB_STATUSES.has(status.status) || status.analysis_error).length;
       const totalPages = statuses.reduce((sum, status) => sum + (numberOrNull(status.page_count) || 0), 0);
       if (finished === statuses.length) {
         setProgress(false);
@@ -5013,16 +5074,17 @@ function pollPackage(jobIds) {
       ]);
       pollTimer = setTimeout(() => pollPackage(jobIds), 1400);
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => {
+      // A failure for a package no longer on screen (another upload started) is not drawn over it, as its answer is not.
+      if (jobIds.join(",") !== currentJobIds.join(",")) return;
+      if (retryStatus(error, failures, () => pollPackage(jobIds, failures + 1))) return;
+      renderError(error.message || String(error));
+    });
 }
 
-function pollJob(jobId) {
+function pollJob(jobId, failures = 0) {
   if (pollTimer) clearTimeout(pollTimer);
-  fetch(`/status/${jobId}`)
-    .then((response) => {
-      if (!response.ok) throw new Error(`Status failed (${response.status})`);
-      return response.json();
-    })
+  fetchStatus(jobId)
     .then((status) => {
       if (jobId !== currentJobId) return;
       updateQueueEntry(jobId, status);
@@ -5033,8 +5095,8 @@ function pollJob(jobId) {
         loadResults(jobId);
         return;
       }
-      if (status.status === "error") {
-        renderError(status.error || "Processing failed");
+      if (FAILED_JOB_STATUSES.has(status.status)) {
+        renderError(status.error || (status.status === "interrupted" ? "Processing was interrupted" : "Processing failed"));
         return;
       }
       els.statusHeading.textContent = "Processing statement";
@@ -5050,7 +5112,12 @@ function pollJob(jobId) {
       ]);
       pollTimer = setTimeout(() => pollJob(jobId), 1400);
     })
-    .catch((error) => renderError(error.message || String(error)));
+    .catch((error) => {
+      // A failure for a statement no longer on screen (another upload started) is not drawn over it.
+      if (jobId !== currentJobId) return;
+      if (retryStatus(error, failures, () => pollJob(jobId, failures + 1))) return;
+      renderError(error.message || String(error));
+    });
 }
 
 // The job ids and upload details of the analysis on screen, recorded whenever one finishes drawing. A reopen
@@ -5833,6 +5900,8 @@ function openStatementModal(memberId) {
   if (!els.statementModalBackdrop) return;
   // The statement's own job: the server knows no `#account_<n>` (and a `#` in a URL is not sent at all).
   const { jobId, account } = packageMember(memberId);
+  modalRequest += 1;
+  const request = modalRequest;
   modalLastFocus = document.activeElement;
   modalAnalysis = null;
   modalJobId = jobId;
@@ -5910,6 +5979,8 @@ function openStatementModal(memberId) {
     fetch(`/markdown/${encodeURIComponent(jobId)}`).then((response) => response.ok ? response.text() : ""),
   ])
     .then(([payload, markdown]) => {
+      // Another statement was opened, or the window closed, since this one was asked for: its answer is not drawn.
+      if (request !== modalRequest) return;
       if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
       // Same rule as `renderAnalysis`: the modal's transaction renderer reads
       // `.statement` off this global, so it holds ONE account's payload (the
@@ -5920,6 +5991,7 @@ function openStatementModal(memberId) {
       if (els.statementModalClose) els.statementModalClose.focus();
     })
     .catch((error) => {
+      if (request !== modalRequest) return;
       els.statementModalTitle.textContent = "Statement unavailable";
       els.statementModalSubtitle.textContent = error.message || String(error);
       els.statementModalMetrics.innerHTML = "";
@@ -6143,6 +6215,8 @@ function renderStatementModal(jobId, report, markdown) {
 
 function closeStatementModal() {
   if (!els.statementModalBackdrop) return;
+  // An answer still on its way is for a window no longer open (F1 above).
+  modalRequest += 1;
   els.statementModalBackdrop.classList.remove("show");
   els.statementModalBackdrop.setAttribute("aria-hidden", "true");
   document.documentElement.style.overflow = "";
@@ -6920,7 +6994,9 @@ els.nsfCarryOverToggle.addEventListener("change", () => {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ nsf_carry_over: wanted }),
   })
-    .then((response) => response.json().then((payload) => ({ response, payload })))
+    // Audit 2026-10-13, F9: as the other settings saves, a body that is not JSON (a proxy's error page) reads
+    // "Save failed (<status>)", never a JSON parser's complaint.
+    .then((response) => responseJson(response).then((payload) => ({ response, payload })))
     .then(({ response, payload }) => {
       if (!response.ok || !payload.settings) throw new Error(payload.error || `Save failed (${response.status})`);
       els.nsfCarryOverToggle.checked = payload.settings.nsf_carry_over === true;

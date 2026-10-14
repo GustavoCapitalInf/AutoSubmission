@@ -82,14 +82,17 @@ def _claimed(statement: Statement, parser_id: str = "seam_parser") -> Dispatch:
 def raising_repair(monkeypatch):
     """One step of the repair stage raises, with the document in its message.
 
-    `repair_b1_beginning_balance` stands in for the twelve steps the stage runs
-    — the point is the SEAM, so which one raises is deliberately not part of
-    the property under test.
+    `repair_first_community_posted_activity` stands in for the five steps the
+    stage runs — the point is the SEAM, so which one raises is deliberately
+    not part of the property under test. (It was the B1 repair until the
+    audit of 2026-10-13 keyed that one on its own registration, PARSERS-1: it
+    no longer runs for this fixture's claiming parser. The First Community
+    repair is still called for every statement and reads its label inside.)
     """
     def boom(stmt):
         raise ValueError(f"invalid literal for int(): {PROVOKING_TOKEN}")
 
-    monkeypatch.setattr("analysis.pipeline.repair_b1_beginning_balance", boom)
+    monkeypatch.setattr("analysis.pipeline.repair_first_community_posted_activity", boom)
 
 
 @pytest.fixture
@@ -231,7 +234,7 @@ def test_the_discard_publishes_uncorrected_dates_on_a_year_boundary(monkeypatch)
     def boom(stmt):
         raise ValueError(f"invalid literal for int(): {PROVOKING_TOKEN}")
 
-    monkeypatch.setattr("analysis.pipeline.repair_b1_beginning_balance", boom)
+    monkeypatch.setattr("analysis.pipeline.repair_first_community_posted_activity", boom)
     discarded = analyze_markdown(MARKDOWN, parse_mode="deterministic")
     assert [t.date for t in discarded.statement.transactions] == [
         "2053-12-15", "2053-01-09"   # ← the January row keeps the wrong year
@@ -315,13 +318,21 @@ def test_the_diagnostics_version_moves_when_the_vocabulary_does():
     # previous-balance-day carry-in into the opening balance. Vocabulary
     # 60 -> 61 and advisory 7 -> 8; nothing re-classed, CLASS_OF unchanged.
     # See `W3_2_TAXONOMY.md` §11 v6.
+    #
+    # v7 - audit 2026-10-13, REC-4: `integrity:ledger_sum_uncheckable` added
+    # and classed `summary_field_missing` (with the reconcile issue it
+    # accompanies). Vocabulary 61 -> 62, CLASS_OF 53 -> 54. Composed into the
+    # same bump, REC-1 step 1: two ADVISORY codes,
+    # `adb:bank_daily_balances_agree_with_rows` and
+    # `adb_state:bank_daily_balances_disagree_with_rows`. Vocabulary 62 -> 64,
+    # advisory 8 -> 10. See `W3_2_TAXONOMY.md` §11 v7.
     assert (
         diagnostics.DIAGNOSTICS_VERSION,
         len(VOCABULARY),
         len(CLASS_OF),
         len(ADVISORY_CODES),
         len(diagnostics.DIAGNOSABLE_CLASSES),
-    ) == (6, 61, 53, 8, 2)
+    ) == (7, 64, 54, 10, 2)
     # 60/7, not 59/6: the batch-5 train composed TWO vocabulary changes into
     # the one v4 bump — this cell's `integrity:repair_exception` and
     # ADB-SPLIT's advisory `adb_state:initialization_event_folded` — the same

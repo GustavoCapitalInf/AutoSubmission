@@ -466,6 +466,22 @@ def main() -> None:
     args = ap.parse_args()
     zelle_true_revenue = args.zelle_true_revenue == "yes"
 
+    # Audit 2026-10-13, EXP-5: this CLI reads a statement's markdown. A PDF, by its name or its first bytes, gets one
+    # line naming the tools that read PDFs (it used to die with a UnicodeDecodeError traceback).
+    with open(args.markdown, "rb") as f:
+        lead = f.read(5)
+    if args.markdown.lower().endswith(".pdf") or lead == b"%PDF-":
+        print("error: analyze.py reads a statement's markdown; extract it with parse.py first, "
+              "or run batch.py on the PDF", file=sys.stderr)
+        sys.exit(2)
+    # EXP-5: the report goes to stdout as UTF-8, as --json writes. A redirected stdout on Windows is cp1252, which
+    # cannot encode the ligatures and private-use glyphs statement text carries. A stream without reconfigure is
+    # written as it is.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass
+
     with open(args.markdown, encoding="utf-8") as f:
         markdown = f.read()
 

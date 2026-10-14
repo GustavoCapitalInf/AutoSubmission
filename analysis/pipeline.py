@@ -8,6 +8,7 @@ the validator is a verifier, never an optimizer, and
 `tests/test_pipeline_escalation_fence.py` characterised the removed behaviour
 at the base tree and pins its absence."""
 from __future__ import annotations
+import math
 import os
 import re
 from dataclasses import dataclass, field, replace
@@ -62,13 +63,8 @@ from . import parser_registry_entries as _parser_registry_entries  # noqa: F401 
 from .structurer import STRUCTURER_MODEL, structure_unclaimed
 from .bank_repairs import (
     repair_b1_beginning_balance,
-    repair_capital_one_running_amount,
-    repair_chase_remote_deposit_count_column,
-    repair_regions_transactions,
     repair_santander_signs_from_balances,
     repair_scotiabank_misc_payment_sign,
-    repair_single_row_signs_from_balances,
-    repair_truist_converted_checks,
 )
 
 
@@ -112,6 +108,19 @@ _SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
     "regions": repair_regions_summary,
 }
 
+#: The three kept bank repairs of `analysis/bank_repairs.py`, keyed the same
+#: way (audit 2026-10-13, PARSERS-1). Each used to run on every statement and
+#: was gated only on a SUBSTRING of `stmt.bank`, so a reader of another family
+#: that published a label carrying the substring, or a hosted extraction that
+#: named the bank loosely, got a repair written for another bank's paper. Each
+#: keeps that guard, so the key can only stop a repair firing, never start one.
+#: The same test holds these ids to the registry.
+_STATEMENT_REPAIRS: dict[str, Callable[[Statement], Statement]] = {
+    "b1": repair_b1_beginning_balance,
+    "santander": repair_santander_signs_from_balances,
+    "scotiabank": repair_scotiabank_misc_payment_sign,
+}
+
 
 def apply_statement_repairs(
     markdown: str, stmt: Statement, *, dispatch: Dispatch | None = None
@@ -144,14 +153,33 @@ def apply_statement_repairs(
     if repair is not None:
         stmt = repair(markdown, stmt)
     stmt = repair_first_community_posted_activity(stmt)
-    stmt = repair_b1_beginning_balance(stmt)
-    stmt = repair_capital_one_running_amount(stmt)
-    stmt = repair_chase_remote_deposit_count_column(stmt)
-    stmt = repair_regions_transactions(markdown, stmt)
-    stmt = repair_truist_converted_checks(stmt)
-    stmt = repair_santander_signs_from_balances(stmt)
-    stmt = repair_scotiabank_misc_payment_sign(stmt)
-    stmt = repair_single_row_signs_from_balances(stmt)
+    # The three kept bank repairs, for their owner only (`_STATEMENT_REPAIRS`).
+    statement_repair = _STATEMENT_REPAIRS.get(owner.id) if owner is not None else None
+    if statement_repair is not None:
+        stmt = statement_repair(stmt)
+    # R10 items S-1..S-3 are fenced under Gustavo's ruling: the three legacy
+    # amount rewrites remain defined in bank_repairs.py,
+    # with their doctrine reasons, but nothing under analysis/ calls them.
+    # The ceremony tripwire covers these and the S-4 direction rewrite below.
+    # R10 item S-5: the retained legacy check-row repair is fenced; its
+    # duplicate witness can be the same row it removes.
+    # `repair_single_row_signs_from_balances` is NOT run (STOP item S-4,
+    # ruled). It walks the ledger a printed-balance step at a time and, where
+    # a segment's sum disagrees with the step, flips the sign of the FIRST row
+    # whose flip reconciles the segment — several plausible readings, tested
+    # against a reconciliation, and whichever balances is published. That is
+    # the anti-optimizer pattern, and the ruling's own words for it are
+    # "several independently plausible interpretations → REVIEW / REFUSE".
+    # The function stays defined in `analysis/bank_repairs.py` as the record
+    # of what ran; nothing calls it, and
+    # `tests/test_bank_repairs_ceremony.py` refuses any caller under
+    # `analysis/`. It fired on 0 of its 201 candidate documents on the run of
+    # record, which is why the union replay across this fence is identical.
+    #
+    # The five fences were reviewed on `wave23-precision` and never composed
+    # into the shipped line; the audit of 2026-10-13 (PARSERS-1) ported them.
+    # A statement that only one of these rewrites made reconcile is now
+    # refused or routed to review on the figures the paper printed.
     # Statement periods that cross a year boundary: parsers stamp one year on
     # every MM/DD row, so re-derive the year from the period before anything
     # chronological (ADB, daily ledger) is built on these dates.
@@ -502,9 +530,23 @@ def assess_document_integrity(
     if recon.summary_ok is False:
         flags.append("summary_math_inconsistent")
         notes.append("bank-stated summary totals do not reconcile to beginning and ending balances")
-    if recon.sum_delta is not None and abs(recon.sum_delta) > 1.0:
+    # The sum check's own threshold (audit 2026-10-13 REC-4). It used to be a
+    # dollar, so a reconciliation that failed by 0.02-1.00 published integrity
+    # "clear" with no flag; every other reconcile issue already carried a flag
+    # at reconcile's own threshold. A sum check that could not run (no
+    # beginning or ending balance to hold the rows to) is flagged too: it is
+    # a check whose finding is unknown, and an unknown finding is routed to
+    # review rather than reported as clear. `not recon.ok` keeps a caller's own
+    # passing ReconResult from being flagged for a field it never filled.
+    if recon.sum_check_failed:
         flags.append("ledger_sum_mismatch")
         notes.append("transaction sum does not reconcile to the printed ending balance")
+    elif recon.sum_delta is None and not recon.ok:
+        flags.append("ledger_sum_uncheckable")
+        notes.append(
+            "the sum check could not run: the statement publishes no beginning or "
+            "no ending balance to hold the transactions to"
+        )
     if recon.continuity_breaks:
         flags.append("running_balance_breaks")
         notes.append(f"{recon.continuity_breaks} printed running-balance continuity break(s) detected")
@@ -578,12 +620,16 @@ def assess_document_integrity(
     # document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
     #
     # THE NOTE NAMES THE STAGE, NOT ONE REPAIR, and the precision is the point.
-    # `apply_statement_repairs` is TWELVE steps and only ONE is a bank-summary
-    # repair; the other eleven are nine further bank-specific repairs,
-    # `assign_transaction_years` and `normalize_statement`. Saying "a
-    # bank-summary repair raised" would be wrong twice over: it misnames the
-    # eleven, and on a raise late in the stage the bank-summary repair had
-    # already SUCCEEDED and is being discarded with everything else.
+    # `apply_statement_repairs` is FIVE steps and only ONE is a bank-summary
+    # repair; the other four are the First Community repair, the claiming
+    # registration's kept bank repair (`_STATEMENT_REPAIRS`),
+    # `assign_transaction_years` and `normalize_statement` (it was twelve
+    # until the five ruled fences, S-1..S-5, took five repairs off the path
+    # and the audit of 2026-10-13 keyed the remaining three on their owner).
+    # Saying "a bank-summary repair raised" would be wrong twice over: it
+    # misnames the four, and on a raise late in the stage the bank-summary
+    # repair had already SUCCEEDED and is being discarded with everything
+    # else.
     #
     # WHAT THE DISCARD COSTS, disclosed rather than implied: because
     # `assign_transaction_years` is inside the stage, a statement whose period
@@ -970,14 +1016,15 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # The repair stage is discarded ATOMICALLY — the unrepaired statement
         # stands, which is exactly what this branch published before repairs
         # existed. Deliberately not per-repair: recovering WHICH step of the
-        # stage raised would mean running the ten repairs, the year assignment
+        # stage raised would mean running the repairs, the year assignment
         # and the normalization independently, and that changes what the stage
         # DOES — today the first raise stops the rest — which this card is
         # explicit is out of scope. For the same reason the class name is NOT
-        # attributed to `dispatch.registration`: only the keyed summary repair
-        # belongs to the claiming parser, so naming it as the author of one of
-        # the nine unconditional repairs' crashes would be exactly the
-        # misattribution this seam exists to prevent.
+        # attributed to `dispatch.registration`: only the registration-keyed
+        # repairs belong to the claiming parser, so naming it as the author of
+        # a crash in the label-gated First Community repair, the year
+        # assignment or the normalization would be exactly the misattribution
+        # this seam exists to prevent.
         #
         # NOT applied to the LLM-branch repair call below, and that is a
         # boundary rather than an omission: `extract_statement` on that
@@ -1134,9 +1181,10 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     #
     # `normalize_statement` and `apply_statement_repairs` are applied exactly as
     # they were to the claimed statement, so the accounts of one document are
-    # treated alike. The repairs are keyed on the CLAIMING registration or on
-    # each repair's own printed guard, so none of them can reach a document this
-    # reader did not claim.
+    # treated alike. The repairs are keyed on the CLAIMING registration, and
+    # the one that is not (First Community's) on the bank label the claiming
+    # parser published (`stmt.bank`, which a parser sets, not the page), so
+    # none of them can reach a document this reader did not claim.
     accounts = [primary]
     for account in published[1:]:
         sibling = apply_statement_repairs(
@@ -1388,6 +1436,24 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
     )
 
 
+#: Audit 2026-10-13 (REC-5): below this magnitude a float's cents are exact enough that two amounts within clause 1's
+#: 0.005 of each other fall in the same or a neighbouring whole-cent bucket (the float error of |amount| x 100 stays
+#: far under half a cent); at or above it a posting is compared with every posting, as before.
+_TRANSFER_BUCKET_LIMIT = 1e12
+
+
+def _transfer_bucket(posting: tuple[int, int, str, float, str]) -> tuple[object, int] | None:
+    """(date, whole cents of the magnitude) of an R-d posting, or None when it must be compared with every posting."""
+    amount = posting[3]
+    if not math.isfinite(amount) or abs(amount) >= _TRANSFER_BUCKET_LIMIT:
+        return None
+    try:
+        hash(posting[2])
+    except TypeError:
+        return None
+    return posting[2], round(abs(amount) * 100)
+
+
 def identify_internal_transfers(
     accounts: Sequence[Report],
 ) -> tuple[list[InternalTransfer], list[str]]:
@@ -1459,9 +1525,35 @@ def identify_internal_transfers(
             and left[3] * right[3] < 0
         )
 
+    # Audit 2026-10-13 (REC-5, speed only): a posting's candidates come from a (date, whole cents of the magnitude)
+    # index, its own bucket and the two neighbouring cents, which hold every posting clause 1's < 0.005 tolerance can
+    # admit; `admissible()` above stays the authority and tests each candidate verbatim, in posting order, so every
+    # counterpart list is the one the test of every pair built. The index is on date and cents only, never on the
+    # account (clause 1's own test refuses a same-account counterpart). A posting whose amount is not finite, or too
+    # large for its cents to be exact in a float, or whose date cannot be a key, keeps the test of every posting and
+    # is a candidate of every posting.
+    buckets: dict[tuple[object, int], list[int]] = {}
+    unbucketed: list[int] = []
+    for index, posting in enumerate(postings):
+        key = _transfer_bucket(posting)
+        if key is None:
+            unbucketed.append(index)
+        else:
+            buckets.setdefault(key, []).append(index)
+
+    def candidates(left) -> Sequence[int]:
+        key = _transfer_bucket(left)
+        if key is None:
+            return range(len(postings))
+        date, cents = key
+        return sorted([
+            *buckets.get((date, cents - 1), ()), *buckets.get(key, ()), *buckets.get((date, cents + 1), ()),
+            *unbucketed,
+        ])
+
     counterparts: dict[int, list[int]] = {
-        index: [other for other, right in enumerate(postings)
-                if other != index and admissible(left, right)]
+        index: [other for other in candidates(left)
+                if other != index and admissible(left, postings[other])]
         for index, left in enumerate(postings)
     }
     ambiguous = any(len(found) > 1 for found in counterparts.values())

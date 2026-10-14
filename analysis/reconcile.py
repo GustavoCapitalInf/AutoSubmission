@@ -14,6 +14,12 @@ from .schema import Statement
 
 # Money is compared to the cent; allow a hair of float slop.
 _TOL = 0.01
+#: The sum check's tolerance under a public name (audit 2026-10-13 REC-4). The
+#: integrity block's `ledger_sum_mismatch` flag applies it through
+#: `ReconResult.sum_check_failed` (it used to restate the threshold as a
+#: dollar); `analysis/pipeline.py` keeps its one canonical import of this
+#: module, which its re-invocation fence pins.
+SUM_CHECK_TOLERANCE = _TOL
 
 
 @dataclass
@@ -58,6 +64,17 @@ class ReconResult:
     # with two meanings, the defect BOFA-COUNTS was spent removing.
     expected_credit_count: int | None = None
     expected_debit_count: int | None = None
+
+    @property
+    def sum_check_failed(self) -> bool:
+        """The sum check ran and missed by more than its tolerance.
+
+        A PROPERTY, not a field: `asdict` serializes fields only, so the
+        published reconciliation block is unchanged. It is how the integrity
+        block applies the sum check's own threshold rather than restating one
+        (audit 2026-10-13 REC-4: it used to flag only above a dollar).
+        """
+        return self.sum_delta is not None and abs(self.sum_delta) > SUM_CHECK_TOLERANCE
 
 
 def _debit_coverage_target(
@@ -195,9 +212,11 @@ def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
         or _coverage_mismatch(debits, debit_target)
     )
     if stmt.transactions and needs_reversal_coverage:
-        from .transaction_classifier import classify_statement_transactions
+        # Audit 2026-10-13 (F4, speed only): only the reversal pass's two fields and the amounts are read here, final
+        # after pass 4, so the true-revenue pass is not run for them (classify_statement_reversals).
+        from .transaction_classifier import classify_statement_reversals
 
-        classifications = classify_statement_transactions(stmt)
+        classifications = classify_statement_reversals(stmt)
         reversal_credits = round(
             sum(
                 record.amount
