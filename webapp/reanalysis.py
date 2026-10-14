@@ -275,9 +275,10 @@ class _CacheOnly:
     visual pair both read through `cached_ocr`, so a miss stops the run before any reader or remote model is called.
     On the visual pair's path this is the only guard: the pair does work before it names its first step.
 
-    The upload queue's worker stays the cache's one writer. The cache writes each entry through one fixed temporary
-    file, so a write from this request thread to an entry an upload of the same statement is writing at that moment
-    could fail the upload. The three writes below are the only ones the worker's cache helpers make (`cached_ocr`,
+    The upload queue's worker stays the cache's one writer. The cache used to write each entry through one fixed
+    temporary file, so a write from this request thread to an entry an upload of the same statement was writing at
+    that moment could fail the upload; each write now has a temporary file of its own (audit 2026-10-13, BE-4), and
+    the worker stays the one writer all the same. The three writes below are the only ones the worker's cache helpers make (`cached_ocr`,
     `cached_analysis`, `cached_report`), and each helper ignores the key a write returns. The new analysis is saved
     with the job, and the next upload of the statement caches it."""
 

@@ -282,6 +282,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -294,6 +295,7 @@ from ocr.document import StatementMarkdown
 from ocr.inspect import content_sha256
 from ocr.truncation import PageIntegrity
 
+from .settings import _replace as _replace_retrying
 from .storage import Storage
 
 __all__ = [
@@ -1475,11 +1477,20 @@ class ArtifactCache:
         return self.root / stage / key[:2] / f"{key}.json"
 
     def _write_payload(self, path: Path, payload: dict) -> int:
+        """Write a payload file through a temporary file of its own and rename it into place (audit 2026-10-13,
+        BE-4): one fixed ``<key>.json.tmp`` was shared by every writer of a key, so two writers of the same entry at
+        once (a CLI pointed at a live server's data directory) could fail each other. The rename is retried briefly
+        on the Windows refusal while a reader has the target open; the temporary file is always removed. The
+        temporary name ends in ``.tmp``, so nothing that lists ``*.json`` payloads ever sees it."""
         path.parent.mkdir(parents=True, exist_ok=True)
         blob = _canonical_json(payload).encode("utf-8")
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_bytes(blob)
-        os.replace(tmp, path)
+        handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem[:16]}-", suffix=".json.tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(blob)
+            _replace_retrying(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         return len(blob)
 
     # -- generic get/put -----------------------------------------------

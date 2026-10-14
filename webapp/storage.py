@@ -53,6 +53,7 @@ import json
 import os
 import re
 import sqlite3
+import tempfile
 import uuid
 from contextlib import closing
 from datetime import UTC, datetime
@@ -64,6 +65,10 @@ from typing import Callable, Sequence
 # (webapp.jobs, tests) keeps importing webapp.storage.content_sha256 — still
 # exactly ONE definition.
 from ocr.inspect import content_sha256
+
+# The data directory's one rename-into-place helper (a brief retry on the Windows refusal while a reader has the
+# target open), shared rather than copied: audit 2026-10-13, BE-4.
+from .settings import _replace as _replace_retrying
 
 __all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]
 
@@ -356,12 +361,28 @@ class Storage:
     def save_pdf(self, sha256_upper: str, pdf_bytes: bytes) -> Path:
         """Write ``<content_sha256>.pdf`` into the data directory (idempotent:
         identical content hashes to an identical name, so an existing file is
-        already the right bytes)."""
+        already the right bytes).
+
+        Audit 2026-10-13 (BE-4): written through a temporary file of its own (``tempfile.mkstemp`` beside the target)
+        and renamed into place. One fixed ``<sha>.pdf.tmp`` used to be shared by two requests storing the same new
+        bytes at once, and one of them failed (about one aligned pair in four on Windows, measured). The rename is
+        retried briefly as ``webapp/settings.py`` does (Windows refuses it while a reader has the target open); a
+        rename still refused while the target exists means another request stored these same bytes first, which is
+        the file this call wanted. The temporary file is always removed."""
         path = self.pdf_path(sha256_upper)
-        if not path.exists():
-            tmp = path.with_suffix(".pdf.tmp")
-            tmp.write_bytes(pdf_bytes)
-            os.replace(tmp, path)
+        if path.exists():
+            return path
+        handle, temporary = tempfile.mkstemp(dir=self.data_dir, prefix=f".{sha256_upper[:16]}-", suffix=".pdf.tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(pdf_bytes)
+            try:
+                _replace_retrying(temporary, path)
+            except PermissionError:
+                if not path.exists():
+                    raise
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         return path
 
     def load_pdf(self, sha256_upper: str) -> bytes | None:

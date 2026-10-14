@@ -5946,6 +5946,11 @@ def update_settings():
     return jsonify({"settings": settings})
 
 
+#: /upload's answer when the batch could not be stored (audit 2026-10-13, BE-4): every job the request created is
+#: marked failed with this text and none is queued. Fixed text, never an exception's.
+UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
+
+
 @app.route("/upload", methods=["POST"])
 def upload():
     files = request.files.getlist("files")
@@ -5975,22 +5980,36 @@ def upload():
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))
 
+    # Store the whole batch before queueing any of it (audit 2026-10-13, BE-4).
+    # A storage failure on file k used to leave files 1..k-1 queued and
+    # processed under ids the dashboard never received (it got an HTML 500).
+    # Now a failure marks every job this request created failed, queues none
+    # of them, and answers with fixed text: never the exception's own.
+    created = []
+    try:
+        for filename, pdf_bytes, page_count, profile in accepted:
+            # Records the document row (with content_sha256) and the job row, and
+            # writes the PDF bytes to the disk store.
+            job = store.create(
+                filename,
+                page_count=page_count,
+                force_ocr=force_ocr,
+                parse_mode=parse_mode,
+                pdf_bytes=pdf_bytes,
+            )
+            created.append(job)
+            # O-1: persist the preflight profile with the document row.
+            store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
+    except Exception:
+        for job in created:
+            try:
+                store.set_error(job.id, UPLOAD_NOT_STORED)
+            except Exception:
+                pass  # best effort: a job still `queued` in storage is marked interrupted at the next start
+        return jsonify({"error": UPLOAD_NOT_STORED}), 503
+
     jobs = []
-    for filename, pdf_bytes, page_count, profile in accepted:
-        # Records the document row (with content_sha256) and the job row, and
-        # writes the PDF bytes to the disk store.
-        job = store.create(
-            filename,
-            page_count=page_count,
-            force_ocr=force_ocr,
-            parse_mode=parse_mode,
-            pdf_bytes=pdf_bytes,
-        )
-        # O-1: persist the preflight profile with the document row and flag a
-        # re-upload of identical bytes (the earliest prior job with this hash,
-        # read in the transaction that created the job: audit BE-2).
-        store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
-        duplicate_of = job.duplicate_of
+    for job, (filename, pdf_bytes, page_count, profile) in zip(created, accepted):
         _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
         jobs.append({
             "id": job.id,
@@ -5999,7 +6018,9 @@ def upload():
             "force_ocr": force_ocr,
             "parse_mode": parse_mode,
             "content_sha256": job.content_sha256,
-            "duplicate_of": duplicate_of,
+            # A re-upload of identical bytes names the earliest prior job holding
+            # them, read in the transaction that created the job (audit BE-2).
+            "duplicate_of": job.duplicate_of,
         })
     return jsonify({"jobs": jobs})
 
