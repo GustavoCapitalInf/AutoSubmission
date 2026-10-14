@@ -1,0 +1,21 @@
+# Everything `python -m pytest` and `python corpus_gate.py` need: both runtime
+# files plus the test-only packages below. CI installs this file
+# (.github/workflows/corpus-gate.yml); the hosting image and a plain install of
+# the app do not need it.
+#
+#   python -m pip install -r requirements-dev.txt
+-r requirements.txt
+-r requirements-analysis.txt
+pytest
+
+# The suite still imports the retired visual-pair code under vlm/ at module
+# top: vlm/schema.py and vlm/review.py import jsonschema, vlm/render.py imports
+# pypdfium2 and vlm/stage_a_worker.py imports numpy. Without them 35 test files
+# fail to collect and pytest stops before it runs a single test, which is how
+# CI ran no test from 2026-09-22 (audit 2026-10-13, HYG-01). They leave with
+# the model-code removal. Licences: jsonschema MIT, pypdfium2 Apache-2.0 or
+# BSD-3-Clause, numpy BSD-3-Clause; none is copyleft or paid. The lower bounds
+# are requirements-vlm.txt's.
+jsonschema>=4.20
+pypdfium2>=5.8
+numpy
