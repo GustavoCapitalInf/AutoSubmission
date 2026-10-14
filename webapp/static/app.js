@@ -3003,14 +3003,24 @@ function packageValidationLabel(pkg = {}) {
   return words.join(" · ");
 }
 
+// The sum check's tolerance, analysis/reconcile.py SUM_CHECK_TOLERANCE (one cent; a test pins the two together).
+const SUM_CHECK_TOLERANCE = 0.01;
+
+// An integrity block for a payload stored without one. The sum check reads as the server's
+// (analysis/pipeline.py::assess_document_integrity, audit 2026-10-13 REC-4): a mismatch above the tolerance, and a
+// failed reconciliation with no sum delta (no beginning or ending balance to hold the rows to) is a check that could
+// not run, flagged rather than shown as clear (the audit's final review, finding 4).
 function derivedIntegrity(report = {}) {
   const integrity = report.integrity || {};
   if (integrity.risk_level) return integrity;
   const quality = report.quality || {};
   const reconciliation = report.reconciliation || {};
   const flags = [];
+  const sumDelta = reconciliation.sum_delta;
+  const sumChecked = sumDelta !== null && sumDelta !== undefined && sumDelta !== "" && Number.isFinite(Number(sumDelta));
   if (reconciliation.summary_ok === false) flags.push("summary_math_inconsistent");
-  if (Number.isFinite(Number(reconciliation.sum_delta)) && Math.abs(Number(reconciliation.sum_delta)) > 1) flags.push("ledger_sum_mismatch");
+  if (sumChecked && Math.abs(Number(sumDelta)) > SUM_CHECK_TOLERANCE) flags.push("ledger_sum_mismatch");
+  else if (!sumChecked && reconciliation.ok === false) flags.push("ledger_sum_uncheckable");
   if (Number(reconciliation.continuity_breaks || 0) > 0) flags.push("running_balance_breaks");
   if (quality.corporate_use === "summary_only" || quality.transaction_detail_reliable === false) flags.push("transaction_detail_not_corporate_reliable");
   const high = reconciliation.summary_ok === false || Number(reconciliation.continuity_breaks || 0) >= 3;
