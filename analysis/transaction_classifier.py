@@ -6072,6 +6072,13 @@ def _reversal_pairs(
     pairs: list[tuple[int, int]] = list(seeded)
     matched_debit_indexes: set[int] = {debit_index for _, debit_index in seeded}
     seeded_credits = {credit_index for credit_index, _ in seeded}
+    # Audit 2026-10-13 (F3, speed only): the posted, non-duplicate debits by their rounded amount, in row order, built
+    # once, so a credit visits only its equal debits and in the order the scan of every row visited them: the pairs,
+    # the marker cache and the refuse calls are the same. A NaN debit is listed nowhere, and the scan never paired one.
+    debits_by_amount: dict[float, list[int]] = {}
+    for debit_index, debit in enumerate(records):
+        if debit_index not in duplicate_indexes and debit.amount < 0 and debit.is_posted:
+            debits_by_amount.setdefault(round(abs(debit.amount), 2), []).append(debit_index)
     for credit_index, credit in enumerate(records):
         if (
             credit_index in duplicate_indexes
@@ -6083,15 +6090,11 @@ def _reversal_pairs(
         credit_has_marker = has_marker(credit_index)
         candidates: list[tuple[int, int]] = []
         credit_date = parse_date(credit.date)
-        for debit_index, debit in enumerate(records):
-            if (
-                debit_index in duplicate_indexes
-                or debit_index in matched_debit_indexes
-                or debit.amount >= 0
-                or not debit.is_posted
-                or round(abs(debit.amount), 2) != round(credit.amount, 2)
-            ):
+        for debit_index in debits_by_amount.get(round(credit.amount, 2), ()):
+            # Checked here, not when the list is built: the debits a credit takes change as the loop goes.
+            if debit_index in matched_debit_indexes:
                 continue
+            debit = records[debit_index]
             if not credit_has_marker and not has_marker(debit_index):
                 continue
             if refuse is not None and refuse(credit_index, debit_index):
