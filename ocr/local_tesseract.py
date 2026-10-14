@@ -40,10 +40,16 @@ _PPM_PAGE = re.compile(r"-(\d+)\.ppm\Z")
 
 #: The OSError numbers that say the HOST failed, not the document (final review of the audit 2026-10-13, finding 1):
 #: a full disk, a failing disk, a read-only disk, a disk quota, memory refused by the system (a fork or an allocation
-#: the kernel turned down; `MemoryError` is Python's own). Windows maps its disk-full and out-of-memory codes to
-#: ENOSPC and ENOMEM. Any other error in the raster steps is Poppler or PIL refusing the document, which reads as None.
+#: the kernel turned down; `MemoryError` is Python's own), a process start refused at the process limit (EAGAIN),
+#: file descriptors run out (EMFILE, ENFILE), and access denied to the temporary folder or a Poppler binary (EACCES,
+#: which is also what Windows reports for a write-protected disk). Windows maps its disk-full and out-of-memory codes
+#: to ENOSPC and ENOMEM. Any other error in the raster steps is Poppler or PIL refusing the document, which reads as
+#: None.
 HOST_FAILURE_ERRNOS = frozenset(
-    code for code in (errno.ENOSPC, errno.EIO, errno.EROFS, getattr(errno, "EDQUOT", None), errno.ENOMEM)
+    code for code in (
+        errno.ENOSPC, errno.EIO, errno.EROFS, getattr(errno, "EDQUOT", None), errno.ENOMEM,
+        errno.EAGAIN, errno.EMFILE, errno.ENFILE, errno.EACCES,
+    )
     if code is not None
 )
 
