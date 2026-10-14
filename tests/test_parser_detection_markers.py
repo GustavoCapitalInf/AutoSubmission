@@ -225,7 +225,7 @@ _IBC_PRODUCT = "Biz Rite Account Recap Account Number: 0000\n"
     "CIBC\nAccount Summary\n",
     "CIBC Bank USA\nAccount Summary\n",
     "www.cibc.com\nAccount Summary\n",
-    "CONTOSO TRADING\n01/15 WIRE FROM CIBC MELLON REF 0000 250.00\n",
+    "CONTOSO TRADING\n01/15 WIRE FROM CIBC REF 0000 250.00\n",
 ])
 def test_the_ibc_bank_name_marker_does_not_fire_inside_another_name(text):
     from analysis import ibc
