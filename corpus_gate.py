@@ -765,11 +765,25 @@ PRODUCTION_SUPPLIES_SHEETS = True
 #: document shape — so a version of it that stopped forwarding `sheets` would
 #: take the page-declaration check offline for EVERY caller at once, which is
 #: precisely the drift this declaration exists to make loud.
+#:
+#: The two visual-pair callers (Phase 3.1) are declared for the same reason,
+#: and they were missing from this list from the day they landed until the
+#: audit of 2026-10-13 (HYG-03): `analyze_visual_pair` is the web app worker's
+#: own analysis of a visual-pair reading (`webapp/worker.py` calls it), and
+#: `resolve_currency` analyses that reading again inside the pair's merge
+#: (`vlm/pair.py`). Both hand the analysis the reading's page partition today.
+#: Declared rather than excused, because only a declared site is held to that:
+#: a version of either that stopped passing `sheets` turns the harness test red,
+#: where an excused one would pass unseen. They leave this list with the
+#: model-code removal, and the sweep's stale-caller check says so if they
+#: outlive their module.
 ANALYSIS_CALL_SITES = (
     ("discovery/runner.py", "_analyse"),
     ("webapp/worker.py", "_analyze_doc"),
     ("batch.py", "main"),
     ("analysis/pipeline.py", "analyze_document"),
+    ("vlm/pair_adapter.py", "analyze_visual_pair"),
+    ("vlm/currency.py", "resolve_currency"),
 )
 
 #: Modules that call the analysis but must NOT be wired, each with the reason.
@@ -1066,6 +1080,24 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "tools/l1s4_document_replay.py": (
         "read-only document-seam replay; publishes no verdict, and already "
         "supplies the run's reconstructed page partition"
+    ),
+    # Two research instruments that went unclassified when they landed (audit
+    # 2026-10-13, HYG-03), excused on the same two grounds as the replays
+    # above. The revenue census re-analyses cached readings with a checkout's
+    # code and writes per-row decisions, digit-masked, to an output file it
+    # refuses to place inside a repository; the visual-pair oracle compares a
+    # visual-pair payload with the deterministic payload of the same PDF and
+    # prints field names, counts and match flags (its value-level diff goes to
+    # a private path outside the checkout). Neither publishes a verdict to a
+    # user, a job record or a discovery row, and each hands the analysis the
+    # page partition of the reading it analyses.
+    "tools/revenue_census.py": (
+        "read-only research instrument; publishes no verdict to a user, job "
+        "record or discovery row, and supplies the reading's page partition"
+    ),
+    "tools/phase3_pair/oracle_compare.py": (
+        "read-only research instrument; publishes no verdict to a user, job "
+        "record or discovery row, and supplies the reading's page partition"
     ),
 }
 
