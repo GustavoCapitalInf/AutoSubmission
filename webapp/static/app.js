@@ -158,6 +158,10 @@ let modalAccount = null;
 let modalReviewAccount = null;
 let modalLastFocus = null;
 let modalScrollY = 0;
+// Audit 2026-10-13, F1: the statement window's request number. Each opening and each closing takes a new one, and an
+// answer is drawn only while its opening's number is the latest: an answer for a statement opened (and closed) before
+// the one on screen is dropped, so its rows never fill that window, whose review buttons name the window's own job.
+let modalRequest = 0;
 let transactionFilter = "all";
 let modalTransactionFilter = "all";
 let transactionEntityFilter = null;
@@ -5833,6 +5837,8 @@ function openStatementModal(memberId) {
   if (!els.statementModalBackdrop) return;
   // The statement's own job: the server knows no `#account_<n>` (and a `#` in a URL is not sent at all).
   const { jobId, account } = packageMember(memberId);
+  modalRequest += 1;
+  const request = modalRequest;
   modalLastFocus = document.activeElement;
   modalAnalysis = null;
   modalJobId = jobId;
@@ -5910,6 +5916,8 @@ function openStatementModal(memberId) {
     fetch(`/markdown/${encodeURIComponent(jobId)}`).then((response) => response.ok ? response.text() : ""),
   ])
     .then(([payload, markdown]) => {
+      // Another statement was opened, or the window closed, since this one was asked for: its answer is not drawn.
+      if (request !== modalRequest) return;
       if (!payload.analysis) throw new Error(friendlyAnalysisError(payload.analysis_error));
       // Same rule as `renderAnalysis`: the modal's transaction renderer reads
       // `.statement` off this global, so it holds ONE account's payload (the
@@ -5920,6 +5928,7 @@ function openStatementModal(memberId) {
       if (els.statementModalClose) els.statementModalClose.focus();
     })
     .catch((error) => {
+      if (request !== modalRequest) return;
       els.statementModalTitle.textContent = "Statement unavailable";
       els.statementModalSubtitle.textContent = error.message || String(error);
       els.statementModalMetrics.innerHTML = "";
@@ -6143,6 +6152,8 @@ function renderStatementModal(jobId, report, markdown) {
 
 function closeStatementModal() {
   if (!els.statementModalBackdrop) return;
+  // An answer still on its way is for a window no longer open (F1 above).
+  modalRequest += 1;
   els.statementModalBackdrop.classList.remove("show");
   els.statementModalBackdrop.setAttribute("aria-hidden", "true");
   document.documentElement.style.overflow = "";
