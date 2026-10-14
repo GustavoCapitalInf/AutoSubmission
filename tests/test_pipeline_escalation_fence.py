@@ -1117,3 +1117,53 @@ def test_webapp_auto_mode_equals_deterministic_mode_through_the_worker_seam(outc
         assert analysis_error == NO_PARSER_MATCHED
 
 
+def hosted_sdk_imports(source: str) -> list[str]:
+    """Every import of the hosted extractor's SDK in `source`:
+    `import google.genai`, `from google.genai import ...`, `from google import
+    genai`. Empty when clean."""
+    found = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            found += [alias.name for alias in node.names
+                      if alias.name == "google.genai" or alias.name.startswith("google.genai.")]
+        elif isinstance(node, ast.ImportFrom) and node.level == 0:
+            module = node.module or ""
+            if module == "google.genai" or module.startswith("google.genai."):
+                found.append(module)
+            elif module == "google" and any(alias.name == "genai" for alias in node.names):
+                found.append("google.genai")
+    return found
+
+
+def test_no_python_file_in_the_tree_imports_the_hosted_sdk():
+    """Slice S3 removed the last importer of `google.genai`
+    (`analysis/extract.py`). No Python file in this repository imports it now,
+    in any of its three spellings; a planted import of each is caught. (The
+    `google-genai` requirement line leaves in slice S6.)"""
+    import subprocess
+
+    try:
+        listing = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=ROOT, capture_output=True,
+                                 check=True).stdout.decode("utf-8")
+        tracked = sorted(path for path in listing.split("\0") if path)
+    except (OSError, subprocess.CalledProcessError):  # an extracted tree without git: every file is tracked
+        tracked = sorted(path.relative_to(ROOT).as_posix() for path in ROOT.rglob("*.py")
+                         if "__pycache__" not in path.parts)
+    assert len(tracked) > 100, "not looking at the repository"
+    offenders = []
+    for relative in tracked:
+        path = ROOT / relative
+        if not path.is_file():
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+            hits = hosted_sdk_imports(source)
+        except (UnicodeDecodeError, SyntaxError) as exc:
+            raise AssertionError(f"{relative} could not be scanned: {type(exc).__name__}")
+        if hits:
+            offenders.append(f"{relative}: {hits}")
+    assert offenders == [], offenders
+    for planted in ("import google.genai\n", "from google.genai import types\n", "from google import genai\n"):
+        assert hosted_sdk_imports(planted), planted
+
+
