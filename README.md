@@ -148,8 +148,8 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 - `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests of the retired model endpoints were
   removed with them. The one local `live` check is the Tesseract drift test:
   `python -m pytest -m live tests/test_new_statement_corpus.py`.
-- **Known failures** (after the visual pair's removal, Windows, Python 3.14): 4 failed, 23,836 passed,
-  53 skipped, 37 deselected, in about 13 minutes. All four are Windows environment artefacts: the symlink tests
+- **Known failures** (after the visual pair's and PaddleOCR's removal, Windows, Python 3.14): 4 failed, 23,292
+  passed, 52 skipped, 36 deselected, in about 12 minutes. All four are Windows environment artefacts: the symlink tests
   of `tests/test_private_artifacts.py` need the symlink privilege (`WinError 1314`). The two guard tests that
   tripped on the retired visual-pair code
   (`test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr` and
