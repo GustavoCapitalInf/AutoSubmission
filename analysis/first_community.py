@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 from .date_tokens import iso_from_month_day
 from .money import parse_money
@@ -136,13 +137,23 @@ def parse_first_community_statement(markdown: str) -> Statement | None:
     avg = re.search(r"Service Class BPCK-BUSINESS PLUS CHKG Average Daily Balance \$?([\d,]+\.\d{2})", text, re.IGNORECASE)
     service = re.search(r"Accumulated Fees \$?([\d,]+\.\d{2})", text, re.IGNORECASE)
 
+    # The summary prints the period's two days without a year; the masthead's
+    # `STATEMENT ENDING` year is the END's. A start month later than the end
+    # month is a period that crosses New Year, so the start belongs to the
+    # year before (the rule wells.py applies; audit 2026-10-13 PARSERS-2).
+    # The end year used to be stamped on both, inverting such a period.
+    period_end = iso_from_month_day(summary.group("end"), year=year)
+    start_year = year - 1 if int(summary.group("start")[:2]) > int(summary.group("end")[:2]) else year
+    period_start = iso_from_month_day(summary.group("start"), year=start_year)
     stmt = Statement(
         bank="First Community Credit Union",
         account_name="Business Plus Checking",
         account_number=acct.group(1) if acct else None,
-        period_start=iso_from_month_day(summary.group("start"), year=year),
-        period_end=iso_from_month_day(summary.group("end"), year=year),
-        days_in_period=int(summary.group("end").split("/")[1]),
+        period_start=period_start,
+        period_end=period_end,
+        # The period's own length. It used to be the end date's day of the
+        # month, which is the length only for a cycle that starts on the 1st.
+        days_in_period=(date.fromisoformat(period_end) - date.fromisoformat(period_start)).days + 1,
         beginning_balance=_money(summary.group("begin")),
         ending_balance=_money(summary.group("ending")),
         stated_total_credits=_money(summary.group("credits")),

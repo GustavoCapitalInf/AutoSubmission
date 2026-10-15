@@ -1,8 +1,10 @@
-# Dependencies for the downstream analysis layer (analysis/ + analyze.py), which
-# turns the OCR markdown into structured metrics and MCA/lender findings using
-# Google Gemini. Install on top of the base client:
-#   .venv/bin/python -m pip install -r requirements-analysis.txt
-# Needs a GEMINI_API_KEY in a (gitignored) .env file.
-google-genai
+# Dependencies of the analysis layer (analysis/ + analyze.py), which turns a
+# statement's text into reconciled metrics and MCA/lender findings with
+# deterministic parsers and rules (no model; owner ruling 2026-10-13):
+# python-dotenv loads .env (analysis/config.py, ocr/config.py, webapp/app.py)
+# and pydantic holds the statement schema (analysis/schema.py). CI
+# (.github/workflows/corpus-gate.yml) and the hosting image install it on top
+# of requirements.txt:
+#   python -m pip install -r requirements.txt -r requirements-analysis.txt
 python-dotenv
 pydantic

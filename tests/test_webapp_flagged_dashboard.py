@@ -724,8 +724,9 @@ def test_the_page_asks_browsers_for_the_new_script():
     # differs from both lines', so it takes the next free value above both: -11. The owner's request of 2026-10-10
     # (active positions by month): the Monthly Statements' Active Positions column and the memos' line: -12. The
     # owner's own design (2026-10-11, display only): -13. His request of 2026-10-11 to hide Verified revenue and
-    # "Counted, not verified": -14.
-    assert '<script src="/static/app.js?v=true-revenue-14"></script>' in html
+    # "Counted, not verified": -14. The code audit of 2026-10-13 (its dashboard fixes): -15. The model-code removal (no
+    # Force visual OCR control, the advice texts rewritten): -16.
+    assert '<script src="/static/app.js?v=true-revenue-16"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in

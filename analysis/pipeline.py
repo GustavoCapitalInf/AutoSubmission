@@ -1,14 +1,18 @@
-"""Orchestrates the analysis stages: extract -> reconcile -> metrics -> detect.
+"""Orchestrates the analysis stages: parse -> reconcile -> metrics -> detect.
 
-No statement is ever re-extracted because it failed reconciliation. The
-reconciliation-based selection between two hosted extractions that used to sit
-between `reconcile` and `metrics` was REMOVED under ruling R9
+Every statement comes from a deterministic parser (or, behind its own opt-in,
+the generic structurer); nothing here calls a model. No statement is ever
+re-extracted because it failed reconciliation. The reconciliation-based
+selection between two hosted extractions that used to sit between `reconcile`
+and `metrics` was REMOVED under ruling R9
 (`docs/moneythumb-replacement/PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE):
-the validator is a verifier, never an optimizer, and
-`tests/test_pipeline_escalation_fence.py` characterised the removed behaviour
-at the base tree and pins its absence."""
+the validator is a verifier, never an optimizer. The one hosted extraction R9
+left, behind an operator opt-in, was removed with `analysis/extract.py` under
+the owner's ruling of 2026-10-13 that the product uses no model (model-code
+removal, slice S3). `tests/test_pipeline_escalation_fence.py` pins the absence
+of both."""
 from __future__ import annotations
-import os
+import math
 import re
 from dataclasses import dataclass, field, replace
 from collections.abc import Sequence
@@ -17,7 +21,6 @@ from .config import Settings, load_settings
 from .count_semantics import claiming_parser_id, counts_comparable
 from .schema import Statement
 from .dates import assign_transaction_years
-from .extract import extract_statement
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
@@ -62,13 +65,8 @@ from . import parser_registry_entries as _parser_registry_entries  # noqa: F401 
 from .structurer import STRUCTURER_MODEL, structure_unclaimed
 from .bank_repairs import (
     repair_b1_beginning_balance,
-    repair_capital_one_running_amount,
-    repair_chase_remote_deposit_count_column,
-    repair_regions_transactions,
     repair_santander_signs_from_balances,
     repair_scotiabank_misc_payment_sign,
-    repair_single_row_signs_from_balances,
-    repair_truist_converted_checks,
 )
 
 
@@ -112,6 +110,19 @@ _SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
     "regions": repair_regions_summary,
 }
 
+#: The three kept bank repairs of `analysis/bank_repairs.py`, keyed the same
+#: way (audit 2026-10-13, PARSERS-1). Each used to run on every statement and
+#: was gated only on a SUBSTRING of `stmt.bank`, so a reader of another family
+#: that published a label carrying the substring, or a hosted extraction that
+#: named the bank loosely, got a repair written for another bank's paper. Each
+#: keeps that guard, so the key can only stop a repair firing, never start one.
+#: The same test holds these ids to the registry.
+_STATEMENT_REPAIRS: dict[str, Callable[[Statement], Statement]] = {
+    "b1": repair_b1_beginning_balance,
+    "santander": repair_santander_signs_from_balances,
+    "scotiabank": repair_scotiabank_misc_payment_sign,
+}
+
 
 def apply_statement_repairs(
     markdown: str, stmt: Statement, *, dispatch: Dispatch | None = None
@@ -144,14 +155,33 @@ def apply_statement_repairs(
     if repair is not None:
         stmt = repair(markdown, stmt)
     stmt = repair_first_community_posted_activity(stmt)
-    stmt = repair_b1_beginning_balance(stmt)
-    stmt = repair_capital_one_running_amount(stmt)
-    stmt = repair_chase_remote_deposit_count_column(stmt)
-    stmt = repair_regions_transactions(markdown, stmt)
-    stmt = repair_truist_converted_checks(stmt)
-    stmt = repair_santander_signs_from_balances(stmt)
-    stmt = repair_scotiabank_misc_payment_sign(stmt)
-    stmt = repair_single_row_signs_from_balances(stmt)
+    # The three kept bank repairs, for their owner only (`_STATEMENT_REPAIRS`).
+    statement_repair = _STATEMENT_REPAIRS.get(owner.id) if owner is not None else None
+    if statement_repair is not None:
+        stmt = statement_repair(stmt)
+    # R10 items S-1..S-3 are fenced under Gustavo's ruling: the three legacy
+    # amount rewrites remain defined in bank_repairs.py,
+    # with their doctrine reasons, but nothing under analysis/ calls them.
+    # The ceremony tripwire covers these and the S-4 direction rewrite below.
+    # R10 item S-5: the retained legacy check-row repair is fenced; its
+    # duplicate witness can be the same row it removes.
+    # `repair_single_row_signs_from_balances` is NOT run (STOP item S-4,
+    # ruled). It walks the ledger a printed-balance step at a time and, where
+    # a segment's sum disagrees with the step, flips the sign of the FIRST row
+    # whose flip reconciles the segment — several plausible readings, tested
+    # against a reconciliation, and whichever balances is published. That is
+    # the anti-optimizer pattern, and the ruling's own words for it are
+    # "several independently plausible interpretations → REVIEW / REFUSE".
+    # The function stays defined in `analysis/bank_repairs.py` as the record
+    # of what ran; nothing calls it, and
+    # `tests/test_bank_repairs_ceremony.py` refuses any caller under
+    # `analysis/`. It fired on 0 of its 201 candidate documents on the run of
+    # record, which is why the union replay across this fence is identical.
+    #
+    # The five fences were reviewed on `wave23-precision` and never composed
+    # into the shipped line; the audit of 2026-10-13 (PARSERS-1) ported them.
+    # A statement that only one of these rewrites made reconcile is now
+    # refused or routed to review on the figures the paper printed.
     # Statement periods that cross a year boundary: parsers stamp one year on
     # every MM/DD row, so re-derive the year from the period before anything
     # chronological (ADB, daily ledger) is built on these dates.
@@ -294,9 +324,12 @@ AMBIGUOUS_INTERNAL_TRANSFER = "ambiguous_internal_transfer"
 
 DOCUMENT_INTEGRITY_NOTES: frozenset[str] = frozenset({AMBIGUOUS_INTERNAL_TRANSFER})
 
-#: How an account a document prints stands in its payload (the visual pair's per-account judgement,
-#: `vlm/pair_accounts.py`): `published` (its own Report is in `accounts`), `idle` (its section prints an unchanged
-#: balance and no activity), `held` (not verified; its reasons say why).
+#: How an account a document prints stands in its payload, from a reader that judged the document account by account:
+#: `published` (its own Report is in `accounts`), `idle` (its section prints an unchanged balance and no activity),
+#: `held` (not verified; its reasons say why). Its first producer, the visual pair's per-account judgement, was
+#: removed with the pair (model-code removal, slice S4); the text-first reader is the planned producer. The roster's
+#: serialization (`analysis/serialization.py`), the web app's package exclusion of an unverified or idle main account
+#: and the dashboard's roster display stay, and stored payloads that carry a roster still load and display.
 ACCOUNT_ROSTER_STATUSES: frozenset[str] = frozenset({"published", "idle", "held"})
 
 
@@ -383,7 +416,9 @@ def _registration_for(stmt: Statement, dispatch: Dispatch | None) -> Registratio
     The claiming registration when one exists. Otherwise the registration whose
     bank label matches - an LLM extraction that named a bank we do have a
     parser for still gets that parser's document knowledge, which is what the
-    pre-R-3 `stmt.bank == ...` literals gave it.
+    pre-R-3 `stmt.bank == ...` literals gave it. (The hosted LLM extraction was
+    removed in slice S3 of the model-code removal; a statement handed to
+    `analyze_statement` without a dispatch still resolves this way.)
     """
     if dispatch is not None and dispatch.registration is not None:
         return dispatch.registration
@@ -502,9 +537,23 @@ def assess_document_integrity(
     if recon.summary_ok is False:
         flags.append("summary_math_inconsistent")
         notes.append("bank-stated summary totals do not reconcile to beginning and ending balances")
-    if recon.sum_delta is not None and abs(recon.sum_delta) > 1.0:
+    # The sum check's own threshold (audit 2026-10-13 REC-4). It used to be a
+    # dollar, so a reconciliation that failed by 0.02-1.00 published integrity
+    # "clear" with no flag; every other reconcile issue already carried a flag
+    # at reconcile's own threshold. A sum check that could not run (no
+    # beginning or ending balance to hold the rows to) is flagged too: it is
+    # a check whose finding is unknown, and an unknown finding is routed to
+    # review rather than reported as clear. `not recon.ok` keeps a caller's own
+    # passing ReconResult from being flagged for a field it never filled.
+    if recon.sum_check_failed:
         flags.append("ledger_sum_mismatch")
         notes.append("transaction sum does not reconcile to the printed ending balance")
+    elif recon.sum_delta is None and not recon.ok:
+        flags.append("ledger_sum_uncheckable")
+        notes.append(
+            "the sum check could not run: the statement publishes no beginning or "
+            "no ending balance to hold the transactions to"
+        )
     if recon.continuity_breaks:
         flags.append("running_balance_breaks")
         notes.append(f"{recon.continuity_breaks} printed running-balance continuity break(s) detected")
@@ -578,12 +627,16 @@ def assess_document_integrity(
     # document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
     #
     # THE NOTE NAMES THE STAGE, NOT ONE REPAIR, and the precision is the point.
-    # `apply_statement_repairs` is TWELVE steps and only ONE is a bank-summary
-    # repair; the other eleven are nine further bank-specific repairs,
-    # `assign_transaction_years` and `normalize_statement`. Saying "a
-    # bank-summary repair raised" would be wrong twice over: it misnames the
-    # eleven, and on a raise late in the stage the bank-summary repair had
-    # already SUCCEEDED and is being discarded with everything else.
+    # `apply_statement_repairs` is FIVE steps and only ONE is a bank-summary
+    # repair; the other four are the First Community repair, the claiming
+    # registration's kept bank repair (`_STATEMENT_REPAIRS`),
+    # `assign_transaction_years` and `normalize_statement` (it was twelve
+    # until the five ruled fences, S-1..S-5, took five repairs off the path
+    # and the audit of 2026-10-13 keyed the remaining three on their owner).
+    # Saying "a bank-summary repair raised" would be wrong twice over: it
+    # misnames the four, and on a raise late in the stage the bank-summary
+    # repair had already SUCCEEDED and is being discarded with everything
+    # else.
     #
     # WHAT THE DISCARD COSTS, disclosed rather than implied: because
     # `assign_transaction_years` is inside the stage, a statement whose period
@@ -741,78 +794,19 @@ class _Analysed:
     partition: MultiAccountPartition | None = None
 
 
-#: THE HOSTED-EXTRACTION OPT-IN (P22-FENCE — Ruling A in code, `PHASE2_RULINGS.md`
-#: 2026-09-02; the OQ3 idiom of `ocr/endpoint_policy.py`).
-#:
-#: Auto mode used to hop from a dispatch that produced no statement —
-#: `unclaimed`, `parser_exception`, `ambiguous` — straight to the hosted
-#: extractor: a Class-B (structure) failure routed to another extractor, the
-#: "parser failure -> hosted model" hop Ruling A refuses as doctrine. The hop
-#: now exists ONLY behind this variable, compared to its literal EXACTLY (`==`,
-#: never truthiness: "1", "true", the literal in another case or with a
-#: trailing newline all refuse) and READ AT THE CALL SITE from the live process
-#: environment, never at import — a process that sets it after this module
-#: loaded is opted in, one that unsets it is not. `Settings` gains no field: an
-#: environment literal is a deliberate operator act, exactly like the OCR and
-#: Paddle opt-ins, and it is documented here because this is the only place it
-#: is read. The literal appears in no tracked file but this definition
-#: (`tests/test_pipeline_escalation_fence.py` scans the tree); an operator sets
-#: it in the environment or a gitignored `.env`.
-#:
-#: Absent, a document that reaches the hosted branch takes the deterministic-
-#: mode outcome for its dispatch — the SAME exception class and message
-#: `parse_mode="deterministic"` raises for it — with the refusal recorded on
-#: the exception object as `hosted_extraction`. On the exception because there
-#: is no payload to record it on, and never in the message, which
-#: `webapp/worker.py`'s declared-refusal allow-list and the router tests pin
-#: byte for byte (a closed suffix on the message was tried and reverted at
-#: the review's N1: it turned the one actionable refusal into a withheld
-#: crash text for the webapp user). A DURABLE record of the refusal is the
-#: worker owner's composition item: publish the attribute when present.
-HOSTED_EXTRACTION_OPT_IN_ENV = "HOSTED_EXTRACTION_OPT_IN"
-HOSTED_EXTRACTION_OPT_IN_LITERAL = "I_ACCEPT_HOSTED_MODEL_EXTRACTION"
-HOSTED_EXTRACTION_REFUSED_NO_OPT_IN = "refused_no_opt_in"
-
-
-def hosted_extraction_opted_in(
-    environ: "os._Environ[str] | dict[str, str] | None" = None,
-) -> bool:
-    """True only when the opt-in variable is EXACTLY the literal — never truthy.
-
-    A plain `==` on the string, as `ocr.endpoint_policy.remote_opt_in_from_env`
-    does it. `environ` is an injection seam for tests; production callers pass
-    nothing and get `os.environ`, read when THIS call runs.
-    """
-    source = os.environ if environ is None else environ
-    return source.get(HOSTED_EXTRACTION_OPT_IN_ENV) == HOSTED_EXTRACTION_OPT_IN_LITERAL
-
-
-def _hosted_extraction_refused(dispatch: Dispatch) -> RuntimeError:
-    """The deterministic-mode outcome for `dispatch`, with the refusal recorded.
-
-    Built from the dispatch's OUTCOME and the registry's own ids and class
-    names — never from the document — exactly as the deterministic raises
-    above the call site build theirs: the same CLASS and the same MESSAGE,
-    byte for byte, so a refused auto-mode document is indistinguishable from a
-    deterministic-mode one everywhere the message is read (the webapp's
-    declared-refusal allow-list publishes it as the one actionable refusal),
-    and distinguishable by the attribute wherever the object is. The message
-    carried a closed suffix between the first and second closure of
-    P22-FENCE's review; re-review N1 measured what that did to the webapp's
-    published error and Ocean reverted it — the durable record of the refusal
-    is the worker owner's, by publishing the attribute when present. Returned
-    rather than raised so the call site writes
-    `raise _hosted_extraction_refused(dispatch)` from outside any `except`:
-    no `__context__` for a traceback renderer to walk.
-    """
-    if dispatch.outcome == "ambiguous":
-        refusal: RuntimeError = AmbiguousParserError(dispatch.candidates)
-    elif dispatch.outcome == "parser_exception":
-        refusal = ParserCrashError(dispatch.exceptions)
-    else:
-        refusal = RuntimeError("no deterministic parser matched this statement")
-    refusal.hosted_extraction = HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
-    return refusal
+#: THE HOSTED-EXTRACTION OPT-IN is gone (model-code removal, slice S3; owner
+#: ruling 2026-10-13: the product uses no model). Until then auto mode could hop
+#: from a dispatch that produced no statement to the hosted extractor
+#: (`analysis/extract.py`), but only behind the exact literal of the
+#: `HOSTED_EXTRACTION_OPT_IN` environment variable (P22-FENCE, Ruling A in
+#: code); without it, auto mode raised the deterministic-mode outcome with a
+#: `hosted_extraction` attribute on the exception. The extractor, the variable's
+#: reader and the attribute went together: auto mode now raises exactly what
+#: deterministic mode raises (same class, same message, nothing attached), and
+#: nothing in this tree reads `HOSTED_EXTRACTION_OPT_IN`. The analysis cache key
+#: keeps `hosted_extraction_opt_in` as the frozen literal False
+#: (`webapp/artifact_cache.py::analysis_settings_key`), the value every entry
+#: written without the opt-in already carries.
 
 
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
@@ -859,8 +853,9 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
 
     # THE ADMISSIBILITY BOUNDARY (W3 FILENAME-BOUNDARY). Everything below this
     # line — detection, every parser's `parse`, the repairs, the ADB engine's
-    # source-text check, the integrity checks and the LLM extraction prompt —
-    # sees the document with its source-filename comment removed.
+    # source-text check and the integrity checks (and, until slice S3 of the
+    # model-code removal, the LLM extraction prompt) — sees the document with
+    # its source-filename comment removed.
     #
     # Deliberately a REBIND of the parameter rather than a second local passed
     # to each consumer: one line makes the property total and checkable by
@@ -893,7 +888,10 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     prepared = prepare(markdown)
     markdown = prepared.admissible
 
-    model_used = settings.model
+    # `model_used` is assigned by each branch below that publishes a statement
+    # (the claiming parser's label, or the structurer's); the branch that
+    # publishes none raises. It no longer starts from `settings.model`, the
+    # hosted extractor's name, which only the removed hosted branch published.
     # THE ACCOUNT-PUBLICATION SEAM (L1-S4). A reader that establishes a
     # document's several accounts from its printed partition publishes them
     # here while it parses; `resolve` runs every candidate's `parse`, so several
@@ -970,22 +968,21 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # The repair stage is discarded ATOMICALLY — the unrepaired statement
         # stands, which is exactly what this branch published before repairs
         # existed. Deliberately not per-repair: recovering WHICH step of the
-        # stage raised would mean running the ten repairs, the year assignment
+        # stage raised would mean running the repairs, the year assignment
         # and the normalization independently, and that changes what the stage
         # DOES — today the first raise stops the rest — which this card is
         # explicit is out of scope. For the same reason the class name is NOT
-        # attributed to `dispatch.registration`: only the keyed summary repair
-        # belongs to the claiming parser, so naming it as the author of one of
-        # the nine unconditional repairs' crashes would be exactly the
-        # misattribution this seam exists to prevent.
+        # attributed to `dispatch.registration`: only the registration-keyed
+        # repairs belong to the claiming parser, so naming it as the author of
+        # a crash in the label-gated First Community repair, the year
+        # assignment or the normalization would be exactly the misattribution
+        # this seam exists to prevent.
         #
-        # NOT applied to the LLM-branch repair call below, and that is a
-        # boundary rather than an omission: `extract_statement` on that
-        # branch is itself an unguarded call that raises out of this
-        # function, so guarding one line inside a branch that makes no
-        # totality promise would buy nothing. (A second such call — the
-        # escalation extraction, with its own `except` — stood after
-        # `reconcile` until R9 removed it; see the pinned `escalated` below.)
+        # The hosted-extraction branch, which called the repairs unguarded
+        # after its own unguarded extraction, was removed with
+        # `analysis/extract.py` (model-code removal, slice S3); the escalation
+        # extraction after `reconcile` went earlier, under R9 (see the pinned
+        # `escalated` below). This is now the only branch the repairs run in.
         try:
             stmt = apply_statement_repairs(markdown, normalized, dispatch=dispatch)
         except Exception as exc:
@@ -1030,53 +1027,38 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         stmt = normalize_statement(structured_stmt)
         model_used = STRUCTURER_MODEL
     else:
-        if dispatch.outcome == "ambiguous" and parse_mode == "deterministic":
-            raise AmbiguousParserError(dispatch.candidates)
-        # BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`), unconditional in every
-        # `parse_mode`. Below, the `parser_exception` -> `ParserCrashError`
-        # refusal fired only `and parse_mode == "deterministic"` — every other
-        # mode fell through to `extract_statement`, so Q3's native-only gate
+        # THE DISPATCH PRODUCED NO STATEMENT: the deterministic refusal, in
+        # EVERY `parse_mode`. Auto and deterministic raise the same class with
+        # the same message (plan D2 of the model-code removal): until slice S3
+        # auto mode could fall through here to the hosted extractor behind an
+        # operator opt-in (P22-FENCE, Ruling A), and without it raised these
+        # same refusals with a `hosted_extraction` attribute attached. The
+        # extractor is gone, so there is nothing left to fall through to.
+        #
+        # BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`) stays first, and stays a
+        # check of its own although the `parser_exception` refusal below now
+        # raises the same thing: Q3's native-only gate
         # (`sibling_omission.publish_omissions`, raises `Q3ProvenanceRefused`)
-        # was fail-CLOSED in deterministic mode and fail-OPEN in the webapp's
-        # default `parse_mode="auto"`: a document refused for OCR provenance
-        # was routed to a HOSTED MODEL CALL, and on success published one
-        # account with the omitted sibling silently dropped (`omissions ==
-        # []`, no `sibling_account_omission_detected`) — the exact L-1 defect
-        # `analysis/sibling_omission.py`'s own module docstring exists to
-        # prevent, reached through the gate whose whole purpose is to prevent
-        # it. A policy refusal must never start an extractor escalation
+        # was once fail-CLOSED in deterministic mode only, and a document
+        # refused for OCR provenance was routed to a HOSTED MODEL CALL in auto
+        # mode, publishing one account with the omitted sibling silently
+        # dropped — the exact L-1 defect `analysis/sibling_omission.py` exists
+        # to prevent. A policy refusal must never start any other reading
         # (`PHASE2-0-SAFETY.md` §Objective), so this checks the recorded
         # exception's CLASS NAME ONLY — never a message, exactly as
-        # `analysis.parser_registry.ParserFailure` already stores it — and
-        # refuses in EVERY mode. BLOCK-2 also named, and did not touch, the
-        # pre-existing `unclaimed` asymmetry — an `unclaimed` dispatch fell
-        # through to `extract_statement` outside deterministic mode with no
-        # opt-in of any kind. Ruling A refused that edge as doctrine and
-        # P22-FENCE fenced it below (`hosted_extraction_opted_in`).
+        # `analysis.parser_registry.ParserFailure` already stores it.
         if dispatch.outcome == "parser_exception" and any(
             failure.exception == Q3ProvenanceRefused.__name__
             for failure in dispatch.exceptions
         ):
             raise ParserCrashError(dispatch.exceptions)
-        if dispatch.outcome == "parser_exception" and parse_mode == "deterministic":
+        if dispatch.outcome == "ambiguous":
+            raise AmbiguousParserError(dispatch.candidates)
+        if dispatch.outcome == "parser_exception":
             # Not "no parser matched": that would file our own defect as a gap
             # in our layout knowledge, in the one report a human reads.
             raise ParserCrashError(dispatch.exceptions)
-        if parse_mode == "deterministic":
-            raise RuntimeError("no deterministic parser matched this statement")
-        # THE FENCE (P22-FENCE; Ruling A in code). Everything that reaches this
-        # line is a dispatch that produced no statement, in a mode that may
-        # make a hosted call — the Class-B -> hosted hop. It runs ONLY behind
-        # the operator's exact opt-in literal, read from the process
-        # environment HERE, at the call, never at import; otherwise the
-        # document takes precisely the outcome deterministic mode gave it
-        # above, with the refusal recorded on the exception. What follows is
-        # the ONE hosted extraction this module makes: no second call, no
-        # selection (R9).
-        if not hosted_extraction_opted_in():
-            raise _hosted_extraction_refused(dispatch)
-        stmt = normalize_statement(extract_statement(markdown, settings=settings, model=model_used))
-        stmt = apply_statement_repairs(markdown, stmt, dispatch=dispatch)
+        raise RuntimeError("no deterministic parser matched this statement")
     # One key for both halves of the count check: the mapping `reconcile`
     # applies and the semantics `assess_document_integrity` judges the result
     # under come from the same table row or the check is judging one comparison
@@ -1092,14 +1074,16 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     # fewer overall issues" — which is, verbatim, the "multiple extractions ->
     # compare financial reconciliation -> prefer whichever reconciles" pattern
     # the anti-optimizer rule forbids. It is REMOVED, not fenced: this module
-    # makes at most one `extract_statement` call, binds at most one `reconcile`
-    # result per scope, and derives this flag from nothing. The field stays on
-    # `Report`, and so in every payload, for shape stability only.
+    # makes no extraction call at all (the one R9 left, the hosted extraction
+    # behind its opt-in, went with `analysis/extract.py` in slice S3 of the
+    # model-code removal), binds at most one `reconcile` result per scope, and
+    # derives this flag from nothing. The field stays on `Report`, and so in
+    # every payload, for shape stability only.
     # `tests/test_pipeline_escalation_fence.py` characterised the removed
     # behaviour at the base tree and pins its absence with AST tripwires. (The
     # #PRIVACY3 guarantee the removed guard's first clause carried — no hosted
-    # call in deterministic mode — is now structural: the one call left is in
-    # the branch above, after the deterministic-mode raises.)
+    # call in deterministic mode — is now structural in every mode: there is
+    # no hosted call left to make.)
     escalated = False
 
     published = list(partition.accounts) if partition is not None else []
@@ -1134,9 +1118,10 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     #
     # `normalize_statement` and `apply_statement_repairs` are applied exactly as
     # they were to the claimed statement, so the accounts of one document are
-    # treated alike. The repairs are keyed on the CLAIMING registration or on
-    # each repair's own printed guard, so none of them can reach a document this
-    # reader did not claim.
+    # treated alike. The repairs are keyed on the CLAIMING registration, and
+    # the one that is not (First Community's) on the bank label the claiming
+    # parser published (`stmt.bank`, which a parser sets, not the page), so
+    # none of them can reach a document this reader did not claim.
     accounts = [primary]
     for account in published[1:]:
         sibling = apply_statement_repairs(
@@ -1293,12 +1278,20 @@ def analyze_statement(
 ) -> DocumentReport:
     """Analyse one already reconstructed account using the ordinary report path.
 
-    The visual-pair adapter owns source validation and its proposal gate, and
-    supplies the final Statement's independent reconciliation. This boundary
-    never repairs, normalises, classifies with a model, or constructs a payload. The
-    same account-report function used by every bank reader computes metrics,
-    classifications, quality and integrity. Multi-account reconstruction needs
-    its own boundary proof and is deliberately not accepted here.
+    The producer owns source validation and supplies the final Statement's
+    independent reconciliation. This boundary never repairs, normalises,
+    classifies with a model, or constructs a payload. The same account-report
+    function used by every bank reader computes metrics, classifications,
+    quality and integrity. Multi-account reconstruction needs its own boundary
+    proof and is deliberately not accepted here: a producer that judges a
+    document account by account calls this once per account and assembles the
+    `DocumentReport` itself (`account_roster`, `identify_internal_transfers`).
+
+    No production caller today. The visual-pair adapter (`vlm/pair_adapter.py`)
+    was the only one and was removed with the pair (model-code removal, slice
+    S4); the text-first reader is the planned producer. The contract is pinned
+    by `tests/test_analyze_statement_contract.py` and the other tests that call
+    this function.
     """
     if not reconciliation.ok:
         raise RuntimeError("reconstructed statement did not reconcile")
@@ -1388,6 +1381,24 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
     )
 
 
+#: Audit 2026-10-13 (REC-5): below this magnitude a float's cents are exact enough that two amounts within clause 1's
+#: 0.005 of each other fall in the same or a neighbouring whole-cent bucket (the float error of |amount| x 100 stays
+#: far under half a cent); at or above it a posting is compared with every posting, as before.
+_TRANSFER_BUCKET_LIMIT = 1e12
+
+
+def _transfer_bucket(posting: tuple[int, int, str, float, str]) -> tuple[object, int] | None:
+    """(date, whole cents of the magnitude) of an R-d posting, or None when it must be compared with every posting."""
+    amount = posting[3]
+    if not math.isfinite(amount) or abs(amount) >= _TRANSFER_BUCKET_LIMIT:
+        return None
+    try:
+        hash(posting[2])
+    except TypeError:
+        return None
+    return posting[2], round(abs(amount) * 100)
+
+
 def identify_internal_transfers(
     accounts: Sequence[Report],
 ) -> tuple[list[InternalTransfer], list[str]]:
@@ -1459,9 +1470,35 @@ def identify_internal_transfers(
             and left[3] * right[3] < 0
         )
 
+    # Audit 2026-10-13 (REC-5, speed only): a posting's candidates come from a (date, whole cents of the magnitude)
+    # index, its own bucket and the two neighbouring cents, which hold every posting clause 1's < 0.005 tolerance can
+    # admit; `admissible()` above stays the authority and tests each candidate verbatim, in posting order, so every
+    # counterpart list is the one the test of every pair built. The index is on date and cents only, never on the
+    # account (clause 1's own test refuses a same-account counterpart). A posting whose amount is not finite, or too
+    # large for its cents to be exact in a float, or whose date cannot be a key, keeps the test of every posting and
+    # is a candidate of every posting.
+    buckets: dict[tuple[object, int], list[int]] = {}
+    unbucketed: list[int] = []
+    for index, posting in enumerate(postings):
+        key = _transfer_bucket(posting)
+        if key is None:
+            unbucketed.append(index)
+        else:
+            buckets.setdefault(key, []).append(index)
+
+    def candidates(left) -> Sequence[int]:
+        key = _transfer_bucket(left)
+        if key is None:
+            return range(len(postings))
+        date, cents = key
+        return sorted([
+            *buckets.get((date, cents - 1), ()), *buckets.get(key, ()), *buckets.get((date, cents + 1), ()),
+            *unbucketed,
+        ])
+
     counterparts: dict[int, list[int]] = {
-        index: [other for other, right in enumerate(postings)
-                if other != index and admissible(left, right)]
+        index: [other for other in candidates(left)
+                if other != index and admissible(left, postings[other])]
         for index, left in enumerate(postings)
     }
     ambiguous = any(len(found) > 1 for found in counterparts.values())

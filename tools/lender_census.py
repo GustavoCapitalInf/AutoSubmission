@@ -157,7 +157,10 @@ def cached_accounts(
             payload = revenue_census.reparsed_payload(reparsed[sha])
         else:
             try:
-                payload = json.loads((data_dir / "artifacts" / relative).read_text(encoding="utf-8"))
+                # A cache built on Windows stores its paths with backslashes; read on Linux they would name no file and
+                # every cached analysis would be skipped in silence. Converted as revenue_census does.
+                payload = json.loads(
+                    (data_dir / "artifacts" / relative.replace("\\", "/")).read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
         for index, account in enumerate(_account_payloads(payload.get("artifact"))):

@@ -20,6 +20,12 @@ shared host"):
 * it never runs two mutants at once and it is never run beside another
   harness.
 
+Model-code removal, slice S5: the research-mode and escalation mutants (M10,
+M11, M12, M13, M14, N4, N9, M18) left with their subjects (the `decide(` call
+sites, the research doors, `--research-paddle`'s opt-in literals and
+`refuse_production_data_dir`) and with their killers
+(`tests/test_research_mode.py`); every other mutant is unchanged.
+
 M2 is deliberately not a tree edit. Its subject is a drift GUARD whose reader
 is a pure function over source TEXT, so the mutant is planted in a scratch
 copy of the runner's source inside the test itself and the working tree is
@@ -41,12 +47,10 @@ TAXONOMY = "telemetry/unresolved_taxonomy.py"
 COMPARE = "discovery/compare.py"
 RUNNER = "discovery/runner.py"
 REPORT = "discovery/report.py"
-CLI = "discovery/cli.py"
 
 T_TAXONOMY = "tests/test_unresolved_taxonomy.py"
 T_REFUSED = "tests/test_refused_outcome.py"
 T_DENOM = "tests/test_two_denominators.py"
-T_RESEARCH = "tests/test_research_mode.py"
 T_TRIPWIRES = "tests/test_escalation_tripwires.py"
 
 
@@ -145,51 +149,6 @@ MUTANTS: list[Mutant] = [
         ["test_no_cost_price_rate_usd_or_billing_key_anywhere"],
     ),
     Mutant(
-        "M10", "`enabled` computed per document at a router call site",
-        RUNNER,
-        '                attempted=("local_tesseract",), stop=False, enabled=self.enabled_extractors,\n'
-        "            ))",
-        '                attempted=("local_tesseract",), stop=False,\n'
-        '                enabled=frozenset({"paddle"}) if profile.page_count else self.enabled_extractors,\n'
-        "            ))",
-        [T_TRIPWIRES],
-        ["test_every_enabled_argument_is_a_mode_fact_never_a_per_document_expression"],
-    ),
-    Mutant(
-        "M11", "the research trigger admitted in --scanned-paddle",
-        RUNNER,
-        "            upgrade_triggers = RESEARCH_TRIGGERS if self.research else (",
-        "            upgrade_triggers = RESEARCH_TRIGGERS if (\n"
-        "                self.research or self.mode == MODE_SCANNED_PADDLE) else (",
-        [T_RESEARCH],
-        ["test_no_other_mode_can_supply_the_research_trigger"],
-    ),
-    Mutant(
-        "M12", "the research mode starts without an opt-in literal",
-        CLI,
-        "        if missing_literals:",
-        "        if False and missing_literals:",
-        [T_RESEARCH],
-        ["test_research_mode_refuses_without_both_literals",
-         "test_research_mode_refuses_a_wrong_literal_value"],
-    ),
-    Mutant(
-        "M13", "a production --data-dir accepted (the name rule disabled outright)",
-        RUNNER,
-        "        if _PRODUCTION_DATA_DIR_NAMES.fullmatch(candidate.name):",
-        "        if False and _PRODUCTION_DATA_DIR_NAMES.fullmatch(candidate.name):",
-        [T_RESEARCH],
-        ["test_a_production_data_dir_is_refused"],
-    ),
-    Mutant(
-        "M14", "a holdout sha read in research mode",
-        RUNNER,
-        "            if sha[:16] in self.holdout_sha16:",
-        "            if False and sha[:16] in self.holdout_sha16:",
-        [T_RESEARCH],
-        ["test_the_runner_refuses_a_holdout_sha_before_any_read"],
-    ),
-    Mutant(
         "M15", 'geometry passed while `reconstruction_mode == "off"`',
         RUNNER,
         '        if getattr(_load_analysis_settings(), "reconstruction_mode", "off") == "off":\n'
@@ -224,35 +183,6 @@ MUTANTS: list[Mutant] = [
     # earn — each one a shape that was live and unexercised until the finding
     # named it.
     # ---------------------------------------------------------------------
-    Mutant(
-        "N4", "the holdout refusal applied AFTER the population check (reviewer's mutant)",
-        RUNNER,
-        '            if sha[:16] in self.holdout_sha16:\n'
-        '                row.outcome_class, row.outcome_reason = "deferred", "research_refused_holdout"',
-        '            if sha not in self.population:\n'
-        '                row.outcome_class, row.outcome_reason = (\n'
-        '                    "deferred", "research_skipped_not_in_population")',
-        [T_RESEARCH],
-        ["test_a_holdout_sha_OUTSIDE_the_population_is_refused_as_a_holdout_not_skipped"],
-    ),
-    Mutant(
-        "N9", "the research trigger as a STRING LITERAL at a second site (reviewer's mutant)",
-        RUNNER,
-        "            upgrade_triggers = RESEARCH_TRIGGERS if self.research else (",
-        '            upgrade_triggers = frozenset({"operator_forced_paddle"}) if (\n'
-        "                self.research or self.mode == MODE_SCANNED_PADDLE) else (",
-        [T_RESEARCH, T_TRIPWIRES],
-        ["test_no_module_spells_the_research_trigger_as_a_string_constant",
-         "test_no_other_mode_can_supply_the_research_trigger"],
-    ),
-    Mutant(
-        "M18", "a --data-dir INSIDE a production cache accepted (review MINOR-1)",
-        RUNNER,
-        "    for candidate in (resolved, *resolved.parents):",
-        "    for candidate in (resolved,):",
-        [T_RESEARCH],
-        ["test_a_directory_inside_a_production_cache_is_refused"],
-    ),
     Mutant(
         "M19", "the telemetry rollup stops rendering `refused` (review MINOR-2)",
         "telemetry/report.py",

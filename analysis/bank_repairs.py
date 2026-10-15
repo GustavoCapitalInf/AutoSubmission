@@ -1,3 +1,33 @@
+"""analysis/bank_repairs.py — the post-parse repairs, each keyed on the bank
+label its own guard compares.
+
+R10 (`PHASE2_RULINGS.md`) put the six bank-keyed rewrites through a hygiene
+ceremony at the Phase 2.3 milestone: inventory, independent reproduction over
+the run of record, comparison with the repair doctrine, classification, and a
+consequence. The ceremony repairs below DECLARE their classification on a
+`R10-CLASSIFICATION:` line, in the closed vocabulary
+`safe_evidence_preserving_normalisation` / `unsafe_rewrite` /
+`legacy_needing_replacement`, with the reason beside it.
+`tests/test_bank_repairs_ceremony.py` reads those declarations out of this
+module and holds them to it: a repair that loses its declaration, or gains one
+outside the vocabulary, fails the build.
+
+The repair bodies retain their historical behaviour. Subsequent rulings
+(S-1..S-5, 2026-09-15) fenced four unsafe repairs and one legacy repair by
+removing their analysis imports and callers; their definitions, measured
+populations and doctrine reasons remain here. The ceremony tripwire rejects
+references that could restore a caller, including alias bindings. A further
+correctness correction that moves a validated document still requires a
+ruling (BATCH9-RULES).
+
+The fence was reviewed on the Phase 2.3 branch `wave23-precision` and never
+composed into the shipped line; the audit of 2026-10-13 (PARSERS-1) ported it.
+
+The doctrine each classification is measured against (batch 9): a parser
+never writes an amount or a date the paper did not print; and the
+anti-optimizer rule — reconciliation is a VERIFIER, never the evidence that
+selects a figure.
+"""
 from __future__ import annotations
 
 from .schema import Statement, Transaction
@@ -5,6 +35,69 @@ from .schema import Statement, Transaction
 
 def _round(value: float | None) -> float | None:
     return round(value, 2) if value is not None else None
+
+
+def _row_key(transaction: Transaction) -> tuple:
+    return (transaction.date, transaction.description)
+
+
+def restates_a_printed_figure(before: Statement, after: Statement) -> bool:
+    """The R10 INVENTION GUARD: is `after` a restatement of figures `before`
+    already carried, or does it carry a figure the paper did not print?
+
+    TRUE when the repair only (a) dropped SOME rows, (b) left an amount alone,
+    or (c) changed an amount's SIGN while keeping the magnitude the paper
+    printed. FALSE as soon as
+
+    * a row's magnitude, date or description changes, or a row appears that
+      was not printed;
+    * a printed row is DUPLICATED — `after` must be a sub-multiset of
+      `before`, row for row, not merely a set of familiar keys;
+    * a row's `running_balance` changes, in either direction: a repair may
+      neither write a balance the paper did not print nor erase one it did;
+    * the statement's own `beginning_balance` or `ending_balance` changes;
+    * EVERY row is deleted — a repair that empties the ledger has not
+      normalised a statement, it has replaced one.
+
+    The first version of this guard read transaction magnitudes keyed on
+    `(date, description)` and nothing else, so it returned True for a
+    statement whose every running balance had been rewritten, for one whose
+    opening and closing figures had been rewritten, for one with every row
+    deleted, and for one with a row duplicated (review MINOR-2 reproduced all
+    five). The docstring already promised otherwise. The promise is the part
+    that was right.
+
+    This predicate is NOT called by any repair and changes no behaviour: it is
+    the contract `tests/test_bank_repairs_ceremony.py` holds the repairs
+    classified `safe_evidence_preserving_normalisation` to, and the line the
+    ones classified `unsafe_rewrite` are recorded as crossing. A repair may
+    not be promoted to the safe class while this returns False for it.
+    """
+    if _round(before.beginning_balance) != _round(after.beginning_balance):
+        return False
+    if _round(before.ending_balance) != _round(after.ending_balance):
+        return False
+    if before.transactions and not after.transactions:
+        return False
+    if len(after.transactions) > len(before.transactions):
+        return False
+    # A sub-multiset, row for row: every row of `after` is CONSUMED from
+    # `before`, so a duplicated row runs out of originals to match.
+    unmatched: dict[tuple, list[Transaction]] = {}
+    for transaction in before.transactions:
+        unmatched.setdefault(_row_key(transaction), []).append(transaction)
+    for transaction in after.transactions:
+        candidates = unmatched.get(_row_key(transaction), [])
+        match = next(
+            (candidate for candidate in candidates
+             if round(abs(candidate.amount), 2) == round(abs(transaction.amount), 2)
+             and _round(candidate.running_balance) == _round(transaction.running_balance)),
+            None,
+        )
+        if match is None:
+            return False
+        candidates.remove(match)
+    return True
 
 
 def repair_b1_beginning_balance(stmt: Statement) -> Statement:
@@ -22,7 +115,23 @@ def repair_b1_beginning_balance(stmt: Statement) -> Statement:
 
 
 def repair_capital_one_running_amount(stmt: Statement) -> Statement:
-    """Correct isolated OCR amount slips when adjacent balances prove the amount."""
+    """Correct isolated OCR amount slips when adjacent balances prove the amount.
+
+    R10-CLASSIFICATION: unsafe_rewrite
+
+    Reason: the figure it writes (`inferred`, the difference of two printed
+    running balances) is not a token the paper printed, and the row it writes
+    it on is SELECTED because that one correction closes the summary identity
+    — `round(inferred - old, 2) != needed_delta: continue`. Both halves of
+    the anti-optimizer rule are crossed: a derived figure replaces a read one,
+    and reconciliation is the evidence that chooses it. The adjacent balances
+    are real evidence, which is why this is a rewrite to be REPLACED by a
+    reconstruction that reads the row (2.4), not a defect to be patched here.
+    FENCED under Gustavo's ruling (R10 item S-1). The definition is retained
+    as the record of what ran; nothing under `analysis/` calls it. The
+    instrumented ceremony found no payload change on its candidates. The
+    union replay must establish zero movement with all five fences together;
+    any movement is a STOP."""
     if "CAPITAL ONE" not in (stmt.bank or "").upper():
         return stmt
     if stmt.beginning_balance is None or stmt.ending_balance is None:
@@ -56,6 +165,24 @@ def repair_capital_one_running_amount(stmt: Statement) -> Statement:
 
 
 def repair_regions_transactions(markdown: str, stmt: Statement) -> Statement:
+    """Clear a balance column that is not a per-row running balance, and fill
+    the one zero-amount card-transaction row from the summary shortfall.
+
+    R10-CLASSIFICATION: unsafe_rewrite
+
+    Reason: the second half writes `needed_delta` — the amount by which the
+    printed summary fails to balance — into a row whose own amount was read
+    as zero, gated on there being exactly one such row and on the shortfall
+    being under a bare 100.00. That is a figure the paper did not print,
+    computed from the identity it then satisfies, admitted by a magic bound.
+    The first half (clearing every `running_balance` when the document prints
+    a daily-balance summary) invents nothing and is defensible on its own; a
+    function is classified by the most dangerous thing it does.
+    FENCED under Gustavo's ruling (R10 item S-2). The definition is retained
+    as the record of what ran; nothing under `analysis/` calls it. The
+    instrumented ceremony found no payload change on its candidates. The
+    union replay must establish zero movement with all five fences together;
+    any movement is a STOP."""
     if "REGIONS" not in (stmt.bank or "").upper():
         return stmt
 
@@ -85,6 +212,25 @@ def repair_regions_transactions(markdown: str, stmt: Statement) -> Statement:
 
 
 def repair_truist_converted_checks(stmt: Statement) -> Statement:
+    """Retained transfer-direction and converted-check normalization.
+
+    R10-CLASSIFICATION: legacy_needing_replacement
+
+    Reason: the converted-check witness set includes tilde-marked rows
+    themselves. A lone tilde converted-check row can therefore be removed
+    without a separate duplicate witness and can empty a nonempty ledger.
+    The legitimate paired-duplicate and transfer-direction cases do not
+    establish the broader deletion as safe. No amount is derived and no
+    reconciliation is optimized, so this is a legacy replacement need.
+
+    FENCED under the S-5 ruling. The executable definition is kept
+    as the record of what ran; its analysis import and caller are removed.
+    The instrumented corpus reached it on 900 documents and observed no
+    payload change, including its 48 candidates. The combined five-fence
+    identity proof is the gate: any payload or outcome movement is a STOP.
+    Replacement belongs in the reader that establishes a separate duplicate
+    witness.
+    """
     if "TRUIST" not in (stmt.bank or "").upper():
         return stmt
 
@@ -126,7 +272,22 @@ def repair_chase_remote_deposit_count_column(stmt: Statement) -> Statement:
       with a fused digit prefix removed - i.e. the corrected amount's digits
       are a proper suffix of the parsed amount's digits;
     - applying that one correction restores the identity exactly.
-    """
+
+    R10-CLASSIFICATION: unsafe_rewrite
+
+    Reason: the amount it writes is `amount + needed_delta` — computed FROM
+    the summary shortfall — and the third gate is, in the docstring's own
+    words, that applying it "restores the identity exactly". The digit-suffix
+    test is real independent evidence of the defect's shape and is why this is
+    the narrowest of the three rewrites, but it confirms the correction rather
+    than producing it: the figure still comes from the identity, and the
+    identity is a verifier. The correct home is a reader that sees the count
+    column as a column (2.4).
+    FENCED under Gustavo's ruling (R10 item S-3). The definition is retained
+    as the record of what ran; nothing under `analysis/` calls it. The
+    instrumented ceremony found no payload change on its candidates. The
+    union replay must establish zero movement with all five fences together;
+    any movement is a STOP."""
     if "CHASE" not in (stmt.bank or "").upper():
         return stmt
     if stmt.beginning_balance is None or stmt.ending_balance is None:
@@ -160,6 +321,38 @@ def repair_chase_remote_deposit_count_column(stmt: Statement) -> Statement:
 
 
 def repair_single_row_signs_from_balances(stmt: Statement) -> Statement:
+    """Flip the sign of the one row in a balance segment whose flip makes the
+    segment's sum agree with the printed balance step.
+
+    R10-CLASSIFICATION: unsafe_rewrite (anti-optimizer selection)
+
+    FENCED — this function is NOT CALLED. It stays defined because deleting it
+    would delete the record of what ran on every cold run up to this one;
+    nothing under `analysis/` may invoke it, and
+    `tests/test_bank_repairs_ceremony.py` refuses a caller by AST.
+
+    Reason (STOP item S-4, ruled by Ocean on the reviewer's reproduction).
+    Where a segment's sum disagrees with its printed step, this walks the
+    segment's rows and flips the FIRST one whose flip reconciles it. When two
+    rows of equal magnitude would both reconcile, it does not notice: it takes
+    the earlier in document order and publishes it as a DIRECTION. That is
+    several independently plausible interpretations, tested against a
+    reconciliation, with whichever balances kept — the anti-optimizer pattern
+    exactly, whose ruling is REVIEW or REFUSE and never "pick one".
+
+    What is true in its favour, and why it took a ruling rather than a reading:
+    every magnitude it publishes is the printed one (it passes the invention
+    guard), the figure it reconciles against is a printed PER-ROW balance and
+    not the statement's summary, and it is silent when nothing reconciles. It
+    sits between `repair_santander_signs_from_balances` — which fires only
+    where the magnitudes already agree and therefore chooses nothing — and the
+    three rewrites that write a figure the paper did not print.
+
+    It fired on 0 of its 201 candidate documents on the Phase 2.2 run of
+    record: the reviewer's instrumented replay reached this stage 201 / 201
+    times and the function returned the same object every time. That is why
+    the fence costs no coverage, and it is also the reason the fence is worth
+    putting up now rather than after a corpus in which it does fire."""
     bank = (stmt.bank or "").upper()
     if "CIBC" not in bank and bank != "ROYAL BANK OF CANADA":
         return stmt
@@ -198,6 +391,18 @@ def repair_single_row_signs_from_balances(stmt: Statement) -> Statement:
 
 
 def repair_scotiabank_misc_payment_sign(stmt: Statement) -> Statement:
+    """Read a misc-payment row's DIRECTION from the two printed balances it
+    sits between.
+
+    R10-CLASSIFICATION: safe_evidence_preserving_normalisation
+
+    Reason: the magnitude it publishes is the magnitude the paper printed —
+    only the sign changes — and the sign is taken from an identity between
+    two figures the paper printed on the page (`prev_balance - amount ==
+    this row's balance`), not from the statement's summary. Nothing is
+    selected because it balances the statement. It is chain-DERIVED direction,
+    which R14 rules a thing to flag and measure, never in itself a rewrite.
+    Pinned by the invention guard in the ceremony tests."""
     if "SCOTIABANK" not in (stmt.bank or "").upper():
         return stmt
 
@@ -218,6 +423,17 @@ def repair_scotiabank_misc_payment_sign(stmt: Statement) -> Statement:
 
 
 def repair_santander_signs_from_balances(stmt: Statement) -> Statement:
+    """Read each row's DIRECTION from the printed balance it lands on.
+
+    R10-CLASSIFICATION: safe_evidence_preserving_normalisation
+
+    Reason: it fires only where the balance step and the parsed amount already
+    agree in magnitude (`abs(delta) == abs(t.amount)`) and disagree in sign,
+    and it writes `delta`, whose magnitude is therefore the printed one. No
+    figure is produced that the paper did not carry, and the summary identity
+    is never consulted — this is the same chain-derived DIRECTION R14 rules a
+    thing to flag and measure. Pinned by the invention guard in the ceremony
+    tests."""
     if "SANTANDER" not in (stmt.bank or "").upper() or stmt.beginning_balance is None:
         return stmt
 

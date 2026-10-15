@@ -1131,15 +1131,36 @@ def test_a_logo_block_fires_E1_and_that_is_a_recorded_calibration_limit():
     the mistake Ruling B exists to prevent and exactly what `ALNUM_DENSITY_
     FLOOR` documents; the owed census over real evidence is what says where
     this ceiling belongs. If this test ever fails, the calibration changed and
-    the record must change with it."""
-    from tools.p23egate_synthetic_table import with_logo
+    the record must change with it.
+
+    `with_logo` lived in `tools/p23egate_synthetic_table.py`, which left with the
+    PaddleOCR rung (model-code removal, slice S5); it is copied here verbatim
+    from that file's last commit (a290301)."""
+    from ocr.extraction_quality import RasterGray
+
+    def with_logo(raster: RasterGray, *, size: int = 90, x: int = 20, y: int = 20) -> RasterGray:
+        """A raster plus one solid block of ink that carries no word box — a logo,
+        a shaded header band, a signature panel: ink every real statement has."""
+        pixels = bytearray(raster.pixels)
+        for row in range(y, min(y + size, raster.height)):
+            start = row * raster.width
+            for column in range(x, min(x + size, raster.width)):
+                pixels[start + column] = 0
+        return RasterGray(width=raster.width, height=raster.height, pixels=bytes(pixels))
 
     page = build_ledger_page(ROWS)
     clean = page_quality(evidence_page(page), raster=rendered_raster(page))
     assert clean.ink_outside_boxes < THRESHOLDS["ink_outside_boxes_ceiling"]
     assert clean.classes == ()
 
-    logo = page_quality(evidence_page(page), raster=with_logo(rendered_raster(page)))
+    # The fixture's Courier is not embedded, so each host draws it in its own substitute font (a thin Courier New on
+    # Windows, a heavier mono face on Linux CI): a fixed-size logo's share of the ink then depended on the host. The
+    # block now carries as much ink as every word on the page together and sits in the empty foot of the page, away
+    # from every word box, so its share is about one half on any host. The threshold itself is untouched.
+    raster = rendered_raster(page)
+    text_ink = sum(1 for value in raster.pixels if value <= THRESHOLDS["ink_dark_luminance_max"])
+    side = int(text_ink ** 0.5) + 1
+    logo = page_quality(evidence_page(page), raster=with_logo(raster, size=side, y=raster.height - side - 20))
     assert logo.ink_outside_boxes > THRESHOLDS["ink_outside_boxes_ceiling"]
     assert logo.classes == ("E1",)
     # the page's WORDS are identical: nothing about the extraction changed

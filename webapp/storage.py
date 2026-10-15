@@ -53,6 +53,7 @@ import json
 import os
 import re
 import sqlite3
+import tempfile
 import uuid
 from contextlib import closing
 from datetime import UTC, datetime
@@ -64,6 +65,10 @@ from typing import Callable, Sequence
 # (webapp.jobs, tests) keeps importing webapp.storage.content_sha256 — still
 # exactly ONE definition.
 from ocr.inspect import content_sha256
+
+# The data directory's one rename-into-place helper (a brief retry on the Windows refusal while a reader has the
+# target open), shared rather than copied: audit 2026-10-13, BE-4.
+from .settings import _replace as _replace_retrying
 
 __all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]
 
@@ -282,12 +287,19 @@ class Storage:
     connection (see the module docstring's concurrency notes).
     """
 
-    def __init__(self, data_dir: str | Path | None = None) -> None:
+    def __init__(self, data_dir: str | Path | None = None, *, read_only: bool = False) -> None:
+        """``read_only`` (audit 2026-10-13, BE-1): the store the web app falls back to when the normal one cannot be
+        opened or written at start-up (a full data volume). It creates, migrates and writes nothing — not at
+        construction, and every connection is opened ``mode=ro``, so a write raises instead of landing — and it
+        checks nothing either: the caller asks ``schema_version()`` before serving from it."""
         from ocr.private_artifacts import validate_private_artifact_path
 
+        self.read_only = read_only
         self.data_dir = validate_private_artifact_path(data_dir) if data_dir is not None else default_data_dir()
-        self.data_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.data_dir / "webapp.db"
+        if read_only:
+            return
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
     # ------------------------------------------------------------------
@@ -295,6 +307,11 @@ class Storage:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            # No journal-mode PRAGMA: it needs the write path that failed. The database is already in WAL mode.
+            conn = sqlite3.connect(f"{self.db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            return conn
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -356,12 +373,28 @@ class Storage:
     def save_pdf(self, sha256_upper: str, pdf_bytes: bytes) -> Path:
         """Write ``<content_sha256>.pdf`` into the data directory (idempotent:
         identical content hashes to an identical name, so an existing file is
-        already the right bytes)."""
+        already the right bytes).
+
+        Audit 2026-10-13 (BE-4): written through a temporary file of its own (``tempfile.mkstemp`` beside the target)
+        and renamed into place. One fixed ``<sha>.pdf.tmp`` used to be shared by two requests storing the same new
+        bytes at once, and one of them failed (about one aligned pair in four on Windows, measured). The rename is
+        retried briefly as ``webapp/settings.py`` does (Windows refuses it while a reader has the target open); a
+        rename still refused while the target exists means another request stored these same bytes first, which is
+        the file this call wanted. The temporary file is always removed."""
         path = self.pdf_path(sha256_upper)
-        if not path.exists():
-            tmp = path.with_suffix(".pdf.tmp")
-            tmp.write_bytes(pdf_bytes)
-            os.replace(tmp, path)
+        if path.exists():
+            return path
+        handle, temporary = tempfile.mkstemp(dir=self.data_dir, prefix=f".{sha256_upper[:16]}-", suffix=".pdf.tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(pdf_bytes)
+            try:
+                _replace_retrying(temporary, path)
+            except PermissionError:
+                if not path.exists():
+                    raise
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         return path
 
     def load_pdf(self, sha256_upper: str) -> bytes | None:
@@ -480,16 +513,56 @@ class Storage:
     # documents / jobs
     # ------------------------------------------------------------------
 
-    def record_document(
-        self, sha256_upper: str, filename: str, byte_size: int, page_count: int
-    ) -> int:
+    def record_upload(
+        self,
+        job_id: str,
+        *,
+        filename: str,
+        content_sha256: str | None,
+        byte_size: int = 0,
+        force_ocr: bool = False,
+        parse_mode: str = "auto",
+        page_count: int = 0,
+    ) -> str | None:
+        """Record one upload in ONE transaction: its document row (when it has bytes), its job row and its `upload`
+        audit row. Returns the earliest PRIOR job whose document holds the same bytes, or None.
+
+        Audit 2026-10-13 (BE-2): one transaction is what makes that answer final. `duplicate_of` finds a prior
+        document only through its job row, and the document and job rows used to be written in two transactions, so
+        two concurrent uploads of the same new bytes could commit A's document, then all of B, then A's job: B's
+        answer was None at its upload and named A a moment later. Now no document row is ever visible without its
+        job row; SQLite has one writer at a time and AUTOINCREMENT ids only grow, so document ids follow commit
+        order; and no document or job row is ever deleted or renumbered. Every document with a lower id therefore
+        has its job row when this transaction commits, and the answer read here, inside it, is the one
+        `duplicate_of` gives at any later time, None included. Retention work that deletes or renumbers documents or
+        jobs must revisit this and the `Job.duplicate_of` memo built on it (`webapp/jobs.py`)."""
         with closing(self._connect()) as conn, conn:
-            cursor = conn.execute(
-                "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (sha256_upper, filename, byte_size, page_count, utc_now_iso()),
+            document_id = None
+            if content_sha256 is not None:
+                cursor = conn.execute(
+                    "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (content_sha256, filename, byte_size, page_count, utc_now_iso()),
+                )
+                document_id = int(cursor.lastrowid)
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, filename, status, stage, force_ocr,"
+                " parse_mode, page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?, ?)",
+                (job_id, document_id, filename, int(force_ocr), parse_mode, page_count, utc_now_iso()),
             )
-            return int(cursor.lastrowid)
+            self._insert_audit(
+                conn, "upload", job_id=job_id, detail={"filename": filename, "content_sha256": content_sha256},
+            )
+            if document_id is None:
+                return None
+            prior = conn.execute(
+                "SELECT jobs.id FROM jobs"
+                " JOIN documents ON documents.id = jobs.document_id"
+                " WHERE documents.content_sha256 = ? AND documents.id < ?"
+                " ORDER BY documents.id LIMIT 1",
+                (content_sha256, document_id),
+            ).fetchone()
+            return prior["id"] if prior else None
 
     def set_document_profile(self, job_id: str, profile_json: str) -> None:
         """Attach the preflight DocumentProfile (as opaque JSON) to the
@@ -654,6 +727,15 @@ class Storage:
                 (analysis_json, job_id),
             )
         return True
+
+    def in_flight_job_ids(self) -> list[str]:
+        """The jobs left queued/processing, read only (a read-only start-up shows them interrupted without writing)."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"SELECT id FROM jobs WHERE status IN ({','.join('?' * len(_IN_FLIGHT_STATUSES))})",
+                _IN_FLIGHT_STATUSES,
+            ).fetchall()
+            return [row["id"] for row in rows]
 
     def mark_interrupted_jobs(self, note: str) -> list[str]:
         """Startup re-hydration: any job that was queued/processing when the

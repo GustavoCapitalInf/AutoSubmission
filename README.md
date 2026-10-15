@@ -1,191 +1,99 @@
-# Bank Statement → Markdown (Unlimited-OCR)
+# Capital Infusion: bank statement analysis
 
-Converts a bank-statement PDF into one Markdown file by running each page through
-`baidu/Unlimited-OCR` on an **OpenAI-compatible endpoint**. The OCR stage itself
-does no math — it only transcribes. The downstream
-[analysis layer](#analysis-layer--statement--metrics--mcalender-findings-gemini)
-turns that markdown into structured metrics (daily average balance, deposits, NSF
-counts) and MCA/lender findings.
+Reads business bank-statement PDFs and produces what an MCA underwriter needs: balances, the calendar-day
+average daily balance, NSF days, True revenue, confirmed and potential lenders, alternative positions, the
+withholding rate and active positions, for one statement or a package of several months. All of it is
+deterministic Python on this machine: no model is called, scanned statements are read by local Tesseract,
+and no statement data leaves the machine. It fails closed: a statement is published only when its own printed
+figures prove the reading; otherwise it is withheld or sent to review with the reason.
 
-## How it runs
+The model-based OCR and extraction paths were removed by the owner's ruling of 2026-10-13; git history holds them.
 
-The model runs on a GPU **elsewhere** — this machine is only the client. The
-endpoint is policy-checked in code (`ocr/endpoint_policy.py`, OQ3 = ALLOWLIST):
-a loopback or private-network endpoint is used by default; a remote endpoint
-is refused unless you explicitly opt in (see below). There is exactly one
-endpoint per process — a failing local server never silently falls back to a
-remote one.
+## How it works
 
-- **Local (default, $0):** your own GPU box, via transformers + PyTorch-ROCm
-  behind a small OpenAI-compatible shim (`local_ocr_server.py`). Verified on
-  an AMD **RX 7800 XT** (vLLM/SGLang are CUDA-only and Ollama/llama.cpp don't
-  support this architecture, so transformers is the route on RDNA3). See
-  [Serving locally on an AMD GPU](#serving-locally-on-an-amd-gpu-rx-7800-xt--rocm).
-- **Remote (optional, PAID — never automatic):** a rented **RunPod** NVIDIA
-  GPU serving `baidu/Unlimited-OCR` via vLLM's dedicated
-  `vllm/vllm-openai:unlimited-ocr` image (exposes `/v1`). See
-  [Optional PAID remote escape hatch](#optional-paid-remote-escape-hatch--never-automatic-runpod)
-  below — it requires an explicit `OCR_REMOTE_OPT_IN` and is refused without it.
+| Stage | What happens | Where |
+|---|---|---|
+| Intake | Upload checks (100 MB, 25 files, 500 pages, a `%PDF-` header, no encrypted PDF), the whole batch before any job; preflight profile and content hash | `webapp/app.py`, `ocr/inspect.py` |
+| Native text | PyMuPDF reads the PDF's own text: six bank-specific readers, a printed-rows reader, then generic text | `ocr/pipeline.py` (`parse_statement`), `ocr/native_text.py` |
+| Scans | When the native readers return nothing (a scan, or too little text), the pages are rendered at 200 dpi, 8 at a time, and read by local Tesseract (`--psm 6`) one page at a time; under 200 characters is no read. A step past 120 s, a document past an hour, or a host failure (a full, failing or read-only disk, a disk quota or memory run out while pages are rendered or read; a tesseract that cannot start or is killed) fails the job and caches nothing | `ocr/local_tesseract.py`, `ocr/rasterize.py` |
+| Dispatch | 84 registered per-bank parsers score the text; exactly one must claim it. Ambiguous, unclaimed or a parser crash publishes nothing | `analysis/parser_registry.py`, `analysis/parser_registry_entries.py`, `analysis/pipeline.py` |
+| Reconciliation | Opening + postings = ending, running-balance continuity, the bank's printed summary; quality and integrity gates | `analysis/reconcile.py`, `analysis/pipeline.py` |
+| Multi-account | A document with several accounts is split on its printed account sections; each is validated on its own | `analysis/multi_account.py`, `analysis/pipeline.py` (`analyze_document`) |
+| ADB, NSF, metrics | Calendar-day ADB over the printed period (withheld when the ledger is unprovable); negative-ending days, printed days by default; deposits, withdrawals, withholding | `analysis/adb.py`, `analysis/nsf_days.py`, `analysis/metrics.py` |
+| Classification | Every posting gets a revenue tier (verified, counted and flagged, held for review, non-revenue), a lender state or a flag group | `analysis/transaction_classifier.py`, `analysis/true_revenue.py`, `analysis/revenue.py` |
+| Lenders | Registry matching and evidence, payment changes, active positions, 12 flag groups | `analysis/classification_registry.py`, `analysis/payee_matcher.py`, `analysis/detect.py`, `analysis/flag_groups.py`, `analysis/lender_payment_changes.py`, `analysis/active_positions.py` |
+| Display layer | Steps run on a copy when a result is served (the Zelle reading, the NSF basis, hidden flag groups, revenue figures, active positions), so a Settings change needs no re-analysis | `analysis/zelle_view.py`, `analysis/nsf_days.py`, `analysis/flagged_view.py`, `analysis/revenue_view.py`, `analysis/active_positions.py` |
+| Web app | Flask on waitress (16 threads), one worker thread, SQLite store, an artifact cache keyed by content hash, packages, re-analysis and review decisions | `webapp/app.py`, `webapp/worker.py`, `webapp/storage.py`, `webapp/artifact_cache.py`, `webapp/reanalysis.py` |
+| Dashboard | New analysis, the results (Statements, Packages, Revenue review) and Settings; downloads and copied memos | `webapp/templates/index.html`, `webapp/static/app.js` |
 
-No OpenAI account or metered cost is involved for the local path; the `openai`
-package just speaks the same wire format your server exposes.
+Each statement ends as `validated`, `review`, `withheld`, `refused` or `failed`. A package groups several
+statements (months, accounts): duplicates and superseded statements are found and the package-level passes run
+(returned deposits across statements, own-account transfers).
 
-## Setup (Python 3.12)
+## Quick start
 
-```bash
+**1. Python and packages.** Use Python 3.12, the version CI uses.
+
+```powershell
+# Windows PowerShell
 py -3.12 -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt -r requirements-analysis.txt
 ```
-
-Poppler must be installed (Windows: `C:\poppler-24.08.0\Library\bin`).
-
-## Serving locally on an AMD GPU (RX 7800 XT / ROCm) — the default
-
-Runs `baidu/Unlimited-OCR` on your own GPU — $0, no per-hour cost, and the
-endpoint this project defaults to (`http://localhost:8000/v1` classifies as
-`loopback`, allowed by the endpoint policy with no opt-in required).
-`local_ocr_server.py` loads the model via its `trust_remote_code` `model.infer(...)`
-and exposes the same `/v1/chat/completions` the client already speaks, so the CLI
-and webapp work unchanged. Verified on an RX 7800 XT (gfx1101), ROCm 6.3/7.x,
-Python 3.12–3.14, at ~23 s/page.
 
 ```bash
-# one-time: add the GPU-serving deps on top of the client venv
-.venv/bin/python -m pip install -r requirements-local.txt
-
-# start the server (loads the model, then serves on http://localhost:8000/v1)
-./serve_local.sh
+# bash (Linux, macOS)
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt -r requirements-analysis.txt
 ```
 
-Then, in another shell, point the client at it and run as usual:
+Both files are needed: `requirements.txt` holds the PDF, image and web packages, `requirements-analysis.txt` the
+`.env` loader and the statement schema (`python-dotenv`, `pydantic`). Neither lists a model package and no API key
+is needed. Every command below assumes the venv is active.
 
-```bash
-export OCR_BASE_URL=http://localhost:8000/v1
-export OCR_API_KEY=EMPTY
-.venv/bin/python -m webapp.app          # or: .venv/bin/python parse.py <pdf> --out out.md
-```
+**2. System tools.**
 
-Notes:
-- **transformers must be 4.x** (pinned in `requirements-local.txt`) — the model's
-  remote code imports `is_torch_fx_available`, removed in transformers 5.x.
-- `serve_local.sh` sets `HSA_OVERRIDE_GFX_VERSION=11.0.0` (the standard RDNA3
-  desktop workaround) and `HF_HUB_DISABLE_XET=1`.
-- **Live streaming + region boxes work.** The server calls `infer()` in
-  `eval_mode` (non-streaming client) or taps its internal `TextStreamer`
-  (streaming client) so the raw `<|det|>label [x0,y0,x1,y1]<|/det|>` region tags
-  reach the client token-by-token — driving the webapp's live fill, colored box
-  overlays, and inline check-image cropping. (`save_results` mode would instead
-  strip those tags into a clean `result.md`, killing the boxes — so the server
-  avoids it.)
-- The vLLM-only request fields (`skip_special_tokens`, `vllm_xargs`) are accepted
-  and mapped where meaningful (`ngram_size`→`no_repeat_ngram_size`,
-  `window_size`→`ngram_window`) or ignored.
-- **RDNA3 stability fix:** the server forces the math SDPA backend during
-  inference. The vision encoder's `scaled_dot_product_attention` otherwise hits an
-  experimental ROCm flash/mem-efficient kernel that faults with an HSA hardware
-  exception on gfx1101 for larger image tensors. Math is always correct (slightly
-  slower). Keep `image_size` at 640 (Gundam crop) — `image_size=1024` crashes even
-  with the math backend.
-- **DPI 300 is the tuned default** (`parse.py`/pipeline). On dense check-detail
-  tables, 200→300 measurably recovers amounts the model dropped at 200; 400 is
-  *worse* (oversampling degrades the crop tiling). The prompt stays `Free OCR.` —
-  the `<image>\n<|grounding|>…` markdown prompts return empty output on this model.
+- **Poppler: required.** Every upload's page count runs `pdfinfo`, and page previews use it; without it every
+  PDF is refused as unreadable. On Windows `pdfinfo.exe` must be in `C:\poppler-24.08.0\Library\bin`, or set
+  `POPPLER_PATH` to the folder that holds it (PATH is not searched on Windows). Linux:
+  `sudo apt-get install poppler-utils`; macOS: `brew install poppler`.
+- **Tesseract: for scans only.** Found on PATH as `tesseract`, with English data (`eng.traineddata`). Windows:
+  install it and add `C:\Program Files\Tesseract-OCR` to PATH. Linux:
+  `sudo apt-get install tesseract-ocr tesseract-ocr-eng`. Without it a scanned statement fails closed
+  ("native PDF text unavailable").
+- **Node: optional.** Only the dashboard script tests use `node`; they skip without it.
 
-## Optional PAID remote escape hatch — never automatic (RunPod)
-
-RunPod is documented ONLY as an explicit, deliberate, opt-in fallback for when
-no local GPU is available — never a production default and never something a
-failed local rung falls back to silently (OQ6 / OQ3). `ocr/endpoint_policy.py`
-classifies `*.runpod.net` (and every other public host) as `remote`, which the
-client refuses before building anything or sending a single byte UNLESS
-`OCR_REMOTE_OPT_IN` is set to the exact literal `I_ACCEPT_REMOTE_PAID_OCR`:
-
-```bash
-export OCR_BASE_URL="https://<pod-id>-8000.proxy.runpod.net/v1"
-export OCR_REMOTE_OPT_IN="I_ACCEPT_REMOTE_PAID_OCR"   # required for any remote host; omit it and the client refuses
-```
-
-The run's telemetry records `endpoint_class=remote` and `remote_opt_in=true`
-whenever this path is used, so a remote/paid read is always evidenced, never
-inferred. Requires the dedicated image (the architecture isn't in a stable
-vLLM pip release):
-
-```
-Container image:        vllm/vllm-openai:unlimited-ocr
-Container start command: baidu/Unlimited-OCR --host 0.0.0.0 --port 8000 --trust-remote-code \
-                          --logits_processors vllm.model_executor.models.unlimited_ocr:NGramPerReqLogitsProcessor \
-                          --no-enable-prefix-caching --mm-processor-cache-gb 0
-Environment variables:  HF_HUB_DISABLE_XET=1
-Container disk:         60GB
-Expose HTTP ports:      8000
-GPU:                    any card with >=8GB VRAM (BF16)
-```
-
-## Configure the endpoint
-
-```bash
-export OCR_BASE_URL="http://localhost:8000/v1"                    # default: the local server, above
-export OCR_MODEL="baidu/Unlimited-OCR"                            # default
-export OCR_API_KEY="EMPTY"                                        # or the token your server expects
-# optional: OCR_TIMEOUT (default 120), OCR_RETRIES (default 3),
-#           OCR_NGRAM_SIZE (default 35), OCR_WINDOW_SIZE (default 128)
-# a remote host (e.g. RunPod, above) additionally requires OCR_REMOTE_OPT_IN
-```
-
-`OCR_WINDOW_SIZE` should be raised (e.g. 1024) if you send multi-page/whole-document
-requests instead of single pages.
-
-## Usage
-
-```bash
-.venv/Scripts/python.exe parse.py "Bank Statements/Chase/Chase Salomon January.pdf" --out output/chase.md
-# flags: --out FILE (else stdout), --dpi N (default 300), --model NAME (override)
-# offline (native/local text) only by default; add --visual to allow the
-# local $0 OCR rung when the offline ladder cannot read the document —
-# probed and endpoint-checked before anything is sent.
-```
-
-Output: one `.md` with a provenance comment header and pages separated by
-`--- Page N ---`. The model's own `<|det|>...<|/det|>` region-annotation tags are
-stripped automatically, leaving clean text and HTML tables.
-
-## Local web frontend
-
-A dark, 4-panel document viewer (original page images | markdown source |
-rendered markdown | analysis metrics) with a toolbar to upload PDFs, switch between documents, and
-download results. Default (local server, above):
+**3. Run the web app** from the repository root.
 
 ```powershell
-.venv\Scripts\python.exe -m webapp.app
+.\run.ps1                           # http://127.0.0.1:5000, the default data directory
+.\run.ps1 -Port 5050 -DataDir D:\statement-data
+python -m webapp.app                # the same app without the launcher
 ```
 
-Using the optional PAID RunPod escape hatch instead — pass the current pod id
-and `run.ps1` derives the endpoint + key for you, but the endpoint policy
-still refuses it without the opt-in below:
-
-```powershell
-$env:OCR_REMOTE_OPT_IN = "I_ACCEPT_REMOTE_PAID_OCR"
-.\run.ps1 -PodId jy39vysntpffa0
+```bash
+python -m webapp.app
+WEBAPP_PORT=5050 WEBAPP_DATA_DIR=/srv/statement-data python -m webapp.app
 ```
 
-Or set the env vars yourself and run it directly with the venv Python (note:
-plain `python` is the wrong interpreter — use the venv one so the deps resolve):
+Then open `http://127.0.0.1:5000`. There is **no login**: anyone who can reach the port can read every
+statement, so it binds `127.0.0.1` unless `WEBAPP_HOST` says otherwise; `run.ps1 -BindAll` is a deliberate
+choice for a trusted network only. On restart, unfinished jobs are marked `interrupted`, never resumed silently.
 
-```powershell
-$env:OCR_BASE_URL = "https://<pod-id>-8000.proxy.runpod.net/v1"
-$env:OCR_API_KEY  = "sk-<pod-id>"
-$env:OCR_REMOTE_OPT_IN = "I_ACCEPT_REMOTE_PAID_OCR"
-.venv\Scripts\python.exe -m webapp.app
-```
+**Data directory.** The default is `~/.local/share/bank-statement-analysis/phase31-private/webapp_data`
+(`%USERPROFILE%\.local\share\...` on Windows). `WEBAPP_DATA_DIR` sets the folder itself. It must be an absolute
+path outside the checkout, symlinks included, or the app refuses to start. It holds `webapp.db` (SQLite: jobs,
+documents, packages, review decisions, the audit log, the artifact cache, telemetry), the uploaded PDFs as
+`<SHA-256 in upper-case hex>.pdf`, `artifacts/` and `settings.json`. Treat it as customer data. Nothing in it is
+ever deleted, so watch its volume: uploads stop at `WEBAPP_MIN_FREE_MB`, and if the volume cannot be written when the
+app starts (full or read-only) the app starts read-only: saved statements can be viewed, everything else is refused
+until space is freed and the app is restarted.
 
-Then open `http://localhost:5000`. Uses the same `OCR_*` environment variables as
-the CLI.
+## Shared demo host (password-gated)
 
-## Intern testing host
-
-The webapp still defaults to loopback with no login. To put a **shared intern
-QA URL** on a machine you control, use the password-gated Docker stack — it
-refuses to bind off-loopback without `WEBAPP_AUTH_PASSWORD`:
+The web app binds loopback with no login. To put a shared demo URL on a machine you control, use the
+password-gated Docker stack; it refuses to bind beyond loopback without `WEBAPP_AUTH_PASSWORD`:
 
 ```bash
 cp .env.intern.example .env
@@ -193,384 +101,209 @@ cp .env.intern.example .env
 docker compose up --build
 ```
 
-Browser login is HTTP Basic (username `intern` plus that password). Native-text
-statements of supported banks work without a GPU and without Gemini. Full
-runbook: [`docs/intern-testing.md`](docs/intern-testing.md).
+Browser login is HTTP Basic (username `intern` plus that password); `/healthz` answers without it. The Fly demo
+runs the same image. Full runbook: [`docs/intern-testing.md`](docs/intern-testing.md).
 
-## Analysis layer — statement → metrics + MCA/lender findings (Gemini)
+## Parse modes
 
-The `analysis/` package turns the OCR markdown into structured underwriting data.
-It's built on **separation of concerns**: an LLM (Google **Gemini**, cheap
-`gemini-3.5-flash-lite`) only transcribes the statement into a normalized ledger;
-all math and detection is deterministic Python. Stages:
+The upload page offers **Auto** (the default) and **Deterministic only**. Today both run the same deterministic
+path: the PDF's native text first, then, for scanned pages, local Tesseract on this machine, then the
+deterministic parsers. Nothing is sent out. They give the same results; Auto labels its output `auto` and is
+cached separately. A statement no parser claims ends as "no deterministic parser matched this statement" in
+both: nothing is guessed.
 
-1. **Extract** (`extract.py`) — markdown → `Statement` via Gemini structured
-   outputs (Pydantic `response_schema`). Captures line items *and* the bank's own
-   printed summary block (totals, counts, printed average balance).
-2. **Reconcile** (`reconcile.py`) — `beginning + Σamounts == ending`, running-
-   balance continuity, and **line-item coverage vs the bank's stated totals**.
-   Catches OCR/extraction errors before any number is trusted. A statement that
-   fails reconciliation is automatically re-extracted with the stronger
-   `gemini-3.5-flash` (you pay flash-lite prices for the clean majority).
-3. **Metrics** (`metrics.py`) — daily average balance (from dated running
-   balances, carrying forward across no-activity days), or the bank's printed
-   average when line items are incomplete; deposits/withdrawals, NSF count,
-   negative days.
-4. **Detect** (`detect.py`) — MCA/lender detection: a known-funder dictionary
-   plus recurring fixed-debit pattern detection (the daily/weekly remittance
-   signature), each returning the evidence transactions. Since the owner's
-   request of 2026-10-06 (R2-OW18) it also reads each lender's regular payment
-   for a decrease, an increase, a schedule change, a pause, a catch-up of
-   missed payments (audit round 3, R3-B05), a new concurrent stream or a stop
-   (`analysis/lender_payment_changes.py`, information only:
-   no lender, withholding or revenue figure moves), within the statement and,
-   in a package, across the consecutive statements of one account.
+An upload that still sends the old `force_ocr=1` field (an old page or a script) is refused with HTTP 400 before
+anything is stored. A job stored with that flag still displays; re-analysing it is refused with a fixed message
+that asks for a fresh upload, and the saved job is kept.
+
+## Command-line tools
 
 ```bash
-# one-time: deps + API key (key lives in a gitignored .env, never in code)
-.venv/bin/python -m pip install -r requirements-analysis.txt
-echo 'GEMINI_API_KEY=your-key-here' > .env
-
-# analyze one OCR'd statement
-.venv/bin/python analyze.py output/ace.md              # human-readable report
-.venv/bin/python analyze.py output/ace.md --json out.json
-
-# batch-triage a whole folder into a CSV (one row per statement)
-.venv/bin/python batch.py output/ --out triage.csv     # folder of .md
-OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \
-    .venv/bin/python batch.py "Bank Statements/" --out triage.csv   # PDFs (OCR + analyze)
+python parse.py statement.pdf --out statement.md     # native text to Markdown (--html for a page)
+python analyze.py statement.md                       # report, one per account
+python analyze.py statement.md --json report.json
+python batch.py <folder> --out triage.csv            # .md and .pdf files, one CSV row per statement
+python -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl   # --by parser, --diagnostics, --json
+python -m discovery --dry-run                        # intake and outcome over the pinned 109, offline
+python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb comparison, offline
 ```
 
-The batch CSV carries the key underwriting figures per statement plus a
-`needs_review` flag driven by whether the bank's own summary reconciles — clean
-statements flow through, only the questionable ones get human eyes. Small-bank /
-image statements (where per-transaction detail is incomplete) still yield
-trustworthy figures from the bank's printed summary, which reconciliation validates.
-
-Tune via env: `GEMINI_MODEL` — the ONE hosted extraction model, and the hosted
-branch runs only behind the operator opt-in documented in `analysis/pipeline.py`
-(Phase 2.2, P22-FENCE; Ruling A). `GEMINI_ESCALATION_MODEL` is retained for
-settings-key stability only and is no longer read: the reconciliation-driven
-re-extraction with a second model was removed (ruling R9). Withholding divides by
-True revenue (`WITHHOLDING_DENOMINATOR_MODE=true_revenue`: verified plus counted
-credits) by default since the owner's ruling of 2026-10-02 (the underwriter's
-Q7); an unset or unknown value reads as that default. Set
-`WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` for legacy eligible
-deposits (deposits less lender funding, the default until then) or
-`WITHHOLDING_DENOMINATOR_MODE=verified_revenue` for verified classified revenue;
-in either revenue mode `eligible_deposits` carries the selected denominator, and
-the legacy figure stays in `legacy_eligible_deposits` on every statement. An
-analysis stored without a mode keeps the legacy basis it was made under. Where
-the selected revenue basis is not established (True or Verified reads N/A, for
-example when the captured credits fall short of the bank's printed total), no
-withholding rate is published over it and the statement and its package go to
-review (a decision that read Approved reads Review required). A True or Verified basis above $0 and under 500 in
-the statement's own unit publishes no rate either and asks for review on its withholding only (never a gate), and a
-package whose statements were analysed on different bases publishes no package rate and goes to review until they are
-re-analyzed on one. The withholding numerator is the confirmed lender debits paid plus the
-funder payments returned unpaid (the owner's ruling of 2026-10-02, the underwriter's Q5): a bounced payment leaves
-"paid to lenders" but stays in the rate, until the same funder re-presents it (the same amount off its cycle) or
-catches it up 2x, when the re-debit counts it once (the owner's answer of 2026-10-07, "Count it once"). A confirmed
-funder's paid debit printing a payoff word (PAYOFF, PAY OFF, PREPAY, PREPAYMENT, BUYOUT, BUY OUT, PAYOUT and their
-hyphenated forms) stays in "paid to lenders" and leaves the rate (the owner's answer of 2026-10-07, "Exclude worded
-payoffs"). Zelle deposits follow the Settings
-choice "Mark Zelle Payments as True Revenue" (the owner's amendment of
-2026-10-06 to the underwriter's Q3): Yes, the default, counts them in True
-revenue as the rules read a person-to-person credit (the holder's own name and
-one sender's repeated round sums held); No makes them non-revenue
-(`zelle_excluded`). The analysis stores both readings, so the choice applies to
-every saved analysis at once; `analyze.py` and `batch.py` take
-`--zelle-true-revenue {yes,no}` (default yes) and read no webapp setting.
-Extend maintained lender, candidate,
-insurance, operating-revenue, and exclusion aliases in
-`analysis/classification_registry.py`.
-
-Transaction categories, lender/insurance precedence, contribution flags, the
-revenue tiers and their reason codes (True and Verified revenue), and the
-eligible-deposit denominator are defined in
-[`docs/transaction-classification.md`](docs/transaction-classification.md); the
-True revenue design is
-[`docs/superpowers/specs/2026-09-28-true-revenue-design.md`](docs/superpowers/specs/2026-09-28-true-revenue-design.md).
-On the dashboard (owner request 2026-10-07, display only) the hero's big figure is
-True revenue with Total credits on the line below it; the Monthly Statements
-table shows each statement's confirmed Withholding Rate in every view, on the
-figures its row shows after the package's passes (its Verified ($) column is
-gone, and no row carries a Zelle line; the chart's bars take only the colours
-its key shows, with no tallest-bar highlight);
-and each
-lender-table note reads as a bold headline with plain sentences under it, an
-"Also:" sentence per extra note and the statement it comes from by month.
-The owner's request of 2026-10-10 adds an "Active Positions" column to the
-Monthly Statements table, right before Withholding Rate: each statement's
-confirmed lenders' active positions in its printed period ("2", or
-"2 (+1 possible)" with a potential lender's), read when served from the
-lender payment streams (`analysis/active_positions.py`); the copied memos name
-them, the package's by month.
-The owner's request of 2026-10-11 takes Verified revenue and "Counted, not
-verified" off the dashboard and out of the CSV and Excel downloads: True revenue
-stands with Held for review and Non-revenue beside it, a credit in True revenue
-is tagged "True revenue", the chart has no verified part, and the verified
-withholding basis is named "Narrower revenue basis". The classifier, the served
-payload, the JSON download and the CLI keep both tiers.
+- `parse.py` and `batch.py` read native text only (no Tesseract), so use the web app for scans. A PDF without
+  native text gets the error "this CLI reads native PDF text only".
+- `analyze.py` and `batch.py` take `--zelle-true-revenue {yes,no}` (default yes) and read no web app setting.
+- `analyze.py` reads Markdown only: given a PDF, it prints one error line and exits 2 (run `parse.py` first, or
+  `batch.py` on the PDF).
+- `batch.py` opens `--out` before it reads the first statement and writes each row as its statement finishes: a
+  path it cannot write fails at once, and a stopped run keeps the finished rows and prints `INCOMPLETE: k of n files
+  analysed` on stderr.
+- Without `--out`, the three tools write UTF-8 to stdout, as their files are; `batch.py`'s stdout CSV is the
+  `--out` file byte for byte.
+- `batch.py` writes one telemetry record per statement to `telemetry_runs/<run_id>.jsonl` (or `--telemetry FILE`).
+  `python -m telemetry.report --sqlite <data directory>` reads the web app's records instead.
+- `python -m discovery` also runs `--profile-only` (intake), `--digital` (offline rungs) or `--scanned` (plus
+  local Tesseract) over `--root`, after checking it against the frozen archive baseline (`--skip-baseline` for
+  scoped runs). On `--scanned`, a document Tesseract reads nothing usable from is refused
+  (`refused:insufficient_evidence`). Its cache is the web app's data directory unless you pass `--no-cache`.
+  Reports go to the gitignored `discovery_reports/<run_id>/`.
+- The benchmark verifies its manifest's PDF hashes first and writes masked reports to `benchmark_reports/`.
 
 ## Tests
 
 ```bash
-.venv/Scripts/python.exe -m pytest            # fast unit tests (network mocked)
-OCR_BASE_URL=... .venv/Scripts/python.exe -m pytest -m live   # real-endpoint smoke
+python -m pip install -r requirements-dev.txt   # both runtime files plus pytest
+python -m pytest                                # the default suite
+python -m pytest -m corpus                      # the 34 corpus tests, the gate among them
 ```
 
-## Discovery runner — intake and outcome over an arbitrary corpus
+- `requirements-dev.txt` is the two runtime files plus pytest; CI installs it.
+- `pytest.ini` deselects the `live` and `corpus` markers. The one `live` check is the drift test of the real
+  local Tesseract: `python -m pytest -m live tests/test_new_statement_corpus.py`.
+- **Known failures** (Windows, Python 3.14, 2026-10-15): 4 failed, 23,368 passed, 52 skipped, 36 deselected, in
+  about 10 minutes. All four are Windows environment artefacts: the symlink tests of
+  `tests/test_private_artifacts.py` need the symlink privilege (`WinError 1314`). Any other failure is new.
 
-`python -m discovery` points the merged platform at a directory of unknown
-PDFs and reports what happened: intake profile, dedup, which parser claimed
-each document and with what score, which parsers *almost* claimed it, the
-outcome class, and the failure taxonomy — plus rollups (deterministic
-coverage, bank/layout clusters, ranked unknown-layout groups, parser-claim vs
-folder-label, ambiguity clusters, cache stats).
+## Corpus gate (required before merge)
 
 ```bash
-.venv/Scripts/python.exe -m discovery --dry-run        # the pinned 109. The gate.
-.venv/Scripts/python.exe -m discovery --profile-only   # tranche 0: intake only
-.venv/Scripts/python.exe -m discovery --digital        # tranche 1: offline rungs
-.venv/Scripts/python.exe -m discovery --scanned        # tranche 2: + local Tesseract
-.venv/Scripts/python.exe -m discovery --scanned-visual # tranche 3: + the visual rung
-.venv/Scripts/python.exe -m discovery --dry-run --no-cache --limit 20
+python corpus_gate.py                      # exit 0 green, 1 red (about 17 minutes on Windows)
+python corpus_gate.py --json report.json   # plus a machine-readable report
+python corpus_gate.py --corpus <path>      # the same gate against another checkout's corpus root
 ```
 
-It owns no routing, no parsers and no financial logic: it consumes O-1
-preflight profiles, the production intake ladder, D-3's cache, R-3's registry
-dispatch and H-3 telemetry. **Offline by construction in tranches 0–2** —
-`deterministic` parse mode makes the LLM branch unreachable and the visual-OCR
-rung is disabled, so the model client module is never even imported (asserted
-by test). Tranche 2 adds only the local Tesseract binary; tranche 3
-(`--scanned-visual`, below) adds the local visual-OCR rung and nothing else.
+The gate re-runs the two independent forensic oracles (`adb_forensic_audit.py`, `balance_forensic_audit.py`)
+over the 109 pinned corpus PDFs and compares them, field by field, with the committed audits
+(`docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv`): 105 pass, 3 withheld (the same three
+proven source contradictions) and 1 pinned refusal. It also holds each document's published outcome, ADB
+basis, currency and currency source to pinned values. Checks, in order: `inventory`, `foreign_files`
+(informational), `source_integrity`, `balance_audit`, `adb_audit`, `balance_outcomes`, `adb_outcomes`,
+`outcome_classes`, `adb_doctrine`, `currency`, `currency_source`, `ocr_coverage`, `exclusions` (informational),
+`oracle_independence`.
 
-Documents a tranche cannot read are **recorded, never skipped**: a scanned PDF
-in tranche 1 is `deferred_scanned` and appears in the report as work not done.
+- It is offline: no network, no model, no `tesseract`. The six image-only statements are served from committed
+  OCR artifacts keyed by the SHA-256 of their PDF ([`tests/corpus_cache/README.md`](tests/corpus_cache/README.md)).
+- It audits the pinned manifest, not every PDF under `Bank Statements/` (`.gitignore` ignores
+  `Bank Statements/**`); other PDFs there are counted, never named. Adding a statement means regenerating the
+  audits and `git add -f`.
+- Run it locally before merging anything that touches parsing, reconciliation, ADB, balance metrics,
+  serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml`, Ubuntu 24.04,
+  Python 3.12) runs on every pull request and every push to `main`: it checks that the shipped entry points import
+  with the two runtime files alone and load no model package, installs `requirements-dev.txt`, runs the suite, and
+  runs the gate whether or not the suite passed (the job fails if either fails). Nothing makes a merge wait for
+  it: GitHub's branch protection is not available on this repository's plan.
+- The gate never rewrites the audits. Regenerating the truth set is a separate, deliberate act:
+  `python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache`, then the same with
+  `balance_forensic_audit.py`. Both read every PDF under the path they are given, not the pinned manifest, and
+  overwrite the committed audit CSVs and reports under `docs/`. Run them only on a folder that holds exactly the
+  109 pinned PDFs (a fresh clone, where `Bank Statements/` holds only tracked files), and check that both CSVs
+  still hold 109 rows before committing.
+- `.gitattributes` marks PDFs binary and the committed OCR artifacts `-text`. Do not remove it: with
+  `core.autocrlf=true` git would rewrite some PDFs and the pinned hashes would stop reproducing.
 
-### Tranche 3 — the visual-OCR rung (`--scanned-visual`)
+## Configuration
 
-`--scanned-visual` is `--scanned` with the intake ladder's last rung enabled:
-the **local** `baidu/Unlimited-OCR` server on your own GPU (see *Local GPU*
-above). No paid vendor is reachable from any discovery mode, and the extraction
-LLM stays unreachable here too — the rung reads pixels into markdown, it does
-not extract. Policy stays offline-first, and a document reaches the GPU in
-exactly two situations:
-
-| | When | Outcome |
+| Variable | Default | Effect |
 |---|---|---|
-| **recovery** | the offline rungs produced nothing at all (`deferred_visual_ocr` in tranche 2) | the visual read becomes the text of record |
-| **upgrade** | the offline read came from local Tesseract and **no parser claimed it** | the visual read is adopted only if it claims; otherwise the Tesseract read stays of record |
+| `WEBAPP_HOST` | `127.0.0.1` | Bind address. Beyond loopback it exposes an app with no login. |
+| `WEBAPP_PORT` | `5000` | Port. |
+| `WEBAPP_DATA_DIR` | unset | The data directory; absolute and outside the checkout. |
+| `WEBAPP_MIN_FREE_MB` | `256` | Free space the data volume keeps: an upload or a Re-analyze that would leave less is refused (507) before anything is written. `0` turns it off; a value that is not a whole number falls back to the default. |
+| `VISUAL_PAIR_PRIVATE_ROOT` | `~/.local/share/bank-statement-analysis/phase31-private` | Root of the default data directory (`<root>/webapp_data`), under the same data-directory rule: absolute and outside the checkout, symlinks included. The name is kept for compatibility. |
+| `POPPLER_PATH` | `C:\poppler-24.08.0\Library\bin` | Windows only: the folder holding `pdfinfo.exe`. Set it in the shell: `run.ps1` checks the shell's value, not `.env`. |
+| `WITHHOLDING_DENOMINATOR_MODE` | `true_revenue` | The withholding basis (below). No run file sets it. |
+| `TELEMETRY_DISABLED` | unset | `1`, `true`, `yes` or `on` turns telemetry off everywhere. |
+| `RECONSTRUCTION_MODE` | `off` | Leave it `off`; the other values belong to a research path. |
 
-An unclaimed *native-text* document is never escalated: that is a layout
-problem, and re-reading perfect text with a GPU cannot invent a parser.
-`--no-visual-escalation` restricts the mode to recovery only.
+A gitignored `.env` at the repository root is read at start and fills in any variable the shell leaves unset.
+Settings an old `.env` still holds for the removed model paths are ignored and can be deleted.
 
-```bash
-python local_ocr_server.py &                          # or point OCR_BASE_URL elsewhere
-.venv/Scripts/python.exe -m discovery --scanned-visual
-.venv/Scripts/python.exe -m discovery --scanned-visual --no-visual-escalation
-OCR_BASE_URL=http://localhost:8000/v1 .venv/Scripts/python.exe -m pytest -m live
-```
+## Product rules
 
-**Availability is checked before the run, not during it.** The mode probes
-`GET /v1/models` up front (no GPU time, no image sent) and refuses to start,
-with an actionable message and exit code 2, if the endpoint is unreachable or
-does not serve the configured `OCR_MODEL` — a batch of thousands must not
-discover that on document 1. If the server dies **mid-run**, that document
-fails closed (`failed` / `ocr_failed`, with the exception class recorded) and
-the run continues; a failed read is never cached.
+**Withholding.** Withholding divides by True revenue (`WITHHOLDING_DENOMINATOR_MODE=true_revenue`: verified plus
+counted credits) by default since the owner's ruling of 2026-10-02 (the underwriter's Q7); an unset or unknown
+value reads as that default. `WITHHOLDING_DENOMINATOR_MODE=legacy_eligible_deposits` selects legacy eligible
+deposits (deposits less lender funding) and `WITHHOLDING_DENOMINATOR_MODE=verified_revenue` the narrower
+verified basis. In either revenue mode `eligible_deposits` carries the selected denominator, and the legacy
+figure stays in `legacy_eligible_deposits` on every statement; an analysis stored without a mode keeps the
+legacy basis it was made under. Where the selected basis is not established, no rate is published and the
+statement and its package go to review (a decision that read Approved reads Review required). The withholding
+numerator is the confirmed lender debits paid plus the funder payments returned unpaid (the owner's ruling of
+2026-10-02, the underwriter's Q5). As computed, worded lump-sum payoffs are taken out of the paid debits, and a
+returned payment its funder re-debited is not added (`analysis/metrics.py`).
 
-Each visual read goes through the D-3 artifact cache in its own partition (the
-ladder capability flags and every visual service knob — model, base URL, dpi,
-fallback dpi, ngram/window — are cache-key material), is assessed for O-3
-truncation exactly like every other rung, and is recorded by H-3 with its own
-`visual_ocr` stage timing, `source.path = "visual"`, the model id and the page
-count. Local infrastructure bills no vendor, so the cost estimate names the
-model as unpriced rather than inventing a rate.
+**Zelle.** Zelle deposits follow the Settings choice "Mark Zelle Payments as True Revenue" (the owner's
+amendment of 2026-10-06 to the underwriter's Q3): Yes, the default, counts them in True revenue; No makes them
+non-revenue (`zelle_excluded`). Both readings are stored, so the choice applies to every saved analysis at
+once; the CLIs take `--zelle-true-revenue {yes,no}`.
 
-The deferral taxonomy does not soften: a document the visual rung **also**
-cannot serve stops being `deferred` and becomes an explicit terminal `failed`.
-`rows.csv` gains `visual_rung` (`recovered` / `upgraded` / `no_upgrade` /
-`failed` / `not_attempted`) and `cache_visual`, and the report ranks them.
+**Lenders.** Each lender's regular payment is read for a decrease, an increase, a schedule change, a pause, a
+catch-up, a new concurrent stream or a stop (the owner's request of 2026-10-06, R2-OW18;
+`analysis/lender_payment_changes.py`), information only: no lender, withholding or revenue figure moves. The
+owner's request of 2026-10-10 adds an "Active Positions" column to the Monthly Statements table, right before
+Withholding Rate: each statement's confirmed lenders' active positions in its printed period ("2", or
+"2 (+1 possible)" with a potential lender's), from the lender payment streams (`analysis/active_positions.py`).
+Lender aliases are curated in `docs/lender-registry-ledger.json`; `python -m tools.build_lender_registry --write`
+renders them into `analysis/classification_registry.py` and regenerates `docs/lender-registry-evidence.md`
+(`--check` validates).
 
-Every run first verifies the corpus root against the frozen archive baseline
-(3,768 files / 3,615 PDFs / 996,080,803 bytes) and refuses to proceed if it has
-moved — tranche numbers are only comparable if every tranche measured the same
-corpus. `--dry-run` checks the pinned 109 instead, so it works in a clean
-checkout. `--skip-baseline` is for scoped runs whose numbers are not
-tranche-comparable.
+**Dashboard.** Since the owner's request of 2026-10-11 the dashboard and the CSV and Excel downloads show True
+revenue with Held for review and Non-revenue beside it; Verified revenue and "Counted, not verified" stay in
+the classifier, the served payload, the JSON download and the CLIs. Settings defaults: NSF carry-over off,
+Zelle as True revenue Yes, all 12 flag groups shown. A statement downloads as md, html, json, csv or xlsx, a
+package as json, csv or xlsx. The served analysis and the JSON, CSV and Excel downloads mask account numbers to
+the last four digits, and spreadsheet cells that would start a formula are escaped. The md and html downloads
+and the source view are the statement's own text, unmasked.
 
-Output goes to the gitignored `discovery_reports/<run_id>/`: `report.txt`,
-`summary.json`, `rows.csv`, `hash_map.csv`, and `telemetry.jsonl`. Two
-artifacts, two audiences — the telemetry records carry hashes and codes only
-(the H-3 invariant), while the report carries relative paths and folder labels
-for human adjudication, with account identifiers masked to last-4 and no
-transaction-level detail anywhere.
+Where each rule is defined:
 
-## Telemetry — what happened to each statement, and what it cost
+- Classification contract (categories, revenue tiers, reason codes, withholding):
+  [`docs/transaction-classification.md`](docs/transaction-classification.md)
+- True revenue: [`docs/superpowers/specs/2026-09-28-true-revenue-design.md`](docs/superpowers/specs/2026-09-28-true-revenue-design.md) (tiers in §5.1 to §5.3)
+- Lender scope and flag groups: [`docs/superpowers/specs/2026-09-24-lender-detection-design.md`](docs/superpowers/specs/2026-09-24-lender-detection-design.md) (§2)
+- ADB doctrine (calendar days of the printed period, one published figure): the docstring of [`analysis/adb.py`](analysis/adb.py)
+- NSF (R18 and R18 amended):
+  [`docs/moneythumb-replacement/PHASE2_RULINGS.md`](docs/moneythumb-replacement/PHASE2_RULINGS.md)
+- Currency (native currency, no FX): [`docs/moneythumb-replacement/CURRENCY_DOCTRINE.md`](docs/moneythumb-replacement/CURRENCY_DOCTRINE.md)
 
-One write-only record per statement per run: content hash, intake path taken,
-parser id and detection score (including the near-miss scores of parsers that
-almost claimed it), dispatch outcome, per-stage timings and cache hit/miss,
-truncated-page flags, model calls, and an outcome class
-(`validated` / `review` / `withheld` / `failed`). It is a side-band: **no
-analysis output changes because telemetry is on**, proven by test and by the
-corpus gate.
+## Privacy and licensing
 
-It is **on by default** on both paths. The webapp writes to the SQLite store
-(schema v4); `batch.py` writes JSON Lines to `telemetry_runs/<run_id>.jsonl`
-(gitignored) or wherever `--telemetry FILE` points.
+- Statements are customer data. No statement value, name, account number or copied page text goes into code,
+  tests, fixtures, docs or commit messages; tests use fabricated rows. Guards:
+  `tests/test_no_statement_hardcodes.py` and `tools/privacy_scan_branch.py` (scans a branch's added lines for
+  the documents' printed tokens). Only the 109 pinned corpus PDFs are tracked; the rest of `Bank Statements/`
+  is ignored. The data directory is enforced outside the checkout.
+- Masking happens only at the web app boundary: `analyze.py` and `batch.py` output keeps account numbers as
+  printed, so treat it as customer data.
+- Telemetry (on by default) carries hashes, registry ids, codes, counts and timings only, never account
+  numbers, amounts, transaction text, dates, the bank label or filenames
+  ([`docs/moneythumb-replacement/H3_SCHEMA.md`](docs/moneythumb-replacement/H3_SCHEMA.md)). It is append-only.
+  Since the model-code removal (2026-10), `discovery --scanned` records a document no deterministic path can read
+  (local Tesseract read nothing usable from it) as `refused:insufficient_evidence` (`telemetry.record.REFUSED_REASONS`);
+  H3_SCHEMA is the historical record and predates that outcome.
+- Discovery and benchmark reports mask account numbers to the last four digits; discovery reports name relative
+  paths and folder labels, so they stay local (gitignored).
+- The server makes no outbound calls: statements are read on this machine, scanned pages by local Tesseract, and
+  nothing is sent out. `tests/test_no_model_clients.py` fails if a tracked Python file imports a model package, or
+  a production module imports a network client, reads a model setting or starts a remote program (`ssh`, `scp`,
+  `curl` and the like) in a command its source fixes. The dashboard page loads its web fonts
+  from Google Fonts in the browser; that request carries no statement data.
+- Licensing: native text uses PyMuPDF (AGPL-3.0 or a paid licence) and page counts and previews use poppler
+  (GPL). The owner's licensing rule excludes both for a licensed product; moving to pypdfium2 is step L0 of the
+  commercial roadmap draft, which is not approved
+  ([`docs/superpowers/specs/2026-09-27-commercial-roadmap-design.md`](docs/superpowers/specs/2026-09-27-commercial-roadmap-design.md)).
 
-```bash
-.venv/Scripts/python.exe batch.py "Bank Statements" --out triage.csv
-.venv/Scripts/python.exe -m telemetry.report --jsonl telemetry_runs/<run_id>.jsonl
-.venv/Scripts/python.exe -m telemetry.report --sqlite webapp_data       # same report
-.venv/Scripts/python.exe -m telemetry.report --jsonl … --by parser      # breakdowns
-.venv/Scripts/python.exe -m telemetry.report --jsonl … --diagnostics    # W3-2: withheld failure-class rollup
-.venv/Scripts/python.exe -m telemetry.report --jsonl … --by diagnostic_class
-TELEMETRY_DISABLED=1 .venv/Scripts/python.exe batch.py …                # kill switch
-```
+## Project status and docs map
 
-`TELEMETRY_DISABLED=1` (also `true`/`yes`/`on`) swaps in a null sink everywhere,
-webapp included. Nothing else changes.
+The deterministic reader is the product: 84 parsers, classification version 5.9, the corpus gate at 105 pass,
+3 withheld, 1 refusal. A generic **text-first reader** for digital statements no parser recognises is planned,
+not built: [`docs/superpowers/specs/2026-09-24-text-first-reader-design.md`](docs/superpowers/specs/2026-09-24-text-first-reader-design.md)
+(written before the owner's ruling of 2026-10-13, so the model code it mentions has since been removed).
 
-**Records carry no customer data, by design and by test:** hashes, registry
-ids, enum codes, counts and timings only — never account numbers, amounts,
-transaction text, statement dates, the extracted bank label, or **filenames**
-(customer names live in paths). Exceptions are recorded by class name, never by
-message. That invariant is what makes always-on telemetry safe; see
-`docs/moneythumb-replacement/H3_SCHEMA.md` for the full schema and the
-sensitivity tests.
-
-Telemetry is append-only (the table carries the same UPDATE/DELETE triggers as
-the audit log). There is no expiry path yet — retention is a later decision.
-
-## MoneyThumb comparison harness
-
-Offline, re-runnable comparison of the six MoneyThumb benchmark result sets
-against our pipeline, the original statement evidence, and the audited
-expectation CSVs. MoneyThumb is never treated as automatic ground truth:
-every compared field is classified into one of eight outcomes
-(`BOTH_MATCH_EXPECTED | OUR_SYSTEM_CORRECT | MONEYTHUMB_CORRECT |
-BOTH_INCORRECT | DIFFERENT_DEFINITION | SOURCE_CONTRADICTION |
-INSUFFICIENT_EVIDENCE | UNRESOLVED`) with evidence pointers, and the rollup
-proves every MoneyThumb JSON field was either compared, skipped by a
-documented FIELD_MAPPING verdict, or recorded as a capability finding.
-
-```bash
-# One command, fully offline (no OCR endpoint, no Gemini, no network).
-# --mt-results points at the read-only moneythumbResults/ directory
-# (default: <repo>/moneythumbResults).
-python -m benchmark --mt-results "path/to/moneythumbResults"
-
-# Optional: --corpus "Bank Statements" --cache tests/corpus_cache \
-#           --out benchmark_reports --sets wmb_may klr_may
-```
-
-Outputs (written to `benchmark_reports/`, gitignored, never committed):
-per-set `<set>/report.json`, cross-set `rollup.json`, `summary.csv`, and a
-human-readable `SUMMARY.md` with an explicit "for Ocean ruling" section.
-All account numbers in every report are masked to last-4; reports never
-contain full ledgers or holder identities. The harness verifies the
-manifest's PDF SHA-256 hashes before running and stops on any mismatch.
-
-Harness unit tests (synthetic fixtures only):
-
-```bash
-python -m pytest tests/test_benchmark_harness.py -q
-```
-
-## Corpus gate — required before merge
-
-The 106-of-109 guarantee is not a claim in a document; it is re-proved on
-demand. The gate re-runs both independent forensic oracles over every corpus
-statement and fails red on any drift from the committed audits
-(`docs/adb-audit-results.csv`, `docs/balance-metrics-audit-results.csv`).
-
-```bash
-.venv/Scripts/python.exe corpus_gate.py                      # exit 1 on any drift
-.venv/Scripts/python.exe corpus_gate.py --json report.json   # machine-readable report
-.venv/Scripts/python.exe corpus_gate.py --corpus <path>      # audit another checkout's root
-.venv/Scripts/python.exe -m pytest -m corpus                 # the same gate via pytest
-```
-
-### What the gate is scoped to
-
-The gate audits the **pinned manifest** — the 109 corpus-relative paths recorded
-in the committed audit CSVs — not "whatever PDFs the directory holds". The
-corpus root doubles as the landing zone for untracked discovery material
-(`.gitignore` carries `Bank Statements/**`, so nothing untracked under that root
-can be committed by accident), which makes "every PDF under the root is pinned"
-a property the tree is not meant to have.
-
-The trade is deliberate and narrow:
-
-- **Kept, and tightened.** Every pinned path must exist on disk, hash-match its
-  pin, and carry a row in *both* audits; the two audits must pin the same 109
-  paths. A statement that is deleted, renamed, or edited is red. Committed OCR
-  artifacts are checked against the manifest, so an artifact for an unpinned
-  document is still an orphan error.
-- **Given up.** The gate no longer asserts that the corpus root contains nothing
-  else. Instead it counts what else is there and says so — `foreign_files`
-  reports `N non-corpus PDFs present — ignored (discovery archive)` with a
-  folder count and no file names (unpinned documents under this root are
-  sensitive source data). That check is informational and can never fail the run.
-
-Adding a statement to the validated corpus is therefore an explicit act: the
-audit CSVs must be regenerated (below) and the file added with `git add -f`.
-
-Measured runtime: **4m32s–6m19s** on a Windows dev box (Python 3.14), across the
-script and `pytest -m corpus` forms. Both oracles re-parse every statement
-independently, which is the point — they are not allowed to share a parse.
-
-**Run this before merging anything that touches parsing, reconciliation, ADB,
-balance metrics, serialization, the API, dashboard bindings, or exports.** It is
-also wired to run on every pull request
-(`.github/workflows/corpus-gate.yml`). The default `pytest` run deselects it, so
-day-to-day testing stays at about a minute.
-
-That workflow installs `poppler-utils` and `tesseract-ocr` on the runner before
-the suite: the gate itself needs neither, but the default suite exercises the
-real local OCR ladder (poppler page counts, two live-OCR'd scanned fixtures).
-Hosted-runner acquisition failures ("The job was not acquired by Runner of type
-hosted") are a GitHub-side transient — re-run the job and check
-[githubstatus.com](https://www.githubstatus.com); nothing in this repository
-causes or fixes them. See `docs/moneythumb-replacement/CI1_FINDINGS.md`.
-
-What it checks, in order. Every one of them fails the run except the two marked
-informational (`foreign_files`, `exclusions`), which report and never fail:
-
-| Check | Guarantee |
-|---|---|
-| `inventory` | All 109 pinned corpus PDFs are on disk and audited by both oracles, which pin the same paths. Nothing removed or renamed without an audit row. |
-| `foreign_files` | Counts PDFs under the corpus root that are not pinned and reports them as ignored. **Informational — never fails the run.** |
-| `source_integrity` | Every pinned PDF matches its pinned SHA-256, so the documents themselves have not changed. |
-| `balance_audit` | Every audited opening/ending/highest/lowest value reproduces across backend, API, dashboard binding, CSV, XLSX, and package surfaces — compared field by field, not just by status. |
-| `adb_audit` | Every audited ADB field reproduces across backend, API, and dashboard-package surfaces. |
-| `balance_outcomes` / `adb_outcomes` | Still 106 PASS and 3 WITHHELD, and the withheld set is still the same three statements. A source contradiction cannot quietly become a pass. |
-| `ocr_coverage` | All 109 statements resolved offline: 103 from native text, 6 from committed OCR artifacts. |
-| `exclusions` | Named, counted exclusions. Currently zero. |
-| `oracle_independence` | The audit scripts still import no production financial mathematics, so they remain an independent check rather than a mirror. |
-
-The gate is offline by construction: no OCR endpoint, no Gemini, no network, and
-no `tesseract` binary. The six image-only statements are served from committed
-OCR artifacts keyed by the SHA-256 of their source PDF — see
-[`tests/corpus_cache/README.md`](tests/corpus_cache/README.md). A scanned
-statement with no artifact is a failure, never a silent skip.
-
-The gate **consumes** the audit CSVs and never rewrites them. Regenerating the
-truth set is a separate, deliberate act:
-
-```bash
-.venv/Scripts/python.exe adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
-.venv/Scripts/python.exe balance_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache
-```
-
-### A note on line endings
-
-`.gitattributes` marks PDFs binary. Do not remove it. With `core.autocrlf=true`
-git rewrites any PDF whose first 8000 bytes contain no NUL — which includes
-statements with ASCII85 image streams — making the corpus byte-different per
-platform and the pinned hashes unreproducible.
+**Read first:** the rule documents under [Product rules](#product-rules), in that order, then the docstring of
+`corpus_gate.py` and [`docs/agent-handoffs/TRUE-REVENUE-HANDOFF.md`](docs/agent-handoffs/TRUE-REVENUE-HANDOFF.md),
+the latest handoff. Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and
+`docs/lender-registry-evidence.md`.
+Historical, read for background only: the rest of `docs/moneythumb-replacement/`, the cell briefs in
+`docs/agent-handoffs/`, `PHASE2_HANDOFF.md`, and the July specs and plans under `docs/superpowers/`. The September
+plans there are finished implementation records. These records still describe the model paths (visual OCR, the
+visual model pair, PaddleOCR, hosted extraction) that the owner's ruling of 2026-10-13 removed; git history holds
+that code.

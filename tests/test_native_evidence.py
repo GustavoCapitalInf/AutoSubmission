@@ -274,7 +274,7 @@ def test_four_angle_pin_agrees_with_popplers_display_orientation(rotation):
     assert (image.width, image.height) == (round(page.frame.width), round(page.frame.height))
     assert image.size == reference.size
     ink_mask_disagreements = sum(
-        1 for a, b in zip(image.getdata(), reference.getdata()) if (a < 128) != (b < 128)
+        1 for a, b in zip(image.tobytes(), reference.tobytes()) if (a < 128) != (b < 128)
     )
     assert ink_mask_disagreements == 0
 
@@ -284,7 +284,7 @@ def test_four_angle_pin_agrees_with_popplers_display_orientation(rotation):
         right, bottom = min(image.width, int(x1) + 2), min(image.height, int(y1) + 2)
         if right <= left or bottom <= top:
             return False
-        return min(image.crop((left, top, right, bottom)).getdata()) < 128
+        return image.crop((left, top, right, bottom)).getextrema()[0] < 128
 
     transformed_with_ink = sum(1 for w in page.words if has_ink((w.x0, w.y0, w.x1, w.y1)))
     assert transformed_with_ink == len(page.words) == 12
@@ -517,7 +517,7 @@ def _ink_fraction(image, words, scale_x: float, scale_y: float) -> float:
         top = max(0, int(word.y0 * scale_y) - 1)
         right = min(gray.width, int(word.x1 * scale_x) + 2)
         bottom = min(gray.height, int(word.y1 * scale_y) + 2)
-        if right > left and bottom > top and min(gray.crop((left, top, right, bottom)).getdata()) < 128:
+        if right > left and bottom > top and gray.crop((left, top, right, bottom)).getextrema()[0] < 128:
             hits += 1
     return hits / max(1, len(words))
 

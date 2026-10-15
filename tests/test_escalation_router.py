@@ -5,18 +5,33 @@ validated Tesseract read unusable.
 Nothing here reaches a server. Cases 1-4 are proved twice: once as a pure
 unit test of `EscalationRouter.decide` (fast, exact), and once as an
 integration test through `DiscoveryRunner` for the cases that matter most
-operationally (Class B and Class C never scheduling the visual rung).
+operationally (Class B and Class C never scheduling an escalation read).
+
+Model-code removal, slice S2: the integration tests ran in the retired
+`--scanned-visual` mode with the visual OCR client faked; they moved to
+`--scanned-paddle`, and the three whose subject was the visual client itself
+(a visual recovery read, a visual upgrade read, the client's endpoint refusal)
+were deleted with it. Slice S5: the Paddle and research modes, and with them
+the runner's last `decide(` sites, were removed. The integration tests now run
+in `--scanned` (no escalation exists to schedule) and pin what they always
+pinned about the ROW: the deterministic projection (`evidence_quality`,
+`failure_class`, both rungs `not_attempted`, no trigger and no router refusal
+recorded). The tests whose subject was the escalation itself (the MINOR-9
+refusal comparability, the escalation budget and its CLI computation) were
+deleted with it. The router's own unit tests stay: `ocr/escalation.py` is kept
+(pinned) for its vocabulary and its gate.
 """
 from __future__ import annotations
 
 import csv
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 from discovery.runner import (
     GATE_ASSESSED_SOURCES,
-    MODE_SCANNED_VISUAL,
+    MODE_SCANNED,
     DiscoveryRunner,
     DocumentRow,
     _evidence_for_row,
@@ -98,15 +113,20 @@ def _tesseract(monkeypatch, text: str | None):
 
 
 def _forbid_visual(monkeypatch):
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("the visual rung must not run"))
+    """No escalation read can run: the visual OCR client and the Paddle rung no
+    longer exist at all (slices S2 and S5), and the runner has no escalation
+    read to call."""
+    for module in ("ocr.ocr_client", "ocr.paddle_rung", "ocr.paddle_client"):
+        assert importlib.util.find_spec(module) is None, module
+    for name in ("_read_paddle", "_read_visual", "_upgrade_eligible", "_apply_budget"):
+        assert not hasattr(DiscoveryRunner, name), name
 
 
 def _runner(root: Path, **kwargs) -> DiscoveryRunner:
     kwargs.setdefault("dedup", DedupIndex())
     kwargs.setdefault("sink", None)
     kwargs.setdefault("cache", None)
-    return DiscoveryRunner(root, mode=MODE_SCANNED_VISUAL, run_id="test-run", **kwargs)
+    return DiscoveryRunner(root, mode=MODE_SCANNED, run_id="test-run", **kwargs)
 
 
 @pytest.fixture
@@ -421,29 +441,11 @@ def test_the_most_specific_admitted_trigger_is_reported_not_the_declaration_orde
     )
 
 
-def test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text(
-    scan_tree, monkeypatch,
-):
-    """MINOR-8, end to end: a real recovery (the offline ladder produced
-    nothing at all for a scanned document) must report
-    `offline_rungs_produced_no_text` on the row, never `image_only_document`
-    — the two are always co-admitted for a scanned document, so only the
-    reporting priority tells them apart."""
-    from corpus_artifacts import cached_markdown
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-    _tesseract(monkeypatch, None)
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: claimable)
-
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
-    assert row.visual_rung == "recovered"
-    assert row.escalation_trigger == OFFLINE_RUNGS_PRODUCED_NO_TEXT
+# `test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text`
+# drove a visual recovery read; it was deleted with the visual OCR client
+# (slice S2). The same end-to-end trigger report on a recovery is pinned for the
+# Paddle rung by `tests/test_paddle_routing.py::test_case1_recovery_names_paddle_and_local_free_recovers`,
+# and the reporting priority itself by the unit test above.
 
 
 def test_the_paddle_slot_is_filled_between_tesseract_and_visual():
@@ -474,6 +476,8 @@ def test_the_router_has_no_endpoint_policy_seam_at_all(monkeypatch):
     fake_module.check_endpoint = lambda base_url, *, opt_in: (_ for _ in ()).throw(
         AssertionError("the router must never call an endpoint-policy module")
     )
+    # (`ocr.endpoint_policy` itself was removed in slice S5 of the model-code
+    # removal; the fake below still proves the router consults no such seam.)
     # Composition (Ocean, train10): the REAL `ocr.endpoint_policy` (cell B2)
     # is imported by `ocr_client._build_client` and pinned by class identity
     # in tests/test_ocr_endpoint_policy.py. A bare `del sys.modules[...]`
@@ -631,17 +635,19 @@ def test_claimed_and_validated_is_no_failure():
 def test_case1_usable_unclaimed_tesseract_text_never_escalates(scan_tree, monkeypatch):
     """The governing invariant's central proof: a Class-B Tesseract read
     (long, legible, alphanumeric-dense — nothing an extraction-quality gate
-    would ever call unusable) that no parser claims must NEVER schedule the
-    visual rung, in `--scanned-visual` mode, with escalation on."""
+    would ever call unusable) that no parser claims never schedules an
+    escalation read. Since slice S5 no mode can (none exists), and the row
+    records the deterministic projection with no router decision at all
+    (`escalation_refused` was `no_admitted_trigger` in the retired modes)."""
     _tesseract(monkeypatch, USABLE_UNCLAIMABLE)
     _forbid_visual(monkeypatch)
 
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
 
-    assert row.visual_rung == "not_attempted"
+    assert (row.visual_rung, row.paddle_rung) == ("not_attempted", "not_attempted")
     assert row.evidence_quality == "usable"
     assert row.failure_class == B_STRUCTURE
-    assert row.escalation_refused == "no_admitted_trigger"
+    assert row.escalation_refused == ""
     assert row.escalation_trigger == ""
 
 
@@ -659,59 +665,18 @@ def test_a_density_surfaced_but_usable_tesseract_read_never_escalates(scan_tree,
     _tesseract(monkeypatch, PADDED_TABULAR)
     _forbid_visual(monkeypatch)
 
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
 
-    assert row.visual_rung == "not_attempted"
+    assert (row.visual_rung, row.paddle_rung) == ("not_attempted", "not_attempted")
     assert row.evidence_quality == "usable"
-    assert row.escalation_refused == "no_admitted_trigger"
+    assert row.escalation_refused == "" and row.escalation_trigger == ""
 
 
-def test_usable_evidence_reports_the_same_refusal_whether_or_not_it_was_claimed(
-    scan_tree, monkeypatch, tmp_path,
-):
-    """P20-ROUTER review, MINOR-9: `escalation_refused` must be COMPARABLE
-    across rows. Before the fix, a usable-evidence document that
-    `_upgrade_eligible` excluded (a D-3 analysis cache hit that served an
-    already-CLAIMED payload — `collector.seen` is False, so eligibility
-    collapses to `payload is None`, which is False here) carried an EMPTY
-    refusal, while an otherwise-identical usable-evidence document that was
-    NOT excluded (CASE 1: genuinely unclaimed) carried `no_admitted_trigger`
-    — the column could not be used to compare the two. Both must now read
-    `no_admitted_trigger`, because the candidate's OWN verdict — computed
-    from evidence alone, before eligibility is even asked — is recorded
-    unconditionally."""
-    from corpus_artifacts import cached_markdown
-    from webapp.artifact_cache import open_cache
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-    cache = open_cache(tmp_path / "data")
-    _tesseract(monkeypatch, claimable)
-    _forbid_visual(monkeypatch)
-
-    first = _runner(scan_tree, cache=cache, visual_escalation=True).process(
-        "BankZ/scan.pdf", "BankZ")
-    assert first.parser_id_source == "live_dispatch"
-    assert first.dispatch_outcome == "claimed"
-
-    second = _runner(scan_tree, cache=cache, visual_escalation=True).process(
-        "BankZ/scan.pdf", "BankZ")
-    assert second.cache_analysis == "hit"
-    assert second.parser_id_source == "live_detect"  # no live dispatch this run
-    assert second.visual_rung == "not_attempted"
-    assert second.escalation_refused == "no_admitted_trigger"
-
-    # CASE 1's own row (genuinely unclaimed, never cached) carries the
-    # identical refusal string.
-    from discovery.inventory import DedupIndex
-
-    unclaimed_tree = scan_tree.parent / "unclaimed"
-    (unclaimed_tree / "BankZ").mkdir(parents=True)
-    (unclaimed_tree / "BankZ" / "scan.pdf").write_bytes(SCAN_BYTES)
-    _tesseract(monkeypatch, USABLE_UNCLAIMABLE)
-    third = _runner(unclaimed_tree, visual_escalation=True, dedup=DedupIndex()).process(
-        "BankZ/scan.pdf", "BankZ")
-    assert third.dispatch_outcome != "claimed"
-    assert third.escalation_refused == second.escalation_refused == "no_admitted_trigger"
+# `test_usable_evidence_reports_the_same_refusal_whether_or_not_it_was_claimed`
+# (MINOR-9) pinned that the UPGRADE candidate's own refusal was recorded on
+# claimed and unclaimed rows alike; it left with the upgrade decision (slice
+# S5). Every row now records no router decision at all, which
+# `test_case1_...` above pins.
 
 
 def test_case2_claimed_but_financially_failing_never_escalates(scan_tree, monkeypatch):
@@ -737,7 +702,7 @@ def test_case2_claimed_but_financially_failing_never_escalates(scan_tree, monkey
     # classify_document` INSIDE the function, so it re-resolves this
     # attribute on every call — patching the source module's name is enough.
     monkeypatch.setattr(record_module, "classify_document", force_c)
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
 
     assert row.dispatch_outcome == "claimed"
     assert row.outcome_class != "validated"
@@ -745,30 +710,10 @@ def test_case2_claimed_but_financially_failing_never_escalates(scan_tree, monkey
     assert row.failure_class == C_VALIDATION
 
 
-def test_case3_a_below_floor_read_is_the_legal_class_a_trigger(scan_tree, monkeypatch):
-    """CASE 3: a read below the floor -> A, the router names visual with
-    trigger `extractor_output_unusable`. The visual read here ALSO fails to
-    claim (a different flavour of noise), so the original tesseract read
-    stays of record — proving the ROUTER's decision (the escalation actually
-    ran) independent of whether the second read happens to be adopted."""
-    _tesseract(monkeypatch, "scan noise\nlllll ooooo\n0000 ....\nno recognisable statement structure")
-
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr(
-        "ocr.ocr_client.ocr_page",
-        lambda image, *, settings, client, on_delta=None: "different noise, still unclaimable",
-    )
-
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
-
-    assert row.evidence_quality == "unusable"
-    assert row.escalation_trigger == EXTRACTOR_OUTPUT_UNUSABLE
-    assert row.visual_rung == "no_upgrade"
-    assert row.source_path == "local_tesseract"
+# `test_case3_a_below_floor_read_is_the_legal_class_a_trigger` drove a visual
+# upgrade read (the router naming visual on `extractor_output_unusable`); it was
+# deleted with the visual OCR client (slice S2). The Paddle rung's upgrade on
+# the same trigger is `tests/test_paddle_routing.py::test_case1_u_extract_shape_upgrade_also_names_paddle`.
 
 
 def test_case4_stop_a_validated_document_is_never_re_escalated(scan_tree, monkeypatch):
@@ -782,155 +727,28 @@ def test_case4_stop_a_validated_document_is_never_re_escalated(scan_tree, monkey
     _tesseract(monkeypatch, claimable)
     _forbid_visual(monkeypatch)
 
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
+    row = _runner(scan_tree).process("BankZ/scan.pdf", "BankZ")
     assert row.dispatch_outcome == "claimed"
     assert row.visual_rung == "not_attempted"
+    assert row.paddle_rung == "not_attempted"
 
 
-def test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt(scan_tree, monkeypatch):
-    """P20-ROUTER review, MAJOR-1's replacement mutation-table row 5:
-    endpoint policy is enforced in exactly ONE place — `ocr_client._build_client`
-    (cell B2) — which fails closed BEFORE any client object exists. The
-    router never sees this at all; a refused/unreachable endpoint surfaces
-    as the visual rung's OWN transport failure, and the document is
-    terminal, with exactly one attempt (no retry, no second extractor)."""
-    from ocr.config import load_settings
-
-    _tesseract(monkeypatch, None)  # RECOVERY: the offline ladder found nothing
-    calls: list = []
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-
-    def refused(settings):
-        calls.append(settings)
-        raise RuntimeError("endpoint refused: not opted in")
-
-    monkeypatch.setattr("ocr.ocr_client._build_client", refused)
-
-    row = _runner(scan_tree, visual_escalation=True).process("BankZ/scan.pdf", "BankZ")
-
-    assert row.visual_rung == "failed"
-    assert (row.outcome_class, row.outcome_reason) == ("failed", "ocr_failed")
-    assert row.error_type == "RuntimeError"
-    assert len(calls) == 1
-    assert row.source_path == "none"
+# `test_a_refused_endpoint_fails_the_document_closed_with_no_second_attempt`
+# pinned the visual OCR client's endpoint refusal (`ocr_client._build_client`);
+# it was deleted with the client (slice S2). The Paddle rung's transport
+# failures are `tests/test_paddle_routing.py::test_case18_transport_failures_fail_closed_with_no_second_attempt`.
 
 
 # ---------------------------------------------------------------------------
-# The escalation-budget counter refusal
+# The escalation budget (`test_the_escalation_budget_refuses_past_its_ceiling`,
+# `..._permits_exactly_its_ceiling`, `test_cli_run_computes_and_publishes_the_
+# escalation_budget`) left with the Paddle mode's RECOVERY read it bounded
+# (slice S5). The summary keeps `escalation_budget` None and `escalations_used`
+# 0 (`tests/test_discovery_no_models.py`). webapp/worker.py's
+# `_force_ocr_decision` left in slice S1: a forced job is refused before
+# preflight (tests/test_webapp_worker.py). The router's own vocabulary is
+# unchanged.
 # ---------------------------------------------------------------------------
-
-def test_the_escalation_budget_refuses_past_its_ceiling(scan_tree, monkeypatch):
-    _tesseract(monkeypatch, None)  # RECOVERY: unconditionally Class A
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: "junk that claims nothing")
-
-    runner = _runner(scan_tree, visual_escalation=True, escalation_budget=0)
-    row = runner.process("BankZ/scan.pdf", "BankZ")
-    assert row.visual_rung == "not_attempted"
-    assert row.outcome_class == "failed"
-    assert row.outcome_reason == "escalation_refused"
-    assert row.escalation_refused == "escalation_budget_exhausted"
-    assert runner.escalations_used == 0
-    # P20-ROUTER re-review, MINOR-11: source_path is "none" here, and "none"
-    # is not in GATE_ASSESSED_SOURCES, so evidence_quality must be "none"
-    # too — never "unusable" — keeping GATE_ASSESSED_SOURCES the single
-    # honest answer to "which rows ever carry usable/unusable" (see
-    # test_gate_assessed_sources_are_exactly_tesseract_and_visual).
-    assert row.source_path == "none"
-    assert row.evidence_quality == "none"
-
-
-def test_the_escalation_budget_permits_exactly_its_ceiling(scan_tree, monkeypatch):
-    from corpus_artifacts import cached_markdown
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-    _tesseract(monkeypatch, None)
-    from ocr.config import load_settings
-
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: claimable)
-
-    runner = _runner(scan_tree, visual_escalation=True, escalation_budget=1)
-    row = runner.process("BankZ/scan.pdf", "BankZ")
-    assert row.visual_rung == "recovered"
-    assert runner.escalations_used == 1
-
-
-# ---------------------------------------------------------------------------
-# webapp/worker.py's `_force_ocr_decision` — item 3's own router call site
-# ---------------------------------------------------------------------------
-
-def test_force_ocr_decision_admits_when_the_offline_ladder_produced_nothing():
-    """START case (i): `doc is None` (R-shape) — the operator's flag plus the
-    offline-ladder-produced-nothing fact both admit."""
-    from webapp.worker import _force_ocr_decision
-
-    decision = _force_ocr_decision(None, None, None)
-    assert decision.extractor == "visual"
-
-
-def test_force_ocr_decision_admits_when_analysis_did_not_claim():
-    """START case (ii): `doc` exists (a Tesseract read), analysis raised (no
-    claim) — the operator's flag alone is the trigger here, deliberately
-    (see `_force_ocr_decision`'s docstring)."""
-    from webapp.worker import _force_ocr_decision
-
-    decision = _force_ocr_decision(_Doc([USABLE_UNCLAIMABLE]), None, None)
-    assert decision.extractor == "visual"
-    assert decision.trigger == OPERATOR_FORCED_VISUAL
-
-
-def test_force_ocr_decision_stops_the_moment_analysis_exists():
-    """CASE 4 (stop), at this call site: ANY payload — even one that will go
-    on to fail financial validation (Class C) — refuses the flag."""
-    from webapp.worker import _force_ocr_decision
-
-    decision = _force_ocr_decision(_Doc([USABLE_UNCLAIMABLE]), None, {"quality": {}})
-    assert decision.extractor is None
-    assert decision.refused == ("stopped_by_validated",)
-
-
-def test_cli_run_computes_and_publishes_the_escalation_budget(tmp_path, monkeypatch):
-    """P20-ROUTER item 2f, end to end through `discovery.cli.run()`: the
-    budget is computed once, before any document is processed, threaded into
-    the runner, and reported in `summary.json` — and it is `None` (unbounded)
-    for every mode other than `--scanned-visual`."""
-    import discovery.cli as cli
-
-    (tmp_path / "BankZ").mkdir()
-    (tmp_path / "BankZ" / "scan.pdf").write_bytes(SCAN_BYTES)
-    _tesseract(monkeypatch, None)  # RECOVERY for the one scanned document
-    from ocr.config import load_settings
-    from corpus_artifacts import cached_markdown
-
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
-    monkeypatch.setattr("ocr.pipeline.load_settings", load_settings)
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: claimable)
-
-    summary = cli.run(
-        tmp_path, MODE_SCANNED_VISUAL, tmp_path / "out",
-        skip_baseline=True, use_cache=False, visual_escalation=True,
-    )
-    assert summary["escalation_budget"] == 1  # one scanned-profile document
-    assert summary["escalations_used"] == 1
-
-    digital_summary = cli.run(
-        tmp_path, "digital", tmp_path / "out2", skip_baseline=True, use_cache=False,
-    )
-    assert digital_summary["escalation_budget"] is None
-    assert digital_summary["escalations_used"] == 0
 
 
 # ---------------------------------------------------------------------------

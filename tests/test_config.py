@@ -1,36 +1,61 @@
-from ocr.config import load_settings, Settings
+"""`ocr/config.py` after the visual OCR settings were removed (model-code removal, slice S2).
+
+The visual OCR `Settings` / `load_settings` (and their OCR_* environment reads) left with the Unlimited-OCR client;
+their two tests here (`test_defaults`, `test_env_and_override`) were deleted with their subject. What the module
+keeps is the provenance-token content policy and its import-time `.env` load. The OCR cache key's frozen copy of the
+old defaults is pinned in `tests/test_artifact_cache.py`.
+"""
+from __future__ import annotations
+
+import ast
+import inspect
+
+import ocr.config as ocr_config
 
 
-def test_defaults(monkeypatch):
-    for k in ("OCR_BASE_URL", "OCR_MODEL", "OCR_API_KEY", "OCR_TIMEOUT",
-              "OCR_RETRIES", "OCR_NGRAM_SIZE", "OCR_WINDOW_SIZE", "OCR_MAX_WORKERS"):
-        monkeypatch.delenv(k, raising=False)
-    s = load_settings()
-    assert isinstance(s, Settings)
-    assert s.base_url == "http://localhost:8000/v1"
-    assert s.model == "baidu/Unlimited-OCR"
-    assert s.api_key == "EMPTY"
-    assert s.timeout == 120.0
-    assert s.retries == 3
-    assert s.ngram_size == 35
-    assert s.window_size == 128
-    assert s.max_workers == 1
+def test_the_visual_ocr_settings_are_gone():
+    assert not hasattr(ocr_config, "Settings")
+    assert not hasattr(ocr_config, "load_settings")
 
 
-def test_env_and_override(monkeypatch):
-    monkeypatch.setenv("OCR_BASE_URL", "https://pod-8000.proxy.runpod.net/v1")
-    monkeypatch.setenv("OCR_API_KEY", "tok")
-    monkeypatch.setenv("OCR_TIMEOUT", "45")
-    monkeypatch.setenv("OCR_RETRIES", "5")
-    monkeypatch.setenv("OCR_NGRAM_SIZE", "40")
-    monkeypatch.setenv("OCR_WINDOW_SIZE", "1024")
-    monkeypatch.setenv("OCR_MAX_WORKERS", "6")
-    s = load_settings(model_override="some/other-model")
-    assert s.base_url == "https://pod-8000.proxy.runpod.net/v1"
-    assert s.api_key == "tok"
-    assert s.timeout == 45.0
-    assert s.retries == 5
-    assert s.ngram_size == 40
-    assert s.window_size == 1024
-    assert s.max_workers == 6
-    assert s.model == "some/other-model"
+def test_the_module_imports_no_endpoint_paddle_or_pair_configuration():
+    tree = ast.parse(inspect.getsource(ocr_config))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.add((node.level, node.module or ""))
+        elif isinstance(node, ast.Import):
+            imported.update((0, alias.name) for alias in node.names)
+    names = {module for _, module in imported}
+    assert not names & {"endpoint_policy", "paddle_config", "visual_pair_config", "ocr.endpoint_policy",
+                        "ocr.paddle_config", "ocr.visual_pair_config"}, names
+    assert "dotenv" in names  # the import-time .env load stays (plan D20)
+
+
+def test_the_import_time_dotenv_load_stays():
+    tree = ast.parse(inspect.getsource(ocr_config))
+    module_level_calls = [
+        node for node in tree.body
+        if isinstance(node, ast.If)
+        for inner in ast.walk(node)
+        if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id == "load_dotenv"
+    ]
+    assert module_level_calls, "ocr/config.py must still call load_dotenv() at import"
+
+
+def test_the_reserved_paddle_and_pair_tokens_are_literal_pins():
+    """The two tokens are literals in ocr/config.py since S2. Both are literal pins now: the visual pair's since
+    slice S4 removed `ocr.visual_pair_config`, the Paddle token's since slice S5 removed `ocr.paddle_config`. Stored
+    readings carry both, and telemetry's vocabularies still name them (`PADDLE_MODEL_TOKENS`,
+    `VISUAL_PAIR_MODEL_TOKENS`), so a token claiming either reserved rung is still refused from the environment."""
+    from telemetry.record import PADDLE_MODEL_TOKENS, VISUAL_PAIR_MODEL_TOKENS
+
+    assert ocr_config.RESERVED_MODEL_PREFIXES == (
+        "native-pdf-text",
+        "local-tesseract-ocr",
+        "deterministic-native-preflight",
+        "paddle-ocr+ppocrv5",
+        "visual-pair-dots-qwen",
+    )
+    assert PADDLE_MODEL_TOKENS == frozenset({"paddle-ocr+ppocrv5"})
+    assert VISUAL_PAIR_MODEL_TOKENS == frozenset({"visual-pair-dots-qwen"})

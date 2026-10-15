@@ -427,25 +427,24 @@ class _Pipeline:
     in force. Everything between them (the worker, the artifact cache, the job store) is real, so an upload leaves the
     reading cached exactly as production does.
 
-    `announce = False` makes a reader that names no stage before it reads, and `stream = True` one that streams text
-    through the live view before it reads: each takes one of the re-analysis's guards out of the way of the other."""
+    `announce = False` makes a reader that names no stage before it reads. (A reader that streamed text through the
+    live view before it read, `stream = True`, left with the visual rung's `on_page_delta` stream in slice S2: the
+    worker passes no stream callback any more.)"""
 
     def __init__(self, monkeypatch, store):
         self.monkeypatch, self.store = monkeypatch, store
         self.reads = 0
         self.announce = True
-        self.stream = False
         self.payload = None
         self.analysis_failure = None
         monkeypatch.setattr("webapp.worker.parse_statement", self._read)
         monkeypatch.setattr("webapp.worker.analyze_document", self._analyze)
         monkeypatch.setattr("webapp.worker.document_to_json", lambda document: copy.deepcopy(self.payload))
 
-    def _read(self, pdf_bytes, source_file="", on_stage=None, on_page_delta=None, **kwargs):
+    def _read(self, pdf_bytes, source_file="", on_stage=None, **kwargs):
         from ocr.document import StatementMarkdown
 
-        if self.stream and on_page_delta is not None:
-            on_page_delta(0, "FABRICATED")
+        assert "on_page_delta" not in kwargs  # the worker streams nothing (slice S2)
         if self.announce and on_stage is not None:
             on_stage("native")
         self.reads += 1
@@ -496,27 +495,33 @@ def pipeline(monkeypatch, private_store):
     return _Pipeline(monkeypatch, private_store)
 
 
+#: The model modules a re-analysis must never import (the product uses no model; owner ruling, 2026-10-13).
+MODEL_MODULE_PREFIXES = ("vlm", "openai", "google.genai", "ocr.ocr_client", "ocr.paddle_client", "analysis.extract")
+
+
+class _ModelImportRefused(ImportError):
+    pass
+
+
+class _RefuseModelImports:
+    """A meta-path finder that refuses every model module, so an import of one during the run fails loudly."""
+
+    def find_spec(self, name, path=None, target=None):
+        if any(name == prefix or name.startswith(prefix + ".") for prefix in MODEL_MODULE_PREFIXES):
+            raise _ModelImportRefused(f"a model module was imported: {name}")
+        return None
+
+
 @pytest.fixture
-def visual_pair(monkeypatch, tmp_path):
-    """The visual pair, fabricated at its one entry point (`vlm.pair.extract_visual_pair`, imported by the worker when
-    it reads), as tests/test_private_artifacts.py does. It records each call and answers as the pair does from its own
-    local evidence index: it names no step and streams nothing. Its customer-data fence is opened for these fabricated
-    statements, and its private evidence root is a temporary directory. The answer is not a pair document (no pair
-    evidence, another model name), so the fabricated analysis stage reads it."""
-    from ocr import private_artifacts
-    from ocr.document import StatementMarkdown
+def no_model_imports(monkeypatch):
+    """Model modules leave `sys.modules` for the test (monkeypatch puts them back), and any import of one raises.
+    Modules that already hold a reference to one keep it; what this catches is a run that imports one."""
+    import sys
 
-    calls = []
-
-    def extract(pdf, **kwargs):
-        calls.append(pdf)
-        return StatementMarkdown(source_file="statement.pdf", model="fabricated-pair-reader",
-                                 pages=["FABRICATED STATEMENT PAGE"])
-
-    monkeypatch.setenv(private_artifacts.PRIVATE_ROOT_ENV, str(tmp_path / "private"))
-    monkeypatch.setattr("webapp.worker.check_remote_authorization", lambda *args, **kwargs: None)
-    monkeypatch.setattr("vlm.pair.extract_visual_pair", extract)
-    return calls
+    for name in list(sys.modules):
+        if any(name == prefix or name.startswith(prefix + ".") for prefix in MODEL_MODULE_PREFIXES):
+            monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setattr(sys, "meta_path", [_RefuseModelImports(), *sys.meta_path])
 
 
 def _stamped(payload, parse_mode="auto"):
@@ -526,6 +531,110 @@ def _stamped(payload, parse_mode="auto"):
 
 def _json(value):
     return json.loads(json.dumps(value))
+
+
+# --- jobs stored from the retired readers (model-code removal, slice S1; N7) -----------------------------------------
+# Fabricated job rows of the shapes the visual pair, the legacy visual OCR rung, hosted extraction and Force visual
+# OCR left in a store before they were retired. They are written straight into the store, as those readers left them.
+
+_PAIR_MARKDOWN = "<!-- source: fabricated.pdf | model: visual-pair-dots-qwen -->\n\nFABRICATED PAIR READING"
+_STORED_MARKDOWN = {
+    "pair": _PAIR_MARKDOWN,
+    "forced": _PAIR_MARKDOWN,
+    "legacy": ("<!-- source: fabricated.pdf | model: baidu/Unlimited-OCR -->\n\n"
+               "<|det|>[[10, 10, 200, 40]]<|/det|>FABRICATED LEGACY VISUAL READING"),
+    "gemini": "<!-- source: fabricated.pdf | model: native-pdf-text -->\n\nFABRICATED NATIVE READING",
+}
+_PAIR_HTML = ('<html><body><section class="visual-pair-summary" role="note"><strong>Extraction confidence: 90.0% '
+              '(high)</strong><p>Fabricated summary.</p></section><p>FABRICATED PAIR READING</p></body></html>')
+_STORED_HTML = {
+    "pair": _PAIR_HTML,
+    "forced": _PAIR_HTML,
+    "legacy": "<html><body><p>FABRICATED LEGACY VISUAL READING</p></body></html>",
+    "gemini": "<html><body><p>FABRICATED NATIVE READING</p></body></html>",
+}
+_STORED_PARSE_MODEL = {"pair": "visual-pair-dots-qwen", "forced": "visual-pair-dots-qwen",
+                       "legacy": "baidu/Unlimited-OCR", "gemini": "native-pdf-text"}
+_PAIR_CONFIDENCE = {"methodology": "evidence_v2", "score": 0.9, "band": "high"}
+_STORED_MODEL_USED = {"legacy": "baidu/Unlimited-OCR", "gemini": "gemini-3.5-flash-lite"}
+
+
+def _stored_analysis(kind):
+    from analysis.payload_shape import payload_accounts
+
+    analysis = _stamped(_payload())
+    if kind in ("pair", "forced"):
+        analysis["visual_pair_confidence"] = dict(_PAIR_CONFIDENCE)
+        analysis.setdefault("document", {})["account_roster"] = [
+            {"title": "FABRICATED BUSINESS CHECKING", "kind": "checking", "number_last4": "1010",
+             "status": "published", "published_index": 0, "balance": None, "reasons": []}]
+    else:
+        for account in payload_accounts(analysis, surface="tests/test_webapp_reanalysis.py::_stored_analysis"):
+            account["model_used"] = _STORED_MODEL_USED[kind]
+    return _json(analysis)
+
+
+def _stored_job(store, kind, pdf=PDF):
+    job = store.create("fabricated.pdf", pdf_bytes=pdf, force_ocr=kind == "forced", parse_mode="auto")
+    store.set_result(job.id, _STORED_MARKDOWN[kind], _STORED_HTML[kind], _stored_analysis(kind), None,
+                     _STORED_PARSE_MODEL[kind])
+    return job.id
+
+
+@pytest.mark.parametrize("kind", ["pair", "legacy", "gemini", "forced"])
+def test_a_job_stored_from_a_retired_reader_still_loads_and_displays(private_store, kind, no_model_imports):
+    """/status, /analysis and /result answer a stored model-read job as before: its row as stored (the force_ocr
+    flag included), its html served as stored (the visual pair's summary section included), and its analysis served
+    with the provenance it was stored with."""
+    from webapp.app import app
+
+    job_id = _stored_job(private_store, kind)
+    client = app.test_client()
+    status, analysis, result = (client.get(f"/{route}/{job_id}") for route in ("status", "analysis", "result"))
+    assert [r.status_code for r in (status, analysis, result)] == [200, 200, 200]
+    body = status.get_json()
+    assert (body["status"], body["parse_model"], body["force_ocr"], body["parse_mode"], body["analysis_ready"],
+            body["error"], body["analysis_error"]) == (
+        "done", _STORED_PARSE_MODEL[kind], kind == "forced", "auto", True, None, None)
+    assert result.get_data(as_text=True) == _STORED_HTML[kind]
+    served = analysis.get_json()
+    assert served["analysis_error"] is None
+    if kind in ("pair", "forced"):
+        assert served["analysis"]["visual_pair_confidence"] == _PAIR_CONFIDENCE
+        assert [entry["status"] for entry in served["analysis"]["document"]["account_roster"]] == ["published"]
+    else:
+        from analysis.payload_shape import payload_accounts
+
+        accounts = payload_accounts(served["analysis"], surface="tests/test_webapp_reanalysis.py")
+        assert {account["model_used"] for account in accounts} == {_STORED_MODEL_USED[kind]}
+
+
+def test_a_stored_pair_job_reruns_on_the_deterministic_reading_only(pipeline, private_store, no_model_imports):
+    """A visual-pair job is re-run the way every job is now (native text, then local OCR, from the cache only):
+    with no cached deterministic reading of its statement it is READING_NOT_CACHED; with one, an analysis made from
+    that reading is not the saved one's (READS_DIFFERENTLY), and a refusal of it is the deterministic analysis error
+    (webapp/reanalysis.py answers an analysis error before it compares readings)."""
+    from webapp.reanalysis import READING_NOT_CACHED, READS_DIFFERENTLY, rerun_analysis
+
+    def rerun(job_id):
+        result = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
+        return result.analysis, result.reason
+
+    lonely = _stored_job(private_store, "pair", pdf=PDF + b" another fabricated statement")
+    assert rerun(lonely) == (None, READING_NOT_CACHED)
+    legacy = _stored_job(private_store, "legacy", pdf=PDF + b" a third fabricated statement")
+    assert rerun(legacy) == (None, READING_NOT_CACHED)
+    assert pipeline.reads == 0
+    pipeline.upload(_payload())  # the pair job's statement, read deterministically: its reading is cached
+    paired = _stored_job(private_store, "pair")
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    assert rerun(paired) == (None, READS_DIFFERENTLY)
+    pipeline.analysis_failure = RuntimeError("no deterministic parser matched this statement")
+    assert rerun(paired) == (None, "no deterministic parser matched this statement")
+    assert pipeline.reads == 1  # the upload's read, and no other
+    saved = private_store.get(paired)
+    assert (saved.parse_model, saved.markdown, saved.analysis) == (
+        "visual-pair-dots-qwen", _PAIR_MARKDOWN, _stored_analysis("pair"))
 
 
 def test_a_rerun_reads_the_statement_from_the_ocr_cache_and_leaves_the_saved_job_alone(pipeline, private_store):
@@ -596,19 +705,23 @@ def test_a_statement_analysed_at_stage_19_is_analysed_again_from_its_cached_read
     assert pipeline.reads == 1  # the statement was read once, at its upload
 
 
-def test_a_statement_the_visual_pair_read_is_reanalyzed_from_the_pair_s_cached_reading(
-        pipeline, private_store, visual_pair):
-    """A job uploaded with Force visual OCR was read by the visual pair. Its re-analysis takes the same path (the
-    job's own read flag), and the pair's reading comes from the cache: the pair is not called again."""
+def test_a_job_stored_with_force_visual_ocr_answers_the_fixed_refusal_and_reads_nothing(
+        pipeline, private_store, no_model_imports):
+    """A job uploaded with Force visual OCR (stored before the visual readers were retired) is re-run with its own
+    read flag, and the worker refuses it before preflight with its fixed text: no reader runs, even though a
+    deterministic reading of the same statement is cached, and the saved job is kept."""
     from webapp.reanalysis import rerun_analysis
+    from webapp.worker import FORCED_OCR_RETIRED
 
-    job_id = pipeline.upload(_payload(), force_ocr=True)
-    assert (len(visual_pair), pipeline.reads) == (1, 0)
-    new = _payload(SHIFTED_ROWS)
-    pipeline.new_rules(new)
+    pipeline.upload(_payload())  # the same statement, read deterministically: its reading is cached
+    job_id = _stored_job(private_store, "forced")
+    pipeline.new_rules(_payload(SHIFTED_ROWS))
+    reads = pipeline.reads
     rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
-    assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
-    assert (len(visual_pair), pipeline.reads) == (1, 0)
+    assert (rerun.analysis, rerun.reason) == (None, FORCED_OCR_RETIRED)
+    assert pipeline.reads == reads
+    saved = private_store.get(job_id)
+    assert (saved.status, saved.force_ocr, saved.analysis) == ("done", True, _stored_analysis("forced"))
 
 
 @pytest.mark.parametrize("failure, reason", [
@@ -686,46 +799,41 @@ def test_a_cached_reading_that_fails_its_own_checks_is_not_read_again(pipeline, 
     assert pipeline.reads == 1  # stopped where the ladder named its rung, before the rung read
 
 
-def test_a_reading_that_streams_before_it_names_a_stage_is_stopped(pipeline, private_store):
-    """A cached reading that fails its own checks is read again after the lookup answered a hit; a reader that streams
-    its text before it names a stage is stopped at its first streamed chunk."""
-    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+# `test_a_reading_that_streams_before_it_names_a_stage_is_stopped` was deleted with its subject in slice S2: the
+# streaming read was the visual rung's `on_page_delta` live stream, and the worker passes no stream callback any more.
+# `webapp/reanalysis.py`'s `_CacheOnly.append_page_live` guard is left as it is (the re-analysis rules are not
+# edited); nothing in the worker can reach it now. A reader that names no stage is still pinned by
+# `test_a_reading_answered_again_by_a_reader_that_names_no_stage_is_not_written_back` above.
 
-    job_id = pipeline.upload(_payload())
-    pipeline.new_rules(_payload(SHIFTED_ROWS))
-    pipeline.drift_ocr()
-    pipeline.announce, pipeline.stream = False, True
+
+def test_a_forced_job_is_refused_before_any_cache_lookup(pipeline, private_store, monkeypatch):
+    """The forced refusal comes before the reading is looked up: a forced job whose reading is not cached is not told
+    its reading is missing, it is told the reader it was made with is retired."""
+    from webapp.reanalysis import rerun_analysis
+    from webapp.worker import FORCED_OCR_RETIRED
+
+    job_id = _stored_job(private_store, "forced")
+    monkeypatch.setattr("webapp.worker.cached_ocr", lambda *a, **k: pytest.fail("the reading was looked up"))
     rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
-    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
-    assert pipeline.reads == 1
+    assert (rerun.analysis, rerun.reason) == (None, FORCED_OCR_RETIRED)
+    assert pipeline.reads == 0
 
 
-def test_the_visual_pair_is_never_called_for_a_reading_that_is_not_cached(pipeline, private_store, visual_pair):
-    """The pair answers from its own evidence, or asks its model servers for their models, before it names a step, so
-    on its path the cache lookup is the only guard."""
-    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
+@pytest.mark.parametrize("switch", ["OCR_ALLOW_VISUAL_PAIR", "OCR_VISUAL_PAIR_LEGACY_VISUAL"])
+def test_the_retired_visual_switches_no_longer_change_a_rerun(pipeline, private_store, monkeypatch, switch,
+                                                               no_model_imports):
+    """With a retired visual switch on, a statement the deterministic path no longer analyses used to fall back to
+    the visual pair (or to read with the legacy visual rung). The worker reads none of them now: the re-run is the
+    deterministic one, and it answers the deterministic refusal from the cached reading."""
+    from webapp.reanalysis import rerun_analysis
 
-    job_id = pipeline.upload(_payload(), force_ocr=True)
-    pipeline.new_rules(_payload(SHIFTED_ROWS))
-    pipeline.forget_ocr()
-    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
-    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
-    assert (len(visual_pair), pipeline.reads) == (1, 0)  # the upload's call, and no other
-
-
-def test_a_statement_that_now_needs_the_visual_pair_is_refused_without_calling_it(
-        pipeline, private_store, visual_pair, monkeypatch):
-    """With the pair on, a statement the deterministic path no longer analyses falls back to the visual pair
-    (webapp/worker.py), a reading this statement never had."""
-    from webapp.reanalysis import READING_NOT_CACHED, rerun_analysis
-
-    monkeypatch.setenv("OCR_ALLOW_VISUAL_PAIR", "1")
+    monkeypatch.setenv(switch, "1")
     job_id = pipeline.upload(_payload())
     pipeline.new_rules(_payload(SHIFTED_ROWS))
     pipeline.analysis_failure = RuntimeError("no deterministic parser matched this statement")
     rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
-    assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
-    assert (visual_pair, pipeline.reads) == ([], 1)
+    assert (rerun.analysis, rerun.reason) == (None, "no deterministic parser matched this statement")
+    assert pipeline.reads == 1
 
 
 # --- the upload queue's worker stays the artifact cache's one writer ------------------------------------------------
@@ -757,23 +865,24 @@ def test_a_rerun_writes_no_analysis_and_no_report_into_the_cache(pipeline, priva
     assert _cache_files(private_store) == before
 
 
-def test_a_pair_reading_answered_again_from_the_pair_s_own_evidence_is_not_written_back(
-        pipeline, private_store, visual_pair):
-    """A cached pair reading that fails its own checks is read again, and the pair answers from its own local
-    evidence, naming no step (the fabricated pair answers that way). That answer is a reading already made, so the
-    re-analysis goes on with it, and it leaves the drifted entry for the next upload to repair."""
+def test_a_reading_answered_again_by_a_reader_that_names_no_stage_is_not_written_back(pipeline, private_store):
+    """A cached reading that fails its own checks is read again; a reader that names no stage and streams nothing is
+    not stopped by the stage guard, so it answers. That answer is a reading already made, so the re-analysis goes on
+    with it, and `_CacheOnly.put_ocr` leaves the drifted entry for the next upload to repair. (The visual pair
+    answered this way from its own evidence; the guard stays for any reader that does.)"""
     from webapp.reanalysis import rerun_analysis
 
-    job_id = pipeline.upload(_payload(), force_ocr=True)
+    job_id = pipeline.upload(_payload())
     new = _payload(SHIFTED_ROWS)
     pipeline.new_rules(new)
     pipeline.drift_ocr()
+    pipeline.announce = False
     before = _cache_files(private_store)
 
     rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
 
     assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
-    assert (len(visual_pair), pipeline.reads) == (2, 0)
+    assert pipeline.reads == 2
     assert _cache_files(private_store) == before
 
 
@@ -1126,13 +1235,14 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
 #: stage moved to 34 (the owner report of 2026-10-08, a Capital One parser and ADB change with no classification
 #: change) and to 35 (the owner report of 2026-10-08, Bank of America NSF, a parser change with no classification
 #: change); audit round 3, R3-MERGE, its merge-back, moves it to 37 with no classification change, which a stage-32
-#: entry misses the same way. The owner's Amerifi Capital ruling (2026-10-11) moves them to 38 and 5.9.
+#: entry misses the same way. The owner's Amerifi Capital ruling (2026-10-11) moves them to 38 and 5.9, and the code
+#: audit of 2026-10-13 the stage alone to 39 (no classification change), which a stage-32 entry misses the same way.
 STALE_ROWS = [(3, "CONTOSO LLC DES:ACH PAYMENT ID:1", 1000.0), (5, "ONLINE BANKING TRANSFER CONF FABRIKAM", 900.0),
               (9, "SAMPLE SWEEP TRANSFER FROM SAVINGS", 6000.0)]
 STALE_TIERS = [("verified_revenue", "verified", None),
                ("unverified_deposit", "excluded_pending_review", "transfer_no_counterparty"),
                ("non_revenue", "non_revenue", None)]
-STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 38, "5.9"
+STALE_STAGE, CURRENT_STAGE, CURRENT_CLASSIFICATION = 32, 39, "5.9"
 #: Audit round 3, R3-B25: the same statement analysed at classification 5.7 and cached at stage 33, as the round-2
 #: rules left it, before the round-3 fix batches (R3-B01 to R3-B24) moved tiers, reasons and lender readings under 5.7.
 ROUND3_STALE_STAGE, ROUND3_STALE_CLASSIFICATION = 33, "5.7"
@@ -1243,8 +1353,9 @@ def test_a_5_7_analysis_is_served_with_the_re_analyze_notice():
     from webapp.app import _displayed
 
     # Audit round 3, R3-MERGE: the hosting line's merge-back moved the stage to 37 (no classification change). The
-    # owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38.
-    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38; the code audit of 2026-10-13 the stage
+    # alone, to 39.
+    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     stale = _round3_stale_payload()
     assert _stamps(stale) == {"5.7"}
     assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
@@ -1268,8 +1379,8 @@ def test_re_analysing_a_5_7_statement_misses_its_stage_33_entry_and_clears_the_n
     from webapp.app import _displayed, _package_analysis, app
 
     # Audit round 3, R3-MERGE: 37 since the hosting line's merge-back, which misses the stage-33 entry the same way;
-    # 38 and 5.9 since the owner's Amerifi Capital ruling (2026-10-11).
-    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (38, "5.9")
+    # 38 and 5.9 since the owner's Amerifi Capital ruling (2026-10-11); 39 since the code audit of 2026-10-13.
+    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (39, "5.9")
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", ROUND3_STALE_STAGE)
     job_id = pipeline.upload(_round3_stale_payload())
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", CURRENT_STAGE)
@@ -1308,7 +1419,8 @@ def test_a_5_8_analysis_is_served_with_the_re_analyze_notice():
     from webapp import artifact_cache
     from webapp.app import _displayed
 
-    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 38)
+    # The code audit of 2026-10-13 moved the stage alone, 38 -> 39 (no classification change).
+    assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     stale = _amerifi_stale_payload()
     assert _stamps(stale) == {"5.8"}
     assert _tiers(stale) == STALE_TIERS == _tiers(_payload(STALE_ROWS))
@@ -1324,7 +1436,8 @@ def test_re_analysing_a_5_8_statement_misses_its_stage_37_entry_and_clears_the_n
     from webapp import artifact_cache
     from webapp.app import _displayed, _package_analysis, app
 
-    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (38, "5.9")
+    # 39 since the code audit of 2026-10-13, which misses the stage-37 entry the same way.
+    assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (39, "5.9")
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", AMERIFI_STALE_STAGE)
     job_id = pipeline.upload(_amerifi_stale_payload())
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", CURRENT_STAGE)

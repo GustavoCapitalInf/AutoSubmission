@@ -383,10 +383,7 @@
   .drop-meta { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-3); }
   .option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .option-card { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 16px 18px; }
-  .force-row { display: flex; gap: 14px; align-items: flex-start; cursor: pointer; }
-  .force-row input { width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); flex-shrink: 0; }
   .option-title { font-size: 14px; font-weight: 600; }
-  .option-copy { display: block; margin-top: 4px; font-size: 12.5px; line-height: 1.5; color: var(--text-3); }
   .mode-control { display: flex; flex-direction: column; gap: 10px; }
   .mode-options {
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: 10px;
@@ -1220,7 +1217,7 @@
   .mode-options { padding: 4px; border-radius: 999px; background: var(--surface-2); border-color: transparent; }
   .mode-option span { height: 34px; border-radius: 999px; transition: background-color .3s, color .3s; }
   .mode-option input:checked + span { background: var(--cta); color: var(--cta-ink); }
-  .force-row input, .tx-select, .choice-pair input { accent-color: var(--accent); }
+  .tx-select, .choice-pair input { accent-color: var(--accent); }
   .queue-bar.busy span { background: var(--accent); }
 
   /* ---------- the extraction receipt ---------- */
@@ -1607,7 +1604,7 @@
     <header class="topbar">
       <nav class="crumbs" id="breadcrumb" aria-label="Breadcrumb"></nav>
       <div class="topbar-actions">
-        <span class="topbar-hint" id="topbarHint">Text PDFs are read deterministically · scanned pages use visual OCR</span>
+        <span class="topbar-hint" id="topbarHint">Text PDFs are read deterministically · scanned pages are read with local OCR on this machine</span>
         <div class="segmented" id="appearanceToggle" role="radiogroup" aria-label="Appearance">
           <button type="button" role="radio" aria-checked="true" data-appearance="dark">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
@@ -1659,15 +1656,6 @@
           </div>
           <input type="file" id="fileInput" accept="application/pdf" multiple hidden>
           <div class="option-grid">
-            <div class="option-card">
-              <label class="force-row">
-                <input type="checkbox" id="forceOcrToggle">
-                <span>
-                  <span class="option-title">Force visual OCR</span>
-                  <span class="option-copy">Read every page visually and review every proposed row, including PDFs with selectable text.</span>
-                </span>
-              </label>
-            </div>
             <div class="option-card mode-control">
               <span class="option-title" id="parseModeLabel">Parsing mode</span>
               <div class="mode-options" role="radiogroup" aria-labelledby="parseModeLabel">
@@ -2319,6 +2307,6 @@
   </section>
 </div>
 <textarea class="hidden-textarea" id="copyBuffer" aria-hidden="true" tabindex="-1"></textarea>
-<script src="/static/app.js?v=true-revenue-14"></script>
+<script src="/static/app.js?v=true-revenue-16"></script>
 </body>
 </html>

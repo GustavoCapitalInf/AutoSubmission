@@ -1,14 +1,13 @@
 """Batch-analyze a folder of bank statements into one triage CSV.
 
-Accepts OCR'd markdown files (fast) and/or PDFs (OCR'd first via the running OCR
-server — set OCR_BASE_URL/OCR_API_KEY). One row per statement with the key
-underwriting figures and a needs_review flag so clean statements flow through and
-only the questionable ones get human eyes.
+Accepts extracted markdown files (fast) and/or PDFs (their native text is read
+first; this CLI has no OCR rung, so a PDF without native text gets an error row).
+One row per statement with the key underwriting figures and a needs_review flag
+so clean statements flow through and only the questionable ones get human eyes.
 
 Usage:
   .venv/bin/python batch.py output/ --out triage.csv          # a folder of .md
-  OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \\
-      .venv/bin/python batch.py BankStatements/ --out triage.csv   # PDFs (OCR+analyze)
+  .venv/bin/python batch.py BankStatements/ --out triage.csv  # PDFs (read + analyze)
 
 `--zelle-true-revenue {yes,no}` is the owner's "Mark Zelle Payments as True
 Revenue" (the underwriter's Q3, amended 2026-10-06), yes by default as on the
@@ -28,6 +27,7 @@ from analysis.active_positions import statement_active_positions
 from analysis.pipeline import analyze_document, DocumentReport, Report
 from analysis.revenue_view import apply_revenue_view, revenue_flags, withholding_basis_unestablished
 from analysis.serialization import document_report_to_dict
+from spreadsheet_safety import escape_formula
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -85,11 +85,17 @@ FIELDS = [
 ]
 
 
-def _markdown_for(path: Path, *, allow_visual_ocr: bool = False) -> str:
-    return _read_source(path, allow_visual_ocr=allow_visual_ocr)[0]
+#: The no-text refusal (model-code removal, slice S2: declared). This CLI reads
+#: a PDF's native text only; the visual OCR rung `--visual` used to allow is
+#: gone. Console only: the CSV cell records the exception class name.
+NO_NATIVE_TEXT = "no native PDF text could be extracted; this CLI reads native PDF text only"
 
 
-def _read_source(path: Path, *, allow_visual_ocr: bool = False):
+def _markdown_for(path: Path) -> str:
+    return _read_source(path)[0]
+
+
+def _read_source(path: Path):
     """(markdown, StatementMarkdown | None, DocumentProfile | None, byte_size).
 
     The document object used to be discarded here; telemetry needs it for the
@@ -97,14 +103,10 @@ def _read_source(path: Path, *, allow_visual_ocr: bool = False):
     the document facts. Neither changes what is analysed — `markdown` is
     produced exactly as before.
 
-    OQ7 / F-4(a): `allow_visual_ocr` defaults to False — this CLI used to call
-    `parse_statement` with the defaults (`allow_visual_ocr=True`), the same
-    unbounded egress path `parse.py` had. The caller (`main`) probes and
-    endpoint-checks before ever passing True (`--visual`). When the offline
-    ladder cannot read a document and the visual rung is not allowed,
-    `parse_statement` returns `None`: raised here as a clear, specific error
-    so the per-file row records "no native/local text" rather than falling
-    through into an unrelated downstream failure.
+    This CLI reads native PDF text only (no OCR rung). When the offline ladder
+    cannot read a document `parse_statement` returns `None`: raised here as a
+    clear, specific error so the per-file row records the failure rather than
+    falling through into an unrelated downstream one.
     """
     raw = path.read_bytes()
     if path.suffix.lower() == ".pdf":
@@ -112,12 +114,9 @@ def _read_source(path: Path, *, allow_visual_ocr: bool = False):
         from ocr.pipeline import parse_statement
 
         profile = inspect_pdf(raw)
-        doc = parse_statement(raw, source_file=path.name, allow_visual_ocr=allow_visual_ocr)
+        doc = parse_statement(raw, source_file=path.name)
         if doc is None:
-            raise RuntimeError(
-                "no native or local text could be extracted; rerun with "
-                "--visual to allow the local $0 OCR rung"
-            )
+            raise RuntimeError(NO_NATIVE_TEXT)
         return doc.to_markdown(), doc, profile, len(raw)
     return path.read_text(encoding="utf-8"), None, None, len(raw)
 
@@ -281,6 +280,14 @@ def _row(path: Path, stored: Report, zelle_true_revenue: bool = True) -> dict:
     }
 
 
+def _csv_row(row: dict) -> dict:
+    """A row as the CSV writes it (audit 2026-10-13, EXP-6): every cell through the webapp downloads' formula rule
+    (`spreadsheet_safety.escape_formula`). The file name is the operator's and the bank and account come from the
+    document, so a text cell that starts with = + - @ tab or CR gains a leading apostrophe; money-shaped values,
+    negative figures included, and counts stay as they are. `rows` itself is unchanged."""
+    return {key: escape_formula(value) for key, value in row.items()}
+
+
 def _emit(
     sink,
     run_id: str,
@@ -331,7 +338,9 @@ def _emit(
             stages=timer.as_dict(),
             model_calls=model_calls_for(doc, payload),
             payload=payload,
-            escalated=bool(report.escalated) if report is not None else False,
+            # Audit 2026-10-13, EXP-2: read from the payload, as webapp/worker.py reads it. This line read an unbound
+            # `report` after a parameter rename, and the except below dropped every record without a word.
+            escalated=bool((payload or {}).get("escalated")),
             error_type=error_type,
         ))
     except Exception:
@@ -348,14 +357,6 @@ def main() -> None:
         help="H-3 telemetry JSONL (default telemetry_runs/<run_id>.jsonl; "
              "set TELEMETRY_DISABLED=1 to turn it off).",
     )
-    ap.add_argument(
-        "--visual", action="store_true",
-        help="Allow the visual-OCR rung (local $0 server only, by default) "
-             "for PDFs the offline ladder cannot read. Probed and "
-             "endpoint-checked ONCE before the batch starts; a remote/paid "
-             "endpoint additionally requires OCR_REMOTE_OPT_IN "
-             "(see README.md).",
-    )
     ap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
                     help="Mark Zelle Payments as True Revenue (default yes, the Settings default)")
     args = ap.parse_args()
@@ -370,84 +371,94 @@ def main() -> None:
         print(f"no .md/.pdf statements found under {root}", file=sys.stderr)
         sys.exit(1)
 
-    # OQ7 / F-4(a): this CLI used to call `parse_statement` with the defaults
-    # (`allow_visual_ocr=True`) — every PDF without native text went straight
-    # to the env-configured endpoint with its pixels. Offline-only is now the
-    # default; `--visual` probes ONCE up front (as `ocr.availability`'s own
-    # docstring requires for a long batch) rather than per file.
-    allow_visual_ocr = False
-    if args.visual:
-        from ocr.availability import probe_visual_ocr
-
-        status = probe_visual_ocr()
-        if not status.usable:
-            print(f"error: {status.message()}", file=sys.stderr)
-            sys.exit(1)
-        allow_visual_ocr = True
-
+    # Audit 2026-10-13, EXP-3: the CSV is opened, and its header written, before the first document is analysed, and
+    # each row is written and flushed as it is produced (it used to be opened after the last document): a --out that
+    # cannot be written fails before any analysis, and an interrupted run keeps every row it finished. The rows, their
+    # order and the bytes of a clean run are unchanged; stdout is never closed.
+    if not args.out:
+        # Audit 2026-10-13, EXP-5: the CSV on stdout is the bytes --out writes: UTF-8, and no line-end translation (a
+        # redirected stdout on Windows is cp1252, which cannot encode a ligature in a cell, and its text mode turned
+        # csv's CRLF into CR CR LF, a blank row after every row). A stream without reconfigure is written as it is.
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", newline="")
+        except (AttributeError, ValueError, OSError):
+            pass
+    out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
     run_id = new_run_id()
     sink = open_jsonl_sink(args.telemetry, run_id)
     seen_hashes: set[str] = set()
+    count = need = finished = 0
+    try:
+        w = csv.DictWriter(out, fieldnames=FIELDS)
+        w.writeheader()
+        out.flush()
 
-    rows = []
-    for path in files:
-        print(f"analyzing {path.name} ...", file=sys.stderr, flush=True)
-        # Telemetry is write-only side-band: every failure below is swallowed
-        # by the sink, and nothing here feeds back into the analysis.
-        timer = StageTimer()
-        collector = DispatchCollector()
-        markdown = doc = profile = None
-        byte_size = 0
-        try:
-            with timer.time("read"):
-                markdown, doc, profile, byte_size = _read_source(
-                    path, allow_visual_ocr=allow_visual_ocr
-                )
-            with timer.time("analysis"):
-                # The intake object's page list when this input was a PDF, and
-                # nothing when it was already-extracted markdown — a .md file
-                # carries no evidence of how many sheets its source had, and
-                # `assess_document_integrity` fail-closes on that silence rather
-                # than re-splitting the text (W3 §PIPEFIX P4b.1). This CLI
-                # publishes an outcome class derived from these flags into its
-                # telemetry JSONL, so it is a production caller (W3 §WIRING W4).
-                analysed = analyze_document(
-                    markdown, on_dispatch=collector,
-                    sheets=doc.pages if doc is not None else None,
-                )
-            # One CSV row per ACCOUNT, in printed order: a sheet that printed
-            # one row per document would publish one account of several and
-            # drop the rest without saying so.
-            rows.extend(_row(path, account, zelle_true_revenue) for account in analysed.accounts)
-            _emit(sink, run_id, path, markdown, doc, profile, byte_size,
-                  collector, timer, seen_hashes, document=analysed)
-        except Exception as e:  # keep going; record the failure in its row
-            traceback.print_exc()
-            # MINOR-8 (PHASE2_P20SEAM_REVIEW.md): the CSV cell carries the
-            # exception CLASS NAME only, never `str(e)` — this branch gained
-            # a new raise path in this card (`ocr.config.ProvenanceTokenError`
-            # on a hostile filename), and that exception's message quotes the
-            # whole `source_file` (`ocr/document.py`'s
-            # `ProvenanceTokenError` docstring). `traceback.print_exc()`
-            # above still prints the full traceback to the CONSOLE for a
-            # developer debugging a run; only the durable CSV artifact is
-            # reduced to the class name, matching every other class-name-only
-            # sink in this tree (`telemetry.record`'s `error_type`,
-            # `webapp/worker.py::_stage_failure`).
-            rows.append({**{k: "" for k in FIELDS}, "file": path.name,
-                         "needs_review": "REVIEW", "error": type(e).__name__})
-            _emit(sink, run_id, path, markdown, doc, profile, byte_size,
-                  collector, timer, seen_hashes, error_type=type(e).__name__)
+        def write(row: dict) -> None:
+            nonlocal count, need
+            w.writerow(_csv_row(row))
+            out.flush()
+            count += 1
+            need += 1 if row["needs_review"] else 0
 
-    out = open(args.out, "w", newline="", encoding="utf-8") if args.out else sys.stdout
-    w = csv.DictWriter(out, fieldnames=FIELDS)
-    w.writeheader()
-    w.writerows(rows)
+        for path in files:
+            print(f"analyzing {path.name} ...", file=sys.stderr, flush=True)
+            # Telemetry is write-only side-band: every failure below is swallowed
+            # by the sink, and nothing here feeds back into the analysis.
+            timer = StageTimer()
+            collector = DispatchCollector()
+            markdown = doc = profile = None
+            byte_size = 0
+            try:
+                with timer.time("read"):
+                    markdown, doc, profile, byte_size = _read_source(path)
+                with timer.time("analysis"):
+                    # The intake object's page list when this input was a PDF, and
+                    # nothing when it was already-extracted markdown — a .md file
+                    # carries no evidence of how many sheets its source had, and
+                    # `assess_document_integrity` fail-closes on that silence rather
+                    # than re-splitting the text (W3 §PIPEFIX P4b.1). This CLI
+                    # publishes an outcome class derived from these flags into its
+                    # telemetry JSONL, so it is a production caller (W3 §WIRING W4).
+                    analysed = analyze_document(
+                        markdown, on_dispatch=collector,
+                        sheets=doc.pages if doc is not None else None,
+                    )
+                # One CSV row per ACCOUNT, in printed order: a sheet that printed
+                # one row per document would publish one account of several and
+                # drop the rest without saying so. Written one by one, so an
+                # account whose row fails keeps the rows before it (as before).
+                for account in analysed.accounts:
+                    write(_row(path, account, zelle_true_revenue))
+                _emit(sink, run_id, path, markdown, doc, profile, byte_size,
+                      collector, timer, seen_hashes, document=analysed)
+            except Exception as e:  # keep going; record the failure in its row
+                traceback.print_exc()
+                # MINOR-8 (PHASE2_P20SEAM_REVIEW.md): the CSV cell carries the
+                # exception CLASS NAME only, never `str(e)` — this branch gained
+                # a new raise path in this card (`ocr.config.ProvenanceTokenError`
+                # on a hostile filename), and that exception's message quotes the
+                # whole `source_file` (`ocr/document.py`'s
+                # `ProvenanceTokenError` docstring). `traceback.print_exc()`
+                # above still prints the full traceback to the CONSOLE for a
+                # developer debugging a run; only the durable CSV artifact is
+                # reduced to the class name, matching every other class-name-only
+                # sink in this tree (`telemetry.record`'s `error_type`,
+                # `webapp/worker.py::_stage_failure`).
+                write({**{k: "" for k in FIELDS}, "file": path.name,
+                       "needs_review": "REVIEW", "error": type(e).__name__})
+                _emit(sink, run_id, path, markdown, doc, profile, byte_size,
+                      collector, timer, seen_hashes, error_type=type(e).__name__)
+            finished += 1
+    finally:
+        if args.out:
+            out.close()
+        sink.close()
+        if finished < len(files):
+            # An interrupted run: the CSV holds the finished files' rows only, and says nothing of it itself.
+            print(f"\nINCOMPLETE: {finished} of {len(files)} files analysed; the CSV holds their {count} rows only",
+                  file=sys.stderr)
     if args.out:
-        out.close()
-        need = sum(1 for r in rows if r["needs_review"])
-        print(f"\nWrote {len(rows)} rows to {args.out}  ({need} flagged for review)", file=sys.stderr)
-    sink.close()
+        print(f"\nWrote {count} rows to {args.out}  ({need} flagged for review)", file=sys.stderr)
     written = getattr(sink, "written", 0)
     if written:
         print(

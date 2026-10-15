@@ -243,8 +243,9 @@ def replay_reviews(analysis: dict, history: Sequence[Mapping]) -> Replay:
 
 
 #: Why a re-analysis stops where the worker would read the statement: the reading it needs is not in the artifact
-#: cache (a pruned cache, a new OCR toolchain, or a reading the statement never had, such as the visual pair's where
-#: the deterministic path claimed it before). The reading is served from the cache only (spec §8.6.2): a re-analysis
+#: cache (a pruned cache, a new OCR toolchain, or a reading the statement never had, such as the deterministic reading
+#: of a job the retired visual pair read; the pair was removed in slice S4 of the model-code removal). The reading is
+#: served from the cache only (spec §8.6.2): a re-analysis
 #: runs on the request thread, outside the upload queue's single worker slot, which keeps two OCR jobs from running
 #: at once.
 READING_NOT_CACHED = (
@@ -253,9 +254,10 @@ READING_NOT_CACHED = (
 )
 
 #: Why a re-run that produced an analysis is still not accepted: under the current rules the analysis comes from
-#: another cached reading of the statement than the one the saved analysis was made from (the worker chose the other
-#: of its deterministic and visual-pair paths). The saved analysis and the source view beside it describe one reading,
-#: so the saved job is kept.
+#: another cached reading of the statement than the one the saved analysis was made from (a job saved from the
+#: retired visual pair's reading, re-run from the deterministic reading; the worker has had only the deterministic
+#: path since the pair left it). The saved analysis and the source view beside it describe one reading, so the saved
+#: job is kept.
 READS_DIFFERENTLY = (
     "under the current rules the analysis comes from another reading of the statement than the saved one"
 )
@@ -271,13 +273,14 @@ class _CacheOnly:
     """The artifact cache as a re-analysis sees it: every stage reads through the real cache, a reading the cache does
     not hold is never computed, and nothing is written into it.
 
-    `cached_ocr` asks `get_ocr` before it computes (webapp/artifact_cache.py), and the worker's reading ladder and its
-    visual pair both read through `cached_ocr`, so a miss stops the run before any reader or remote model is called.
-    On the visual pair's path this is the only guard: the pair does work before it names its first step.
+    `cached_ocr` asks `get_ocr` before it computes (webapp/artifact_cache.py), and the worker's reading ladder reads
+    through `cached_ocr`, so a miss stops the run before any reader is called. (The visual pair read through it too,
+    and on its path this was the only guard, until the pair was removed: model-code removal, slices S1 and S4.)
 
-    The upload queue's worker stays the cache's one writer. The cache writes each entry through one fixed temporary
-    file, so a write from this request thread to an entry an upload of the same statement is writing at that moment
-    could fail the upload. The three writes below are the only ones the worker's cache helpers make (`cached_ocr`,
+    The upload queue's worker stays the cache's one writer. The cache used to write each entry through one fixed
+    temporary file, so a write from this request thread to an entry an upload of the same statement was writing at
+    that moment could fail the upload; each write now has a temporary file of its own (audit 2026-10-13, BE-4), and
+    the worker stays the one writer all the same. The three writes below are the only ones the worker's cache helpers make (`cached_ocr`,
     `cached_analysis`, `cached_report`), and each helper ignores the key a write returns. The new analysis is saved
     with the job, and the next upload of the statement caches it."""
 
@@ -295,9 +298,10 @@ class _CacheOnly:
         return hit, document
 
     def put_ocr(self, content_hash: str, settings_key: str, document: object) -> None:
-        # In a re-analysis this is reached only when the visual pair answered again from its own local evidence, over
-        # a cached reading that failed its own checks (every rung of the ladder names itself first and is stopped).
-        # That entry is left for the next upload to repair.
+        # In a re-analysis nothing reaches this since the visual pair was removed (it could answer again from its own
+        # local evidence over a cached reading that failed its own checks); every rung of the ladder names itself
+        # first and is stopped. It stays a no-op, so a request thread never writes the cache, and a drifted entry is
+        # left for the next upload to repair.
         return None
 
     def put_analysis(self, markdown_hash: str, settings_key: str, analysis: dict) -> None:
@@ -342,8 +346,9 @@ class _CapturedJobStore:
 
     def set_stage(self, job_id: str, stage: str, parse_model: str | None = None) -> None:
         # "analyzing" is the one stage the worker names outside a read (`run_job`). Every other stage is a rung of its
-        # reading ladder or a step of the visual pair, named just before it reads: a cached reading that fails its own
-        # checks is read again by `cached_ocr` after `get_ocr` has answered a hit, and it is stopped here.
+        # reading ladder (and was a step of the visual pair, until it was removed), named just before it reads: a
+        # cached reading that fails its own checks is read again by `cached_ocr` after `get_ocr` has answered a hit,
+        # and it is stopped here.
         if stage != "analyzing":
             self.refuse_reading()
         self.job.stage = stage

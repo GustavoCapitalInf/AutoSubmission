@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from .date_tokens import iso_from_month_day_strict
+from .date_tokens import iso_from_month_day_strict, iso_unique_in_period
 from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
@@ -614,7 +614,39 @@ def _posts(amount: float) -> bool:
     return amount != 0
 
 
-def _rows_of(chunk: str, *, year: int, sign: int) -> list[Transaction]:
+#: What `_period_date` answers for a printed date the period does not contain.
+_OUTSIDE_THE_PERIOD = "outside the printed period"
+
+
+def _period_date(mmdd: str, first: date, last: date) -> str | None:
+    """A printed ``MM/DD`` row or ladder date, dated by the printed PERIOD.
+
+    The rows print no year, and the period decides it (audit 2026-10-13
+    PARSERS-2). Stamping the period's END year used to date every December
+    row and ladder cell of a December-to-January statement a year late; the
+    ladder walk below runs inside this parse, before
+    `analysis.dates.assign_transaction_years` corrects anything, so every such
+    statement with December activity was refused.
+
+    Three answers, and the difference between the last two is load-bearing:
+
+    * the ISO date inside the period;
+    * ``None`` for a token that is not a calendar date in any candidate year
+      (``04/31``): passed over, exactly as before;
+    * `_OUTSIDE_THE_PERIOD` for a real date the period does not contain:
+      the caller REFUSES the document. Skipping it instead would weaken the
+      ladder's "a cell from another statement fails the document" rule.
+    """
+    years = dict.fromkeys((first.year, last.year))
+    if all(iso_from_month_day_strict(mmdd, year) is None for year in years):
+        return None
+    month, day = (int(part) for part in mmdd.split("/"))
+    inside = iso_unique_in_period(month, day, start=first, end=last)
+    return inside if inside is not None else _OUTSIDE_THE_PERIOD
+
+
+def _rows_of(chunk: str, *, first: date, last: date, sign: int) -> list[Transaction] | None:
+    """The rows of one section, or None when one is dated outside the period."""
     chunk = re.sub(
         r"(?im)^\s*(?:Date posted|Date|Amount|Transaction description|Description"
         r"|Reference|number)\s*$", " ", chunk)
@@ -625,10 +657,12 @@ def _rows_of(chunk: str, *, year: int, sign: int) -> list[Transaction]:
         m = re.match(r"^(\d{2}/\d{2})\s+(\d[\d,]*\.\d{2}|\.\d{2})\s+(.+?)\s*$", row)
         if not m:
             continue
-        txn_date = iso_from_month_day_strict(m.group(1), year)
+        txn_date = _period_date(m.group(1), first, last)
         amount = _money(m.group(2))
         if txn_date is None or amount is None or not _posts(amount):
             continue
+        if txn_date == _OUTSIDE_THE_PERIOD:
+            return None
         signed = round(abs(amount) * sign, 2)
         txns.append(Transaction(
             date=txn_date,
@@ -640,19 +674,22 @@ def _rows_of(chunk: str, *, year: int, sign: int) -> list[Transaction]:
     return txns
 
 
-def _check_rows(chunk: str, *, year: int) -> list[Transaction]:
+def _check_rows(chunk: str, *, first: date, last: date) -> list[Transaction] | None:
     """The `Checks and Substitute Checks` section, which prints its own column
-    group: `Date posted | Check number | Amount | Reference number`."""
+    group: `Date posted | Check number | Amount | Reference number`. None when
+    a cheque is dated outside the period (see `_period_date`)."""
     chunk = re.sub(
         r"(?im)^\s*(?:Date posted|Date|Check number|Check|Amount|Transaction"
         r"|Reference|number|posted)\s*$", " ", chunk)
     chunk = re.sub(r"\s+", " ", chunk).strip()
     txns: list[Transaction] = []
     for mmdd, number, marker, amount in _CHECK_ROW_RE.findall(chunk):
-        txn_date = iso_from_month_day_strict(mmdd, year)
+        txn_date = _period_date(mmdd, first, last)
         value = _money(amount)
         if txn_date is None or value is None or not _posts(value):
             continue
+        if txn_date == _OUTSIDE_THE_PERIOD:
+            return None
         txns.append(Transaction(
             date=txn_date,
             description=f"Check {number}{marker}",
@@ -663,7 +700,9 @@ def _check_rows(chunk: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _captured_sections(markdown: str, *, year: int) -> dict[str, list[Transaction]] | None:
+def _captured_sections(
+    markdown: str, *, first: date, last: date,
+) -> dict[str, list[Transaction]] | None:
     """Every itemized section of the Activity Detail, by the name it is printed
     under, in one pass over the region.
 
@@ -673,7 +712,8 @@ def _captured_sections(markdown: str, *, year: int) -> dict[str, list[Transactio
     headings or a section can open inside another one. Returns `None` when the
     document itemizes a both-sided category with no direction printed anywhere
     above it, which is the one case where the paper does not say which way the
-    money moved.
+    money moved, and when a posting is dated outside the printed period
+    (`_period_date`).
     """
     body = _activity_body(markdown)
     if not body:
@@ -715,8 +755,10 @@ def _captured_sections(markdown: str, *, year: int) -> dict[str, list[Transactio
             return None
         group_sign = sign
         chunk = body[end:stop]
-        rows = (_check_rows(chunk, year=year) if name == _CHECKS_HEADING
-                else _rows_of(chunk, year=year, sign=sign))
+        rows = (_check_rows(chunk, first=first, last=last) if name == _CHECKS_HEADING
+                else _rows_of(chunk, first=first, last=last, sign=sign))
+        if rows is None:
+            return None
         captured.setdefault(_SECTION_ALIASES.get(name, name), []).extend(rows)
     return captured
 
@@ -820,11 +862,14 @@ def _matches_the_printed_index(
     return all(not rows or name in printed for name, rows in captured.items())
 
 
-def _printed_daily_grid(markdown: str, *, year: int) -> dict[str, float] | None:
+def _printed_daily_grid(markdown: str, *, first: date, last: date) -> dict[str, float] | None:
     """The end-of-day balance ladder, date -> balance.
 
     Returns `None` when the ladder prints one date twice with two different
-    balances, which is not a ladder this reader can read against anything.
+    balances, which is not a ladder this reader can read against anything, and
+    when it prints a cell the period does not contain (a page from another
+    statement; `_period_date` dates every cell through the period, so a
+    December cell of a December-to-January statement is in its own year).
     Every block under a grid heading is collected — the ladder runs over
     several pages on the longer statements, and each page reprints the heading
     with a continuation marker.
@@ -837,10 +882,12 @@ def _printed_daily_grid(markdown: str, *, year: int) -> dict[str, float] | None:
             if nxt and nxt.start() < stop:
                 stop = nxt.start()
         for mmdd, amount, minus in _GRID_CELL.findall(markdown[heading.end():stop]):
-            day = iso_from_month_day_strict(mmdd, year)
+            day = _period_date(mmdd, first, last)
             value = _money(amount)
             if day is None or value is None:
                 continue
+            if day == _OUTSIDE_THE_PERIOD:
+                return None
             value = -value if minus else value
             if day in grid and abs(grid[day] - value) > _TOLERANCE:
                 return None
@@ -901,13 +948,16 @@ detect = make_detector(DETECTION_MARKERS)
 def parse_pnc_statement(markdown: str) -> Statement | None:
     """Any of PNC's four printed product skins.
 
-    Declines — rather than publishes short — in five named situations, each a
+    Declines — rather than publishes short — in six named situations, each a
     fact about the document rather than a gap in this reader:
 
     * it prints no period sentence, or no readable four-column Balance Summary
       row (including a row one of whose figures cannot be read WHOLE);
     * it itemizes a both-sided category with no direction printed over it, or
       one whose direction contradicts the group heading above it;
+    * it prints a posting or a ladder cell dated outside its own period (every
+      printed ``MM/DD`` is dated through the period, so a period that crosses
+      a year boundary reads; audit 2026-10-13 PARSERS-2);
     * it itemizes nothing at all;
     * its rows do not reproduce the bank's own printed index of them;
     * its ledger does not reproduce the bank's own end-of-day balance ladder.
@@ -921,9 +971,9 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
     summary = _summary_amounts(markdown)
     if period is None or summary is None:
         return None
-    year = int(period[1][:4])
+    first, last = date.fromisoformat(period[0]), date.fromisoformat(period[1])
     beginning, credits, debits, ending = summary
-    captured = _captured_sections(markdown, year=year)
+    captured = _captured_sections(markdown, first=first, last=last)
     if captured is None:
         return None
     txns = [row for name in _EMISSION_ORDER for row in captured.get(name, [])]
@@ -931,7 +981,7 @@ def parse_pnc_statement(markdown: str) -> Statement | None:
         return None
     if not _matches_the_printed_index(captured, _printed_index(markdown)):
         return None
-    grid = _printed_daily_grid(markdown, year=year)
+    grid = _printed_daily_grid(markdown, first=first, last=last)
     if grid is None:
         return None
     if grid and not _matches_the_printed_grid(

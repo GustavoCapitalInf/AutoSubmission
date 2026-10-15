@@ -1,1 +1,0 @@
-<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr><tr><td>04/06</td><td>DESCRIPTIONx REF123456</td><td>260.00</td></tr><tr><td>04/07</td><td>y</td><td>235.17</td></tr></table>

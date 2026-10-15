@@ -146,10 +146,8 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "PINNED_CURRENCY_SOURCE is path-keyed for the same reason"),
     ("discovery/runner.py", "_project_accounts", "per_account",
      "the row's account column is EMPTY on a document; account_count carries it"),
-    ("vlm/truth.py", "truth_from_payload", "per_account",
-     "the Phase 3 comparison reads every cached account through payload_accounts"),
-    ("webapp/worker.py", "_attach_account_confidence", "per_account",
-     "each published account takes its own verification score, found through payload_accounts"),
+    # (`vlm/truth.py::truth_from_payload`, the Phase 3 comparison's per-account
+    # reader, left with the visual pair in slice S4 of the model-code removal.)
     ("analysis/flagged_view.py", "apply_flagged_groups_to_payload", "per_account",
      "the flag groups are served per account ledger; every account is tagged, a malformed document passes untouched"),
     ("analysis/nsf_days.py", "apply_nsf_basis_to_payload", "per_account",
@@ -285,22 +283,10 @@ EXCUSED: dict[str, str] = {
     # never something it mistook for one account. A caller that wants the
     # document asks `analyze_document`, which is why every production seam does.
     "analysis/pipeline.py::analyze_markdown": "the ACCOUNT entry point returning the first Report of the internal _Analysed object",
-    # Phase 3.1 builds sources before publication. Both bridges explicitly
-    # refuse anything other than one account, and the final guard inspects
-    # every report. These objects are not a serialized published payload.
-    "vlm/currency.py::resolve_currency": "unpublished DocumentReport bridge; refuses multiple accounts or omitted siblings before source equality",
-    "vlm/pair_adapter.py::analyze_visual_pair": "private source audit and unpublished DocumentReport bridge; refuses multiple accounts or omitted siblings",
-    "vlm/pair_adapter.py::_complete_report": "checks the daily ledger validity of EVERY account in the unpublished DocumentReport",
-    # The visual pair's account-by-account judgement (vlm/pair_accounts.py) is private evidence: its `accounts` list
-    # and each entry's `statement` SOURCE exist before anything is analysed or published.
-    "vlm/pair.py::extract_visual_pair": "reads the visual pair's private per-account judgement (`accounts`, each entry's `statement` source); no payload exists yet",
-    "vlm/pair_adapter.py::_analyze_accounts": "builds one Report per verified account from the private per-account evidence (`accounts`, each `statement` source); refuses anything else",
-    "webapp/worker.py::_visual_pair_summary_html": "renders the visual pair's private per-account evidence (`accounts`) into the review page; not a published payload",
-    # The widened AST predicate also sees a method named `accounts`. Here it
-    # is ReaderTruth.accounts(sha), which returns the complete comparison list
-    # from the per-account reader declared above, not document.accounts[0].
-    "vlm/runner.py::process_document": "comparison harness calls ReaderTruth.accounts(sha), not a payload or document account attribute",
-    "vlm/regate.py::regate_wave": "offline regating calls ReaderTruth.accounts(sha), not a payload or document account attribute",
+    # The Phase 3.1 visual pair's six excused sites (its currency bridge, its
+    # adapter's two bridges and its account-by-account builder, its merge, and
+    # its two comparison harnesses) left with `vlm/` in slice S4 of the
+    # model-code removal.
 }
 
 

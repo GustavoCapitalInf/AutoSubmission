@@ -275,8 +275,11 @@ def _env_str(env: Mapping[str, Any], key: str, default: str) -> str:
     return default if value in (None, "") else str(value)
 
 
-#: ``ocr.config.load_settings``'s own literal fallbacks, duplicated
-#: deliberately rather than called: ``load_settings()`` reads the CALLING
+#: The retired ``ocr.config.load_settings``'s own literal fallbacks (deleted
+#: with the visual OCR client in slice S2 of the model-code removal; the same
+#: four values are frozen key material in
+#: ``webapp.artifact_cache.FROZEN_OCR_SETTINGS``), duplicated deliberately
+#: rather than called: ``load_settings()`` read the CALLING
 #: process's CURRENT environment, and this function reconstructs a
 #: HISTORICAL run's settings from that run's RECORDED environment
 #: (``tools/train/provenance.py``'s ``ENV_KNOBS``) — calling it here would let
@@ -294,9 +297,10 @@ _OCR_WINDOW_SIZE_DEFAULT = "128"
 
 
 def _reconstructed_ocr_settings(env: Mapping[str, Any]):
-    """A duck-typed stand-in for ``ocr.config.Settings`` built from a run's
-    RECORDED environment, falling back to ``load_settings()``'s own literal
-    defaults (see above) for a knob the record shows unset."""
+    """A duck-typed stand-in for the retired ``ocr.config.Settings`` built from
+    a run's RECORDED environment, falling back to ``load_settings()``'s own
+    literal defaults (see above) for a knob the record shows unset. Read by
+    ``ocr_settings_key`` attribute by attribute, exactly as before S2."""
     return type(
         "ReconstructedOcrSettings",
         (),

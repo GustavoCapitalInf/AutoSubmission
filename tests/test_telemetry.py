@@ -128,12 +128,15 @@ def test_source_path_fallthrough_is_closed_not_a_guess():
     assert source_path_unrecognized_model("paddle-ocr+ppocrv5") is False
 
 
-def test_paddle_model_tokens_matches_the_ocr_module_literal():
-    """The literal mirror never drifts from the pin it mirrors."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+def test_paddle_model_tokens_is_a_literal_pin():
+    """The literal mirror of the retired `ocr.paddle_config.PADDLE_MODEL_TOKEN` (the module left with the PaddleOCR
+    rung, model-code removal slice S5) is pinned as a literal: stored readings and telemetry records still carry the
+    token, and `ocr.config.RESERVED_MODEL_PREFIXES` names the same one."""
+    from ocr.config import RESERVED_MODEL_PREFIXES
     from telemetry.record import PADDLE_MODEL_TOKENS
 
-    assert PADDLE_MODEL_TOKENS == frozenset({PADDLE_MODEL_TOKEN})
+    assert PADDLE_MODEL_TOKENS == frozenset({"paddle-ocr+ppocrv5"})
+    assert "paddle-ocr+ppocrv5" in RESERVED_MODEL_PREFIXES
 
 
 def test_visual_model_tokens_matching_is_case_sensitive_by_design():
@@ -151,41 +154,36 @@ def test_visual_model_tokens_matching_is_case_sensitive_by_design():
     assert source_path_unrecognized_model("baidu/Unlimited-OCR") is False
 
 
-def test_model_calls_for_records_endpoint_provenance_on_every_ocr_entry(monkeypatch):
+def test_model_calls_for_records_the_historical_endpoint_constants_on_every_ocr_entry(monkeypatch):
     """MAJOR-2 (PHASE2_P20SEAM_REVIEW.md): `endpoint_class` / `remote_opt_in`
-    are read from `ocr.config.load_settings()` AT RECORD TIME (the same
-    pattern `webapp.artifact_cache.ocr_settings_key` uses) and land on EVERY
-    OCR-stage call entry — native/tesseract/none included, not only visual."""
+    land on EVERY OCR-stage call entry — native/tesseract/none included, not
+    only visual. Since slice S2 of the model-code removal they are the fixed
+    historical constants "loopback" / False (M12), the values every default
+    environment wrote: the visual OCR settings they were read from are gone,
+    so the environment no longer moves them (declared: an OCR_BASE_URL /
+    OCR_REMOTE_OPT_IN override used to change these two fields)."""
     import types
 
-    from ocr.endpoint_policy import OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL
-
-    monkeypatch.setenv("OCR_BASE_URL", "https://foo.runpod.net/v1")
-    monkeypatch.setenv(OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL)
+    # The opt-in name and literal of the retired `ocr.endpoint_policy` (removed in slice S5), spelled here: the
+    # record must not read them whatever they hold.
+    remote_opt_in_env, remote_opt_in_literal = "OCR_REMOTE_OPT_IN", "I_ACCEPT_REMOTE_PAID_OCR"
 
     native_doc = types.SimpleNamespace(model="native-pdf-text", pages=["a"], page_integrity=[])
-    calls = model_calls_for(native_doc, None)
-    assert len(calls) == 1
-    assert calls[0]["purpose"] == "native"
-    assert calls[0]["endpoint_class"] == "remote"
-    assert calls[0]["remote_opt_in"] is True
-
-    monkeypatch.delenv(OCR_REMOTE_OPT_IN_ENV, raising=False)
-    monkeypatch.setenv("OCR_BASE_URL", "http://localhost:8000/v1")
-    calls = model_calls_for(native_doc, None)
-    assert calls[0]["endpoint_class"] == "loopback"
-    assert calls[0]["remote_opt_in"] is False
+    for env in ({}, {"OCR_BASE_URL": "https://foo.runpod.net/v1", remote_opt_in_env: remote_opt_in_literal}):
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        calls = model_calls_for(native_doc, None)
+        assert len(calls) == 1
+        assert calls[0]["purpose"] == "native"
+        assert calls[0]["endpoint_class"] == "loopback"
+        assert calls[0]["remote_opt_in"] is False
 
 
-def test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_model(monkeypatch):
-    """NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
-    `ProvenanceTokenError` for a hostile `OCR_MODEL` (BLOCK-1's own
-    closure). Every `_emit` call site wraps `build_record(...)` — which
-    calls `model_calls_for` — in `except Exception: pass` (H3_SCHEMA I4,
-    "cannot fail a job"), so an uncaught raise here would silently drop the
-    WHOLE telemetry record for a document that otherwise processed fine.
-    `model_calls_for` must instead degrade only `endpoint_class` /
-    `remote_opt_in` to `None` and still return the rest of the call entry."""
+def test_model_calls_for_keeps_the_whole_record_on_a_hostile_ocr_model(monkeypatch):
+    """NEW-6 (re-review, closure 1cc759e), closed by construction since S2:
+    nothing in `model_calls_for` reads the environment, so a hostile
+    `OCR_MODEL` can no longer cost the two endpoint fields (it used to make
+    them `None`; declared failure -> success, M5)."""
     import types
 
     monkeypatch.setenv("OCR_MODEL", "evil-model\n")  # BLOCK-1's own hostile shape
@@ -196,8 +194,33 @@ def test_model_calls_for_degrades_two_fields_not_the_record_on_a_hostile_ocr_mod
     assert len(calls) == 1
     assert calls[0]["model"] == "native-pdf-text"
     assert calls[0]["purpose"] == "native"
-    assert calls[0]["endpoint_class"] is None
-    assert calls[0]["remote_opt_in"] is None
+    assert calls[0]["endpoint_class"] == "loopback"
+    assert calls[0]["remote_opt_in"] is False
+
+
+def test_the_record_module_reads_no_ocr_settings():
+    import ast
+    import inspect
+
+    import telemetry.record as record_module
+
+    tree = ast.parse(inspect.getsource(record_module))
+    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert "ocr.config" not in modules
+    names = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    names |= {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    assert not names & {"load_settings", "_load_ocr_settings", "environ", "getenv"}
+
+
+def test_price_for_does_not_invent_a_remote_price():
+    """Moved from tests/test_ocr_endpoint_policy.py (slice S2)."""
+    from telemetry.prices import price_for
+
+    # A remote endpoint changes nothing about which models are priced: an
+    # unlisted model prices to None (unknown), never a guessed number, and
+    # `endpoint_class` is not a `price_for` input at all — it cannot become
+    # one without adding a price the audit did not cite.
+    assert price_for("some-remote-vendor-model") is None
 
 
 def test_model_calls_for_reports_unrecognized_model_honestly():
@@ -236,9 +259,9 @@ def test_model_calls_for_reports_unrecognized_model_honestly():
     assert visual_calls[0]["completion_tokens"] == call["completion_tokens"] == 500
 
     # MAJOR-2: endpoint provenance is on THIS branch too, not only the
-    # native/tesseract/none branch.
-    assert "endpoint_class" in call and "remote_opt_in" in call
-    assert "endpoint_class" in visual_calls[0] and "remote_opt_in" in visual_calls[0]
+    # native/tesseract/none branch, with the fixed historical values (M12).
+    for entry in (call, visual_calls[0]):
+        assert entry["endpoint_class"] == "loopback" and entry["remote_opt_in"] is False
 
 
 def test_model_calls_for_reports_one_call_per_paddle_page():
@@ -248,8 +271,11 @@ def test_model_calls_for_reports_one_call_per_paddle_page():
     no per-page completion-token signal to sum)."""
     import types
 
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    # The Paddle rung is gone (slice S5); a stored Paddle reading still carries its token, so the record's
+    # historical Paddle arm is kept and pinned with the token from telemetry's own vocabulary.
+    from telemetry.record import PADDLE_MODEL_TOKENS
 
+    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
     paddle_doc = types.SimpleNamespace(
         model=PADDLE_MODEL_TOKEN, pages=["page one", "page two", "page three"], page_integrity=[],
     )
@@ -274,8 +300,9 @@ def test_model_calls_for_paddle_is_unpriced_not_free():
     models`; this proves the CONSEQUENCE for a real telemetry record)."""
     import types
 
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    from telemetry.record import PADDLE_MODEL_TOKENS
 
+    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
     paddle_doc = types.SimpleNamespace(model=PADDLE_MODEL_TOKEN, pages=["p1"], page_integrity=[])
     calls = model_calls_for(paddle_doc, None)
     cost = estimate(calls)
@@ -1214,3 +1241,25 @@ def test_run_ids_are_unique_and_sortable():
     first, second = new_run_id(), new_run_id()
     assert first != second
     assert first[:4].isdigit()
+
+
+def test_pair_telemetry_counts_two_actual_models_and_no_invented_analysis_call():
+    """The visual pair's provenance vocabulary stays (telemetry vocabularies are append-only), so a record of a stored
+    pair reading still classifies its source and counts its two models. Moved from tests/test_visual_pair_worker.py
+    when the worker stopped reading with the pair (model-code removal, slice S1); no model module is involved."""
+    from ocr.document import StatementMarkdown
+    from telemetry.record import model_calls_for, source_path_unrecognized_model
+
+    doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic"],
+        extraction_telemetry={"execution_class": "remote_paid", "customer_data_opt_in": False,
+            "pages": [{"stage": "proposer", "prompt_tokens": 10, "completion_tokens": 15},
+                      {"stage": "reviewer", "prompt_tokens": 20, "completion_tokens": 25}]})
+    assert source_path_for(doc.model) == "visual_pair"
+    assert not source_path_unrecognized_model(doc.model)
+    calls = model_calls_for(doc, {"model_used": "visual-pair-dots-qwen-generic"})
+    assert len(calls) == 2
+    assert [call["calls"] for call in calls] == [1, 1]
+    assert [call["completion_tokens"] for call in calls] == [15, 25]
+    assert all(call["endpoint_class"] == "remote_paid" for call in calls)
+    doc.extraction_telemetry = None
+    assert [call["calls"] for call in model_calls_for(doc, None)] == [0, 0]

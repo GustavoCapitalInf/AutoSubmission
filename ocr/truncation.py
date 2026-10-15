@@ -1,5 +1,11 @@
 """OCR truncation detection (Wave 2 / O-3): flag-only page integrity.
 
+Model-code removal, slice S2: the visual OCR client (``ocr/ocr_client.py``)
+and the local server it spoke to are gone, so nothing in the tree produces a
+model-side signal any more; the offline rungs are assessed structurally, and
+the model-side reading below stays for stored legacy reads (deleting it is a
+separate follow-up). The text below describes the rung as it was.
+
 A silently truncated page is the worst OCR failure mode we have: the markdown
 looks well-formed, the parser claims it, the reconciliation gate reports a
 "missing transactions" delta, and the document is filed as a parser defect

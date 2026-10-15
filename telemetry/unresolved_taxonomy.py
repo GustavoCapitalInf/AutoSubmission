@@ -88,6 +88,7 @@ __all__ = [
     "LAYER_NAMES",
     "LAYER_PRECEDENCE",
     "REASON_LAYER",
+    "RETIRED_RUNNER_REASONS",
     "UNMAPPED",
     "UNRESOLVED_TAXONOMY_VERSION",
     "VOCABULARY",
@@ -260,15 +261,16 @@ VOCABULARY: dict[str, tuple[str, ...]] = {
 #: `tests/test_unresolved_taxonomy.py::test_every_reason_the_runner_and_the_
 #: record_can_emit_is_in_the_reason_map` reads the runner's and the record's
 #: SOURCE (via `runner_reason_literals`) and asserts this mapping's key set is
-#: exactly those literals plus `DEFERRED_REASONS` plus `REFUSED_REASONS` —
-#: both directions, so a new reason fails the build and a retired one does too.
+#: exactly those literals plus `DEFERRED_REASONS` plus `REFUSED_REASONS` plus
+#: `RETIRED_RUNNER_REASONS` — both directions, so a new reason fails the build
+#: and a retired one does too unless it is DECLARED retired below.
 REASON_LAYER: dict[str, tuple[str, str] | None] = {
     # -- L0: the file ------------------------------------------------------
     "invalid_pdf": ("l0", "FILE_INVALID"),
-    "file_invalid": ("l0", "FILE_INVALID"),          # the reserved `refused` reason
+    "file_invalid": ("l0", "FILE_INVALID"),          # a reserved `refused` reason (nothing emits it)
     "encrypted": ("l0", "FILE_ENCRYPTED"),
-    # -- L1: the kind (the reserved `refused` reasons; nothing emits them
-    #    in 2.2, and each names the kind the platform declined the file AS) --
+    # -- L1: the kind (reserved `refused` reasons; nothing emits them, and
+    #    each names the kind the platform declined the file AS) -------------
     "not_a_statement": ("l1", "NOT_A_STATEMENT"),
     "incomplete": ("l1", "STATEMENT_PARTIAL"),
     "unreadable": ("l1", "STATEMENT_ILLEGIBLE"),
@@ -276,6 +278,10 @@ REASON_LAYER: dict[str, tuple[str, str] | None] = {
     #    `deferred_visual_ocr` is trigger R: the offline ladder produced NO
     #    text for a document it did attempt, which is an extraction fact.
     #    `deferred_scanned` is NOT (see L6): that mode never ran an extractor.
+    #    Since slice S5 of the model-code removal the runner records trigger R
+    #    as the refusal `insufficient_evidence` (the same layer and code), and
+    #    `deferred_visual_ocr` / `escalation_refused` are historical (see
+    #    `RETIRED_RUNNER_REASONS`).
     "deferred_visual_ocr": ("l2", "E0_no_evidence"),
     "ocr_failed": ("l2", "E0_no_evidence"),
     "escalation_refused": ("l2", "E0_no_evidence"),
@@ -295,7 +301,7 @@ REASON_LAYER: dict[str, tuple[str, str] | None] = {
     "parser_declined": ("l5", "declined_by_claiming_reader"),
     "q3_provenance_refused": ("l5", "q3_sibling_omission_refusal"),
     "document_omission_unratified": ("l5", "q3_sibling_omission_refusal"),
-    "contradictory": ("l4", "source_contradiction"),  # the reserved `refused` reason
+    "contradictory": ("l4", "source_contradiction"),  # a reserved `refused` reason (nothing emits it)
     # -- L6: known, and still not a reason ---------------------------------
     "profile_only": ("l6", "not_attempted_by_run"),
     "deferred_scanned": ("l6", "not_attempted_by_run"),
@@ -310,6 +316,31 @@ REASON_LAYER: dict[str, tuple[str, str] | None] = {
     "approved": None,
     "no_analysis": ("l6", "platform_defect"),
 }
+
+#: The runner outcome reasons whose only emitter was removed with the model
+#: rungs (model-code removal, slice S5): exactly the runner's reason literals
+#: at the slice's parent (`57ca19a`) minus those at its head, as
+#: `runner_reason_literals` reads them (measured; plan D13). Historical rows,
+#: telemetry records and run summaries still carry them, so they stay in
+#: `REASON_LAYER` (append-only) and the drift guard's expected set includes
+#: this set. `tests/test_unresolved_taxonomy.py` also pins that NO member has
+#: an emitter in the runner or the record today, so a retired name cannot
+#: quietly come back into use under this exemption.
+#:
+#: * `deferred_visual_ocr`: trigger R's old spelling (the runner records
+#:   `refused:insufficient_evidence` since S5); also a `DEFERRED_REASONS`
+#:   member, kept for historical rows;
+#: * `escalation_refused`: the retired escalation modes' terminal refusal;
+#: * `paddle_refused`: the retired Paddle rung's customer-data refusal;
+#: * `research_skipped_not_in_population`, `research_refused_holdout`: the
+#:   retired research mode's two doors (also `DEFERRED_REASONS` members).
+RETIRED_RUNNER_REASONS: frozenset[str] = frozenset({
+    "deferred_visual_ocr",
+    "escalation_refused",
+    "paddle_refused",
+    "research_refused_holdout",
+    "research_skipped_not_in_population",
+})
 
 #: The extraction gate's OWN reasons (`ocr.escalation.ExtractionQualityGate`)
 #: mapped to L2 codes. The guard reads the gate's source and asserts this

@@ -287,6 +287,8 @@ def test_the_private_report_is_written_outside(world):
         (dict(failure_class="C"), "C"),
         (dict(failure_class="A"), "A"),
         (dict(failure_class="", outcome_reason="deferred_visual_ocr"), "A"),
+        # slice S5: the same extraction-level miss, as the discovery runner records it since the move
+        (dict(failure_class="", outcome_reason="insufficient_evidence"), "A"),
         (dict(failure_class="", outcome_reason="invalid_pdf"), "A"),
         (dict(failure_class="", outcome_reason="no_parser_matched"), "B"),
         (dict(failure_class="", outcome_reason="parser_declined"), "B"),

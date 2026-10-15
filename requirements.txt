@@ -1,4 +1,3 @@
-openai
 pdf2image==1.17.0
 pillow
 markdown

@@ -802,12 +802,12 @@ def navy_layout(monkeypatch):
     import fitz
 
     def install(text: str) -> bytes:
-        native_text._native_pages_cached.cache_clear()
+        native_text.clear_page_caches()
         monkeypatch.setattr(fitz, "open", lambda *a, **k: _LayoutDoc(text))
         return b"%PDF-1.4 navy " + text.encode("utf-8")
 
     yield install
-    native_text._native_pages_cached.cache_clear()
+    native_text.clear_page_caches()
 
 
 def _nfcu_rows(document):

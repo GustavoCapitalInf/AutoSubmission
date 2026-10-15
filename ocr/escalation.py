@@ -158,18 +158,22 @@ DETERMINISTIC_PARSE_UNVALIDATED = "deterministic_parse_unvalidated"
 #: P22-TRUTHTABLE (Phase 2.2, D8): the RESEARCH run mode's trigger. A
 #: pre-financial fact by construction — a RUN-MODE fact exactly like
 #: `OPERATOR_FORCED_VISUAL`, known before any document is read — that the
-#: discovery runner supplies ONLY in `--research-paddle` mode, for every
+#: discovery runner supplied ONLY in `--research-paddle` mode, for every
 #: document of the operator's named population, regardless of profile: that
-#: is the research admission Gustavo authorized (R1; PHASE2_RULINGS 2026-09-03,
+#: was the research admission Gustavo authorized (R1; PHASE2_RULINGS 2026-09-03,
 #: "research is broad, production is evidence-derived, validation is
-#: unchanged"). It travels in the existing `RouterInputs.triggers` field —
-#: `RouterInputs` is unchanged — and the router still chooses ONLY among the
-#: extractors the mode enabled (`enabled == {"paddle"}`, a MODE constant, D4).
-#: No verdict, no failure class and no other mode can produce it: the runner's
-#: `RESEARCH_TRIGGERS` constant is the one place the name is spelled outside
-#: this module (`tests/test_research_mode.py` pins that by AST), and the
-#: research artifacts it produces are written under a research partition the
-#: run of record can never select (D7). Auto mode has no path to it.
+#: unchanged"). It travelled in the existing `RouterInputs.triggers` field —
+#: `RouterInputs` is unchanged — and the router chose ONLY among the
+#: extractors the mode enabled (`enabled == {"paddle"}`, a MODE constant, D4);
+#: the research artifacts were written under a research partition the run of
+#: record can never select (D7). HISTORICAL since slice S5 of the model-code
+#: removal: the research mode, its two `decide(` sites and the PaddleOCR rung
+#: are gone, so nothing supplies it. The name stays in the vocabulary
+#: (telemetry mirrors it; the runner's `RESEARCH_TRIGGERS` keeps it for the
+#: report's historical research table), and `tests/test_escalation_tripwires.py`
+#: pins by AST that no `decide(` site remains anywhere and that no production
+#: module outside this one names it but those two. Auto mode never had a path
+#: to it.
 OPERATOR_FORCED_PADDLE = "operator_forced_paddle"
 #: T: a known-truncated page. DEFINED here and REFUSED by the router
 #: (`ADMITTED_TRIGGERS` excludes it) — its population is measured
@@ -239,8 +243,8 @@ EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "paddle", "visual", "visu
 # Evidence quality: Class A, decided BEFORE reconstruction or validation.
 # ---------------------------------------------------------------------------
 
-#: Duplicated BY REFERENCE from `ocr/local_tesseract.py`'s own floor (line 42,
-#: `< 200`) — the same number the extractor already enforces before it will
+#: Duplicated BY REFERENCE from `ocr/local_tesseract.py`'s own floor
+#: (`TEXT_FLOOR_CHARS`, `< 200`) — the same number the extractor already enforces before it will
 #: even return a document. Do not tune independently; if that floor changes,
 #: this one changes with it.
 CHAR_FLOOR = 200
