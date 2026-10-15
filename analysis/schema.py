@@ -277,9 +277,36 @@ class Statement(BaseModel):
     #: model's: kept out of the extraction response schema (`SkipJsonSchema`,
     #: so the extractor is told nothing new, as for `account_title`), refused
     #: from a visual pair's reviewed statement while the pair existed (its
-    #: adapter, removed in slice S4 of the model-code removal; a producer that
-    #: builds its own Statement, such as the planned text-first reader, owes the
-    #: same refusal), and serialized only when declared (see `_serialize`).
+    #: adapter, removed in slice S4 of the model-code removal), and serialized
+    #: only when declared (see `_serialize`).
+    #:
+    #: What a producer that builds its own Statement owes (the planned
+    #: text-first reader, or anything else that is not a registered parser):
+    #: `analyze_statement` itself checks only `reconciliation.ok`, so the
+    #: admission checks the deleted adapter applied BEFORE calling it are the
+    #: producer's. Reference: `cfc7c48:vlm/pair_adapter.py`
+    #: (`_source_statement`, `_PARSER_PROOF_FIELDS`, `_complete_report`).
+    #:   * Parser proofs: this count and `initialization_transaction_count`
+    #:     are 0, and no field lies outside `Statement`, `Transaction` and
+    #:     `StatementDailyBalance`.
+    #:   * Required printed fields: `period_start`, `period_end`,
+    #:     `beginning_balance`, `ending_balance` and `currency` are present (a
+    #:     missing currency refuses rather than taking the USD default), and
+    #:     the ledger is not empty.
+    #:   * Period bounds: ISO dates with start <= end; every transaction and
+    #:     every printed daily balance dated inside the printed period; no date
+    #:     with two different daily balances; the currency three upper-case
+    #:     ASCII letters; every row a `credit` or `debit` with a non-blank
+    #:     description.
+    #:   * Finite numbers: no NaN or infinity anywhere in the statement.
+    #:   * Reconciliation: `reconcile(stmt).ok`, and neither the printed
+    #:     summary nor the printed credit or debit count disagrees
+    #:     (`summary_ok`, `stated_credit_count_matches`,
+    #:     `stated_debit_count_matches` are not False).
+    #:   * `currency_source` is assigned by the platform, never taken from the
+    #:     producer's own output.
+    #: After `analyze_statement`, the adapter also refused a report in which
+    #: any account's `metrics.adb_ok` was not True.
     pre_period_carry_in_count: SkipJsonSchema[int] = 0
 
     transactions: list[Transaction] = Field(default_factory=list)
