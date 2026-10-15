@@ -1562,8 +1562,8 @@ class DiscoveryRunner:
         except LocalOcrIncomplete as exc:
             # Audit 2026-10-13 (REL-01): the local Tesseract rung refuses a read it could not finish (a time limit
             # passed, a short render, a host failure) instead of returning a partial one. The document fails
-            # closed under the visual rung's `ocr_failed` and the run goes on; nothing was cached, so a later run
-            # reads it afresh. Class name only, as for every other failure.
+            # closed as `failed:ocr_failed` and the run goes on; nothing was cached, so a later run reads it
+            # afresh. Class name only, as for every other failure.
             self._last_ocr_finding = self._cache_finding_of(exc)
             self._project_cache_finding(row)
             row.outcome_class, row.outcome_reason = "failed", "ocr_failed"

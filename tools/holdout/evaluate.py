@@ -41,8 +41,10 @@ is; with `rows.csv` alone the only comparable figure is the row's
 `account_count`, which can yield `agree_partial` at most. A value that does
 not parse (a figure export's `n/a`) is NOT compared — it is listed under
 `unparseable` in the detail and never becomes a contradiction. A system
-`refused` row (R11, cell T) classes as `unclassified` until its reasons are
-mapped here. Money is compared as `Decimal` VALUES (never as text): `100`,
+`refused` row (R11, cell T) classes by its reason (`_REASON_CLASS`):
+`insufficient_evidence`, the one refusal the discovery runner records (since
+slice S5 of the model-code removal), is A; any other refusal reason classes
+as `unclassified` until it is mapped there. Money is compared as `Decimal` VALUES (never as text): `100`,
 `100.00` and `100.000` are one figure, `-0.00` is `0`, and a ledger amount
 matches a sampled row whatever scale either side printed (review NEW-1).
 """
