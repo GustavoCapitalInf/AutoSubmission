@@ -714,3 +714,51 @@ def test_exp5_the_csv_on_a_redirected_stdout_is_the_out_file_byte_for_byte(monke
     header, *rows = list(csv.reader(io.StringIO(data.decode("utf-8"), newline="")))
     assert header == batch.FIELDS
     assert sorted(row[0] for row in rows) == ["SAMPLE_a.md", "SAMPLE_ﬁle.md"]
+
+
+# ---------------------------------------------------------------------------
+# Model-code removal, slice S2: this CLI reads native PDF text only. `--visual`
+# (the probed visual OCR opt-in) was removed with the visual OCR client.
+# ---------------------------------------------------------------------------
+
+
+def test_the_visual_flag_is_gone(monkeypatch, tmp_path, capsys):
+    import pytest
+
+    md = tmp_path / "statement.md"
+    md.write_text("--- Page 1 ---\n\nsome text\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["batch.py", str(md), "--visual"])
+    with pytest.raises(SystemExit) as raised:
+        batch.main()
+    assert raised.value.code == 2  # argparse: unrecognized arguments
+    assert "--visual" in capsys.readouterr().err
+
+
+def test_a_pdf_without_native_text_is_refused_with_the_native_only_message(monkeypatch, tmp_path):
+    """The no-text refusal (declared, slice S2) says what this CLI reads; the
+    ladder is asked for no OCR rung, and the CSV cell keeps the class name."""
+    import pytest
+
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    seen = []
+
+    def fake_parse_statement(pdf_bytes, source_file="", **kwargs):
+        seen.append(kwargs)
+        return None
+
+    monkeypatch.setattr("ocr.pipeline.parse_statement", fake_parse_statement)
+    with pytest.raises(RuntimeError) as refused:
+        batch._read_source(pdf)
+    assert str(refused.value) == batch.NO_NATIVE_TEXT
+    assert "--visual" not in str(refused.value)
+    assert seen == [{}]  # no capability flag: the ladder's defaults (no OCR rung)
+
+
+def test_batch_imports_no_visual_ocr_probe():
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(batch))
+    modules = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert not modules & {"ocr.availability", "ocr.ocr_client", "ocr.config"}, modules

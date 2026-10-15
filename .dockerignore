@@ -13,7 +13,6 @@ telemetry_runs
 discovery_reports
 benchmark_reports
 moneythumbResults
-.paddle_runtime
 .claude
 docs
 tests

@@ -1,1 +1,0 @@
-<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr><tr><td>01/10</td><td>Online transfer</td><td>500.00</td></tr></table>

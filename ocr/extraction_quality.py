@@ -19,8 +19,9 @@ What this module is NOT, by construction
 does not import this module and its `ADMITTED_TRIGGERS` are unchanged
 (`tests/test_extraction_quality_admission.py` pins both, by AST and by blob).
 The only consumer of these figures in this phase is the REPORT: thirteen
-`eq_*` columns on `rows.csv` and the census instrument
-(`tools/extraction_quality_census.py`). Ruling B's discipline is labelled
+`eq_*` columns on `rows.csv` (the census instrument,
+`tools/extraction_quality_census.py`, was removed with the PaddleOCR rung in
+slice S5 of the model-code removal). Ruling B's discipline is labelled
 evidence FIRST, review SECOND, admission THIRD — and 2.3 is the first step
 only. An extraction-quality criterion becomes a production trigger in 2.5,
 from the measured distributions, or never.

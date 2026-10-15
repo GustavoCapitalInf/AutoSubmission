@@ -837,19 +837,34 @@ def _configure_local_paddle(monkeypatch) -> None:
     monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "local_free")
 
 
-def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path, monkeypatch):
-    """A missing Paddle configuration raises `PaddleConfigError` — recorded
-    as `paddle_ocr_key_note` inside `run_of_record.partitions`. Before this
-    fix the clause wrote `f"...: {exc}"` verbatim and unbounded for ANY
-    exception; now only the class name (plus a closed-vocabulary `.reason`,
-    when the exception is a `PaddleRefused`) ever reaches the record.
+def _error_values(value, path=""):
+    """Every `{"error": ...}` value inside `value` (the probe's `attempt` records a failed step that way)."""
+    found = []
+    if isinstance(value, dict):
+        if "error" in value:
+            found.append(path or "<root>")
+        for key, inner in value.items():
+            found += _error_values(inner, f"{path}.{key}" if path else str(key))
+    elif isinstance(value, list):
+        for index, inner in enumerate(value):
+            found += _error_values(inner, f"{path}[{index}]")
+    return found
 
-    Hermetic (P22-IDENTITY closure): the test CONTROLS the probe's Paddle
-    environment (`_unconfigure_paddle`) instead of deleting variables the
-    host's `.env` would silently put back — see `_PADDLE_ENV_NAMES`."""
+
+@pytest.mark.parametrize("configure", [_unconfigure_paddle, _configure_local_paddle])
+def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path, monkeypatch, configure):
+    """Model-code removal, slice S5 (plan D18): the PaddleOCR rung and its settings were removed, so the probe no
+    longer computes the Paddle partition's key at all. `paddle_ocr_key` is never written and
+    `paddle_ocr_key_note` is the fixed literal `not recorded: retired`, whatever this host's `PADDLE_*`
+    environment says (configured or not): the record's shape is unchanged, and no exception text (before S5,
+    `not recorded: PaddleConfigError` on an unconfigured host) can reach it.
+
+    Hermetic (P22-IDENTITY closure): the test CONTROLS the probe's Paddle environment instead of deleting
+    variables the host's `.env` would silently put back — see `_PADDLE_ENV_NAMES`. The configured-Paddle variant
+    that recorded a key here was deleted with the key (S5)."""
     import tools.train.provenance as provenance
 
-    _unconfigure_paddle(monkeypatch)
+    configure(monkeypatch)
 
     root = tmp_path / "root"
     root.mkdir()
@@ -866,42 +881,29 @@ def test_provenance_paddle_key_note_never_leaks_a_raw_exception_message(tmp_path
     assert "run_of_record" in record, {"tree": record.get("tree")}
     partitions = record["run_of_record"]["partitions"]
     assert "paddle_ocr_key" not in partitions
-    note = partitions["paddle_ocr_key_note"]
-    assert note == "not recorded: PaddleConfigError"
-    assert "PADDLE_PROVIDER" not in note  # the variable NAME never crosses either
-    assert "not set" not in note  # PaddleConfigError's own message text, absent
+    assert partitions["paddle_ocr_key_note"] == "not recorded: retired"
+    assert set(partitions) == {"offline_ocr_key", "visual_ocr_key", "analysis_key", "mode", "research_partition",
+                               "paddle_ocr_key_note"}
+    assert partitions["research_partition"] == ""
 
 
-def test_provenance_records_the_paddle_key_and_a_note_when_paddle_is_configured(tmp_path, monkeypatch):
-    """The inverse case (P22-IDENTITY closure, hermeticity): with a configured
-    LOCAL Paddle environment the probe records `paddle_ocr_key` AND the note
-    `recorded` — the note key is present on BOTH paths, so a reader never
-    infers "configured" from an absence. No host, no port, no token is ever
-    in the record (a local provider has none), and the key is a 64-hex
-    settings fingerprint that differs from the production offline key."""
+@pytest.mark.parametrize("mode", ["digital", "scanned"])
+def test_provenance_records_no_error_value_anywhere_in_the_tree_probe_or_the_partitions(tmp_path, monkeypatch,
+                                                                                        mode):
+    """Plan I1 / P15: after the Paddle key was retired the probe must not quietly record a failed step instead
+    (it used to import `ocr.paddle_config` lazily, inside `_TREE_PROBE`; a deleted module there would have been
+    an `{"error": "ModuleNotFoundError: ..."}` value in a durable run record). No value anywhere in the tree block
+    or in `run_of_record.partitions` is an error, in either mode, and the probe imports no Paddle module."""
     import tools.train.provenance as provenance
 
-    _configure_local_paddle(monkeypatch)
-
+    _unconfigure_paddle(monkeypatch)
     root = tmp_path / "root"
     root.mkdir()
-    record = provenance.collect(
-        Path(__file__).resolve().parents[1], root, tmp_path / "data",
-        label="test", hash_corpus=False, mode="digital",
-    )
+    record = provenance.collect(Path(__file__).resolve().parents[1], root, tmp_path / "data",
+                                label="test", hash_corpus=False, mode=mode)
     assert "run_of_record" in record, {"tree": record.get("tree")}
-    partitions = record["run_of_record"]["partitions"]
-    assert partitions["paddle_ocr_key_note"] == "recorded"
-    key = partitions["paddle_ocr_key"]
-    assert isinstance(key, str) and len(key) == 64 and all(c in "0123456789ABCDEF" for c in key)
-    assert key != partitions["offline_ocr_key"] and key != partitions["visual_ocr_key"]
-    # the recorded run still selects as a production run (no research partition)
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
-    (run_dir / "provenance.json").write_text(json.dumps(record, default=str), encoding="utf-8")
-    partitions_read = partitions_for_run(run_dir)
-    assert partitions_read.ocr_keys_by_source["paddle"] == key
-    assert partitions_read.research_partition == ""
+    assert _error_values({"tree": record["tree"], "partitions": record["run_of_record"]["partitions"]}) == []
+    assert "paddle_config" not in provenance._TREE_PROBE and "allow_paddle_ocr" not in provenance._TREE_PROBE
 
 
 def test_provenance_probe_tolerates_stdout_noise_before_its_json(tmp_path, monkeypatch):
@@ -1053,9 +1055,12 @@ def test_provenance_validates_the_research_partition_before_any_probe(tmp_path, 
     """Review F-3 (closure-2): a malformed `--research-partition` used to be
     caught inside the probe by `attempt`, dropping the whole `run_of_record`
     block — after which `partitions_for_run` RECONSTRUCTED the run as a
-    production-shaped record. The caller now validates the id up front with
-    the SAME closed shape the cache module enforces and refuses before any
-    subprocess starts; `main` exits 2 and writes nothing."""
+    production-shaped record. The caller validates the id up front with the
+    SAME closed shape the cache module enforces and refuses before any
+    subprocess starts. Since slice S5 the CLI has no `--research-partition`
+    flag at all (the research mode was removed), so `main` refuses it as an
+    unknown argument (exit 2) and writes nothing; `collect`'s validation is
+    unchanged."""
     import tools.train.provenance as provenance
     import webapp.artifact_cache as cache_module
 
@@ -1077,20 +1082,23 @@ def test_provenance_validates_the_research_partition_before_any_probe(tmp_path, 
         provenance.collect(Path(__file__).resolve().parents[1], root, tmp_path / "data",
                            label="t", hash_corpus=False, mode="digital", research_partition="bad id")
     out = tmp_path / "out" / "provenance.json"
-    exit_code = provenance.main([
-        "--checkout", str(Path(__file__).resolve().parents[1]), "--root", str(root),
-        "--data-dir", str(tmp_path / "data"), "--out", str(out), "--mode", "digital",
-        "--research-partition", "bad id",
-    ])
-    assert exit_code == 2
+    for value in ("bad id", "p23-wave-a"):
+        with pytest.raises(SystemExit) as raised:
+            provenance.main([
+                "--checkout", str(Path(__file__).resolve().parents[1]), "--root", str(root),
+                "--data-dir", str(tmp_path / "data"), "--out", str(out), "--mode", "digital",
+                "--research-partition", value,
+            ])
+        assert raised.value.code == 2  # argparse: unrecognized argument
     assert not out.exists() and not out.with_suffix(".md").exists()
 
 
 def test_provenance_records_the_research_partition_and_folds_it_into_the_keys(tmp_path, monkeypatch):
-    """`tools/train/provenance.py --research-partition <id>` records the id in
-    `run_of_record.partitions` and computes the OCR keys WITH it, so the
+    """`tools.train.provenance.collect(research_partition=<id>)` records the id
+    in `run_of_record.partitions` and computes the OCR keys WITH it, so the
     recorded run is refused as a run of record; a production call records
-    the empty string and the production keys."""
+    the empty string and the production keys. (The CLI flag that passed it
+    was removed with the research mode, slice S5.)"""
     import tools.train.provenance as provenance
     from telemetry.run_of_record import ResearchPartitionRefused
 

@@ -122,6 +122,10 @@ unproven automatic approval.
 
 ### Cost and Performance
 
+Note (2026-10-15): the owner's ruling of 2026-10-13 removed every model path this document names (the local
+visual OCR on the RX 7800 XT and the Gemini extraction in the baseline above, the visual OCR below). Scanned
+pages are read by local Tesseract on the machine and nothing is sent out; git history holds the removed code.
+
 - Keep native extraction, deterministic parsing, and visual OCR local by
   default.
 - Remove the Gemini fallback from the zero-vendor-cost production path; route an

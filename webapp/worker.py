@@ -1,31 +1,11 @@
 from __future__ import annotations
-from dataclasses import replace
-from pathlib import Path
-from tempfile import TemporaryDirectory
 
-from ocr.config import load_settings as load_ocr_settings
-from ocr.private_artifacts import private_artifact_path
-from ocr.visual_pair_config import (
-    MODEL_TOKEN as VISUAL_PAIR_MODEL_TOKEN,
-    check_remote_authorization, load_visual_pair_settings,
-)
 from analysis.pipeline import DocumentReport, analyze_document
 from analysis.serialization import document_report_to_dict
 from ocr.document import StatementMarkdown
-from ocr.escalation import (
-    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
-    OPERATOR_FORCED_VISUAL,
-    OPERATOR_FORCED_VISUAL_PAIR,
-    DETERMINISTIC_PARSE_UNVALIDATED,
-    Escalation,
-    EscalationRouter,
-    ExtractionQualityGate,
-    router_inputs,
-)
-from ocr.inspect import DocumentProfile, content_sha256, inspect_pdf
+from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.pipeline import parse_statement
 from ocr.render import markdown_to_html
-from vlm.source_contradiction import is_source_contradiction
 from telemetry import (
     DispatchCollector,
     StageTimer,
@@ -58,22 +38,25 @@ def document_to_json(document: DocumentReport) -> dict:
 
 
 # O-1: the worker owns NO routing decisions. The single intake ladder
-# (native -> tesseract -> visual OCR) lives in ocr.pipeline.parse_statement,
-# driven by the preflight DocumentProfile; this module only expresses mode
-# policy (deterministic short-circuits and the analysis-driven visual-OCR
-# escalation) and job-store bookkeeping. The ladder reports each rung through
-# on_stage, mapped here to the dashboard's historical stage labels.
+# (native PDF text -> local Tesseract) lives in ocr.pipeline.parse_statement,
+# driven by the preflight DocumentProfile; this module only does job-store
+# bookkeeping. Auto and Deterministic only read and analyse the same way: the
+# product uses no model (owner ruling, 2026-10-13), so no read and no analysis
+# reaches a model service in either mode, and `parse_mode` only reaches the
+# analysis and its cache key. The ladder reports each rung through on_stage,
+# mapped here to the dashboard's historical stage labels. The ladder has no
+# visual rung any more (slice S2), so `reading_visual_ocr` is only a stored
+# historical stage value now; the dashboard still labels it.
 _STAGE_NAMES = {
     "native": "reading",
     "local_ocr": "reading_local_ocr",
-    "visual_ocr": "reading_visual_ocr",
 }
 
 #: The named stages this module publishes at its exception boundary. Constants
 #: of ours, never anything read out of a document, so a stage name cannot
 #: itself be a leak. `preflight`/`reading`/`analysis` are the three coarse
 #: phases `run_job` runs in; the store's finer `stage` column
-#: (`reading_visual_ocr`, `analyzing`, …) still records which rung was live.
+#: (`reading_local_ocr`, `analyzing`, …) still records which rung was live.
 _PHASE_PREFLIGHT = "preflight"
 _PHASE_READING = "reading"
 _PHASE_ANALYSIS = "analysis"
@@ -98,9 +81,9 @@ _STUCK_JOB_FAILURE = (
 #: `analysis/pipeline.py` raises a small number of refusals that are FIXED
 #: LITERALS of ours: they say why the deterministic path declined and carry no
 #: document content by construction. This is the one that a user can act on —
-#: `webapp/static/app.js:friendlyAnalysisError` matches it and answers "use
-#: Auto mode, or add a deterministic parser for this bank", which is the most
-#: common and most actionable outcome the deterministic mode produces.
+#: `webapp/static/app.js:friendlyAnalysisError` matches it and answers that
+#: nothing was guessed and the layout needs a parser before it can be analysed,
+#: which is the most common outcome the deterministic path produces.
 #:
 #: Matching is EXACT and the value published is the member of this tuple, not
 #: the exception's own string, so what crosses the boundary is provably a
@@ -118,52 +101,28 @@ _STUCK_JOB_FAILURE = (
 #: which already names the finding.
 _DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
     "no deterministic parser matched this statement",
-    "visual pair requires human review",
 )
 
-#: Phase 3.1 adds the reviewed pair to the worker's capability vocabulary.
-#: Each router seam selects a fixed subset; Paddle remains disabled.
-WORKER_ENABLED_EXTRACTORS: frozenset[str] = frozenset({"visual", "visual_pair"})
-WORKER_LEGACY_EXTRACTORS: frozenset[str] = frozenset({"visual"})
-WORKER_PAIR_EXTRACTORS: frozenset[str] = frozenset({"visual_pair"})
+#: What a job asked for with Force visual OCR ends in (owner ruling, 2026-10-13: the product uses no model, so the
+#: visual readers are gone). `/upload` refuses `force_ocr=1` before anything is stored (webapp/app.py), so only a job
+#: stored before that ruling still carries the flag, and only its re-analysis (`webapp/reanalysis.py`, which re-runs a
+#: job with its own read flag) reaches this: `run_job` ends before preflight with this fixed text, reads nothing and
+#: names no stage, so the re-analysis answers it as its reason and the saved job is kept. Fixed text of ours, never
+#: anything read out of a document.
+FORCED_OCR_RETIRED = (
+    "This statement was read with the retired visual OCR; upload it again to read it deterministically."
+)
 
+#: The class name the forced refusal's telemetry record carries (`error_type`). A name of ours, not an exception's.
+FORCED_OCR_ERROR_TYPE = "ForcedOcrRemoved"
 
-def _force_ocr_decision(doc, profile: DocumentProfile | None, analysis: dict | None) -> Escalation:
-    """P20-ROUTER item 3: the deterministic `force_ocr` fallback's ONE router
-    call — the only legal path from "the offline ladder did not produce a
-    claim" to the visual rung in this module.
-
-    START = the operator's explicit flag, `OPERATOR_FORCED_VISUAL`. It is the
-    SOLE trigger here (unlike `discovery/runner.py`'s automatic, unattended
-    UPGRADE path, which never admits it — see that trigger's docstring in
-    `ocr/escalation.py`): `force_ocr` is set by a human or API caller BEFORE
-    any stage runs, for exactly this one document, which is a different
-    epistemic situation from a bulk pipeline reaching for a second engine
-    because the first one did not balance.
-
-    STOP = `analysis is not None`. This is legal ONLY because in deterministic
-    mode a payload exists IFF a parser claimed: `analysis/pipeline.py:917-918`
-    raises `RuntimeError("no deterministic parser matched this statement")`
-    (and `AmbiguousParserError` / `ParserCrashError` before it) on every other
-    `resolve` outcome — `tests/test_escalation_router.py` pins that exact
-    string. `EscalationRouter.decide` checks `stop` FIRST, before any trigger,
-    so a document that already claimed — even one that will go on to fail
-    financial validation (Class C) — can never reach `OPERATOR_FORCED_VISUAL`,
-    regardless of the flag. That is what makes "no C -> OCR edge" hold at this
-    call site too, and it is a STRICTER reading than the literal ruling this
-    card implements it against (which names `stop` for "validated" specifically
-    on the discovery runner's own upgrade path) — flagged in the P20-ROUTER
-    report rather than silently narrowed.
-    """
-    evidence = ExtractionQualityGate.assess(doc, profile)
-    triggers = frozenset({OPERATOR_FORCED_VISUAL})
-    if doc is None:
-        triggers = triggers | frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT})
-    return EscalationRouter.decide(router_inputs(
-        profile=profile, evidence=evidence, triggers=triggers,
-        attempted=("local_tesseract",), stop=analysis is not None,
-        enabled=WORKER_LEGACY_EXTRACTORS,
-    ))
+#: The analysis error of a document neither reading rung could read: no usable native PDF text, and local Tesseract
+#: OCR read nothing usable from its pages. A fixed literal; `webapp/static/app.js:friendlyAnalysisError` matches its
+#: prefix ("native PDF text unavailable") and explains it. It used to end with advice to turn on Force visual OCR or
+#: use Auto mode; neither reads anything more, so the advice is gone and the prefix is unchanged.
+NO_USABLE_TEXT = (
+    "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text"
+)
 
 
 def _stage_failure(stage: str, exc: BaseException) -> str:
@@ -211,121 +170,11 @@ def _analysis_failure(exc: BaseException) -> str:
     closed tuple of constants, so a new refusal message the pipeline invents is
     withheld until someone deliberately admits it here.
     """
-    from vlm.source_contradiction import SourceContradictionError
-
-    if isinstance(exc, SourceContradictionError):
-        # A verified contradiction in the statement itself: its message is built from the refusal's closed set of
-        # reasons and its figures ("Fail: Statement debit total ($... listed, $... printed) contradiction"), never
-        # from free text, so it quotes nothing of the document but the two figures that disagree.
-        return exc.dashboard_message()
     message = str(exc)
     for declared in _DECLARED_ANALYSIS_REFUSALS:
         if message == declared:
             return declared  # this module's constant, not the exception's text
     return _stage_failure(_PHASE_ANALYSIS, exc)
-
-
-
-def _visual_pair_summary_html(doc: StatementMarkdown, *, policy: str) -> str:
-    """Counts and a safely escaped local view of retained source evidence."""
-    from math import isfinite
-    from webapp.visual_pair_review import retained_evidence_html
-
-    evidence = getattr(doc, "visual_pair", None)
-    if not isinstance(evidence, dict):
-        return ""
-    confidence = evidence.get("confidence") or {}
-    if not isinstance(confidence, dict):
-        return ""
-    counts = confidence.get("counts") or {}
-    counts = counts if isinstance(counts, dict) else {}
-    score = confidence.get("score")
-    score_text = (f"{score:.1%}" if type(score) in (int, float)
-                  and isfinite(score) and 0 <= score <= 1 else "unavailable")
-    labels = (("agreed", "confirmed"), ("corrected", "corrected"),
-              ("added", "added"), ("rejected", "rejected"), ("unresolved", "unresolved"))
-    row_counts = []
-    for key, label in labels:
-        value = counts.get(key)
-        row_counts.append(f"{value if type(value) is int and value >= 0 else 0} {label}")
-    gate = evidence.get("gate") or {}
-    passed = isinstance(gate, dict) and gate.get("admitted") is True
-    status = ("Human review required before publishing metrics."
-              if policy == "always_review" else "Statement checks passed.")
-    if not passed:
-        status = "Statement checks failed; metrics are withheld."
-    if confidence.get("methodology") == "evidence_v2":
-        band = {"very_high": "very high", "high": "high", "moderate": "moderate", "low": "low",
-                "held": "held"}.get(confidence.get("band"), "unavailable")
-        components = confidence.get("components") if isinstance(confidence.get("components"), dict) else {}
-        names = (("stated_totals", "printed totals"), ("stated_counts", "printed counts"),
-                 ("amounts_printed", "amounts printed on the page"), ("two_readers", "both readers agree"),
-                 ("descriptions_in_text_layer", "descriptions in the PDF text"),
-                 ("running_balances", "running balances"))
-        parts = []
-        for key, label in names:
-            value = components.get(key)
-            parts.append(f"{label} {value:.0%}" if type(value) in (int, float) and isfinite(value)
-                         and 0 <= value <= 1 else f"{label} n/a")
-        headline = f"Extraction confidence: {score_text} ({band})"
-        explanation = ("The score is the share of this reading that was verified independently, by the "
-                       "statement's own printed figures and by two readers; it is not a probability.")
-        detail = '<p>Verified: ' + ', '.join(parts) + '</p>'
-    else:
-        headline = f"Provisional extraction confidence: {score_text}"
-        explanation = ("This score measures reader agreement and statement checks; "
-                       "it is not a probability of correctness.")
-        detail = ""
-    accounts = evidence.get("accounts")
-    if isinstance(accounts, list) and accounts:
-        # A statement judged account by account: each account publishes on its own verification.
-        from html import escape
-        entries = [account for account in accounts if isinstance(account, dict)]
-        verified = sum(account.get("status") == "verified" for account in entries)
-        headline = f"Accounts verified: {verified} of {len(entries)}"
-        status = (f"{verified} of {len(entries)} accounts passed their own checks; only those publish metrics."
-                  if verified else "No account of this statement passed its checks; metrics are withheld.")
-        if verified and policy == "always_review":
-            status = "Human review required before publishing metrics. " + status
-        items = []
-        for account in entries:
-            label = escape(str(account.get("title") or "Account"))
-            if account.get("number_key"):
-                label += f" ...{escape(str(account['number_key']))}"
-            score = (account.get("confidence") or {}).get("score") if isinstance(account.get("confidence"), dict) \
-                else None
-            suffix = (f", confidence {score:.1%}" if account.get("status") == "verified" and type(score) in (int, float)
-                      and isfinite(score) and 0 <= score <= 1 else "")
-            items.append(f"<li>{label}: {escape(str(account.get('status') or 'held'))}{suffix}</li>")
-        detail += "<ul>" + "".join(items) + "</ul>"
-    return (
-        '<section class="visual-pair-summary" role="note" '
-        'style="padding:1rem;border:1px solid #b98a30;background:#fff8e6;color:#453313;margin-bottom:1rem">'
-        f'<strong>{headline}</strong>'
-        f'<p>{status} {explanation}</p>' + detail +
-        '<p>Rows: ' + ', '.join(row_counts) + '</p></section>'
-        + retained_evidence_html(evidence)
-    )
-
-def _attach_account_confidence(analysis: dict, evidence: dict) -> None:
-    """Each published account of a statement judged account by account carries its OWN verification score
-    (`visual_pair_confidence`); the document-level score describes the statement read as one account. The roster
-    lists the visual pair's accounts in the same printed order as its evidence."""
-    accounts = evidence.get("accounts") if isinstance(evidence, dict) else None
-    roster = (analysis.get("document") or {}).get("account_roster") if isinstance(analysis.get("document"), dict) \
-        else None
-    if not isinstance(accounts, list) or not isinstance(roster, list) or len(roster) != len(accounts):
-        return
-    from analysis.payload_shape import PayloadShapeError, payload_accounts
-    try:
-        published = payload_accounts(analysis, surface="webapp/worker.py::_attach_account_confidence")
-    except PayloadShapeError:
-        return
-    for entry, account in zip(roster, accounts):
-        index = entry.get("published_index") if isinstance(entry, dict) else None
-        if (isinstance(index, int) and 0 <= index < len(published) and isinstance(account, dict)
-                and isinstance(account.get("confidence"), dict)):
-            published[index]["visual_pair_confidence"] = dict(account["confidence"])
 
 
 def _analyze_doc(
@@ -349,22 +198,6 @@ def _analyze_doc(
     html = rendered.value
     _note_cache(store, job_id, rendered, timer)
     try:
-        if getattr(doc, "visual_pair", None) is not None or doc.model == VISUAL_PAIR_MODEL_TOKEN:
-            from vlm.pair_adapter import analyze_visual_pair
-
-            policy = load_visual_pair_settings().review_policy
-            summary = _visual_pair_summary_html(doc, policy=policy)
-            html = html.replace("<body>", "<body>" + summary, 1) if "<body>" in html else summary + html
-            with _timed(timer, "analysis"):
-                report = analyze_visual_pair(
-                    doc, on_dispatch=collector,
-                    review_policy="hold" if policy == "always_review" else policy,
-                )
-                analysis = document_to_json(report)
-            analysis["parse_mode"] = parse_mode
-            analysis["visual_pair_confidence"] = dict(doc.visual_pair.get("confidence") or {})
-            _attach_account_confidence(analysis, doc.visual_pair)
-            return markdown, html, analysis, None
         with _timed(timer, "analysis"):
             # `doc.pages` is the intake object's own page list, and it goes to
             # both the analysis and the cache. `assess_document_integrity` reads
@@ -472,9 +305,9 @@ def _emit(
             escalated=bool((analysis or {}).get("escalated")),
             error_type=error_type,
             error_reason="analysis_error" if analysis_error and not error_type else None,
-            # A statement contradicting itself is the platform declining it, a valid failure (owner ruling,
-            # 2026-09-23), never an extraction that failed.
-            refused="contradictory" if not error_type and is_source_contradiction(analysis_error) else None,
+            # `refused="contradictory"` was declared here for the visual pair's verified source contradiction
+            # (vlm/source_contradiction.py, removed with the pair in slice S4); no reader of this worker produces
+            # one, so no record is refused. The vocabulary member stays (telemetry REFUSED_REASONS is append-only).
         ))
     except Exception:
         return None
@@ -497,7 +330,6 @@ def _read_document(
     allow_local_ocr: bool,
     allow_visual_ocr: bool,
     on_stage,
-    on_delta,
     on_replace,
     timer: StageTimer | None = None,
 ) -> StatementMarkdown | None:
@@ -521,7 +353,6 @@ def _read_document(
             allow_local_ocr=allow_local_ocr,
             allow_visual_ocr=allow_visual_ocr,
             on_stage=on_stage,
-            on_page_delta=on_delta,
             on_page_replace=on_replace,
         ),
         cache=cache,
@@ -537,59 +368,6 @@ def _read_document(
             on_replace(index, page)
     return result.value
 
-
-
-def _pair_fallback_needed(analysis: dict | None, trigger: str) -> bool:
-    if analysis is None:
-        return True
-    if trigger == "broad":
-        from telemetry.record import classify_document
-
-        return classify_document(analysis)[0] != "validated"
-    return False
-
-
-def _pair_decision(doc, profile, *, forced: bool) -> Escalation:
-    return EscalationRouter.decide(router_inputs(
-        profile=profile, evidence=ExtractionQualityGate.assess(doc, profile),
-        triggers=frozenset({OPERATOR_FORCED_VISUAL_PAIR if forced
-                            else DETERMINISTIC_PARSE_UNVALIDATED}),
-        attempted=(), stop=False, enabled=WORKER_PAIR_EXTRACTORS,
-    ))
-
-
-def _read_visual_pair(job_id, store, cache, pdf_bytes, filename, profile, *, timer):
-    from vlm.pair import extract_visual_pair
-
-    settings = load_visual_pair_settings()
-    # Even a cache hit must not bypass revoked remote customer authorization.
-    # A web upload always has customer scope; it cannot opt into synthetic.
-    check_remote_authorization(settings, data_scope="customer", pdf_sha256=content_sha256(pdf_bytes).lower())
-    evidence_dir = private_artifact_path("visual_pair_evidence")
-
-    def compute():
-        with TemporaryDirectory(prefix="visual-pair-input-") as temporary:
-            pdf = Path(temporary) / "statement.pdf"
-            pdf.write_bytes(pdf_bytes)
-            result = extract_visual_pair(
-                pdf, settings=settings, evidence_dir=evidence_dir,
-                progress=lambda stage: store.set_stage(job_id, stage),
-                data_scope="customer",
-            )
-        return replace(result, source_file=filename)
-
-    result = _cached_ocr_timed(
-        timer, pdf_bytes, compute=compute, cache=cache, source_file=filename,
-        content_hash=profile.content_sha256 if profile is not None else content_sha256(pdf_bytes), force_ocr=True,
-        allow_local_ocr=False, allow_visual_ocr=False, allow_visual_pair=True,
-        visual_pair_settings=settings,
-    )
-    _note_cache(store, job_id, result, timer)
-    if result.value is None:
-        raise RuntimeError("visual pair produced no document")
-    for index, page in enumerate(result.value.pages):
-        store.set_page_live(job_id, index, page)
-    return result.value
 
 def run_job(
     job_id: str,
@@ -607,7 +385,7 @@ def run_job(
     #
     # Cache (D-3): every expensive stage below goes through the content-hash
     # artifact cache bound to the same data directory, so re-processing
-    # byte-identical content performs zero OCR and zero LLM calls.
+    # byte-identical content performs zero OCR.
     store.set_status(job_id, "processing")
     cache = store.cache
     # Telemetry (H-3): write-only side-band. The collector observes the R-3
@@ -620,7 +398,7 @@ def run_job(
     doc: StatementMarkdown | None = None
     # The named stage for the job-level exception boundary below (#WORKERPRIV
     # site 2). Advanced inside the `read`/`analyze` closures rather than at
-    # their six call sites, so a new mode branch cannot forget it.
+    # their call sites, so a new branch cannot forget it.
     #
     # KNOWN GRANULARITY, stated rather than hidden: `set_result` runs after
     # `analyze` returns, so a storage-layer crash while publishing is
@@ -628,20 +406,18 @@ def run_job(
     # telemetry record's per-stage timings separate the two.
     phase = _PHASE_PREFLIGHT
     try:
-        ocr_settings = load_ocr_settings()
-        pair_enabled = ocr_settings.allow_visual_pair
-        legacy_visual = ocr_settings.visual_pair_legacy_visual
-        # inspect_pdf itself reads native text for classification. A forced
-        # pair request bypasses that probe as well as the native parser.
-        if not (force_ocr and not legacy_visual):
-            with timer.time("preflight"):
-                profile = inspect_pdf(pdf_bytes)
+        if force_ocr:
+            # Force visual OCR is retired (FORCED_OCR_RETIRED): refused before preflight, with nothing read and no
+            # stage named, so a re-analysis of a job stored with the flag answers this text and keeps the saved job.
+            store.set_error(job_id, FORCED_OCR_RETIRED)
+            _emit(store, job_id, None, len(pdf_bytes), None, None, None, None,
+                  collector, timer, error_type=FORCED_OCR_ERROR_TYPE)
+            return
+        with timer.time("preflight"):
+            profile = inspect_pdf(pdf_bytes)
 
         def on_stage(rung: str) -> None:
             store.set_stage(job_id, _STAGE_NAMES[rung])
-
-        def on_delta(page: int, chunk: str) -> None:
-            store.append_page_live(job_id, page, chunk)
 
         def on_replace(page: int, text: str) -> None:
             store.set_page_live(job_id, page, text)
@@ -651,7 +427,7 @@ def run_job(
             phase = _PHASE_READING
             return _read_document(
                 job_id, store, cache, pdf_bytes, filename, profile,
-                on_stage=on_stage, on_delta=on_delta, on_replace=on_replace,
+                on_stage=on_stage, on_replace=on_replace,
                 timer=timer, **flags,
             )
 
@@ -663,64 +439,20 @@ def run_job(
                 collector=collector, timer=timer,
             )
 
-        def pair_read(*, forced: bool) -> StatementMarkdown:
-            nonlocal phase
-            phase = _PHASE_READING
-            if _pair_decision(doc, profile, forced=forced).extractor != "visual_pair":
-                raise RuntimeError("visual pair escalation refused")
-            return _read_visual_pair(
-                job_id, store, cache, pdf_bytes, filename, profile, timer=timer,
+        # The one read: native PDF text, then local Tesseract. These are the flags (and so the OCR cache key) every
+        # read of this worker has used on the default environment; the visual rung is a literal False.
+        doc = read(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)
+        if doc is None:
+            markdown = (
+                f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
+                "No usable native PDF text was found."
             )
-
-        if force_ocr and not legacy_visual:
-            # The operator override bypasses native extraction AND analysis.
-            doc = pair_read(forced=True)
-        else:
-            doc = read(
-                force_ocr=force_ocr,
-                allow_local_ocr=not force_ocr,
-                allow_visual_ocr=legacy_visual and (force_ocr or parse_mode == "auto"),
-            )
-            if doc is not None:
-                store.set_stage(job_id, "analyzing", doc.model)
-                # With the pair enabled, an unmatched layout must reach the
-                # reviewed structured rows without visiting the legacy LLM.
-                if pair_enabled and parse_mode == "auto":
-                    phase = _PHASE_ANALYSIS
-                    markdown, html, analysis, analysis_error = _analyze_doc(
-                        doc, filename, "deterministic", cache, job_id, store,
-                        collector=collector, timer=timer,
-                    )
-                    if analysis is not None:
-                        analysis["parse_mode"] = parse_mode
-                else:
-                    markdown, html, analysis, analysis_error = analyze(doc)
-            else:
-                analysis = None
-            if pair_enabled and _pair_fallback_needed(
-                analysis, ocr_settings.visual_pair_fallback_trigger,
-            ):
-                doc = pair_read(forced=False)
-            elif doc is None:
-                markdown = (
-                    f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
-                    "No usable native PDF text was found."
-                )
-                html = markdown_to_html(markdown, title=filename)
-                store.set_result(
-                    job_id, markdown, html, None,
-                    "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text; turn on Force visual OCR to use the OCR service, or use Auto mode",
-                    "deterministic-native-preflight",
-                )
-                _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
-                      "native text unavailable", collector, timer,
-                      error_type="NoUsableNativeText")
-                return
-            else:
-                store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
-                _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
-                      analysis, analysis_error, collector, timer)
-                return
+            html = markdown_to_html(markdown, title=filename)
+            store.set_result(job_id, markdown, html, None, NO_USABLE_TEXT, "deterministic-native-preflight")
+            _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
+                  "native text unavailable", collector, timer,
+                  error_type="NoUsableNativeText")
+            return
 
         store.set_stage(job_id, "analyzing", doc.model)
         markdown, html, analysis, analysis_error = analyze(doc)
@@ -770,8 +502,8 @@ def run_job(
         # be interrupted: a `BaseException` raised INSIDE a handler (between
         # `set_error` and `_emit`, or during either) leaves the same stuck job
         # the arms exist to prevent. A `finally` is the only place that runs on
-        # every exit — including the four `return`s in the body, where the job
-        # is already `done` and this is a no-op read.
+        # every exit — including the two `return`s in the body, where the job
+        # is already terminal and this is a no-op read.
         #
         # It never overwrites a terminal state and it never raises: a status
         # check that could itself crash the thread would be a fifth way to

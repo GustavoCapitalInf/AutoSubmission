@@ -14,10 +14,10 @@ The real local-Tesseract path is preserved, not deleted:
 fixtures with the local binary and compares the resulting report to the
 artifact-served one. It carries the `live` marker, so it is deselected from the
 default run (`pytest.ini` addopts) and runs with `pytest -m live`. That marker
-is documented as "hits the real OCR endpoint"; this widens it to "runs real OCR
-rather than a committed fixture", which is the property that matters here — a
-dedicated marker would need a `pytest.ini` registration plus an addopts change
-to stay out of the default run, and that file is outside this task's allowlist.
+was documented as "hits the real OCR endpoint" and this test widened it to "runs
+real OCR rather than a committed fixture"; since the OCR endpoint was removed
+(model-code removal, slice S6) the marker text says exactly that: it runs the
+real local Tesseract instead of a committed OCR artifact.
 """
 from __future__ import annotations
 

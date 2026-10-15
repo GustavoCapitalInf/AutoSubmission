@@ -85,20 +85,6 @@ def test_a_statement_whose_business_checking_account_is_verified_or_that_prints_
     assert [member[0].id for member in members] == ["job-1", "job-2"] and excluded == []
 
 
-def test_each_published_account_takes_its_own_verification_score():
-    from tests.l1s3_payloads import document_payload
-    from webapp.worker import _attach_account_confidence
-    scores = {"accounts": [{"confidence": {"score": 0.125}}, {"confidence": {"score": 0.625}},
-                           {"confidence": {"score": 0.875}}]}
-    document = document_payload()
-    document["document"]["account_roster"] = [
-        {"status": "published", "published_index": 0}, {"status": "held", "published_index": None},
-        {"status": "published", "published_index": 1}]
-    _attach_account_confidence(document, scores)
-    assert [account["visual_pair_confidence"] for account in document["accounts"]] == [{"score": 0.125},
-                                                                                       {"score": 0.875}]
-    single = {**account_payload(), "document": {"account_roster": [
-        {"status": "held", "published_index": None}, {"status": "published", "published_index": 0},
-        {"status": "idle", "published_index": None}]}}
-    _attach_account_confidence(single, scores)
-    assert single["visual_pair_confidence"] == {"score": 0.625}
+# test_each_published_account_takes_its_own_verification_score pinned webapp/worker.py's _attach_account_confidence,
+# the visual pair's per-account score; it left with the worker's pair read (model-code removal, slice S1). A stored
+# job's per-account `visual_pair_confidence` is served as stored, and the package rule above is unchanged.

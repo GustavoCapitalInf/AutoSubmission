@@ -279,20 +279,22 @@ def test_a_new_unclassified_caller_turns_the_sweep_red(scratch_callers):
 
 
 @pytest.mark.parametrize("relative, function", [
-    ("vlm/pair_adapter.py", "analyze_visual_pair"),
-    ("vlm/currency.py", "resolve_currency"),
+    ("webapp/worker.py", "_analyze_doc"),
 ])
-def test_a_declared_visual_caller_that_drops_sheets_turns_the_harness_red(scratch_callers, relative, function):
-    """Why the two visual-pair callers are DECLARED rather than excused: the
-    web app's worker reaches both, and only a declared site is held to the
-    page partition. Were they excused, this mutant would stay green."""
+def test_a_declared_caller_that_drops_sheets_turns_the_harness_red(scratch_callers, relative, function):
+    """Why a production caller is DECLARED rather than excused: only a declared
+    site is held to the page partition. Were the web app worker's own analysis
+    excused, this mutant would stay green. (The mutant ran on the two
+    visual-pair callers until they were removed with the pair in slice S4 of
+    the model-code removal; the worker is the declared site the dashboard's
+    every job goes through.)"""
     path = scratch_callers / relative
     path.write_text(_without_sheets(path.read_text(encoding="utf-8"), function), encoding="utf-8")
     with pytest.raises(AssertionError, match="PRODUCTION_SUPPLIES_SHEETS"):
         test_the_gate_harness_analyses_the_way_production_does()
 
 
-@pytest.mark.parametrize("relative", ["tools/revenue_census.py", "tools/phase3_pair/oracle_compare.py"])
+@pytest.mark.parametrize("relative", ["tools/revenue_census.py"])
 def test_an_excused_research_tool_that_splats_its_arguments_turns_the_harness_red(scratch_callers, relative):
     path = scratch_callers / relative
     path.write_text(_with_sheets_splatted(path.read_text(encoding="utf-8")), encoding="utf-8")

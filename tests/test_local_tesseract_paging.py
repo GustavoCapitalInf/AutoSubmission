@@ -640,11 +640,22 @@ def test_a_discovery_run_fails_a_refused_read_closed_and_goes_on(monkeypatch, tm
         return None
 
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", fake_rung)
-    runner = DiscoveryRunner(root, mode=MODE_SCANNED, run_id="test-run", sink=None, cache=None, dedup=DedupIndex())
+    import json
+
+    from telemetry import JsonlSink
+
+    sink_path = tmp_path / "telemetry.jsonl"
+    runner = DiscoveryRunner(root, mode=MODE_SCANNED, run_id="test-run", sink=JsonlSink(sink_path), cache=None,
+                             dedup=DedupIndex())
     first = runner.process("SampleBank/first.pdf", "SampleBank")
     second = runner.process("SampleBank/second.pdf", "SampleBank")
     assert calls == ["first.pdf", "second.pdf"]
     assert (first.outcome_class, first.outcome_reason, first.error_type, first.source_path) == (
         "failed", "ocr_failed", "LocalOcrTimeout", "none")
-    # the second read, healthy and empty, is the ordinary "Tesseract ran and read nothing usable"
-    assert (second.outcome_class, second.outcome_reason) == ("deferred", "deferred_visual_ocr")
+    # the second read, healthy and empty, is the ordinary "Tesseract ran and read nothing usable": DECLARED MOVE
+    # (model-code removal, slice S5) from `deferred:deferred_visual_ocr` to the fail-closed
+    # `refused:insufficient_evidence`, in the row and in its telemetry record
+    assert (second.outcome_class, second.outcome_reason) == ("refused", "insufficient_evidence")
+    records = [json.loads(line) for line in sink_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [(r["outcome"]["class"], r["outcome"]["reason"]) for r in records] == [
+        ("failed", "ocr_failed"), ("refused", "insufficient_evidence")]

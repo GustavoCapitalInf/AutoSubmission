@@ -40,8 +40,11 @@ line break — the one property `source_file` needs, since a `-->` alone does
 NOT escape the guard (backtracking consumes to the LAST `-->` on the line;
 only a real newline breaks the single-line match).
 
-Every hostile input below is tested against BOTH channels: `OCR_MODEL` (via
-`load_settings`) and `source_file` (via `StatementMarkdown` construction).
+Every hostile input below is tested against BOTH channels: the model token
+(via `validate_model_token` and `StatementMarkdown` construction) and
+`source_file` (via `StatementMarkdown` construction). The `OCR_MODEL` env read
+(`load_settings`) was deleted in slice S2 of the model-code removal; stored
+documents still carry tokens, and the construction check still applies.
 """
 from __future__ import annotations
 
@@ -51,7 +54,7 @@ import os
 import pytest
 
 from analysis.parser_registry import admissible_text
-from ocr.config import ProvenanceTokenError, load_settings, validate_model_token
+from ocr.config import RESERVED_MODEL_PREFIXES, ProvenanceTokenError, validate_model_token
 from ocr.document import StatementMarkdown
 
 # ---------------------------------------------------------------------------
@@ -208,19 +211,18 @@ def test_block1_trailing_newline_reproduction_is_refused_at_construction():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("label", sorted(HOSTILE_MODEL_INPUTS))
-def test_hostile_model_token_refused_via_load_settings_override(label):
-    """`load_settings(model_override=...)` — the CLI `--model` path."""
-    with pytest.raises(ProvenanceTokenError):
-        load_settings(model_override=HOSTILE_MODEL_INPUTS[label])
+# Model-code removal, slice S2: `ocr.config.load_settings` (the OCR_MODEL env
+# read and the CLI `--model` override) was deleted with the visual OCR client,
+# and its two tests here went with it. The env-facing validator it called,
+# `validate_model_token(allow_reserved=False)`, stays and is pinned directly.
 
 
 @pytest.mark.parametrize("label", sorted(HOSTILE_MODEL_INPUTS))
-def test_hostile_model_token_refused_via_ocr_model_env(monkeypatch, label):
-    """`load_settings()` reading `OCR_MODEL` — the env / server path."""
-    monkeypatch.setenv("OCR_MODEL", HOSTILE_MODEL_INPUTS[label])
+def test_hostile_model_token_refused_via_the_env_facing_validator(label):
+    """`validate_model_token(allow_reserved=False)` — the check the deleted
+    `load_settings` applied to OCR_MODEL / `--model`."""
     with pytest.raises(ProvenanceTokenError):
-        load_settings()
+        validate_model_token(HOSTILE_MODEL_INPUTS[label], allow_reserved=False)
 
 
 @pytest.mark.parametrize("label", sorted(HOSTILE_MODEL_INPUTS))
@@ -232,31 +234,34 @@ def test_hostile_model_token_refused_via_statement_markdown(label):
 
 
 def test_env_value_impersonating_a_native_rung_is_refused():
-    """An env value must not impersonate a native/tesseract read (F-4(b))."""
+    """An externally supplied value must not impersonate a native/tesseract
+    read (F-4(b)) — `allow_reserved=False`."""
     for impostor in ("native-pdf-text", "native-pdf-text+fake-layout",
                       "local-tesseract-ocr", "deterministic-native-preflight"):
         with pytest.raises(ProvenanceTokenError):
-            load_settings(model_override=impostor)
+            validate_model_token(impostor, allow_reserved=False)
 
 
 def test_env_value_impersonating_the_paddle_rung_is_refused():
-    """P21-ROUTING: `RESERVED_MODEL_PREFIXES` gains `PADDLE_MODEL_TOKEN` — an
-    env-supplied `OCR_MODEL` must not be able to impersonate the Paddle rung
-    either, the same closure the three deterministic tokens already have."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
-
+    """P21-ROUTING: `RESERVED_MODEL_PREFIXES` gains the Paddle token — an
+    externally supplied token must not be able to impersonate the Paddle rung
+    either, the same closure the three deterministic tokens already have. The
+    rung and `ocr.paddle_config` were removed (model-code removal, slice S5);
+    the token stays reserved (stored readings carry it), so the guard reads it
+    from `ocr.config`'s literal."""
+    paddle_token = "paddle-ocr+ppocrv5"
+    assert paddle_token in RESERVED_MODEL_PREFIXES
     with pytest.raises(ProvenanceTokenError):
-        load_settings(model_override=PADDLE_MODEL_TOKEN)
+        validate_model_token(paddle_token, allow_reserved=False)
 
 
 def test_reserved_prefixes_remain_legitimate_on_statement_markdown():
     """The carve-out: native/tesseract/Paddle rungs set these directly and
-    must not be refused by the same check that refuses an env impostor."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
-
+    must not be refused by the same check that refuses an env impostor (a
+    stored Paddle reading still restores with its token after slice S5)."""
     for legit in ("native-pdf-text", "native-pdf-text+navy-federal-layout",
                   "local-tesseract-ocr", "deterministic-native-preflight",
-                  PADDLE_MODEL_TOKEN):
+                  "paddle-ocr+ppocrv5"):
         StatementMarkdown(source_file="s.pdf", model=legit, pages=["x"])  # must not raise
 
 

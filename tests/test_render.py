@@ -53,6 +53,30 @@ def test_render_boxed_embeds_picture_region_when_image_given():
     assert '<img class="doc-image" src="data:image/png;base64,' in out
 
 
+def test_the_picture_crop_lives_in_render_and_imports_no_ocr_client():
+    """Model-code removal, slice S2: the 4-line `_crop_data_uri` moved here from
+    the retired visual OCR client unchanged, so a stored legacy visual read's
+    picture regions still render (the /render identity is measured in the S2
+    report). The crop is the box of the page image, as a PNG data URI."""
+    import ast
+    import base64
+    import inspect
+    import io
+
+    import ocr.render as render_module
+
+    tree = ast.parse(inspect.getsource(render_module))
+    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+    assert not imported & {"ocr_client", "ocr.ocr_client"}, imported
+    img = Image.new("RGB", (100, 100), (10, 20, 30))
+    uri = render_module._crop_data_uri(img, (10, 10, 60, 40))
+    prefix = "data:image/png;base64,"
+    assert uri.startswith(prefix)
+    crop = Image.open(io.BytesIO(base64.b64decode(uri[len(prefix):])))
+    assert crop.format == "PNG" and crop.size == (50, 30)
+    assert crop.convert("RGB").getpixel((0, 0)) == (10, 20, 30)
+
+
 def test_rendered_skeleton_supports_region_toggle():
     skel = rendered_skeleton()
     assert "body.hide-regions .region" in skel

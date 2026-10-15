@@ -1,14 +1,13 @@
 """Batch-analyze a folder of bank statements into one triage CSV.
 
-Accepts OCR'd markdown files (fast) and/or PDFs (OCR'd first via the running OCR
-server — set OCR_BASE_URL/OCR_API_KEY). One row per statement with the key
-underwriting figures and a needs_review flag so clean statements flow through and
-only the questionable ones get human eyes.
+Accepts extracted markdown files (fast) and/or PDFs (their native text is read
+first; this CLI has no OCR rung, so a PDF without native text gets an error row).
+One row per statement with the key underwriting figures and a needs_review flag
+so clean statements flow through and only the questionable ones get human eyes.
 
 Usage:
   .venv/bin/python batch.py output/ --out triage.csv          # a folder of .md
-  OCR_BASE_URL=http://localhost:8000/v1 OCR_API_KEY=EMPTY \\
-      .venv/bin/python batch.py BankStatements/ --out triage.csv   # PDFs (OCR+analyze)
+  .venv/bin/python batch.py BankStatements/ --out triage.csv  # PDFs (read + analyze)
 
 `--zelle-true-revenue {yes,no}` is the owner's "Mark Zelle Payments as True
 Revenue" (the underwriter's Q3, amended 2026-10-06), yes by default as on the
@@ -86,11 +85,17 @@ FIELDS = [
 ]
 
 
-def _markdown_for(path: Path, *, allow_visual_ocr: bool = False) -> str:
-    return _read_source(path, allow_visual_ocr=allow_visual_ocr)[0]
+#: The no-text refusal (model-code removal, slice S2: declared). This CLI reads
+#: a PDF's native text only; the visual OCR rung `--visual` used to allow is
+#: gone. Console only: the CSV cell records the exception class name.
+NO_NATIVE_TEXT = "no native PDF text could be extracted; this CLI reads native PDF text only"
 
 
-def _read_source(path: Path, *, allow_visual_ocr: bool = False):
+def _markdown_for(path: Path) -> str:
+    return _read_source(path)[0]
+
+
+def _read_source(path: Path):
     """(markdown, StatementMarkdown | None, DocumentProfile | None, byte_size).
 
     The document object used to be discarded here; telemetry needs it for the
@@ -98,14 +103,10 @@ def _read_source(path: Path, *, allow_visual_ocr: bool = False):
     the document facts. Neither changes what is analysed — `markdown` is
     produced exactly as before.
 
-    OQ7 / F-4(a): `allow_visual_ocr` defaults to False — this CLI used to call
-    `parse_statement` with the defaults (`allow_visual_ocr=True`), the same
-    unbounded egress path `parse.py` had. The caller (`main`) probes and
-    endpoint-checks before ever passing True (`--visual`). When the offline
-    ladder cannot read a document and the visual rung is not allowed,
-    `parse_statement` returns `None`: raised here as a clear, specific error
-    so the per-file row records "no native/local text" rather than falling
-    through into an unrelated downstream failure.
+    This CLI reads native PDF text only (no OCR rung). When the offline ladder
+    cannot read a document `parse_statement` returns `None`: raised here as a
+    clear, specific error so the per-file row records the failure rather than
+    falling through into an unrelated downstream one.
     """
     raw = path.read_bytes()
     if path.suffix.lower() == ".pdf":
@@ -113,12 +114,9 @@ def _read_source(path: Path, *, allow_visual_ocr: bool = False):
         from ocr.pipeline import parse_statement
 
         profile = inspect_pdf(raw)
-        doc = parse_statement(raw, source_file=path.name, allow_visual_ocr=allow_visual_ocr)
+        doc = parse_statement(raw, source_file=path.name)
         if doc is None:
-            raise RuntimeError(
-                "no native or local text could be extracted; rerun with "
-                "--visual to allow the local $0 OCR rung"
-            )
+            raise RuntimeError(NO_NATIVE_TEXT)
         return doc.to_markdown(), doc, profile, len(raw)
     return path.read_text(encoding="utf-8"), None, None, len(raw)
 
@@ -359,14 +357,6 @@ def main() -> None:
         help="H-3 telemetry JSONL (default telemetry_runs/<run_id>.jsonl; "
              "set TELEMETRY_DISABLED=1 to turn it off).",
     )
-    ap.add_argument(
-        "--visual", action="store_true",
-        help="Allow the visual-OCR rung (local $0 server only, by default) "
-             "for PDFs the offline ladder cannot read. Probed and "
-             "endpoint-checked ONCE before the batch starts; a remote/paid "
-             "endpoint additionally requires OCR_REMOTE_OPT_IN "
-             "(see README.md).",
-    )
     ap.add_argument("--zelle-true-revenue", choices=("yes", "no"), default="yes",
                     help="Mark Zelle Payments as True Revenue (default yes, the Settings default)")
     args = ap.parse_args()
@@ -380,21 +370,6 @@ def main() -> None:
     if not files:
         print(f"no .md/.pdf statements found under {root}", file=sys.stderr)
         sys.exit(1)
-
-    # OQ7 / F-4(a): this CLI used to call `parse_statement` with the defaults
-    # (`allow_visual_ocr=True`) — every PDF without native text went straight
-    # to the env-configured endpoint with its pixels. Offline-only is now the
-    # default; `--visual` probes ONCE up front (as `ocr.availability`'s own
-    # docstring requires for a long batch) rather than per file.
-    allow_visual_ocr = False
-    if args.visual:
-        from ocr.availability import probe_visual_ocr
-
-        status = probe_visual_ocr()
-        if not status.usable:
-            print(f"error: {status.message()}", file=sys.stderr)
-            sys.exit(1)
-        allow_visual_ocr = True
 
     # Audit 2026-10-13, EXP-3: the CSV is opened, and its header written, before the first document is analysed, and
     # each row is written and flushed as it is produced (it used to be opened after the last document): a --out that
@@ -435,9 +410,7 @@ def main() -> None:
             byte_size = 0
             try:
                 with timer.time("read"):
-                    markdown, doc, profile, byte_size = _read_source(
-                        path, allow_visual_ocr=allow_visual_ocr
-                    )
+                    markdown, doc, profile, byte_size = _read_source(path)
                 with timer.time("analysis"):
                     # The intake object's page list when this input was a PDF, and
                     # nothing when it was already-extracted markdown — a .md file

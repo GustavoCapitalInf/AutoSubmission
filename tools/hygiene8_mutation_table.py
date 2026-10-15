@@ -151,64 +151,14 @@ QUEUE_MUTANTS = (
 )
 
 #: --------------------------------------------------------------------------
-#: EXTRACT-PROMPT — `analysis/extract.py` and the guard that reaches it
+#: EXTRACT-PROMPT — REMOVED (model-code removal, slice S3). Mutants E1-E4 edited
+#: the hosted extractor's prompt in `analysis/extract.py`, and E5 put that
+#: module back into `PATTERN_SCAN_EXEMPT`; the module and the two prompt tests
+#: that killed them (`test_the_amount_scan_now_sees_the_llm_prompt`,
+#: `test_no_worked_example_in_the_llm_prompt_carries_a_figure`) were deleted
+#: together, so E5 would now be an inert exemption of an absent file and a
+#: silent survivor. Git history keeps the five rows (last held at `3dc2e17`).
 #: --------------------------------------------------------------------------
-EXTRACT_MUTANTS = (
-    Mutant(
-        "E1", "the prompt carries no exact-cent constant", "analysis/extract.py",
-        "      Previous Balance / <N> Deposits/Credits / <N> Checks/Debits / Service Charge /",
-        "      Previous Balance / 7 Deposits/Credits / 7 Checks/Debits / 1,234.56 /",
-        "an amount-shaped constant comes back into the prompt. THE PAYLOAD IS "
-        "INVENTED and is not the constant that was removed: a mutant that "
-        "restored the real one would be the leak, written into tracked source "
-        "by the tool that proves there is none",
-    ),
-    Mutant(
-        "E2", "a quoted example carries no digits", "analysis/extract.py",
-        '  Amount cell left blank ("<description as printed> <money token>"); use that',
-        '  Amount cell left blank ("SOME DESCRIPTION 1,234.56"); use that',
-        "a worked example goes back to carrying a figure welded to a payee - "
-        "the class R-1 purged, in the half `AMOUNT_RE` cannot see. Payee and "
-        "figure both INVENTED: the removed example's own tokens are what the "
-        "standing privacy rule keeps out of this repository, and a structural "
-        "gate needs no specimen",
-    ),
-    Mutant(
-        "E3", "the alignment example keeps its VALUE row", "analysis/extract.py",
-        "      <V4> / <V5> / <V6>",
-        "      the values, in the same order",
-        # REVIEW MINOR-6: the row used to say "the value row loses its "
-        # `<V1>..<V3>` ordering", which is not what the edit does. H7.1 told it
-        # correctly; the harness row did not.
-        "the value row loses its `<V4> / <V5> / <V6>` CONTINUATION, so the "
-        "worked example stops showing that the value line runs on past the "
-        "third placeholder - the shape pin, not the token pin",
-    ),
-    Mutant(
-        "E4", "the alignment example keeps its LABEL row", "analysis/extract.py",
-        "      Previous Balance / <N> Deposits/Credits / <N> Checks/Debits / Service Charge /\n"
-        "      Interest Paid / Ending Balance   ...then...   <V1>- / <V2> / <V3> /\n"
-        "      <V4> / <V5> / <V6>",
-        "      the labels first, then the values",
-        # REVIEW MINOR-6: the row called itself "MUTANT E5 FROM THE COMMIT",
-        # which reads as a contradiction beside its own id and beside the
-        # table's E5 - a different edit entirely. The mapping is stated instead
-        # of cross-referenced.
-        "THE COMMIT'S E5, WHICH IS THIS TABLE'S E4 (the table's own E5 is the "
-        "`PATTERN_SCAN_EXEMPT` mutant, a different edit): the two-column "
-        "worked example is deleted outright, and every placeholder it named "
-        "still stands in the prose around it. This is the mutant that survived "
-        "the token pin",
-    ),
-    Mutant(
-        "E5", "`extract.py` is out of PATTERN_SCAN_EXEMPT",
-        "tests/test_no_statement_hardcodes.py",
-        'PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py"}',
-        'PATTERN_SCAN_EXEMPT = {"metrics.py", "pipeline.py", "reconcile.py", "extract.py"}',
-        "the exemption comes back, so the amount scan stops seeing the prompt "
-        "at all - the debt EXTRACT-PROMPT paid off",
-    ),
-)
 
 #: --------------------------------------------------------------------------
 #: RAISE-PRIVACY-3 — the six rerouted sites and the reader-name rule
@@ -385,7 +335,7 @@ MAJOR2_MUTANTS = (
     ),
 )
 
-MUTANTS = (QUEUE_MUTANTS + EXTRACT_MUTANTS + RAISE_MUTANTS + OVERFLOW_MUTANTS
+MUTANTS = (QUEUE_MUTANTS + RAISE_MUTANTS + OVERFLOW_MUTANTS
            + MAJOR2_MUTANTS)
 
 
