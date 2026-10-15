@@ -1139,7 +1139,14 @@ def test_a_logo_block_fires_E1_and_that_is_a_recorded_calibration_limit():
     assert clean.ink_outside_boxes < THRESHOLDS["ink_outside_boxes_ceiling"]
     assert clean.classes == ()
 
-    logo = page_quality(evidence_page(page), raster=with_logo(rendered_raster(page)))
+    # The fixture's Courier is not embedded, so each host draws it in its own substitute font (a thin Courier New on
+    # Windows, a heavier mono face on Linux CI): a fixed-size logo's share of the ink then depended on the host. The
+    # block now carries as much ink as every word on the page together and sits in the empty foot of the page, away
+    # from every word box, so its share is about one half on any host. The threshold itself is untouched.
+    raster = rendered_raster(page)
+    text_ink = sum(1 for value in raster.pixels if value <= THRESHOLDS["ink_dark_luminance_max"])
+    side = int(text_ink ** 0.5) + 1
+    logo = page_quality(evidence_page(page), raster=with_logo(raster, size=side, y=raster.height - side - 20))
     assert logo.ink_outside_boxes > THRESHOLDS["ink_outside_boxes_ceiling"]
     assert logo.classes == ("E1",)
     # the page's WORDS are identical: nothing about the extraction changed
