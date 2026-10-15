@@ -7,7 +7,7 @@ deterministic Python on this machine: no model is called, scanned statements are
 and no statement data leaves the machine. It fails closed: a statement is published only when its own printed
 figures prove the reading; otherwise it is withheld or sent to review with the reason.
 
-The old model-based OCR and extraction paths are retired and are being removed from the tree.
+The model-based OCR and extraction paths were removed by the owner's ruling of 2026-10-13; git history holds them.
 
 ## How it works
 
@@ -48,9 +48,9 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-analysis.txt
 ```
 
-Both files are needed. They still list two packages for the retired code, `google-genai`
-(`requirements-analysis.txt`) and `openai` (`requirements.txt`); nothing imports either any more. No API key is
-needed, whatever the header of `requirements-analysis.txt` says. Every command below assumes the venv is active.
+Both files are needed: `requirements.txt` holds the PDF, image and web packages, `requirements-analysis.txt` the
+`.env` loader and the statement schema (`python-dotenv`, `pydantic`). Neither lists a model package and no API key
+is needed. Every command below assumes the venv is active.
 
 **2. System tools.**
 
@@ -92,14 +92,15 @@ until space is freed and the app is restarted.
 
 ## Parse modes
 
-The upload page offers **Auto** (the default) and **Deterministic only**. Both read native text first, then
-local Tesseract, and both run only the deterministic parsers, so today they give the same results; Auto labels
-its output `auto` and is cached separately. A statement no parser claims ends as "no deterministic parser
-matched this statement" in both. Nothing falls back to hosted extraction (Ruling A).
+The upload page offers **Auto** (the default) and **Deterministic only**. Today both run the same deterministic
+path: the PDF's native text first, then, for scanned pages, local Tesseract on this machine, then the
+deterministic parsers. Nothing is sent out. They give the same results; Auto labels its output `auto` and is
+cached separately. A statement no parser claims ends as "no deterministic parser matched this statement" in
+both: nothing is guessed.
 
-There is no Force visual OCR control: an upload that still sends `force_ocr=1` (an old page or a script) is refused
-with HTTP 400 before anything is stored. A job stored with that flag before the change still displays; re-analysing
-it answers that the visual OCR it was read with is retired, and keeps the saved job.
+An upload that still sends the old `force_ocr=1` field (an old page or a script) is refused with HTTP 400 before
+anything is stored. A job stored with that flag still displays; re-analysing it is refused with a fixed message
+that asks for a fresh upload, and the saved job is kept.
 
 ## Command-line tools
 
@@ -114,8 +115,7 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
 ```
 
 - `parse.py` and `batch.py` read native text only (no Tesseract), so use the web app for scans. A PDF without
-  native text gets the error "this CLI reads native PDF text only" (their `--visual` and `--model` options went
-  with the retired visual OCR).
+  native text gets the error "this CLI reads native PDF text only".
 - `analyze.py` and `batch.py` take `--zelle-true-revenue {yes,no}` (default yes) and read no web app setting.
 - `analyze.py` reads Markdown only: given a PDF, it prints one error line and exits 2 (run `parse.py` first, or
   `batch.py` on the PDF).
@@ -128,33 +128,25 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
   `python -m telemetry.report --sqlite <data directory>` reads the web app's records instead.
 - `python -m discovery` also runs `--profile-only` (intake), `--digital` (offline rungs) or `--scanned` (plus
   local Tesseract) over `--root`, after checking it against the frozen archive baseline (`--skip-baseline` for
-  scoped runs). Its model-reading modes (`--scanned-visual`, `--scanned-paddle`, `--research-paddle`) are gone; on
-  `--scanned`, a document Tesseract reads nothing usable from is refused (`refused:insufficient_evidence`). Its
-  cache is the web app's data
-  directory unless you pass `--no-cache`. Reports go to the gitignored `discovery_reports/<run_id>/`.
+  scoped runs). On `--scanned`, a document Tesseract reads nothing usable from is refused
+  (`refused:insufficient_evidence`). Its cache is the web app's data directory unless you pass `--no-cache`.
+  Reports go to the gitignored `discovery_reports/<run_id>/`.
 - The benchmark verifies its manifest's PDF hashes first and writes masked reports to `benchmark_reports/`.
 
 ## Tests
 
 ```bash
-python -m pip install -r requirements-dev.txt   # both runtime files plus the test-only packages
+python -m pip install -r requirements-dev.txt   # both runtime files plus pytest
 python -m pytest                                # the default suite
 python -m pytest -m corpus                      # the 34 corpus tests, the gate among them
 ```
 
-- `requirements-dev.txt` adds pytest, `jsonschema`, `pypdfium2` and `numpy` to the two runtime files. The last
-  three were needed only because the suite imported the retired visual-pair code (`vlm/`), which has been
-  removed; their lines leave with the requirement-file clean-up.
-- `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests of the retired model endpoints were
-  removed with them. The one local `live` check is the Tesseract drift test:
-  `python -m pytest -m live tests/test_new_statement_corpus.py`.
-- **Known failures** (after the visual pair's and PaddleOCR's removal, Windows, Python 3.14): 4 failed, 23,292
-  passed, 52 skipped, 36 deselected, in about 12 minutes. All four are Windows environment artefacts: the symlink tests
-  of `tests/test_private_artifacts.py` need the symlink privilege (`WinError 1314`). The two guard tests that
-  tripped on the retired visual-pair code
-  (`test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr` and
-  `test_stated_counts::test_the_observer_is_not_wired_into_any_production_module`) pass now, and the other
-  Windows artefacts left with the visual-pair code they tested. Any other failure is new.
+- `requirements-dev.txt` is the two runtime files plus pytest; CI installs it.
+- `pytest.ini` deselects the `live` and `corpus` markers. The one `live` check is the drift test of the real
+  local Tesseract: `python -m pytest -m live tests/test_new_statement_corpus.py`.
+- **Known failures** (Windows, Python 3.14, 2026-10-15): 4 failed, 23,368 passed, 52 skipped, 36 deselected, in
+  about 10 minutes. All four are Windows environment artefacts: the symlink tests of
+  `tests/test_private_artifacts.py` need the symlink privilege (`WinError 1314`). Any other failure is new.
 
 ## Corpus gate (required before merge)
 
@@ -181,9 +173,9 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 - Run it locally before merging anything that touches parsing, reconciliation, ADB, balance metrics,
   serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml`, Ubuntu 24.04,
   Python 3.12) runs on every pull request and every push to `main`: it checks that the shipped entry points import
-  with the two runtime files alone, installs `requirements-dev.txt`, runs the suite, and runs the gate whether or
-  not the suite passed (the job fails if either fails). Nothing makes a merge wait for it: GitHub's branch
-  protection is not available on this repository's plan.
+  with the two runtime files alone and load no model package, installs `requirements-dev.txt`, runs the suite, and
+  runs the gate whether or not the suite passed (the job fails if either fails). Nothing makes a merge wait for
+  it: GitHub's branch protection is not available on this repository's plan.
 - The gate never rewrites the audits. Regenerating the truth set is a separate, deliberate act:
   `python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache`, then the same with
   `balance_forensic_audit.py`. Both read every PDF under the path they are given, not the pinned manifest, and
@@ -201,18 +193,14 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 | `WEBAPP_PORT` | `5000` | Port. |
 | `WEBAPP_DATA_DIR` | unset | The data directory; absolute and outside the checkout. |
 | `WEBAPP_MIN_FREE_MB` | `256` | Free space the data volume keeps: an upload or a Re-analyze that would leave less is refused (507) before anything is written. `0` turns it off; a value that is not a whole number falls back to the default. |
-| `VISUAL_PAIR_PRIVATE_ROOT` | `~/.local/share/bank-statement-analysis/phase31-private` | Root of the default data directory (`<root>/webapp_data`). The name is a leftover. |
+| `VISUAL_PAIR_PRIVATE_ROOT` | `~/.local/share/bank-statement-analysis/phase31-private` | Root of the default data directory (`<root>/webapp_data`), under the same data-directory rule: absolute and outside the checkout, symlinks included. The name is kept for compatibility. |
 | `POPPLER_PATH` | `C:\poppler-24.08.0\Library\bin` | Windows only: the folder holding `pdfinfo.exe`. Set it in the shell: `run.ps1` checks the shell's value, not `.env`. |
 | `WITHHOLDING_DENOMINATOR_MODE` | `true_revenue` | The withholding basis (below). No run file sets it. |
 | `TELEMETRY_DISABLED` | unset | `1`, `true`, `yes` or `on` turns telemetry off everywhere. |
 | `RECONSTRUCTION_MODE` | `off` | Leave it `off`; the other values belong to a research path. |
 
 A gitignored `.env` at the repository root is read at start and fills in any variable the shell leaves unset.
-Any variable not listed here belongs to the retired model paths: leave it unset. `OCR_REMOTE_OPT_IN`,
-`OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`, `VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN`,
-`HOSTED_EXTRACTION_OPT_IN` and the `GEMINI_*` and `PADDLE_*` settings no longer do anything: the visual pair, the
-legacy visual OCR, PaddleOCR and the hosted extraction they opened were removed. Empty an old `.env` of model
-settings. `run.ps1` still pins five of these switches to `0` for the web app it starts.
+Settings an old `.env` still holds for the removed model paths are ignored and can be deleted.
 
 ## Product rules
 
@@ -258,7 +246,7 @@ Where each rule is defined:
 - True revenue: [`docs/superpowers/specs/2026-09-28-true-revenue-design.md`](docs/superpowers/specs/2026-09-28-true-revenue-design.md) (tiers in §5.1 to §5.3)
 - Lender scope and flag groups: [`docs/superpowers/specs/2026-09-24-lender-detection-design.md`](docs/superpowers/specs/2026-09-24-lender-detection-design.md) (§2)
 - ADB doctrine (calendar days of the printed period, one published figure): the docstring of [`analysis/adb.py`](analysis/adb.py)
-- NSF (R18 and R18 amended) and no hosted extraction on parser failure (Ruling A):
+- NSF (R18 and R18 amended):
   [`docs/moneythumb-replacement/PHASE2_RULINGS.md`](docs/moneythumb-replacement/PHASE2_RULINGS.md)
 - Currency (native currency, no FX): [`docs/moneythumb-replacement/CURRENCY_DOCTRINE.md`](docs/moneythumb-replacement/CURRENCY_DOCTRINE.md)
 
@@ -276,8 +264,10 @@ Where each rule is defined:
   ([`docs/moneythumb-replacement/H3_SCHEMA.md`](docs/moneythumb-replacement/H3_SCHEMA.md)). It is append-only.
 - Discovery and benchmark reports mask account numbers to the last four digits; discovery reports name relative
   paths and folder labels, so they stay local (gitignored).
-- The server makes no outbound calls. The dashboard page loads its web fonts from Google Fonts in the browser;
-  that request carries no statement data.
+- The server makes no outbound calls: statements are read on this machine, scanned pages by local Tesseract, and
+  nothing is sent out. `tests/test_no_model_clients.py` fails if a tracked Python file imports a model package, or
+  a production module imports a network client or reads a model setting. The dashboard page loads its web fonts
+  from Google Fonts in the browser; that request carries no statement data.
 - Licensing: native text uses PyMuPDF (AGPL-3.0 or a paid licence) and page counts and previews use poppler
   (GPL). The owner's licensing rule excludes both for a licensed product; moving to pypdfium2 is step L0 of the
   commercial roadmap draft, which is not approved
@@ -288,12 +278,14 @@ Where each rule is defined:
 The deterministic reader is the product: 84 parsers, classification version 5.9, the corpus gate at 105 pass,
 3 withheld, 1 refusal. A generic **text-first reader** for digital statements no parser recognises is planned,
 not built: [`docs/superpowers/specs/2026-09-24-text-first-reader-design.md`](docs/superpowers/specs/2026-09-24-text-first-reader-design.md)
-(its references to the visual pair predate the 2026-10-13 ruling that no model is used).
+(written before the owner's ruling of 2026-10-13, so the model code it mentions has since been removed).
 
 **Read first:** the rule documents under [Product rules](#product-rules), in that order, then the docstring of
 `corpus_gate.py` and [`docs/agent-handoffs/TRUE-REVENUE-HANDOFF.md`](docs/agent-handoffs/TRUE-REVENUE-HANDOFF.md),
 the latest handoff. Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and
 `docs/lender-registry-evidence.md`.
-Historical, read for background only: the rest of `docs/moneythumb-replacement/` (its architecture and master
-plan describe the retired model fallback), the cell briefs in `docs/agent-handoffs/`, and the July specs and
-plans under `docs/superpowers/`. The September plans there are finished implementation records.
+Historical, read for background only: the rest of `docs/moneythumb-replacement/`, the cell briefs in
+`docs/agent-handoffs/`, `PHASE2_HANDOFF.md`, and the July specs and plans under `docs/superpowers/`. The September
+plans there are finished implementation records. These records still describe the model paths (visual OCR, the
+visual model pair, PaddleOCR, hosted extraction) that the owner's ruling of 2026-10-13 removed; git history holds
+that code.
