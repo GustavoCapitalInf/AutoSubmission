@@ -298,25 +298,29 @@ def test_postprocess_admitted_partitions_the_visual_key():
     assert base != changed
 
 
-def test_computing_any_ocr_key_imports_no_model_module():
+def test_computing_any_ocr_key_imports_no_model_module(tmp_path):
     """Computing an OCR key — offline-labelled AND the historical
     visual-labelled shape — imports no model client: the visual OCR client
     module no longer exists (slice S2), and nothing pulls in `openai`.
     Proven in a subprocess so a prior import elsewhere in the test session
-    cannot hide a regression."""
-    code = (
-        "import sys, importlib.util;"
-        "from webapp.artifact_cache import ocr_settings_key;"
-        "ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False);"
-        "ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True);"
-        "ocr_settings_key();"
-        "print(importlib.util.find_spec('ocr.ocr_client') is None,"
-        " sorted(m for m in sys.modules if m in ('ocr.ocr_client', 'ocr.availability', 'openai')"
-        " or m.startswith(('openai.', 'vlm'))))"
-    )
-    result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, cwd=ROOT)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "True []", result.stdout
+    cannot hide a regression; since slice S6 through N2's helper
+    (`tests/test_no_model_clients.py`), which checks every model package and
+    removed model module, third-party network clients and outbound
+    connections (the deleted module's name alone had become vacuous)."""
+    from tests.test_no_model_clients import assert_no_model_module_after
+
+    result = assert_no_model_module_after("""
+import importlib.util
+from webapp.artifact_cache import ocr_settings_key
+keys = [
+    ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False),
+    ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+    ocr_settings_key(),
+]
+RESULT["keys"] = len(set(keys))
+RESULT["client_module"] = importlib.util.find_spec("ocr.ocr_client") is not None
+""", tmp_path / "data")
+    assert result == {"keys": 3, "client_module": False}
 
 
 # ---------------------------------------------------------------------------

@@ -80,22 +80,17 @@ if (-not (Test-Path (Join-Path $poppler "pdfinfo.exe"))) {
 # Tesseract is optional: without it scanned statements are not read (digital ones still are).
 $tesseract = Get-Command tesseract -ErrorAction SilentlyContinue
 
-# The retired model switches. Each one turns a model path on only at "1" or an exact opt-in literal.
-$retired = "OCR_ALLOW_VISUAL_PAIR", "OCR_VISUAL_PAIR_LEGACY_VISUAL", "OCR_REMOTE_OPT_IN",
-           "HOSTED_EXTRACTION_OPT_IN", "VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN"
-
 # Saved and restored, so this session's environment is left as it was found.
 # (Remove-Item, not SetEnvironmentVariable with $null: PowerShell 7 would leave an empty variable behind.)
-$names = @("WEBAPP_HOST", "WEBAPP_PORT", "WEBAPP_DATA_DIR") + $retired
+# No model switch is pinned any more: the app has no model path left to turn on, and nothing reads one
+# (tests/test_no_model_clients.py).
+$names = @("WEBAPP_HOST", "WEBAPP_PORT", "WEBAPP_DATA_DIR")
 $saved = @{}
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
 
 $code = 0
 Push-Location $root
 try {
-    # Pinned to "0" for this run, not removed: the app's .env loader never overrides a variable
-    # that is set, so neither an inherited shell value nor a .env line can turn a model path on.
-    foreach ($name in $retired) { Set-Item "Env:$name" "0" }
     $env:WEBAPP_PORT = "$Port"
     $env:WEBAPP_HOST = if ($BindAll) { "0.0.0.0" } else { "127.0.0.1" }
     $env:WEBAPP_DATA_DIR = $dataFull

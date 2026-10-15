@@ -331,47 +331,52 @@ def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path:
 # --- the offline guarantee --------------------------------------------------
 
 
-def test_no_model_extraction_can_happen(tree: Path):
+#: A discovery read of the synthetic tree's digital statement, run in a fresh
+#: process by N2's helper (`tests/test_no_model_clients.py`).
+_DISCOVERY_READ = """
+from pathlib import Path
+from discovery.inventory import DedupIndex
+from discovery.runner import DiscoveryRunner, MODE_DIGITAL
+row = DiscoveryRunner(Path({root!r}), mode=MODE_DIGITAL, run_id="t", sink=None, cache=None,
+                      dedup=DedupIndex()).process("BankX/statement.pdf", "BankX")
+RESULT["parser_id"] = row.parser_id
+"""
+
+
+def test_no_model_extraction_can_happen(tree: Path, tmp_path_factory):
     """There is no extraction model to call: the hosted extractor was deleted
     in slice S3 of the model-code removal (this test used to stub it to fail),
-    and the analysis module discovery runs holds no handle to one."""
-    import importlib.util
+    and the analysis module discovery runs holds no handle to one. Since slice
+    S6 the read runs in a fresh process through N2's helper, which also proves
+    no model module, no third-party network client and no outbound connection
+    (a check of `sys.modules` for the deleted module alone became vacuous)."""
+    from tests.test_no_model_clients import assert_no_model_module_after
 
-    import analysis.pipeline as pipeline
+    result = assert_no_model_module_after(_DISCOVERY_READ.format(root=str(tree)) + """
+import importlib.util
+import analysis.pipeline as pipeline
+RESULT["extractor"] = hasattr(pipeline, "extract_statement")
+RESULT["extract_module"] = importlib.util.find_spec("analysis.extract") is not None
+""", tmp_path_factory.mktemp("data"))
+    assert result == {"parser_id": "chase", "extractor": False, "extract_module": False}
 
-    assert not hasattr(pipeline, "extract_statement")
-    assert importlib.util.find_spec("analysis.extract") is None
-    row = _runner(tree).process("BankX/statement.pdf", "BankX")
-    assert row.parser_id == "chase"
 
-
-def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
+def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path, tmp_path_factory):
     """The visual OCR client (`ocr.ocr_client`) was deleted in slice S2 of the
     model-code removal and the PaddleOCR rung, client and settings in slice S5:
     none can be found at all, and nothing tries to import them (before S5,
     `discovery.runner` imported `ocr.paddle_config` for a refusal vocabulary;
-    it now holds that vocabulary as a literal)."""
-    code = (
-        "import sys, importlib.util; from pathlib import Path;"
-        "from discovery.runner import DiscoveryRunner, MODE_DIGITAL;"
-        "from discovery.inventory import DedupIndex;"
-        f"r = DiscoveryRunner(Path({str(tree)!r}), mode=MODE_DIGITAL, run_id='t',"
-        " sink=None, cache=None, dedup=DedupIndex());"
-        "r.process('BankX/statement.pdf', 'BankX');"
-        "gone = ('ocr.ocr_client', 'ocr.paddle_rung', 'ocr.paddle_client', 'ocr.paddle_config',"
-        " 'ocr.endpoint_policy');"
-        "print(any(importlib.util.find_spec(m) is not None for m in gone),"
-        " any(m in sys.modules for m in gone), 'ocr.paddle_client' in sys.modules)"
-    )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                            text=True, cwd=ROOT)
-    assert result.returncode == 0, result.stderr
-    # Compare only the LAST stdout line: on the CI runner a library prints a
-    # harmless warning line to stdout before our sentinel (observed in run
-    # 31137747002), and the sentinel is the verdict, not the noise around it.
-    assert result.stdout.strip().splitlines()[-1] == "False False False", (
-        "a model client (or the Paddle rung/client) was imported: " + result.stdout.strip()
-    )
+    it now holds that vocabulary as a literal). Since slice S6 the check is
+    N2's helper: no model package and no removed model module is loaded after
+    the read (the deleted modules' names alone could no longer be loaded)."""
+    from tests.test_no_model_clients import assert_no_model_module_after
+
+    result = assert_no_model_module_after(_DISCOVERY_READ.format(root=str(tree)) + """
+import importlib.util
+gone = ("ocr.ocr_client", "ocr.paddle_rung", "ocr.paddle_client", "ocr.paddle_config", "ocr.endpoint_policy")
+RESULT["found"] = sorted(m for m in gone if importlib.util.find_spec(m) is not None)
+""", tmp_path_factory.mktemp("data"))
+    assert result == {"parser_id": "chase", "found": []}
 
 
 # --- report -----------------------------------------------------------------

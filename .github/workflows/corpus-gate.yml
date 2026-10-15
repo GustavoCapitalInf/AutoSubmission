@@ -26,12 +26,14 @@ name: Corpus gate
 #     returning None). Fixed by the system-dependency step below.
 #
 # HYG-01 history (audit 2026-10-13): from 2026-09-22 every run stopped at test
-# collection, because the suite imports packages this job did not install
-# (jsonschema, pypdfium2, numpy), and the gate step, which ran only after a
-# green suite, was skipped on every run. The test-only packages now live in
-# requirements-dev.txt, a runtime-only import check guards the gap that opens
-# between this job and the hosting image, and the gate runs whatever the
-# suite's result.
+# collection, because the suite imported packages this job did not install
+# (jsonschema, pypdfium2, numpy, all three through the retired visual pair
+# under vlm/), and the gate step, which ran only after a green suite, was
+# skipped on every run. The visual pair and the three packages left with the
+# model-code removal (2026-10), so requirements-dev.txt adds only pytest; a
+# runtime-only import check guards the gap that opens between this job and the
+# hosting image and fails when a model module loads; and the gate runs
+# whatever the suite's result.
 
 on:
   pull_request:
@@ -87,14 +89,30 @@ jobs:
         # Before the test-only packages go in, so a new top-level import that
         # the two runtime files do not cover fails here rather than on the
         # hosting image. The web app opens its store at import, so it gets a
-        # scratch data folder outside the checkout.
+        # scratch data folder outside the checkout. The product uses no model
+        # (owner ruling 2026-10-13), so the step also fails when importing the
+        # entry points loaded a model package or the removed visual pair; the
+        # list is pinned equal to tests/test_no_model_clients.py's.
         env:
           WEBAPP_DATA_DIR: ${{ runner.temp }}/import-check-data
-        run: python -c "import webapp.app, webapp.worker, analyze, batch, parse, corpus_gate, discovery.runner, discovery.cli"
+        run: |
+          python - <<'EOF'
+          import sys
+          import webapp.app, webapp.worker, analyze, batch, parse, corpus_gate, discovery.runner, discovery.cli
+          import telemetry.run_of_record, telemetry.stated_counts, tools.train.provenance
+          BANNED = (
+              "openai", "google.genai", "google.generativeai", "paddleocr", "paddle", "vllm", "transformers",
+              "torch", "torchvision", "accelerate", "peft", "einops", "huggingface_hub", "anthropic", "vlm",
+          )
+          loaded = sorted(m for m in sys.modules if any(m == b or m.startswith(b + ".") for b in BANNED))
+          if loaded:
+              sys.exit("a model module was imported: " + ", ".join(loaded))
+          print("entry points imported; no model module loaded")
+          EOF
 
       - name: Install test dependencies
-        # pytest and the packages the suite still imports; without them 35 test
-        # files fail to collect and no test runs.
+        # pytest, the one test-only package (the suite needs nothing else since
+        # the visual pair's jsonschema, pypdfium2 and numpy left with it).
         run: pip install -r requirements-dev.txt
 
       - name: Verify the corpus checked out byte-identically

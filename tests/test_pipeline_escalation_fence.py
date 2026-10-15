@@ -1139,7 +1139,8 @@ def test_no_python_file_in_the_tree_imports_the_hosted_sdk():
     """Slice S3 removed the last importer of `google.genai`
     (`analysis/extract.py`). No Python file in this repository imports it now,
     in any of its three spellings; a planted import of each is caught. (The
-    `google-genai` requirement line leaves in slice S6.)"""
+    `google-genai` requirement line left in slice S6; N6 in
+    `tests/test_no_model_clients.py` keeps it out of every requirements file.)"""
     import subprocess
 
     try:
