@@ -92,7 +92,9 @@ def _extract(repo: Path, revision: str, destination: Path) -> None:
         capture_output=True,
     ).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as handle:
-        handle.extractall(destination)
+        # The `data` filter (Python 3.12+, the default from 3.14): no DeprecationWarning on 3.12 and 3.13, the
+        # same unpack on every interpreter, and a member that would land outside `destination` is refused.
+        handle.extractall(destination, filter="data")
 
 
 def load_base_analysis(revision: str, *, repo: Path, scratch: Path) -> BaseAnalysis:
