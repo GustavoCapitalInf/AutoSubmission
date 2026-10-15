@@ -75,13 +75,13 @@ _MONEY_SHAPE_RE = re.compile(r"\d+\.\d{2}(?!\d)")
 #:
 #: The Paddle and visual-pair tokens are LITERALS here since slice S2 (this
 #: module no longer imports `ocr.paddle_config` or `ocr.visual_pair_config`):
-#: "paddle-ocr+ppocrv5" is `ocr.paddle_config.PADDLE_MODEL_TOKEN`, and
-#: "visual-pair-dots-qwen" was `ocr.visual_pair_config.MODEL_TOKEN` until the
-#: visual pair was removed in slice S4 (stored pair readings still carry it,
-#: and `telemetry.record.VISUAL_PAIR_MODEL_TOKENS` still names it).
-#: `tests/test_config.py` pins the pair token as a literal and holds the Paddle
-#: one equal to its module while that exists; S5 turns it into a literal pin
-#: too. `validate_model_token(allow_reserved=False)` lost its only production
+#: "paddle-ocr+ppocrv5" was `ocr.paddle_config.PADDLE_MODEL_TOKEN` until the
+#: PaddleOCR rung was removed in slice S5, and "visual-pair-dots-qwen" was
+#: `ocr.visual_pair_config.MODEL_TOKEN` until the visual pair was removed in
+#: slice S4 (stored readings still carry both, and `telemetry.record`'s
+#: `PADDLE_MODEL_TOKENS` / `VISUAL_PAIR_MODEL_TOKENS` still name them).
+#: `tests/test_config.py` pins both as literals.
+#: `validate_model_token(allow_reserved=False)` lost its only production
 #: caller with `load_settings` (follow-up).
 RESERVED_MODEL_PREFIXES = (
     "native-pdf-text",

@@ -20,6 +20,11 @@ Host discipline (BATCH9-RULES, "Mutation harnesses on a shared host"):
 * `--out` is APPENDED to, never overwritten (P22-FENCE re-review-3 Q1): a
   second run of one mutant must not erase the table the first run produced.
 
+Model-code removal, slice S5: the census mutants (M10, M15, M17-M25) left with
+their subject, `tools/agreement_census.py` (a census of the retired Paddle
+research partition), and M3's second killer left with the Paddle adapter it
+read through; every other mutant and its killers are unchanged.
+
 M6 is deliberately not a tree edit. Its subject is a static guard whose
 reader is a pure function over source TEXT, so the mutants are planted in an
 in-memory copy of the router's and the structurer's real sources inside the
@@ -41,7 +46,6 @@ ROOT = Path(__file__).resolve().parents[1]
 AGREEMENT = "layout/agreement.py"
 NATIVE = "evidence/native.py"
 RUNNER = "discovery/runner.py"
-CENSUS = "tools/agreement_census.py"
 
 T_AGREE = "tests/test_agreement.py"
 T_NATIVE = "tests/test_native_evidence.py"
@@ -86,8 +90,7 @@ MUTANTS: list[Mutant] = [
         "    if frame.space != PIXEL:\n        return 1.0, 1.0\n",
         "    if True:\n        return 1.0, 1.0\n",
         [T_AGREE],
-        ["test_identical_words_at_300_dpi_agree_completely",
-         "test_the_real_native_reader_agrees_with_the_fake_workers_evidence"],
+        ["test_identical_words_at_300_dpi_agree_completely"],
     ),
     Mutant(
         "M4", "the character agreement skips the normaliser",
@@ -140,15 +143,6 @@ MUTANTS: list[Mutant] = [
         ["test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name",
          "test_an_indirect_rotate_written_as_a_real_is_coerced_by_the_writer_and_refused",
          "test_an_inherited_indirect_invalid_rotate_through_the_pages_node_is_refused_by_name"],
-    ),
-    Mutant(
-        "M10", "the census prints a word off the page",
-        CENSUS,
-        "            result = page_agreement(page, other)\n",
-        "            result = page_agreement(page, other)\n"
-        "            print('  sample:', ' '.join(w.text for w in page.words[:3]))\n",
-        [T_AGREE],
-        ["test_the_census_prints_counts_and_percentiles_and_never_a_word"],
     ),
     # ---- the review's closure: the reviewer's three surviving fresh mutants,
     # a real-PDF mutant for the MAJOR, and one for each remaining MINOR fix.
@@ -225,95 +219,12 @@ MUTANTS: list[Mutant] = [
         ["test_a_document_whose_evidence_attribute_raises_is_a_finding_not_an_exception"],
     ),
     Mutant(
-        "M15", "the census ignores the selected population in a shared partition",
-        CENSUS,
-        "    documents = _population(args.shas) if args.shas else partition_documents\n",
-        "    documents = partition_documents\n",
-        [T_AGREE],
-        ["test_the_census_separates_populations_in_one_shared_partition"],
-    ),
-    Mutant(
         "M16", "the sha census compares the current reader against itself",
         "tools/agree_native_census.py",
         "            if _evidence_sha(pdf_bytes) != _evidence_sha(pdf_bytes, baseline_reader):\n",
         "            if _evidence_sha(pdf_bytes) != _evidence_sha(pdf_bytes):\n",
         [T_NATIVE],
         ["test_the_native_census_exits_nonzero_on_movement_or_an_absent_population"],
-    ),
-    Mutant(
-        "M17", "research provenance silently substitutes the offline OCR key",
-        CENSUS,
-        '    key = block.get("paddle_ocr_key")\n',
-        '    key = block.get("paddle_ocr_key") or block.get("offline_ocr_key")\n',
-        [T_AGREE],
-        ["test_the_census_never_substitutes_an_offline_key_for_an_unrecorded_paddle_key"],
-    ),
-    Mutant(
-        "M18", "the census permits a selected population with no canonical evidence pages",
-        CENSUS,
-        "    if not any(geometry_by_source.values()):\n",
-        "    if False:\n",
-        [T_AGREE],
-        ["test_the_census_refuses_an_empty_measurement_under_the_selected_key",
-         "test_the_census_refuses_empty_or_misidentified_evidence"],
-    ),
-    Mutant(
-        "M19", "the census combines conflicting extractor identities under one settings key",
-        CENSUS,
-        "            if len(identities) > 1:\n",
-        "            if False:\n",
-        [T_AGREE],
-        ["test_the_census_refuses_conflicting_extractor_identities_under_one_key"],
-    ),
-    Mutant(
-        "M20", "the census trusts an envelope that conflicts with its cache record",
-        CENSUS,
-        '    if (payload.get("input_sha256") != sha or payload.get("settings_key") != key\n'
-        '            or payload.get("stage") != "ocr"):\n',
-        "    if False:\n",
-        [T_AGREE],
-        ["test_the_census_refuses_empty_or_misidentified_evidence"],
-    ),
-    Mutant(
-        "M21", "the native census slot can contain extractor geometry",
-        CENSUS,
-        "        if native is not None and native.extractor_id != NATIVE_EXTRACTOR_ID:\n",
-        "        if False:\n",
-        [T_AGREE],
-        ["test_the_census_refuses_empty_or_misidentified_evidence"],
-    ),
-    Mutant(
-        "M22", "the extractor census slot can contain native geometry",
-        CENSUS,
-        "            if extractor.extractor_id == NATIVE_EXTRACTOR_ID:\n",
-        "            if False:\n",
-        [T_AGREE],
-        ["test_the_census_refuses_empty_or_misidentified_evidence"],
-    ),
-    Mutant(
-        "M23", "the census accepts evidence for a different document",
-        CENSUS,
-        "                if source.document_sha256.upper() != sha:\n",
-        "                if False:\n",
-        [T_AGREE],
-        ["test_the_census_refuses_empty_or_misidentified_evidence"],
-    ),
-    Mutant(
-        "M24", "the census searches only the first twenty-five records of another key",
-        CENSUS,
-        '                "SELECT input_sha256,artifact_path FROM artifact_cache WHERE stage=\'ocr\' AND settings_key=? ORDER BY input_sha256",\n',
-        '                "SELECT input_sha256,artifact_path FROM artifact_cache WHERE stage=\'ocr\' AND settings_key=? ORDER BY input_sha256 LIMIT 25",\n',
-        [T_AGREE],
-        ["test_the_census_checks_for_another_evidence_key_beyond_the_first_twenty_five_records"],
-    ),
-    Mutant(
-        "M25", "the census chooses the first of two indexed artifacts for one exact tuple",
-        CENSUS,
-        '            artifact_path = select_artifact(self.conn, "ocr", sha, self.key)\n',
-        '            row = self.conn.execute("SELECT artifact_path FROM artifact_cache WHERE stage=\'ocr\' AND input_sha256=? AND settings_key=?", (sha, self.key)).fetchone()\n'
-        '            artifact_path = str(row[0]) if row is not None else None\n',
-        [T_AGREE],
-        ["test_the_census_refuses_duplicate_index_rows_in_either_order"],
     ),
 ]
 

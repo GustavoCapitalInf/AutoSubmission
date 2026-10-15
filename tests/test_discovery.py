@@ -47,7 +47,6 @@ from discovery.runner import (
     PARSER_ID_UNAVAILABLE,
     DiscoveryRunner,
     DocumentRow,
-    estimate_class_a_population,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -316,36 +315,9 @@ def test_profile_only_and_invalid_pdf_rows_carry_no_evidence_verdict(tree: Path)
     assert invalid.failure_class == ""
 
 
-def test_estimate_class_a_population_counts_scanned_and_mixed_profiles_only(tmp_path: Path):
-    """The cheap pre-run ceiling: `digital` never reaches the router, so it
-    must never be counted. P20-ROUTER review, MINOR-7: the predicate is
-    LITERALLY the router's own admission test
-    (`_profile_triggers(profile) & ADMITTED_TRIGGERS`), so an unreadable file
-    — whose profile trivially has `native_text_total_chars == 0` — is a
-    sound OVER-count too: an invalid/unparseable PDF never reaches the
-    router in production (`process()` returns `failed` before any evidence
-    logic runs), but counting it toward a safety CEILING is the safe
-    direction, never the dangerous one."""
-    (tmp_path / "F").mkdir()
-    (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
-    (tmp_path / "F" / "scanned.pdf").write_bytes((CORPUS / SCANNED).read_bytes())
-    (tmp_path / "F" / "missing.pdf").write_bytes(b"not even a pdf")
-
-    count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/scanned.pdf", "F/missing.pdf"])
-    assert count == 2  # scanned.pdf + the unreadable missing.pdf; digital.pdf never counts
-
-
-def test_estimate_class_a_population_counts_an_unreadable_file_toward_the_ceiling(tmp_path: Path):
-    """MINOR-7's own reproduction: a document the runner literally cannot
-    read must never SILENTLY LOWER the ceiling — the safe failure direction
-    for a budget guard is to over-count, never to under-count."""
-    (tmp_path / "F").mkdir()
-    (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
-
-    count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/does-not-exist.pdf"])
-    # "does-not-exist.pdf" cannot even be opened (FileNotFoundError, an
-    # OSError) -> counted toward the ceiling, never silently skipped.
-    assert count == 1
+# `test_estimate_class_a_population_*` (2) pinned the retired Paddle mode's
+# pre-run escalation ceiling; they left with `estimate_class_a_population`,
+# its only caller's subject (model-code removal, slice S5).
 
 
 def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path: Path):
@@ -375,13 +347,10 @@ def test_no_model_extraction_can_happen(tree: Path):
 
 def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
     """The visual OCR client (`ocr.ocr_client`) was deleted in slice S2 of the
-    model-code removal: it cannot be found at all, and nothing tries to
-    import it. P21-ROUTING: `ocr.paddle_rung` / `ocr.paddle_client` are not
-    imported either — a `MODE_DIGITAL` run never reaches the forced Paddle
-    branch (`ocr.paddle_config` is a separate, deliberately lightweight module
-    `discovery.runner` imports for its refusal vocabulary, and is NOT checked
-    here — see `test_artifact_cache.py::test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch`
-    for that distinction's own test)."""
+    model-code removal and the PaddleOCR rung, client and settings in slice S5:
+    none can be found at all, and nothing tries to import them (before S5,
+    `discovery.runner` imported `ocr.paddle_config` for a refusal vocabulary;
+    it now holds that vocabulary as a literal)."""
     code = (
         "import sys, importlib.util; from pathlib import Path;"
         "from discovery.runner import DiscoveryRunner, MODE_DIGITAL;"
@@ -389,8 +358,10 @@ def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
         f"r = DiscoveryRunner(Path({str(tree)!r}), mode=MODE_DIGITAL, run_id='t',"
         " sink=None, cache=None, dedup=DedupIndex());"
         "r.process('BankX/statement.pdf', 'BankX');"
-        "print(importlib.util.find_spec('ocr.ocr_client') is not None,"
-        " 'ocr.paddle_rung' in sys.modules, 'ocr.paddle_client' in sys.modules)"
+        "gone = ('ocr.ocr_client', 'ocr.paddle_rung', 'ocr.paddle_client', 'ocr.paddle_config',"
+        " 'ocr.endpoint_policy');"
+        "print(any(importlib.util.find_spec(m) is not None for m in gone),"
+        " any(m in sys.modules for m in gone), 'ocr.paddle_client' in sys.modules)"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True,
                             text=True, cwd=ROOT)

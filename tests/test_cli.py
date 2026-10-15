@@ -9,8 +9,8 @@ def test_main_writes_markdown(monkeypatch, tmp_path):
     fake_doc = types.SimpleNamespace(
         to_markdown=lambda: "<!-- x -->\n\n--- Page 1 ---\n\n# hi\n")
     monkeypatch.setattr(cli, "parse_statement",
-                        lambda pdf_bytes, source_file="", dpi=200: fake_doc)
-    rc = cli.main([str(pdf), "--out", str(out), "--dpi", "150"])
+                        lambda pdf_bytes, source_file="": fake_doc)
+    rc = cli.main([str(pdf), "--out", str(out)])
     assert rc == 0
     assert out.read_text(encoding="utf-8").startswith("<!-- x -->")
 
@@ -21,7 +21,7 @@ def test_main_writes_html_when_flag_set(monkeypatch, tmp_path):
     out = tmp_path / "s.html"
     fake_doc = types.SimpleNamespace(to_markdown=lambda: "# Hello")
     monkeypatch.setattr(cli, "parse_statement",
-                        lambda pdf_bytes, source_file="", dpi=200: fake_doc)
+                        lambda pdf_bytes, source_file="": fake_doc)
     rc = cli.main([str(pdf), "--out", str(out), "--html"])
     assert rc == 0
     written = out.read_text(encoding="utf-8")
@@ -40,7 +40,7 @@ def test_main_failure_returns_1(monkeypatch, tmp_path, capsys):
     pdf = tmp_path / "s.pdf"
     pdf.write_bytes(b"%PDF-fake")
 
-    def boom(pdf_bytes, source_file="", dpi=200):
+    def boom(pdf_bytes, source_file=""):
         raise RuntimeError("reader crashed")
 
     monkeypatch.setattr(cli, "parse_statement", boom)
@@ -57,9 +57,10 @@ def test_main_failure_returns_1(monkeypatch, tmp_path, capsys):
 
 
 def test_main_reads_native_text_only(monkeypatch, tmp_path):
-    """The CLI asks the ladder for no OCR rung: only the source name and the
-    (Paddle-only, inert here) dpi reach `parse_statement`, so the ladder's
-    own defaults apply (no Tesseract, no visual rung)."""
+    """The CLI asks the ladder for no OCR rung: only the source name reaches
+    `parse_statement`, so the ladder's own defaults apply (no Tesseract, no
+    visual rung). The Paddle-only `dpi` stopped being passed in slice S5,
+    when `--dpi` was removed (declared)."""
     pdf = tmp_path / "s.pdf"
     pdf.write_bytes(b"%PDF-fake")
     seen = {}
@@ -72,13 +73,15 @@ def test_main_reads_native_text_only(monkeypatch, tmp_path):
     monkeypatch.setattr(cli, "parse_statement", fake_parse_statement)
     rc = cli.main([str(pdf)])
     assert rc == 0
-    assert seen == {"source_file": "s.pdf", "dpi": 300}
+    assert seen == {"source_file": "s.pdf"}
 
 
-def test_main_has_no_visual_or_model_flag(tmp_path, capsys):
+def test_main_has_no_visual_model_or_dpi_flag(tmp_path, capsys):
+    """`--visual` and `--model` were removed in slice S2, `--dpi` (read only by
+    the model OCR rungs) in slice S5."""
     pdf = tmp_path / "s.pdf"
     pdf.write_bytes(b"%PDF-fake")
-    for argv in ([str(pdf), "--visual"], [str(pdf), "--model", "some/model"]):
+    for argv in ([str(pdf), "--visual"], [str(pdf), "--model", "some/model"], [str(pdf), "--dpi", "150"]):
         try:
             cli.main(argv)
         except SystemExit as exc:
@@ -138,7 +141,7 @@ def test_exp5_ligatures_reach_a_redirected_stdout(monkeypatch, tmp_path):
     pdf.write_bytes(b"%PDF-fake")
     fake_doc = types.SimpleNamespace(to_markdown=lambda: _LIGATURES)
     monkeypatch.setattr(cli, "parse_statement",
-                        lambda pdf_bytes, source_file="", dpi=200: fake_doc)
+                        lambda pdf_bytes, source_file="": fake_doc)
     stream = _cp1252_stdout(monkeypatch)
     rc = cli.main([str(pdf)])
     stream.flush()
@@ -152,7 +155,7 @@ def test_exp5_the_redirected_markdown_matches_the_out_file(monkeypatch, tmp_path
     out = tmp_path / "s.md"
     fake_doc = types.SimpleNamespace(to_markdown=lambda: _LIGATURES)
     monkeypatch.setattr(cli, "parse_statement",
-                        lambda pdf_bytes, source_file="", dpi=200: fake_doc)
+                        lambda pdf_bytes, source_file="": fake_doc)
     assert cli.main([str(pdf), "--out", str(out)]) == 0
     stream = _cp1252_stdout(monkeypatch)
     assert cli.main([str(pdf)]) == 0

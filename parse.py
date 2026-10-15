@@ -15,7 +15,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Bank statement PDF -> Markdown via native text extraction.")
     ap.add_argument("pdf", help="Path to the statement PDF")
     ap.add_argument("--out", help="Write output here instead of stdout")
-    ap.add_argument("--dpi", type=int, default=300)
+    # `--dpi` was removed in slice S5 of the model-code removal (declared): only
+    # the visual and Paddle OCR rungs ever read it, and both are gone.
     ap.add_argument("--html", action="store_true",
                     help="Render as a styled HTML page instead of raw Markdown")
     args = ap.parse_args(argv)
@@ -32,7 +33,7 @@ def main(argv=None) -> int:
         # (ocr/inspect.py preflight -> native text). The CLI keeps its
         # historical capabilities: allow_local_ocr stays at its False
         # default, so no tesseract rung is silently gained here.
-        doc = parse_statement(pdf_bytes, source_file=path.name, dpi=args.dpi)
+        doc = parse_statement(pdf_bytes, source_file=path.name)
     except Exception as e:
         print(f"error: failed to parse statement: {e}", file=sys.stderr)
         return 1

@@ -1,9 +1,13 @@
 """Discovery's offline ladder after the visual OCR rung was removed (model-code removal, slice S2).
 
-Carried from the deleted `tests/test_visual_rung.py`: the offline modes' own pins (the `--scanned` and `--digital`
-deferrals, an offline read that claims, the offline summary reporting no visual activity) and the `ROW_FIELDS`
-block-order pin, which `discovery/report.py`'s append-only column list must keep. Added: the retired
+Carried from the deleted `tests/test_visual_rung.py`: the offline modes' own pins (the `--scanned` no-text outcome
+and the `--digital` deferral, an offline read that claims, the offline summary reporting no visual activity) and the
+`ROW_FIELDS` block-order pin, which `discovery/report.py`'s append-only column list must keep. Added: the retired
 `--scanned-visual` mode is refused (by the runner and the CLI), and the visual OCR client modules are gone.
+
+Slice S5 (declared, re-pinned): `--scanned`'s document the offline ladder reads nothing from moved from
+`deferred:deferred_visual_ocr` to `refused:insufficient_evidence`, in the row and in its telemetry record, and
+`--no-visual-escalation` left the CLI with the Paddle mode it applied to.
 
 Nothing here reaches a server; the local-Tesseract rung is pinned with a fake, never the real binary.
 """
@@ -55,7 +59,7 @@ def scan_tree(tmp_path: Path) -> Path:
 
 def _tesseract(monkeypatch, text: str | None):
     """Pin the local-Tesseract rung's answer (never runs the real binary). `text=None` is the rung finding nothing —
-    the `deferred_visual_ocr` shape."""
+    the shape `--scanned` refuses as `insufficient_evidence` (it was `deferred_visual_ocr` until slice S5)."""
     def fake(pdf_bytes, source_file="", **kwargs):
         if text is None:
             return None
@@ -98,16 +102,25 @@ def _no_visual_read(calls: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_scanned_tranche_still_defers_and_never_reaches_a_further_rung(scan_tree: Path, monkeypatch,
-                                                                            ladder_calls):
-    """Tranche 2's numbers are of record: --scanned is untouched. The `deferred_visual_ocr` reason is the historical
-    name of "the offline ladder read nothing" and stays until slice S5 moves these documents."""
+def test_the_scanned_tranche_refuses_what_the_ladder_cannot_read_and_never_reaches_a_further_rung(
+        scan_tree: Path, tmp_path: Path, monkeypatch, ladder_calls):
+    """DECLARED MOVE (slice S5): a document the offline ladder, Tesseract included, reads nothing from was
+    `deferred:deferred_visual_ocr` ("left for the visual rung"); no model rung remains, so --scanned now refuses
+    it, fail-closed, as `refused:insufficient_evidence`, in the row and in its telemetry record alike. Nothing
+    further is read."""
+    import json
+
+    from telemetry import JsonlSink
+
     _tesseract(monkeypatch, None)
 
-    row = _runner(scan_tree, MODE_SCANNED).process("BankZ/scan.pdf", "BankZ")
-    assert (row.outcome_class, row.outcome_reason) == ("deferred", "deferred_visual_ocr")
+    sink_path = tmp_path / "telemetry.jsonl"
+    row = _runner(scan_tree, MODE_SCANNED, sink=JsonlSink(sink_path)).process("BankZ/scan.pdf", "BankZ")
+    assert (row.outcome_class, row.outcome_reason) == ("refused", "insufficient_evidence")
     assert row.visual_rung == "not_attempted"
     assert row.source_path == "none"
+    (record,) = [json.loads(line) for line in sink_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert (record["outcome"]["class"], record["outcome"]["reason"]) == ("refused", "insufficient_evidence")
     _no_visual_read(ladder_calls)
 
 
@@ -203,13 +216,16 @@ def test_the_cli_has_no_scanned_visual_flag(tmp_path: Path, monkeypatch, capsys)
     assert not hasattr(cli, "probe_visual_ocr")
 
 
-def test_the_no_visual_escalation_knob_is_refused_outside_the_paddle_mode(tmp_path: Path, monkeypatch):
-    """Silently ignoring it would let an operator believe a policy was applied."""
+def test_the_no_visual_escalation_knob_is_refused_in_every_mode(tmp_path: Path, monkeypatch):
+    """Silently ignoring it would let an operator believe a policy was applied. It used to be refused outside the
+    Paddle mode; since slice S5 the flag does not exist at all, so argparse refuses it in every mode."""
     import discovery.cli as cli
 
     monkeypatch.setattr(cli, "run", lambda *a, **k: pytest.fail("must not run"))
     for mode in ("--digital", "--scanned", "--dry-run"):
-        assert cli.main([mode, "--no-visual-escalation", "--root", str(tmp_path)]) == 2
+        with pytest.raises(SystemExit) as raised:
+            cli.main([mode, "--no-visual-escalation", "--root", str(tmp_path)])
+        assert raised.value.code == 2
 
 
 def test_the_visual_ocr_client_modules_are_gone():

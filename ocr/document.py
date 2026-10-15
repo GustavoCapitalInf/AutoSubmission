@@ -65,8 +65,10 @@ class StatementMarkdown:
     # PDF yields no placeable word.
     native_evidence: ExtractionEvidence | None = None
     # P23-WAVE (Phase 2.3, cell T's named STOP). The per-request TECHNICAL
-    # telemetry of the read that produced `pages` — exactly what
-    # `ocr.paddle_rung.PaddleRead.telemetry` already carries: a `pages` list of
+    # telemetry of the read that produced `pages` — exactly what the retired
+    # `ocr.paddle_rung.PaddleRead.telemetry` carried (the Paddle rung was
+    # removed in slice S5 of the model-code removal, so no rung sets this field
+    # now; it stays so the row projection's shape is unchanged): a `pages` list of
     # per-page `inference_ms` / `total_ms` / `bytes_sent` / `bytes_received` /
     # raster size / `cold_load` / `gpu_memory_used_mib`, and a `totals` block.
     # Figures only: this field never holds a word, a line, a box or anything
@@ -83,8 +85,9 @@ class StatementMarkdown:
     # `EXTRACTION_SCHEMA_VERSION` bump and cannot move a cache key:
     # `to_markdown()` does not mention it, `ocr_settings_key` does not mention
     # it, and `analysis_input_sha` keys on the markdown, the sheets and the
-    # evidence sha, none of which this touches. `tests/test_paddle_wave.py`
-    # proves the payload and both keys are identical with it set and unset.
+    # evidence sha, none of which this touches. (`tests/test_paddle_wave.py`
+    # proved the payload and both keys identical with it set and unset; it
+    # left with the rung in slice S5.)
     #
     # `None` for every rung that measured nothing (native, Tesseract, visual,
     # a committed artifact, a restored cache entry).

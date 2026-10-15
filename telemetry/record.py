@@ -77,16 +77,25 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred", "ref
 #: `research_refused_holdout` — refused before any read, so a holdout item
 #: can never be studied by a research run (case 21). Both are statements
 #: about the RUN (its population, its cage), which is what `deferred` is for.
+#:
+#: Append-only. Since slice S5 of the model-code removal nothing emits
+#: `deferred_visual_ocr` (the runner records the offline ladder reading
+#: nothing as `refused:insufficient_evidence`) or the two research reasons
+#: (the research mode was removed); they stay members so historical rows and
+#: records still classify (`telemetry.unresolved_taxonomy.RETIRED_RUNNER_REASONS`).
 DEFERRED_REASONS = (
     "deferred_scanned", "deferred_visual_ocr", "profile_only",
     "research_skipped_not_in_population", "research_refused_holdout",
 )
 
-#: P22-TRUTHTABLE (R11): the CLOSED reasons a `refused` outcome may carry.
-#: RESERVED in Phase 2.2 — nothing in this tree produces one (a test asserts
-#: zero `refused` rows on the run of record's replay); later milestones
-#: declare them through `classify_outcome(..., refused=<reason>)`, exactly
-#: as `deferred=` is declared, never inferred.
+#: P22-TRUTHTABLE (R11): the CLOSED reasons a `refused` outcome may carry,
+#: declared through `classify_outcome(..., refused=<reason>)`, exactly as
+#: `deferred=` is declared, never inferred. Reserved in Phase 2.2 (a test
+#: asserts zero `refused` rows on the run of record's replay). Since slice S5
+#: of the model-code removal ONE member has an emitter: `discovery/runner.py`
+#: declares `insufficient_evidence` when `--scanned`'s offline ladder,
+#: Tesseract included, read nothing usable (it was `deferred_visual_ocr`).
+#: The other five are still reserved: nothing emits them.
 REFUSED_REASONS = (
     "not_a_statement", "file_invalid", "insufficient_evidence", "contradictory", "incomplete", "unreadable",
 )
@@ -197,12 +206,13 @@ def new_run_id() -> str:
 #: same line range at compose time.
 VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
 
-#: P21-ROUTING (Phase 2.1). A LITERAL mirror of `ocr.paddle_config.
-#: PADDLE_MODEL_TOKEN` — not imported, for the same reason `VISUAL_MODEL_TOKENS`
-#: is a literal rather than an import: `telemetry` stays free of a load-bearing
-#: dependency on `ocr` for two string constants. `tests/test_telemetry.py`
-#: holds this literal equal to `ocr.paddle_config.PADDLE_MODEL_TOKEN` by test,
-#: so the two cannot silently drift apart.
+#: P21-ROUTING (Phase 2.1). A LITERAL mirror of what was
+#: `ocr.paddle_config.PADDLE_MODEL_TOKEN` — not imported, for the same reason
+#: `VISUAL_MODEL_TOKENS` is a literal rather than an import. The PaddleOCR rung
+#: and that module were removed (model-code removal, slice S5); the token stays
+#: here as historical vocabulary, because stored readings and telemetry records
+#: still carry it, and `tests/test_telemetry.py` and `tests/test_config.py` pin
+#: it as a literal (equal to `ocr.config.RESERVED_MODEL_PREFIXES`' member).
 PADDLE_MODEL_TOKENS = frozenset({"paddle-ocr+ppocrv5"})
 VISUAL_PAIR_MODEL_TOKENS = frozenset({"visual-pair-dots-qwen"})
 
@@ -597,8 +607,9 @@ def classify_outcome(
     for one of `REFUSED_REASONS` — a terminal verdict about the DOCUMENT, so
     it ranks below a deferral (the run's statement) and above the payload
     (a refusal is decided before any figure is published). Like `deferred`
-    it is only ever reached by an explicit `refused=` declaration; nothing in
-    Phase 2.2 makes one.
+    it is only ever reached by an explicit `refused=` declaration (since
+    slice S5 of the model-code removal, discovery's `--scanned` no-text site
+    makes the one: `insufficient_evidence`).
 
     `failed` therefore means exactly one thing: attempted, and errored.
     `withheld` is the platform refusing to publish an authoritative value —

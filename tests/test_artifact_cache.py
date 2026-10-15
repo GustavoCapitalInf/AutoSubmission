@@ -132,8 +132,9 @@ def _doc_with_evidence(
     """P21-ROUTING closure (MAJOR-1): a `StatementMarkdown` carrying real
     `page_extractor` / `evidence`, for the D6 round-trip tests. One word
     spanning the whole page text, so `evidence.page_texts() == [text]`
-    exactly — the same trick `tests/test_pipeline.py::_fake_paddle_read` and
-    `tests/test_paddle_routing.py::_claimable_paddle_read` use."""
+    exactly (the same trick the Paddle rung's ladder and routing tests used,
+    deleted with the rung in slice S5; a stored reading carrying extractor
+    evidence still restores, which is what these tests prove)."""
     frame = PageFrame.pdf_points(page_index=0, width_pt=600.0, height_pt=800.0)
     word = WordBox(word_id="p0.l0.w0", page_index=0, text=text, x0=10.0, y0=10.0, x1=200.0, y1=25.0)
     page = PageEvidence(frame=frame, words=(word,))
@@ -590,75 +591,38 @@ def test_extraction_schema_version_partitions_the_key():
     assert base != changed
 
 
-def test_allow_paddle_ocr_partitions_the_key():
-    base = ocr_settings_key(ocr_settings=_OcrSettings())
-    changed = ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=True)
-    assert base != changed
-
-
-def test_paddle_labelled_key_carries_the_paddle_settings_block(monkeypatch):
-    """D5/design item 5: when the extractor resolves to `"paddle"`, the key
-    material carries `paddle_settings_key_material(load_paddle_settings())`
-    — never the host/port/token, only the pins + provider + execution class."""
-    monkeypatch.setenv("PADDLE_PROVIDER", "local")
-    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "local_free")
-    monkeypatch.delenv("PADDLE_REMOTE_OPT_IN", raising=False)
-    key_with_paddle = ocr_settings_key(
-        ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
-    )
-    key_without = ocr_settings_key(ocr_settings=_OcrSettings())
-    assert key_with_paddle != key_without
-
-    # Changing the provider/class changes the key: the "paddle" block is real
-    # key material, not a fixed placeholder.
-    monkeypatch.setenv("PADDLE_PROVIDER", "vast.ai")
-    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "remote_paid")
-    monkeypatch.setenv("PADDLE_VAST_HOST", "test-host")
-    monkeypatch.setenv("PADDLE_VAST_SSH_PORT", "22")
-    monkeypatch.setenv("PADDLE_VAST_SSH_USER", "test-user")
-    key_remote = ocr_settings_key(
-        ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
-    )
-    assert key_remote != key_with_paddle
-
-
-def test_a_paddle_labelled_key_refuses_when_paddle_settings_cannot_load(monkeypatch):
-    """The paddle-labelled key REFUSES (raises) when Paddle settings cannot
-    be loaded — never a default block standing in for a real configuration."""
-    from ocr.paddle_config import PaddleConfigError
-
-    monkeypatch.delenv("PADDLE_PROVIDER", raising=False)
-    monkeypatch.delenv("PADDLE_EXECUTION_CLASS", raising=False)
-    with pytest.raises(PaddleConfigError):
-        ocr_settings_key(
-            ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
-        )
-
-
-def test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch():
-    """`ocr_settings_key`'s OWN body lazily imports/calls
-    `load_paddle_settings` / `paddle_settings_key_material` ONLY inside the
-    `extractor == "paddle"` branch — never derived for an offline- or
-    visual-labelled call. (`ocr.paddle_config` itself is unconditionally
-    importABLE process-wide — `ocr/config.py` needs `PADDLE_MODEL_TOKEN` at
-    module scope for OQ2's `RESERVED_MODEL_PREFIXES` — so a process-wide
-    `sys.modules` absence is not the property to check here, unlike
-    `ocr.ocr_client`, which carries no such independent, always-needed
-    reason to load. What matters — and what this proves — is that computing
-    an offline/visual key never CALLS into Paddle settings at all.)"""
+def test_the_paddle_partition_is_refused_and_false_stays_key_material():
+    """Model-code removal, slice S5: the PaddleOCR rung and its settings were removed, so a key (or a cached read)
+    that asks for its partition (`allow_paddle_ocr=True`) is refused with the fixed literal before any material is
+    built, whatever the other flags say. `allow_paddle_ocr=False` stays in the v5+ material (it always entered it),
+    so every deterministic key equals the frozen old shape (`_FROZEN_KEY_SHAPES` above). Replaces the Paddle
+    partition's own tests: it partitioned the key, carried `paddle_settings_key_material(load_paddle_settings())`,
+    refused when Paddle settings could not load, and read them only on its own branch."""
     import inspect
 
     import webapp.artifact_cache as module
 
+    for flags in (dict(force_ocr=True, allow_visual_ocr=False), dict(force_ocr=False, allow_visual_ocr=False),
+                  dict(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False), dict()):
+        with pytest.raises(ValueError) as refused:
+            ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=True, **flags)
+        assert str(refused.value) == module.PADDLE_OCR_RETIRED
+    assert inspect.signature(ocr_settings_key).parameters["allow_paddle_ocr"].default is False
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=False) == ocr_settings_key(
+        ocr_settings=_OcrSettings())
     source = inspect.getsource(module.ocr_settings_key)
-    # The paddle-settings names must appear ONLY in the source text following
-    # the `if extractor == "paddle":` line.
-    marker = 'if extractor == "paddle":'
-    assert marker in source, "the paddle branch guard moved or was renamed"
-    before, after = source.split(marker, 1)
-    for name in ("load_paddle_settings", "paddle_settings_key_material"):
-        assert name not in before, f"{name} referenced before the paddle-only branch"
-        assert name in after, f"{name} missing from the paddle-only branch"
+    assert "load_paddle_settings" not in source and "paddle_settings_key_material" not in source
+    assert 'settings["paddle"] =' not in source
+
+
+def test_a_cached_read_of_the_paddle_partition_is_refused_before_any_read(tmp_path):
+    def compute():
+        raise AssertionError("nothing may be computed")
+
+    for cache in (None, open_cache(tmp_path / "data")):
+        with pytest.raises(ValueError, match="PaddleOCR rung was removed"):
+            cached_ocr(PDF, compute=compute, cache=cache, force_ocr=True, allow_visual_ocr=False,
+                       allow_paddle_ocr=True)
 
 
 def test_extraction_schema_version_is_pinned_at_3():
@@ -738,9 +702,13 @@ def test_analysis_stage_version_is_pinned_at_39():
 def test_paddle_model_token_is_not_in_free_models():
     """M13: remote_paid is not free — `PADDLE_MODEL_TOKEN` must never be
     added to `telemetry.prices.FREE_MODELS`; the actual cost is measured,
-    never invented, and `price_for` reports it unpriced."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    never invented, and `price_for` reports it unpriced. (The rung was
+    removed in slice S5; the token stays telemetry vocabulary for stored
+    readings, so the pin reads it from there.)"""
     from telemetry.prices import FREE_MODELS, price_for
+    from telemetry.record import PADDLE_MODEL_TOKENS
+
+    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
 
     assert PADDLE_MODEL_TOKEN not in FREE_MODELS
     assert price_for(PADDLE_MODEL_TOKEN) is None

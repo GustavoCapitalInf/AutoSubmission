@@ -62,3 +62,25 @@ def test_union_substitutes_only_the_subset_and_names_every_change(tmp_path):
     assert result["changed"] == 1 and result["diffs"][0][0] == SHA["B"]
     diff = (out / "diff_A_B.md").read_text()
     assert SHA["B"][:16] in diff and "failed | withheld" in diff and ".pdf" not in diff
+
+
+def test_a_rerun_after_the_s5_move_names_the_deferral_that_became_a_refusal(tmp_path):
+    """Model-code removal, slice S5 (declared): a full run from before S5 recorded a document the offline ladder
+    read nothing from as `deferred:deferred_visual_ocr`; a re-run from S5 on records it `refused:insufficient_evidence`.
+    The union names exactly that change and recomputes the deferral counts from the union rows."""
+    full = _run(tmp_path, "A", {
+        SHA["A"]: ("validated", "approved", "atb", "native"),
+        SHA["C"]: ("deferred", "deferred_visual_ocr", "", "none"),
+    })
+    subset = _run(tmp_path, "B", {
+        SHA["C"]: ("refused", "insufficient_evidence", "", "none"),
+    })
+    out = tmp_path / "U"
+    result = ru.compose(full, subset, out, label="s5")
+    summary = json.loads((out / "summary.json").read_text())
+    assert summary["reasons"] == {"approved": 1, "insufficient_evidence": 1}
+    assert summary["deferred_reasons"] == {}
+    assert summary["outcome"] == {"validated": 1, "refused": 1}
+    assert result["changed"] == 1 and result["diffs"][0][0] == SHA["C"]
+    diff = (out / "diff_A_B.md").read_text()
+    assert "deferred | refused" in diff and "deferred_visual_ocr -> insufficient_evidence" in diff

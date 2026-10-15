@@ -128,10 +128,12 @@ def run_of_record_partitions():
         return {"note": "no --mode given to this provenance call; a run's "
                         "actual partitions were not recorded"}
     # P22-IDENTITY (Phase 2.2, D7): the research partition id the run was
-    # launched with (`--research-partition`; empty for every production run).
-    # It is KEY MATERIAL of every OCR key below when non-empty, and it is
-    # recorded verbatim in the partitions block so `telemetry/run_of_record.py`
-    # can REFUSE the run as a run of record.
+    # launched with (empty for every production run; the CLI's
+    # `--research-partition` flag was removed with the research mode, slice
+    # S5, so the CLI always records ""). It is KEY MATERIAL of every OCR key
+    # below when non-empty, and it is recorded verbatim in the partitions
+    # block so `telemetry/run_of_record.py` can REFUSE such a run as a run of
+    # record.
     research_partition = sys.argv[3] if len(sys.argv) > 3 else ""
     from discovery.runner import LOCAL_OCR_MODES
     allow_local_ocr = mode in LOCAL_OCR_MODES
@@ -145,36 +147,13 @@ def run_of_record_partitions():
         "mode": mode,
         "research_partition": research_partition,
     }
-    # P21-ROUTING (Phase 2.1, design item 7): the Paddle partition, recorded
-    # ONLY when Paddle settings actually load from this host's environment —
-    # never a placeholder key. Most hosts running provenance have no
-    # PADDLE_* configuration set, and that is the expected, common case: the
-    # key is simply omitted, with a note, rather than guessed.
-    try:
-        partitions["paddle_ocr_key"] = ac.ocr_settings_key(
-            force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False,
-            allow_paddle_ocr=True, research_partition=research_partition,
-        )
-        # P22-IDENTITY closure (hermeticity): the note exists on BOTH paths, so
-        # a reader of the record never has to infer "configured" from the
-        # ABSENCE of a key.
-        partitions["paddle_ocr_key_note"] = "recorded"
-    except Exception as exc:  # PaddleConfigError, most commonly: recorded, never fatal
-        # P21-ROUTING closure (MINOR-5): the exception's own message is NEVER
-        # written verbatim — only the class name, plus the CLOSED-vocabulary
-        # `.reason` a `PaddleRefused` carries (never `PaddleConfigError`'s own
-        # message, which can name an arbitrary configuration variable's
-        # surrounding text). `provenance.json` is a durable run record this
-        # module's own closure reports quote; an unbounded `str(exc)` is
-        # exactly the "an exception message can quote content" hazard this
-        # tree refuses everywhere else, even though today's realistic
-        # exception (`PaddleConfigError`) happens to name only variables.
-        from ocr.paddle_config import REFUSAL_REASONS
-        reason = getattr(exc, "reason", None)
-        if isinstance(reason, str) and reason in REFUSAL_REASONS:
-            partitions["paddle_ocr_key_note"] = f"not recorded: {type(exc).__name__}: {reason}"
-        else:
-            partitions["paddle_ocr_key_note"] = f"not recorded: {type(exc).__name__}"
+    # P21-ROUTING (Phase 2.1, design item 7) recorded the Paddle partition's
+    # key here when Paddle settings loaded on this host, and otherwise only a
+    # note. The PaddleOCR rung and its settings were removed (model-code
+    # removal, slice S5, plan D18), so the key can no longer be computed:
+    # `paddle_ocr_key` is never written, and the note is a fixed literal, so
+    # the record's shape is unchanged and no value in it is an exception.
+    partitions["paddle_ocr_key_note"] = "not recorded: retired"
     return partitions
 attempt("run_of_record_partitions", run_of_record_partitions)
 def registry():
@@ -423,24 +402,16 @@ def main(argv: list[str] | None = None) -> int:
                              "profile-only/dry-run) — records run_of_record.partitions computed "
                              "from THIS run's flags (P20-ARTIFACTS). Omit to leave partitions "
                              "unrecorded, as every provenance.json before this cell does.")
-    parser.add_argument("--research-partition", default="",
-                        help="P22-IDENTITY (D7): the research partition id the run was launched "
-                             "with (empty for a production run). Recorded in run_of_record."
-                             "partitions and folded into every OCR key there, so "
-                             "telemetry/run_of_record.py refuses the run as historical truth.")
+    # `--research-partition` was removed with the research mode (model-code
+    # removal, slice S5, plan D18): a run launched from this tree has no
+    # research partition, and the record's `research_partition` field is "".
     args = parser.parse_args(argv)
     try:  # the Windows console is cp1252; the files are UTF-8 regardless
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
-    try:
-        validate_research_partition(args.research_partition)
-    except ValueError as refusal:
-        print(str(refusal))
-        return 2
     record = collect(args.checkout.resolve(), args.root.resolve(), args.data_dir.resolve(),
-                     label=args.label, hash_corpus=args.hash_corpus, mode=args.mode,
-                     research_partition=args.research_partition)
+                     label=args.label, hash_corpus=args.hash_corpus, mode=args.mode)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(record, indent=2, sort_keys=True, default=str), encoding="utf-8")
     args.out.with_suffix(".md").write_text(render(record), encoding="utf-8")

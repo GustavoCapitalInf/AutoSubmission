@@ -100,8 +100,11 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     ladder still gets first refusal inside a single :func:`ocr.pipeline.parse_statement`
     call — is ``"offline"``. This is a LABEL on the settings partition, not a
     certified claim about which rung actually produced a given artifact (the
-    artifact's own ``model`` field is that record); a third extractor stack
-    (PaddleOCR) would add a third label here in a later phase — excluded now.
+    artifact's own ``model`` field is that record). The third label,
+    ``"paddle"`` (the forced PaddleOCR call shape, P21-ROUTING), is computed by
+    :func:`_ocr_extractor` for historical reconstruction only: since slice S5
+    of the model-code removal :func:`ocr_settings_key` refuses
+    ``allow_paddle_ocr=True`` before any material is built.
     ``postprocess_state`` / ``postprocess_admitted`` — the legacy OCR
     postprocess chain's quarantine state: the pinned ``"quarantined"`` /
     ``()`` for every extractor label (frozen key material since slice S2; the
@@ -1123,6 +1126,14 @@ FROZEN_HOSTED_EXTRACTION_OPT_IN = False
 #: partition's key cannot be computed; its stored readings are left orphaned.
 VISUAL_PAIR_RETIRED = "the visual pair was removed: no OCR key has a visual-pair partition any more"
 
+#: Model-code removal, slice S5: the fixed refusal of a key or cached read that
+#: asks for the retired PaddleOCR rung's partition (`allow_paddle_ocr=True`).
+#: The rung and its settings (`ocr/paddle_config.py`) are gone, so that
+#: partition's key cannot be computed; its stored readings are left orphaned.
+#: `allow_paddle_ocr=False` stays key material (it always entered the v5+
+#: material), so no deterministic key moves.
+PADDLE_OCR_RETIRED = "the PaddleOCR rung was removed: no OCR key has a Paddle partition any more"
+
 #: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
 #: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
 #: unguarded ``from ocr.rasterize import RASTER_VERSION`` would let a missing
@@ -1324,9 +1335,19 @@ def ocr_settings_key(
     (``False`` never entered the material, so every other key is unchanged);
     ``visual_pair_settings`` was read only on that branch and is ignored. A
     stored reading that carries ``visual_pair`` evidence still restores
-    through :func:`cached_ocr`, which re-verifies its hash."""
+    through :func:`cached_ocr`, which re-verifies its hash.
+
+    ``allow_paddle_ocr=True`` RAISES ``ValueError`` the same way (slice S5:
+    the PaddleOCR rung was removed, and its settings with it). The parameter
+    and its ``False`` default stay, and ``"allow_paddle_ocr": False`` stays in
+    the v5+ material, so every deterministic key is unchanged; the Paddle
+    partition's stored readings are orphaned. A stored reading that carries
+    extractor ``evidence`` still restores through :func:`cached_ocr`, which
+    re-verifies it."""
     if allow_visual_pair:
         raise ValueError(VISUAL_PAIR_RETIRED)
+    if allow_paddle_ocr:
+        raise ValueError(PADDLE_OCR_RETIRED)
     del visual_pair_settings  # read only by the retired visual-pair branch
     if ocr_settings is None:
         # Frozen key material (plan D3): never read from the environment.
@@ -1388,17 +1409,10 @@ def ocr_settings_key(
             # D7: present ONLY when non-empty — see the docstring. Every
             # extractor label gets its own research partition.
             settings["research_partition"] = partition
-        if extractor == "paddle":
-            # Lazy import: the offline and visual partitions' keys must
-            # never touch Paddle settings at all (asserted by test) — only a
-            # paddle-labelled call reaches this branch. A Paddle read whose
-            # settings CANNOT be loaded (no env) REFUSES here rather than
-            # falling back to a default block: `PaddleConfigError` propagates
-            # unchanged, exactly as the rung itself refuses before any
-            # request (D5, design item 5).
-            from ocr.paddle_config import load_paddle_settings, paddle_settings_key_material
-
-            settings["paddle"] = paddle_settings_key_material(load_paddle_settings())
+        # The Paddle settings block (`settings["paddle"]`, read from
+        # `ocr.paddle_config` for a paddle-labelled key only) was removed with
+        # the rung (slice S5): `allow_paddle_ocr=True` is refused above, so no
+        # key reaches that label any more.
     return _fingerprint(settings)
 
 
@@ -1816,12 +1830,14 @@ def cached_ocr(
     is found — and reported — again on the next call, never lost and never
     served. An exception with no drift behind it carries no attribute.
 
-    ``allow_visual_pair=True`` raises ``ValueError`` before ``compute`` runs,
-    with or without a cache (model-code removal, slice S4; see
-    :func:`ocr_settings_key`).
+    ``allow_visual_pair=True`` (model-code removal, slice S4) and
+    ``allow_paddle_ocr=True`` (slice S5) raise ``ValueError`` before
+    ``compute`` runs, with or without a cache (see :func:`ocr_settings_key`).
     """
     if allow_visual_pair:
         raise ValueError(VISUAL_PAIR_RETIRED)
+    if allow_paddle_ocr:
+        raise ValueError(PADDLE_OCR_RETIRED)
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
     input_sha = content_hash or content_sha256(pdf_bytes)

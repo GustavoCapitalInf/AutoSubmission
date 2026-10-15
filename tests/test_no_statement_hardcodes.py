@@ -1264,16 +1264,19 @@ def test_the_issuer_marker_guard_catches_growth_inside_a_ratcheted_file(tmp_path
 
 
 # ---------------------------------------------------------------------------
-# P21-ROUTING CASE 15: the OQ2 protection extends to `evidence/` and
-# `tools/paddle_vast.py`, reusing the SAME pattern classes and helper
+# P21-ROUTING CASE 15: the OQ2 protection extends to `evidence/` (and, until
+# the PaddleOCR rung was removed in slice S5 of the model-code removal,
+# `tools/paddle_vast.py`), reusing the SAME pattern classes and helper
 # functions defined above — no new detection logic, only a new scope, exactly
 # the OCR extension's own precedent (see its header comment). Blast radius
-# measured before this test was written: every scan below is clean (0 hits)
-# over both `evidence/*.py` and `tools/paddle_vast.py`.
+# measured before this test was written: every scan below was clean (0 hits).
+# The deleted Paddle tools (`tools/paddle_vast.py`, `tools/paddle_wave.py`,
+# `tools/extraction_quality_census.py`, `tools/agreement_census.py`) left the
+# scan roots with their files; every remaining root is still scanned and
+# required to exist.
 # ---------------------------------------------------------------------------
 
 EVIDENCE_DIR = Path(__file__).resolve().parent.parent / "evidence"
-PADDLE_VAST_TOOL = Path(__file__).resolve().parent.parent / "tools" / "paddle_vast.py"
 #: P22-CLASSIFY (Phase 2.2 case 24): the neutral `layout/` package joins the
 #: same scans — a roots APPEND only, no new detection logic.
 LAYOUT_DIR = Path(__file__).resolve().parent.parent / "layout"
@@ -1297,48 +1300,35 @@ P22_TRUTHTABLE_MODULES = [
     Path(__file__).resolve().parent.parent / "tools" / "truth_report.py",
 ]
 
-#: P23-WAVE (Phase 2.3, card item 9): the wave runner joins the same scans, in
-#: cell T's style one line above — a roots APPEND only, no new detection logic.
-#: It is covered from birth, which is the part that is genuinely a clean append;
-#: `discovery/` and `telemetry/` as WHOLES stay out for the reason T recorded.
-P23_WAVE_MODULES = [
-    Path(__file__).resolve().parent.parent / "tools" / "paddle_wave.py",
-]
-
-#: P23-EGATE (Phase 2.3 cell E, card item 6): the census instrument joins the
-#: same scans — a roots APPEND only, in the two lines of precedent above. Its
-#: module, `ocr/extraction_quality.py`, needs no append at all: `_ocr_modules`
-#: already covers every file in `ocr/`, and
-#: `test_the_p23_egate_scan_roots_cover_the_module_and_the_tool` asserts that
+#: P23-WAVE (Phase 2.3, card item 9) appended the wave runner
+#: (`tools/paddle_wave.py`) here, and P23-EGATE (cell E, card item 6) the census
+#: instrument (`tools/extraction_quality_census.py`); both left with the
+#: PaddleOCR rung (slice S5). The metrics module, `ocr/extraction_quality.py`,
+#: never needed an append: `_ocr_modules` already covers every file in `ocr/`,
+#: and `test_the_p23_egate_module_is_covered_by_the_ocr_scan` asserts that
 #: rather than assuming it — an allowlist whose members are covered by
 #: accident is one rename away from covering nothing.
-P23_EGATE_MODULES = [
-    Path(__file__).resolve().parent.parent / "tools" / "extraction_quality_census.py",
-]
 
-#: P23-AGREE (Phase 2.3 cell X, card item 6): this card's two instruments
-#: join the same scans. A roots APPEND only, no new detection logic, in the
-#: style of the two blocks above. `layout/agreement.py` needs no entry — the
-#: whole of `layout/*.py` is already globbed below, so it is covered from
-#: birth.
+#: P23-AGREE (Phase 2.3 cell X, card item 6): this card's instruments join the
+#: same scans. A roots APPEND only, no new detection logic, in the style of the
+#: blocks above. `layout/agreement.py` needs no entry — the whole of
+#: `layout/*.py` is already globbed below, so it is covered from birth. (The
+#: third instrument, `tools/agreement_census.py`, left with the Paddle research
+#: partition it measured, slice S5.)
 P23_AGREE_MODULES = [
-    Path(__file__).resolve().parent.parent / "tools" / "agreement_census.py",
     Path(__file__).resolve().parent.parent / "tools" / "agree_native_census.py",
     Path(__file__).resolve().parent.parent / "tools" / "agree_mutation_table.py",
 ]
 
 
 def _paddle_phase21_modules() -> list[Path]:
-    """`evidence/*.py` plus `tools/paddle_vast.py` — CASE 15's exact scope —
-    plus `layout/*.py` (Phase 2.2 case 24), cell T's two new modules, and cell
-    W's wave runner (Phase 2.3)."""
+    """`evidence/*.py` — CASE 15's scope, which also held `tools/paddle_vast.py`
+    until slice S5 removed it — plus `layout/*.py` (Phase 2.2 case 24), cell T's
+    two new modules and cell X's instruments (Phase 2.3). The name is kept (it
+    is imported by `tests/test_layout_signals.py`)."""
     modules = sorted(EVIDENCE_DIR.glob("*.py"))
-    if PADDLE_VAST_TOOL.exists():
-        modules.append(PADDLE_VAST_TOOL)
     modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
     modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
-    modules.extend(path for path in P23_WAVE_MODULES if path.exists())
-    modules.extend(path for path in P23_EGATE_MODULES if path.exists())
     modules.extend(path for path in P23_AGREE_MODULES if path.exists())
     return modules
 
@@ -1364,22 +1354,11 @@ def test_the_p22_truthtable_modules_are_actually_scanned():
     assert {path.name for path in P22_TRUTHTABLE_MODULES} <= scanned
 
 
-def test_the_p23_wave_module_is_actually_scanned():
-    """The same guard for this card's append, for the same reason."""
-    missing = [path.name for path in P23_WAVE_MODULES if not path.exists()]
-    assert not missing, f"named in the scan roots but absent: {missing}"
-    scanned = {path.name for path in _paddle_phase21_modules()}
-    assert {path.name for path in P23_WAVE_MODULES} <= scanned
-
-
-def test_the_p23_egate_scan_roots_cover_the_module_and_the_tool():
-    """Card item 6: the metrics module AND the census instrument are in the
-    OQ2 scan roots. The module is covered by the `ocr/` layer scan and the
-    tool by this card's append; both are asserted, because a named root that
-    does not exist scans nothing and passes."""
-    missing = [path.name for path in P23_EGATE_MODULES if not path.exists()]
-    assert not missing, f"named in the scan roots but absent: {missing}"
-    assert {path.name for path in P23_EGATE_MODULES} <= {p.name for p in _paddle_phase21_modules()}
+def test_the_p23_egate_module_is_covered_by_the_ocr_scan():
+    """Card item 6: the metrics module is in the OQ2 scan roots, covered by the
+    `ocr/` layer scan (asserted, because a named root that does not exist scans
+    nothing and passes). The census instrument that was its second root left
+    with the PaddleOCR rung (slice S5)."""
     assert "extraction_quality.py" in {path.name for path in _ocr_modules()}
 
 
@@ -1473,9 +1452,8 @@ def test_evidence_and_paddle_vast_scope_is_not_accidentally_empty():
     """A scan over an empty file list passes vacuously and proves nothing —
     the same lesson `test_the_calendar_scan_still_sees_the_literal_in_real_
     code` exists to teach elsewhere in this file. `evidence/canonical.py`
-    always exists (cell 0's contract); `tools/paddle_vast.py` may not exist
-    yet on a base tree ahead of cell P's composition, so it is checked
-    separately and never REQUIRED for this pin to be meaningful."""
+    always exists (cell 0's contract); `tools/paddle_vast.py`, never REQUIRED
+    here, was removed with the PaddleOCR rung (slice S5)."""
     modules = _paddle_phase21_modules()
     names = {path.name for path in modules}
     assert "canonical.py" in names, "evidence/canonical.py was not found by the scan"

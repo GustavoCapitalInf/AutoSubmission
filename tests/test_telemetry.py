@@ -128,12 +128,15 @@ def test_source_path_fallthrough_is_closed_not_a_guess():
     assert source_path_unrecognized_model("paddle-ocr+ppocrv5") is False
 
 
-def test_paddle_model_tokens_matches_the_ocr_module_literal():
-    """The literal mirror never drifts from the pin it mirrors."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+def test_paddle_model_tokens_is_a_literal_pin():
+    """The literal mirror of the retired `ocr.paddle_config.PADDLE_MODEL_TOKEN` (the module left with the PaddleOCR
+    rung, model-code removal slice S5) is pinned as a literal: stored readings and telemetry records still carry the
+    token, and `ocr.config.RESERVED_MODEL_PREFIXES` names the same one."""
+    from ocr.config import RESERVED_MODEL_PREFIXES
     from telemetry.record import PADDLE_MODEL_TOKENS
 
-    assert PADDLE_MODEL_TOKENS == frozenset({PADDLE_MODEL_TOKEN})
+    assert PADDLE_MODEL_TOKENS == frozenset({"paddle-ocr+ppocrv5"})
+    assert "paddle-ocr+ppocrv5" in RESERVED_MODEL_PREFIXES
 
 
 def test_visual_model_tokens_matching_is_case_sensitive_by_design():
@@ -161,10 +164,12 @@ def test_model_calls_for_records_the_historical_endpoint_constants_on_every_ocr_
     OCR_REMOTE_OPT_IN override used to change these two fields)."""
     import types
 
-    from ocr.endpoint_policy import OCR_REMOTE_OPT_IN_ENV, OCR_REMOTE_OPT_IN_LITERAL
+    # The opt-in name and literal of the retired `ocr.endpoint_policy` (removed in slice S5), spelled here: the
+    # record must not read them whatever they hold.
+    remote_opt_in_env, remote_opt_in_literal = "OCR_REMOTE_OPT_IN", "I_ACCEPT_REMOTE_PAID_OCR"
 
     native_doc = types.SimpleNamespace(model="native-pdf-text", pages=["a"], page_integrity=[])
-    for env in ({}, {"OCR_BASE_URL": "https://foo.runpod.net/v1", OCR_REMOTE_OPT_IN_ENV: OCR_REMOTE_OPT_IN_LITERAL}):
+    for env in ({}, {"OCR_BASE_URL": "https://foo.runpod.net/v1", remote_opt_in_env: remote_opt_in_literal}):
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         calls = model_calls_for(native_doc, None)
@@ -266,8 +271,11 @@ def test_model_calls_for_reports_one_call_per_paddle_page():
     no per-page completion-token signal to sum)."""
     import types
 
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    # The Paddle rung is gone (slice S5); a stored Paddle reading still carries its token, so the record's
+    # historical Paddle arm is kept and pinned with the token from telemetry's own vocabulary.
+    from telemetry.record import PADDLE_MODEL_TOKENS
 
+    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
     paddle_doc = types.SimpleNamespace(
         model=PADDLE_MODEL_TOKEN, pages=["page one", "page two", "page three"], page_integrity=[],
     )
@@ -292,8 +300,9 @@ def test_model_calls_for_paddle_is_unpriced_not_free():
     models`; this proves the CONSEQUENCE for a real telemetry record)."""
     import types
 
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    from telemetry.record import PADDLE_MODEL_TOKENS
 
+    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
     paddle_doc = types.SimpleNamespace(model=PADDLE_MODEL_TOKEN, pages=["p1"], page_integrity=[])
     calls = model_calls_for(paddle_doc, None)
     cost = estimate(calls)

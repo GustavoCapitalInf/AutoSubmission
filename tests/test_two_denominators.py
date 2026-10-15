@@ -191,6 +191,23 @@ def test_refused_rows_count_in_the_outcome_lines_and_never_in_the_ladder():
     assert "refused" in render_report(summary)
 
 
+def test_r_counts_the_offline_ladder_reading_nothing_in_both_spellings():
+    """Model-code removal, slice S5 (plan D19): `--scanned` records the offline ladder reading nothing as
+    `refused:insufficient_evidence` with `source_path` `none` (it was `deferred_visual_ocr`). R counts both
+    spellings, so the historical row (sha 6) and a new one are both R; the new one is also a refused row, and
+    processed rather than deferred."""
+    rows = _rows() + [_row(_sha(8), document_class="KIND_UNCERTAIN", class_modality="scanned",
+                           class_tier="uncertain", class_account_kind="unknown", outcome_class="refused",
+                           outcome_reason="insufficient_evidence", dispatch_outcome=None, parser_id=None,
+                           source_path="none")]
+    summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
+    labels = summary["diagnostic_labels"]
+    assert (labels["R"], labels["refused"], labels["U"]) == (2, 1, 1)
+    assert summary["deferred_reasons"] == {"deferred_visual_ocr": 1}
+    assert summary["outcome"]["refused"] == 1 and summary["reasons"]["insufficient_evidence"] == 1
+    assert summary["raw_coverage"]["denominator"] == 8
+
+
 # ---------------------------------------------------------------------------
 # funnel + technical telemetry (case 25), and the no-cost grep (M9)
 # ---------------------------------------------------------------------------

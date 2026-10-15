@@ -43,19 +43,19 @@ def test_the_import_time_dotenv_load_stays():
     assert module_level_calls, "ocr/config.py must still call load_dotenv() at import"
 
 
-def test_the_reserved_paddle_token_equals_its_module_and_the_pair_token_is_a_literal_pin():
-    """The two tokens are literals in ocr/config.py since S2. While `ocr.paddle_config` exists the Paddle token
-    must agree with it (S5 turns that into a literal pin too). The visual pair's token is a literal pin since slice
-    S4 removed `ocr.visual_pair_config`: stored pair readings carry it, and telemetry's vocabulary still names it."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
-    from telemetry.record import VISUAL_PAIR_MODEL_TOKENS
+def test_the_reserved_paddle_and_pair_tokens_are_literal_pins():
+    """The two tokens are literals in ocr/config.py since S2. Both are literal pins now: the visual pair's since
+    slice S4 removed `ocr.visual_pair_config`, the Paddle token's since slice S5 removed `ocr.paddle_config`. Stored
+    readings carry both, and telemetry's vocabularies still name them (`PADDLE_MODEL_TOKENS`,
+    `VISUAL_PAIR_MODEL_TOKENS`), so a token claiming either reserved rung is still refused from the environment."""
+    from telemetry.record import PADDLE_MODEL_TOKENS, VISUAL_PAIR_MODEL_TOKENS
 
     assert ocr_config.RESERVED_MODEL_PREFIXES == (
         "native-pdf-text",
         "local-tesseract-ocr",
         "deterministic-native-preflight",
-        PADDLE_MODEL_TOKEN,
+        "paddle-ocr+ppocrv5",
         "visual-pair-dots-qwen",
     )
-    assert PADDLE_MODEL_TOKEN == "paddle-ocr+ppocrv5"
+    assert PADDLE_MODEL_TOKENS == frozenset({"paddle-ocr+ppocrv5"})
     assert VISUAL_PAIR_MODEL_TOKENS == frozenset({"visual-pair-dots-qwen"})

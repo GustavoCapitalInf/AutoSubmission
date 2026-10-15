@@ -1131,8 +1131,22 @@ def test_a_logo_block_fires_E1_and_that_is_a_recorded_calibration_limit():
     the mistake Ruling B exists to prevent and exactly what `ALNUM_DENSITY_
     FLOOR` documents; the owed census over real evidence is what says where
     this ceiling belongs. If this test ever fails, the calibration changed and
-    the record must change with it."""
-    from tools.p23egate_synthetic_table import with_logo
+    the record must change with it.
+
+    `with_logo` lived in `tools/p23egate_synthetic_table.py`, which left with the
+    PaddleOCR rung (model-code removal, slice S5); it is copied here verbatim
+    from that file's last commit (a290301)."""
+    from ocr.extraction_quality import RasterGray
+
+    def with_logo(raster: RasterGray, *, size: int = 90, x: int = 20, y: int = 20) -> RasterGray:
+        """A raster plus one solid block of ink that carries no word box — a logo,
+        a shaded header band, a signature panel: ink every real statement has."""
+        pixels = bytearray(raster.pixels)
+        for row in range(y, min(y + size, raster.height)):
+            start = row * raster.width
+            for column in range(x, min(x + size, raster.width)):
+                pixels[start + column] = 0
+        return RasterGray(width=raster.width, height=raster.height, pixels=bytes(pixels))
 
     page = build_ledger_page(ROWS)
     clean = page_quality(evidence_page(page), raster=rendered_raster(page))

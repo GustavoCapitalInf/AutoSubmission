@@ -128,7 +128,8 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
   `python -m telemetry.report --sqlite <data directory>` reads the web app's records instead.
 - `python -m discovery` also runs `--profile-only` (intake), `--digital` (offline rungs) or `--scanned` (plus
   local Tesseract) over `--root`, after checking it against the frozen archive baseline (`--skip-baseline` for
-  scoped runs). Ignore its retired `--scanned-paddle` and `--research-*` modes (`--scanned-visual` is gone). Its
+  scoped runs). Its model-reading modes (`--scanned-visual`, `--scanned-paddle`, `--research-paddle`) are gone; on
+  `--scanned`, a document Tesseract reads nothing usable from is refused (`refused:insufficient_evidence`). Its
   cache is the web app's data
   directory unless you pass `--no-cache`. Reports go to the gitignored `discovery_reports/<run_id>/`.
 - The benchmark verifies its manifest's PDF hashes first and writes masked reports to `benchmark_reports/`.
@@ -144,9 +145,9 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 - `requirements-dev.txt` adds pytest, `jsonschema`, `pypdfium2` and `numpy` to the two runtime files. The last
   three were needed only because the suite imported the retired visual-pair code (`vlm/`), which has been
   removed; their lines leave with the requirement-file clean-up.
-- `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests in `tests/test_live_smoke.py` and
-  `tests/test_paddle_live.py` belong to retired endpoints: do not run them. The one local `live` check is the
-  Tesseract drift test: `python -m pytest -m live tests/test_new_statement_corpus.py`.
+- `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests of the retired model endpoints were
+  removed with them. The one local `live` check is the Tesseract drift test:
+  `python -m pytest -m live tests/test_new_statement_corpus.py`.
 - **Known failures** (after the visual pair's removal, Windows, Python 3.14): 4 failed, 23,836 passed,
   53 skipped, 37 deselected, in about 13 minutes. All four are Windows environment artefacts: the symlink tests
   of `tests/test_private_artifacts.py` need the symlink privilege (`WinError 1314`). The two guard tests that
@@ -207,13 +208,11 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 | `RECONSTRUCTION_MODE` | `off` | Leave it `off`; the other values belong to a research path. |
 
 A gitignored `.env` at the repository root is read at start and fills in any variable the shell leaves unset.
-Any variable not listed here belongs to the retired model paths: leave it unset. Above all never set
-`OCR_REMOTE_OPT_IN`, in the shell or in `.env`: it re-opens the remote OCR endpoint the remaining Paddle research
-path can reach. `OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`,
-`VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN`, `HOSTED_EXTRACTION_OPT_IN` and the `GEMINI_*` settings no longer do
-anything: the visual pair, the legacy visual OCR and the hosted extraction they opened were removed. Do not copy
-the tracked `.env.*.example` templates, and empty an old `.env` of model settings. `run.ps1` still pins all five
-switches to `0` for the web app it starts.
+Any variable not listed here belongs to the retired model paths: leave it unset. `OCR_REMOTE_OPT_IN`,
+`OCR_ALLOW_VISUAL_PAIR`, `OCR_VISUAL_PAIR_LEGACY_VISUAL`, `VISUAL_PAIR_REMOTE_CUSTOMER_DATA_OPT_IN`,
+`HOSTED_EXTRACTION_OPT_IN` and the `GEMINI_*` and `PADDLE_*` settings no longer do anything: the visual pair, the
+legacy visual OCR, PaddleOCR and the hosted extraction they opened were removed. Empty an old `.env` of model
+settings. `run.ps1` still pins five of these switches to `0` for the web app it starts.
 
 ## Product rules
 

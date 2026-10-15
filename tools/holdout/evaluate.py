@@ -92,7 +92,10 @@ JUDGEMENTS = (
 MISS_CLASSES = ("A", "B", "C", "unclassified")
 #: Reason -> class when the row carries no `failure_class` (the run of record's
 #: own vocabulary: extraction-level reasons are A, dispatch reasons B,
-#: validator reasons C).
+#: validator reasons C). Append-only: `insufficient_evidence` is the reason the
+#: discovery runner records, since slice S5 of the model-code removal, for what
+#: was `deferred_visual_ocr` (the offline ladder read nothing usable), so it is
+#: the same extraction-level class.
 _REASON_CLASS = {
     "deferred_visual_ocr": "A",
     "invalid_pdf": "A",
@@ -100,6 +103,7 @@ _REASON_CLASS = {
     "parser_declined": "B",
     "withheld_adb": "C",
     "integrity_flags": "C",
+    "insufficient_evidence": "A",
 }
 _UNPARSEABLE = object()
 
