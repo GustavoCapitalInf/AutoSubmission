@@ -477,6 +477,36 @@ RESULT["row"] = row.parser_id
     assert result == {"job": ["done", "native-pdf-text", True, None], "row": "woodforest"}, result
 
 
+#: The base revisions the privacy comparisons load (tests/test_raise_privacy3.py, tests/test_raise_privacy4.py).
+HISTORICAL_BASE_REVISIONS = ("10cc722", "2f24b06", "897d69e")
+
+
+def test_the_historical_base_trees_load_without_the_hosted_extraction_sdk(tmp_path):
+    """The privacy comparisons load `analysis/` as it stood before slice S3, whose extractor imported the SDK at
+    module level. The loader (`tools/hygiene8_base_tree.py`) puts a refusing stand-in in that module's place, so a
+    base tree loads where the SDK is not installed (CI since S6; measured: without the stand-in, 135 comparison
+    tests skip there) and no process loads the SDK to compare deterministic code."""
+    for revision in HISTORICAL_BASE_REVISIONS:
+        probe = subprocess.run(["git", "-C", str(ROOT), "cat-file", "-e", f"{revision}^{{commit}}"],
+                               capture_output=True)
+        if probe.returncode != 0:
+            pytest.skip("the base revisions are not in this checkout (an extracted tree)")
+    result = assert_no_model_module_after(f'''
+import sys
+from pathlib import Path
+from tools.hygiene8_base_tree import RETIRED_EXTRACTOR, load_base_analysis
+RESULT["refused"] = []
+for revision in {HISTORICAL_BASE_REVISIONS!r}:
+    base = load_base_analysis(revision, repo=Path({str(ROOT)!r}), scratch=Path({str(tmp_path / "base")!r}))
+    pipeline = sys.modules[base.package + ".pipeline"]
+    try:
+        pipeline.extract_statement("fabricated")
+    except RuntimeError as exc:
+        RESULT["refused"].append(str(exc) == RETIRED_EXTRACTOR and callable(base.analyze_markdown))
+''', tmp_path / "data")
+    assert result == {"refused": [True, True, True]}, result
+
+
 @pytest.mark.parametrize("planted, field, expected", [
     ("import types; sys.modules['openai'] = types.ModuleType('openai')", "model", ["openai"]),
     ("import types; sys.modules['vlm.pair'] = types.ModuleType('vlm.pair')", "model", ["vlm.pair"]),
