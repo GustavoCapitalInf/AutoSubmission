@@ -1,8 +1,14 @@
 # Everything `python -m pytest` and `python corpus_gate.py` need: both runtime
-# files plus pytest. CI installs this file (.github/workflows/corpus-gate.yml);
-# the hosting image and a plain install of the app do not need it.
+# files plus the test-only packages. CI installs this file
+# (.github/workflows/corpus-gate.yml); the hosting image and a plain install of
+# the app do not need it.
 #
 #   python -m pip install -r requirements-dev.txt
 -r requirements.txt
 -r requirements-analysis.txt
 pytest
+# Reads the exported .xlsx back in 12 tests (tests/test_webapp_security.py,
+# tests/test_webapp_true_revenue.py), which skip without it. MIT licence, as
+# is its one dependency, et-xmlfile. The app writes the workbook itself and
+# never imports it.
+openpyxl

@@ -30,7 +30,8 @@ name: Corpus gate
 # (jsonschema, pypdfium2, numpy, all three through the retired visual pair
 # under vlm/), and the gate step, which ran only after a green suite, was
 # skipped on every run. The visual pair and the three packages left with the
-# model-code removal (2026-10), so requirements-dev.txt adds only pytest; a
+# model-code removal (2026-10), so requirements-dev.txt adds only pytest (and,
+# since the removal's final review, openpyxl for the spreadsheet tests); a
 # runtime-only import check guards the gap that opens between this job and the
 # hosting image and fails when a model module loads; and the gate runs
 # whatever the suite's result.
@@ -120,8 +121,11 @@ jobs:
           EOF
 
       - name: Install test dependencies
-        # pytest, the one test-only package (the suite needs nothing else since
-        # the visual pair's jsonschema, pypdfium2 and numpy left with it).
+        # pytest, and openpyxl for the 12 tests that read an exported
+        # spreadsheet back (they skip without it). The suite needs nothing else
+        # since the visual pair's jsonschema, pypdfium2 and numpy left with it;
+        # tests/test_ci_test_dependencies.py fails if a test importorskips a
+        # package this install does not hold.
         run: pip install -r requirements-dev.txt
 
       - name: Verify the corpus checked out byte-identically
