@@ -88,8 +88,9 @@ function fetch(url) {
 els.statusMessage = {textContent: '', hidden: true, links: '',
                      insertAdjacentHTML(where, html) { this.links += html; }};
 """ % json.dumps(HELD_READ) + "\n".join(_function(name) for name in (
-        "escapeHtml", "sentenceCase", "setStatusMessage", "appendStatusLink", "friendlyAnalysisError",
-        "sourceContradiction", "setActions", "renderExtractionReview", "loadResults")) + """
+        "escapeHtml", "sentenceCase", "setStatusMessage", "appendStatusLink", "noUsableText",
+        "friendlyAnalysisError", "sourceContradiction", "setActions", "renderExtractionReview",
+        "loadResults")) + """
 loadResults('synthetic-job');
 setImmediate(() => console.log(JSON.stringify({currentAnalysis, currentMarkdown,
   cleared, renderedAnalysis, heading: els.statusHeading.textContent,
@@ -143,8 +144,9 @@ function setInitialState() {}
 function setProgress() {}
 function escapeHtml(value) { return String(value); }
 """ + "".join(function(name) for name in ("setBanner", "setStatusMessage", "kvRowsHtml", "statusRowHtml",
-                                          "setStatusRows", "sentenceCase", "friendlyAnalysisError",
-                                          "sourceContradiction", "renderExtractionReview"))
+                                          "setStatusRows", "sentenceCase", "noUsableText",
+                                          "friendlyAnalysisError", "sourceContradiction",
+                                          "renderExtractionReview"))
     results = []
     for message in (CONTRADICTION, "visual pair gate refused the document"):
         script = harness + f"""

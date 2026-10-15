@@ -3039,12 +3039,18 @@ function integrityLabel(integrity = {}) {
   return "Clear";
 }
 
+// A document nothing was read from: no usable native PDF text, and local OCR read no usable statement text from its
+// pages either (`webapp/worker.py` NO_USABLE_TEXT; a job stored before the model removal carries the same prefix).
+function noUsableText(message) {
+  return /native PDF text unavailable|too sparse|no native text/i.test(String(message || ""));
+}
+
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
     return "No deterministic parser matched this statement. Nothing was guessed; this layout needs a parser before it can be analysed.";
   }
-  if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
+  if (noUsableText(text)) {
     return "This PDF has no usable native text, and local OCR on this machine could not read usable statement text from its pages.";
   }
   return text || "No analysis report was generated";
@@ -4883,14 +4889,17 @@ function renderExtractionReview(message) {
   const reason = sentenceCase(friendlyAnalysisError(message)).replace(/([^.!?])$/, "$1.");
   const explanation = `${reason} Open Review extraction to inspect the reading and its review status. `
     + "No metrics have been published.";
+  // The owner's wording of 2026-10-15: a scanned or image-only PDF nothing was read from says so, instead of an
+  // extraction being available and OCR having completed. A document that was read and is held keeps its labels.
+  const unread = noUsableText(message);
   els.statusHeading.textContent = "Extraction needs review";
-  setBanner("pending", "Extraction available; metrics withheld", "Review required");
+  setBanner("pending", unread ? "Not read: no usable text" : "Extraction available; metrics withheld", "Review required");
   setStatusMessage(explanation, "review");
   els.decisionPill.textContent = "Review required";
   els.decisionPill.className = "decision-pill review_required";
   els.summaryBox.textContent = explanation;
   setStatusRows([
-    ["OCR completed", "Yes"],
+    unread ? ["Local OCR", "no usable text"] : ["OCR completed", "Yes"],
     ["Validation", "Review required"],
     ["Metrics", "Withheld"],
   ]);
