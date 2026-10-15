@@ -329,8 +329,12 @@ def test_every_reason_the_runner_and_the_record_can_emit_is_in_the_reason_map():
     reason `classify_outcome` / `classify_document` / `_failure_reason`
     return, every deferred reason and every refused reason is a key of
     `REASON_LAYER` — mapped to a layer, or explicitly `None` (the layer comes
-    from another fact: the W3-2 diagnostics, or a validated outcome)."""
+    from another fact: the W3-2 diagnostics, or a validated outcome). Since
+    slice S5 of the model-code removal the expected set also holds the
+    DECLARED `RETIRED_RUNNER_REASONS` (reasons whose emitter left with the
+    model rungs; historical rows still carry them)."""
     from telemetry.record import DEFERRED_REASONS, REFUSED_REASONS
+    from telemetry.unresolved_taxonomy import RETIRED_RUNNER_REASONS
 
     literals = runner_reason_literals(
         (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8"),
@@ -338,7 +342,7 @@ def test_every_reason_the_runner_and_the_record_can_emit_is_in_the_reason_map():
     )
     assert literals, "the guard found no reason literal at all: it is vacuous"
     assert {"no_parser_matched", "parser_declined", "withheld_adb", "approved", "invalid_pdf"} <= literals
-    expected = set(literals) | set(DEFERRED_REASONS) | set(REFUSED_REASONS)
+    expected = set(literals) | set(DEFERRED_REASONS) | set(REFUSED_REASONS) | set(RETIRED_RUNNER_REASONS)
     missing = sorted(expected - set(REASON_LAYER))
     assert not missing, f"runner/record reasons the taxonomy does not know: {missing}"
     stale = sorted(set(REASON_LAYER) - expected)
@@ -347,10 +351,12 @@ def test_every_reason_the_runner_and_the_record_can_emit_is_in_the_reason_map():
 
 def test_m2_a_reason_injected_into_a_scratch_copy_of_the_runner_is_reported():
     """M2 applied to a SCRATCH copy (the tree is never touched): the guard's
-    pure function sees the new literal and it is not in `REASON_LAYER`."""
+    pure function sees the new literal and it is not in `REASON_LAYER`.
+    Re-anchored in slice S5 on the local-Tesseract refusal (the escalation
+    refusal it used to replace left with the escalation)."""
     runner = (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8")
     planted = runner.replace(
-        'row.outcome_class, row.outcome_reason = "failed", "escalation_refused"',
+        'row.outcome_class, row.outcome_reason = "failed", "ocr_failed"',
         'row.outcome_class, row.outcome_reason = "failed", "brand_new_reason_nobody_mapped"',
         1,
     )
@@ -358,6 +364,42 @@ def test_m2_a_reason_injected_into_a_scratch_copy_of_the_runner_is_reported():
     literals = runner_reason_literals(planted, (ROOT / "telemetry" / "record.py").read_text(encoding="utf-8"))
     assert "brand_new_reason_nobody_mapped" in literals
     assert "brand_new_reason_nobody_mapped" not in REASON_LAYER
+
+
+def test_the_retired_runner_reasons_have_no_emitter_and_are_exactly_the_s5_removals():
+    """The declared exemption cannot hide a live reason: no member of `RETIRED_RUNNER_REASONS` is a literal the
+    runner or the record can emit today, every member is still a `REASON_LAYER` key (historical rows classify), and
+    the set is exactly what slice S5 measured (`runner_reason_literals` at the parent 57ca19a minus at the head)."""
+    from telemetry.unresolved_taxonomy import RETIRED_RUNNER_REASONS
+
+    literals = runner_reason_literals(
+        (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8"),
+        (ROOT / "telemetry" / "record.py").read_text(encoding="utf-8"),
+    )
+    assert RETIRED_RUNNER_REASONS & literals == set(), sorted(RETIRED_RUNNER_REASONS & literals)
+    assert RETIRED_RUNNER_REASONS <= set(REASON_LAYER)
+    assert RETIRED_RUNNER_REASONS == {
+        "deferred_visual_ocr", "escalation_refused", "paddle_refused",
+        "research_refused_holdout", "research_skipped_not_in_population",
+    }
+    # and the reason that replaced trigger R's old spelling is emitted, mapped to the same layer
+    assert "insufficient_evidence" in literals
+    assert REASON_LAYER["insufficient_evidence"] == REASON_LAYER["deferred_visual_ocr"] == ("l2", "E0_no_evidence")
+
+
+def test_a_planted_emitter_of_a_retired_reason_is_caught():
+    """The no-emitter half bites: a retired reason written back into a SCRATCH copy of the runner is seen."""
+    from telemetry.unresolved_taxonomy import RETIRED_RUNNER_REASONS
+
+    runner = (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8")
+    planted = runner.replace(
+        'row.outcome_class, row.outcome_reason = "failed", "ocr_failed"',
+        'row.outcome_class, row.outcome_reason = "failed", "escalation_refused"',
+        1,
+    )
+    assert planted != runner
+    literals = runner_reason_literals(planted, (ROOT / "telemetry" / "record.py").read_text(encoding="utf-8"))
+    assert "escalation_refused" in RETIRED_RUNNER_REASONS & literals
 
 
 def test_every_reason_map_entry_names_a_layer_code_in_that_layers_vocabulary():

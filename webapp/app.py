@@ -19,9 +19,17 @@ from math import isfinite
 from flask import Flask, request, jsonify, render_template, Response, abort
 from werkzeug.exceptions import RequestEntityTooLarge
 
+# The .env file is loaded here, first, before any product module below reads the environment (POPPLER_PATH at
+# ocr.rasterize's import, WEBAPP_MIN_FREE_MB below, ...). It used to be loaded only as a side effect of this module's
+# `from ocr.config import ...`, which left with the visual OCR settings it imported; ocr/config.py and
+# analysis/config.py still load it themselves for the command-line tools. The first load wins (override=False), and
+# every load finds the same file, so the order only decides WHEN the values are there, not which values they are.
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthorized
 
-from ocr.config import load_settings as load_ocr_settings
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
 from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META, rendered_skeleton, render_boxed
@@ -5987,7 +5995,7 @@ def _upload_too_large(_exc):
     }), 413
 
 
-def _checked_upload(filename: str, pdf_bytes: bytes, *, read_native_text: bool = True) -> tuple[int | None, object, dict | None]:
+def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object, dict | None]:
     """Server-side gate for a single uploaded file. Returns
     (page_count, profile, error) with the error exclusive of the other two.
 
@@ -6022,8 +6030,7 @@ def _checked_upload(filename: str, pdf_bytes: bytes, *, read_native_text: bool =
         }
     if not pdf_bytes.startswith(b"%PDF-"):
         return None, None, {"error": "file is not a PDF", "filename": filename}
-    profile = (inspect_pdf(pdf_bytes) if read_native_text
-               else inspect_pdf(pdf_bytes, read_native_text=False))
+    profile = inspect_pdf(pdf_bytes)
     if profile.encrypted:
         return None, None, {
             "error": "PDF is password-protected; upload a decrypted copy",
@@ -6067,6 +6074,12 @@ def update_settings():
 #: marked failed with this text and none is queued. Fixed text, never an exception's.
 UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
 
+#: /upload's answer (HTTP 400) to a request that still sends `force_ocr=1` (an API caller, or a page cached from before
+#: the change): the product uses no model (owner ruling, 2026-10-13), so there is no visual OCR to force. Refused
+#: before any file is read, stored or queued. The jobs table's force_ocr column and the field in /status stay, so a
+#: job stored with the flag still loads; its re-analysis answers webapp/worker.py's FORCED_OCR_RETIRED.
+FORCE_OCR_REMOVED = "Force visual OCR was removed: statements are read deterministically and with local OCR only."
+
 
 @app.route("/upload", methods=["POST"])
 def upload():
@@ -6077,14 +6090,13 @@ def upload():
         return jsonify({
             "error": f"{len(files)} files uploaded (limit {MAX_UPLOAD_FILES} per batch)",
         }), 400
-    force_ocr = request.form.get("force_ocr") == "1"
+    if request.form.get("force_ocr") == "1":
+        return jsonify({"error": FORCE_OCR_REMOVED}), 400
+    # Every job is read the same way (native PDF text, then local OCR); the field stays in the job row and the answer.
+    force_ocr = False
     parse_mode = request.form.get("parse_mode") or "auto"
     if parse_mode not in {"auto", "deterministic"}:
         return jsonify({"error": "invalid parse_mode"}), 400
-    # The forced pair skips native text at intake as well as in the worker.
-    # Encryption, page limits and the document hash still receive structural
-    # validation; the explicit legacy comparison keeps its previous preflight.
-    read_native_text = not (force_ocr and not load_ocr_settings().visual_pair_legacy_visual)
 
     # Validate the whole batch before creating any job. A half-accepted upload
     # would leave the dashboard aggregating an incomplete package with nothing
@@ -6092,7 +6104,7 @@ def upload():
     accepted: list[tuple[str, bytes, int, object]] = []
     for f in files:
         pdf_bytes = f.read()
-        page_count, profile, error = _checked_upload(f.filename, pdf_bytes, read_native_text=read_native_text)
+        page_count, profile, error = _checked_upload(f.filename, pdf_bytes)
         if error is not None:
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))
@@ -6482,7 +6494,8 @@ def revenue_reviews(job_id):
 
 #: A re-analysis with no analysis to save: none was produced, or the one produced was refused. The saved analysis
 #: stays; the `reason` beside this is text the worker already publishes for the same outcome (`webapp/worker.py`
-#: `_stage_failure` / `_analysis_failure`) or `webapp/reanalysis.py`'s READING_NOT_CACHED or READS_DIFFERENTLY, never
+#: `_stage_failure` / `_analysis_failure`, its no-usable-text NO_USABLE_TEXT, or FORCED_OCR_RETIRED for a job stored
+#: with the retired Force visual OCR flag) or `webapp/reanalysis.py`'s READING_NOT_CACHED or READS_DIFFERENTLY, never
 #: an exception's own text.
 REANALYSIS_NOT_SAVED = "no new analysis was saved; the saved analysis is unchanged"
 

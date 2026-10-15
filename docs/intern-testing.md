@@ -14,9 +14,7 @@ server **requires** before it will bind anywhere except loopback.
 | Layouts no parser recognises | Refused with the reason (no model is used) |
 
 The app uses no model (owner ruling 2026-10-13): everything runs in the container,
-and no statement data leaves it. Do **not** set the retired model switches
-(`OCR_REMOTE_OPT_IN`, `PADDLE_REMOTE_OPT_IN`, `OCR_ALLOW_VISUAL_PAIR`,
-`HOSTED_EXTRACTION_OPT_IN`).
+and no statement data leaves it.
 
 Do **not** upload live customer statements to a host you do not control. Use
 synthetic or already-authorized intern fixtures.
@@ -93,7 +91,6 @@ forwarded URL plus the password. Still fail-closed: the app will not bind
    is missing.
 3. Map container port `5000`. Put TLS in front (the platform's HTTPS, Caddy,
    or nginx). HTTP Basic is not a substitute for TLS on a public hostname.
-4. Do not set any of the retired model switches.
 
 The image does **not** copy `Bank Statements/` (see `.dockerignore`). Interns
 upload PDFs through the UI; they are stored under `WEBAPP_DATA_DIR`.

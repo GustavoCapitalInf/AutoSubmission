@@ -62,7 +62,6 @@ const els = {
   flagSettingsStatus: document.getElementById("flagSettingsStatus"),
   fileInput: document.getElementById("fileInput"),
   uploadBtn: document.getElementById("uploadBtn"),
-  forceOcrToggle: document.getElementById("forceOcrToggle"),
   dropzone: document.getElementById("dropzone"),
   progressTrack: document.getElementById("progressTrack"),
   statusCard: document.getElementById("statusCard"),
@@ -739,6 +738,7 @@ function labelize(value) {
 }
 
 function processingStageLabel(value) {
+  // The visual_pair_* stages are those of the retired visual pair; they stay readable for jobs stored with them.
   const match = /^(visual_pair_proposing|visual_pair_reviewing):(\d+)\/(\d+)(?::(batch|crop):(\d+)\/(\d+)|:(discovery))?$/.exec(String(value || ""));
   if (match) {
     const label = `${match[1] === "visual_pair_proposing" ? "Reading" : "Checking"} page ${match[2]} of ${match[3]}`;
@@ -3039,13 +3039,19 @@ function integrityLabel(integrity = {}) {
   return "Clear";
 }
 
+// A document nothing was read from: no usable native PDF text, and local OCR read no usable statement text from its
+// pages either (`webapp/worker.py` NO_USABLE_TEXT; a job stored before the model removal carries the same prefix).
+function noUsableText(message) {
+  return /native PDF text unavailable|too sparse|no native text/i.test(String(message || ""));
+}
+
 function friendlyAnalysisError(message) {
   const text = String(message || "");
   if (/no deterministic parser matched/i.test(text)) {
-    return "No deterministic parser matched this statement. Enable the configured visual fallback or select Force visual OCR to request a reviewed extraction.";
+    return "No deterministic parser matched this statement. Nothing was guessed; this layout needs a parser before it can be analysed.";
   }
-  if (/native PDF text unavailable|too sparse|no native text/i.test(text)) {
-    return "This PDF does not contain usable native text, and local OCR could not produce usable statement text. Turn on visual OCR or use Auto mode to retry with the OCR service.";
+  if (noUsableText(text)) {
+    return "This PDF has no usable native text, and local OCR on this machine could not read usable statement text from its pages.";
   }
   return text || "No analysis report was generated";
 }
@@ -4844,9 +4850,11 @@ function renderPreview() {
 }
 
 function sourceContradiction(message) {
-  // A verified contradiction in the statement itself (vlm/source_contradiction.py is_source_contradiction): the
+  // A verified contradiction in the statement itself, as the visual pair refused a statement with it: the
   // statement's own printed figures contradict the transactions it lists, every one of which was read and checked
-  // against the PDF's text. A valid failure of the statement, not of the reading (owner ruling, 2026-09-23).
+  // against the PDF's text. A valid failure of the statement, not of the reading (owner ruling, 2026-09-23). The
+  // pair was removed (model-code removal, slice S4) and nothing produces this refusal now; it stays so jobs stored
+  // with it still show it as the statement's failure (tests/test_stored_job_display.py).
   const text = String(message || "");
   return /^Fail: Statement (?:debit total|credit total|ending balance) \([^()]{1,80}\) contradiction$/.test(text)
     ? text : null;
@@ -4881,14 +4889,17 @@ function renderExtractionReview(message) {
   const reason = sentenceCase(friendlyAnalysisError(message)).replace(/([^.!?])$/, "$1.");
   const explanation = `${reason} Open Review extraction to inspect the reading and its review status. `
     + "No metrics have been published.";
+  // The owner's wording of 2026-10-15: a scanned or image-only PDF nothing was read from says so, instead of an
+  // extraction being available and OCR having completed. A document that was read and is held keeps its labels.
+  const unread = noUsableText(message);
   els.statusHeading.textContent = "Extraction needs review";
-  setBanner("pending", "Extraction available; metrics withheld", "Review required");
+  setBanner("pending", unread ? "Not read: no usable text" : "Extraction available; metrics withheld", "Review required");
   setStatusMessage(explanation, "review");
   els.decisionPill.textContent = "Review required";
   els.decisionPill.className = "decision-pill review_required";
   els.summaryBox.textContent = explanation;
   setStatusRows([
-    ["OCR completed", "Yes"],
+    unread ? ["Local OCR", "no usable text"] : ["OCR completed", "Yes"],
     ["Validation", "Review required"],
     ["Metrics", "Withheld"],
   ]);
@@ -4963,7 +4974,6 @@ function uploadFiles(fileList) {
 
   const form = new FormData();
   files.forEach((item) => form.append("files", item));
-  if (els.forceOcrToggle && els.forceOcrToggle.checked) form.append("force_ocr", "1");
   form.append("parse_mode", selectedParseMode());
 
   fetch("/upload", { method: "POST", body: form })

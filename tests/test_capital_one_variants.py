@@ -532,8 +532,8 @@ def test_d6_the_declaration_is_on_the_wire_only_where_it_was_made():
     assert plain.pre_period_carry_in_count == 0
     assert "pre_period_carry_in_count" not in plain.model_dump()
     assert parse_capital_one_statement(carry_in_document()).model_dump()["pre_period_carry_in_count"] == 2
-    # A parser's proof, never a model's: the extraction response schema does not offer it
-    # (tests/test_extraction_schema_prompt_surface.py pins that schema byte for byte).
+    # A parser's proof, never a model's: the JSON schema does not offer it (it was the hosted extractor's response
+    # schema until slice S3 of the model-code removal deleted the extractor and its byte-for-byte schema pin).
     from analysis.schema import Statement
     assert "pre_period_carry_in_count" not in Statement.model_json_schema()["properties"]
 

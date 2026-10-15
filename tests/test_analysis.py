@@ -12,7 +12,6 @@ from analysis.reconcile import reconcile
 from analysis.metrics import compute_metrics, daily_closing_balances
 from analysis.detect import detect, find_known_funders, find_recurring_debits
 from analysis.transaction_classifier import classify_statement_transactions
-from analysis.extract import strip_embedded_images
 from analysis.altana import parse_altana_statement
 from analysis.atb import parse_atb_statement
 from analysis.b1 import parse_b1_statement
@@ -29,10 +28,9 @@ from analysis.linkbank import parse_linkbank_statement
 from analysis.midflorida import parse_midflorida_statement
 from analysis.navy_federal import parse_navy_federal_statement
 from analysis.pipeline import (
-    HOSTED_EXTRACTION_OPT_IN_ENV,
-    HOSTED_EXTRACTION_OPT_IN_LITERAL,
     analyze_markdown,
     apply_statement_repairs,
+    assess_quality,
     assess_document_integrity,
     normalize_statement,
     Quality,
@@ -155,14 +153,6 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     assert package["totals"]["average_daily_balance"] is None
 
 
-def test_strip_embedded_images_removes_base64_bloat():
-    md = ('Deposits\n<img class="doc-image" src="data:image/png;base64,QUJDRA==" alt="image" />\n'
-          '<table><tr><td>04/01</td><td>ACH</td><td>100.00</td></tr></table>')
-    out = strip_embedded_images(md)
-    assert "base64" not in out and "<img" not in out
-    assert "Deposits" in out and "100.00" in out  # text ledger preserved
-
-
 def test_normalize_statement_drops_daily_balance_summary_rows():
     stmt = Statement(transactions=[
         _txn("2054-04-30", -10.0, "MAINTENANCE FEE"),
@@ -217,11 +207,9 @@ Accounts issued by: THE TORONTO-DOMINION BANK
     assert reconcile(stmt).ok
 
 
-def test_analyze_td_canada_native_text_bypasses_gemini(monkeypatch):
-    def fail_extract(*args, **kwargs):
-        raise AssertionError("Gemini extraction should not run for deterministic TD Canada")
-
-    monkeypatch.setattr("analysis.pipeline.extract_statement", fail_extract)
+def test_analyze_td_canada_native_text_reads_deterministically():
+    # Was `..._bypasses_gemini`: it also stubbed the hosted extractor to fail, which slice S3 of the model-code
+    # removal deleted. The deterministic result it pins is unchanged.
     md = """
 --- Page 1 ---
 Accounts issued by: THE TORONTO-DOMINION BANK
@@ -292,12 +280,8 @@ Subtotal: 10.00
     assert reconcile(stmt).ok
 
 
-def test_deterministic_mode_rejects_unmatched_statement(monkeypatch):
-    def fail_extract(*args, **kwargs):
-        raise AssertionError("Gemini extraction should not run in deterministic-only mode")
-
-    monkeypatch.setattr("analysis.pipeline.extract_statement", fail_extract)
-
+def test_deterministic_mode_rejects_unmatched_statement():
+    # The hosted-extractor stub this test carried went with the extractor (model-code removal, slice S3).
     with pytest.raises(RuntimeError, match="no deterministic parser matched"):
         analyze_markdown("UNSUPPORTED BANK STATEMENT", parse_mode="deterministic")
 
@@ -2761,30 +2745,35 @@ def test_repair_first_community_never_rewrites_the_count_without_the_total():
     assert both.stated_debit_count == 3
 
 
-def test_analysis_marks_incomplete_detail_as_manual_review(monkeypatch):
-    def fake_extract(*args, **kwargs):
-        return Statement(
-            bank="BMO",
-            account_name="Example",
-            beginning_balance=100.0,
-            ending_balance=250.0,
-            stated_total_credits=200.0,
-            stated_total_debits=50.0,
-            transactions=[_txn("2054-01-01", 100.0)],
-        )
+def test_analysis_marks_incomplete_detail_as_manual_review():
+    """Adapted in slice S3 of the model-code removal. This test fed the statement below through a stubbed hosted
+    extractor behind the operator opt-in; the extractor and the opt-in are gone. The rule it pinned is the
+    deterministic quality stage, so it is pinned on that stage directly (`assess_quality` with no dispatch, as for a
+    statement no parser claimed). The same text in auto mode now gets exactly the deterministic refusal."""
+    stmt = Statement(
+        bank="BMO",
+        account_name="Example",
+        beginning_balance=100.0,
+        ending_balance=250.0,
+        stated_total_credits=200.0,
+        stated_total_debits=50.0,
+        transactions=[_txn("2054-01-01", 100.0)],
+    )
+    recon = reconcile(stmt)
+    quality = assess_quality(stmt, recon)
+    assert not recon.ok
+    assert recon.summary_ok is True
+    assert quality.level == "needs_review"
+    assert quality.corporate_use == "manual_review_required"
+    assert quality.transaction_detail_reliable is False
 
-    monkeypatch.setattr("analysis.pipeline.extract_statement", fake_extract)
-    # P22-FENCE (Ruling A in code): this test exercises the HOSTED branch on a
-    # fake extractor, and that branch runs only behind the operator's exact
-    # opt-in literal; without it auto mode takes the deterministic refusal.
-    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
-    report = analyze_markdown("BMO Account Summary")
-    assert not report.reconciliation.ok
-    assert report.reconciliation.summary_ok is True
-    assert report.quality.level == "needs_review"
-    assert report.quality.corporate_use == "manual_review_required"
-    assert report.quality.transaction_detail_reliable is False
-    assert not any("UNCAPTURED" in t.description for t in report.statement.transactions)
+    with pytest.raises(RuntimeError) as deterministic:
+        analyze_markdown("BMO Account Summary", parse_mode="deterministic")
+    with pytest.raises(RuntimeError) as auto:
+        analyze_markdown("BMO Account Summary")
+    assert type(auto.value) is type(deterministic.value)
+    assert str(auto.value) == str(deterministic.value)
+    assert not hasattr(auto.value, "hosted_extraction")
 
 
 def test_chase_business_transaction_export_reconciles_but_requires_review():

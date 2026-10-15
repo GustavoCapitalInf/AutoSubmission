@@ -1,1 +1,0 @@
-<table><tr><td>DATE</td><td>DESCRIPTION</td><td>AMOUNT</td></tr><tr><td>04/06</td><td>Orig CO Name:Acme Supply Orig ID:8811 Ind Name:Testperson</td><td>260.00</td></tr><tr><td>04/06</td><td>Payment Received 04/05 Card Purchase 0298</td><td>235.17</td></tr><tr><td>04/13</td><td>Transfer From Northstar</td><td>450.00</td></tr></table>

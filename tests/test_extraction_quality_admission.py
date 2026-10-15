@@ -272,10 +272,15 @@ def tracked_python_files() -> list[str]:
 #: (`ocr/escalation.py`, `analysis/`, `webapp/`) are scanned BY AST in
 #: `test_no_router_analysis_or_webapp_module_reads_an_extraction_quality_figure`,
 #: and this census is the second, coarser net around them.
+#:
+#: Model-code removal, slice S5: the census and the two proof instruments
+#: (`tools/extraction_quality_census.py`, `tools/p23egate_mutation_table.py`,
+#: `tools/p23egate_fake_partition.py`) left with the PaddleOCR rung whose
+#: research partition they measured, so they left this allowlist too. Narrowing
+#: an allowlist is not weakening it, and the rot check at the end of the test
+#: below would fail on a named allowance that names nothing.
 ALLOWED_NAMERS = {
     "ocr/extraction_quality.py", "discovery/runner.py", "discovery/report.py",
-    "tools/extraction_quality_census.py",
-    "tools/p23egate_mutation_table.py", "tools/p23egate_fake_partition.py",
 }
 
 

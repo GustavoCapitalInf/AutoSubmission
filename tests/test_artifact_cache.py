@@ -65,12 +65,10 @@ OTHER_PDF = b"%PDF-1.7\nartifact cache fixture body (different)"
 
 @dataclass
 class _OcrSettings:
-    """Stand-in for ocr.config.Settings — only the keyed attributes matter.
-
-    ``endpoint_class`` is not yet a real field of ``ocr.config.Settings``
-    (cell B2 adds it); it is here because ``ocr_settings_key`` already reads
-    it through ``getattr`` with a ``"loopback"`` default, and this fixture is
-    "anything with the same attributes" per that function's own docstring."""
+    """Stand-in for the retired ocr.config.Settings (deleted in slice S2 of
+    the model-code removal) — only the keyed attributes matter, and they are
+    read through ``getattr`` (``ocr_settings_key``'s "anything with the same
+    attributes"). Its defaults are the frozen key literals."""
 
     model: str = "baidu/Unlimited-OCR"
     base_url: str = "http://localhost:8000/v1"
@@ -134,8 +132,9 @@ def _doc_with_evidence(
     """P21-ROUTING closure (MAJOR-1): a `StatementMarkdown` carrying real
     `page_extractor` / `evidence`, for the D6 round-trip tests. One word
     spanning the whole page text, so `evidence.page_texts() == [text]`
-    exactly — the same trick `tests/test_pipeline.py::_fake_paddle_read` and
-    `tests/test_paddle_routing.py::_claimable_paddle_read` use."""
+    exactly (the same trick the Paddle rung's ladder and routing tests used,
+    deleted with the rung in slice S5; a stored reading carrying extractor
+    evidence still restores, which is what these tests prove)."""
     frame = PageFrame.pdf_points(page_index=0, width_pt=600.0, height_pt=800.0)
     word = WordBox(word_id="p0.l0.w0", page_index=0, text=text, x0=10.0, y0=10.0, x1=200.0, y1=25.0)
     page = PageEvidence(frame=frame, words=(word,))
@@ -259,75 +258,264 @@ def test_extractor_is_paddle_only_for_the_forced_paddle_shape():
 
 
 def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default():
-    """`postprocess_state` / `postprocess_admitted` come from `ocr.ocr_client`
-    via getattr with the pinned quarantined defaults (until B1 composes).
-
-    Review BLOCK-2: composition order lands B1 BEFORE this cell
-    (`PHASE2-0-SAFETY.md`: B2 -> B1 -> A -> C -> D), and B1 is chartered to
-    add exactly `POSTPROCESS_STATE = "quarantined"` /
-    `ADMITTED_POSTPROCESS = ()` to `ocr.ocr_client` — the SAME values this
-    module's own defaults pin. Asserting `not hasattr(...)` is a fact about
-    today's tree, not a contract, and fails the moment B1 composes even
-    though nothing this cell depends on changed. Assert the VALUE instead,
-    which is correct whether B1 has landed or not."""
-    import ocr.ocr_client as ocr_client_module
+    """`postprocess_state` / `postprocess_admitted` are the frozen pins
+    "quarantined" / () for EVERY extractor label (model-code removal, slice
+    S2): the visual-labelled key used to read them off the retired client
+    (`ocr.ocr_client.POSTPROCESS_STATE` / `ADMITTED_POSTPROCESS`), whose values
+    were proven equal to these pins at the S1 head before it was deleted. The
+    field still partitions the key: patching the pin moves it."""
+    import webapp.artifact_cache as module
     from webapp.artifact_cache import (
         ADMITTED_POSTPROCESS_DEFAULT,
         POSTPROCESS_STATE_DEFAULT,
         _ocr_postprocess_readout,
     )
 
-    assert getattr(ocr_client_module, "POSTPROCESS_STATE", POSTPROCESS_STATE_DEFAULT) == "quarantined"
-    assert tuple(getattr(ocr_client_module, "ADMITTED_POSTPROCESS", ADMITTED_POSTPROCESS_DEFAULT)) == ()
-    assert _ocr_postprocess_readout("visual") == ("quarantined", ())
-    assert _ocr_postprocess_readout("offline") == ("quarantined", ())
+    assert POSTPROCESS_STATE_DEFAULT == "quarantined"
+    assert ADMITTED_POSTPROCESS_DEFAULT == ()
+    for extractor in ("visual", "offline", "paddle", "visual_pair"):
+        assert _ocr_postprocess_readout(extractor) == ("quarantined", ())
 
-    class _Settings(_OcrSettings):
-        pass
-
-    visual_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                  ocr_settings=_Settings())
-    with unittest.mock.patch.object(ocr_client_module, "POSTPROCESS_STATE", "some-other-state", create=True):
-        changed_key = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                       ocr_settings=_Settings())
-    assert visual_key != changed_key
+    for shape in ({"force_ocr": True, "allow_local_ocr": False, "allow_visual_ocr": True},
+                  {"force_ocr": False, "allow_local_ocr": True, "allow_visual_ocr": False}):
+        key = ocr_settings_key(ocr_settings=_OcrSettings(), **shape)
+        with unittest.mock.patch.object(module, "POSTPROCESS_STATE_DEFAULT", "some-other-state"):
+            changed_key = ocr_settings_key(ocr_settings=_OcrSettings(), **shape)
+        assert key != changed_key, shape
 
 
 def test_postprocess_admitted_partitions_the_visual_key():
-    """The other new BLOCK-1 gap: `postprocess_admitted` must partition the
-    key on its own — a visual-labelled key computed with one admitted
-    function must differ from the pinned empty-tuple default. Patches
-    `ADMITTED_POSTPROCESS` to a one-member tuple (`create=True`, since B1 has
-    not composed on this tree)."""
-    import ocr.ocr_client as ocr_client_module
+    """The other BLOCK-1 gap: `postprocess_admitted` must partition the key on
+    its own — a key computed with one admitted function must differ from the
+    pinned empty-tuple default. Patches the frozen pin to a one-member tuple."""
+    import webapp.artifact_cache as module
 
-    class _Settings(_OcrSettings):
-        pass
-
-    with unittest.mock.patch.object(ocr_client_module, "ADMITTED_POSTPROCESS", (), create=True):
-        base = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                ocr_settings=_Settings())
-    with unittest.mock.patch.object(ocr_client_module, "ADMITTED_POSTPROCESS", ("strip_det_tags",), create=True):
+    base = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
+                            ocr_settings=_OcrSettings())
+    with unittest.mock.patch.object(module, "ADMITTED_POSTPROCESS_DEFAULT", ("strip_det_tags",)):
         changed = ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True,
-                                   ocr_settings=_Settings())
+                                   ocr_settings=_OcrSettings())
     assert base != changed
 
 
-def test_postprocess_never_imports_ocr_client_for_an_offline_labelled_call():
-    """The architectural property two other test files already assert for the
-    whole process (`tests/test_discovery.py`, `tests/test_visual_rung.py`):
-    computing an OFFLINE key must not import the model client module. Proven
-    in a subprocess so a prior import elsewhere in the test session cannot
-    hide a regression."""
-    code = (
-        "import sys;"
-        "from webapp.artifact_cache import ocr_settings_key;"
-        "ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False);"
-        "print('ocr.ocr_client' in sys.modules)"
+def test_computing_any_ocr_key_imports_no_model_module(tmp_path):
+    """Computing an OCR key — offline-labelled AND the historical
+    visual-labelled shape — imports no model client: the visual OCR client
+    module no longer exists (slice S2), and nothing pulls in `openai`.
+    Proven in a subprocess so a prior import elsewhere in the test session
+    cannot hide a regression; since slice S6 through N2's helper
+    (`tests/test_no_model_clients.py`), which checks every model package and
+    removed model module, third-party network clients and outbound
+    connections (the deleted module's name alone had become vacuous)."""
+    from tests.test_no_model_clients import assert_no_model_module_after
+
+    result = assert_no_model_module_after("""
+import importlib.util
+from webapp.artifact_cache import ocr_settings_key
+keys = [
+    ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False),
+    ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+    ocr_settings_key(),
+]
+RESULT["keys"] = len(set(keys))
+RESULT["client_module"] = importlib.util.find_spec("ocr.ocr_client") is not None
+""", tmp_path / "data")
+    assert result == {"keys": 3, "client_module": False}
+
+
+# ---------------------------------------------------------------------------
+# Model-code removal, slice S4: the visual pair's OCR partition is retired.
+# Its key used to hash `ocr/visual_pair_config.py`'s settings (the pair tests
+# that pinned it left with `tests/test_visual_pair_document_scope.py`). Asking
+# for it now refuses with a fixed literal, before any read; every other key is
+# unchanged (`allow_visual_pair=False` never entered the material). A stored
+# reading that carries visual-pair evidence still restores, hash-checked.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("stage_version", [None, 4, 5])
+def test_the_visual_pair_partition_refuses_with_a_fixed_literal(stage_version):
+    from webapp.artifact_cache import VISUAL_PAIR_RETIRED
+
+    assert VISUAL_PAIR_RETIRED == "the visual pair was removed: no OCR key has a visual-pair partition any more"
+    with pytest.raises(ValueError) as refused:
+        ocr_settings_key(allow_visual_pair=True, stage_version=stage_version)
+    assert str(refused.value) == VISUAL_PAIR_RETIRED
+    with pytest.raises(ValueError, match="visual pair was removed"):
+        ocr_settings_key(force_ocr=True, allow_visual_ocr=False, allow_visual_pair=True,
+                         visual_pair_settings=object(), stage_version=stage_version)
+
+
+@pytest.mark.parametrize("with_cache", [True, False])
+def test_a_cached_read_of_the_visual_pair_partition_refuses_before_any_read(cache, with_cache):
+    reads = []
+    with pytest.raises(ValueError, match="visual pair was removed"):
+        cached_ocr(PDF, compute=lambda: reads.append(1) or _doc(), cache=cache if with_cache else None,
+                   source_file="s.pdf", force_ocr=True, allow_visual_ocr=False, allow_visual_pair=True)
+    assert reads == []
+    assert cache.get_ocr(content_sha256(PDF), ocr_settings_key()) == (False, None)
+
+
+def test_the_retired_partition_leaves_every_other_key_and_its_defaults_alone():
+    import inspect
+
+    from webapp import artifact_cache as module
+
+    for function in (module.ocr_settings_key, module.cached_ocr):
+        parameters = inspect.signature(function).parameters
+        assert parameters["allow_visual_pair"].default is False
+        assert parameters["visual_pair_settings"].default is None
+    assert ocr_settings_key(allow_visual_pair=False) == ocr_settings_key()
+    assert ocr_settings_key(visual_pair_settings=object()) == ocr_settings_key()
+    assert ocr_settings_key(allow_local_ocr=True, allow_visual_ocr=False, visual_pair_settings=object()) == \
+        ocr_settings_key(allow_local_ocr=True, allow_visual_ocr=False)
+
+
+def _pair_reading(evidence: dict) -> StatementMarkdown:
+    return StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["FABRICATED PAIR READING"],
+                             visual_pair=evidence)
+
+
+_PAIR_EVIDENCE = {"version": 1, "gate": {"admitted": False, "reasons": ["no_rows"]}, "confidence": {"counts": {}}}
+
+
+def test_a_stored_reading_that_carries_visual_pair_evidence_still_restores(cache):
+    """The artifact shape and the restore path are unchanged, so a stored pair reading loads with its evidence. The
+    reading is stored here under an ordinary key (its own partition's key can no longer be computed)."""
+    key = ocr_settings_key()
+    input_sha = content_sha256(PDF)
+    cache.put_ocr(input_sha, key, _pair_reading(_PAIR_EVIDENCE))
+    _hit, stored = cache.get_ocr(input_sha, key)
+    assert stored["visual_pair"] == _PAIR_EVIDENCE
+    assert stored["visual_pair_sha256"] == _fingerprint_of(_PAIR_EVIDENCE)
+    restored = cached_ocr(PDF, compute=lambda: pytest.fail("re-read a cached reading"), cache=cache,
+                          source_file="renamed.pdf")
+    assert restored.cached and restored.finding is None
+    assert restored.value.visual_pair == _PAIR_EVIDENCE
+    assert (restored.value.model, restored.value.pages, restored.value.source_file) == (
+        "visual-pair-dots-qwen", ["FABRICATED PAIR READING"], "renamed.pdf")
+
+
+def test_a_stored_visual_pair_reading_whose_evidence_hash_drifted_is_never_served(cache):
+    from webapp.artifact_cache import CACHE_FINDING_EVIDENCE_DRIFT
+
+    key = ocr_settings_key()
+    input_sha = content_sha256(PDF)
+    cache.put_ocr(input_sha, key, _pair_reading(_PAIR_EVIDENCE))
+    _hit, stored = cache.get_ocr(input_sha, key)
+    tampered = dict(stored, visual_pair={**_PAIR_EVIDENCE, "gate": {"admitted": True, "reasons": []}})
+    cache.put(STAGE_OCR, input_sha, key, {"document": tampered})
+    fresh = _doc(pages=("fresh read",))
+    result = cached_ocr(PDF, compute=lambda: fresh, cache=cache, source_file="s.pdf")
+    assert not result.cached and result.finding == CACHE_FINDING_EVIDENCE_DRIFT
+    assert result.value.visual_pair is None and result.value.pages == ["fresh read"]
+
+
+def _fingerprint_of(value) -> str:
+    from webapp.artifact_cache import _fingerprint
+
+    return _fingerprint(value)
+
+
+# ---------------------------------------------------------------------------
+# Model-code removal, slice S2: the OCR key's visual-service fields are FROZEN
+# literals (plan D3). Every key a deterministic stage computes on a default
+# environment is unchanged, and the four retired environment names no longer
+# move it (declared in the S2 report).
+# ---------------------------------------------------------------------------
+
+
+def _old_shape_material(*, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool) -> dict:
+    """The OCR settings dict exactly as the S1 tree built it on a default
+    environment (its `ocr.config.load_settings()` defaults), from LITERALS —
+    never from the module under test — plus this host's live toolchain probe,
+    which the key has always carried."""
+    from webapp.artifact_cache import ocr_toolchain_versions
+
+    return {
+        "stage_version": 5,
+        "force_ocr": force_ocr,
+        "allow_local_ocr": allow_local_ocr,
+        "allow_visual_ocr": allow_visual_ocr,
+        "dpi": 300,
+        "fallback_dpi": 250,
+        "ocr_model": "baidu/Unlimited-OCR",
+        "ocr_base_url": "http://localhost:8000/v1",
+        "ngram_size": 35,
+        "window_size": 128,
+        "extractor": "visual" if (force_ocr and allow_visual_ocr) else "offline",
+        "allow_paddle_ocr": False,
+        "postprocess_state": "quarantined",
+        "postprocess_admitted": [],
+        "raster_version": 2,
+        "extraction_schema_version": 3,
+        "endpoint_class": "loopback",
+        **ocr_toolchain_versions(),
+    }
+
+
+#: The call shapes whose keys the cache serves today: the webapp's one read and
+#: discovery's --scanned read (native text, then local Tesseract), discovery's
+#: digital and dry-run read (offline rungs only), the historical visual
+#: reconstruction `tools/train/provenance.py` still records, and the
+#: provenance probe's own-defaults key (`ocr_settings_key()`).
+_FROZEN_KEY_SHAPES = {
+    "webapp_and_tesseract_read": dict(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False),
+    "discovery_digital_read": dict(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False),
+    "visual_reconstruction": dict(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True),
+    "provenance_probe_defaults": dict(force_ocr=False, allow_local_ocr=False, allow_visual_ocr=True),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_FROZEN_KEY_SHAPES))
+def test_the_ocr_key_equals_the_old_shape_built_from_literals(shape):
+    from webapp.artifact_cache import _fingerprint
+
+    flags = _FROZEN_KEY_SHAPES[shape]
+    call = flags if shape != "provenance_probe_defaults" else {}
+    assert ocr_settings_key(**call) == _fingerprint(_old_shape_material(**flags))
+
+
+@pytest.mark.parametrize("name,value", [
+    ("OCR_MODEL", "some/other-model"),
+    ("OCR_BASE_URL", "https://remote.invalid/v1"),
+    ("OCR_NGRAM_SIZE", "40"),
+    ("OCR_WINDOW_SIZE", "1024"),
+])
+def test_the_retired_ocr_environment_no_longer_moves_the_key(monkeypatch, name, value):
+    """DECLARED re-key for a non-default environment only (plan D3): these
+    four names used to reach the key through `ocr.config.load_settings()`;
+    nothing reads them now. On a default environment the key is unchanged
+    (the test above); here the override is simply inert."""
+    before = {shape: ocr_settings_key(**flags) for shape, flags in _FROZEN_KEY_SHAPES.items()}
+    monkeypatch.setenv(name, value)
+    after = {shape: ocr_settings_key(**flags) for shape, flags in _FROZEN_KEY_SHAPES.items()}
+    assert after == before
+
+
+def test_a_hostile_ocr_model_environment_no_longer_fails_a_key(monkeypatch):
+    """Declared M5 move: a hostile OCR_MODEL used to make every key raise
+    `ProvenanceTokenError` (so the job failed); nothing reads it now."""
+    monkeypatch.setenv("OCR_MODEL", "evil-model\n")
+    assert ocr_settings_key(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False) == ocr_settings_key(
+        force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False,
+        ocr_settings=_OcrSettings(),
     )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "False", result.stdout
+
+
+def test_an_explicit_ocr_settings_object_is_still_read_by_getattr():
+    """The historical reconstructions (`telemetry/run_of_record.py`,
+    `tools/train/provenance.py`) pass their own settings object; it is still
+    read attribute by attribute, and the frozen defaults equal `_OcrSettings()`."""
+    from webapp.artifact_cache import FROZEN_OCR_SETTINGS
+
+    for flags in _FROZEN_KEY_SHAPES.values():
+        assert ocr_settings_key(**flags) == ocr_settings_key(**flags, ocr_settings=_OcrSettings())
+    assert (FROZEN_OCR_SETTINGS.model, FROZEN_OCR_SETTINGS.base_url, FROZEN_OCR_SETTINGS.ngram_size,
+            FROZEN_OCR_SETTINGS.window_size, FROZEN_OCR_SETTINGS.endpoint_class) == (
+        "baidu/Unlimited-OCR", "http://localhost:8000/v1", 35, 128, "loopback")
+    other = _OcrSettings(model="other/model")
+    assert ocr_settings_key(ocr_settings=other) != ocr_settings_key()
 
 
 def test_raster_version_partitions_the_key():
@@ -407,75 +595,38 @@ def test_extraction_schema_version_partitions_the_key():
     assert base != changed
 
 
-def test_allow_paddle_ocr_partitions_the_key():
-    base = ocr_settings_key(ocr_settings=_OcrSettings())
-    changed = ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=True)
-    assert base != changed
-
-
-def test_paddle_labelled_key_carries_the_paddle_settings_block(monkeypatch):
-    """D5/design item 5: when the extractor resolves to `"paddle"`, the key
-    material carries `paddle_settings_key_material(load_paddle_settings())`
-    — never the host/port/token, only the pins + provider + execution class."""
-    monkeypatch.setenv("PADDLE_PROVIDER", "local")
-    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "local_free")
-    monkeypatch.delenv("PADDLE_REMOTE_OPT_IN", raising=False)
-    key_with_paddle = ocr_settings_key(
-        ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
-    )
-    key_without = ocr_settings_key(ocr_settings=_OcrSettings())
-    assert key_with_paddle != key_without
-
-    # Changing the provider/class changes the key: the "paddle" block is real
-    # key material, not a fixed placeholder.
-    monkeypatch.setenv("PADDLE_PROVIDER", "vast.ai")
-    monkeypatch.setenv("PADDLE_EXECUTION_CLASS", "remote_paid")
-    monkeypatch.setenv("PADDLE_VAST_HOST", "test-host")
-    monkeypatch.setenv("PADDLE_VAST_SSH_PORT", "22")
-    monkeypatch.setenv("PADDLE_VAST_SSH_USER", "test-user")
-    key_remote = ocr_settings_key(
-        ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
-    )
-    assert key_remote != key_with_paddle
-
-
-def test_a_paddle_labelled_key_refuses_when_paddle_settings_cannot_load(monkeypatch):
-    """The paddle-labelled key REFUSES (raises) when Paddle settings cannot
-    be loaded — never a default block standing in for a real configuration."""
-    from ocr.paddle_config import PaddleConfigError
-
-    monkeypatch.delenv("PADDLE_PROVIDER", raising=False)
-    monkeypatch.delenv("PADDLE_EXECUTION_CLASS", raising=False)
-    with pytest.raises(PaddleConfigError):
-        ocr_settings_key(
-            ocr_settings=_OcrSettings(), force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True,
-        )
-
-
-def test_ocr_settings_key_only_calls_load_paddle_settings_for_the_paddle_branch():
-    """`ocr_settings_key`'s OWN body lazily imports/calls
-    `load_paddle_settings` / `paddle_settings_key_material` ONLY inside the
-    `extractor == "paddle"` branch — never derived for an offline- or
-    visual-labelled call. (`ocr.paddle_config` itself is unconditionally
-    importABLE process-wide — `ocr/config.py` needs `PADDLE_MODEL_TOKEN` at
-    module scope for OQ2's `RESERVED_MODEL_PREFIXES` — so a process-wide
-    `sys.modules` absence is not the property to check here, unlike
-    `ocr.ocr_client`, which carries no such independent, always-needed
-    reason to load. What matters — and what this proves — is that computing
-    an offline/visual key never CALLS into Paddle settings at all.)"""
+def test_the_paddle_partition_is_refused_and_false_stays_key_material():
+    """Model-code removal, slice S5: the PaddleOCR rung and its settings were removed, so a key (or a cached read)
+    that asks for its partition (`allow_paddle_ocr=True`) is refused with the fixed literal before any material is
+    built, whatever the other flags say. `allow_paddle_ocr=False` stays in the v5+ material (it always entered it),
+    so every deterministic key equals the frozen old shape (`_FROZEN_KEY_SHAPES` above). Replaces the Paddle
+    partition's own tests: it partitioned the key, carried `paddle_settings_key_material(load_paddle_settings())`,
+    refused when Paddle settings could not load, and read them only on its own branch."""
     import inspect
 
     import webapp.artifact_cache as module
 
+    for flags in (dict(force_ocr=True, allow_visual_ocr=False), dict(force_ocr=False, allow_visual_ocr=False),
+                  dict(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False), dict()):
+        with pytest.raises(ValueError) as refused:
+            ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=True, **flags)
+        assert str(refused.value) == module.PADDLE_OCR_RETIRED
+    assert inspect.signature(ocr_settings_key).parameters["allow_paddle_ocr"].default is False
+    assert ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=False) == ocr_settings_key(
+        ocr_settings=_OcrSettings())
     source = inspect.getsource(module.ocr_settings_key)
-    # The paddle-settings names must appear ONLY in the source text following
-    # the `if extractor == "paddle":` line.
-    marker = 'if extractor == "paddle":'
-    assert marker in source, "the paddle branch guard moved or was renamed"
-    before, after = source.split(marker, 1)
-    for name in ("load_paddle_settings", "paddle_settings_key_material"):
-        assert name not in before, f"{name} referenced before the paddle-only branch"
-        assert name in after, f"{name} missing from the paddle-only branch"
+    assert "load_paddle_settings" not in source and "paddle_settings_key_material" not in source
+    assert 'settings["paddle"] =' not in source
+
+
+def test_a_cached_read_of_the_paddle_partition_is_refused_before_any_read(tmp_path):
+    def compute():
+        raise AssertionError("nothing may be computed")
+
+    for cache in (None, open_cache(tmp_path / "data")):
+        with pytest.raises(ValueError, match="PaddleOCR rung was removed"):
+            cached_ocr(PDF, compute=compute, cache=cache, force_ocr=True, allow_visual_ocr=False,
+                       allow_paddle_ocr=True)
 
 
 def test_extraction_schema_version_is_pinned_at_3():
@@ -555,9 +706,13 @@ def test_analysis_stage_version_is_pinned_at_39():
 def test_paddle_model_token_is_not_in_free_models():
     """M13: remote_paid is not free — `PADDLE_MODEL_TOKEN` must never be
     added to `telemetry.prices.FREE_MODELS`; the actual cost is measured,
-    never invented, and `price_for` reports it unpriced."""
-    from ocr.paddle_config import PADDLE_MODEL_TOKEN
+    never invented, and `price_for` reports it unpriced. (The rung was
+    removed in slice S5; the token stays telemetry vocabulary for stored
+    readings, so the pin reads it from there.)"""
     from telemetry.prices import FREE_MODELS, price_for
+    from telemetry.record import PADDLE_MODEL_TOKENS
+
+    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
 
     assert PADDLE_MODEL_TOKEN not in FREE_MODELS
     assert price_for(PADDLE_MODEL_TOKEN) is None
@@ -670,8 +825,6 @@ def test_stage_version_parameter_reconstructs_the_pre_v5_key_byte_for_byte():
     "changed",
     [
         {"parse_mode": "deterministic"},
-        {"analysis_settings": _AnalysisSettings(model="gemini-other")},
-        {"analysis_settings": _AnalysisSettings(escalation_model="gemini-pro")},
         {"analysis_settings": _AnalysisSettings(withholding_denominator_mode="verified_revenue")},
     ],
 )
@@ -682,10 +835,150 @@ def test_every_analysis_knob_partitions_the_key(changed):
     )
 
 
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"model": "gemini-other"},
+        {"escalation_model": "gemini-pro"},
+        {"model": "gemini-other", "escalation_model": "gemini-pro"},
+    ],
+)
+@pytest.mark.parametrize("parse_mode", ["auto", "deterministic"])
+def test_frozen_the_hosted_model_names_do_not_partition_the_key(changed, parse_mode):
+    """DECLARED FLIP (model-code removal, slice S3; plan D3). These two
+    entries of the parametrize above used to partition the key: the stand-in's
+    `model` / `escalation_model` named the hosted extractor. The extractor is
+    gone and the key carries both names as frozen literals for every call, so a
+    settings object that names other models now shares the default entry."""
+    baseline = analysis_settings_key(parse_mode=parse_mode, analysis_settings=_AnalysisSettings())
+    assert analysis_settings_key(
+        parse_mode=parse_mode, analysis_settings=_AnalysisSettings(**changed)
+    ) == baseline
+
+
+def _old_analysis_key_material(parse_mode: str) -> dict:
+    """The analysis key's material as `analysis_settings_key` built it at the
+    S2 head (3dc2e17) on a default environment, spelled out with literals:
+    `analysis.config.load_settings()`'s defaults for the two model names and
+    the basis, the opt-in absent, the structurer off, and the live registry."""
+    from analysis.parser_registry import registry_fingerprint
+
+    return {
+        "stage_version": 39,
+        "parse_mode": parse_mode,
+        "model": "gemini-3.5-flash-lite",
+        "escalation_model": "gemini-3.5-flash",
+        "withholding_denominator_mode": "true_revenue",
+        "parser_registry": registry_fingerprint(),
+        "reconstruction_mode": "off",
+        "generic_structurer": False,
+        "hosted_extraction_opt_in": False,
+    }
+
+
+def _clean_analysis_environment(monkeypatch) -> None:
+    for name in ("GEMINI_MODEL", "GEMINI_ESCALATION_MODEL", "GEMINI_API_KEY", "HOSTED_EXTRACTION_OPT_IN",
+                 "WITHHOLDING_DENOMINATOR_MODE", "RECONSTRUCTION_MODE", "GENERIC_STRUCTURER_ENABLED"):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.mark.parametrize("parse_mode", ["auto", "deterministic"])
+def test_the_analysis_key_equals_the_old_shape_built_from_literals(monkeypatch, parse_mode):
+    """THE ANALYSIS-KEY FREEZE PIN (model-code removal, slice S3; plan D3). No
+    stored analysis is re-keyed: for both modes, with no settings object and
+    with the default `Settings`, the key is the `_fingerprint` of exactly the
+    dict the S2 head hashed, rebuilt here from literals."""
+    from analysis.config import load_settings
+    from webapp.artifact_cache import _fingerprint
+
+    _clean_analysis_environment(monkeypatch)
+    expected = _fingerprint(_old_analysis_key_material(parse_mode))
+    assert analysis_settings_key(parse_mode=parse_mode) == expected
+    assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=load_settings()) == expected
+    assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=_AnalysisSettings()) == expected
+
+
+@pytest.mark.parametrize("name,value", [
+    ("GEMINI_MODEL", "gemini-3.5-pro-experiment"),
+    ("GEMINI_ESCALATION_MODEL", "gemini-3.5-pro"),
+    # The removed opt-in, spelled from two halves so no tracked file carries the
+    # whole literal (it opened the hosted extraction until slice S3).
+    ("HOSTED_EXTRACTION_OPT_IN", "I_ACCEPT_" + "HOSTED_MODEL_EXTRACTION"),
+    ("HOSTED_EXTRACTION_OPT_IN", "1"),
+])
+@pytest.mark.parametrize("parse_mode", ["auto", "deterministic"])
+def test_the_retired_analysis_environment_no_longer_moves_the_key(monkeypatch, name, value, parse_mode):
+    """DECLARED re-key for a non-default environment only (plan D3): GEMINI_MODEL
+    and GEMINI_ESCALATION_MODEL reached the key through `load_settings()`, and
+    the exact opt-in literal through the removed fence's predicate. Nothing
+    reads them into the key now; on a default environment it is unchanged (the
+    test above), and here the override is inert."""
+    from webapp.artifact_cache import _fingerprint
+
+    _clean_analysis_environment(monkeypatch)
+    monkeypatch.setenv(name, value)
+    assert analysis_settings_key(parse_mode=parse_mode) == _fingerprint(_old_analysis_key_material(parse_mode))
+
+
+def test_computing_an_analysis_key_imports_no_pipeline_and_no_model_client():
+    """The key no longer imports `analysis.pipeline` (it read the removed
+    fence's predicate from there): a fresh process that derives both analysis
+    keys holds neither the pipeline nor any model client."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys\n"
+        "from webapp.artifact_cache import analysis_settings_key\n"
+        "analysis_settings_key(parse_mode='auto')\n"
+        "analysis_settings_key(parse_mode='deterministic')\n"
+        "banned = ('analysis.pipeline', 'analysis.extract', 'google.genai', 'openai', 'vlm')\n"
+        "print(sorted(m for m in sys.modules if any(m == b or m.startswith(b + '.') for b in banned)))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", probe], cwd=str(Path(__file__).resolve().parent.parent),
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    assert result.stdout.strip().splitlines()[-1] == "[]"
+
+
 def test_analysis_key_ignores_the_api_key():
     assert analysis_settings_key(
         analysis_settings=_AnalysisSettings(api_key="secret")
     ) == analysis_settings_key(analysis_settings=_AnalysisSettings())
+
+
+def test_the_analysis_settings_carry_no_model_field_and_read_no_gemini_environment(monkeypatch):
+    """Model-code removal, slice S4 (plan D17): `analysis.config.Settings` lost `api_key`, `model` and
+    `escalation_model`, and `load_settings` their `GEMINI_*` reads. The analysis key, which carries the two model
+    names as frozen literals, is the same for the slimmer `Settings`, for `load_settings()` whatever the retired
+    variables say, and for no settings object at all."""
+    import ast
+    import dataclasses
+
+    from analysis import config
+    from analysis.config import Settings, load_settings
+    from webapp.artifact_cache import _fingerprint
+
+    assert [field.name for field in dataclasses.fields(Settings)] == [
+        "withholding_denominator_mode", "reconstruction_mode"]
+    for retired in ("api_key", "model", "escalation_model"):
+        with pytest.raises(TypeError):
+            Settings(**{retired: "x"})
+    tree = ast.parse(Path(config.__file__).read_text(encoding="utf-8"))
+    assert not [node.value for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith("GEMINI")]
+    _clean_analysis_environment(monkeypatch)
+    for name in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_ESCALATION_MODEL"):
+        monkeypatch.setenv(name, "fabricated-" + name.lower())
+    settings = load_settings()
+    assert not any(hasattr(settings, retired) for retired in ("api_key", "model", "escalation_model"))
+    for parse_mode in ("auto", "deterministic"):
+        expected = _fingerprint(_old_analysis_key_material(parse_mode))
+        assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=settings) == expected
+        assert analysis_settings_key(parse_mode=parse_mode, analysis_settings=Settings()) == expected
+        assert analysis_settings_key(parse_mode=parse_mode) == expected
 
 
 def test_report_key_partitions_on_title():
@@ -1074,13 +1367,22 @@ def test_cached_analysis_computes_once_and_partitions_on_settings(cache):
     assert second.value == {"statement": {"bank": "Test Bank"}}
     assert len(calls) == 1
 
-    # A changed extraction model re-analyzes rather than serving the old model's
-    # answer.
+    # DECLARED FLIP (model-code removal, slice S3): a stand-in naming another
+    # extraction model used to re-analyze here. The model names are frozen key
+    # material now, so it is a cache HIT.
     third = cached_analysis(
         "# md", compute=compute, cache=cache, parse_mode="auto",
         analysis_settings=_AnalysisSettings(model="gemini-other"),
     )
-    assert third.cached is False and len(calls) == 2
+    assert third.cached is True and len(calls) == 1
+
+    # A changed analysis knob that still reaches the output re-analyzes rather
+    # than serving the old answer.
+    fourth = cached_analysis(
+        "# md", compute=compute, cache=cache, parse_mode="auto",
+        analysis_settings=_AnalysisSettings(withholding_denominator_mode="verified_revenue"),
+    )
+    assert fourth.cached is False and len(calls) == 2
 
 
 def test_the_sheet_partition_is_analysis_key_material(cache):
@@ -1300,7 +1602,12 @@ def test_stages_are_independent(cache):
     cycle(_AnalysisSettings())
     assert (len(ocr_calls), len(analysis_calls)) == (1, 1)
 
+    # DECLARED FLIP (model-code removal, slice S3): another model name is frozen
+    # key material now, so this is a cache HIT on both stages.
     cycle(_AnalysisSettings(model="gemini-other"))
+    assert (len(ocr_calls), len(analysis_calls)) == (1, 1)
+
+    cycle(_AnalysisSettings(withholding_denominator_mode="verified_revenue"))
     # Re-analyzed, NOT re-read.
     assert (len(ocr_calls), len(analysis_calls)) == (1, 2)
 
@@ -1409,9 +1716,16 @@ def test_changed_analysis_settings_reanalyze_without_reocr(monkeypatch, data_dir
     _run(store)
     assert (counter.ocr, counter.analysis) == (1, 1)
 
-    # A different extraction model must not be served the old model's answer —
-    # but it must not re-OCR either.
+    # DECLARED FLIP (model-code removal, slice S3; the environment form of the
+    # frozen key): GEMINI_MODEL used to re-analyze here. Nothing reads it into
+    # the key now, so this is a cache HIT.
     monkeypatch.setenv("GEMINI_MODEL", "gemini-3.5-pro-experiment")
+    _run(store)
+    assert (counter.ocr, counter.analysis) == (1, 1)
+
+    # A changed analysis setting that still reaches the output must not be
+    # served the old answer — but it must not re-OCR either.
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "verified_revenue")
     _run(store)
     assert (counter.ocr, counter.analysis) == (1, 2)
 
@@ -1845,11 +2159,11 @@ def test_reconstruction_mode_partitions_the_analysis_settings_key():
     derived from the SAME settings object."""
     from analysis.config import Settings
 
-    off = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash")
-    research = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash",
-                        reconstruction_mode="research")
-    production = Settings(api_key="", model="gemini-3.5-flash-lite", escalation_model="gemini-3.5-flash",
-                          reconstruction_mode="production")
+    # (The model-name fields these used to fill left `Settings` in slice S4 of the model-code removal; the key
+    # carries the two names as frozen literals.)
+    off = Settings()
+    research = Settings(reconstruction_mode="research")
+    production = Settings(reconstruction_mode="production")
     keys = {analysis_settings_key(parse_mode="deterministic", analysis_settings=s) for s in (off, research, production)}
     assert len(keys) == 3
     # a stand-in without the field reads as `off`
@@ -1858,22 +2172,12 @@ def test_reconstruction_mode_partitions_the_analysis_settings_key():
 
 
 
-def test_hosted_extraction_opt_in_partitions_the_analysis_settings_key(monkeypatch):
-    """P22-FENCE review F3 (Ocean's composition item): a payload produced
-    with the hosted-extraction opt-in literal in the environment must not be
-    served to a process without it. The key reads the fence's own predicate
-    (`analysis.pipeline.hosted_extraction_opted_in`), so the two cannot
-    disagree about what "opted in" means."""
-    from analysis.pipeline import HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL
+# `test_hosted_extraction_opt_in_partitions_the_analysis_settings_key` (P22-FENCE
+# review F3) was deleted in slice S3 of the model-code removal with the opt-in it
+# keyed on: `hosted_extraction_opt_in` is the frozen literal False now, pinned by
+# `test_the_analysis_key_equals_the_old_shape_built_from_literals` and
+# `test_the_retired_analysis_environment_no_longer_moves_the_key`.
 
-    monkeypatch.delenv(HOSTED_EXTRACTION_OPT_IN_ENV, raising=False)
-    without = analysis_settings_key(analysis_settings=_AnalysisSettings())
-    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
-    with_literal = analysis_settings_key(analysis_settings=_AnalysisSettings())
-    assert with_literal != without
-    # Any other value is NOT the opt-in: same key as absent (the fence's rule).
-    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, "yes")
-    assert analysis_settings_key(analysis_settings=_AnalysisSettings()) == without
 
 def test_the_retired_environment_variable_does_not_touch_the_analysis_key(monkeypatch):
     """M10 at the key: `GENERIC_STRUCTURER_ENABLED` is inert."""

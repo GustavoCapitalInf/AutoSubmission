@@ -35,12 +35,27 @@ class _FakeDoc:
         return "# Hello"
 
 
+def _assert_no_visual_rung():
+    """The visual OCR rung these tests used to forbid (by patching
+    `ocr.pipeline.load_settings`) no longer exists (slice S2): its client
+    module cannot be found and the ladder holds no visual-settings loader."""
+    import importlib.util
+
+    import ocr.pipeline
+
+    assert importlib.util.find_spec("ocr.ocr_client") is None
+    assert not hasattr(ocr.pipeline, "load_settings")
+
+
 def test_run_job_success(monkeypatch, store):
     job = store.create("s.pdf")
 
-    def fake_parse(pdf_bytes, source_file="", on_page_delta=None, **kwargs):
-        if on_page_delta:
-            on_page_delta(0, "streamed chunk")  # simulate live streaming of page 1
+    def fake_parse(pdf_bytes, source_file="", on_page_replace=None, **kwargs):
+        # The visual rung's `on_page_delta` stream left with it (slice S2); the
+        # live buffer is filled through the ladder's `on_page_replace`.
+        assert "on_page_delta" not in kwargs
+        if on_page_replace:
+            on_page_replace(0, "replayed page")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
@@ -56,7 +71,7 @@ def test_run_job_success(monkeypatch, store):
     assert fetched.analysis == {"quality": {"level": "transaction_level"}, "parse_mode": "auto"}
     assert fetched.analysis_error is None
     assert fetched.parse_model == "test-model"
-    assert "streamed chunk" in fetched.live_text  # worker forwarded the stream
+    assert "replayed page" in fetched.live_text  # worker forwarded the ladder's pages
 
 
 def test_run_job_failure(monkeypatch, store):
@@ -81,35 +96,77 @@ def test_run_job_failure(monkeypatch, store):
     assert "connection error" not in fetched.error
 
 
+class _StageRecorder:
+    """The job store, with every stage it is told recorded (the forced refusal must name none)."""
+
+    def __init__(self, store):
+        self._store, self.stages = store, []
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def set_stage(self, job_id, stage, parse_model=None):
+        self.stages.append(stage)
+        return self._store.set_stage(job_id, stage, parse_model)
+
+
 @pytest.mark.parametrize("mode", ["auto", "deterministic"])
-def test_forced_pair_skips_all_legacy_readers(monkeypatch, store, mode):
-    job = store.create("forced.pdf")
-    calls = []
-    monkeypatch.setattr("webapp.worker.inspect_pdf", lambda *a, **k: pytest.fail("native text probe ran"))
-    monkeypatch.setattr("webapp.worker.parse_statement", lambda *a, **k: pytest.fail("legacy reader ran"))
-    monkeypatch.setattr("webapp.worker._read_visual_pair", lambda *a, **k: calls.append("pair") or _FakeDoc())
-    monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
-    monkeypatch.setattr("webapp.worker.document_to_json", lambda report: {"quality": {"level": "transaction_level"}})
-    run_job(job.id, b"%PDF-fake", "forced.pdf", store, force_ocr=True, parse_mode=mode)
+def test_a_forced_job_is_refused_before_preflight_with_the_fixed_text(monkeypatch, store, mode):
+    """Force visual OCR is retired (owner ruling, 2026-10-13). `/upload` refuses the flag; a job stored with it reaches
+    `run_job` only through its re-analysis, and ends before preflight: nothing is read, no stage is named, the job
+    error is the fixed literal and the telemetry record names the class `ForcedOcrRemoved`."""
+    from webapp.worker import FORCED_OCR_ERROR_TYPE, FORCED_OCR_RETIRED
+
+    job = store.create("forced.pdf", force_ocr=True, parse_mode=mode)
+    for name in ("inspect_pdf", "parse_statement", "analyze_document", "cached_ocr", "cached_analysis"):
+        monkeypatch.setattr(f"webapp.worker.{name}", lambda *a, _n=name, **k: pytest.fail(f"{_n} ran"))
+    recorder = _StageRecorder(store)
+    run_job(job.id, b"%PDF-fake", "forced.pdf", recorder, force_ocr=True, parse_mode=mode)
     fetched = store.get(job.id)
-    assert fetched.status == "done"
-    assert calls == ["pair"]
-    assert fetched.analysis["parse_mode"] == mode
+    assert (fetched.status, fetched.error, fetched.analysis, fetched.markdown) == (
+        "error", FORCED_OCR_RETIRED, None, None)
+    assert recorder.stages == []
+    records = [r for r in store.storage.telemetry_records() if r["job_id"] == job.id]
+    assert [r["outcome"]["error_type"] for r in records] == [FORCED_OCR_ERROR_TYPE]
+    assert records[0]["source"]["model"] is None and records[0]["stages"] == {}
+    assert FORCED_OCR_ERROR_TYPE == "ForcedOcrRemoved" and FORCED_OCR_RETIRED.endswith("read it deterministically.")
 
 
-def test_explicit_legacy_flag_uses_old_visual_rung(monkeypatch, store):
-    monkeypatch.setenv("OCR_VISUAL_PAIR_LEGACY_VISUAL", "1")
-    job = store.create("legacy.pdf")
-    calls = []
-    monkeypatch.setattr("webapp.worker.parse_statement", lambda *a, **k: calls.append(k) or _FakeDoc())
-    monkeypatch.setattr("webapp.worker._read_visual_pair", lambda *a, **k: pytest.fail("pair ran"))
-    monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
-    monkeypatch.setattr("webapp.worker.document_to_json", lambda report: {"quality": {"level": "transaction_level"}})
-    run_job(job.id, b"%PDF-fake", "legacy.pdf", store, force_ocr=True, parse_mode="deterministic")
-    assert store.get(job.id).status == "done"
-    assert len(calls) == 1
-    assert calls[0]["force_ocr"] is True
-    assert calls[0]["allow_visual_ocr"] is True
+@pytest.mark.parametrize("mode", ["auto", "deterministic"])
+@pytest.mark.parametrize("env", [{}, {"OCR_ALLOW_VISUAL_PAIR": "1", "OCR_VISUAL_PAIR_LEGACY_VISUAL": "1",
+                                      "OCR_VISUAL_PAIR_FALLBACK_TRIGGER": "broad"}])
+def test_every_read_uses_the_deterministic_flags_whatever_the_mode_or_the_retired_switches(
+        monkeypatch, store, mode, env):
+    """Auto reads exactly as Deterministic only: one read, native text then local Tesseract, the visual rung a
+    literal False, and the analysis gets the job's own mode. The retired visual switches no longer reach the worker
+    (moved from tests/test_visual_pair_worker.py and tests/test_webapp_worker.py's legacy-flag test, slice S1)."""
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    job = store.create("statement.pdf", parse_mode=mode)
+    reads, modes = [], []
+    monkeypatch.setattr("webapp.worker.parse_statement", lambda *a, **k: reads.append(k) or _FakeDoc())
+
+    def analyze(markdown, parse_mode="auto", **kwargs):
+        modes.append(parse_mode)
+        raise RuntimeError("no deterministic parser matched this statement")
+
+    monkeypatch.setattr("webapp.worker.analyze_document", analyze)
+    run_job(job.id, b"%PDF-fake-" + mode.encode() + str(len(env)).encode(), "statement.pdf", store, parse_mode=mode)
+    fetched = store.get(job.id)
+    assert [(k["force_ocr"], k["allow_local_ocr"], k["allow_visual_ocr"]) for k in reads] == [(False, True, False)]
+    assert modes == [mode]
+    assert (fetched.status, fetched.analysis, fetched.analysis_error) == (
+        "done", None, "no deterministic parser matched this statement")
+
+
+def test_a_forged_contradiction_message_is_withheld_like_any_other_crash():
+    """A statement-contradiction refusal is no longer produced by any reader of the worker, so a message of its shape
+    is an ordinary exception's text and is withheld (moved from tests/test_source_contradiction.py, slice S1)."""
+    from webapp.worker import _analysis_failure
+
+    forged = RuntimeError("Fail: Statement debit total ($1.00 listed, $2.00 printed) contradiction")
+    assert _analysis_failure(forged) == (
+        "analysis stage failed: RuntimeError (message withheld; an exception message can quote statement text)")
 
 
 def test_deterministic_run_reports_native_text_required_without_force_ocr(monkeypatch, store):
@@ -120,15 +177,16 @@ def test_deterministic_run_reports_native_text_required_without_force_ocr(monkey
     # rather than reach for visual OCR.
     monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", lambda *a, **k: None)
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("visual OCR rung must not run"))
+    _assert_no_visual_rung()
 
     run_job(job.id, b"%PDF-fake", "scan.pdf", store, force_ocr=False, parse_mode="deterministic")
 
     fetched = store.get(job.id)
     assert fetched.status == "done"
     assert fetched.analysis is None
-    assert "native PDF text unavailable" in (fetched.analysis_error or "")
+    # The fixed no-text refusal, without the retired "turn on Force visual OCR ... or use Auto mode" advice.
+    assert fetched.analysis_error == (
+        "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text")
     assert fetched.parse_model == "deterministic-native-preflight"
 
 
@@ -144,8 +202,7 @@ def test_auto_run_uses_local_ocr_before_remote_visual_ocr(monkeypatch, store):
     monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
                         lambda pdf_bytes, source_file="", **k: LocalDoc())
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("remote visual OCR must not run"))
+    _assert_no_visual_rung()
     monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 
@@ -166,8 +223,7 @@ def test_deterministic_run_uses_local_ocr_before_reporting_no_text(monkeypatch, 
     monkeypatch.setattr("ocr.pipeline._native_statement", lambda pdf_bytes, source_file="": None)
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
                         lambda pdf_bytes, source_file="", **k: LocalDoc())
-    monkeypatch.setattr("ocr.pipeline.load_settings",
-                        lambda **k: pytest.fail("remote OCR should not run"))
+    _assert_no_visual_rung()
     monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
 

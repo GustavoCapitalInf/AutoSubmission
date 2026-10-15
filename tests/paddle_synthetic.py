@@ -16,10 +16,12 @@ arithmetically. Every word's position is KNOWN up front (`build_ledger_page`)
   raster's pixel space — no OCR engine runs to produce it, which is what
   makes the default suite's Paddle tests exact and fast.
 
-This module is imported by `tools/paddle_vast.py measure` (D8: the tool
-refuses to measure anything but a fixture built here) and by every
-`tests/test_paddle_*.py` module that needs a page. It never reads
-`Bank Statements/`, `tests/corpus_cache/` or any real document.
+This module was imported by `tools/paddle_vast.py measure` and by the
+`tests/test_paddle_*.py` modules; those left with the PaddleOCR rung (slice S5
+of the model-code removal). It stays because deterministic tests build pages
+with it (`tests/layout_fixtures/builders.py`, `tests/test_agreement.py`,
+`tests/test_two_denominators.py`); it imports only `ocr.rasterize`. It never
+reads `Bank Statements/`, `tests/corpus_cache/` or any real document.
 
 Phase 2.3 cell E (`docs/agent-handoffs/P23-EGATE.md` item 4) APPENDS the
 DEFECT pages: one page per extraction-quality metric, each built from the
@@ -190,7 +192,7 @@ def raster_dimensions(page: SyntheticPage, *, dpi: int = 300) -> tuple[int, int]
 def synthetic_paddle_result(page: SyntheticPage, *, dpi: int = 300) -> dict:
     """A PaddleOCR-3.7 `return_word_box=True`-shaped raw result built
     DIRECTLY from `page`'s known word positions, scaled into `dpi`'s pixel
-    space. No OCR engine runs; the shape matches
+    space. No OCR engine runs; the shape matched the retired fixture
     `tests/fixtures/paddle/paddle_demo_wordboxes_res.json` exactly (the same
     keys, the same per-line `text_word` / `text_word_boxes` nesting). One
     Paddle "line" per `SyntheticLine` — each row here was already drawn as

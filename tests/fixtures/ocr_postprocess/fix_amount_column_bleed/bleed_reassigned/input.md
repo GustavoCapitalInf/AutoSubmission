@@ -1,1 +1,0 @@
-<table><tr><td>Date</td><td>Description</td><td>Amount</td></tr><tr><td>01/03</td><td>ONLINE PAYROLL DES:PAYROLL ID:0007712279 CCD</td><td>ID:6631798 INDN:NORTHSTAR VENDORS SE CO -74.88</td></tr><tr><td>01/05</td><td>ACME SUPPLY CO DES:INSPMTCL CCD</td><td>-110.00</td></tr></table>

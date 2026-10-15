@@ -4,7 +4,8 @@ Standing rule: commit your instruments under `tools/` when they produce
 headline numbers. The 13/13 headline in the first draft of §WITHHELDGRIDS was
 produced by a harness that lived only in a scratchpad, which is the review's
 MAJOR-4; this is that harness, in the shape the sibling cells used
-(`tools/descattrib_mutate.py`, `tools/extractpriv_mutate.py`).
+(`tools/descattrib_mutate.py`, and `tools/extractpriv_mutate.py`, deleted in
+slice S3 of the model-code removal with the module it mutated).
 
     python -m tools.withheldgrids_mutation_table            # the whole table
     python -m tools.withheldgrids_mutation_table --only M1 M13

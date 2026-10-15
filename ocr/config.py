@@ -1,30 +1,36 @@
 from __future__ import annotations
-import os
 import re
-from dataclasses import dataclass
-
-from .endpoint_policy import classify_endpoint, remote_opt_in_from_env
-from .paddle_config import PADDLE_MODEL_TOKEN
-from .visual_pair_config import MODEL_TOKEN as VISUAL_PAIR_MODEL_TOKEN
 
 try:
     from dotenv import load_dotenv
 except Exception:
     load_dotenv = None
 
+# Import-time `.env` loading stays (D20): several entry points reach their first
+# `load_dotenv()` through this module (`ocr.document` imports it), and the
+# order in which the `.env` values become visible must not move.
 if load_dotenv is not None:
     load_dotenv()
+
+# Model-code removal, slice S2 (owner ruling of 2026-10-13: the product uses no
+# model). The visual OCR settings (`Settings`, `load_settings` and their
+# OCR_MODEL / OCR_BASE_URL / OCR_NGRAM_SIZE / OCR_WINDOW_SIZE / OCR_API_KEY /
+# OCR_TIMEOUT / OCR_RETRIES / OCR_MAX_WORKERS / OCR_ALLOW_VISUAL_PAIR /
+# OCR_VISUAL_PAIR_* reads) were the retired Unlimited-OCR client's and the
+# visual pair's (removed in slice S4); nothing in this tree reads those names
+# any more. The OCR cache key keeps their default
+# values as frozen literals (`webapp.artifact_cache`). What stays here is the
+# provenance-token content policy every `StatementMarkdown` is checked against.
 
 
 class ProvenanceTokenError(ValueError):
     """A model/provenance token failed the closed-charset content policy.
 
-    F-4(b) / MAJOR-2: `OCR_MODEL` is not only "which host gets the pixels" —
-    it is arbitrary text stamped into the first line of every visual-OCR
-    document's analysis input (`ocr.document.StatementMarkdown.to_markdown`).
-    Raised at the point the token is SET — an env read (`load_settings`) or a
-    `StatementMarkdown` construction (`ocr.document`) — never at the point it
-    is printed, so a hostile token never becomes a `Settings.model` or a
+    F-4(b) / MAJOR-2: a model token is not only a label — it is text stamped
+    into the first line of every document's analysis input
+    (`ocr.document.StatementMarkdown.to_markdown`). Raised at the point the
+    token is SET — a `StatementMarkdown` construction (`ocr.document`) — never
+    at the point it is printed, so a hostile token never becomes a
     `StatementMarkdown.model` in the first place. There is nothing left to
     sanitize downstream, which is what makes this a closure rather than a
     second, escapable guard stacked on `admissible_text`'s.
@@ -44,11 +50,8 @@ class ProvenanceTokenError(ValueError):
 #: single trailing newline (and, via the same leak, a 65-character token
 #: whose 65th character was `\n`, silently bypassing the length bound too).
 #: `\A` and `\Z` anchor to the true start/end of the string with no such
-#: carve-out. Every other anchored validator in this module uses the same
-#: discipline: `_MONEY_SHAPE_RE` is unanchored by design (a `.search`, not
-#: a full-string match, so `$` there was never the same hazard), and the
-#: opt-in literal check (`ocr.endpoint_policy.remote_opt_in_from_env`) is a
-#: plain `==` string comparison, not a regex, so it has no anchor to leak.
+#: carve-out. `_MONEY_SHAPE_RE` is unanchored by design (a `.search`, not a
+#: full-string match, so `$` there was never the same hazard).
 MODEL_TOKEN_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._/+-]{0,63}\Z")
 
 #: A money-shaped substring the charset alone does not exclude: digits and a
@@ -60,26 +63,32 @@ MODEL_TOKEN_RE = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._/+-]{0,63}\Z")
 #: non-digit boundary.
 _MONEY_SHAPE_RE = re.compile(r"\d+\.\d{2}(?!\d)")
 
-#: The deterministic ladder's own model tokens. An env-supplied OCR_MODEL
+#: The deterministic ladder's own model tokens, plus the Paddle and visual-pair
+#: tokens. An externally supplied token checked with `allow_reserved=False`
 #: must never equal or start with one of these — that would spoof
 #: `telemetry.record.source_path_for`, `telemetry.prices.py`'s free-model
 #: table, and cell D's Q3 native-only gate into believing an
-#: operator-controlled visual read is a native/offline one. The native and
-#: local-tesseract rungs legitimately set these tokens directly on
-#: `StatementMarkdown` — never through this env-facing validator — which is
-#: why `ocr.document.StatementMarkdown.__post_init__` validates with
+#: operator-controlled read is a native/offline one. The rungs legitimately set
+#: these tokens directly on `StatementMarkdown`, which is why
+#: `ocr.document.StatementMarkdown.__post_init__` validates with
 #: `allow_reserved=True`.
-#: P21-ROUTING (Phase 2.1): `PADDLE_MODEL_TOKEN` joins the reserved set so an
-#: env-supplied `OCR_MODEL` cannot impersonate the Paddle rung either — the
-#: same reasoning as the three deterministic-ladder tokens above. The Paddle
-#: rung sets this token directly on `StatementMarkdown`
-#: (`allow_reserved=True`), never through this env-facing validator.
+#:
+#: The Paddle and visual-pair tokens are LITERALS here since slice S2 (this
+#: module no longer imports `ocr.paddle_config` or `ocr.visual_pair_config`):
+#: "paddle-ocr+ppocrv5" was `ocr.paddle_config.PADDLE_MODEL_TOKEN` until the
+#: PaddleOCR rung was removed in slice S5, and "visual-pair-dots-qwen" was
+#: `ocr.visual_pair_config.MODEL_TOKEN` until the visual pair was removed in
+#: slice S4 (stored readings still carry both, and `telemetry.record`'s
+#: `PADDLE_MODEL_TOKENS` / `VISUAL_PAIR_MODEL_TOKENS` still name them).
+#: `tests/test_config.py` pins both as literals.
+#: `validate_model_token(allow_reserved=False)` lost its only production
+#: caller with `load_settings` (follow-up).
 RESERVED_MODEL_PREFIXES = (
     "native-pdf-text",
     "local-tesseract-ocr",
     "deterministic-native-preflight",
-    PADDLE_MODEL_TOKEN,
-    VISUAL_PAIR_MODEL_TOKEN,
+    "paddle-ocr+ppocrv5",
+    "visual-pair-dots-qwen",
 )
 
 
@@ -89,12 +98,12 @@ def validate_model_token(token: str, *, allow_reserved: bool) -> str:
     Returns the token byte-identical when it is accepted (this function never
     mutates or truncates); raises `ProvenanceTokenError` otherwise.
 
-    `allow_reserved=False` (env / CLI override, via `load_settings`) also
-    refuses a token that equals or starts with a `RESERVED_MODEL_PREFIXES`
-    entry — an env value must not impersonate a native read.
-    `allow_reserved=True` (`StatementMarkdown.__post_init__`) skips that one
-    check, because the native and local-tesseract rungs legitimately set
-    those exact tokens themselves.
+    `allow_reserved=False` also refuses a token that equals or starts with a
+    `RESERVED_MODEL_PREFIXES` entry — an externally supplied value must not
+    impersonate a native read. `allow_reserved=True`
+    (`StatementMarkdown.__post_init__`) skips that one check, because the
+    native and local-tesseract rungs legitimately set those exact tokens
+    themselves.
     """
     if not isinstance(token, str) or not MODEL_TOKEN_RE.match(token):
         raise ProvenanceTokenError(
@@ -111,62 +120,3 @@ def validate_model_token(token: str, *, allow_reserved: bool) -> str:
             f"model/provenance token rejected (impersonates a reserved rung prefix): {token!r}"
         )
     return token
-
-
-@dataclass
-class Settings:
-    base_url: str
-    model: str
-    api_key: str
-    timeout: float
-    retries: int
-    ngram_size: int
-    window_size: int
-    max_workers: int
-    #: OQ3 provenance (F-4(a)): the endpoint's structural class and whether an
-    #: explicit remote opt-in was present when this Settings was built. These
-    #: are DESCRIPTIVE fields for telemetry and the cache key (cell C keys on
-    #: them) — NOT the enforcement authority. `ocr.ocr_client._build_client`
-    #: re-derives the decision from `base_url` fresh via
-    #: `ocr.endpoint_policy.check_endpoint`, so a hand-built `Settings` (as
-    #: tests construct) cannot spoof these fields into bypassing the real
-    #: check. `endpoint_class` auto-derives from `base_url` when left `None`.
-    endpoint_class: str | None = None
-    remote_opt_in: bool = False
-    # Phase 3.1 is dormant for automatic fallback until explicitly enabled.
-    allow_visual_pair: bool = False
-    visual_pair_fallback_trigger: str = "narrow"
-    visual_pair_legacy_visual: bool = False
-
-    def __post_init__(self) -> None:
-        if self.visual_pair_fallback_trigger not in {"narrow", "broad"}:
-            raise ValueError("OCR_VISUAL_PAIR_FALLBACK_TRIGGER must be narrow or broad")
-        if self.endpoint_class is None:
-            self.endpoint_class = classify_endpoint(self.base_url)
-
-
-def load_settings(model_override: str | None = None) -> Settings:
-    base_url = os.environ.get("OCR_BASE_URL", "http://localhost:8000/v1")
-    raw_model = model_override or os.environ.get("OCR_MODEL", "baidu/Unlimited-OCR")
-    model = validate_model_token(raw_model, allow_reserved=False)
-    return Settings(
-        base_url=base_url,
-        model=model,
-        api_key=os.environ.get("OCR_API_KEY", "EMPTY"),
-        timeout=float(os.environ.get("OCR_TIMEOUT", "120")),
-        retries=int(os.environ.get("OCR_RETRIES", "3")),
-        ngram_size=int(os.environ.get("OCR_NGRAM_SIZE", "35")),
-        window_size=int(os.environ.get("OCR_WINDOW_SIZE", "128")),
-        # How many pages to OCR concurrently. Defaults to 1 (sequential) because
-        # on a single 24GB GPU (3090) the model already saturates the GPU per
-        # page — concurrent requests thrash the KV cache and run SLOWER. On a
-        # larger GPU (A100/H100) with spare KV-cache headroom, vLLM batches the
-        # requests and this gives a real 2-3x speedup on multi-page statements
-        # without changing output; raise OCR_MAX_WORKERS there (e.g. 4).
-        max_workers=int(os.environ.get("OCR_MAX_WORKERS", "1")),
-        endpoint_class=classify_endpoint(base_url),
-        remote_opt_in=remote_opt_in_from_env(),
-        allow_visual_pair=os.environ.get("OCR_ALLOW_VISUAL_PAIR", "0") == "1",
-        visual_pair_fallback_trigger=os.environ.get("OCR_VISUAL_PAIR_FALLBACK_TRIGGER", "narrow"),
-        visual_pair_legacy_visual=os.environ.get("OCR_VISUAL_PAIR_LEGACY_VISUAL", "0") == "1",
-    )

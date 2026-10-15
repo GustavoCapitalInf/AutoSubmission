@@ -41,13 +41,16 @@ from .native_text import _NAVY_PERIOD_RE as _PERIOD_RANGE_RE
 
 _PERIOD_PHRASE_RE = re.compile(r"statement\s+period|statement\s+date", re.IGNORECASE)
 
-# 'Page N of M' footer: the core alternation of ocr/ocr_client.py::_PAGE_DUP_RE
-# (which wraps this same pattern in a consecutive-duplicate backreference and
-# is therefore not directly reusable for single-occurrence detection).
+# 'Page N of M' footer: the core alternation of the retired visual OCR client's
+# `_PAGE_DUP_RE` (ocr/ocr_client.py, deleted in slice S2 of the model-code
+# removal), which wrapped this same pattern in a consecutive-duplicate
+# backreference and was therefore not directly reusable for single-occurrence
+# detection.
 _PAGE_N_OF_M_RE = re.compile(r"Page:?\s*\d+\s*(?:of|/)\s*\d+", re.IGNORECASE)
 
 # Table markers in native text: bank statements print ledger column headers;
-# OCR output instead carries literal <table> markup (ocr/ocr_client.py::_TABLE_RE).
+# the retired visual OCR rung's output instead carried literal <table> markup
+# (its `_TABLE_RE`; stored legacy reads still do).
 _TABLE_HEADER_RE = re.compile(
     r"(?:date|description|details?)\b.{0,40}\b(?:amount|debit|credit|withdrawals?|deposits?|balance)",
     re.IGNORECASE,
@@ -182,13 +185,8 @@ def _layout_signals(text: str) -> LayoutSignals:
     )
 
 
-def inspect_pdf(pdf_bytes: bytes, *, read_native_text: bool = True) -> DocumentProfile:
-    """Inspect a PDF without parsing it as a statement. Never raises.
-
-    Forced visual intake uses ``read_native_text=False`` for structural checks
-    only. Text-derived fields remain unknown rather than claiming the document
-    has no native text, and no page text accessor is called.
-    """
+def inspect_pdf(pdf_bytes: bytes) -> DocumentProfile:
+    """Inspect a PDF without parsing it as a statement. Never raises."""
     profile = DocumentProfile(content_sha256=content_sha256(pdf_bytes))
     if not pdf_bytes.startswith(b"%PDF-"):
         return profile
@@ -208,10 +206,6 @@ def inspect_pdf(pdf_bytes: bytes, *, read_native_text: bool = True) -> DocumentP
         # Structurally valid but unreadable without a password: no text truth
         # to report, so classification stays "unknown".
         profile.encrypted = True
-        return profile
-
-    if not read_native_text:
-        doc.close()
         return profile
 
     pages, malformed = _page_texts(doc)

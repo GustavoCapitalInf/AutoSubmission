@@ -1,11 +1,9 @@
 """Synthetic path and worker seams only; no private documents or model calls."""
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from ocr import private_artifacts as private
-from vlm.receipts import Refused
 
 
 @pytest.fixture
@@ -69,47 +67,11 @@ def test_child_symlink_cannot_escape_root(tmp_path, external_root, into_checkout
         private.private_artifact_path("visual_pair_evidence")
 
 
-def test_cli_defaults_external_and_retains_source_overlap_refusal(tmp_path, external_root):
-    from tools.phase3_pair.check_judgment import _private_output
-
-    output = _private_output(None, tmp_path / "source")
-    assert output == external_root / "judgment-checks"
-    assert output.stat().st_mode & 0o777 == 0o700
-    with pytest.raises(Refused, match="overlaps_inputs"):
-        _private_output(tmp_path / "source" / "outputs", tmp_path / "source")
-    with pytest.raises(Refused, match="overlaps_inputs"):
-        _private_output(tmp_path, tmp_path / "source")
-
-
-def test_cli_refuses_old_ignored_checkout_output(tmp_path, external_root):
-    from tools.phase3_pair.check_judgment import _private_output
-
-    with pytest.raises(Refused, match="must_be_private"):
-        _private_output(private.CHECKOUT_ROOT / ".claude/phase31-private", tmp_path / "source")
-    assert not (private.CHECKOUT_ROOT / ".claude").exists()
-
-
-def test_worker_passes_external_evidence_to_extractor(tmp_path, monkeypatch, external_root):
-    from ocr.document import StatementMarkdown
-    from webapp import worker
-
-    observed = []
-    document = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["fabricated"])
-    def extract(pdf, **kwargs):
-        observed.append(kwargs["evidence_dir"])
-        return document
-
-    monkeypatch.setattr("vlm.pair.extract_visual_pair", extract)
-    monkeypatch.setattr(worker, "check_remote_authorization", lambda *a, **k: None)
-    monkeypatch.setattr(worker, "_cached_ocr_timed",
-                        lambda *a, compute, **k: SimpleNamespace(value=compute()))
-    monkeypatch.setattr(worker, "_note_cache", lambda *a, **k: None)
-    store = SimpleNamespace(storage=SimpleNamespace(data_dir=tmp_path / "old-webapp-data"),
-                            set_page_live=lambda *a: None)
-    worker._read_visual_pair("synthetic-job", store, None, b"%PDF-fabricated", "synthetic.pdf",
-                             SimpleNamespace(content_sha256="fabricated"), timer=None)
-    assert observed == [external_root / "visual_pair_evidence"]
-    assert not store.storage.data_dir.exists()
+# The webapp worker's visual-pair evidence write (test_worker_passes_external_evidence_to_extractor) left with the
+# worker's pair read (model-code removal, slice S1), and the pair command-line tools' private-output tests
+# (test_cli_defaults_external_and_retains_source_overlap_refusal, test_cli_refuses_old_ignored_checkout_output and
+# test_cli_output_flag_is_optional_without_reading_inputs) left with those tools (`tools/phase3_pair/`, slice S4):
+# guards deleted with their only subject. The data-directory rule below, and the path rules above, are untouched.
 
 
 def test_webapp_default_and_explicit_storage_cannot_recreate_checkout_cache(monkeypatch, external_root):
@@ -137,26 +99,3 @@ def test_external_webapp_override_stays_absolute(tmp_path, monkeypatch, external
     monkeypatch.setenv('WEBAPP_DATA_DIR', 'relative-webapp')
     with pytest.raises(private.PrivateArtifactPathError, match='must_be_absolute'):
         default_data_dir()
-
-
-@pytest.mark.parametrize("module_name,extra", [
-    ("check_judgment", []), ("review_judgment", ["--run-dir", "/synthetic/run"]),
-])
-def test_cli_output_flag_is_optional_without_reading_inputs(monkeypatch, external_root, module_name, extra):
-    from importlib import import_module
-
-    cli = import_module("tools.phase3_pair." + module_name)
-    captured = []
-    if module_name == "check_judgment":
-        def run(args):
-            captured.append(args.output_dir)
-            return dict(documents=0, pages=0, admitted=0, analyzed=0, counts={}, gate_checks=[])
-        monkeypatch.setattr(cli, "run", run)
-    else:
-        def build(args):
-            captured.append(args.output_dir)
-            return {"status": "synthetic"}
-        monkeypatch.setattr(cli, "build", build)
-    assert cli.main(["--manifest", "/synthetic/manifest", "--manifest-sha256", "0" * 64,
-                     "--source-root", "/synthetic/source", *extra]) == 0
-    assert captured == [None]

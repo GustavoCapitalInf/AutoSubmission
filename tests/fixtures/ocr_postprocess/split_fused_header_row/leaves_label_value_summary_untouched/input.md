@@ -1,1 +1,0 @@
-<table><tr><td>Checking &amp; Savings</td><td>ACCOUNT</td><td>BEGINNING BALANCE THIS PERIOD</td></tr><tr><td>Chase Platinum</td><td>000000727011905</td><td>$28,314.72</td></tr></table>

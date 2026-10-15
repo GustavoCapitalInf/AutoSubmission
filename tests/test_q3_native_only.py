@@ -506,32 +506,20 @@ def test_empty_model_token_refuses_and_fails_closed():
 
 # ---------------------------------------------------------------------------
 # BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`): the refusal must be unconditional
-# in EVERY `parse_mode`, not only `"deterministic"`. `extract_statement` is
-# replaced by a sentinel that FAILS THE TEST if it is ever called -- the
-# webapp's default `parse_mode="auto"` must never reach a hosted-model
-# extraction call for a document Q3's gate has already refused.
+# in EVERY `parse_mode`, not only `"deterministic"`. Until slice S3 of the
+# model-code removal a sentinel stood in for the hosted extractor here and
+# failed the test if a Q3 refusal ever fell through to it in auto mode; the
+# extractor is gone, so the sentinel went with it, and the refusal is pinned on
+# its own: auto mode raises exactly what deterministic mode raises.
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def _extract_statement_must_not_be_called(monkeypatch):
-    def _sentinel(markdown, *, settings=None, model=None):
-        raise AssertionError(
-            "extract_statement reached: a Q3 provenance refusal fell through "
-            "to hosted extraction in a non-deterministic parse_mode (BLOCK-2)"
-        )
-    monkeypatch.setattr("analysis.pipeline.extract_statement", _sentinel)
 
 
 @pytest.mark.parametrize("model", ["local-tesseract-ocr", "", None], ids=[
     "local-tesseract-ocr", "empty", "headerless",
 ])
-def test_q3_refusal_is_fail_closed_in_auto_mode_too(
-    model, _extract_statement_must_not_be_called
-):
+def test_q3_refusal_is_fail_closed_in_auto_mode_too(model):
     """The three CASE-10 refusal shapes, replayed in `parse_mode="auto"` --
-    the webapp's default (`webapp/app.py`) -- with `extract_statement` wired
-    to fail the test if the refusal ever falls through to it. Each must raise
+    the webapp's default (`webapp/app.py`). Each must raise
     `ParserCrashError` (fail closed) exactly as `parse_mode="deterministic"`
     already does, and never construct a Statement with the sibling silently
     dropped."""
@@ -539,45 +527,32 @@ def test_q3_refusal_is_fail_closed_in_auto_mode_too(
         analyze_document(_q3_document(model), parse_mode="auto")
 
 
-def test_the_unclaimed_to_auto_fallthrough_is_fenced_behind_the_hosted_opt_in(monkeypatch):
-    """BLOCK-2's own finding, since RULED. This pin used to assert the edge
-    UNCHANGED: a document NOTHING claims (`dispatch.outcome == "unclaimed"`,
-    unrelated to Q3) fell through to `extract_statement` in
-    `parse_mode="auto"` with no opt-in at all -- the separate, pre-existing
-    edge Ocean reported to Gustavo. Ruling A (PHASE2_RULINGS.md, 2026-09-02)
-    refused that Class-B -> hosted hop as doctrine and P22-FENCE (Phase 2.2,
-    R9) fenced it: without the exact literal in the environment auto mode
-    raises exactly what deterministic mode raises and the extractor is never
-    reached; with it, the single hosted extraction runs. Both halves pinned
-    here so THIS file's closure keeps stating the true shape of the edge it
-    once had to leave alone. `extract_statement` is stubbed to return a value
-    for the opted-in half, because reaching it there is the correct behaviour."""
-    import analysis.pipeline as pipeline
-    from analysis.schema import Statement
-
-    reached = []
-
-    def _stub(markdown, *, settings=None, model=None):
-        reached.append(True)
-        return Statement()
-
+@pytest.mark.parametrize("model", ["local-tesseract-ocr", "", None], ids=[
+    "local-tesseract-ocr", "empty", "headerless",
+])
+def test_auto_mode_raises_exactly_what_deterministic_mode_raises(model):
+    """BLOCK-2's own finding, closed twice over. It named the separate edge of
+    a document a refusal or no parser left without a statement falling through
+    to the hosted extractor in `parse_mode="auto"`; P22-FENCE (Ruling A) fenced
+    that hop behind an operator opt-in, and slice S3 of the model-code removal
+    deleted the extractor. Auto mode now raises EXACTLY what deterministic mode
+    raises for the Q3 refusal and for a document nothing claims: the same
+    class, the same message, and no `hosted_extraction` record attached."""
     unclaimed_markdown = (
         "<!-- source: s.pdf | pages: 1 | model: native-pdf-text | empty: 0 -->"
         "\n\n--- Page 1 ---\ncompletely unrecognisable text, no template furniture\n"
     )
-    monkeypatch.setattr(pipeline, "extract_statement", _stub)
-    monkeypatch.delenv(pipeline.HOSTED_EXTRACTION_OPT_IN_ENV, raising=False)
-
-    with pytest.raises(RuntimeError, match="no deterministic parser matched") as refused:
-        pipeline.analyze_document(unclaimed_markdown, parse_mode="auto")
-    assert reached == [], "auto mode reached the hosted extractor with no opt-in (Ruling A)"
-    assert refused.value.hosted_extraction == pipeline.HOSTED_EXTRACTION_REFUSED_NO_OPT_IN
-
-    monkeypatch.setenv(
-        pipeline.HOSTED_EXTRACTION_OPT_IN_ENV, pipeline.HOSTED_EXTRACTION_OPT_IN_LITERAL,
-    )
-    pipeline.analyze_document(unclaimed_markdown, parse_mode="auto")
-    assert reached == [True], "the opted-in hosted extraction did not run exactly once"
+    for markdown in (_q3_document(model), unclaimed_markdown):
+        with pytest.raises(RuntimeError) as deterministic:
+            analyze_document(markdown, parse_mode="deterministic")
+        with pytest.raises(RuntimeError) as auto:
+            analyze_document(markdown, parse_mode="auto")
+        assert type(auto.value) is type(deterministic.value)
+        assert str(auto.value) == str(deterministic.value)
+        assert auto.value.args == deterministic.value.args
+        assert not hasattr(auto.value, "hosted_extraction")
+        assert not hasattr(deterministic.value, "hosted_extraction")
+    assert str(auto.value) == "no deterministic parser matched this statement"
 
 
 def test_the_refusal_is_the_same_shape_l1_c17_uses_for_an_unratified_reason():
