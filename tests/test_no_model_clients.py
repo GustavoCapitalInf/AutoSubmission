@@ -5,11 +5,14 @@ N1  Every git-tracked .py file parses (a file that does not is a failure, never 
     model package or a removed model module in any spelling: absolute, relative (resolved against the file's own
     package), package-submodule (`from ocr import ocr_client`), or by name (`importlib.import_module`, `__import__`).
     No production module imports a generic network client; the one declared use is `tools/train/provenance.py`'s
-    `socket.gethostname()`. `vlm/`, `tools/phase3_pair/` and the GPU server are gone. The walk proves itself on a
-    scratch copy of the tree with a planted mutant of every form.
+    `socket.gethostname()`. No production module starts a remote program (`REMOTE_PROGRAMS`: `ssh`, `scp`,
+    `curl`, `wget` and the like), the route the deleted GPU tooling took, in an argv, a shell command line, a
+    constant or a path lookup; local programs (`tesseract` above all) stay. `vlm/`, `tools/phase3_pair/` and the
+    GPU server are gone. The walk proves itself on a scratch copy of the tree with a planted mutant of every form,
+    and of every widened model package.
 N2  A fresh process that imports the entry points and runs one fabricated statement through the web worker and one
-    through discovery holds no model module and no third-party network client, and attempts no outbound connection.
-    `assert_no_model_module_after` is the helper the other absence checks call.
+    through discovery holds no model module and no third-party network client, attempts no outbound connection
+    and starts no remote program. `assert_no_model_module_after` is the helper the other absence checks call.
 N3  No production module reads an environment variable named for a model path (`MODEL_ENV_PREFIXES`), in any
     spelling: a literal, a module constant, an alias of `os.environ`, a loop over a list of names, a name built
     from a prefix; a read whose name cannot be resolved fails closed. The declared readers are pinned (the
@@ -27,6 +30,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -39,12 +43,22 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "corpus-gate.yml"
 
 #: Model packages: refused in every file, tests included. The first eight are the owner ruling's (the hosted
-#: extraction's and the visual OCR client's SDKs, PaddleOCR, the GPU server's and the visual pair's stacks); the
-#: rest are the same stack's other packages and another model SDK.
+#: extraction's and the visual OCR client's SDKs, PaddleOCR, the GPU server's and the visual pair's stacks), then
+#: the same stack's other packages and another model SDK. The rest widen the rule past the removed stacks (final
+#: review of the removal): hosted model and LLM-framework SDKs, local model runtimes and ML frameworks, and neural
+#: or hosted OCR. Local Tesseract is not among them: the `tesseract` binary and its bindings stay allowed.
 MODEL_PACKAGES = (
     "openai", "google.genai", "google.generativeai", "paddleocr", "paddle", "vllm", "transformers", "torch",
     "torchvision", "accelerate", "peft", "einops", "huggingface_hub", "anthropic",
+    "ollama", "litellm", "langchain", "llama_index", "mistralai", "cohere", "groq", "replicate", "together",
+    "vertexai", "google.cloud.aiplatform",
+    "llama_cpp", "onnxruntime", "tensorflow", "tf_keras", "keras", "jax", "jaxlib", "flax", "sentence_transformers",
+    "openvino", "mlx", "ultralytics",
+    "easyocr", "doctr", "rapidocr", "rapidocr_onnxruntime", "surya", "google.cloud.vision", "google.cloud.documentai",
+    "azure.ai.formrecognizer", "azure.ai.documentintelligence",
 )
+#: Model package families published as many top-level packages (`langchain_core`, `langchain_openai`, ...).
+MODEL_PACKAGE_PREFIXES = ("langchain_",)
 #: First-party model modules the removal deleted (slices S2-S5); `ocr.paddle_*` is a name prefix.
 REMOVED_MODULES = (
     "vlm", "tools.phase3_pair", "ocr.ocr_client", "ocr.availability", "ocr.endpoint_policy",
@@ -62,6 +76,17 @@ THIRD_PARTY_NETWORK_CLIENTS = ("urllib3", "requests", "httpx", "aiohttp", "webso
 NETWORK_ALLOWANCES = {
     ("tools/train/provenance.py", "socket"): "socket.gethostname() for the provenance record's host field only",
 }
+#: Programs that move data to or from another host. The deleted GPU tooling reached its server through `ssh` and
+#: `scp` from `subprocess`, a route no import rule sees, so no production module may start one. Local programs
+#: (`tesseract`, `pdftoppm`, `pdfinfo`, `git`) stay.
+REMOTE_PROGRAMS = ("ssh", "scp", "sftp", "rsync", "curl", "wget", "plink", "pscp")
+#: Calls that start a program (`subprocess`, `os` and `asyncio` spellings); their command argument is checked.
+PROCESS_STARTERS = {
+    "run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput", "system", "popen",
+    "create_subprocess_exec", "create_subprocess_shell", "startfile", "posix_spawn", "posix_spawnp",
+    "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+    "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+}
 #: Removed in S4 (the visual pair) and S6 (the GPU server and its requirement file).
 REMOVED_PATHS = ("vlm", "tools/phase3_pair", "local_ocr_server.py", "serve_local.sh", "requirements-vlm.txt")
 #: The P8 entry points: what the web app, the CLIs, the gate, discovery and the provenance tooling import.
@@ -77,7 +102,7 @@ def _named(module: str, names) -> bool:
 
 def is_model_module(module: str) -> bool:
     return (_named(module, MODEL_PACKAGES) or _named(module, REMOVED_MODULES)
-            or module.startswith(REMOVED_PREFIXES))
+            or module.startswith(REMOVED_PREFIXES + MODEL_PACKAGE_PREFIXES))
 
 
 def is_network_client(module: str) -> bool:
@@ -202,15 +227,88 @@ def module_names(tree, relative: str, *, embedded: bool) -> list[tuple[int, str]
     return found
 
 
+#: A string that starts with a filesystem root (`C:/`, `/`, `./`, `~/`): a path, which may hold a space.
+_PATH_ROOT = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/]|~[\\/])")
+
+
+def remote_program(text, *, shell_line: bool) -> str | None:
+    """The `REMOTE_PROGRAMS` member `text` names, or None. A shell command line (`shell_line`) names its first
+    word; any other string must be the program itself (`ssh`, `/usr/bin/scp`, a Windows path to `ssh.exe`), so
+    prose that mentions one is not a command. A bare name counts in lower case only (a payee printed `CURL` is not
+    a program); a path or an `.exe` name counts in any case, as Windows runs it."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    text = text.strip()
+    if shell_line:
+        try:
+            words = shlex.split(text, posix=False)
+        except ValueError:
+            words = text.split()
+        word = words[0].strip("'\"") if words else ""
+    elif any(character.isspace() for character in text) and not _PATH_ROOT.match(text):
+        return None
+    else:
+        word = text
+    base = re.split(r"[\\/]", word)[-1]
+    qualified = base != word or base.lower().endswith(".exe")
+    if base.lower().endswith(".exe"):
+        base = base[:-4]
+    name = base.lower() if qualified else base
+    return name if name in REMOTE_PROGRAMS else None
+
+
+def _command_head(node, constants: dict, seen: frozenset = frozenset()) -> tuple[str | None, bool]:
+    """(the text a command argument starts with, whether it is a shell command line), when the source fixes it: a
+    string, an f-string's or a `+` concatenation's leading part, an argv list's or tuple's first element, or a
+    module-level constant holding any of these."""
+    if isinstance(node, ast.Constant):
+        return (node.value, True) if isinstance(node.value, str) else (None, False)
+    if isinstance(node, ast.JoinedStr):
+        return _command_head(node.values[0], constants, seen) if node.values else (None, False)
+    if isinstance(node, ast.FormattedValue):
+        return _command_head(node.value, constants, seen)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _command_head(node.left, constants, seen)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return (_command_head(node.elts[0], constants, seen)[0], False) if node.elts else (None, False)
+    if isinstance(node, ast.Name) and node.id in constants and node.id not in seen:
+        return _command_head(constants[node.id], constants, seen | {node.id})
+    return None, False
+
+
+def remote_programs(tree) -> list[tuple[int, str]]:
+    """Every remote program a module could start, with its line: each string that IS one (an argv element, a
+    `shutil.which` lookup, a constant: wherever the command is built), and the command argument of each
+    `PROCESS_STARTERS` call, read as a shell command line when it is a string."""
+    constants: dict = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            constants[node.targets[0].id] = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None and isinstance(node.target, ast.Name):
+            constants[node.target.id] = node.value
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant):
+            program = remote_program(node.value, shell_line=False)
+            if program:
+                found.append((node.lineno, program))
+        elif isinstance(node, ast.Call) and _call_name(node.func) in PROCESS_STARTERS:
+            arguments = list(node.args[:2]) + [keyword.value for keyword in node.keywords
+                                               if keyword.arg in ("args", "cmd", "file", "path", "executable")]
+            for argument in arguments:
+                text, shell_line = _command_head(argument, constants)
+                program = remote_program(text, shell_line=shell_line)
+                if program:
+                    found.append((node.lineno, program))
+    return found
+
+
 _SCAN_CACHE: dict[tuple[str, str], dict] = {}
 
 
-def scan_file(root: Path, relative: str) -> dict[str, list[str]]:
-    """N1's findings for one file: `unparsable`, `missing`, `model`, `network` and `allowed` (declared uses)."""
-    path = root / relative
-    if not path.is_file():
-        return {"missing": [relative]}
-    source = path.read_bytes()
+def scan_source(source: bytes, relative: str) -> dict[str, list[str]]:
+    """N1's findings for one file's bytes: `unparsable`, `model`, `network`, `remote` (a production module that
+    starts a remote program, its embedded programs included) and `allowed` (declared uses)."""
     key = (relative, hashlib.sha256(source).hexdigest())
     if key not in _SCAN_CACHE:
         try:
@@ -220,7 +318,7 @@ def scan_file(root: Path, relative: str) -> dict[str, list[str]]:
         else:
             production = is_production(relative)
             names = sorted(set(module_names(tree, relative, embedded=production)))
-            result: dict[str, list[str]] = {"model": [], "network": [], "allowed": []}
+            result: dict[str, list[str]] = {"model": [], "network": [], "remote": [], "allowed": []}
             for line, name in names:
                 if is_model_module(name):
                     result["model"].append(f"{relative}:{line}: {name}")
@@ -228,12 +326,24 @@ def scan_file(root: Path, relative: str) -> dict[str, list[str]]:
                     client = next(client for client in NETWORK_CLIENTS if _named(name, (client,)))
                     bucket = "allowed" if (relative, client) in NETWORK_ALLOWANCES else "network"
                     result[bucket].append(f"{relative}:{line}: {name}")
+            if production:
+                programs = remote_programs(tree) + [(0, program) for embedded in _embedded_programs(tree)
+                                                    for _, program in remote_programs(embedded)]
+                result["remote"] = [f"{relative}:{line}: {program}" for line, program in sorted(set(programs))]
             _SCAN_CACHE[key] = result
     return _SCAN_CACHE[key]
 
 
+def scan_file(root: Path, relative: str) -> dict[str, list[str]]:
+    """N1's findings for one file of `root` (`missing` when it is not there)."""
+    path = root / relative
+    if not path.is_file():
+        return {"missing": [relative]}
+    return scan_source(path.read_bytes(), relative)
+
+
 def scan_tree(root: Path, files: list[str]) -> dict[str, list[str]]:
-    total = {"unparsable": [], "missing": [], "model": [], "network": [], "allowed": []}
+    total = {"unparsable": [], "missing": [], "model": [], "network": [], "remote": [], "allowed": []}
     for relative in files:
         for kind, hits in scan_file(root, relative).items():
             total[kind] += hits
@@ -258,6 +368,7 @@ def test_every_tracked_python_file_parses_and_none_imports_a_model_or_a_network_
     assert scan["missing"] == [], scan["missing"]
     assert scan["model"] == [], scan["model"]
     assert scan["network"] == [], scan["network"]
+    assert scan["remote"] == [], scan["remote"]
     allowed = sorted({(hit.split(":", 1)[0], hit.rsplit(": ", 1)[1]) for hit in scan["allowed"]})
     assert allowed == [("tools/train/provenance.py", "socket")], scan["allowed"]
     assert set(allowed) == set(NETWORK_ALLOWANCES)
@@ -297,12 +408,27 @@ def test_the_removed_model_code_is_gone():
     ("tests/n1_planted.py", "PLANTED = 'import openai\\n'\n"),  # a test's planted source is data
     ("analysis/n1_planted.py", "from analysis.currency_default import usd_default\n"),
     ("analysis/n1_planted.py", "PATTERN = r'|CRYPTO COM|GEMINI TRUST'\n"),
+    # Local Tesseract stays: the binary through subprocess, its lookup, and the Python bindings to it.
+    ("ocr/n1_planted.py", "import subprocess\nsubprocess.run(['tesseract', 'page.png', 'out', '--psm', '6'], "
+                          "check=True, timeout=60)\n"),
+    ("ocr/n1_planted.py", "import shutil\nTESSERACT = shutil.which('tesseract')\n"),
+    ("ocr/n1_planted.py", "import pytesseract\nimport tesserocr\n"),
+    ("ocr/n1_planted.py", "import subprocess\nsubprocess.run(['pdftoppm', '-r', '200', 'in.pdf', 'out'])\n"
+                          "subprocess.run('pdfinfo in.pdf', shell=True)\n"),
+    ("tools/n1_planted.py", "import subprocess\nsubprocess.run(['git', '-C', '.', 'archive', 'HEAD', 'analysis'])\n"),
+    # Prose that names a remote program is not a command, and a payee printed in capitals is not a program.
+    ("webapp/n1_planted.py", "NOTE = 'the retired GPU tooling reached its server through ssh and scp'\n"),
+    ("webapp/n1_planted.py", "HELP = 'the retired GPU tooling copied pages over ssh/scp'\n"),
+    ("analysis/n1_planted.py", "PAYEES = ('CURL', 'WGET')\n"),
+    ("tests/n1_planted.py", "import subprocess\nsubprocess.run(['ssh', 'gpu', 'true'])\n"),  # tests may plant it
 ])
 def test_the_scan_does_not_flag_what_stays(relative, clean):
     tree = ast.parse(clean)
     names = module_names(tree, relative, embedded=is_production(relative))
     assert [name for _, name in names if is_model_module(name)] == []
     assert not is_production(relative) or [name for _, name in names if is_network_client(name)] == []
+    findings = scan_source(clean.encode(), relative)
+    assert (findings["model"], findings["network"], findings["remote"]) == ([], [], []), findings
 
 
 @pytest.fixture(scope="module")
@@ -345,6 +471,33 @@ N1_MUTANTS = [
      b"import urllib\n\ndef fetch():\n    return urllib.request.urlopen('x')\n", "network", "urllib.request.urlopen"),
     ("network client, socket outside the allowance", "webapp/n1_planted.py", b"import socket\n", "network",
      "socket"),
+    ("model package prefix", "webapp/n1_planted.py", b"from langchain_openai import ChatOpenAI\n", "model",
+     "langchain_openai"),
+    ("model package prefix, by name", "tools/n1_planted.py", b"import importlib\nimportlib.import_module('langchain_core')\n",
+     "model", "langchain_core"),
+    ("remote program, argv list", "tools/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['ssh', '-p', '22', 'root@192.0.2.1', 'true'], stdin=subprocess.DEVNULL)\n",
+     "remote", "ssh"),
+    ("remote program, argv tuple", "ocr/n1_planted.py",
+     b"import subprocess\nsubprocess.check_call(('scp', 'page.png', 'gpu:/tmp/'))\n", "remote", "scp"),
+    ("remote program, shell string", "webapp/n1_planted.py",
+     b"import os\nos.system('curl -s https://example.invalid/v1 -d @page.json')\n", "remote", "curl"),
+    ("remote program, module constant", "ocr/n1_planted.py",
+     b"import subprocess\nWGET = 'wget'\nsubprocess.Popen([WGET, 'https://example.invalid/model.bin'])\n", "remote",
+     "wget"),
+    ("remote program, Windows path in a variable", "tools/n1_planted.py",
+     b"import subprocess\nSSH = r'C:\\Windows\\System32\\OpenSSH\\ssh.exe'\ncommand = [SSH, 'gpu', 'nvidia-smi']\n"
+     b"subprocess.run(command)\n", "remote", "ssh"),
+    ("remote program, f-string with a shell", "discovery/n1_planted.py",
+     b"import subprocess\n\ndef push(host):\n    subprocess.run(f'scp page.png {host}:/tmp/', shell=True)\n", "remote",
+     "scp"),
+    ("remote program, concatenated shell string", "telemetry/n1_planted.py",
+     b"import subprocess\n\ndef send(url):\n    return subprocess.check_output('curl ' + url, shell=True)\n", "remote",
+     "curl"),
+    ("remote program, looked up on the path", "webapp/n1_planted.py",
+     b"import shutil\nCURL = shutil.which('curl')\n", "remote", "curl"),
+    ("remote program, in an embedded probe program", "tools/n1_planted.py",
+     b"PROBE = '''\nimport subprocess\nsubprocess.run(['rsync', '-a', 'out/', 'gpu:/srv/'])\n'''\n", "remote", "rsync"),
     ("unparsable", "webapp/n1_planted.py", b"def broken(:\n    pass\n", "unparsable", None),
     ("undecodable", "webapp/n1_planted.py", b"NAME = '\xff\xfe'\n", "unparsable", None),
 ]
@@ -356,7 +509,7 @@ def test_n1_catches_a_planted_mutant_of_every_form_on_a_scratch_copy(scratch_tre
     root, files = scratch_tree
     clean = scan_tree(root, files)
     assert {k: v for k, v in clean.items() if k != "allowed"} == {
-        "unparsable": [], "missing": [], "model": [], "network": []}, clean
+        "unparsable": [], "missing": [], "model": [], "network": [], "remote": []}, clean
     planted = root / relative
     assert not planted.exists()
     planted.write_bytes(source)
@@ -372,18 +525,70 @@ def test_n1_catches_a_planted_mutant_of_every_form_on_a_scratch_copy(scratch_tre
     assert others == {k: [] for k in others}, (form, scan)
 
 
+#: One planted import per model or neural-OCR package the tripwires refuse beyond the removed stacks (final review
+#: of the model-code removal): hosted model and LLM-framework SDKs, local model runtimes and ML frameworks, and
+#: neural or hosted OCR. Each must be caught on its own, in a production file and in a test file alike.
+WIDENED_MODEL_IMPORTS = (
+    "ollama", "litellm", "langchain", "langchain_core", "langchain_community", "llama_index.core", "mistralai",
+    "cohere", "groq", "replicate", "together", "vertexai", "google.cloud.aiplatform", "llama_cpp", "onnxruntime",
+    "tensorflow", "tf_keras", "keras", "jax", "jaxlib", "flax", "sentence_transformers", "openvino", "mlx",
+    "ultralytics", "easyocr", "doctr", "rapidocr", "rapidocr_onnxruntime", "surya", "google.cloud.vision",
+    "google.cloud.documentai", "azure.ai.formrecognizer", "azure.ai.documentintelligence",
+)
+
+
+@pytest.mark.parametrize("module", WIDENED_MODEL_IMPORTS)
+def test_n1_refuses_every_widened_model_package_on_a_scratch_copy(scratch_tree, module):
+    root, files = scratch_tree
+    for relative in ("analysis/n1_planted.py", "tests/n1_planted.py"):
+        planted = root / relative
+        assert not planted.exists()
+        planted.write_bytes(f"import {module}\n".encode())
+        try:
+            scan = scan_tree(root, sorted(files + [relative]))
+        finally:
+            planted.unlink()
+        assert scan["model"] == [f"{relative}:1: {module}"], (module, relative, scan["model"])
+
+
 # --- N2: a running process holds no model module --------------------------------------------------------------------
 
 
 _N2_PRELUDE = '''
-import json as _json, socket as _socket, sys as _sys
+import json as _json, ntpath as _ntpath, os as _os, socket as _socket, subprocess as _subprocess, sys as _sys
 RESULT = {}
 _ATTEMPTS = []
+_REMOTE = []
 def _refuse(self, *args, **kwargs):
     _ATTEMPTS.append(type(self).__name__)
     raise OSError("outbound connection refused by the no-model probe")
 _socket.socket.connect = _refuse
 _socket.socket.connect_ex = _refuse
+def _program(command):
+    if isinstance(command, (list, tuple)):
+        command = command[0] if command else ""
+    words = str(_os.fspath(command) if isinstance(command, _os.PathLike) else command).split()
+    name = _ntpath.basename(words[0]).lower() if words else ""
+    return name[:-4] if name.endswith(".exe") else name
+def _refuse_remote(command):
+    program = _program(command)
+    if program in _REMOTE_PROGRAMS:
+        _REMOTE.append(program)
+        raise OSError("remote program refused by the no-model probe")
+_popen_init = _subprocess.Popen.__init__
+def _spy_popen(self, args, *rest, **kwargs):
+    try:
+        _refuse_remote(kwargs.get("executable") or args)
+    except OSError:
+        self._child_created = False  # what Popen.__del__ reads
+        raise
+    return _popen_init(self, args, *rest, **kwargs)
+_subprocess.Popen.__init__ = _spy_popen
+_os_system = _os.system
+def _spy_system(command):
+    _refuse_remote(command)
+    return _os_system(command)
+_os.system = _spy_system
 '''
 
 _N2_EPILOGUE = '''
@@ -393,6 +598,7 @@ print("N2-RESULT " + _json.dumps({{
     "model": sorted(m for m in _sys.modules if _named(m, {model!r}) or m.startswith({prefixes!r})),
     "network_clients": sorted(m for m in _sys.modules if _named(m, {third_party!r})),
     "connections": len(_ATTEMPTS),
+    "remote_processes": _REMOTE,
     "result": RESULT,
 }}, sort_keys=True, default=str))
 '''
@@ -400,10 +606,12 @@ print("N2-RESULT " + _json.dumps({{
 
 def modules_loaded_after(snippet: str, data_dir: Path, *, timeout: int = 600) -> dict:
     """Run `snippet` in a fresh interpreter (cwd = the tree, `WEBAPP_DATA_DIR` = `data_dir`, every outbound
-    connection refused and counted) and report the model modules and third-party network clients `sys.modules`
-    then holds, the connection attempts, and the `RESULT` dict the snippet filled."""
-    code = (_N2_PRELUDE + textwrap.dedent(snippet) + "\n"
-            + _N2_EPILOGUE.format(model=MODEL_PACKAGES + REMOVED_MODULES, prefixes=REMOVED_PREFIXES,
+    connection refused and counted, every remote program refused before it starts and counted) and report the
+    model modules and third-party network clients `sys.modules` then holds, the connection attempts, the remote
+    programs, and the `RESULT` dict the snippet filled. Local programs (tesseract, poppler, git) run as usual."""
+    code = (f"_REMOTE_PROGRAMS = {REMOTE_PROGRAMS!r}\n" + _N2_PRELUDE + textwrap.dedent(snippet) + "\n"
+            + _N2_EPILOGUE.format(model=MODEL_PACKAGES + REMOVED_MODULES,
+                                  prefixes=REMOVED_PREFIXES + MODEL_PACKAGE_PREFIXES,
                                   third_party=THIRD_PARTY_NETWORK_CLIENTS))
     env = {**os.environ, "WEBAPP_DATA_DIR": str(data_dir), "PYTHONDONTWRITEBYTECODE": "1"}
     result = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, env=env,
@@ -417,11 +625,13 @@ def modules_loaded_after(snippet: str, data_dir: Path, *, timeout: int = 600) ->
 
 def assert_no_model_module_after(snippet: str, data_dir: Path, **kwargs) -> dict:
     """N2's assertion, for any absence check: after `snippet` runs in a fresh process, no model module and no
-    third-party network client is loaded and no outbound connection was attempted. Returns the snippet's RESULT."""
+    third-party network client is loaded, no outbound connection was attempted and no remote program was started.
+    Returns the snippet's RESULT."""
     loaded = modules_loaded_after(snippet, data_dir, **kwargs)
     assert loaded["model"] == [], loaded["model"]
     assert loaded["network_clients"] == [], loaded["network_clients"]
     assert loaded["connections"] == 0, loaded["connections"]
+    assert loaded["remote_processes"] == [], loaded["remote_processes"]
     return loaded["result"]
 
 
@@ -515,6 +725,15 @@ for revision in {HISTORICAL_BASE_REVISIONS!r}:
     ("import types; sys.modules['requests'] = types.ModuleType('requests')", "network_clients", ["requests"]),
     ("import socket\ntry:\n    socket.create_connection(('192.0.2.1', 9), timeout=1)\nexcept OSError:\n    pass",
      "connections", 1),
+    ("import types; sys.modules['langchain_core'] = types.ModuleType('langchain_core')", "model", ["langchain_core"]),
+    ("import types; sys.modules['onnxruntime'] = types.ModuleType('onnxruntime')", "model", ["onnxruntime"]),
+    # A remote program is refused before it starts (nothing runs), and counted.
+    ("import subprocess\ntry:\n    subprocess.run(['ssh', '-o', 'BatchMode=yes', 'gpu', 'true'])\nexcept OSError:\n"
+     "    pass", "remote_processes", ["ssh"]),
+    ("import os\ntry:\n    os.system('curl -s https://example.invalid/v1')\nexcept OSError:\n    pass",
+     "remote_processes", ["curl"]),
+    # A local program still runs (check=True: the spy passes it through).
+    ("import subprocess\nsubprocess.run([sys.executable, '-c', 'pass'], check=True)", "remote_processes", []),
 ])
 def test_the_n2_probe_sees_a_planted_model_module_and_a_connection_attempt(tmp_path, planted, field, expected):
     loaded = modules_loaded_after("import sys\n" + planted + "\n", tmp_path / "data", timeout=120)
@@ -944,12 +1163,25 @@ def test_n3_catches_a_planted_model_switch_in_another_launcher(tmp_path, line):
 # --- N6: requirement files and the CI install set --------------------------------------------------------------------
 
 
-#: Distribution names (PEP 503 normalised) no requirements file may name.
+#: Distribution names (PEP 503 normalised) no requirements file may name: the removed stacks', then the
+#: distributions of the widened MODEL_PACKAGES.
 MODEL_DISTRIBUTIONS = {
     "openai", "google-genai", "google-generativeai", "paddleocr", "paddlepaddle", "paddlepaddle-gpu", "torch",
     "torchvision", "torchaudio", "transformers", "accelerate", "vllm", "einops", "peft", "huggingface-hub",
     "anthropic",
+    "ollama", "litellm", "langchain", "llama-index", "mistralai", "cohere", "groq", "replicate", "together",
+    "vertexai", "google-cloud-aiplatform",
+    "llama-cpp-python", "onnxruntime", "tensorflow", "tf-keras", "keras", "jax", "jaxlib", "flax",
+    "sentence-transformers", "openvino", "mlx", "ultralytics",
+    "easyocr", "python-doctr", "rapidocr", "rapidocr-onnxruntime", "surya-ocr", "google-cloud-vision",
+    "google-cloud-documentai", "azure-ai-formrecognizer", "azure-ai-documentintelligence",
 }
+#: Distribution families: `langchain-openai`, `llama-index-llms-ollama`, `onnxruntime-gpu`, `tensorflow-cpu`, ...
+MODEL_DISTRIBUTION_PREFIXES = ("langchain-", "llama-index-", "onnxruntime-", "tensorflow-")
+
+
+def is_model_distribution(distribution: str) -> bool:
+    return distribution in MODEL_DISTRIBUTIONS or distribution.startswith(MODEL_DISTRIBUTION_PREFIXES)
 _INCLUDE = re.compile(r"^(?:-r|-c|--requirement|--constraint)\s*=?\s*(\S+)")
 _INDEX = re.compile(r"^(?:-i|--index-url|--extra-index-url|-f|--find-links)\b")
 _NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -990,7 +1222,7 @@ def requirement_findings(directory: Path, files: list[str] | None = None) -> tup
             if match:
                 distribution = _normalise(match.group(1))
                 names[name].add(distribution)
-                if distribution in MODEL_DISTRIBUTIONS:
+                if is_model_distribution(distribution):
                     problems.append(f"{name}:{number}: names {distribution}")
     return problems, names
 
@@ -1024,7 +1256,7 @@ def test_ci_installs_only_requirement_files_and_none_names_a_model_package():
     problems, names = requirement_findings(ROOT, files)
     assert problems == [], problems
     assert set(names) == set(files)  # requirements-dev.txt includes the two runtime files
-    assert not set().union(*names.values()) & MODEL_DISTRIBUTIONS
+    assert not [name for name in set().union(*names.values()) if is_model_distribution(name)]
 
 
 @pytest.mark.parametrize("files, expected", [
@@ -1035,12 +1267,41 @@ def test_ci_installs_only_requirement_files_and_none_names_a_model_package():
     ({"requirements-x.txt": "vllm @ https://example.invalid/vllm.whl\n"}, "requirements-x.txt:1: names vllm"),
     ({"requirements-x.txt": "--extra-index-url https://download.pytorch.org/whl/rocm6.3\n"},
      "requirements-x.txt:1: adds a package index"),
+    ({"requirements-x.txt": "langchain-openai==0.3.0\n"}, "requirements-x.txt:1: names langchain-openai"),
+    ({"requirements-x.txt": "llama_index_llms_ollama==0.5\n"}, "requirements-x.txt:1: names llama-index-llms-ollama"),
+    ({"requirements-x.txt": "onnxruntime-gpu>=1.20\n"}, "requirements-x.txt:1: names onnxruntime-gpu"),
+    ({"requirements-x.txt": "tensorflow-cpu==2.17.0\n"}, "requirements-x.txt:1: names tensorflow-cpu"),
+    ({"requirements-x.txt": "llama_cpp_python==0.3.2\n"}, "requirements-x.txt:1: names llama-cpp-python"),
+    ({"requirements-x.txt": "python-doctr[torch]\n"}, "requirements-x.txt:1: names python-doctr"),
+    ({"requirements-x.txt": "EasyOCR\n"}, "requirements-x.txt:1: names easyocr"),
 ])
 def test_n6_catches_a_planted_model_requirement(tmp_path, files, expected):
     for name, text in files.items():
         (tmp_path / name).write_text(text, encoding="utf-8")
     problems, _ = requirement_findings(tmp_path)
     assert problems == [expected], problems
+
+
+#: The distributions of WIDENED_MODEL_IMPORTS (PEP 503 normalised), one planted requirement each.
+WIDENED_MODEL_DISTRIBUTIONS = (
+    "ollama", "litellm", "langchain", "langchain-core", "langchain-community", "llama-index", "mistralai", "cohere",
+    "groq", "replicate", "together", "vertexai", "google-cloud-aiplatform", "llama-cpp-python", "onnxruntime",
+    "tensorflow", "tf-keras", "keras", "jax", "jaxlib", "flax", "sentence-transformers", "openvino", "mlx",
+    "ultralytics", "easyocr", "python-doctr", "rapidocr", "rapidocr-onnxruntime", "surya-ocr", "google-cloud-vision",
+    "google-cloud-documentai", "azure-ai-formrecognizer", "azure-ai-documentintelligence",
+)
+
+
+@pytest.mark.parametrize("distribution", WIDENED_MODEL_DISTRIBUTIONS)
+def test_n6_refuses_every_widened_model_distribution(tmp_path, distribution):
+    (tmp_path / "requirements-x.txt").write_text(f"pytest\n{distribution}==1.0\n", encoding="utf-8")
+    problems, _ = requirement_findings(tmp_path)
+    assert problems == [f"requirements-x.txt:2: names {distribution}"], problems
+
+
+def test_n6_does_not_refuse_the_local_tesseract_bindings(tmp_path):
+    (tmp_path / "requirements-x.txt").write_text("pytesseract\ntesserocr\n", encoding="utf-8")
+    assert requirement_findings(tmp_path)[0] == []
 
 
 def _ci_import_check() -> str:
@@ -1058,14 +1319,18 @@ def test_the_ci_import_step_refuses_every_model_package_after_importing_the_entr
     tree = ast.parse(script)
     imported = [alias.name for node in tree.body if isinstance(node, ast.Import) for alias in node.names]
     assert set(ENTRY_POINTS) <= set(imported), imported
-    banned = next(node.value for node in tree.body if isinstance(node, ast.Assign)
-                  and getattr(node.targets[0], "id", "") == "BANNED")
-    assert tuple(_constant_str(e) for e in banned.elts) == MODEL_PACKAGES + ("vlm",)
+    assigned = {node.targets[0].id: node.value for node in tree.body
+                if isinstance(node, ast.Assign) and isinstance(node.targets[0], ast.Name)}
+    assert tuple(_constant_str(e) for e in assigned["BANNED"].elts) == MODEL_PACKAGES + ("vlm",)
+    assert tuple(_constant_str(e) for e in assigned["BANNED_PREFIXES"].elts) == MODEL_PACKAGE_PREFIXES
     env = {**os.environ, "WEBAPP_DATA_DIR": str(tmp_path / "data"), "PYTHONDONTWRITEBYTECODE": "1"}
     clean = subprocess.run([sys.executable, "-B", "-"], input=script, cwd=ROOT, capture_output=True, text=True,
                            env=env, timeout=600)
     assert clean.returncode == 0, clean.stderr[-2000:]
-    planted = subprocess.run(
-        [sys.executable, "-B", "-"], input="import sys, types\nsys.modules['vlm'] = types.ModuleType('vlm')\n" + script,
-        cwd=ROOT, capture_output=True, text=True, env=env, timeout=600)
-    assert planted.returncode != 0 and "vlm" in planted.stderr, (planted.returncode, planted.stderr[-500:])
+    for module in ("vlm", "onnxruntime", "langchain_core"):  # a removed module, a widened package, a prefix
+        planted = subprocess.run(
+            [sys.executable, "-B", "-"],
+            input=f"import sys, types\nsys.modules[{module!r}] = types.ModuleType({module!r})\n" + script,
+            cwd=ROOT, capture_output=True, text=True, env=env, timeout=600)
+        assert planted.returncode != 0 and module in planted.stderr, (module, planted.returncode,
+                                                                      planted.stderr[-500:])
