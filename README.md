@@ -147,13 +147,13 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 - `pytest.ini` deselects the `live` and `corpus` markers. The `live` tests in `tests/test_live_smoke.py` and
   `tests/test_paddle_live.py` belong to retired endpoints: do not run them. The one local `live` check is the
   Tesseract drift test: `python -m pytest -m live tests/test_new_statement_corpus.py`.
-- **Known failures** (after the audit fixes of 2026-10-13, Windows, Python 3.14): 14 failed, 25,350 passed,
-  54 skipped, 39 deselected, in about 15 minutes. Twelve are Windows environment artefacts: 8 need the symlink
-  privilege (`WinError 1314`), 3 check POSIX permission bits, 1 is a text-encoding mismatch. Two are guard tests
-  that trip on the retired visual-pair code and wait for its removal:
-  `test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr` (the two model revision pins in
-  `ocr/visual_pair_config.py`) and `test_stated_counts::test_the_observer_is_not_wired_into_any_production_module`
-  (a confidence label in `webapp/worker.py`). Any other failure is new.
+- **Known failures** (after the visual pair's removal, Windows, Python 3.14): 4 failed, 23,836 passed,
+  53 skipped, 37 deselected, in about 13 minutes. All four are Windows environment artefacts: the symlink tests
+  of `tests/test_private_artifacts.py` need the symlink privilege (`WinError 1314`). The two guard tests that
+  tripped on the retired visual-pair code
+  (`test_no_statement_hardcodes::test_no_literal_account_numbers_in_ocr` and
+  `test_stated_counts::test_the_observer_is_not_wired_into_any_production_module`) pass now, and the other
+  Windows artefacts left with the visual-pair code they tested. Any other failure is new.
 
 ## Corpus gate (required before merge)
 
