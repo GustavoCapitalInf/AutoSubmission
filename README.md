@@ -262,6 +262,9 @@ Where each rule is defined:
 - Telemetry (on by default) carries hashes, registry ids, codes, counts and timings only, never account
   numbers, amounts, transaction text, dates, the bank label or filenames
   ([`docs/moneythumb-replacement/H3_SCHEMA.md`](docs/moneythumb-replacement/H3_SCHEMA.md)). It is append-only.
+  Since the model-code removal (2026-10), `discovery --scanned` records a document no deterministic path can read
+  (local Tesseract read nothing usable from it) as `refused:insufficient_evidence` (`telemetry.record.REFUSED_REASONS`);
+  H3_SCHEMA is the historical record and predates that outcome.
 - Discovery and benchmark reports mask account numbers to the last four digits; discovery reports name relative
   paths and folder labels, so they stay local (gitignored).
 - The server makes no outbound calls: statements are read on this machine, scanned pages by local Tesseract, and
