@@ -92,10 +92,14 @@ def tracked_python_files(root: Path = ROOT) -> list[str]:
     try:
         listing = subprocess.run(["git", "ls-files", "-z", "--", "*.py"], cwd=root, capture_output=True,
                                  check=True).stdout.decode("utf-8")
-        return sorted(path for path in listing.split("\0") if path)
-    except (OSError, subprocess.CalledProcessError):  # an extracted tree without git: every file is tracked
-        return sorted(path.relative_to(root).as_posix() for path in root.rglob("*.py")
-                      if "__pycache__" not in path.parts)
+        files = sorted(path for path in listing.split("\0") if path)
+    except (OSError, subprocess.CalledProcessError):
+        files = []
+    if not files:  # an extracted tree without git (or inside another repository): every file is tracked
+        files = sorted(path.relative_to(root).as_posix() for path in root.rglob("*.py")
+                       if "__pycache__" not in path.parts)
+    assert len(files) > 100, "not looking at the repository"
+    return files
 
 
 # --- N1: imports -----------------------------------------------------------------------------------------------------
@@ -268,7 +272,9 @@ def test_the_provenance_tool_uses_socket_for_the_host_name_only():
                and any(_named(name, ("socket",)) for name in
                        ([a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]))]
     assert [(type(node).__name__, parents[node] is tree) for node in imports] == [("Import", True)]
+    assert [(alias.name, alias.asname) for alias in imports[0].names] == [("socket", None)]
     uses = [node for node in ast.walk(tree) if isinstance(node, ast.Name) and node.id == "socket"]
+    assert uses, "the scan must see the module's use"
     attributes = sorted({parents[node].attr for node in uses if isinstance(parents[node], ast.Attribute)})
     assert attributes == ["gethostname"]
     assert all(isinstance(parents[node], ast.Attribute) for node in uses)
