@@ -74,10 +74,20 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
 ``ocr`` (:func:`ocr_settings_key`)
     ``force_ocr``, ``allow_local_ocr``, ``allow_visual_ocr`` — the ladder
     capability flags; they decide WHICH rung produces the text (the worker's
-    deterministic preflight passes ``allow_visual_ocr=False``, auto mode
-    passes ``allow_local_ocr=True``, the escalation call passes
-    ``force_ocr=True``).
-    ``dpi``, ``fallback_dpi`` — rasterization and the mis-segmentation retry.
+    one read passes ``force_ocr=False, allow_local_ocr=True,
+    allow_visual_ocr=False``; discovery passes ``force_ocr=False,
+    allow_visual_ocr=False`` and its mode's ``allow_local_ocr``). No read
+    passes ``force_ocr=True`` any more: the escalation calls left with the
+    model rungs (slices S1-S5 of the model-code removal), and
+    :func:`ocr.pipeline.parse_statement` refuses ``force_ocr=True`` and
+    ``allow_visual_ocr=True``. The forced shape is still a key a caller can
+    compute, for historical reconstruction only (``telemetry/run_of_record.py``'s
+    visual partition, ``tools/train/provenance.py``).
+    ``dpi``, ``fallback_dpi`` — frozen key material: no rung reads them since
+    slices S2 and S5 (they set the removed model rungs' rasterization and
+    mis-segmentation retry; local Tesseract renders at its own resolution).
+    They are still hashed, with the defaults 300 and 250 that every key
+    keeps, so no key moved.
     ``ocr_model``, ``ocr_base_url``, ``ngram_size``, ``window_size`` — the
     retired visual-OCR service knobs. Since slice S2 of the model-code removal
     they are FROZEN literals (:data:`FROZEN_OCR_SETTINGS`, the defaults the
