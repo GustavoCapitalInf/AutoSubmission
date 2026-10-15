@@ -94,7 +94,9 @@ jobs:
         # (owner ruling 2026-10-13), so the step also fails when importing the
         # entry points loaded a model package or the removed visual pair; the
         # two lists are pinned equal to tests/test_no_model_clients.py's
-        # MODEL_PACKAGES (plus vlm) and MODEL_PACKAGE_PREFIXES.
+        # MODEL_PACKAGES (plus vlm) and MODEL_PACKAGE_PREFIXES (package
+        # families and Google's and Azure's versioned modules, such as
+        # google.cloud.vision_v1).
         env:
           WEBAPP_DATA_DIR: ${{ runner.temp }}/import-check-data
         run: |
@@ -112,7 +114,11 @@ jobs:
               "easyocr", "doctr", "rapidocr", "rapidocr_onnxruntime", "surya", "google.cloud.vision",
               "google.cloud.documentai", "azure.ai.formrecognizer", "azure.ai.documentintelligence", "vlm",
           )
-          BANNED_PREFIXES = ("langchain_",)
+          BANNED_PREFIXES = (
+              "langchain_", "google.genai_", "google.generativeai_", "google.cloud.aiplatform_",
+              "google.cloud.vision_", "google.cloud.documentai_", "azure.ai.formrecognizer_",
+              "azure.ai.documentintelligence_",
+          )
           loaded = sorted(m for m in sys.modules
                           if any(m == b or m.startswith(b + ".") for b in BANNED) or m.startswith(BANNED_PREFIXES))
           if loaded:

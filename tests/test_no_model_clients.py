@@ -3,16 +3,22 @@
 
 N1  Every git-tracked .py file parses (a file that does not is a failure, never a silent skip), and none imports a
     model package or a removed model module in any spelling: absolute, relative (resolved against the file's own
-    package), package-submodule (`from ocr import ocr_client`), or by name (`importlib.import_module`, `__import__`).
-    No production module imports a generic network client; the one declared use is `tools/train/provenance.py`'s
-    `socket.gethostname()`. No production module starts a remote program (`REMOTE_PROGRAMS`: `ssh`, `scp`,
-    `curl`, `wget` and the like), the route the deleted GPU tooling took, in an argv, a shell command line, a
-    constant or a path lookup; local programs (`tesseract` above all) stay. `vlm/`, `tools/phase3_pair/` and the
-    GPU server are gone. The walk proves itself on a scratch copy of the tree with a planted mutant of every form,
-    and of every widened model package.
+    package), package-submodule (`from ocr import ocr_client`), or by name (`importlib.import_module`, `__import__`);
+    a Google or Azure model package's versioned module (`google.cloud.vision_v1`) counts as the package.
+    No production module imports a generic network client (HTTP, websocket, SSH/SFTP, libcurl, gRPC, AWS); the one
+    declared use is `tools/train/provenance.py`'s `socket.gethostname()`. No production module starts a remote
+    program (`REMOTE_PROGRAMS`: `ssh`, `scp`, `curl`, `wget` and the like), the route the deleted GPU tooling took,
+    where its source fixes the command: a string that is one, an argv, a command line (each command of a chain,
+    pipe or substitution, through `env`/`sudo`-style wrappers and into `sh`/`bash -c`, `cmd /c` and `powershell
+    -Command`, whose web commands count too), `.split()` / `shlex.split()` of one, and a name bound to any of these
+    in the module, the function or a parameter default. A command assembled at run time from what the source does
+    not fix is not read. Local programs (`tesseract` above all) stay. `vlm/`, `tools/phase3_pair/` and the GPU
+    server are gone. The walk proves itself on a scratch copy of the tree with a planted mutant of every form, and
+    of every widened model package and network client.
 N2  A fresh process that imports the entry points and runs one fabricated statement through the web worker and one
     through discovery holds no model module and no third-party network client, attempts no outbound connection
-    and starts no remote program. `assert_no_model_module_after` is the helper the other absence checks call.
+    and starts no remote program (N1's command reader, applied to each command as it starts).
+    `assert_no_model_module_after` is the helper the other absence checks call.
 N3  No production module reads an environment variable named for a model path (`MODEL_ENV_PREFIXES`), in any
     spelling: a literal, a module constant, an alias of `os.environ`, a loop over a list of names, a name built
     from a prefix; a read whose name cannot be resolved fails closed. The declared readers are pinned (the
@@ -27,6 +33,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
 import re
@@ -57,21 +64,33 @@ MODEL_PACKAGES = (
     "easyocr", "doctr", "rapidocr", "rapidocr_onnxruntime", "surya", "google.cloud.vision", "google.cloud.documentai",
     "azure.ai.formrecognizer", "azure.ai.documentintelligence",
 )
-#: Model package families published as many top-level packages (`langchain_core`, `langchain_openai`, ...).
-MODEL_PACKAGE_PREFIXES = ("langchain_",)
+#: Model package families published as many top-level packages (`langchain_core`, `langchain_openai`, ...), and the
+#: versioned modules Google and Azure publish beside a client (`google.cloud.vision_v1`,
+#: `google.cloud.documentai_v1beta3`, `google.cloud.aiplatform_v1`): every Google or Azure model package followed by
+#: `_` (pinned below).
+MODEL_PACKAGE_PREFIXES = (
+    "langchain_", "google.genai_", "google.generativeai_", "google.cloud.aiplatform_", "google.cloud.vision_",
+    "google.cloud.documentai_", "azure.ai.formrecognizer_", "azure.ai.documentintelligence_",
+)
 #: First-party model modules the removal deleted (slices S2-S5); `ocr.paddle_*` is a name prefix.
 REMOVED_MODULES = (
     "vlm", "tools.phase3_pair", "ocr.ocr_client", "ocr.availability", "ocr.endpoint_policy",
     "ocr.visual_pair_config", "analysis.extract",
 )
 REMOVED_PREFIXES = ("ocr.paddle_",)
-#: Generic network clients: refused in every production (non-test) module.
-NETWORK_CLIENTS = (
-    "urllib.request", "urllib3", "http.client", "requests", "httpx", "aiohttp", "websocket", "websockets",
-    "ftplib", "smtplib", "socket", "xmlrpc.client", "imaplib", "poplib", "nntplib", "telnetlib",
+#: Third-party network clients: the HTTP and websocket ones, then the SSH/SFTP clients (the Python route to what the
+#: deleted GPU tooling did with `ssh` and `scp`), libcurl's binding, gRPC (the transport of Google's model APIs) and
+#: the AWS SDK.
+THIRD_PARTY_NETWORK_CLIENTS = (
+    "urllib3", "requests", "httpx", "aiohttp", "websocket", "websockets",
+    "paramiko", "fabric", "asyncssh", "pysftp", "pycurl", "grpc", "boto3", "botocore",
 )
-#: The third-party ones, which a runtime process must not even hold (the stdlib ones are loaded by libraries).
-THIRD_PARTY_NETWORK_CLIENTS = ("urllib3", "requests", "httpx", "aiohttp", "websocket", "websockets")
+#: Generic network clients: refused in every production (non-test) module. A runtime process must not even hold a
+#: third-party one (N2); the standard library's are loaded by libraries.
+NETWORK_CLIENTS = (
+    "urllib.request", "http.client", "ftplib", "smtplib", "socket", "xmlrpc.client", "imaplib", "poplib", "nntplib",
+    "telnetlib",
+) + THIRD_PARTY_NETWORK_CLIENTS
 #: The one declared network-module use, (file, client) -> why.
 NETWORK_ALLOWANCES = {
     ("tools/train/provenance.py", "socket"): "socket.gethostname() for the provenance record's host field only",
@@ -80,6 +99,15 @@ NETWORK_ALLOWANCES = {
 #: `scp` from `subprocess`, a route no import rule sees, so no production module may start one. Local programs
 #: (`tesseract`, `pdftoppm`, `pdfinfo`, `git`) stay.
 REMOTE_PROGRAMS = ("ssh", "scp", "sftp", "rsync", "curl", "wget", "plink", "pscp")
+#: PowerShell's own web commands and their aliases, refused where a PowerShell command line runs one (`curl` and
+#: `wget` are among REMOTE_PROGRAMS already; Windows PowerShell aliases them to Invoke-WebRequest).
+POWERSHELL_REMOTE_COMMANDS = ("invoke-webrequest", "iwr", "invoke-restmethod", "irm", "start-bitstransfer")
+#: Shells. Any argument a shell is given may be a command line it runs (`sh -c`, `bash -lc`, `cmd /c`,
+#: `powershell -Command`), so each one is read as a command line; PowerShell's are read for its web commands too.
+SHELLS = ("sh", "bash", "dash", "zsh", "ksh", "ash", "cmd", "powershell", "pwsh")
+POWERSHELLS = ("powershell", "pwsh")
+#: Programs that run the program named after their own options and `NAME=value` words (`env HOME=/x ssh ...`).
+COMMAND_WRAPPERS = ("env", "sudo", "doas", "nohup", "exec", "nice", "command", "time", "timeout", "stdbuf", "xargs")
 #: Calls that start a program (`subprocess`, `os` and `asyncio` spellings); their command argument is checked.
 PROCESS_STARTERS = {
     "run", "Popen", "call", "check_call", "check_output", "getoutput", "getstatusoutput", "system", "popen",
@@ -168,6 +196,9 @@ DYNAMIC_IMPORTERS = {"import_module", "__import__", "importorskip", "run_module"
 #: Dotted names an attribute chain can reach only after the module was imported somewhere (`import urllib` then
 #: `urllib.request.urlopen`); single-word names are not chained, because a local variable may carry them.
 _CHAINED = tuple(name for name in MODEL_PACKAGES + REMOVED_MODULES + NETWORK_CLIENTS if "." in name)
+#: The dotted name prefixes, for the same chains (`google.cloud.vision_v1.ImageAnnotatorClient` after
+#: `import google.cloud`).
+_CHAINED_PREFIXES = tuple(prefix for prefix in MODEL_PACKAGE_PREFIXES + REMOVED_PREFIXES if "." in prefix)
 
 
 def _embedded_programs(tree) -> list[ast.Module]:
@@ -219,7 +250,7 @@ def module_names(tree, relative: str, *, embedded: bool) -> list[tuple[int, str]
                     found += [(node.lineno, f"{name}.{item}") for item in map(_constant_str, value.elts) if item]
         elif isinstance(node, ast.Attribute):
             dotted = _dotted(node)
-            if dotted and _named(dotted, _CHAINED):
+            if dotted and (_named(dotted, _CHAINED) or dotted.startswith(_CHAINED_PREFIXES)):
                 found.append((node.lineno, dotted))
     if embedded:
         for program in _embedded_programs(tree):
@@ -231,75 +262,273 @@ def module_names(tree, relative: str, *, embedded: bool) -> list[tuple[int, str]
 _PATH_ROOT = re.compile(r"^(?:[A-Za-z]:[\\/]|[\\/]|\.{1,2}[\\/]|~[\\/])")
 
 
-def remote_program(text, *, shell_line: bool) -> str | None:
-    """The `REMOTE_PROGRAMS` member `text` names, or None. A shell command line (`shell_line`) names its first
-    word; any other string must be the program itself (`ssh`, `/usr/bin/scp`, a Windows path to `ssh.exe`), so
-    prose that mentions one is not a command. A bare name counts in lower case only (a payee printed `CURL` is not
-    a program); a path or an `.exe` name counts in any case, as Windows runs it."""
-    if not isinstance(text, str) or not text.strip():
+#: A shell word that starts with `NAME=` (an assignment ahead of the command: `HOME=/x ssh ...`).
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+#: A wrapper's numeric operand (`timeout 30 ssh ...`, `nice -n 10 scp ...`).
+_NUMBER = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
+#: The characters that end one command of a command line and start the next: `;`, `|`, `||`, `&`, `&&`, a
+#: subshell's or a substitution's `(` / `)`, and a backtick substitution.
+_SHELL_PUNCTUATION = "();|&`"
+#: How deep a shell inside a shell inside a wrapper is followed.
+_MAX_NESTING = 6
+
+
+def _program_name(word) -> str | None:
+    """The program a command word names (`ssh`, `/usr/bin/scp`, a Windows path to `ssh.exe`, quoted or not), or
+    None for a word with a space in it that is not a path, which is prose, not a command. A bare name keeps its case
+    (`remote_program` reads every string of a module, and a payee printed `CURL` there is not a program); a path or
+    an `.exe` name is lower-cased, as Windows runs it."""
+    if not isinstance(word, str):
         return None
-    text = text.strip()
-    if shell_line:
-        try:
-            words = shlex.split(text, posix=False)
-        except ValueError:
-            words = text.split()
-        word = words[0].strip("'\"") if words else ""
-    elif any(character.isspace() for character in text) and not _PATH_ROOT.match(text):
+    word = word.strip()
+    if len(word) > 1 and word[0] in "'\"" and word[-1] == word[0]:
+        word = word[1:-1].strip()
+    if not word or (any(character.isspace() for character in word) and not _PATH_ROOT.match(word)):
         return None
-    else:
-        word = text
     base = re.split(r"[\\/]", word)[-1]
     qualified = base != word or base.lower().endswith(".exe")
     if base.lower().endswith(".exe"):
         base = base[:-4]
-    name = base.lower() if qualified else base
+    return base.lower() if qualified else base
+
+
+def _shell_words(line: str) -> list[str]:
+    """`line`'s words, each command separator a word of its own (`cd x && scp a b` -> cd, x, &&, scp, a, b); a quoted
+    word keeps its quotes and its spaces."""
+    lexer = shlex.shlex(line, posix=False, punctuation_chars=_SHELL_PUNCTUATION)
+    lexer.whitespace_split = True
+    try:
+        return list(lexer)
+    except ValueError:  # an unclosed quote: plain words
+        return re.findall(r"&&|\|\||[();|&`]|[^\s();|&`]+", line)
+
+
+def _unquoted(word: str) -> str:
+    return word[1:-1] if len(word) > 1 and word[0] in "'\"" and word[-1] == word[0] else word
+
+
+def _line_programs(line, *, powershell: bool = False, depth: int = 0) -> set[str]:
+    """The remote programs a command line starts: the first word of each command it chains (`&&`, `||`, `;`, `|`,
+    `&`, a subshell or a substitution, one per physical line), after any `NAME=value` words, through any wrapper
+    (`env`, `sudo`, `nohup`, ...) and into any shell it starts (`bash -c "..."`, `cmd /c ...`, `powershell -Command
+    ...`). In a PowerShell command line its web commands count too."""
+    found: set[str] = set()
+    if not isinstance(line, str) or depth > _MAX_NESTING:
+        return found
+    for physical in line.splitlines():
+        command: list[str] = []
+        for word in _shell_words(physical) + [";"]:
+            if word and all(character in _SHELL_PUNCTUATION for character in word):
+                found |= _argv_programs([[_unquoted(part)] for part in command], line=True, powershell=powershell,
+                                        depth=depth)
+                command = []
+            else:
+                command.append(word)
+    return found
+
+
+def _argv_programs(argv: list[list[str]], *, line: bool = False, powershell: bool = False,
+                   depth: int = 0) -> set[str]:
+    """The remote programs an argv starts. Each element is the list of the texts it may hold (empty when the source
+    does not fix it). The program is the first element (after `NAME=value` words when `line`, the argv being a
+    command of a command line), in any case, as Windows runs it; a wrapper's program is the first element after its
+    options, `NAME=value` words and numbers; every argument of a shell is read as a command line."""
+    found: set[str] = set()
+    if depth > _MAX_NESTING:
+        return found
+    index = 0
+    while line and index < len(argv) and argv[index] and all(_ASSIGNMENT.match(text) for text in argv[index]):
+        index += 1
+    if index >= len(argv):
+        return found
+    for head in argv[index]:
+        name = (_program_name(head) or "").lower()
+        if not name:
+            continue
+        if name in REMOTE_PROGRAMS:
+            found.add(name)
+        elif powershell and name in POWERSHELL_REMOTE_COMMANDS:
+            found.add(name)
+        elif name in COMMAND_WRAPPERS:
+            rest = index + 1
+            while rest < len(argv) and argv[rest] and all(
+                    text.startswith("-") or _ASSIGNMENT.match(text) or _NUMBER.match(text) for text in argv[rest]):
+                rest += 1
+            found |= _argv_programs(argv[rest:], powershell=powershell, depth=depth + 1)
+        elif name in SHELLS:
+            for element in argv[index + 1:]:
+                for text in element:
+                    found |= _line_programs(_unquoted(text.strip()), powershell=name in POWERSHELLS,
+                                            depth=depth + 1)
+    return found
+
+
+def remote_program(text) -> str | None:
+    """The `REMOTE_PROGRAMS` member a string IS (`ssh`, `/usr/bin/scp`, a Windows path to `ssh.exe`), or None: prose
+    that mentions one is not a program, and neither is a bare name in capitals."""
+    name = _program_name(text)
     return name if name in REMOTE_PROGRAMS else None
 
 
-def _command_head(node, constants: dict, seen: frozenset = frozenset()) -> tuple[str | None, bool]:
-    """(the text a command argument starts with, whether it is a shell command line), when the source fixes it: a
-    string, an f-string's or a `+` concatenation's leading part, an argv list's or tuple's first element, or a
-    module-level constant holding any of these."""
-    if isinstance(node, ast.Constant):
-        return (node.value, True) if isinstance(node.value, str) else (None, False)
-    if isinstance(node, ast.JoinedStr):
-        return _command_head(node.values[0], constants, seen) if node.values else (None, False)
-    if isinstance(node, ast.FormattedValue):
-        return _command_head(node.value, constants, seen)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return _command_head(node.left, constants, seen)
-    if isinstance(node, (ast.List, ast.Tuple)):
-        return (_command_head(node.elts[0], constants, seen)[0], False) if node.elts else (None, False)
-    if isinstance(node, ast.Name) and node.id in constants and node.id not in seen:
-        return _command_head(constants[node.id], constants, seen | {node.id})
-    return None, False
+#: What an argument whose value the source does not fix stands as inside a command line (an f-string's `{host}`).
+_PLACEHOLDER = "{}"
+#: The most readings one argument is expanded into.
+_MAX_READINGS = 64
+
+
+class _CommandReader:
+    """The texts and argvs a command argument may hold where the source fixes them: string literals, f-strings
+    (a value the source does not fix stands as `{}`), `+` concatenations, `.format` / `%` templates, lists and
+    tuples (a starred constant spliced in), `str.split()` and `shlex.split()` of any of these, and names bound to
+    any of these in the scope the call sits in (a function's own assignments, `+=` and parameter defaults, then the
+    enclosing functions', then the module's). A name bound more than once yields every binding."""
+
+    def __init__(self, tree):
+        self.tree = tree
+        self.parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        self.assignments: dict = {}
+
+    def chain(self, node) -> list:
+        """The scopes a name read at `node` resolves in, innermost first (a class body is not one)."""
+        scopes = []
+        while node in self.parents:
+            node = self.parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                scopes.append(node)
+        return scopes + [self.tree]
+
+    def _bound(self, scope) -> dict[str, list]:
+        if scope in self.assignments:
+            return self.assignments[scope]
+        bound: dict[str, list] = {}
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            positional = scope.args.posonlyargs + scope.args.args
+            for arg, default in zip(positional[len(positional) - len(scope.args.defaults):], scope.args.defaults):
+                bound.setdefault(arg.arg, []).append(default)
+            for arg, default in zip(scope.args.kwonlyargs, scope.args.kw_defaults):
+                if default is not None:
+                    bound.setdefault(arg.arg, []).append(default)
+            stack = [scope.body] if isinstance(scope, ast.Lambda) else list(scope.body)
+        else:
+            stack = list(scope.body)
+        while stack:
+            node = stack.pop()
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue  # a scope of its own
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        bound.setdefault(target.id, []).append(node.value)
+            elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None \
+                    and isinstance(node.target, ast.Name):
+                bound.setdefault(node.target.id, []).append(node.value)
+            elif isinstance(node, ast.AugAssign) and isinstance(node.op, ast.Add) and isinstance(node.target, ast.Name):
+                bound.setdefault(node.target.id, []).append(
+                    ast.BinOp(left=ast.Name(id=node.target.id, ctx=ast.Load()), op=ast.Add(), right=node.value))
+            stack.extend(ast.iter_child_nodes(node))
+        self.assignments[scope] = bound
+        return bound
+
+    def _lookup(self, name: str, chain: list) -> tuple[list, list]:
+        for index, scope in enumerate(chain):
+            values = self._bound(scope).get(name)
+            if values:
+                return values, chain[index:]
+        return [], chain
+
+    def texts(self, node, chain, seen=frozenset()) -> list[str]:
+        if isinstance(node, ast.Constant):
+            return [node.value] if isinstance(node.value, str) else []
+        if isinstance(node, ast.JoinedStr):
+            readings = [""]
+            for value in node.values:
+                options = ([str(value.value)] if isinstance(value, ast.Constant)
+                           else self.texts(value.value, chain, seen) or [_PLACEHOLDER])
+                readings = [reading + option for reading in readings for option in options][:_MAX_READINGS]
+            return readings
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = self.texts(node.left, chain, seen), self.texts(node.right, chain, seen)
+            if not left and not right:
+                return []
+            return [a + b for a in left or [_PLACEHOLDER] for b in right or [_PLACEHOLDER]][:_MAX_READINGS]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):  # a `%` template
+            return self.texts(node.left, chain, seen)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format":
+            return self.texts(node.func.value, chain, seen)
+        if isinstance(node, ast.Name) and node.id not in seen:
+            values, scopes = self._lookup(node.id, chain)
+            return [text for value in values for text in self.texts(value, scopes, seen | {node.id})][:_MAX_READINGS]
+        return []
+
+    def argvs(self, node, chain, seen=frozenset()) -> list[list[list[str]]]:
+        if isinstance(node, (ast.List, ast.Tuple)):
+            argv: list[list[str]] = []
+            for element in node.elts:
+                if isinstance(element, ast.Starred):
+                    spliced = self.argvs(element.value, chain, seen)
+                    argv += spliced[0] if len(spliced) == 1 else [[]]
+                else:
+                    argv.append(self.texts(element, chain, seen))
+            return [argv]
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            lefts = self.argvs(node.left, chain, seen)
+            rights = self.argvs(node.right, chain, seen) or [[[]]]
+            return [left + right for left in lefts for right in rights][:_MAX_READINGS]
+        if isinstance(node, ast.Call):
+            func, name = node.func, _call_name(node.func)
+            if name == "split" and isinstance(func, ast.Attribute) and _dotted(func) != "shlex.split":
+                separator = _constant_str(node.args[0]) if node.args else None
+                return [[[word] for word in text.split(separator)] for text in self.texts(func.value, chain, seen)]
+            if name == "split" and node.args:  # shlex.split, or split imported from shlex
+                readings = []
+                for text in self.texts(node.args[0], chain, seen):
+                    try:
+                        words = shlex.split(text)
+                    except ValueError:
+                        words = text.split()
+                    readings.append([[word] for word in words])
+                return readings
+            if name in ("list", "tuple") and node.args:
+                return self.argvs(node.args[0], chain, seen)
+        if isinstance(node, ast.Name) and node.id not in seen:
+            values, scopes = self._lookup(node.id, chain)
+            return [argv for value in values for argv in self.argvs(value, scopes, seen | {node.id})][:_MAX_READINGS]
+        return []
+
+    def programs(self, node, chain) -> set[str]:
+        """The remote programs a command argument starts, read as an argv and as a command line."""
+        found: set[str] = set()
+        for argv in self.argvs(node, chain):
+            found |= _argv_programs(argv)
+        for text in self.texts(node, chain):
+            found |= _line_programs(text)
+        return found
 
 
 def remote_programs(tree) -> list[tuple[int, str]]:
-    """Every remote program a module could start, with its line: each string that IS one (an argv element, a
-    `shutil.which` lookup, a constant: wherever the command is built), and the command argument of each
-    `PROCESS_STARTERS` call, read as a shell command line when it is a string."""
-    constants: dict = {}
-    for node in tree.body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-            constants[node.targets[0].id] = node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None and isinstance(node.target, ast.Name):
-            constants[node.target.id] = node.value
+    """Every remote program a module starts where its source fixes the command, with its line: each string that IS
+    one (an argv element, a `shutil.which` lookup, a constant), and the command argument of each `PROCESS_STARTERS`
+    call as `_CommandReader` reads it (`args`, `cmd`, `file` and `path` as an argv or a command line, `executable`
+    as the program). Not read: a command built at run time from what the source does not fix (a program name read
+    from a file or the environment, an argv grown by `.append`, a helper's return value)."""
+    reader = _CommandReader(tree)
     found: list[tuple[int, str]] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant):
-            program = remote_program(node.value, shell_line=False)
+            program = remote_program(node.value)
             if program:
                 found.append((node.lineno, program))
         elif isinstance(node, ast.Call) and _call_name(node.func) in PROCESS_STARTERS:
-            arguments = list(node.args[:2]) + [keyword.value for keyword in node.keywords
-                                               if keyword.arg in ("args", "cmd", "file", "path", "executable")]
-            for argument in arguments:
-                text, shell_line = _command_head(argument, constants)
-                program = remote_program(text, shell_line=shell_line)
-                if program:
-                    found.append((node.lineno, program))
+            chain = reader.chain(node)
+            programs: set[str] = set()
+            for argument in list(node.args[:2]) + [keyword.value for keyword in node.keywords
+                                                   if keyword.arg in ("args", "cmd", "file", "path")]:
+                programs |= reader.programs(argument, chain)
+            for keyword in node.keywords:
+                if keyword.arg == "executable":
+                    for text in reader.texts(keyword.value, chain):
+                        programs |= _argv_programs([[text]])
+            found += [(node.lineno, program) for program in sorted(programs)]
     return found
 
 
@@ -374,6 +603,17 @@ def test_every_tracked_python_file_parses_and_none_imports_a_model_or_a_network_
     assert set(allowed) == set(NETWORK_ALLOWANCES)
 
 
+def test_the_command_reader_reaches_into_the_shells_the_tree_starts(monkeypatch):
+    """The vacuity check of the shell rule: three production tools start PowerShell with a fixed command line (a
+    process listing). Counted as remote for this test, its first command is found in each, so the clean scan above
+    read those command lines and did not skip them."""
+    monkeypatch.setattr(sys.modules[__name__], "POWERSHELL_REMOTE_COMMANDS",
+                        POWERSHELL_REMOTE_COMMANDS + ("get-ciminstance",))
+    for relative in ("tools/l1s1_mutation_table.py", "tools/l1s3_mutation_table.py", "tools/l1s4_mutation_table.py"):
+        programs = {program for _, program in remote_programs(ast.parse((ROOT / relative).read_bytes()))}
+        assert programs == {"get-ciminstance"}, (relative, programs)
+
+
 def test_the_provenance_tool_uses_socket_for_the_host_name_only():
     """The one declared network-module use: a module-level `import socket`, read as `socket.gethostname()` and
     nothing else (no other attribute, no `from socket import`, no use of the bare module)."""
@@ -421,6 +661,23 @@ def test_the_removed_model_code_is_gone():
     ("webapp/n1_planted.py", "HELP = 'the retired GPU tooling copied pages over ssh/scp'\n"),
     ("analysis/n1_planted.py", "PAYEES = ('CURL', 'WGET')\n"),
     ("tests/n1_planted.py", "import subprocess\nsubprocess.run(['ssh', 'gpu', 'true'])\n"),  # tests may plant it
+    # Local programs through every form the command reader follows: a shell, a chain, a pipe, a split constant, a
+    # function-local command line; and a remote program's name inside an argument of a program that is no shell.
+    ("ocr/n1_planted.py", "import subprocess\nsubprocess.run(['bash', '-c', 'tesseract page.png out && pdftoppm -r 200 "
+                          "in.pdf out'])\n"),
+    ("tools/n1_planted.py", "import os\nos.system('cd /tmp && git status')\n"),
+    ("ocr/n1_planted.py", "import subprocess\nsubprocess.run('pdfinfo in.pdf | findstr Pages', shell=True)\n"),
+    ("ocr/n1_planted.py", "import subprocess\nsubprocess.run('tesseract page.png out --psm 6'.split())\n"),
+    ("ocr/n1_planted.py", "import subprocess\n\ndef read():\n    command = 'tesseract page.png out --psm 6'\n"
+                          "    subprocess.run(command, shell=True)\n"),
+    ("tools/n1_planted.py", "import subprocess\nsubprocess.run(['git', 'commit', '-m', "
+                            "'ssh and scp tooling retired'])\n"),
+    ("tools/n1_planted.py", "import os\nos.system('git log --oneline --grep ssh')\n"),
+    ("tools/n1_planted.py", "import subprocess\nsubprocess.run(['powershell', '-NoProfile', '-Command', "
+                            "'Get-ChildItem out'])\n"),
+    # The versioned-module prefixes are Google's and Azure's model packages only.
+    ("webapp/n1_planted.py", "from google.protobuf import json_format\n"),
+    ("tests/n1_planted.py", "import paramiko\nimport boto3\n"),  # network clients are refused in production only
 ])
 def test_the_scan_does_not_flag_what_stays(relative, clean):
     tree = ast.parse(clean)
@@ -498,6 +755,73 @@ N1_MUTANTS = [
      b"import shutil\nCURL = shutil.which('curl')\n", "remote", "curl"),
     ("remote program, in an embedded probe program", "tools/n1_planted.py",
      b"PROBE = '''\nimport subprocess\nsubprocess.run(['rsync', '-a', 'out/', 'gpu:/srv/'])\n'''\n", "remote", "rsync"),
+    # The forms the review of the minors found the rule blind to (none was refused at 827e502).
+    ("remote program, str.split() of a constant", "ocr/n1_planted.py",
+     b"import subprocess\nsubprocess.run('ssh gpu true'.split())\n", "remote", "ssh"),
+    ("remote program, shlex.split() of a constant", "webapp/n1_planted.py",
+     b"import shlex\nimport subprocess\nsubprocess.run(shlex.split('curl -s https://example.invalid/v1'))\n", "remote",
+     "curl"),
+    ("remote program, split of a module constant", "tools/n1_planted.py",
+     b"import subprocess\nCOMMAND = 'rsync -a out/ gpu:/srv/'\nsubprocess.Popen(COMMAND.split())\n", "remote", "rsync"),
+    ("remote program, function-local constant with a shell", "discovery/n1_planted.py",
+     b"import subprocess\n\ndef push():\n    command = 'scp page.png gpu:/tmp/'\n"
+     b"    subprocess.run(command, shell=True)\n", "remote", "scp"),
+    ("remote program, parameter default", "telemetry/n1_planted.py",
+     b"import os\n\ndef fetch(command='wget https://example.invalid/model.bin'):\n    return os.system(command)\n",
+     "remote", "wget"),
+    ("remote program, += onto a local command", "analysis/n1_planted.py",
+     b"import os\n\ndef push():\n    command = 'cd /tmp'\n    command += ' && scp page.png gpu:/tmp/'\n"
+     b"    os.system(command)\n", "remote", "scp"),
+    ("remote program, sh -c wrapper", "ocr/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['sh', '-c', 'ssh gpu true'])\n", "remote", "ssh"),
+    ("remote program, bash -lc wrapper with a chain", "tools/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['/bin/bash', '-lc', 'cd /srv && rsync -a out/ gpu:/srv/'])\n", "remote",
+     "rsync"),
+    ("remote program, cmd /c wrapper", "webapp/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['cmd.exe', '/c', 'curl https://example.invalid/v1'])\n", "remote", "curl"),
+    ("remote program, powershell -Command wrapper", "tools/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['powershell', '-NoProfile', '-Command', 'scp page.png gpu:/tmp/'])\n",
+     "remote", "scp"),
+    ("remote program, PowerShell web command", "webapp/n1_planted.py",
+     b"import subprocess\n"
+     b"subprocess.run(['pwsh', '-c', 'Invoke-WebRequest https://example.invalid/v1 -OutFile m.bin'])\n",
+     "remote", "invoke-webrequest"),
+    ("remote program, shell wrapper inside a shell string", "discovery/n1_planted.py",
+     b"import os\nos.system('bash -c \"curl -s https://example.invalid/v1\"')\n", "remote", "curl"),
+    ("remote program, shell chain", "ocr/n1_planted.py",
+     b"import os\nos.system('cd /tmp && scp page.png gpu:/tmp/')\n", "remote", "scp"),
+    ("remote program, pipe", "tools/n1_planted.py",
+     b"import subprocess\nsubprocess.run('tar cf - out | ssh gpu tar xf -', shell=True)\n", "remote", "ssh"),
+    ("remote program, command substitution", "telemetry/n1_planted.py",
+     b"import subprocess\nsubprocess.check_output('echo $(curl -s https://example.invalid/v1)', shell=True)\n",
+     "remote", "curl"),
+    ("remote program, assignment and env wrapper", "webapp/n1_planted.py",
+     b"import os\nos.system('HOME=/x env LANG=C ssh gpu true')\n", "remote", "ssh"),
+    ("remote program, f-string chain", "discovery/n1_planted.py",
+     b"import subprocess\n\ndef push(directory):\n    subprocess.run(f'cd {directory} && scp page.png gpu:/tmp/', "
+     b"shell=True)\n", "remote", "scp"),
+    ("remote program, .format template", "analysis/n1_planted.py",
+     b"import subprocess\n\ndef fetch(d):\n    subprocess.run('cd {} && wget https://example.invalid/m.bin'.format(d), "
+     b"shell=True)\n", "remote", "wget"),
+    ("remote program, argv concatenation onto a shell", "ocr/n1_planted.py",
+     b"import subprocess\nBASE = ['sh', '-c']\nsubprocess.run(BASE + ['scp page.png gpu:/tmp/'])\n", "remote", "scp"),
+    ("remote program, starred shell argv", "tools/n1_planted.py",
+     b"import subprocess\nWRAP = ('bash', '-c')\nsubprocess.run([*WRAP, 'ssh gpu true'])\n", "remote", "ssh"),
+    ("remote program, quoted path with spaces as an argv element", "webapp/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['\"C:/Program Files/Git/usr/bin/ssh.exe\"', 'gpu'])\n", "remote", "ssh"),
+    # A versioned Google module (prefix), in each spelling.
+    ("versioned Google module, package-submodule", "ocr/n1_planted.py", b"from google.cloud import vision_v1\n",
+     "model", "google.cloud.vision_v1"),
+    ("versioned Google module, absolute", "analysis/n1_planted.py", b"import google.cloud.documentai_v1beta3\n",
+     "model", "google.cloud.documentai_v1beta3"),
+    ("versioned Google module, from-import", "webapp/n1_planted.py",
+     b"from google.cloud.aiplatform_v1 import PredictionServiceClient\n", "model", "google.cloud.aiplatform_v1"),
+    ("versioned Google module, by name", "tools/n1_planted.py",
+     b"import importlib\nimportlib.import_module('google.cloud.vision_v1p3beta1')\n", "model",
+     "google.cloud.vision_v1p3beta1"),
+    ("versioned Google module, attribute chain", "discovery/n1_planted.py",
+     b"import google.cloud\n\ndef read():\n    return google.cloud.vision_v1.ImageAnnotatorClient()\n", "model",
+     "google.cloud.vision_v1.ImageAnnotatorClient"),
     ("unparsable", "webapp/n1_planted.py", b"def broken(:\n    pass\n", "unparsable", None),
     ("undecodable", "webapp/n1_planted.py", b"NAME = '\xff\xfe'\n", "unparsable", None),
 ]
@@ -551,11 +875,61 @@ def test_n1_refuses_every_widened_model_package_on_a_scratch_copy(scratch_tree, 
         assert scan["model"] == [f"{relative}:1: {module}"], (module, relative, scan["model"])
 
 
+#: The network clients the review of the minors added: SSH/SFTP clients, libcurl's binding, gRPC and the AWS SDK.
+WIDENED_NETWORK_CLIENTS = ("paramiko", "fabric", "asyncssh", "pysftp", "pycurl", "grpc", "boto3", "botocore")
+
+
+def test_the_widened_network_clients_are_on_both_lists():
+    assert set(WIDENED_NETWORK_CLIENTS) <= set(THIRD_PARTY_NETWORK_CLIENTS) <= set(NETWORK_CLIENTS)
+
+
+@pytest.mark.parametrize("client", WIDENED_NETWORK_CLIENTS)
+def test_n1_refuses_every_widened_network_client_in_a_production_module(scratch_tree, client):
+    root, files = scratch_tree
+    for relative, source, expected in (
+            ("webapp/n1_planted.py", f"import {client}\n", [f"webapp/n1_planted.py:1: {client}"]),
+            ("ocr/n1_planted.py", f"def connect():\n    from {client} import client\n    return client\n",
+             [f"ocr/n1_planted.py:2: {client}", f"ocr/n1_planted.py:2: {client}.client"]),
+            ("tests/n1_planted.py", f"import {client}\n", [])):  # a test may use one
+        planted = root / relative
+        assert not planted.exists()
+        planted.write_text(source, encoding="utf-8")
+        try:
+            scan = scan_tree(root, sorted(files + [relative]))
+        finally:
+            planted.unlink()
+        assert scan["network"] == expected, (client, relative, scan["network"])
+        assert scan["model"] == [] and scan["remote"] == [], scan
+
+
+def test_every_google_and_azure_model_package_has_its_versioned_prefix():
+    """`google.cloud.vision_v1` is `google.cloud.vision`'s versioned module: each Google or Azure model package is
+    refused with any `_` suffix too, and the families' prefix stays."""
+    versioned = tuple(f"{name}_" for name in MODEL_PACKAGES if name.startswith(("google.", "azure.")))
+    assert MODEL_PACKAGE_PREFIXES == ("langchain_",) + versioned
+    assert len(versioned) == 7
+
+
+@pytest.mark.parametrize("prefix", MODEL_PACKAGE_PREFIXES[1:])
+def test_n1_refuses_a_versioned_module_of_every_google_and_azure_model_package(scratch_tree, prefix):
+    root, files = scratch_tree
+    module = prefix + "v1"
+    for relative in ("analysis/n1_planted.py", "tests/n1_planted.py"):
+        planted = root / relative
+        assert not planted.exists()
+        planted.write_text(f"import {module}\n", encoding="utf-8")
+        try:
+            scan = scan_tree(root, sorted(files + [relative]))
+        finally:
+            planted.unlink()
+        assert scan["model"] == [f"{relative}:1: {module}"], (module, relative, scan["model"])
+
+
 # --- N2: a running process holds no model module --------------------------------------------------------------------
 
 
 _N2_PRELUDE = '''
-import json as _json, ntpath as _ntpath, os as _os, socket as _socket, subprocess as _subprocess, sys as _sys
+import json as _json, os as _os, socket as _socket, subprocess as _subprocess, sys as _sys
 RESULT = {}
 _ATTEMPTS = []
 _REMOTE = []
@@ -564,21 +938,25 @@ def _refuse(self, *args, **kwargs):
     raise OSError("outbound connection refused by the no-model probe")
 _socket.socket.connect = _refuse
 _socket.socket.connect_ex = _refuse
-def _program(command):
+def _text(part):
+    part = _os.fspath(part) if isinstance(part, _os.PathLike) else part
+    return part.decode("utf-8", "replace") if isinstance(part, bytes) else str(part)
+def _refuse_remote(command, executable=None):
+    # N1's readers (prepended): an argv's program, through wrappers and into shells; a string is a command line,
+    # or (POSIX, no shell) the program's own path.
     if isinstance(command, (list, tuple)):
-        command = command[0] if command else ""
-    words = str(_os.fspath(command) if isinstance(command, _os.PathLike) else command).split()
-    name = _ntpath.basename(words[0]).lower() if words else ""
-    return name[:-4] if name.endswith(".exe") else name
-def _refuse_remote(command):
-    program = _program(command)
-    if program in _REMOTE_PROGRAMS:
-        _REMOTE.append(program)
+        programs = _argv_programs([[_text(part)] for part in command])
+    else:
+        programs = _line_programs(_text(command)) | _argv_programs([[_text(command)]])
+    if executable is not None:
+        programs |= _argv_programs([[_text(executable)]])
+    if programs:
+        _REMOTE.extend(sorted(programs))
         raise OSError("remote program refused by the no-model probe")
 _popen_init = _subprocess.Popen.__init__
 def _spy_popen(self, args, *rest, **kwargs):
     try:
-        _refuse_remote(kwargs.get("executable") or args)
+        _refuse_remote(args, kwargs.get("executable"))
     except OSError:
         self._child_created = False  # what Popen.__del__ reads
         raise
@@ -604,12 +982,23 @@ print("N2-RESULT " + _json.dumps({{
 '''
 
 
+def _n2_reader_source() -> str:
+    """N1's command-line readers, as source for the N2 probe, so a run refuses what the scan refuses."""
+    constants = ("REMOTE_PROGRAMS", "POWERSHELL_REMOTE_COMMANDS", "SHELLS", "POWERSHELLS", "COMMAND_WRAPPERS",
+                 "_SHELL_PUNCTUATION", "_MAX_NESTING")
+    patterns = {"_PATH_ROOT": _PATH_ROOT, "_ASSIGNMENT": _ASSIGNMENT, "_NUMBER": _NUMBER}
+    return "\n".join(["import re, shlex"] + [f"{name} = {globals()[name]!r}" for name in constants]
+                     + [f"{name} = re.compile({pattern.pattern!r})" for name, pattern in patterns.items()]
+                     + [inspect.getsource(function) for function in (_program_name, _shell_words, _unquoted,
+                                                                     _line_programs, _argv_programs)]) + "\n"
+
+
 def modules_loaded_after(snippet: str, data_dir: Path, *, timeout: int = 600) -> dict:
     """Run `snippet` in a fresh interpreter (cwd = the tree, `WEBAPP_DATA_DIR` = `data_dir`, every outbound
     connection refused and counted, every remote program refused before it starts and counted) and report the
     model modules and third-party network clients `sys.modules` then holds, the connection attempts, the remote
     programs, and the `RESULT` dict the snippet filled. Local programs (tesseract, poppler, git) run as usual."""
-    code = (f"_REMOTE_PROGRAMS = {REMOTE_PROGRAMS!r}\n" + _N2_PRELUDE + textwrap.dedent(snippet) + "\n"
+    code = (_n2_reader_source() + _N2_PRELUDE + textwrap.dedent(snippet) + "\n"
             + _N2_EPILOGUE.format(model=MODEL_PACKAGES + REMOVED_MODULES,
                                   prefixes=REMOVED_PREFIXES + MODEL_PACKAGE_PREFIXES,
                                   third_party=THIRD_PARTY_NETWORK_CLIENTS))
@@ -732,9 +1121,25 @@ for revision in {HISTORICAL_BASE_REVISIONS!r}:
      "    pass", "remote_processes", ["ssh"]),
     ("import os\ntry:\n    os.system('curl -s https://example.invalid/v1')\nexcept OSError:\n    pass",
      "remote_processes", ["curl"]),
-    # A local program still runs (check=True: the spy passes it through).
+    # A versioned Google module, and a remote program behind a shell, a chain, a pipe or PowerShell (refused before
+    # the shell starts).
+    ("import types; sys.modules['google.cloud.vision_v1'] = types.ModuleType('google.cloud.vision_v1')", "model",
+     ["google.cloud.vision_v1"]),
+    ("import subprocess\ntry:\n    subprocess.run(['bash', '-c', 'ssh -o BatchMode=yes gpu true'])\nexcept OSError:\n"
+     "    pass", "remote_processes", ["ssh"]),
+    ("import os\ntry:\n    os.system('cd . && scp page.png gpu:/tmp/')\nexcept OSError:\n    pass",
+     "remote_processes", ["scp"]),
+    ("import subprocess\ntry:\n    subprocess.run('echo x | ssh gpu true', shell=True)\nexcept OSError:\n    pass",
+     "remote_processes", ["ssh"]),
+    ("import subprocess\ntry:\n"
+     "    subprocess.run(['powershell', '-Command', 'Invoke-WebRequest https://example.invalid'])\n"
+     "except OSError:\n    pass", "remote_processes", ["invoke-webrequest"]),
+    # A local program still runs (check=True: the spy passes it through), through a shell too.
     ("import subprocess\nsubprocess.run([sys.executable, '-c', 'pass'], check=True)", "remote_processes", []),
-])
+    ("import subprocess\nsubprocess.run('echo local', shell=True, check=True, capture_output=True)",
+     "remote_processes", []),
+] + [(f"import types; sys.modules[{client!r}] = types.ModuleType({client!r})", "network_clients", [client])
+     for client in WIDENED_NETWORK_CLIENTS])
 def test_the_n2_probe_sees_a_planted_model_module_and_a_connection_attempt(tmp_path, planted, field, expected):
     loaded = modules_loaded_after("import sys\n" + planted + "\n", tmp_path / "data", timeout=120)
     assert loaded[field] == expected, loaded
@@ -1327,7 +1732,8 @@ def test_the_ci_import_step_refuses_every_model_package_after_importing_the_entr
     clean = subprocess.run([sys.executable, "-B", "-"], input=script, cwd=ROOT, capture_output=True, text=True,
                            env=env, timeout=600)
     assert clean.returncode == 0, clean.stderr[-2000:]
-    for module in ("vlm", "onnxruntime", "langchain_core"):  # a removed module, a widened package, a prefix
+    # A removed module, a widened package, a family prefix, a versioned Google module.
+    for module in ("vlm", "onnxruntime", "langchain_core", "google.cloud.vision_v1"):
         planted = subprocess.run(
             [sys.executable, "-B", "-"],
             input=f"import sys, types\nsys.modules[{module!r}] = types.ModuleType({module!r})\n" + script,
