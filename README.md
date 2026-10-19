@@ -303,7 +303,9 @@ not built: [`docs/superpowers/specs/2026-09-24-text-first-reader-design.md`](doc
 the latest handoff. Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and
 `docs/lender-registry-evidence.md`.
 Historical, read for background only: the rest of `docs/moneythumb-replacement/`, the cell briefs in
-`docs/agent-handoffs/`, `PHASE2_HANDOFF.md`, and the July specs and plans under `docs/superpowers/`. The September
-plans there are finished implementation records. These records still describe the model paths (visual OCR, the
-visual model pair, PaddleOCR, hosted extraction) that the owner's ruling of 2026-10-13 removed; git history holds
-that code.
+`docs/agent-handoffs/`, `PHASE2_HANDOFF.md`, and the September plans under `docs/superpowers/plans/`, which are
+finished implementation records. They stay because code comments or the documents above cite them. These records
+still describe the model paths (visual OCR, the visual model pair, PaddleOCR, hosted extraction) that the owner's
+ruling of 2026-10-13 removed; git history holds that code. The other program records (the July specs and plans,
+cell briefs, reviews and logs that nothing cites) were removed on 2026-10-19; a link to one of them resolves at
+commit `1a04764d`.
