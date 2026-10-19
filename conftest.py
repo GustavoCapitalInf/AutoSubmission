@@ -19,6 +19,11 @@ os.environ["WEBAPP_DATA_DIR"] = _WEBAPP_TEST_DATA_DIR
 # off here, at import time like the line above; the floor's own tests (tests/test_webapp_disk_guard.py) set it.
 os.environ["WEBAPP_MIN_FREE_MB"] = "0"
 
+# webapp/app.py, analysis/config.py and ocr/config.py call load_dotenv() at import, so a developer's .env (a login,
+# a revenue or reconstruction mode) would change what the suite tests. CI has no .env; this makes every machine match
+# it. Subprocess tests inherit the variable. python-dotenv honours it from 1.2 (requirements-analysis.txt).
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+
 
 @pytest.fixture(scope="session", autouse=True)
 def webapp_data_dir():

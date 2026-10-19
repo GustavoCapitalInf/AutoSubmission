@@ -6,5 +6,5 @@
 # (.github/workflows/corpus-gate.yml) and the hosting image install it on top
 # of requirements.txt:
 #   python -m pip install -r requirements.txt -r requirements-analysis.txt
-python-dotenv
+python-dotenv>=1.2
 pydantic
