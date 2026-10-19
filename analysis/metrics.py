@@ -18,15 +18,41 @@ from .adb import (
     compute_average_daily_balance,
     money_to_cents as _money,
 )
+from .nsf_days import PRINTED as NSF_PRINTED, UNAVAILABLE as NSF_UNAVAILABLE, negative_day_count
 from .schema import Statement
+from .flag_groups import FLAG_GROUPS
 from .transaction_classifier import (
     TransactionClassification,
     classify_statement_transactions,
+    flagged_payee,
 )
 from .revenue import (
+    DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
+    STATE_OF_TIER,
     WITHHOLDING_DENOMINATOR_MODES,
+    _TIER_DISAGREES,
+    non_revenue_reason,
     normalize_withholding_denominator_mode,
+    potential_withholding_unavailable_note,
+    revenue_review_gate,
+    withholding_basis_below_floor,
+    withholding_basis_publishable,
+    withholding_unavailable_note,
 )
+from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_title
+
+#: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §11; R2-OW13): the withholding rate's
+#: numerator is the confirmed lender debits paid plus the funder payments returned unpaid (the scheduled obligation
+#: stands), divided by the withholding basis the statement selected (legacy eligible deposits, Verified or True
+#: revenue). The package and the funder rows publish the same words. Audit round 3, final review (R3-FF), F5: the words
+#: name what compute_metrics sums since R3-B02 and R3-B03: the paid debits less the worded lump-sum payoffs (R3-79, in
+#: paid to lenders and out of the rate), plus the returned payments their funder did not re-debit (R3-73's re-debited
+#: ones leave the rate); folded into classification 5.8 and stage 36, which no release carries yet.
+WITHHOLDING_FORMULA = (
+    "abs(paid lender debits - worded lump-sum payoffs + returned funder payments not re-debited) / withholding basis "
+    "* 100"
+)
+POTENTIAL_WITHHOLDING_FORMULA = "abs(potential_lender_debit_total) / withholding basis * 100"
 
 
 @dataclass
@@ -52,7 +78,8 @@ class Metrics:
     adb_ok: bool | None = None
     min_balance: float | None = None
     max_balance: float | None = None
-    negative_days: int = 0
+    negative_days: int = 0              # every calendar day, a carried (inactive) day included
+    negative_printed_days: int = 0      # printed days only: posting days and bank-printed daily balances
     # Line-item totals: computed only from extracted transaction rows.
     total_deposits: float = 0.0
     total_withdrawals: float = 0.0
@@ -66,13 +93,25 @@ class Metrics:
     effective_num_withdrawals: int | None = None
     deposits_source: str = "line_items"
     withdrawals_source: str = "line_items"
-    nsf_count: int = 0                     # from line items (a lower bound if detail is incomplete)
+    nsf_count: int = 0                     # returned / NSF line items (evidence; not the underwriting NSF since R18)
     stated_nsf_count: int | None = None    # bank-printed count this period, when available
+    # R18 (Gustavo, 2026-09-18): the underwriting NSF count is the number of days in the period that END with a
+    # negative balance, from the validated daily ledger; returned items are not counted. Without a validated
+    # ledger the figure is not computable: 0 with nsf_source 'negative_ending_days_unavailable'.
+    # Owner ruling, 2026-09-22: the default basis is PRINTED days (nsf_source 'negative_printed_days'); a day
+    # with no activity that only carries the previous balance is not counted. Carrying over (every calendar
+    # day, nsf_source 'negative_ending_days') is the web app's Settings option. See analysis/nsf_days.py.
     effective_nsf_count: int = 0
-    nsf_source: str = "classified_line_items"
+    nsf_source: str = NSF_PRINTED
     lender_credits: float = 0.0
+    # Paid to lenders: the confirmed lender debits counted as paid (contributes_to_lender_totals).
     lender_debits: float = 0.0
     lender_debit_count: int = 0
+    # Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §9.1, §11; R2-OW13): the confirmed
+    # funders' payments the bank returned unpaid (rows with returned_funder_payment_by): out of paid to lenders, kept
+    # in the withholding numerator.
+    returned_funder_payment_total: float = 0.0
+    returned_funder_payment_count: int = 0
     lenders_detected: int = 0
     potential_lenders_detected: int = 0
     potential_lender_debit_count: int = 0
@@ -81,6 +120,12 @@ class Metrics:
     monthly_lender_debits: float = 0.0
     insurance_count: int = 0
     insurance_total: float = 0.0
+    # Spec §6 (C5): {group key: {"count", "total", "count_credited",
+    # "total_credited", "payees"}} over rows marked contributes_to_flagged_totals.
+    # "count" and "total" are the debits; the credited pair is the credits a
+    # flagged payee paid in (owner ruling 2026-09-26: factoring payouts). It never
+    # feeds lender_*, withholding_*, eligible_deposits or potential_* figures.
+    flagged_groups: dict[str, dict[str, float | int]] = field(default_factory=dict)
     verified_revenue_total: float = 0.0
     verified_revenue_count: int = 0
     unverified_deposit_total: float = 0.0
@@ -90,7 +135,24 @@ class Metrics:
     verified_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
     unverified_deposit_evidence: list[TransactionClassification] = field(default_factory=list)
     non_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
-    # Deprecated aliases retained for consumers of the version 3.0 API.
+    # 5.6 (true revenue spec §5.1, §9.1): True revenue is verified plus counted; the held credits wait for an analyst.
+    true_revenue_total: float = 0.0
+    true_revenue_count: int = 0
+    counted_flagged_total: float = 0.0
+    counted_flagged_count: int = 0
+    excluded_pending_review_total: float = 0.0
+    excluded_pending_review_count: int = 0
+    counted_flagged_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    excluded_pending_review_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    # R2-OW03 (true revenue spec §9.1): the non_revenue rows that carry a code REVENUE_TIER_REASONS files under
+    # non_revenue (analysis/revenue.py NON_REVENUE_REASONS: the Zelle policy's, Q12's display reason), by code; its own
+    # dict, never a slot of the counted or held maps.
+    non_revenue_by_reason: dict[str, dict[str, float | int]] = field(default_factory=dict)
+    revenue_review_items: int = 0
+    counted_flagged_evidence: list[TransactionClassification] = field(default_factory=list)
+    excluded_pending_review_evidence: list[TransactionClassification] = field(default_factory=list)
+    # Deprecated aliases retained for consumers of the version 3.0 API. 5.6 (T9): `true_revenue` and
+    # `true_revenue_evidence` are repointed to True revenue (verified plus counted).
     true_revenue: float = 0.0
     confirmed_true_revenue: float = 0.0
     confirmed_true_revenue_total: float = 0.0
@@ -103,30 +165,59 @@ class Metrics:
     revenue_classified_total: float = 0.0
     revenue_classified_count: int = 0
     revenue_reconciliation_delta: float = 0.0
+    #: Audit B11 (I31): the four-tier identity of §5.1 (verified + counted + held + non-revenue = posted credits),
+    #: under its own name. It is no reconciliation against the bank's printed figures (that is `reconciliation.ok`);
+    #: `revenue_reconciles` stays as its deprecated alias for API consumers.
+    revenue_tiers_sum_to_posted: bool = True
     revenue_reconciles: bool = True
     revenue_review_required: bool = False
+    #: Audit B9 (I13): no holder's name is known for the statement (true_revenue.holder_unscreened), so the holds that
+    #: read the holder's name cannot see the holder's own money. A fact for the True card and the exports (audit B11).
+    holder_unscreened: bool = False
+    #: Audit B10 (I05): more than true_revenue.PAYER_TEXT_UNREAD_SHARE of the statement's posted credit rows carry the
+    #: parser's 'payer text not read' mark (Transaction.payer_text_unread), so its True rests on credits whose payer
+    #: nobody read; and how many posted credits carry it. A statement integrity fact for the True card (audit B11).
+    payer_text_unread: bool = False
+    payer_text_unread_count: int = 0
+    #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's printed title reads PREMIUM TRUST
+    #: (true_revenue.premium_trust_title over its account title, account name and holder name), so pass 7 holds every
+    #: credit a rule verified or counted. A statement fact for the True card and the package; no figure reads it.
+    premium_trust_account: bool = False
     cash_flow: float = 0.0
     withholding_rate: float | None = None
     withholding_numerator: float = 0.0
     withholding_denominator: float = 0.0
-    withholding_formula: str = "abs(total_qualifying_lender_debits) / eligible_deposits * 100"
+    # R2-OW13 (the underwriter's Q5): the numerator is the confirmed lender debits paid plus the returned funder
+    # payments, every row marked contributes_to_withholding_rate; the basis is the selected withholding denominator.
+    # Audit round 3 (R3-B02, R3-B03; the formula's words, R3-FF F5): less the worded lump-sum payoffs and the returned
+    # payments their funder re-debited.
+    withholding_formula: str = WITHHOLDING_FORMULA
     withholding_review_required: bool = False
+    # Audit round 3, R3-B03 (R3-20; true revenue spec §9.1, §11): the True or Verified basis is above $0 and under
+    # WITHHOLDING_BASIS_FLOOR, so no rate and no potential exposure is published over it (never on the legacy basis).
+    withholding_basis_below_floor: bool = False
+    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; true revenue
+    # spec §9.1, §11; R3-B03): the paid payoff-worded debits to confirmed funders (`lump_sum_payoff`), in lender_debits
+    # and out of withholding_numerator: lender_debits + the standing returned payments - lump_sum_payoff_total is the
+    # numerator, to the cent.
+    lump_sum_payoff_total: float = 0.0
+    lump_sum_payoff_count: int = 0
     potential_withholding_exposure: float | None = None
     potential_withholding_numerator: float = 0.0
     potential_withholding_denominator: float = 0.0
-    potential_withholding_formula: str = (
-        "abs(potential_lender_debit_total) / eligible_deposits * 100"
-    )
+    potential_withholding_formula: str = POTENTIAL_WITHHOLDING_FORMULA
     potential_withholding_review_required: bool = False
     eligible_deposits: float = 0.0
     legacy_eligible_deposits: float = 0.0
-    withholding_denominator_mode: str = "legacy_eligible_deposits"
-    withholding_denominator_label: str = "Legacy eligible deposits"
+    # Owner ruling 2026-10-02 (the underwriter's Q7, audit I34; R2-OW14): True revenue is the default basis; the label
+    # and the definition are the default's (compute_metrics sets all three for the mode it reads).
+    withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE
+    withholding_denominator_label: str = "True revenue"
     withholding_denominator_options: tuple[str, ...] = WITHHOLDING_DENOMINATOR_MODES
-    eligible_deposit_definition: str = (
-        "effective total deposits minus recognized lender funding credits"
-    )
+    eligible_deposit_definition: str = "true revenue: verified plus counted credits"
     lender_evidence: list[TransactionClassification] = field(default_factory=list)
+    # R2-OW13: the returned funder payments' debit rows (lender_evidence stays the paid rows).
+    returned_funder_payment_evidence: list[TransactionClassification] = field(default_factory=list)
     potential_lender_evidence: list[TransactionClassification] = field(default_factory=list)
     insurance_evidence: list[TransactionClassification] = field(default_factory=list)
     true_revenue_evidence: list[TransactionClassification] = field(default_factory=list)
@@ -290,15 +381,15 @@ def compute_metrics(
     trust_running_balances: bool = True,
     source_markdown: str | None = None,
     classifications: list[TransactionClassification] | None = None,
-    withholding_denominator_mode: str = "legacy_eligible_deposits",
+    withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
 ) -> Metrics:
     withholding_denominator_mode = normalize_withholding_denominator_mode(
-        withholding_denominator_mode
+        withholding_denominator_mode, default=DEFAULT_WITHHOLDING_DENOMINATOR_MODE
     )
     if withholding_denominator_mode not in WITHHOLDING_DENOMINATOR_MODES:
         raise ValueError(
-            "withholding_denominator_mode must be legacy_eligible_deposits "
-            "or verified_revenue"
+            "withholding_denominator_mode must be legacy_eligible_deposits, "
+            "verified_revenue or true_revenue"
         )
     m = Metrics()
     m.withholding_denominator_mode = withholding_denominator_mode
@@ -309,6 +400,15 @@ def compute_metrics(
         raise ValueError("classification count must equal transaction count")
     confirmed_entities: set[str] = set()
     potential_entities: set[str] = set()
+    flagged_counts: dict[str, int] = {}
+    flagged_totals: dict[str, float] = {}
+    flagged_credited_counts: dict[str, int] = {}
+    flagged_credited_totals: dict[str, float] = {}
+    flagged_payees: dict[str, set[str]] = {}
+    by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
+    non_revenue_by_reason: dict[str, list] = {}
+    withholding_numerator = 0.0
+    direction_conflict = False
     for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
             m.total_deposits += t.amount
@@ -324,10 +424,22 @@ def compute_metrics(
             m.lender_debits += abs(t.amount)
             m.lender_debit_count += 1
             m.lender_evidence.append(classification)
+        if classification.contributes_to_withholding_rate:
+            withholding_numerator += abs(t.amount)
+        if classification.lump_sum_payoff and classification.contributes_to_lender_totals:
+            # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): a paid
+            # payoff-worded debit, in the paid figure above and out of the withholding numerator.
+            m.lump_sum_payoff_total += abs(t.amount)
+            m.lump_sum_payoff_count += 1
+        if classification.returned_funder_payment_by:
+            # R2-OW13 (the underwriter's Q5): a funder payment returned unpaid, out of the paid figure above.
+            m.returned_funder_payment_total += abs(t.amount)
+            m.returned_funder_payment_count += 1
+            m.returned_funder_payment_evidence.append(classification)
         if classification.contributes_to_lender_count and classification.canonical_entity:
             confirmed_entities.add(classification.canonical_entity)
         if classification.contributes_to_potential_lender_count and classification.canonical_entity:
-            potential_entities.add(classification.canonical_entity)
+            potential_entities.add(classification.potential_payee_label or classification.canonical_entity)
         if classification.contributes_to_potential_lender_totals:
             m.potential_lender_debit_total += abs(t.amount)
             m.potential_lender_debit_count += 1
@@ -336,6 +448,15 @@ def compute_metrics(
             m.insurance_count += 1
             m.insurance_total += abs(t.amount)
             m.insurance_evidence.append(classification)
+        if classification.contributes_to_flagged_totals and classification.flagged_group:
+            group_key = classification.flagged_group
+            if t.amount < 0:
+                flagged_counts[group_key] = flagged_counts.get(group_key, 0) + 1
+                flagged_totals[group_key] = flagged_totals.get(group_key, 0.0) + abs(t.amount)
+            else:
+                flagged_credited_counts[group_key] = flagged_credited_counts.get(group_key, 0) + 1
+                flagged_credited_totals[group_key] = flagged_credited_totals.get(group_key, 0.0) + t.amount
+            flagged_payees.setdefault(group_key, set()).add(flagged_payee(classification))
         if t.amount > 0 and classification.is_posted:
             revenue_flags = (
                 classification.contributes_to_verified_revenue,
@@ -346,6 +467,29 @@ def compute_metrics(
                 raise ValueError(
                     "every posted credit must contribute to exactly one revenue state"
                 )
+            # 5.6 (§5.4): every posted credit carries exactly one tier, and its tier agrees with its state.
+            tier = classification.revenue_tier
+            if tier is None or STATE_OF_TIER.get(tier) != classification.revenue_classification:
+                raise ValueError(_TIER_DISAGREES)
+            if classification.revenue_match_method == "direction_conflict":
+                direction_conflict = True
+            if tier in by_reason:
+                slot = by_reason[tier].setdefault(classification.revenue_tier_reason or "", [0, 0.0])
+                slot[0] += 1
+                slot[1] += t.amount
+            elif tier == "non_revenue" and non_revenue_reason(classification.revenue_tier_reason):
+                # R2-OW03: the rebuild's rule (analysis/revenue.py), so the stored and the rebuilt figures agree.
+                slot = non_revenue_by_reason.setdefault(classification.revenue_tier_reason, [0, 0.0])
+                slot[0] += 1
+                slot[1] += t.amount
+            if tier == "counted_flagged":
+                m.counted_flagged_total += t.amount
+                m.counted_flagged_count += 1
+                m.counted_flagged_evidence.append(classification)
+            elif tier == "excluded_pending_review":
+                m.excluded_pending_review_total += t.amount
+                m.excluded_pending_review_count += 1
+                m.excluded_pending_review_evidence.append(classification)
             m.total_posted_credits += t.amount
             m.total_posted_credit_count += 1
             if classification.contributes_to_verified_revenue:
@@ -384,35 +528,70 @@ def compute_metrics(
     m.total_withdrawals = round(m.total_withdrawals, 2)
     m.lender_credits = round(m.lender_credits, 2)
     m.lender_debits = round(m.lender_debits, 2)
+    m.returned_funder_payment_total = round(m.returned_funder_payment_total, 2)
     m.potential_lender_debit_total = round(m.potential_lender_debit_total, 2)
     m.potential_lender_debits = m.potential_lender_debit_total
     m.monthly_lender_debits = m.lender_debits
     m.insurance_total = round(m.insurance_total, 2)
+    m.flagged_groups = {
+        group.key: {
+            "count": flagged_counts.get(group.key, 0),
+            "total": round(flagged_totals.get(group.key, 0.0), 2),
+            "count_credited": flagged_credited_counts.get(group.key, 0),
+            "total_credited": round(flagged_credited_totals.get(group.key, 0.0), 2),
+            "payees": len(flagged_payees[group.key]),
+        }
+        for group in FLAG_GROUPS
+        if group.key in flagged_payees
+    }
     m.verified_revenue_total = round(m.verified_revenue_total, 2)
     m.unverified_deposit_total = round(m.unverified_deposit_total, 2)
     m.non_revenue_total = round(m.non_revenue_total, 2)
+    m.counted_flagged_total = round(m.counted_flagged_total, 2)
+    m.excluded_pending_review_total = round(m.excluded_pending_review_total, 2)
+    m.true_revenue_total = round(m.verified_revenue_total + m.counted_flagged_total, 2)
+    m.true_revenue_count = m.verified_revenue_count + m.counted_flagged_count
+    m.counted_flagged_by_reason = {
+        reason: {"count": count, "total": round(total, 2)}
+        for reason, (count, total) in sorted(by_reason["counted_flagged"].items())
+    }
+    m.excluded_pending_review_by_reason = {
+        reason: {"count": count, "total": round(total, 2)}
+        for reason, (count, total) in sorted(by_reason["excluded_pending_review"].items())
+    }
+    m.non_revenue_by_reason = {
+        reason: {"count": count, "total": round(total, 2)}
+        for reason, (count, total) in sorted(non_revenue_by_reason.items())
+    }
+    m.revenue_review_items = m.excluded_pending_review_count
     m.confirmed_true_revenue_total = m.verified_revenue_total
     m.confirmed_true_revenue_count = m.verified_revenue_count
     m.confirmed_true_revenue = m.verified_revenue_total
-    m.true_revenue = m.verified_revenue_total
+    m.true_revenue = m.true_revenue_total
     m.potential_revenue_total = m.unverified_deposit_total
     m.potential_revenue_count = m.unverified_deposit_count
-    m.true_revenue_evidence = m.verified_revenue_evidence
+    m.true_revenue_evidence = [
+        record for record in records
+        if record.contributes_to_verified_revenue or record.contributes_to_counted_flagged
+    ]
     m.potential_revenue_evidence = m.unverified_deposit_evidence
     m.maximum_revenue = round(
         m.verified_revenue_total + m.unverified_deposit_total,
         2,
     )
     m.total_posted_credits = round(m.total_posted_credits, 2)
+    # 5.6 (§5.1): the four-tier identity, verified + counted + held + non-revenue = posted credits.
     m.revenue_classified_total = round(
         m.verified_revenue_total
-        + m.unverified_deposit_total
+        + m.counted_flagged_total
+        + m.excluded_pending_review_total
         + m.non_revenue_total,
         2,
     )
     m.revenue_classified_count = (
         m.verified_revenue_count
-        + m.unverified_deposit_count
+        + m.counted_flagged_count
+        + m.excluded_pending_review_count
         + m.non_revenue_count
     )
     m.revenue_reconciliation_delta = round(
@@ -423,14 +602,30 @@ def compute_metrics(
         m.revenue_reconciliation_delta == 0.0
         and m.revenue_classified_count == m.total_posted_credit_count
     )
-    m.revenue_review_required = m.unverified_deposit_count > 0
+    # Audit B11 (I31): the identity under its own name; `revenue_reconciles` is its deprecated alias.
+    m.revenue_tiers_sum_to_posted = m.revenue_reconciles
+    m.revenue_review_required = revenue_review_gate(
+        direction_conflict=direction_conflict,
+        held_total=m.excluded_pending_review_total,
+        posted_total=m.total_posted_credits,
+        tiers_sum_to_posted=m.revenue_tiers_sum_to_posted,
+        true_total=m.true_revenue_total,
+    )
+    # Audit round 2, R2-B04 (R19): the statement's own names, so a statement with no transaction is read too.
+    m.holder_unscreened = holder_unscreened(records, holder_name=stmt.holder_name, account_name=stmt.account_name)
+    m.payer_text_unread, m.payer_text_unread_count = payer_text_unread(stmt.transactions, records)
+    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's own fields, as pass 7 reads them.
+    m.premium_trust_account = premium_trust_title(
+        getattr(stmt, "account_title", None), stmt.account_name, stmt.holder_name
+    ) is not None
     m.lenders_detected = len(confirmed_entities)
     m.potential_lenders_detected = len(potential_entities)
     m.effective_total_deposits = m.total_deposits
     m.effective_total_withdrawals = m.total_withdrawals
     m.effective_num_deposits = m.num_deposits
     m.effective_num_withdrawals = m.num_withdrawals
-    m.effective_nsf_count = m.nsf_count
+    m.effective_nsf_count = 0
+    m.nsf_source = NSF_UNAVAILABLE
 
     # Always compute the ADB working so the daily ledger and its validations are
     # available for audit, even when policy says not to report the figure.
@@ -458,7 +653,10 @@ def compute_metrics(
         m.average_daily_balance = adb.underwriting_adb
         m.min_balance = round(min(vals), 2)
         m.max_balance = round(max(vals), 2)
-        m.negative_days = sum(1 for v in vals if v < 0)
+        m.negative_days = negative_day_count(adb.daily_balances, carry_over=True)
+        m.negative_printed_days = negative_day_count(adb.daily_balances, carry_over=False)
+        m.effective_nsf_count = m.negative_printed_days   # R18, printed-day basis (owner ruling 2026-09-22)
+        m.nsf_source = NSF_PRINTED
     elif trust_running_balances and adb.daily_balances:
         m.notes.append("not reporting average daily balance because its ledger validation failed")
     elif not trust_running_balances:
@@ -522,8 +720,10 @@ def compute_metrics(
     if stmt.stated_nsf_count is not None and stmt.stated_nsf_count != m.nsf_count:
         m.notes.append(
             f"bank-stated NSF count {stmt.stated_nsf_count} differs from "
-            f"{m.nsf_count} classified posted row(s); using the row count"
+            f"{m.nsf_count} classified returned item(s); the underwriting NSF count is the negative-ending days (R18)"
         )
+    if m.nsf_source == NSF_UNAVAILABLE:
+        m.notes.append("NSF (negative-ending days) not computable: no validated daily ledger")
     m.cash_flow = round(m.effective_total_deposits - m.effective_total_withdrawals, 2)
     m.legacy_eligible_deposits = round(
         m.effective_total_deposits - m.lender_credits,
@@ -533,26 +733,72 @@ def compute_metrics(
         m.eligible_deposits = m.verified_revenue_total
         m.eligible_deposit_definition = "verified classified revenue"
         m.withholding_denominator_label = "Verified revenue"
+    elif withholding_denominator_mode == "true_revenue":
+        m.eligible_deposits = m.true_revenue_total
+        m.eligible_deposit_definition = "true revenue: verified plus counted credits"
+        m.withholding_denominator_label = "True revenue"
     else:
         m.eligible_deposits = m.legacy_eligible_deposits
+        m.eligible_deposit_definition = "effective total deposits minus recognized lender funding credits"
         m.withholding_denominator_label = "Legacy eligible deposits"
-    m.withholding_numerator = m.lender_debits
+    # R2-OW13 (the underwriter's Q5): every row the rate reads, the paid lender debits and the returned funder payments
+    # still standing (lender_debits + returned_funder_payment_total, less the returned payments their funder re-debited
+    # (`represented_by`; audit round 3, R3-B02, "Count it once"), to the cent).
+    m.withholding_numerator = round(withholding_numerator, 2)
+    if m.returned_funder_payment_count:
+        # The money in the statement's own unit (CURRENCY DOCTRINE: never a '$' on a CAD statement).
+        unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+        # The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once"; R3-B02): a returned payment the
+        # same funder re-debited is out of the withholding rate, its re-debit counting the obligation once.
+        re_debited = [record for record in m.returned_funder_payment_evidence
+                      if getattr(record, "represented_by", None)]
+        payments = f"{'payment' if m.returned_funder_payment_count == 1 else 'payments'}"
+        if re_debited:
+            re_debited_total = round(sum(abs(record.amount) for record in re_debited), 2)
+            standing = m.returned_funder_payment_count - len(re_debited)
+            m.notes.append(
+                f"{m.returned_funder_payment_count} returned funder {payments} "
+                f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders; {len(re_debited)} re-debited "
+                f"by its funder ({re_debited_total:,.2f}{unit}), counted once by the re-debit"
+                + (f"; {standing} kept in the withholding rate" if standing else "")
+            )
+        else:
+            m.notes.append(
+                f"{m.returned_funder_payment_count} returned funder {payments} "
+                f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
+            )
+    m.lump_sum_payoff_total = round(m.lump_sum_payoff_total, 2)
+    if m.lump_sum_payoff_count:
+        # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; R3-B03): the
+        # lump sums out of the withholding rate, in the statement's own unit.
+        unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+        payments = "payment" if m.lump_sum_payoff_count == 1 else "payments"
+        m.notes.append(
+            f"{m.lump_sum_payoff_count} lump-sum {payments} to confirmed lenders ({m.lump_sum_payoff_total:,.2f}{unit}): "
+            "in paid to lenders, not in the withholding rate"
+        )
     m.withholding_denominator = m.eligible_deposits
     m.potential_withholding_numerator = m.potential_lender_debit_total
     m.potential_withholding_denominator = m.eligible_deposits
     m.potential_withholding_review_required = m.potential_lender_debit_count > 0
-    if m.withholding_denominator <= 0:
+    # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): the notes name the basis the rate divides by, True revenue
+    # by default. Audit round 3, R3-B03 (R3-20): a True or Verified basis under WITHHOLDING_BASIS_FLOOR is read as $0 is
+    # (no rate, no exposure, the review flag and a note naming the basis and the floor); the legacy basis bypasses it.
+    basis_unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
+    m.withholding_basis_below_floor = withholding_basis_below_floor(
+        m.withholding_denominator, withholding_denominator_mode)
+    if not withholding_basis_publishable(m.withholding_denominator, withholding_denominator_mode):
         m.withholding_review_required = True
-        m.notes.append("withholding rate is unavailable because eligible deposits are zero or missing")
+        m.notes.append(withholding_unavailable_note(m.withholding_denominator_label, m.withholding_denominator,
+                                                    basis_unit))
     else:
         m.withholding_rate = (
             abs(m.withholding_numerator) / m.withholding_denominator
         ) * 100
-    if m.potential_withholding_denominator <= 0:
+    if not withholding_basis_publishable(m.potential_withholding_denominator, withholding_denominator_mode):
         if m.potential_lender_debit_count:
-            m.notes.append(
-                "potential withholding exposure is unavailable because eligible deposits are zero or missing"
-            )
+            m.notes.append(potential_withholding_unavailable_note(
+                m.withholding_denominator_label, m.potential_withholding_denominator, basis_unit))
     else:
         m.potential_withholding_exposure = (
             abs(m.potential_withholding_numerator) / m.potential_withholding_denominator

@@ -77,23 +77,32 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred", "ref
 #: `research_refused_holdout` — refused before any read, so a holdout item
 #: can never be studied by a research run (case 21). Both are statements
 #: about the RUN (its population, its cage), which is what `deferred` is for.
+#:
+#: Append-only. Since slice S5 of the model-code removal nothing emits
+#: `deferred_visual_ocr` (the runner records the offline ladder reading
+#: nothing as `refused:insufficient_evidence`) or the two research reasons
+#: (the research mode was removed); they stay members so historical rows and
+#: records still classify (`telemetry.unresolved_taxonomy.RETIRED_RUNNER_REASONS`).
 DEFERRED_REASONS = (
     "deferred_scanned", "deferred_visual_ocr", "profile_only",
     "research_skipped_not_in_population", "research_refused_holdout",
 )
 
-#: P22-TRUTHTABLE (R11): the CLOSED reasons a `refused` outcome may carry.
-#: RESERVED in Phase 2.2 — nothing in this tree produces one (a test asserts
-#: zero `refused` rows on the run of record's replay); later milestones
-#: declare them through `classify_outcome(..., refused=<reason>)`, exactly
-#: as `deferred=` is declared, never inferred.
+#: P22-TRUTHTABLE (R11): the CLOSED reasons a `refused` outcome may carry,
+#: declared through `classify_outcome(..., refused=<reason>)`, exactly as
+#: `deferred=` is declared, never inferred. Reserved in Phase 2.2 (a test
+#: asserts zero `refused` rows on the run of record's replay). Since slice S5
+#: of the model-code removal ONE member has an emitter: `discovery/runner.py`
+#: declares `insufficient_evidence` when `--scanned`'s offline ladder,
+#: Tesseract included, read nothing usable (it was `deferred_visual_ocr`).
+#: The other five are still reserved: nothing emits them.
 REFUSED_REASONS = (
     "not_a_statement", "file_invalid", "insufficient_evidence", "contradictory", "incomplete", "unreadable",
 )
 #: P21-ROUTING (Phase 2.1) adds `"paddle"`, between `"local_tesseract"` and
 #: `"visual"` — the same slot PaddleOCR takes in `ocr.escalation.
 #: EXTRACTOR_ORDER`.
-SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "none")
+SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "visual_pair", "none")
 
 #: P20-ROUTER (Phase 2.0). Mirrored, by value, from `ocr.escalation` — held
 #: equal to it by `tests/test_escalation_tripwires.py` so the two never drift.
@@ -111,6 +120,8 @@ EXTRACTION_TRIGGERS = (
     "extractor_output_unusable",
     "extractor_failed",
     "operator_forced_visual",
+    "operator_forced_visual_pair",
+    "deterministic_parse_unvalidated",
     # P22-TRUTHTABLE (D8): the research run mode's trigger; see
     # `ocr.escalation.OPERATOR_FORCED_PADDLE`.
     "operator_forced_paddle",
@@ -195,13 +206,15 @@ def new_run_id() -> str:
 #: same line range at compose time.
 VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
 
-#: P21-ROUTING (Phase 2.1). A LITERAL mirror of `ocr.paddle_config.
-#: PADDLE_MODEL_TOKEN` — not imported, for the same reason `VISUAL_MODEL_TOKENS`
-#: is a literal rather than an import: `telemetry` stays free of a load-bearing
-#: dependency on `ocr` for two string constants. `tests/test_telemetry.py`
-#: holds this literal equal to `ocr.paddle_config.PADDLE_MODEL_TOKEN` by test,
-#: so the two cannot silently drift apart.
+#: P21-ROUTING (Phase 2.1). A LITERAL mirror of what was
+#: `ocr.paddle_config.PADDLE_MODEL_TOKEN` — not imported, for the same reason
+#: `VISUAL_MODEL_TOKENS` is a literal rather than an import. The PaddleOCR rung
+#: and that module were removed (model-code removal, slice S5); the token stays
+#: here as historical vocabulary, because stored readings and telemetry records
+#: still carry it, and `tests/test_telemetry.py` and `tests/test_config.py` pin
+#: it as a literal (equal to `ocr.config.RESERVED_MODEL_PREFIXES`' member).
 PADDLE_MODEL_TOKENS = frozenset({"paddle-ocr+ppocrv5"})
+VISUAL_PAIR_MODEL_TOKENS = frozenset({"visual-pair-dots-qwen"})
 
 
 def source_path_for(model: str | None) -> str:
@@ -227,6 +240,8 @@ def source_path_for(model: str | None) -> str:
         return "local_tesseract"
     if model == "deterministic-native-preflight":
         return "none"
+    if model in VISUAL_PAIR_MODEL_TOKENS:
+        return "visual_pair"
     if model in PADDLE_MODEL_TOKENS:
         return "paddle"
     if model in VISUAL_MODEL_TOKENS:
@@ -248,6 +263,8 @@ def source_path_unrecognized_model(model: str | None) -> bool:
     if model == "local-tesseract-ocr":
         return False
     if model == "deterministic-native-preflight":
+        return False
+    if model in VISUAL_PAIR_MODEL_TOKENS:
         return False
     if model in PADDLE_MODEL_TOKENS:
         return False
@@ -456,19 +473,14 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     (H3_SCHEMA §9).
 
     OQ3 provenance (MAJOR-2, PHASE2_P20SEAM_REVIEW.md): every OCR-stage call
-    entry also carries `endpoint_class` and `remote_opt_in`, read from
-    `ocr.config.load_settings()` AT RECORD TIME — the identical pattern
-    `webapp.artifact_cache.ocr_settings_key` already uses (loaded fresh when
-    not supplied, so a caller that never itself touches the OCR service still
-    records correctly if `OCR_BASE_URL` / `OCR_REMOTE_OPT_IN` changed under
-    it). Deliberately NOT threaded through `StatementMarkdown`:
-    `ocr/document.py`'s object is the OCR RESULT (what text a rung produced),
-    not a place to carry an intake SETTING, and re-reading `load_settings()`
-    here is exactly as cheap as `ocr_settings_key`'s own re-read. The fields
-    describe the run's CURRENT endpoint configuration, not necessarily the
-    one THIS document's rung used (a native/local read touched no endpoint at
-    all) — recorded anyway on every OCR entry because OQ3's "recorded opt-in"
-    is a property of the RUN's audit trail, not only of a live network call.
+    entry also carries `endpoint_class` and `remote_opt_in`. They used to be
+    read from the visual OCR settings (`ocr.config.load_settings()`) at record
+    time; since slice S2 of the model-code removal they are the fixed
+    historical constants `"loopback"` and `False` (M12): the values that
+    settings object held on every default environment, naming an endpoint
+    (the retired local visual OCR server) that no longer exists. The record
+    shape is unchanged. The visual-pair entry below still reads its own
+    measured fields.
 
     F-7 (MAJOR-3): an unrecognised model token (`source_path_unrecognized_
     model`) is reported the SAME shape as a visual read — one call per page,
@@ -478,37 +490,23 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     model"`, distinct from both `"visual_ocr"` and every `source_path_for`
     value, so a rollup can tell the three apart.
 
-    NEW-6 (re-review, closure 1cc759e): `load_settings()` raises
-    `ProvenanceTokenError` for a hostile `OCR_MODEL`; caught here so a
-    misconfigured environment costs `endpoint_class` / `remote_opt_in`
-    (both `None`) rather than the whole record — every `_emit` call site
-    wraps this function's caller (`build_record`) in `except Exception:
-    pass`, so an uncaught raise here would silently drop a telemetry record
-    for a document that otherwise processed fine.
+    NEW-6 (re-review, closure 1cc759e) is closed by construction since S2:
+    nothing here reads the environment any more, so a hostile `OCR_MODEL`
+    can no longer cost these two fields (it used to make them `None`).
     """
     calls: list[dict] = []
     if doc is not None:
         path = source_path_for(doc.model)
         unrecognized = source_path_unrecognized_model(doc.model)
-        # NEW-6 (re-review, closure 1cc759e): load_settings() validates
-        # OCR_MODEL and raises ProvenanceTokenError for a hostile value
-        # (BLOCK-1's own closure). Read defensively — a misconfigured
-        # environment costs these two fields, never the whole record: every
-        # `_emit` call site wraps the WHOLE build_record(...) call
-        # (model_calls_for included) in `except Exception: pass`
-        # (H3_SCHEMA I4, "cannot fail a job"), so an uncaught raise here
-        # would silently drop the entire telemetry record for a document
-        # that otherwise processed fine, rather than degrading two fields
-        # of it.
-        try:
-            from ocr.config import ProvenanceTokenError, load_settings as _load_ocr_settings
-
-            ocr_settings = _load_ocr_settings()
-            endpoint_class = ocr_settings.endpoint_class
-            remote_opt_in = ocr_settings.remote_opt_in
-        except ProvenanceTokenError:
-            endpoint_class = None
-            remote_opt_in = None
+        # Historical constant (M12): the endpoint class the retired visual OCR
+        # settings classified their default base URL as. It names an endpoint
+        # (the local visual OCR server) that no longer exists; kept so the
+        # record's shape and values stay what every default environment wrote.
+        endpoint_class = "loopback"
+        # Historical constant (M12): the retired visual OCR settings' remote
+        # opt-in on every default environment. The endpoint it described no
+        # longer exists; kept so the record's shape and values are unchanged.
+        remote_opt_in = False
         if path == "visual" or unrecognized:
             reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
             known = [value for value in reported if value is not None]
@@ -522,6 +520,23 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
                 "endpoint_class": endpoint_class,
                 "remote_opt_in": remote_opt_in,
             })
+        elif path == "visual_pair":
+            # Transient receipt figures describe actual calls only. Both cache
+            # layers restore no call telemetry, so a hit reports zero calls.
+            measurements = getattr(doc, "extraction_telemetry", None) or {}
+            measured = measurements.get("pages") or []
+            for stage, model in (("proposer", "dotsmocr"), ("reviewer", "qwen3.8-27b-nvfp4")):
+                rows = [item for item in measured if item.get("stage") == stage]
+                def token_total(field):
+                    values = [item.get(field) for item in rows]
+                    return sum(values) if values and all(isinstance(v, int) for v in values) else None
+                calls.append({
+                    "stage": "ocr", "model": model, "purpose": "visual_pair_" + stage,
+                    "calls": len(rows), "prompt_tokens": token_total("prompt_tokens"),
+                    "completion_tokens": token_total("completion_tokens"),
+                    "endpoint_class": measurements.get("execution_class"),
+                    "remote_opt_in": measurements.get("customer_data_opt_in"),
+                })
         elif path == "paddle":
             # P21-ROUTING: one call per Paddle page. Paddle pages are plain
             # `str` (D9's derived text), not the visual rung's `PageText`, so
@@ -560,6 +575,7 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
         payload is not None
         and model_used
         and not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX)
+        and model_used not in {"visual-pair-dots-qwen-bank-bridge", "visual-pair-dots-qwen-generic"}
     ):
         calls.append({
             "stage": "analysis",
@@ -591,8 +607,9 @@ def classify_outcome(
     for one of `REFUSED_REASONS` — a terminal verdict about the DOCUMENT, so
     it ranks below a deferral (the run's statement) and above the payload
     (a refusal is decided before any figure is published). Like `deferred`
-    it is only ever reached by an explicit `refused=` declaration; nothing in
-    Phase 2.2 makes one.
+    it is only ever reached by an explicit `refused=` declaration (since
+    slice S5 of the model-code removal, discovery's `--scanned` no-text site
+    makes the one: `insufficient_evidence`).
 
     `failed` therefore means exactly one thing: attempted, and errored.
     `withheld` is the platform refusing to publish an authoritative value —

@@ -26,9 +26,14 @@ past:
    by calling `router_inputs(...)` — the ONE constructor — never a
    hand-rolled `RouterInputs(...)` and never a pre-built variable smuggled
    in from somewhere the AST cannot see it was built. The set of call sites
-   found is asserted to be EXACTLY the three known ones (P20-ROUTER review,
+   found is asserted to be EXACTLY the known ones (P20-ROUTER review,
    MINOR-6: a scan scoped only to `discovery/` and `webapp/` missed both a
    `RouterInputs` subclass and a hand-rolled call site under `tools/`).
+   Since slice S5 of the model-code removal the known set is EMPTY: the
+   worker's two sites left in S1 and discovery's two (RECOVERY, UPGRADE) in
+   S5, with the model rungs they routed to. The router itself
+   (`ocr/escalation.py`, pinned by `ROUTER_IMPLEMENTATION_SHA256`) and these
+   pins stay, so a new site anywhere still fails the build.
 """
 from __future__ import annotations
 
@@ -178,7 +183,7 @@ def _is_self_attribute(node: ast.AST) -> bool:
 def _is_module_level_constant_name(node: ast.AST) -> bool:
     # Convention, not introspection: a SCREAMING_SNAKE_CASE bare name is the
     # shape every module-level constant in this tree already uses
-    # (`WORKER_ENABLED_EXTRACTORS`, `ADMITTED_TRIGGERS`, ...). Anything else
+    # (`ADMITTED_TRIGGERS`, `RESEARCH_TRIGGERS`, ...). Anything else
     # (a lowercase local, a parameter) is refused by this predicate, which is
     # the point: a per-document local variable does not get to masquerade as
     # a "constant" merely by sitting in a bare Name node.
@@ -427,10 +432,14 @@ EXCLUDED_FROM_REPO_SCAN = ("ocr/escalation.py",)
 EXCLUDED_TREES_FROM_REPO_SCAN = ("tests/",)
 
 #: The exact, reviewed set of legitimate `decide(` call sites, by file and
-#: count — 2 in `discovery/runner.py` (RECOVERY, UPGRADE), 1 in
-#: `webapp/worker.py` (`_force_ocr_decision`). A new site anywhere changes
-#: this and must be a reviewed decision, not a silent addition.
-EXPECTED_DECIDE_CALL_SITES = {"discovery/runner.py": 2, "webapp/worker.py": 1}
+#: count. EMPTY since slice S5 of the model-code removal (declared: production
+#: decide( sites 4 -> 2 in S1, 2 -> 0 in S5). `webapp/worker.py` had 2
+#: (`_force_ocr_decision` and the Phase 3.1 pair admission seam), which left
+#: with the worker's visual reads in S1; `discovery/runner.py` had 2
+#: (RECOVERY, UPGRADE), which left with the Paddle and research modes in S5.
+#: A new site anywhere changes this and must be a reviewed decision, not a
+#: silent addition.
+EXPECTED_DECIDE_CALL_SITES: dict[str, int] = {}
 
 
 #: Directories the FILESYSTEM walk never descends into: VCS/tool caches that
@@ -498,8 +507,9 @@ def _tracked_python_files() -> list[Path]:
 #: itself later `exec`'d or run in a subprocess — `tools/train/provenance.py`'s
 #: `_TREE_PROBE` is exactly this shape: a triple-quoted string holding a whole
 #: program, passed to `python -c` in a subprocess with the checkout on
-#: `sys.path`. A `decide(` or `allow_paddle_ocr=True` written inside such a
-#: string is invisible to `ast.parse(path.read_text())`'s own tree, even
+#: `sys.path`. A `decide(` (or, until slice S5, `allow_paddle_ocr=True`)
+#: written inside such a string is invisible to `ast.parse(path.read_text())`'s
+#: own tree, even
 #: though the code genuinely runs. This is the counter-example MAJOR-2 found:
 #: `test_case12_allow_paddle_ocr_true_appears_only_at_the_one_reviewed_call_site`
 #: (`tests/test_paddle_routing.py`) asserted a false property because its scan
@@ -530,7 +540,10 @@ def _tracked_python_files() -> list[Path]:
 #: assembled at runtime, bytes literals, and a program nested inside an
 #: embedded program (the walk is one level deep).
 _FSTRING_HOLE = "_FSTRING_HOLE_"
-EMBEDDED_PROGRAM_KEYWORDS = ("allow_paddle_ocr", "decide(", "router_inputs(", "RouterInputs(")
+#: `allow_paddle_ocr` left this tuple in slice S5: the Paddle partition is
+#: refused by `webapp.artifact_cache` itself, and no `allow_paddle_ocr=True`
+#: pin remains to feed (`tests/test_no_paddle.py` scans the tree for the knob).
+EMBEDDED_PROGRAM_KEYWORDS = ("decide(", "router_inputs(", "RouterInputs(")
 
 
 class EmbeddedProgramUnreadable(AssertionError):
@@ -618,7 +631,7 @@ def test_embedded_program_scan_reads_indented_and_fstring_programs(shape):
 
 
 def test_embedded_program_scan_fails_closed_on_an_unreadable_fstring_naming_a_keyword():
-    source = 'X = 1\nP = f"""\nthis is not python but it says allow_paddle_ocr=True {X}\nand more prose\n"""\n'
+    source = 'X = 1\nP = f"""\nthis is not python but it says decide( and {X}\nand more prose\n"""\n'
     with pytest.raises(EmbeddedProgramUnreadable):
         _embedded_program_asts(source)
 
@@ -628,7 +641,7 @@ def test_the_tree_probe_is_detected_as_an_embedded_program_string():
     test: several pre-existing `tools/*mutation*.py` / `tools/*census*.py`
     instruments ALSO embed source-code snippets as string literals for their
     OWN mutation-testing purposes (unrelated to this closure, and none of
-    them set `allow_paddle_ocr=True` or call `decide(` — confirmed by the
+    them call `decide(` — confirmed by the
     scans below finding no NEW offenders there) — so `_embedded_program_asts`
     finding many files is expected, not a regression. What matters here is
     only that `tools/train/provenance.py`'s `_TREE_PROBE` — the ONE embedded
@@ -707,12 +720,15 @@ def test_a_second_decide_site_in_an_expected_file_fails_the_per_file_count(shape
     else:
         planted = runner_source + "\n\ndef _planted(self):\n    return self.router.decide(**{'inputs': None})\n"
     with pytest.raises(AssertionError):
-        _check_decide_call_sites([("discovery/runner.py", planted)], expected={"discovery/runner.py": 2})
+        _check_decide_call_sites([("discovery/runner.py", planted)], expected=EXPECTED_DECIDE_CALL_SITES)
 
 
 def test_the_decide_per_file_check_is_not_vacuous():
+    """The real runner holds no site (slice S5) and passes; the same runner with ONE site planted fails, so
+    the pass is the scan seeing nothing, not the scan being blind."""
     runner_source = (ROOT / "discovery" / "runner.py").read_text(encoding="utf-8")
-    _check_decide_call_sites([("discovery/runner.py", runner_source)], expected={"discovery/runner.py": 2})
+    _check_decide_call_sites([("discovery/runner.py", runner_source)], expected=EXPECTED_DECIDE_CALL_SITES)
+    assert len(_decide_call_sites([("discovery/runner.py", runner_source + _PLANTED_DECIDE_SITE)])) == 1
 
 
 def _router_inputs_construction_sites_repo_wide() -> list[tuple[Path, int]]:
@@ -756,167 +772,100 @@ def test_no_hand_rolled_router_inputs_construction_anywhere_in_the_repo():
 
 
 # ---------------------------------------------------------------------------
-# P22-TRUTHTABLE (Phase 2.2, D8): the research trigger's pins, APPENDED.
+# Model-code removal, slice S5: no `decide(` site remains, and nothing supplies
+# an operator-forced trigger.
 #
-# `operator_forced_paddle` is a RUN-MODE fact, admitted by the router like
-# every other admitted trigger — so what has to be proved is not that the
-# router treats it specially (it does not, and must not), but that exactly ONE
-# place in the tree can ever supply it, that that place is a mode constant,
-# and that no `decide(` call site anywhere can name it inline.
+# The P22-TRUTHTABLE research-trigger pins that stood here (exactly one place
+# could supply `operator_forced_paddle`, as a module-level constant of one,
+# built by name, and no `decide(` site named it inline) guarded the research
+# mode's two `decide(` sites. Those sites left with the mode, so the pins are
+# replaced by the stronger absence they reduce to: there is no `decide(` site
+# and no `router_inputs(` call outside the router, and no production module
+# supplies ANY operator-forced trigger (visual, visual pair or Paddle). The
+# vocabulary stays (the router defines it, telemetry mirrors it, and
+# `discovery/runner.py::RESEARCH_TRIGGERS` keeps it by name for the report's
+# historical research table, its only reader).
 # ---------------------------------------------------------------------------
 
-#: The one module allowed to name the research trigger outside
-#: `ocr/escalation.py`, where it is DEFINED, and `tests/`, which asserts on it.
-RESEARCH_TRIGGER_SUPPLIER = "discovery/runner.py"
-
-#: The one NAME in that module that may hold it.
-RESEARCH_TRIGGER_CONSTANT = "RESEARCH_TRIGGERS"
+OPERATOR_FORCED_NAMES = ("OPERATOR_FORCED_VISUAL", "OPERATOR_FORCED_VISUAL_PAIR", "OPERATOR_FORCED_PADDLE")
+OPERATOR_FORCED_LITERALS = ("operator_forced_visual", "operator_forced_visual_pair", "operator_forced_paddle")
 
 
-def _research_trigger_mentions() -> dict[str, list[int]]:
-    """Every tracked module that names `operator_forced_paddle` — as a string
-    literal or through the escalation module's constant — and where."""
+def test_no_decide_call_site_remains_anywhere():
+    assert EXPECTED_DECIDE_CALL_SITES == {}
+    sites = [f"{relative}:{call.lineno}" for relative, call in _decide_call_sites_repo_wide()]
+    assert sites == [], sites
+
+
+def test_no_module_outside_the_router_calls_router_inputs():
+    """`router_inputs(...)` is only ever built to be handed to `decide(`; with no site left, a call anywhere
+    (file trees AND embedded program strings, `tests/` excluded) would be the first half of a new one."""
+    offenders = []
+    for relative, source in _tree_sources():
+        for tree in _all_asts_for_source(source):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Call):
+                    func = node.func
+                    name = func.id if isinstance(func, ast.Name) else (
+                        func.attr if isinstance(func, ast.Attribute) else None)
+                    if name == "router_inputs":
+                        offenders.append(f"{relative}:{node.lineno}")
+    assert offenders == [], offenders
+
+
+def _operator_forced_mentions() -> dict[str, list[int]]:
+    """Every tracked module (outside `ocr/escalation.py` and `tests/`) that names an operator-forced trigger,
+    by its `ocr.escalation` constant or as a string constant, and where."""
     mentions: dict[str, list[int]] = {}
     for relative, source in _tree_sources():
-        if relative.replace("\\", "/").startswith("tests/"):
-            continue
-        lines = [
-            number for number, line in enumerate(source.splitlines(), 1)
-            if "operator_forced_paddle" in line or "OPERATOR_FORCED_PADDLE" in line
-        ]
+        lines: set[int] = set()
+        for tree in _all_asts_for_source(source):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name) and node.id in OPERATOR_FORCED_NAMES:
+                    lines.add(node.lineno)
+                elif isinstance(node, ast.alias) and (node.asname or node.name) in OPERATOR_FORCED_NAMES:
+                    lines.add(getattr(node, "lineno", 0))
+                elif isinstance(node, ast.Constant) and node.value in OPERATOR_FORCED_LITERALS:
+                    lines.add(node.lineno)
         if lines:
-            mentions[relative.replace("\\", "/")] = lines
+            mentions[relative.replace("\\", "/")] = sorted(lines)
     return mentions
 
 
-def test_only_the_escalation_module_and_one_runner_constant_name_the_research_trigger():
-    """D8's structural half. The escalation module DEFINES it; the discovery
-    runner names it once, to build its mode constant; the telemetry record
-    mirrors the vocabulary. Nothing else in the tree may spell it — not the
-    webapp worker (whose `decide(` site would otherwise be one keystroke from
-    a hosted research read), not `analysis/`, not `tools/`."""
-    allowed = {
-        RESEARCH_TRIGGER_SUPPLIER,
-        "telemetry/record.py",
-        # The mutation harness's JOB is to spell forbidden shapes verbatim: it
-        # carries the reviewer's N9 as a real textual edit, which is the
-        # literal. It is a `tools/` instrument that executes nothing in
-        # production, it is never imported by any production module, and the
-        # narrower pin below (`test_no_module_spells_the_research_trigger_as_a
-        # _string_constant`, scoped to `discovery/` and `telemetry/`) does not
-        # exempt it at all. Building the literal by concatenation to dodge this
-        # scan would be obfuscation, which is worse than an exemption with a
-        # reason attached.
-        "tools/p22truthtable_mutation_table.py",
-    }
-    mentions = _research_trigger_mentions()
-    unexpected = {name: lines for name, lines in mentions.items() if name not in allowed}
-    assert unexpected == {}, f"the research trigger is named outside {sorted(allowed)}: {unexpected}"
-    assert RESEARCH_TRIGGER_SUPPLIER in mentions
-    # `_tree_sources()` deliberately excludes `ocr/escalation.py` (the module
-    # where `decide` is DEFINED), so its definition is asserted directly
-    # rather than through the scan — otherwise a vanished definition would
-    # read as a clean scan.
-    escalation = (ROOT / "ocr" / "escalation.py").read_text(encoding="utf-8")
-    assert 'OPERATOR_FORCED_PADDLE = "operator_forced_paddle"' in escalation
-
-
-def test_the_research_trigger_constant_is_a_module_level_frozenset_of_one():
-    """It must be a MODULE-LEVEL constant of exactly one member, assigned
-    once. A per-document expression here would smuggle a document fact into
-    the router through `triggers` — the same attack the `enabled=` pin above
-    closes one field over — and a second member would let one flag admit two
-    extractors at once."""
+def test_no_production_module_supplies_an_operator_forced_trigger():
+    """Nothing hands the router an operator-forced trigger: no `decide(` site exists (above), and the triggers'
+    names and literals appear in exactly two places outside the router — telemetry's mirrored vocabulary (string
+    literals, held equal to the router's by `test_the_mirrored_telemetry_vocabulary_matches_exactly`) and
+    `discovery/runner.py`'s `RESEARCH_TRIGGERS`, the import and the one assignment that builds it by name."""
+    mentions = _operator_forced_mentions()
+    assert set(mentions) <= {"telemetry/record.py", "discovery/runner.py"}, mentions
     import discovery.runner as runner_module
 
-    tree = ast.parse(inspect.getsource(runner_module))
-    assignments = [
-        node for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == RESEARCH_TRIGGER_CONSTANT
-                for t in node.targets)
-    ]
-    assert len(assignments) == 1, (
-        f"{RESEARCH_TRIGGER_CONSTANT} must be assigned exactly once, at module level; "
-        f"found {len(assignments)}"
-    )
-    call = assignments[0].value
-    assert isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
-    assert call.func.id == "frozenset", ast.dump(call)
-    assert len(call.args) == 1 and isinstance(call.args[0], ast.Set)
-    assert len(call.args[0].elts) == 1, "one trigger, one extractor"
-    assert getattr(runner_module, RESEARCH_TRIGGER_CONSTANT) == frozenset(
-        {"operator_forced_paddle"})
+    runner_source = inspect.getsource(runner_module)
+    tree = ast.parse(runner_source)
+    allowed_lines = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "ocr.escalation":
+            allowed_lines |= {alias.lineno for alias in node.names if alias.name == "OPERATOR_FORCED_PADDLE"}
+        elif isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "RESEARCH_TRIGGERS"
+                                                  for target in node.targets):
+            allowed_lines.add(node.lineno)
+            members = node.value.args[0].elts
+            assert [m.id for m in members if isinstance(m, ast.Name)] == ["OPERATOR_FORCED_PADDLE"]
+    assert set(mentions.get("discovery/runner.py", [])) <= allowed_lines, (mentions, allowed_lines)
+    assert getattr(runner_module, "RESEARCH_TRIGGERS") == frozenset({"operator_forced_paddle"})
 
 
-#: The ONE file allowed to hold the trigger as a STRING CONSTANT outside
-#: `ocr/escalation.py`: the telemetry record's mirrored vocabulary, which is a
-#: tuple of literals by construction and is held equal to `ALL_TRIGGERS` by its
-#: own test.
-RESEARCH_TRIGGER_LITERAL_ALLOWED = "telemetry/record.py"
-
-
-def test_no_module_spells_the_research_trigger_as_a_string_constant():
-    """The reviewer's N9, closed statically.
-
-    N9 escaped every pin above by spelling the trigger as a STRING LITERAL at a
-    second site inside the one module the name-based pins allow — the AST pins
-    look for `ast.Name` nodes, and a literal is not one. It died behaviourally,
-    which is the protection that matters; this is the static half, so the shape
-    cannot come back and rely on a behavioural test happening to cover the path
-    it lives on (which is exactly how M11 survived once already).
-
-    The rule: no module under `discovery/` or `telemetry/` may hold the trigger
-    as a string constant, except the telemetry record's mirrored vocabulary.
-    `RESEARCH_TRIGGERS` must therefore read `ocr.escalation`'s constant BY
-    NAME, which is asserted alongside — a constant built from a literal would
-    satisfy the shape pin and fail this one.
-    """
-    offenders: dict[str, list[int]] = {}
+def test_the_historical_research_trigger_constant_is_read_only_by_the_report():
+    """`RESEARCH_TRIGGERS` stays for one reader: `discovery/report.py`'s research table, which counts historical
+    research rows whose `escalation_trigger` is in it. No other module may reach for it."""
+    readers = {}
     for relative, source in _tree_sources():
-        normalised = relative.replace("\\", "/")
-        if not (normalised.startswith("discovery/") or normalised.startswith("telemetry/")):
+        if relative == "discovery/runner.py":
             continue
-        if normalised == RESEARCH_TRIGGER_LITERAL_ALLOWED:
-            continue
-        for tree in _all_asts_for_source(source):
-            lines = [node.lineno for node in ast.walk(tree)
-                     if isinstance(node, ast.Constant) and node.value == "operator_forced_paddle"]
-            if lines:
-                offenders.setdefault(normalised, []).extend(lines)
-    assert offenders == {}, (
-        "the research trigger is spelled as a string constant outside "
-        f"{RESEARCH_TRIGGER_LITERAL_ALLOWED}: {offenders} — it must be read from "
-        "ocr.escalation by NAME, so that the name-based pins can see every use"
-    )
-
-    import discovery.runner as runner_module
-
-    tree = ast.parse(inspect.getsource(runner_module))
-    assignment = next(
-        node for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(isinstance(t, ast.Name) and t.id == RESEARCH_TRIGGER_CONSTANT for t in node.targets)
-    )
-    members = assignment.value.args[0].elts
-    assert all(isinstance(member, ast.Name) and member.id == "OPERATOR_FORCED_PADDLE"
-               for member in members), (
-        f"{RESEARCH_TRIGGER_CONSTANT} must be built from ocr.escalation's constant by NAME, "
-        f"not from a literal: {ast.dump(assignment.value)}"
-    )
-
-
-def test_no_decide_call_site_names_the_research_trigger_inline():
-    """A `decide(` site that built `triggers={"operator_forced_paddle"}` in
-    place would satisfy every pin above — the constant would still exist and
-    still be a frozenset of one — while supplying the trigger from somewhere
-    the mode never decided. Every site's `triggers=` argument is therefore
-    checked for the literal, wherever in the expression it sits."""
-    offenders: list[str] = []
-    for relative, call in _decide_call_sites_repo_wide():
-        for node in ast.walk(call):
-            if isinstance(node, ast.Constant) and node.value == "operator_forced_paddle":
-                offenders.append(f"{relative}:{call.lineno}")
-    assert offenders == [], (
-        f"a decide(...) call site names the research trigger inline: {offenders}"
-    )
+        lines = [node.lineno for tree in _all_asts_for_source(source) for node in ast.walk(tree)
+                 if (isinstance(node, ast.Name) and node.id == "RESEARCH_TRIGGERS")
+                 or (isinstance(node, ast.alias) and node.name == "RESEARCH_TRIGGERS")]
+        if lines:
+            readers[relative] = lines
+    assert set(readers) == {"discovery/report.py"}, readers

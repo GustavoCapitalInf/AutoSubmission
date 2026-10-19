@@ -12,8 +12,8 @@ its own.
     python -m discovery --scanned        # tranche 2 (needs local tesseract)
 
 Offline by construction in every mode: `parse_mode="deterministic"` makes the
-LLM branch unreachable and `allow_visual_ocr=False` means `ocr.ocr_client` is
-never even imported. Tests assert both.
+LLM branch unreachable, and the visual OCR client (`ocr.ocr_client`) no longer
+exists (model-code removal, slice S2). Tests assert both.
 
 Two artifacts, two audiences: H-3 telemetry records (hashes and codes, no paths
 — the H-3 sensitivity invariant) and the discovery report (relative paths and

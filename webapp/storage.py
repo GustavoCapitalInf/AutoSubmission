@@ -53,17 +53,22 @@ import json
 import os
 import re
 import sqlite3
+import tempfile
 import uuid
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Sequence
 
 # O-1: the hash definition RELOCATED to ocr/inspect.py (the preflight needs it
 # and ocr must not depend on webapp). Re-exported here so every D-1 consumer
 # (webapp.jobs, tests) keeps importing webapp.storage.content_sha256 — still
 # exactly ONE definition.
 from ocr.inspect import content_sha256
+
+# The data directory's one rename-into-place helper (a brief retry on the Windows refusal while a reader has the
+# target open), shared rather than copied: audit 2026-10-13, BE-4.
+from .settings import _replace as _replace_retrying
 
 __all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]
 
@@ -256,12 +261,23 @@ def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _review_detail(source_location: str, decision: str, actor: str, account: int | None) -> dict:
+    """A review's audit detail. A location numbers a posting within its account, so a review that named the account
+    records it; one that did not records exactly what it always did."""
+    detail: dict = {"source_location": source_location, "decision": decision, "actor": actor}
+    if account is not None:
+        detail["account"] = account
+    return detail
+
+
 def default_data_dir() -> Path:
-    """``WEBAPP_DATA_DIR`` env override, else ``webapp_data/`` at repo root."""
+    """Absolute external override, else the private root's webapp data directory."""
+    from ocr.private_artifacts import private_artifact_path, validate_private_artifact_path
+
     env = os.environ.get("WEBAPP_DATA_DIR", "").strip()
     if env:
-        return Path(env)
-    return Path(__file__).resolve().parents[1] / "webapp_data"
+        return validate_private_artifact_path(env)
+    return private_artifact_path('webapp_data')
 
 
 class Storage:
@@ -271,10 +287,19 @@ class Storage:
     connection (see the module docstring's concurrency notes).
     """
 
-    def __init__(self, data_dir: str | Path | None = None) -> None:
-        self.data_dir = Path(data_dir) if data_dir is not None else default_data_dir()
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, data_dir: str | Path | None = None, *, read_only: bool = False) -> None:
+        """``read_only`` (audit 2026-10-13, BE-1): the store the web app falls back to when the normal one cannot be
+        opened or written at start-up (a full data volume). It creates, migrates and writes nothing — not at
+        construction, and every connection is opened ``mode=ro``, so a write raises instead of landing — and it
+        checks nothing either: the caller asks ``schema_version()`` before serving from it."""
+        from ocr.private_artifacts import validate_private_artifact_path
+
+        self.read_only = read_only
+        self.data_dir = validate_private_artifact_path(data_dir) if data_dir is not None else default_data_dir()
         self.db_path = self.data_dir / "webapp.db"
+        if read_only:
+            return
+        self.data_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
     # ------------------------------------------------------------------
@@ -282,6 +307,11 @@ class Storage:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
+        if self.read_only:
+            # No journal-mode PRAGMA: it needs the write path that failed. The database is already in WAL mode.
+            conn = sqlite3.connect(f"{self.db_path.resolve().as_uri()}?mode=ro", uri=True, timeout=30.0)
+            conn.row_factory = sqlite3.Row
+            return conn
         conn = sqlite3.connect(str(self.db_path), timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -343,12 +373,28 @@ class Storage:
     def save_pdf(self, sha256_upper: str, pdf_bytes: bytes) -> Path:
         """Write ``<content_sha256>.pdf`` into the data directory (idempotent:
         identical content hashes to an identical name, so an existing file is
-        already the right bytes)."""
+        already the right bytes).
+
+        Audit 2026-10-13 (BE-4): written through a temporary file of its own (``tempfile.mkstemp`` beside the target)
+        and renamed into place. One fixed ``<sha>.pdf.tmp`` used to be shared by two requests storing the same new
+        bytes at once, and one of them failed (about one aligned pair in four on Windows, measured). The rename is
+        retried briefly as ``webapp/settings.py`` does (Windows refuses it while a reader has the target open); a
+        rename still refused while the target exists means another request stored these same bytes first, which is
+        the file this call wanted. The temporary file is always removed."""
         path = self.pdf_path(sha256_upper)
-        if not path.exists():
-            tmp = path.with_suffix(".pdf.tmp")
-            tmp.write_bytes(pdf_bytes)
-            os.replace(tmp, path)
+        if path.exists():
+            return path
+        handle, temporary = tempfile.mkstemp(dir=self.data_dir, prefix=f".{sha256_upper[:16]}-", suffix=".pdf.tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(pdf_bytes)
+            try:
+                _replace_retrying(temporary, path)
+            except PermissionError:
+                if not path.exists():
+                    raise
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         return path
 
     def load_pdf(self, sha256_upper: str) -> bytes | None:
@@ -467,16 +513,56 @@ class Storage:
     # documents / jobs
     # ------------------------------------------------------------------
 
-    def record_document(
-        self, sha256_upper: str, filename: str, byte_size: int, page_count: int
-    ) -> int:
+    def record_upload(
+        self,
+        job_id: str,
+        *,
+        filename: str,
+        content_sha256: str | None,
+        byte_size: int = 0,
+        force_ocr: bool = False,
+        parse_mode: str = "auto",
+        page_count: int = 0,
+    ) -> str | None:
+        """Record one upload in ONE transaction: its document row (when it has bytes), its job row and its `upload`
+        audit row. Returns the earliest PRIOR job whose document holds the same bytes, or None.
+
+        Audit 2026-10-13 (BE-2): one transaction is what makes that answer final. `duplicate_of` finds a prior
+        document only through its job row, and the document and job rows used to be written in two transactions, so
+        two concurrent uploads of the same new bytes could commit A's document, then all of B, then A's job: B's
+        answer was None at its upload and named A a moment later. Now no document row is ever visible without its
+        job row; SQLite has one writer at a time and AUTOINCREMENT ids only grow, so document ids follow commit
+        order; and no document or job row is ever deleted or renumbered. Every document with a lower id therefore
+        has its job row when this transaction commits, and the answer read here, inside it, is the one
+        `duplicate_of` gives at any later time, None included. Retention work that deletes or renumbers documents or
+        jobs must revisit this and the `Job.duplicate_of` memo built on it (`webapp/jobs.py`)."""
         with closing(self._connect()) as conn, conn:
-            cursor = conn.execute(
-                "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (sha256_upper, filename, byte_size, page_count, utc_now_iso()),
+            document_id = None
+            if content_sha256 is not None:
+                cursor = conn.execute(
+                    "INSERT INTO documents (content_sha256, filename, byte_size, page_count, uploaded_at)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (content_sha256, filename, byte_size, page_count, utc_now_iso()),
+                )
+                document_id = int(cursor.lastrowid)
+            conn.execute(
+                "INSERT INTO jobs (id, document_id, filename, status, stage, force_ocr,"
+                " parse_mode, page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?, ?)",
+                (job_id, document_id, filename, int(force_ocr), parse_mode, page_count, utc_now_iso()),
             )
-            return int(cursor.lastrowid)
+            self._insert_audit(
+                conn, "upload", job_id=job_id, detail={"filename": filename, "content_sha256": content_sha256},
+            )
+            if document_id is None:
+                return None
+            prior = conn.execute(
+                "SELECT jobs.id FROM jobs"
+                " JOIN documents ON documents.id = jobs.document_id"
+                " WHERE documents.content_sha256 = ? AND documents.id < ?"
+                " ORDER BY documents.id LIMIT 1",
+                (content_sha256, document_id),
+            ).fetchone()
+            return prior["id"] if prior else None
 
     def set_document_profile(self, job_id: str, profile_json: str) -> None:
         """Attach the preflight DocumentProfile (as opaque JSON) to the
@@ -615,6 +701,42 @@ class Storage:
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
 
+    def record_reanalysis(self, job_id: str, *, analysis_json: str, detail: dict) -> bool:
+        """Replace a job's analysis with a re-analysis of its statement (spec §8.6), in ONE transaction: the audit
+        row carrying the analysis being replaced, verbatim, is written first, then the job row takes the new analysis
+        and loses any old analysis error (a re-analysis that produced an analysis has none). `detail` goes into the
+        audit row beside the replaced analysis. Returns False, writing nothing, for a job that does not exist."""
+        with closing(self._connect()) as conn, conn:
+            row = conn.execute(
+                "SELECT analysis_json, analysis_error FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                return False
+            self._insert_audit(
+                conn,
+                "reanalysis",
+                job_id=job_id,
+                detail={
+                    **detail,
+                    "previous_analysis_json": row["analysis_json"],
+                    "previous_analysis_error": row["analysis_error"],
+                },
+            )
+            conn.execute(
+                "UPDATE jobs SET analysis_json = ?, analysis_error = NULL WHERE id = ?",
+                (analysis_json, job_id),
+            )
+        return True
+
+    def in_flight_job_ids(self) -> list[str]:
+        """The jobs left queued/processing, read only (a read-only start-up shows them interrupted without writing)."""
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                f"SELECT id FROM jobs WHERE status IN ({','.join('?' * len(_IN_FLIGHT_STATUSES))})",
+                _IN_FLIGHT_STATUSES,
+            ).fetchall()
+            return [row["id"] for row in rows]
+
     def mark_interrupted_jobs(self, note: str) -> list[str]:
         """Startup re-hydration: any job that was queued/processing when the
         process died is explicitly marked ``interrupted`` with an explanatory
@@ -652,10 +774,13 @@ class Storage:
         decision: str,
         actor: str = "local-analyst",
         prior_state_json: str | None = None,
+        account: int | None = None,
     ) -> None:
         """Apply an analyst review: the stored analysis mutation, the
         append-only decision row (actor, timestamp, prior state) and the
-        audit row land in ONE transaction so no restart can separate them."""
+        audit row land in ONE transaction so no restart can separate them.
+        The account the reviewer named (1-based) goes into the audit row; the
+        prior state already carries the posting's own account number."""
         now = utc_now_iso()
         with closing(self._connect()) as conn, conn:
             conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
@@ -668,8 +793,40 @@ class Storage:
                 conn,
                 "review",
                 job_id=job_id,
-                detail={"source_location": source_location, "decision": decision, "actor": actor},
+                detail=_review_detail(source_location, decision, actor, account),
             )
+
+    def record_reviews(
+        self,
+        job_id: str,
+        *,
+        analysis_json: str,
+        decisions: Sequence[tuple[str, str, str | None, int | None]],
+        actor: str = "local-analyst",
+    ) -> None:
+        """Apply several analyst decisions at once — `(source_location, decision,
+        prior_state_json, account)` each: the stored analysis after every one of
+        them, and for EACH decision its append-only decision row (actor,
+        timestamp, prior state) and its audit row, all in ONE transaction, so a
+        batch lands whole or not at all. Each prior state is the posting's record
+        before the batch (a stored analysis that still carries legacy revenue
+        state names keeps them in every prior state of the batch, where decisions
+        made one at a time would see them renamed from the second on)."""
+        now = utc_now_iso()
+        with closing(self._connect()) as conn, conn:
+            conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
+            for source_location, decision, prior_state_json, account in decisions:
+                conn.execute(
+                    "INSERT INTO review_decisions (job_id, source_location, decision, actor, decided_at, prior_state)"
+                    " VALUES (?, ?, ?, ?, ?, ?)",
+                    (job_id, source_location, decision, actor, now, prior_state_json),
+                )
+                self._insert_audit(
+                    conn,
+                    "review",
+                    job_id=job_id,
+                    detail=_review_detail(source_location, decision, actor, account),
+                )
 
     def review_history(self, job_id: str) -> list[dict]:
         with closing(self._connect()) as conn:

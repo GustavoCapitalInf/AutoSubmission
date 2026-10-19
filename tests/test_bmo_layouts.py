@@ -467,11 +467,15 @@ def test_f15_the_balance_column_is_printed_only_on_the_last_row_of_a_day():
 def test_f16_a_wrapped_description_neither_opens_a_row_nor_carries_money():
     """`RECORD NO.`, the card number and the merchant location stand in the
     Description column under the row. They must not become rows of their own.
+
+    Audit B10 (I05): a deposit's lines below it carry the payer its label does
+    not (`CCD SAMPLE PAYER`), so the deposit publishes them; a withdrawal keeps
+    its label until the owner admits the debit readings (G7).
     """
     stmt = bmo_us_activity.parse_bmo_us_activity_statement(us_statement())
     assert len(stmt.transactions) == 3
     assert [txn.description for txn in stmt.transactions] == [
-        "POS PURCHASE", "ACH DEPOSIT", "TRANSFER OUT"
+        "POS PURCHASE", "ACH DEPOSIT CCD SAMPLE PAYER", "TRANSFER OUT"
     ]
 
 

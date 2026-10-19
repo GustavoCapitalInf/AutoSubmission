@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .date_tokens import date_refusal, iso_from_month_day_strict, iso_or_none, iso_unique_in_period
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -22,23 +23,51 @@ def _money(value: str) -> float:
     return parse_grouped_float(value)
 
 
-def _parse_period(markdown: str) -> tuple[str, str, int] | None:
+def _parse_period(markdown: str) -> tuple[date, date] | None:
     m = re.search(r"Statement Period:\s*(\d{2})/(\d{2})/(\d{4})\s*-\s*(\d{2})/(\d{2})/(\d{4})", markdown)
     if not m:
         return None
     sm, sd, sy, em, ed, ey = [int(part) for part in m.groups()]
-    start = date(sy, sm, sd)
-    end = date(ey, em, ed)
-    return start.isoformat(), end.isoformat(), end.year
+    # `date()` used to raise here with a message that echoed the printed day,
+    # month and year. Still a refusal, now the shared private one (audit
+    # 2026-10-13 PARSERS-2).
+    start, end = iso_or_none(sy, sm, sd), iso_or_none(ey, em, ed)
+    if start is None or end is None:
+        raise date_refusal("ibc.period", m.group(0))
+    return date.fromisoformat(start), date.fromisoformat(end)
 
 
-def _daily_balances(markdown: str) -> dict[str, float]:
+def _period_date(mmdd: str, first: date, last: date) -> str | None:
+    """A printed ``MM/DD`` row or daily-balance date, dated by the PERIOD.
+
+    The rows print no year. Stamping the period's END year (audit 2026-10-13
+    PARSERS-2) dated every December row and daily balance of a
+    December-to-January statement a year late, and the daily map was keyed by
+    ``MM/DD`` so its "first" day was in January and its "last" in December.
+
+    A token that is not a calendar date in any candidate year (``02/30``)
+    refuses, as `date()` did, through the shared private refusal. A real date
+    the period does not contain returns None: the caller DECLINES the document
+    rather than skipping the row or the cell.
+    """
+    years = dict.fromkeys((first.year, last.year))
+    if all(iso_from_month_day_strict(mmdd, year) is None for year in years):
+        raise date_refusal("ibc.row", mmdd)
+    month, day = (int(part) for part in mmdd.split("/"))
+    return iso_unique_in_period(month, day, start=first, end=last)
+
+
+def _daily_balances(markdown: str, *, first: date, last: date) -> dict[str, float] | None:
+    """ISO date -> printed end-of-day balance; None when a cell is outside the period."""
     if "Daily Ending Balance" not in markdown:
         return {}
     block = markdown.split("Daily Ending Balance", 1)[1].split("APCNH", 1)[0]
     balances: dict[str, float] = {}
     for month, day, raw_amount in re.findall(r"(\d{2})/(\d{2})\s+(-?\d[\d,]*\.\d{2})", block):
-        balances[f"{month}/{day}"] = _money(raw_amount)
+        iso = _period_date(f"{month}/{day}", first, last)
+        if iso is None:
+            return None
+        balances[iso] = _money(raw_amount)
     return balances
 
 
@@ -88,13 +117,16 @@ def _average_collected_balance(markdown: str) -> float | None:
     return _money(match.group(1)) if match else None
 
 
-def _parse_deposits(markdown: str, *, year: int) -> list[Transaction]:
+def _parse_deposits(markdown: str, *, first: date, last: date) -> list[Transaction] | None:
     block = markdown.split("Deposits (Credits)", 1)[1].split("Checks (Debits)", 1)[0]
     txns: list[Transaction] = []
     for mmdd, raw_amount in re.findall(r"(\d{2}/\d{2})(?:\s+\d+)?\s+(\d[\d,]*\.\d{2})", block):
+        iso = _period_date(mmdd, first, last)
+        if iso is None:
+            return None
         txns.append(
             Transaction(
-                date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
+                date=iso,
                 description="Deposit",
                 amount=_money(raw_amount),
                 direction="credit",
@@ -103,13 +135,16 @@ def _parse_deposits(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
+def _parse_checks(markdown: str, *, first: date, last: date) -> list[Transaction] | None:
     block = markdown.split("Checks (Debits)", 1)[1].split("--- Page 2 ---", 1)[0]
     txns: list[Transaction] = []
     for mmdd, check_no, raw_amount in re.findall(r"(\d{2}/\d{2})\s+(\d+)\*?\s+(\d[\d,]*\.\d{2})", block):
+        iso = _period_date(mmdd, first, last)
+        if iso is None:
+            return None
         txns.append(
             Transaction(
-                date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
+                date=iso,
                 description=f"Check #{check_no}",
                 amount=-_money(raw_amount),
                 direction="debit",
@@ -118,7 +153,7 @@ def _parse_checks(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _parse_electronic_credits(markdown: str, *, year: int) -> list[Transaction]:
+def _parse_electronic_credits(markdown: str, *, first: date, last: date) -> list[Transaction] | None:
     if "Credits Date Description Amount" not in markdown:
         return []
     block = markdown.split("Credits Date Description Amount", 1)[1].split("Debits Date Description Amount", 1)[0]
@@ -129,9 +164,12 @@ def _parse_electronic_credits(markdown: str, *, year: int) -> list[Transaction]:
     )
     txns: list[Transaction] = []
     for mmdd, description, _, raw_amount in pattern.findall(block):
+        iso = _period_date(mmdd, first, last)
+        if iso is None:
+            return None
         txns.append(
             Transaction(
-                date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
+                date=iso,
                 description=compact_whitespace(description),
                 amount=_money(raw_amount),
                 direction="credit",
@@ -140,7 +178,7 @@ def _parse_electronic_credits(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _parse_electronic_debits(markdown: str, *, year: int) -> list[Transaction]:
+def _parse_electronic_debits(markdown: str, *, first: date, last: date) -> list[Transaction] | None:
     txns: list[Transaction] = []
     pattern = re.compile(
         rf"(\d{{2}}/\d{{2}})\s+(({_DEBIT_KIND_RE}).*?)\s+(\d[\d,]*\.\d{{2}})"
@@ -150,9 +188,12 @@ def _parse_electronic_debits(markdown: str, *, year: int) -> list[Transaction]:
     for part in markdown.split("Debits Date Description Amount")[1:]:
         block = part.split("APCNH", 1)[0].split("00000165", 1)[0]
         for mmdd, description, _, raw_amount in pattern.findall(block):
+            iso = _period_date(mmdd, first, last)
+            if iso is None:
+                return None
             txns.append(
                 Transaction(
-                    date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
+                    date=iso,
                     description=compact_whitespace(description),
                     amount=-_money(raw_amount),
                     direction="debit",
@@ -161,21 +202,32 @@ def _parse_electronic_debits(markdown: str, *, year: int) -> list[Transaction]:
     return txns
 
 
-def _with_daily_running_balances(txns: list[Transaction], daily: dict[str, float], *, year: int) -> list[Transaction]:
+def _with_daily_running_balances(txns: list[Transaction], daily: dict[str, float]) -> list[Transaction]:
+    """Each day's printed balance on that day's last row; both keyed by ISO date."""
     ordered = sorted(txns, key=lambda tx: tx.date)
     last_index_by_day: dict[str, int] = {}
     for idx, tx in enumerate(ordered):
-        dt = date.fromisoformat(tx.date)
-        last_index_by_day[f"{dt.month:02d}/{dt.day:02d}"] = idx
-    for mmdd, balance in daily.items():
-        idx = last_index_by_day.get(mmdd)
+        last_index_by_day[tx.date] = idx
+    for day, balance in daily.items():
+        idx = last_index_by_day.get(day)
         if idx is not None:
             ordered[idx] = ordered[idx].model_copy(update={"running_balance": balance})
     return ordered
 
 
+#: The issuer's name as a WORD (audit 2026-10-13 PARSERS-8). The substring
+#: "IBC" also fires inside "CIBC", which every CIBC statement prints and which
+#: RBC, TD and BMO documents carry in counterparty text: IBC's claim then rested
+#: on its product phrase alone, and every such document published a false
+#: `ibc` near-miss. Measured over the main checkout's OCR cache by the
+#: verifier: the word form keeps 3 of the 3 documents that print the product
+#: phrase. Only a glued spelling ("IBCBANK", printed by none of them) is lost.
+#: Not the legal name (none of the three prints it), and not an unanchored
+#: domain (``ibc.com`` sits inside ``cibc.com``).
+_ISSUER_WORD_RE = re.compile(r"(?<![A-Za-z])IBC(?![A-Za-z])")
+
 DETECTION_MARKERS = (
-    required("bank_name", lambda t: "IBC" in t),
+    required("bank_name", lambda t: _ISSUER_WORD_RE.search(t) is not None),
     required("product", lambda t: "Biz Rite Account Recap" in t),
 )
 
@@ -187,10 +239,14 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
         return None
     period = _parse_period(markdown)
     summary = _summary(markdown)
-    daily = _daily_balances(markdown)
-    if period is None or summary is None or not daily:
+    if period is None or summary is None:
         return None
-    start, end, year = period
+    start_date, end_date = period
+    # Every printed date is read through the period (`_period_date`); a row or
+    # a daily balance the period does not contain declines the document.
+    daily = _daily_balances(markdown, first=start_date, last=end_date)
+    if not daily:
+        return None
     (
         account,
         beginning_balance,
@@ -202,10 +258,12 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
         service_charge,
     ) = summary
 
-    deposits = _parse_deposits(markdown, year=year)
-    electronic_credits = _parse_electronic_credits(markdown, year=year)
-    checks = _parse_checks(markdown, year=year)
-    electronic_debits = _parse_electronic_debits(markdown, year=year)
+    deposits = _parse_deposits(markdown, first=start_date, last=end_date)
+    electronic_credits = _parse_electronic_credits(markdown, first=start_date, last=end_date)
+    checks = _parse_checks(markdown, first=start_date, last=end_date)
+    electronic_debits = _parse_electronic_debits(markdown, first=start_date, last=end_date)
+    if deposits is None or electronic_credits is None or checks is None or electronic_debits is None:
+        return None
     txns = deposits + electronic_credits + checks + electronic_debits
 
     credits = round(sum(tx.amount for tx in txns if tx.amount > 0), 2)
@@ -225,15 +283,13 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
     if abs(detail_beginning - first_balance) > 0.01:
         return None
 
-    start_date = date.fromisoformat(start)
-    end_date = date.fromisoformat(end)
     printed_average = _average_collected_balance(markdown)
     return Statement(
         bank="IBC Bank",
         account_name="Biz Rite Account",
         account_number=account,
-        period_start=start,
-        period_end=end,
+        period_start=start_date.isoformat(),
+        period_end=end_date.isoformat(),
         days_in_period=(end_date - start_date).days + 1,
         beginning_balance=beginning_balance,
         ending_balance=ending_balance,
@@ -247,11 +303,8 @@ def parse_ibc_statement(markdown: str) -> Statement | None:
             "Average Collected Balance" if printed_average is not None else None
         ),
         stated_daily_balances=[
-            StatementDailyBalance(
-                date=date(year, int(mmdd[:2]), int(mmdd[3:])).isoformat(),
-                balance=balance,
-            )
-            for mmdd, balance in sorted(daily.items())
+            StatementDailyBalance(date=day, balance=balance)
+            for day, balance in sorted(daily.items())
         ],
-        transactions=_with_daily_running_balances(txns, daily, year=year),
+        transactions=_with_daily_running_balances(txns, daily),
     )

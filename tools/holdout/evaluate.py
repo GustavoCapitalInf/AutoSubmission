@@ -41,8 +41,10 @@ is; with `rows.csv` alone the only comparable figure is the row's
 `account_count`, which can yield `agree_partial` at most. A value that does
 not parse (a figure export's `n/a`) is NOT compared — it is listed under
 `unparseable` in the detail and never becomes a contradiction. A system
-`refused` row (R11, cell T) classes as `unclassified` until its reasons are
-mapped here. Money is compared as `Decimal` VALUES (never as text): `100`,
+`refused` row (R11, cell T) classes by its reason (`_REASON_CLASS`):
+`insufficient_evidence`, the one refusal the discovery runner records (since
+slice S5 of the model-code removal), is A; any other refusal reason classes
+as `unclassified` until it is mapped there. Money is compared as `Decimal` VALUES (never as text): `100`,
 `100.00` and `100.000` are one figure, `-0.00` is `0`, and a ledger amount
 matches a sampled row whatever scale either side printed (review NEW-1).
 """
@@ -92,7 +94,10 @@ JUDGEMENTS = (
 MISS_CLASSES = ("A", "B", "C", "unclassified")
 #: Reason -> class when the row carries no `failure_class` (the run of record's
 #: own vocabulary: extraction-level reasons are A, dispatch reasons B,
-#: validator reasons C).
+#: validator reasons C). Append-only: `insufficient_evidence` is the reason the
+#: discovery runner records, since slice S5 of the model-code removal, for what
+#: was `deferred_visual_ocr` (the offline ladder read nothing usable), so it is
+#: the same extraction-level class.
 _REASON_CLASS = {
     "deferred_visual_ocr": "A",
     "invalid_pdf": "A",
@@ -100,6 +105,7 @@ _REASON_CLASS = {
     "parser_declined": "B",
     "withheld_adb": "C",
     "integrity_flags": "C",
+    "insufficient_evidence": "A",
 }
 _UNPARSEABLE = object()
 

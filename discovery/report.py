@@ -115,12 +115,31 @@ class Rollups:
 
 
 #: P22-TRUTHTABLE. The two labels that are DERIVED rather than carried: R is
-#: the deferral the offline ladder records when it produced no text at all,
-#: and U is a Tesseract read no reader claimed. Both are the definitions the
-#: Phase-2 baseline was measured with (`PHASE2-RULES.md` §"Baseline triggers"),
+#: "the offline ladder (Tesseract included) produced no text at all", and U is
+#: a Tesseract read no reader claimed. Both are the definitions the Phase-2
+#: baseline was measured with (`PHASE2-RULES.md` §"Baseline triggers"),
 #: restated here so the report and that baseline cannot drift apart.
+#:
+#: R has two spellings (plan D19). Until slice S5 of the model-code removal
+#: the runner recorded it as the deferral `deferred_visual_ocr`; since S5 it
+#: records `refused:insufficient_evidence` with `source_path` `none` (the
+#: visual rung the deferral waited for is gone). R counts BOTH, so its meaning
+#: and its count are unchanged across the move. The new spelling was measured
+#: absent from every local historical `rows.csv` before S5 (0 of 201,769 rows
+#: in 170 discovery runs), so no historical R moves.
 R_LABEL_REASON = "deferred_visual_ocr"
+R_REFUSED_CLASS = "refused"
+R_REFUSED_REASON = "insufficient_evidence"
+R_REFUSED_SOURCE = "none"
 U_LABEL_SOURCE = "local_tesseract"
+
+
+def offline_ladder_read_nothing(row) -> bool:
+    """Trigger R for one row, in either spelling (see `R_LABEL_REASON`)."""
+    if row.outcome_reason == R_LABEL_REASON:
+        return True
+    return (row.outcome_class == R_REFUSED_CLASS and row.outcome_reason == R_REFUSED_REASON
+            and row.source_path == R_REFUSED_SOURCE)
 
 #: The funnel stage columns, in `ROW_FIELDS` order. One list, read by the
 #: research table and by nothing else in this module.
@@ -389,7 +408,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     diagnostic_labels = {
         "note": "overlapping; never summed",
         "R": sum(1 for sha in shas
-                 if any(r.outcome_reason == R_LABEL_REASON for r in groups[sha])),
+                 if any(offline_ladder_read_nothing(r) for r in groups[sha])),
         "U": sum(1 for sha in shas
                  if any(r.source_path == U_LABEL_SOURCE and r.dispatch_outcome != "claimed"
                         for r in groups[sha])),
@@ -408,7 +427,10 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     #: inside it. `attempted` counts the documents the router actually admitted
     #: the research trigger for; a population miss and a holdout refusal are
     #: their own lines, because "we did not study this" and "we studied it and
-    #: it produced nothing" are different findings.
+    #: it produced nothing" are different findings. Row-driven, and kept when
+    #: the research mode was removed (slice S5): a historical research run's
+    #: rows still summarize exactly as before; a run today has no research row,
+    #: so `research` is None and `research_rows` 0.
     attempted = [r for r in research_rows if r.escalation_trigger in RESEARCH_TRIGGERS]
     research = None
     if research_partition or research_rows:
@@ -484,7 +506,9 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
         # W3-5: what the visual rung did, over EVERY enumerated document. Rows
         # whose visual read failed closed are `failed` and so already counted in
         # `outcome`; this is the second axis — how many documents the rung was
-        # asked for, and what it bought. Empty in every offline mode.
+        # asked for, and what it bought. Empty in every offline mode, so in
+        # every run since the rungs were removed (slices S2 and S5); the
+        # roll-ups below keep their keys so a historical run summarizes as it did.
         "visual_rung": dict(
             Counter(
                 r.visual_rung for r in rows
@@ -492,7 +516,8 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
             ).most_common()
         ),
         # P21-ROUTING (Phase 2.1). The SAME shape as `visual_rung` above, for
-        # the Paddle rung — empty in every mode but `--scanned-paddle`.
+        # the Paddle rung — empty in every mode but the retired
+        # `--scanned-paddle` / `--research-paddle` (slice S5).
         "paddle_rung": dict(
             Counter(
                 r.paddle_rung for r in rows
@@ -506,10 +531,11 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
             ).most_common()
         ),
         # P20-ROUTER (Phase 2.0). `escalation_budget` is `None` (unbounded)
-        # unless the caller set one (`discovery/cli.py::run()`, `--scanned-
-        # visual` only); `failure_class`/`escalation_trigger` are measurement
-        # rollups over EVERY enumerated row, empty in every offline mode
-        # exactly like `visual_rung` above.
+        # unless the caller set one (`discovery/cli.py::run()` did, for the
+        # retired escalation modes only; since slice S5 it passes None and 0);
+        # `failure_class`/`escalation_trigger` are measurement rollups over
+        # EVERY enumerated row, and `escalation_trigger` is empty in every
+        # offline mode exactly like `visual_rung` above.
         "escalation_budget": escalation_budget,
         "escalations_used": escalations_used,
         "failure_class": dict(
@@ -827,6 +853,31 @@ ROW_FIELDS = [
     "document_class", "class_sub_kind", "class_modality", "class_account_kind",
     "class_tier", "class_signals", "class_version", "completeness_findings",
     "classifier_exception",
+    # P23-EGATE (Phase 2.3, cell E). APPENDED, never reordered, for the same
+    # reason every block above was: a reader that selects columns by name is
+    # unaffected and one that reads by position keeps every position it had.
+    # Thirteen extraction-quality columns, in `ocr.extraction_quality.
+    # EQ_ROW_COLUMNS` order — which is the one table that says which figure
+    # and which per-document fold each column carries, so the row and the
+    # census cannot disagree about what a column means. MEASURED and
+    # VERSIONED (`eq_version`), admitted as NOTHING: no trigger, no verdict,
+    # no router input reads any of them (Ruling B's discipline; the router's
+    # own module does not import the one that computes them). Empty on every
+    # production row by construction — no production partition carries
+    # extractor evidence. No cost, rate, price or billing column here either.
+    "eq_version", "eq_word_count", "eq_density", "eq_rec_mean", "eq_rec_p10",
+    "eq_money_rate", "eq_lexicon_rate", "eq_garbage_rate", "eq_line_height_cv",
+    "eq_right_edge_residual", "eq_ink_outside_boxes", "eq_orientation_votes", "eq_class",
+    # P23-AGREE (Phase 2.3 cell X, card item 2). APPENDED, never reordered,
+    # exactly like the block above: the native<->extractor agreement
+    # statistics and the geometry census of the document, EMPTY on every row
+    # that does not carry both readings. See `discovery/runner.py`'s
+    # `DocumentRow` for what each column carries and how it is folded, and
+    # `layout/agreement.py` for what each measures. Review evidence only —
+    # no threshold, no class, no verdict, and (still) no cost column anywhere.
+    "agree_version", "agree_pages", "agree_matched_native", "agree_matched_paddle",
+    "agree_char", "agree_amounts", "agree_dates", "agree_unmatched_table_density",
+    "agree_frame_mismatch", "geom_rotation", "geom_skew_deg", "geom_page_size",
 ]
 
 

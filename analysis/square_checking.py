@@ -37,10 +37,35 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from .holder_name import (
+    CITY_STATE_ZIP, NO_READING, HolderReading, first_page, page_lines, read_address_block, read_address_line,
+)
 from .money import parse_grouped_float
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, group_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the period line Square prints on page 1 right above the holder's mailing block
+#: ('Checking statement May 1 - May 31, 2054').
+_STATEMENT_LINE = re.compile(r"^Checking statement\b", re.IGNORECASE)
+#: The mailing block's lines read at most (the name, a DBA line, the street, the city).
+_MAILING_BLOCK_LINES = 4
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name, the mailing block after page 1's period line: its first
+    name line before the street (a DBA line kept, any other second line never), or, where the reading ran the block
+    onto one line closing on a state and ZIP, the name before the address there; NO_READING without the period line or
+    a street line after the name. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the account title the
+    line or the block prints after the name (analysis.holder_name.read_address_block)."""
+    lines = page_lines(first_page(markdown))
+    for index, line in enumerate(lines[:-1]):
+        if _STATEMENT_LINE.match(line):
+            following = lines[index + 1]
+            if CITY_STATE_ZIP.search(following):
+                return read_address_line(following)
+            return read_address_block(lines[index + 1:index + 1 + _MAILING_BLOCK_LINES])
+    return NO_READING
 
 _MONTHS = {
     "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "MAY": 5, "JUNE": 6,
@@ -213,6 +238,7 @@ def parse_square_checking_statement(markdown: str) -> Statement | None:
     beginning, _activities, ending = summary
 
     stmt = Statement(bank="Square", currency="USD", currency_source="institution_default")
+    stmt.holder_name, stmt.account_title = _holder_reading(markdown)
     stmt.period_start = period_start.isoformat()
     stmt.period_end = period_end.isoformat()
     stmt.beginning_balance = beginning

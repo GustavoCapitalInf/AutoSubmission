@@ -12,6 +12,7 @@ from .transaction_classifier import (
 )
 from .payload_shape import DOCUMENT_KEY, account_content_digest
 from .revenue import rebuild_serialized_revenue_views
+from . import zelle_view
 
 if TYPE_CHECKING:
     from .pipeline import DocumentReport, Report
@@ -65,6 +66,10 @@ def _funder_dict(match) -> dict:
         "potential_withholding_formula": match.potential_withholding_formula,
         "review_required": match.review_required,
         "status": match.status,
+        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder's payments returned unpaid, never in
+        # debit_count or total_debited (paid to lenders); their rows are among `transactions` and `evidence`.
+        "returned_payment_count": match.returned_count,
+        "returned_payment_total": match.returned_total,
         "transactions": [
             _transaction_dict(transaction, evidence)
             for transaction, evidence in zip(match.transactions, match.evidence)
@@ -84,6 +89,25 @@ def _insurance_dict(match) -> dict:
             for transaction, evidence in zip(match.transactions, match.evidence)
         ],
         "evidence": [asdict(evidence) for evidence in match.evidence],
+    }
+
+
+def _flagged_dict(match) -> dict:
+    """Spec §6 (C5): one flagged position, exactly the contract's keys."""
+    return {
+        "group": match.group,
+        "payee": match.payee,
+        "matched_alias": match.matched_alias,
+        "count": match.count,
+        "total_debited": match.total_debited,
+        "count_credited": match.count_credited,
+        "total_credited": match.total_credited,
+        "cadence": match.cadence,
+        "avg_gap_days": match.avg_gap_days,
+        "first_date": match.first_date,
+        "last_date": match.last_date,
+        "source_locations": list(match.source_locations),
+        "review_required": match.review_required,
     }
 
 
@@ -137,6 +161,21 @@ def _metrics_dict(metrics) -> dict:
 
 
 def report_to_dict(report: Report) -> dict:
+    """One account's published payload: the stored (No) Zelle reading, rebuilt (`_account_payload`). The owner's
+    amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §9.1; R2-OW17): an account whose counted (Yes)
+    reading differs carries, after the rebuild, the lean edits that turn it into that reading (ZELLE_EDITS_KEY,
+    analysis/zelle_view.py). A statement with no Zelle row publishes today's payload byte for byte."""
+    payload = _account_payload(report)
+    counted = getattr(report, "zelle_counted", None)
+    if counted is not None:
+        edits = zelle_view.reading_edits(payload, _account_payload(counted))
+        if edits:
+            payload[zelle_view.ZELLE_EDITS_KEY] = edits
+    return payload
+
+
+def _account_payload(report: Report) -> dict:
+    """One Report's account payload in its own reading, its revenue views rebuilt (today's `report_to_dict` body)."""
     records = report.classifications or classify_statement_transactions(report.statement)
     if len(records) != len(report.statement.transactions):
         raise ValueError("classification count must equal transaction count")
@@ -166,12 +205,20 @@ def report_to_dict(report: Report) -> dict:
             "known_funders": [_funder_dict(match) for match in detection.known_funders],
             "potential_lenders": [_funder_dict(match) for match in detection.potential_lenders],
             "insurance_providers": [_insurance_dict(match) for match in detection.insurance_providers],
+            "flagged_positions": [_flagged_dict(match) for match in detection.flagged_positions],
             "recurring_debits": [_recurring_dict(item) for item in detection.recurring_debits],
             "lender_evidence": [asdict(item) for item in detection.lender_evidence],
             "potential_lender_evidence": [
                 asdict(item) for item in detection.potential_lender_evidence
             ],
             "insurance_evidence": [asdict(item) for item in detection.insurance_evidence],
+            # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the returned funder payments, the warning's items.
+            "returned_funder_payments": [dict(item) for item in detection.returned_funder_payments],
+            # The owner's request of 2026-10-06 (lender payment changes; R2-OW18).
+            "lender_payment_changes": [dict(item) for item in detection.lender_payment_changes],
+            # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs' lines, after
+            # R2-OW18's list (which follows the returned payments).
+            "lump_sum_payoffs": [dict(item) for item in detection.lump_sum_payoffs],
             "verified_revenue_evidence": [
                 asdict(item) for item in detection.verified_revenue_evidence
             ],
@@ -181,8 +228,15 @@ def report_to_dict(report: Report) -> dict:
             "non_revenue_evidence": [
                 asdict(item) for item in detection.non_revenue_evidence
             ],
+            # 5.6 (§9.1): the counted and held credits; true_revenue_evidence is repointed to verified plus counted.
+            "counted_flagged_evidence": [
+                asdict(item) for item in detection.counted_flagged_evidence
+            ],
+            "excluded_pending_review_evidence": [
+                asdict(item) for item in detection.excluded_pending_review_evidence
+            ],
             "true_revenue_evidence": [
-                asdict(item) for item in detection.verified_revenue_evidence
+                asdict(item) for item in detection.true_revenue_evidence
             ],
             "potential_revenue_evidence": [
                 asdict(item) for item in detection.unverified_deposit_evidence
@@ -346,11 +400,11 @@ def _document_block(document: DocumentReport, *, always: bool = False) -> dict |
     facts = (
         document.document_period, document.rollup, document.omissions,
         document.boundary_mechanism, document.internal_transfers,
-        document.integrity_notes,
+        document.integrity_notes, document.account_roster,
     )
     if not always and not any(facts):
         return None
-    return {
+    block = {
         "period_start": document.document_period[0] if document.document_period else None,
         "period_end": document.document_period[1] if document.document_period else None,
         "boundary_mechanism": document.boundary_mechanism,
@@ -394,3 +448,21 @@ def _document_block(document: DocumentReport, *, always: bool = False) -> dict |
         # package's aggregation of this document and nothing else (§3.3, Q2).
         "integrity_notes": list(document.integrity_notes),
     }
+    if document.account_roster:
+        # Every account the document prints, in printed order, and how each stands: `published` (its analysis is
+        # `accounts[published_index]`, or the payload itself on a single published account), `idle` (an unchanged
+        # printed balance), `held` (not verified, with its reason codes; no figure of it is published). Present
+        # only when a reader judged the document account by account, so every other payload is unchanged.
+        block["account_roster"] = [
+            {
+                "title": entry.title,
+                "kind": entry.kind,
+                "number_last4": entry.number_last4,
+                "status": entry.status,
+                "published_index": entry.published_index,
+                "balance": entry.balance,
+                "reasons": list(entry.reasons),
+            }
+            for entry in document.account_roster
+        ]
+    return block

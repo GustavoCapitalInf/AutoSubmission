@@ -674,3 +674,275 @@ def test_f9_the_scope_is_what_makes_the_direction_comparable():
 
     assert counts_comparable("bank_of_america", "debit") is True
     assert counts_comparable("bank_of_america", "credit") is True
+
+
+# ---------------------------------------------------------------------------
+# F10 — the Daily ledger balances table (owner report 2026-10-08, NSF)
+#
+# Bank of America prints its own end-of-day balance for each day it lists in a
+# `Daily ledger balances` table, and the list includes the cycle's opening day
+# even when nothing posts on it. The owner ruling of 2026-09-22 counts NSF days
+# on the PRINTED days: a posting day, or a day the bank printed in its daily
+# balance table. The parser never read the table, so a cycle opening on a quiet
+# day that ends negative lost that day from the printed-day count (the ledger
+# called it `carried`). The table is published as `stated_daily_balances` only
+# when every cell equals the printed beginning balance walked through the
+# parsed rows, so it relabels printed days and never moves a balance. Every
+# name, date and figure below is invented.
+# ---------------------------------------------------------------------------
+
+from analysis.adb import compute_average_daily_balance  # noqa: E402
+from analysis.nsf_days import list_negative_days, negative_day_count  # noqa: E402
+from analysis.pipeline import analyze_markdown  # noqa: E402
+
+LEDGER_HEADER = "Daily ledger balances Date Balance ($) Date Balance($) Date Balance ($)"
+
+#: 03/01 opens the cycle at -500.00 with nothing posted; the 03/09 debit and its
+#: overdraft fee end that day at -310.00; 03/10 posts nothing; 03/11 recovers.
+QUIET_NEGATIVE_OPENING_TABLE = f"""{LEDGER_HEADER}
+03/01 -500.00 03/09 -310.00
+03/02 1,500.00 03/11 690.00
+"""
+
+QUIET_NEGATIVE_OPENING_ROWS = """
+Deposits and other credits Date Description Amount
+03/02/54 FABRIKAM PAYMENTS DES:DEPOSIT ID:0001 2,000.00
+03/11/54 SAMPLE CUSTOMER DES:PAYMENT ID:0002 1,000.00
+Total deposits and other credits $3,000.00
+Withdrawals and other debits Date Description Amount
+03/09/54 NORTHWIND LEASING DES:PAYMENT ID:0003 -1,800.00
+Total withdrawals and other debits -$1,800.00
+Service fees
+Date Transaction description Amount
+03/09/54 OVERDRAFT ITEM FEE FOR ACTIVITY OF 03-09 -10.00
+Total service fees -$10.00
+Note your Ending Balance already reflects the subtraction of Service Fees.
+"""
+
+
+def ledger_document(*, table: str = QUIET_NEGATIVE_OPENING_TABLE,
+                    rows: str = QUIET_NEGATIVE_OPENING_ROWS,
+                    first: str = "March 1, 2054", last: str = "March 31, 2054",
+                    beginning: str = "-$500.00", ending: str = "$690.00",
+                    credits: str = "3,000.00", credits_n: int = 2,
+                    debits: str = "1,800.00", debits_n: int = 2,
+                    fees: str = "10.00") -> str:
+    return f"""
+bankofamerica.com
+Bank of America, N.A.
+Your Business Advantage Fundamentals Banking
+for {first} to {last} Account number: 1111 2222 3333
+CONTOSO TRADING LLC
+Account summary
+Beginning balance on {first} {beginning}
+# of deposits/credits: {credits_n}
+Deposits and other credits {credits}
+# of withdrawals/debits: {debits_n}
+Withdrawals and other debits -{debits}
+# of days in cycle: 31
+Checks -0.00
+Service fees -{fees}
+Ending balance on {last} {ending}
+Your checking account
+{rows}{table}"""
+
+
+def printed(stmt) -> list[tuple[str, float]]:
+    return [(entry.date, entry.balance) for entry in stmt.stated_daily_balances]
+
+
+def test_f10_the_daily_ledger_table_is_read_as_the_banks_own_balances():
+    stmt = parse_bofa_statement(ledger_document())
+
+    assert stmt is not None
+    assert printed(stmt) == [
+        ("2054-03-01", -500.0), ("2054-03-02", 1500.0), ("2054-03-09", -310.0), ("2054-03-11", 690.0),
+    ]
+    # The series is evidence, never activity: the rows are the sections' rows.
+    assert amounts(stmt) == [2000.0, 1000.0, -1800.0, -10.0]
+
+
+def test_f10_a_quiet_opening_day_the_bank_printed_negative_is_a_printed_negative_day():
+    md = ledger_document()
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+    result = compute_average_daily_balance(stmt, source_markdown=md)
+
+    assert result.ok is True
+    assert result.stated_daily_balance_count == 4
+    assert (result.daily_balances[0].date, result.daily_balances[0].source) == ("2054-03-01", "bank_daily_summary")
+    assert result.daily_balances[0].transaction_count == 0
+    # The printed basis counts 03/01 (bank-printed) and 03/09 (a posting day).
+    assert negative_day_count(result.daily_balances, carry_over=False) == 2
+    # The carry-over basis adds 03/10, which carries 03/09's -310.00.
+    assert negative_day_count(result.daily_balances, carry_over=True) == 3
+    # 1 x -500 + 7 x 1,500 + 2 x -310 + 21 x 690 = 23,870 over 31 days.
+    assert result.underwriting_adb == 770.0
+
+    rows = [t.model_dump() for t in stmt.transactions]
+    listed = list_negative_days(result.daily_balances, rows, carry_over=False)
+    # Both days are in the bank's table, so both carry its label.
+    assert [(day["date"], day["ending_balance"], day["source"]) for day in listed] == [
+        ("2054-03-01", -500.0, "bank_daily_summary"), ("2054-03-09", -310.0, "bank_daily_summary"),
+    ]
+    # 03/01 has no posting on or before it, so no posting ended it.
+    assert listed[0]["source_location"] is None
+
+
+def test_f10_the_table_relabels_printed_days_and_moves_no_balance():
+    md = ledger_document()
+    stmt = repair_bofa_summary(md, parse_bofa_statement(md))
+    with_table = compute_average_daily_balance(stmt, source_markdown=md)
+    without = compute_average_daily_balance(stmt.model_copy(update={"stated_daily_balances": []}), source_markdown=md)
+
+    assert with_table.ok is True and without.ok is True
+    assert [d.ending_balance for d in with_table.daily_balances] == [d.ending_balance for d in without.daily_balances]
+    assert with_table.underwriting_adb == without.underwriting_adb
+    relabelled = [d.date for d, e in zip(with_table.daily_balances, without.daily_balances) if d.source != e.source]
+    # The bank-printed quiet day was `carried`; the printed posting days were `reconstructed`.
+    assert relabelled == ["2054-03-01", "2054-03-02", "2054-03-09", "2054-03-11"]
+    assert without.daily_balances[0].source == "carried"
+    assert negative_day_count(without.daily_balances, carry_over=False) == 1
+
+
+def test_f10_the_dashboard_counts_the_quiet_printed_negative_opening_day():
+    metrics = analyze_markdown(ledger_document(), parse_mode="deterministic").metrics
+
+    assert metrics.adb_ok is True
+    assert metrics.average_daily_balance == 770.0
+    assert metrics.nsf_source == "negative_printed_days"
+    assert metrics.negative_printed_days == 2
+    assert metrics.effective_nsf_count == 2
+    assert metrics.negative_days == 3
+
+
+def test_f10_a_table_continued_across_a_page_is_read_whole():
+    table = f"""{LEDGER_HEADER}
+03/01 -500.00 03/02 1,500.00
+continued on the next page
+Page 3 of 4
+
+--- Page 4 ---
+
+CONTOSO TRADING LLC   !   Account # 1111 2222 3333   !   March 1, 2054 to March 31, 2054
+Daily ledger balances - continued Date Balance ($) Date Balance($) Date Balance ($)
+03/09 -310.00 03/11 690.00
+Page 4 of 4
+"""
+    stmt = parse_bofa_statement(ledger_document(table=table))
+
+    assert stmt is not None
+    assert printed(stmt) == [
+        ("2054-03-01", -500.0), ("2054-03-02", 1500.0), ("2054-03-09", -310.0), ("2054-03-11", 690.0),
+    ]
+    assert amounts(stmt) == [2000.0, 1000.0, -1800.0, -10.0]
+
+
+def test_f10_negative_a_cell_that_disagrees_with_the_ledger_publishes_no_table():
+    """`analysis/adb.py` lets a bank snapshot OVERRIDE the reconstructed balance,
+    so a cell this reader cannot vouch for must never reach it: one cell off and
+    the whole table is withheld, leaving the ledger and the count as they were."""
+    table = QUIET_NEGATIVE_OPENING_TABLE.replace("03/09 -310.00", "03/09 -300.00")
+    md = ledger_document(table=table)
+    stmt = parse_bofa_statement(md)
+
+    assert stmt is not None
+    assert stmt.stated_daily_balances == []
+    metrics = analyze_markdown(md, parse_mode="deterministic").metrics
+    assert metrics.adb_ok is True
+    assert metrics.average_daily_balance == 770.0
+    assert metrics.effective_nsf_count == 1
+
+
+@pytest.mark.parametrize("table", [
+    QUIET_NEGATIVE_OPENING_TABLE,
+    # Every cell this table prints agrees with the rows that were read.
+    f"{LEDGER_HEADER}\n03/01 -500.00 03/09 -310.00\n03/02 1,500.00\n",
+])
+def test_f10_negative_a_row_the_parser_did_not_read_publishes_no_table(table):
+    """The walk must close on the printed ending balance as well as meet every
+    cell: a ledger missing a row is not one a bank snapshot may patch."""
+    rows = QUIET_NEGATIVE_OPENING_ROWS.replace("03/11/54 SAMPLE CUSTOMER DES:PAYMENT ID:0002 1,000.00\n", "")
+    stmt = parse_bofa_statement(ledger_document(rows=rows, table=table))
+
+    assert stmt is not None
+    assert amounts(stmt) == [2000.0, -1800.0, -10.0]
+    assert stmt.stated_daily_balances == []
+
+
+def test_f10_negative_a_row_dated_outside_the_printed_period_publishes_no_table():
+    """The walk is the printed period's: a row it cannot place there (here a
+    waived fee, so every total still closes) leaves it unable to vouch."""
+    rows = QUIET_NEGATIVE_OPENING_ROWS.replace(
+        "Total service fees -$10.00", "02/27/54 Prfd Rwds for Bus-Wire Fee Waiver of $30 -0.00\nTotal service fees -$10.00")
+    stmt = parse_bofa_statement(ledger_document(rows=rows))
+
+    assert stmt is not None
+    assert [t.date for t in stmt.transactions][-1] == "2054-02-27"
+    assert stmt.stated_daily_balances == []
+
+
+@pytest.mark.parametrize("cell", [
+    "02/30 1,500.00",     # no calendar holds it
+    "02/28 -500.00",      # before the printed period
+    "03/09 -310.00",      # a day printed twice
+])
+def test_f10_negative_an_undatable_or_repeated_cell_publishes_no_table(cell):
+    table = QUIET_NEGATIVE_OPENING_TABLE.replace("03/02 1,500.00 03/11 690.00",
+                                                 f"03/02 1,500.00 03/11 690.00 {cell}")
+    stmt = parse_bofa_statement(ledger_document(table=table))
+
+    assert stmt is not None
+    assert stmt.stated_daily_balances == []
+
+
+def test_f10_negative_a_sentence_that_opens_with_the_heading_is_not_a_table():
+    table = "Daily ledger balances are shown for each day with activity.\n03/01 -500.00 03/09 -310.00\n"
+    stmt = parse_bofa_statement(ledger_document(table=table))
+
+    assert stmt is not None
+    assert stmt.stated_daily_balances == []
+
+
+def test_f10_a_cycle_across_the_new_year_dates_each_cell_by_the_printed_period():
+    table = f"""{LEDGER_HEADER}
+12/16 -200.00 01/02 -100.00
+12/20 800.00 01/05 200.00
+"""
+    rows = """
+Deposits and other credits Date Description Amount
+12/20/53 FABRIKAM PAYMENTS DES:DEPOSIT ID:0001 1,000.00
+01/05/54 SAMPLE CUSTOMER DES:PAYMENT ID:0002 300.00
+Total deposits and other credits $1,300.00
+Withdrawals and other debits Date Description Amount
+01/02/54 NORTHWIND LEASING DES:PAYMENT ID:0003 -900.00
+Total withdrawals and other debits -$900.00
+"""
+    md = ledger_document(table=table, rows=rows, first="December 16, 2053", last="January 15, 2054",
+                         beginning="-$200.00", ending="$200.00", credits="1,300.00", debits="900.00",
+                         debits_n=1, fees="0.00")
+    stmt = parse_bofa_statement(md)
+
+    assert stmt is not None
+    assert printed(stmt) == [
+        ("2053-12-16", -200.0), ("2053-12-20", 800.0), ("2054-01-02", -100.0), ("2054-01-05", 200.0),
+    ]
+    metrics = analyze_markdown(md, parse_mode="deterministic").metrics
+    assert metrics.adb_ok is True
+    assert metrics.effective_nsf_count == 2           # 12/16 (printed, quiet) and 01/02
+
+
+def test_f10_the_table_summary_layout_reads_the_table_too():
+    """The HTML-table account summary (no archive document takes it) parses the
+    same rows, so it publishes the same verified series."""
+    table = f"""{LEDGER_HEADER}
+01/01 1,000.00 01/06 1,500.00 01/10 1,125.00
+01/03 2,000.00 01/08 1,350.00
+01/05 1,800.00 01/09 1,150.00
+"""
+    stmt = parse_bofa_statement(_table_summary_document(debits_n=5, credits_n=1) + table)
+
+    assert stmt is not None
+    assert printed(stmt) == [
+        ("2054-01-01", 1000.0), ("2054-01-03", 2000.0), ("2054-01-05", 1800.0), ("2054-01-06", 1500.0),
+        ("2054-01-08", 1350.0), ("2054-01-09", 1150.0), ("2054-01-10", 1125.0),
+    ]

@@ -38,6 +38,28 @@ pin on unrotated pages holds by construction rather than by floating-point
 luck. A rotated page carries `ROTATION_APPLIED_NOTE` in its notes and
 `rotation_deg` on its frame; the Phase 2.1 note is retired and never emitted.
 
+Phase 2.3 closes the two latent defects the cell's re-review named
+(`docs/moneythumb-replacement/reviews/PHASE2_P22IDENTITY_REVIEW.md`
+§Re-review; `docs/agent-handoffs/P23-AGREE.md` item 4), both with a
+population of 0 in the archive and both reachable by a real PDF:
+
+* **N-1** — the display transform is now taken from the rectangle
+  `page.rect` reports (`_display_matrix`) whenever PyMuPDF's own
+  `rotation_matrix` disagrees with it, because a CropBox that OVERHANGS its
+  MediaBox makes that matrix translate by the unclamped box while the rect,
+  the word coordinates and Poppler's raster are all the clamped one. Where
+  the two agree — every page whose CropBox sits inside its MediaBox —
+  PyMuPDF's matrix is used verbatim, so no existing page's evidence bytes
+  move; where they do not, the page carries `CLAMPED_TRANSFORM_NOTE`.
+* **N-2** — a `/Rotate` written as an INDIRECT reference is RESOLVED
+  (`_indirect_rotate`) before the mod-90 test, so an indirect 45 is refused
+  by name like a direct one instead of being silently mis-framed. ONE call —
+  `xref_object` already resolves a reference chain to its terminal value —
+  and the resolved value is acted on only where the page's own geometry
+  corroborates it, because PyMuPDF's writer flattens a reference-bodied
+  object into the bare object NUMBER, so a resolved integer can be an xref
+  number rather than an angle. Closure of the cell's own review, MAJOR-1.
+
 What is and is not here
 -----------------------
 No `ocr` import (the document sha is computed locally with `hashlib`, never
@@ -60,6 +82,7 @@ from .canonical import (
 )
 
 __all__ = [
+    "CLAMPED_TRANSFORM_NOTE",
     "FRAME_DISPLAY",
     "INVALID_ROTATION_NOTE",
     "NATIVE_EXTRACTOR_ID",
@@ -140,8 +163,143 @@ INVALID_ROTATION_NOTE = "invalid_rotation"
 #: meant the opposite and is retired.
 ROTATION_APPLIED_NOTE = "rotation_applied"
 
+#: A `PageEvidence.notes` entry meaning: PyMuPDF's own `page.rotation_matrix`
+#: disagreed with the rectangle `page.rect` reports, and the display
+#: transform was derived from that RECTANGLE instead (P22-IDENTITY re-review
+#: N-1). The reachable shape is a page whose CropBox OVERHANGS its MediaBox
+#: and that carries a `/Rotate`: PyMuPDF clamps `page.rect` and the word
+#: coordinates to the MediaBox — which is also what Poppler renders — but
+#: builds `rotation_matrix`'s translation from the UNCLAMPED CropBox, so
+#: every box the reader emitted was offset by the overhang (measured 76 pt
+#: at 90/180/270 on the synthetic pin; boxes-on-ink 0.000). The rect is the
+#: rectangle the frame declares and the raster shows, so the rect wins. The
+#: note exists because a page whose two sources of truth disagreed is worth
+#: knowing about even when the reader recovered.
+CLAMPED_TRANSFORM_NOTE = "clamped_display_transform"
+
 _VALID_ROTATIONS = (0, 90, 180, 270)
 _IDENTITY = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+#: How far a component of PyMuPDF's rotation matrix may differ from the one
+#: derived from `page.rect` before the derived matrix is used instead. The
+#: two are EXACTLY equal on every page whose CropBox sits inside its
+#: MediaBox (the rotation components are 0 / +-1 and the translations are the
+#: rect's own dimensions), and differ by the overhang — tens of points — on
+#: an N-1 page. Nothing lies between, so this bound only has to exclude a
+#: floating-point last bit; preferring PyMuPDF's matrix wherever the two
+#: agree is what keeps every existing page's evidence bytes unchanged.
+_MATRIX_TOLERANCE = 1e-6
+#: How far `page.rect` may differ from the transpose of the rectangle the page
+#: crops to before the two are no longer "the same rectangle, swapped". Page
+#: sides are whole or near-whole points; half a point is far below any real
+#: difference and far above float noise.
+_TRANSPOSE_TOLERANCE = 0.5
+
+
+def _clamped_box(page) -> tuple[float, float] | None:
+    """The width and height of the rectangle the page actually crops to — its
+    CropBox INTERSECTED with its MediaBox, which is what PyMuPDF reports as
+    `page.rect` (up to the display rotation) and what the rasteriser renders
+    (N-1). `None` when either box cannot be read."""
+    try:
+        crop, media = page.cropbox, page.mediabox
+        x0, y0 = max(float(crop.x0), float(media.x0)), max(float(crop.y0), float(media.y0))
+        x1, y1 = min(float(crop.x1), float(media.x1)), min(float(crop.y1), float(media.y1))
+    except Exception:
+        return None
+    return abs(x1 - x0), abs(y1 - y0)
+
+
+def _rect_is_transposed(page) -> bool:
+    """THE observable signature of the F-2 harm: PyMuPDF reports NO rotation,
+    yet the rectangle it declares (`page.rect`) is the TRANSPOSE of the
+    rectangle the page crops to.
+
+    That combination means PyMuPDF has normalised a rotation away while still
+    swapping the frame, so the boxes it hands back are in a space no renderer
+    displays — measured: on such a page Poppler's raster has the UNSWAPPED
+    dimensions and NO display transform, at any of the four angles, puts ink
+    under a single word box (ink fraction 0.000 at 0/90/180/270). A square
+    page is excluded because on it the transpose is the rectangle itself and
+    the signature would carry no information."""
+    try:
+        if int(page.rotation) % 360 != 0:
+            return False
+        width, height = float(page.rect.width), float(page.rect.height)
+    except Exception:
+        return False
+    box = _clamped_box(page)
+    if box is None:
+        return False
+    box_width, box_height = box
+    return (
+        abs(width - box_height) <= _TRANSPOSE_TOLERANCE
+        and abs(height - box_width) <= _TRANSPOSE_TOLERANCE
+        and abs(box_width - box_height) > _TRANSPOSE_TOLERANCE
+    )
+
+
+def _indirect_rotate(document, page, value):
+    """The integer an INDIRECT `/Rotate` resolves to — used ONLY where the
+    page's own geometry corroborates it — or `None`.
+
+    P22-IDENTITY re-review N-2: `xref_get_key` reports a `/Rotate` written as
+    `12 0 R` with kind `xref`, and the Phase 2.2 reader treated that as "no
+    value", so an indirect 45 escaped the invalid-rotation refusal and was
+    mis-framed exactly as a direct 45 had been. The reference is resolved
+    here, through `xref_object`, before the mod-90 test.
+
+    ONE call, and it is all there ever is, because `xref_object` ALREADY
+    RESOLVES the chain. Measured on files whose bytes were checked object by
+    object: where object A's body really is the reference `B 0 R` and B holds
+    270, `xref_object(A)` returns `'270'` — the terminal's value, not `B` and
+    not the text `B 0 R`. A bounded walk over `xref_object` would therefore be
+    a walk over values the library has already followed, and its
+    reference-shaped exit (`endswith(" R")`) is unreachable by construction.
+
+    The number that comes back is NOT trustworthy on its own, and that is the
+    defect this closure fixes. PyMuPDF's own writer FLATTENS an object whose
+    body is a reference: `Document.tobytes()` writes `A 0 obj\\n B \\nendobj`
+    for a body of `B 0 R`, so a document round-tripped through it carries, in
+    its bytes, an indirect `/Rotate` resolving to the arbitrary INTEGER B —
+    an object number, not an angle. Every renderer then reads that integer as
+    the rotation (both PyMuPDF and Poppler swap the page at B = 90), and the
+    reader that returned it unchecked refused the page whenever B was not a
+    multiple of 90 — losing the whole native reading of a document every
+    renderer displays perfectly. Corroboration is what makes an arbitrary
+    resolved integer safe to act on, both ways:
+
+    * a resolved multiple of 90 is taken only when `page.rotation` is that
+      same angle — i.e. the library read the same value and applied it. Where
+      they differ, the number describes no page this reader can see and it is
+      refused as no value;
+    * a resolved NON-multiple of 90 is taken — and refuses the page by name —
+      only when the mis-framing signature is actually present
+      (`_rect_is_transposed`). That is exactly the F-2 harm and nothing else:
+      a page that renders correctly is never refused for a number in an
+      object no renderer reads.
+
+    Anything else — a name, a dictionary, a real, a missing object, an
+    uncorroborated integer — is `None`, the same "no value this reader can
+    trust" answer the walk gives for an absent key, and the page then follows
+    PyMuPDF's own rotation exactly as it did before this fix.
+    """
+    head = str(value).strip().split(" ", 1)[0]
+    if not head.isdigit():
+        return None
+    try:
+        source = str(document.xref_object(int(head))).strip()
+    except Exception:
+        return None
+    if not source.lstrip("+-").isdigit():
+        return None
+    resolved = int(source)
+    try:
+        rotation = int(page.rotation) % 360
+    except Exception:
+        return None
+    if resolved % 90 == 0:
+        return resolved if rotation == resolved % 360 else None
+    return resolved if _rect_is_transposed(page) else None
 
 
 def _raw_rotate(document, page):
@@ -149,12 +307,16 @@ def _raw_rotate(document, page):
     ancestor `Pages` node's (the standard's inheritance) — or `None` when
     no node carries one or the walk cannot be completed. Read from the
     objects themselves because PyMuPDF normalises the value before
-    `page.rotation` and silently mis-frames an invalid one (review F-2)."""
+    `page.rotation` and silently mis-frames an invalid one (review F-2). An
+    INDIRECT value is resolved through the object it names, and used only
+    where the page's own geometry corroborates it (re-review N-2)."""
     xref = page.xref
     for _ in range(64):
         kind, value = document.xref_get_key(xref, "Rotate")
         if kind == "int":
             return int(value)
+        if kind == "xref":
+            return _indirect_rotate(document, page, value)
         if kind not in ("null", ""):
             return None
         kind, value = document.xref_get_key(xref, "Parent")
@@ -187,6 +349,36 @@ def words_outside_frame(notes) -> int:
 def _matrix_tuple(matrix) -> tuple[float, float, float, float, float, float]:
     return (float(matrix.a), float(matrix.b), float(matrix.c), float(matrix.d),
             float(matrix.e), float(matrix.f))
+
+
+def _display_matrix(rotation: int, width: float, height: float) -> tuple[float, float, float, float, float, float]:
+    """The display transform a page of DISPLAY size `width` x `height` with
+    this rotation must have, derived from that rectangle alone.
+
+    The same formula the four-angle pin carries independently
+    (`tests/test_native_evidence.py::_expected_display`), written as an
+    affine matrix in PyMuPDF's point-times-matrix convention: a `/Rotate` of
+    R displays the page R degrees CLOCKWISE, and in top-left-origin, y-down
+    coordinates the unrotated page's `(x, y)` lands at `(H - y, x)` for 90,
+    `(W - x, H - y)` for 180 and `(y, W - x)` for 270, where `W` / `H` are
+    the UNROTATED dimensions — which are the display dimensions swapped at
+    90 and 270, so every constant below is one of this page's own display
+    sides. That is the whole point (re-review N-1): the rectangle the frame
+    declares, the rectangle the rasteriser renders and the rectangle the word
+    coordinates live in are one rectangle, and the transform is built from
+    it rather than from a CropBox the page does not display.
+    """
+    if rotation == 90:
+        return (0.0, 1.0, -1.0, 0.0, float(width), 0.0)
+    if rotation == 180:
+        return (-1.0, 0.0, 0.0, -1.0, float(width), float(height))
+    if rotation == 270:
+        return (0.0, -1.0, 1.0, 0.0, 0.0, float(height))
+    return _IDENTITY
+
+
+def _matrices_agree(left, right) -> bool:
+    return all(abs(a - b) <= _MATRIX_TOLERANCE for a, b in zip(left, right))
 
 
 def _display_box(
@@ -288,10 +480,26 @@ def native_evidence_from_pdf(pdf_bytes: bytes) -> ExtractionEvidence | None:
                 pages.append(PageEvidence(frame=frame, words=(), notes=(INVALID_ROTATION_NOTE,)))
                 continue
             rotation_notes = (ROTATION_APPLIED_NOTE,) if rotation else ()
+            # Re-review N-1: PyMuPDF's `rotation_matrix` and the rectangle
+            # `page.rect` reports can disagree — an overhanging CropBox makes
+            # the matrix translate by the UNCLAMPED box while the rect and the
+            # word coordinates are the clamped one. `page.rect` is the
+            # rectangle this reader publishes as the frame AND the rectangle
+            # the rasteriser renders, so where the two disagree the rect wins
+            # and the page says so. Where they AGREE — every page whose
+            # CropBox sits inside its MediaBox, which is the entire archive —
+            # PyMuPDF's own matrix is used, so no existing page's evidence
+            # bytes move by a floating-point hair.
+            derived = _display_matrix(rotation, float(rect.width), float(rect.height))
+            if _matrices_agree(matrix, derived):
+                chosen = matrix
+            else:
+                chosen = derived
+                rotation_notes += (CLAMPED_TRANSFORM_NOTE,)
             # The identity is applied AS the identity: an unrotated page's raw
             # boxes are its display boxes, verbatim (the Phase 2.1 byte-
             # identity pin). Any other matrix maps every corner.
-            transform = None if matrix == _IDENTITY else matrix
+            transform = None if chosen == _IDENTITY else chosen
             # Failure class 2: a real frame, but one PyMuPDF box cannot be
             # trusted as a box (`WordBox`'s own strict `x0 < x1 and y0 < y1`).
             try:

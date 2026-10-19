@@ -91,6 +91,15 @@ INPUTS: tuple[str, ...] = (
     "99999999999999.00",                  # 14 integer digits, one past
     "99999999999999999999999999.00",      # 26 — the adb crash width
     "1" * 54,                             # the longest bare run in the archive
+    # --- not a plain number (audit 2026-10-13 PARSERS-4) --------------------
+    # Spellings `Decimal` and `float` accept that no statement prints as an
+    # amount: the non-finite values, exponent notation (which also slipped
+    # past the digit bound, because the bound counts characters) and PEP 515
+    # underscores. The non-finite part was a carried latent
+    # (W3_TRACKA_LOG item 11); the rest was not recorded.
+    "NaN", "nan", "Infinity", "inf", "-inf", "sNaN", "1e30", "1E9", "1_000.00",
+    # --- an unbalanced bracket, and a comma-cents tail after a grouping comma -
+    "(5.00", "5.00)", "(1,234.56", "(1 066,25", "1,234,56",
 )
 
 
@@ -147,15 +156,50 @@ BOUND_DIVERGENCES: frozenset[str] = frozenset({
     "99999999999999.00", "99999999999999999999999999.00", "1" * 54,
 })
 
+# --- audit 2026-10-13 PARSERS-4 divergences ----------------------------------
+#: Not a plain number. Every Decimal-based reader of the raising family used to
+#: convert all nine (``Decimal("sNaN")`` included); now each one refuses.
+NOT_A_PLAIN_NUMBER: frozenset[str] = frozenset({
+    "NaN", "nan", "Infinity", "inf", "-inf", "sNaN", "1e30", "1E9", "1_000.00",
+})
+#: The float-based readers: `float` already refused ``sNaN``, so only eight move.
+FLOAT_NOT_A_PLAIN_NUMBER: frozenset[str] = NOT_A_PLAIN_NUMBER - {"sNaN"}
+#: A trailing ``-`` the format does not honour. The two formats that strip or
+#: delete a ``-`` without reading a trailing one (`LEADING_MINUS_DROPPED`,
+#: `PARENS_OR_LEADING_MINUS_OR_PLUS`) took it off and returned the amount
+#: POSITIVE (``1,234.56-`` -> +1234.56): now they refuse it, as every other
+#: format that does not honour the marker already did.
+TRAILING_MINUS_NOT_HONOURED: frozenset[str] = frozenset({
+    "12.34-", "1,234.56-", "$1,234.56-", "  1,234.56-  ", "0.00-",
+    "-12.34-", "12.34--", "1234.56-",
+})
+#: One bracket without its partner. A bracket format needed BOTH for the sign
+#: but stripped EITHER, so ``(12.34`` read +12.34; now it refuses.
+UNBALANCED_BRACKETS: frozenset[str] = frozenset({
+    "(12.34", "12.34)", "(5.00", "5.00)", "(1,234.56",
+})
+#: The same rule in the French bracket reader (`parse_french_amount(parens=True)`,
+#: the RBC French grid's only negative marker; rbc.py records the time this
+#: exact shape sign-flipped every overdrawn balance of the family).
+#: ``(1,234.56`` is not here: the legacy clone already refused it (two dots).
+FRENCH_UNBALANCED_BRACKETS: frozenset[str] = frozenset({
+    "(12.34", "12.34)", "(5.00", "5.00)", "(1 066,25",
+})
+#: `single_comma_only`: a two-digit tail after a SECOND comma is not US
+#: grouping (``1,234,56`` read as 123456, a hundred times the printed cents
+#: reading); it refuses.
+TWO_COMMAS_CENTS_TAIL: frozenset[str] = frozenset({"1,234,56"})
+
 
 def _format_reads_a_leading_minus(fmt: m.AmountFormat) -> bool:
     """Either the engine detects the marker, or the pattern admits it."""
     return fmt.leading_minus or fmt.pattern.startswith("-?")
 
 
-def _format_reacts_to_a_trailing_minus(fmt: m.AmountFormat) -> bool:
-    """Honoured as a sign, or merely stripped/deleted — both change the read."""
-    return fmt.trailing_minus or "-" in (fmt.strip_chars + fmt.remove_chars)
+def _format_strips_a_trailing_minus(fmt: m.AmountFormat) -> bool:
+    """The format takes a ``-`` off the end (strip or delete) — legacy read the
+    token behind it, whether or not the marker meant anything."""
+    return "-" in (fmt.strip_chars + fmt.remove_chars)
 
 
 def strict_divergences(fmt: m.AmountFormat) -> frozenset[str]:
@@ -166,12 +210,21 @@ def strict_divergences(fmt: m.AmountFormat) -> frozenset[str]:
     printed minus now honours every spelling of it, and this asserts that
     uniformly across the family. `assert_equivalent` checks it in both
     directions, so an over- or under-declaration fails the test.
+
+    Audit 2026-10-13 PARSERS-4: a format that strips a trailing ``-`` it does
+    not honour now refuses the token instead (so the trailing GLYPH rows are
+    identical to the clone again: both refuse), and a bracket format refuses a
+    single bracket.
     """
     rows = set(BOUND_DIVERGENCES)
     if _format_reads_a_leading_minus(fmt):
         rows |= GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR
-    if _format_reacts_to_a_trailing_minus(fmt):
+    if fmt.trailing_minus:
         rows |= GLYPH_TRAILING
+    elif _format_strips_a_trailing_minus(fmt):
+        rows |= TRAILING_MINUS_NOT_HONOURED
+    if fmt.parens:
+        rows |= UNBALANCED_BRACKETS
     # a bare 54-digit run has no decimals, so no `ddd.dd` format ever read it
     return frozenset(rows - {"1" * 54})
 
@@ -522,14 +575,16 @@ def test_parse_money_tokens_matches_legacy_clone():
 def test_parse_decimal_matches_legacy_clone():
     assert_equivalent(
         _legacy_navigant, m.parse_decimal,
-        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR,
+        diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR
+                  | NOT_A_PLAIN_NUMBER),
     )
 
 
 def test_parse_decimal_mixed_separator_matches_columbia_clone():
     assert_equivalent(
         _legacy_columbia, m.parse_decimal_mixed_separator,
-        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR,
+        diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR
+                  | NOT_A_PLAIN_NUMBER),
     )
 
 
@@ -537,21 +592,24 @@ def test_parse_decimal_mixed_separator_matches_first_farmers_clone():
     assert_equivalent(
         _legacy_first_farmers,
         lambda value: m.parse_decimal_mixed_separator(value, single_comma_only=True),
-        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR,
+        diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN | GLYPH_LEADING_DOLLAR
+                  | NOT_A_PLAIN_NUMBER | TWO_COMMAS_CENTS_TAIL),
     )
 
 
 def test_parse_grouped_float_matches_legacy_clone():
     # this one never stripped `$`, so the dollar-bearing glyph row still raises
     assert_equivalent(_legacy_first_citizens, m.parse_grouped_float,
-                      diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN)
+                      diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN
+                                | FLOAT_NOT_A_PLAIN_NUMBER))
 
 
 def test_parse_trailing_minus_dropped_matches_legacy_clone():
     assert_equivalent(
         _legacy_altana, m.parse_trailing_minus_dropped,
         diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN
-                  | GLYPH_LEADING_DOLLAR | GLYPH_TRAILING),
+                  | GLYPH_LEADING_DOLLAR | GLYPH_TRAILING
+                  | FLOAT_NOT_A_PLAIN_NUMBER),
     )
 
 
@@ -564,13 +622,15 @@ def test_parse_trailing_minus_dropped_discards_rather_than_applies_the_marker():
 
 def test_parse_french_amount_matches_cibc_clone():
     assert_equivalent(_legacy_cibc, m.parse_french_amount,
-                      diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN)
+                      diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN
+                                | FLOAT_NOT_A_PLAIN_NUMBER))
 
 
 def test_parse_french_amount_matches_rbc_clone():
     assert_equivalent(
         _legacy_rbc_fr, lambda value: m.parse_french_amount(value, parens=True),
-        diverges=BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN,
+        diverges=(BOUND_DIVERGENCES | GLYPH_LEADING_PLAIN
+                  | FLOAT_NOT_A_PLAIN_NUMBER | FRENCH_UNBALANCED_BRACKETS),
     )
 
 
@@ -868,8 +928,13 @@ def test_mixed_separator_reads_comma_as_decimal_mark_only_when_unambiguous():
 
 
 def test_mixed_separator_single_comma_only_is_stricter():
+    """Without the flag, the last comma before a two-digit tail is the decimal
+    mark. With it, a two-digit tail after a second comma is neither reading:
+    it used to come back as US grouping (``1,23,45`` -> 12345, a hundred times
+    the cents reading), and since audit 2026-10-13 PARSERS-4 it refuses."""
     assert m.parse_decimal_mixed_separator("1,23,45") == Decimal("123.45")
-    assert m.parse_decimal_mixed_separator("1,23,45", single_comma_only=True) == Decimal("12345")
+    with pytest.raises(ValueError):
+        m.parse_decimal_mixed_separator("1,23,45", single_comma_only=True)
 
 
 def test_parse_grouped_float_raises_on_junk():
@@ -1373,3 +1438,145 @@ def test_a_money_token_may_not_begin_part_way_through_a_reference_number():
             assert match is None or match.start() == 0, (
                 f"{text!r} was entered at offset {match.start()}"
             )
+
+
+# ===========================================================================
+# 9. Plain numbers, balanced brackets, honoured markers (audit 2026-10-13
+#    PARSERS-4)
+# ===========================================================================
+
+#: Every reader of the raising family, each as its callers call it.
+RAISING_READERS = {
+    "parse_decimal": m.parse_decimal,
+    "parse_signed_decimal": m.parse_signed_decimal,
+    "parse_decimal_mixed_separator": m.parse_decimal_mixed_separator,
+    "parse_decimal_mixed_separator(single_comma_only)":
+        lambda value: m.parse_decimal_mixed_separator(value, single_comma_only=True),
+    "parse_grouped_float": m.parse_grouped_float,
+    "parse_trailing_minus_dropped": m.parse_trailing_minus_dropped,
+    "parse_french_amount": m.parse_french_amount,
+    "parse_french_amount(parens)": lambda value: m.parse_french_amount(value, parens=True),
+}
+
+
+@pytest.mark.parametrize("token", sorted(NOT_A_PLAIN_NUMBER) + ["+nan", "-Infinity", "1e5", "5E-3"])
+@pytest.mark.parametrize("reader", sorted(RAISING_READERS))
+def test_the_raising_family_refuses_what_is_not_a_plain_number(reader, token):
+    """`Decimal` and `float` read ``NaN``, ``Infinity``, ``1e30`` and
+    ``1_000.00``. None of them is a printed amount, and a non-finite value
+    would poison every sum it joined; each reader now refuses them, through
+    the one private refusal."""
+    with pytest.raises(ValueError) as caught:
+        RAISING_READERS[reader](token)
+    assert "money grammar refused a printed token" in str(caught.value)
+    assert caught.value.__cause__ is None and caught.value.__context__ is None
+
+
+def test_an_exponent_no_longer_slips_past_the_digit_bound():
+    """THE CRASH CLASS, through a side door. The bound counts characters, so
+    ``1e30`` (four of them) passed it and came back as ``Decimal("1E+30")``,
+    which the ADB engine's cents quantize cannot hold. The plain-number gate
+    is what refuses it now; the bound alone still would not."""
+    from decimal import InvalidOperation
+
+    assert m._within_digit_bound("1e30")              # the gap, as measured
+    with pytest.raises(InvalidOperation):
+        Decimal("1E+30").quantize(Decimal("0.01"))    # what it would have hit
+    for reader in (m.parse_decimal, m.parse_decimal_mixed_separator, m.parse_signed_decimal):
+        with pytest.raises(ValueError):
+            reader("1e30")
+
+
+@pytest.mark.parametrize("padded", ["\t12.34\n", " 12.34 ", "  12.34  ", "12.34\r\n"])
+def test_whitespace_padding_still_reads_as_it_did(padded):
+    """The gate strips whitespace before it matches, as `float` and `Decimal`
+    always did: a padded cell is still the number inside it."""
+    assert m.parse_decimal(padded) == Decimal("12.34")
+    assert m.parse_grouped_float(padded) == 12.34
+    assert m.parse_trailing_minus_dropped(padded) == 12.34
+
+
+@pytest.mark.parametrize("token,expected", [
+    ("12.34", Decimal("12.34")), ("-12.34", Decimal("-12.34")), ("+12.34", Decimal("12.34")),
+    ("12.", Decimal("12")), (".50", Decimal("0.50")), ("0", Decimal("0")),
+    ("$1,234.56", Decimal("1234.56")),
+])
+def test_a_plain_number_still_reads_exactly(token, expected):
+    assert m.parse_decimal(token) == expected
+
+
+BRACKET_FORMATS = ("PARENS_OR_LEADING_MINUS", "PARENS_OR_LEADING_MINUS_OR_PLUS")
+
+
+@pytest.mark.parametrize("token", ["(12.34", "12.34)", "(1,234.56", "$(1,234.56", "((12.34)",
+                                   "(12.34))", ")12.34(", "-(12.34)"])
+@pytest.mark.parametrize("fmt_name", BRACKET_FORMATS)
+def test_a_single_or_misplaced_bracket_is_not_a_sign(fmt_name, token):
+    """Both brackets made the sign, but either one was stripped, so
+    ``(12.34`` read POSITIVE. A bracket is a sign only as one pair around
+    the whole amount; anything else refuses."""
+    assert m.parse_amount(token, getattr(m, fmt_name)) is None
+
+
+@pytest.mark.parametrize("fmt_name", BRACKET_FORMATS)
+def test_a_balanced_bracket_is_still_negative(fmt_name):
+    fmt = getattr(m, fmt_name)
+    assert m.parse_amount("(1,234.56)", fmt) == -1234.56
+    assert m.parse_amount("($1,234.56)", fmt) == -1234.56
+    assert m.parse_amount("$(1,234.56)", fmt) == -1234.56
+    assert m.parse_amount("1,234.56", fmt) == 1234.56
+    assert m.parse_amount("-1,234.56", fmt) == -1234.56
+
+
+@pytest.mark.parametrize("fmt_name", ["LEADING_MINUS_DROPPED", "PARENS_OR_LEADING_MINUS_OR_PLUS"])
+@pytest.mark.parametrize("token", sorted(TRAILING_MINUS_NOT_HONOURED) + ["1,234.56−"])
+def test_a_trailing_minus_the_format_does_not_honour_is_refused(fmt_name, token):
+    """These two formats strip a ``-`` they do not read as a trailing sign, so
+    ``1,234.56-`` came back +1234.56: a debit marker dropped on the floor.
+    They now refuse it, as every other format that does not honour the marker
+    already did."""
+    assert m.parse_amount(token, getattr(m, fmt_name)) is None
+
+
+def test_the_formats_that_honour_a_trailing_minus_still_do():
+    for fmt_name in ("STRICT_EITHER_MINUS", "STRICT_EITHER_MINUS_OR_PLUS",
+                     "EITHER_MINUS_SPACED", "EITHER_MINUS_DROPPED", "EITHER_MINUS_PADDED"):
+        assert m.parse_amount("1,234.56-", getattr(m, fmt_name)) == -1234.56, fmt_name
+    # and the leading sign of the two refusing formats is untouched
+    assert m.parse_amount("-1,234.56", m.LEADING_MINUS_DROPPED) == -1234.56
+    assert m.parse_amount("-1,234.56", m.PARENS_OR_LEADING_MINUS_OR_PLUS) == -1234.56
+    assert m.parse_amount("+1,234.56", m.PARENS_OR_LEADING_MINUS_OR_PLUS) == 1234.56
+    # `parse_trailing_minus_dropped` is the reader that DROPS the marker by
+    # design (its section heading carries the direction) and keeps doing so
+    assert m.parse_trailing_minus_dropped("1,234.56-") == 1234.56
+
+
+@pytest.mark.parametrize("token", ["(1 066,25", "1 066,25)", "((1 066,25)", "-(1 066,25)"])
+def test_the_french_bracket_reader_refuses_a_single_bracket(token):
+    """The variant with a production precedent: rbc.py records that a capture
+    which lost its closing bracket sign-flipped every overdrawn balance of the
+    French family. The capture was fixed then; the reader now refuses too."""
+    with pytest.raises(ValueError):
+        m.parse_french_amount(token, parens=True)
+
+
+def test_the_french_bracket_reader_still_reads_its_printed_forms():
+    assert m.parse_french_amount("(1 066,25)", parens=True) == -1066.25
+    assert m.parse_french_amount("(1 066,25 )", parens=True) == -1066.25   # the grid's gap
+    assert m.parse_french_amount("1 066,25", parens=True) == 1066.25
+    assert m.parse_french_amount("-1 066,25", parens=True) == -1066.25
+
+
+@pytest.mark.parametrize("token", ["1,234,56", "1,23,45", "12,345,67", "1,000,000,00"])
+def test_single_comma_only_refuses_a_cents_tail_after_a_second_comma(token):
+    with pytest.raises(ValueError):
+        m.parse_decimal_mixed_separator(token, single_comma_only=True)
+
+
+@pytest.mark.parametrize("token,expected", [
+    ("1234,56", Decimal("1234.56")), ("1,234.56", Decimal("1234.56")),
+    ("1,234", Decimal("1234")), ("1,234,567", Decimal("1234567")),
+    ("1,234,567.89", Decimal("1234567.89")),
+])
+def test_single_comma_only_still_reads_its_unambiguous_shapes(token, expected):
+    assert m.parse_decimal_mixed_separator(token, single_comma_only=True) == expected

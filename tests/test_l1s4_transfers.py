@@ -436,14 +436,15 @@ def test_the_package_reads_the_note_this_pipeline_writes():
 
 
 def test_two_accounts_of_one_document_are_one_statement_period():
-    """MINOR-10. `months` counts MEMBERS and is the divisor of every per-period
-    average, so it is not changed; the honest period count is published beside
-    it, and only where the two differ."""
+    """MINOR-10. `months` counted MEMBERS. Audit B11 (I07, I33) makes it the
+    distinct calendar months the statements stand for, so two accounts of one
+    document are one statement period AND one month; `statement_periods` is
+    published beside `months` only where the two differ, and here they do not."""
     from webapp.app import _package_analysis
 
     package = _package_analysis([_Job("job-1", _payload_with_a_transfer())])
-    assert package["totals"]["months"] == 2
-    assert package["totals"]["statement_periods"] == 1
+    assert package["totals"]["months"] == 1
+    assert "statement_periods" not in package["totals"]
     # And the per-period averages are refused rather than halved (Q5).
     assert package["totals"]["cross_account_averages_refused"] is True
     assert package["totals"]["avg_monthly_credits"] is None

@@ -174,7 +174,7 @@ def test_the_repository_walk_actually_sees_the_repository():
     turns each of those tests into `assert [] == []`."""
     modules = dict(_repository_modules(include_tests=True))
     assert "analysis/money.py" in modules
-    assert "ocr/availability.py" in modules
+    assert "ocr/local_tesseract.py" in modules
     assert "webapp/worker.py" in modules
     assert "tests/test_privacy3_boundaries.py" in modules
     assert len(modules) > 100, len(modules)
@@ -1288,7 +1288,7 @@ POISONED_REVIEW_MESSAGE = f"could not convert string to float: '{CANARY} {DIGITS
 
 def test_the_declared_review_refusals_pass_through_verbatim():
     """The behaviour that must NOT be deleted. `webapp/static/app.js` throws
-    `payload.error` and shows it in a `window.alert`, so these five are what an
+    `payload.error` and shows it to the analyst, so these seven are what an
     analyst actually reads when a review is refused."""
     for declared in webapp_app._DECLARED_REVIEW_REFUSALS:
         assert webapp_app._review_refusal(ValueError(declared)) == declared
@@ -1360,6 +1360,10 @@ def _analysis_with(transactions: list[dict]) -> dict:
     return {"statement": {"transactions": transactions}, "metrics": {}}
 
 
+def _document_with(*accounts: list[dict]) -> dict:
+    return {"document": {}, "accounts": [_analysis_with(transactions) for transactions in accounts]}
+
+
 def _reviewable(source_location: str, **overrides) -> dict:
     record = {
         "source_location": source_location,
@@ -1372,9 +1376,11 @@ def _reviewable(source_location: str, **overrides) -> dict:
 
 
 #: One analysis payload per declared refusal, each reaching a DIFFERENT raise
-#: in `analysis/revenue.py`. The last two are the pair the batch-6 census
-#: missed: they live in `rebuild_serialized_revenue_views`, which
-#: `apply_serialized_revenue_review` calls on its way out.
+#: in `analysis/revenue.py`. Two are the pair the batch-6 census missed: they
+#: live in `rebuild_serialized_revenue_views`, which
+#: `apply_serialized_revenue_review` calls on its way out. The last two came
+#: with the review's account (a location numbers a posting within its account);
+#: a fourth element is the account the review names.
 _REVIEW_REFUSAL_DRIVERS = {
     "decision must be confirm, reject, or reset": (
         _analysis_with([]), "anywhere", CANARY,
@@ -1406,19 +1412,59 @@ _REVIEW_REFUSAL_DRIVERS = {
         ]),
         "p1:r1", "confirm",
     ),
+    "account was not found": (
+        _analysis_with([_reviewable("p1:r1")]), "p1:r1", "confirm", 2,
+    ),
+    "transaction source location is in more than one account; name the account": (
+        _document_with([_reviewable("p1:r1")], [_reviewable("p1:r1")]),
+        "p1:r1", "confirm",
+    ),
+    # 5.6 (true revenue spec §10.7, §12): a confirm on a credit a rule verified, a record whose tier disagrees with
+    # its state, and a payload whose posted credits carry a tier only in part.
+    "a credit a rule verified can only be marked non-revenue": (
+        _analysis_with([
+            _reviewable("p1:r1", revenue_initial_classification="verified_revenue",
+                        revenue_classification="verified_revenue", revenue_tier="verified",
+                        revenue_initial_tier="verified"),
+        ]),
+        "p1:r1", "confirm",
+    ),
+    "every posted credit's revenue state must agree with its tier": (
+        _analysis_with([
+            _reviewable("p1:r1", revenue_tier="counted_flagged", revenue_initial_tier="counted_flagged"),
+            {"amount": 250.0, "classification": {
+                "source_location": "p1:r2", "revenue_classification": "unverified_deposit",
+                "revenue_tier": "verified", "is_posted": True,
+            }},
+        ]),
+        "p1:r1", "confirm",
+    ),
+    "every posted credit carries a revenue tier, or none does": (
+        _analysis_with([
+            _reviewable("p1:r1", revenue_tier="counted_flagged", revenue_initial_tier="counted_flagged"),
+            _reviewable("p1:r2"),
+        ]),
+        "p1:r1", "confirm",
+    ),
+    # Audit round 3, R3-B02 (R3-21): a confirm on a credit that returns a confirmed funder's payment (rule D's pair).
+    "a credit that returns a confirmed funder's payment can only be marked non-revenue": (
+        _analysis_with([_reviewable("p1:r1", returns_funder_payment="transaction:3")]),
+        "p1:r1", "confirm",
+    ),
 }
 
 
 @pytest.mark.parametrize("declared", sorted(_REVIEW_REFUSAL_DRIVERS))
 def test_every_declared_review_refusal_is_actually_raised(declared):
     """The coupling, in the direction that catches a REWORD. The allow-list is
-    a copy of five literals from another module; if one of those raises is
+    a copy of seven literals from another module; if one of those raises is
     reworded the tuple stops matching it and the user silently loses the named
     reason. This drives each one out of `analysis/revenue.py` for real."""
-    analysis, source_location, decision = _REVIEW_REFUSAL_DRIVERS[declared]
+    analysis, source_location, decision, *account = _REVIEW_REFUSAL_DRIVERS[declared]
     with pytest.raises((ValueError, LookupError)) as raised:
         apply_serialized_revenue_review(
-            analysis, source_location=source_location, decision=decision
+            analysis, source_location=source_location, decision=decision,
+            account=account[0] if account else None,
         )
     assert str(raised.value) == declared
     assert declared in webapp_app._DECLARED_REVIEW_REFUSALS
@@ -1441,7 +1487,13 @@ def test_the_two_refusals_the_batch_six_census_missed_are_reachable():
 
     source = inspect.getsource(apply_serialized_revenue_review)
     assert "rebuild_serialized_revenue_views(analysis)" in source
-    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 5
+    # Five, and two more since the review can name its account (a missing
+    # account, and a location held by several accounts with none named), and
+    # three more since 5.6's tiers (a confirm on a rule-verified credit, a tier
+    # that disagrees with its state, a payload tiered only in part), and one
+    # since audit round 3, R3-B02 (a confirm on a credit that returns a
+    # confirmed funder's payment).
+    assert len(webapp_app._DECLARED_REVIEW_REFUSALS) == 11
 
 
 def test_the_browser_still_renders_the_review_error_body():
@@ -1640,10 +1692,9 @@ def test_the_escalation_guard_is_gone_and_the_escalation_model_is_never_read():
     structurer's grounding. R9 removed the escalation call, its guard and the
     reconciliation-based selection behind it outright, so the clause this
     test defended no longer exists to be reordered. What it defended still
-    holds, and now structurally: the one `extract_statement` call left in the
-    module sits after the deterministic-mode raises (the AST tripwires in
-    `tests/test_pipeline_escalation_fence.py` pin that), and the dynamic test
-    below still proves no call is made.
+    holds, and now structurally in every mode: slice S3 of the model-code
+    removal deleted the one hosted call R9 left (`analysis/extract.py`), and
+    the test below pins that the module holds no handle to it.
 
     Asserted on the AST, in the inverse direction: no `If` in
     `analysis/pipeline.py` tests `settings.escalation_model`, and the name
@@ -1664,148 +1715,77 @@ def test_the_escalation_guard_is_gone_and_the_escalation_model_is_never_read():
     assert reads == [], "analysis/pipeline.py reads `escalation_model` again (R9)"
 
 
-def test_deterministic_mode_never_calls_the_extractor_even_with_the_structurer_on(
-    monkeypatch,
-):
-    """The dynamic half. `extract_statement` is replaced by a recorder, so a
-    call is a test failure rather than a vendor charge ($0 vendor, binding)."""
-    from analysis import pipeline
+def pipeline_hosted_extraction_handles(source: str) -> list[str]:
+    """Every way `analysis/pipeline.py`'s text could reach the removed hosted
+    extractor: the name `extract_statement` as a name, an attribute, a
+    parameter, an import alias or a string; any import of the module
+    `extract` (relative or absolute, `from . import extract` included); and a
+    read of the hosted model's name off the settings (`.model`, which
+    `model_used` started from until slice S3). Empty when clean."""
+    tree = ast.parse(source)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.split(".")[-1] == "extract" or any(
+                alias.name in {"extract", "extract_statement"} or alias.asname == "extract_statement"
+                for alias in node.names
+            ):
+                found.append(f"import: {ast.unparse(node)}")
+        elif isinstance(node, ast.Import):
+            if any(alias.name.split(".")[-1] == "extract" for alias in node.names):
+                found.append(f"import: {ast.unparse(node)}")
+        elif isinstance(node, ast.Name) and node.id == "extract_statement":
+            found.append(f"name: {node.id}")
+        elif isinstance(node, ast.Attribute) and node.attr in {"extract_statement", "model"}:
+            found.append(f"attribute: {ast.unparse(node)}")
+        elif isinstance(node, ast.arg) and node.arg == "extract_statement":
+            found.append(f"parameter: {node.arg}")
+        elif isinstance(node, ast.Constant) and node.value == "extract_statement":
+            found.append("string: 'extract_statement'")
+    return found
 
-    calls: list[str] = []
 
-    def recorder(markdown, **kwargs):
-        calls.append("called")
-        raise AssertionError("deterministic mode reached the hosted model")
+def test_the_pipeline_holds_no_handle_to_a_hosted_extractor():
+    """PIPELINE-PARSEMODE's property, now structural in every mode (model-code
+    removal, slice S3). The two dynamic tests that stood here replaced the
+    hosted extractor with a recorder and proved deterministic mode never
+    called it, the structurer on or off; the extractor is deleted, so there is
+    nothing left to record. What replaces them: `analysis/pipeline.py` has no
+    `extract_statement` name and no import of an `extract` module, and reads
+    no `.model` off its settings. A planted handle of each form fails."""
+    import importlib.util
 
-    monkeypatch.setattr(pipeline, "extract_statement", recorder)
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
-    for markdown in (
-        f"UNSUPPORTED BANK STATEMENT {CANARY}",
-        f"--- Page 1 ---\n{CANARY} {DIGITS}\nBeginning Balance 1,000.00\n",
+    source = (PROJECT_ROOT / "analysis" / "pipeline.py").read_text(encoding="utf-8")
+    assert pipeline_hosted_extraction_handles(source) == []
+    assert importlib.util.find_spec("analysis.extract") is None
+    for planted in (
+        "from .extract import extract_statement\n",
+        "from . import extract\n",
+        "import analysis.extract\n",
+        "from analysis.extract import extract_statement as _hosted\n",
+        "_hosted = extract_statement\n",
+        "_hosted = getattr(object(), 'extract_statement', None)\n",
+        "model_used = settings.model\n",
     ):
-        with pytest.raises(RuntimeError):
-            pipeline.analyze_markdown(markdown, parse_mode="deterministic")
-    assert calls == []
+        assert pipeline_hosted_extraction_handles(source + "\n" + planted), planted
 
-
-def test_the_parse_mode_clause_is_what_stops_the_call_on_the_structurer_branch(
-    monkeypatch,
-):
-    """The structurer branch EXERCISED in deterministic mode, not merely
-    asserted on the AST.
-
-    HISTORY, kept because the fixture is built for it: until P22-FENCE (Phase
-    2.2, ruling R9) the escalation guard's first clause, `parse_mode !=
-    "deterministic"`, was the one thing stopping a deterministic-mode run from
-    making a hosted-model call on the structurer branch — the structurer only
-    publishes a statement whose ledger GROUNDS, so `recon.ok` was True and the
-    guard's `needs_escalation` was False by coincidence rather than by the
-    MODE (§EXTRACTPRIV XP9 finding 2 measured that over four constructed
-    variants), and this test removed the coincidence: a structurer that
-    publishes a statement which does NOT reconcile, two different models, and
-    a recorder in place of the extractor; without the clause ("mutant M23")
-    the recorder fired.
-
-    NOW: the guard, the second extraction and the selection behind it no
-    longer exist (R9), and the ONE hosted call left in `analysis/pipeline.py`
-    sits after the deterministic-mode raises and behind the operator opt-in
-    (`tests/test_pipeline_escalation_fence.py` pins both). This test keeps its
-    fixture and its assertion — no hosted call in deterministic mode with the
-    structurer on and a non-reconciling statement published — because that is
-    the $0-vendor property, whichever mechanism carries it. Note (review F6):
-    with the deterministic raise deleted and no opt-in set, the fence refuses
-    with the identical message, so this test alone no longer distinguishes the
-    two guards; the opted-in deterministic test and the static ordering test in
-    the fence file are the ones that do.
-    """
-    from analysis import pipeline
-    from analysis.config import Settings
-    from analysis.schema import Statement, Transaction
-
-    calls: list[str] = []
-
-    def recorder(markdown, **kwargs):
-        calls.append("called")
-        raise AssertionError("deterministic mode reached the hosted model")
-
-    def ungrounded(markdown, **kwargs):
-        """A statement the structurer 'published' whose summary cannot close:
-        the printed totals disagree with the one row, so `reconcile` fails and
-        `needs_escalation` is True."""
-        return Statement(
-            bank=None,
-            account_name=None,
-            account_number=None,
-            period_start="2054-01-01",
-            period_end="2054-01-31",
-            days_in_period=31,
-            beginning_balance=1000.00,
-            ending_balance=9999.00,
-            stated_total_credits=5000.00,
-            stated_total_debits=250.00,
-            transactions=[Transaction(
-                date="2054-01-05",
-                description="A POSTING",
-                amount=100.00,
-                direction="credit",
-                running_balance=1100.00,
-            )],
-        )
-
-    monkeypatch.setattr(pipeline, "extract_statement", recorder)
-    monkeypatch.setattr(pipeline, "structure_unclaimed", ungrounded)
-    monkeypatch.setenv("GENERIC_STRUCTURER_ENABLED", "1")
-    settings = Settings(
-        api_key="",
-        model="model-a",
-        escalation_model="model-b",          # != model, so that clause passes
-    )
-
-    report = pipeline.analyze_markdown(
-        f"UNSUPPORTED BANK STATEMENT {CANARY} {DIGITS}",
-        parse_mode="deterministic",
-        settings=settings,
-    )
-
-    assert calls == [], "deterministic mode made a hosted-model call"
-    assert report.reconciliation.ok is False, (
-        "the fixture must NOT reconcile, or the guard's other clauses would "
-        "have stopped the call and this test would prove nothing"
-    )
-    assert settings.escalation_model != settings.model
 
 
 # ---------------------------------------------------------------------------
-# 9. `ocr/availability.py` — the invariant its docstring has always claimed
+# 9. `.detail` readers in production
 # ---------------------------------------------------------------------------
-
-from ocr.availability import MAX_DETAIL_CHARS, probe_visual_ocr            # noqa: E402
-
-
-def test_the_probe_detail_is_bounded():
-    """`MAX_DETAIL_CHARS` as a measurement rather than a magic 200. An
-    OpenAI-compatible client can raise with a whole HTML error page attached,
-    and a preflight that floods a terminal is a preflight nobody reads."""
-    def boom():
-        raise RuntimeError("x" * 10_000)
-
-    status = probe_visual_ocr(list_models=boom)
-    assert status.available is False
-    assert len(status.detail) == MAX_DETAIL_CHARS
-    assert status.error_type == "RuntimeError"
-
-
-def test_no_document_can_reach_the_probe():
-    """The census claim, as a signature assertion: `probe_visual_ocr` takes
-    settings, a timeout and an injected lister. There is no parameter that
-    could be a page, a PDF, a markdown string or a cell - which is why this
-    cell did NOT reduce `detail`, and why the reasoning has to be checkable
-    rather than asserted in a log."""
-    import inspect
-
-    assert set(inspect.signature(probe_visual_ocr).parameters) == {
-        "settings", "timeout", "list_models",
-    }
+#
+# Model-code removal, slice S2. This section guarded `ocr/availability.py`, the
+# visual OCR endpoint probe, whose `VisualOcrStatus.detail` (a bounded
+# transport-failure message) was read only by `message()` and printed only to a
+# console. The probe was deleted with the visual OCR client, and the guards
+# whose only subject it was went with it: `MAX_DETAIL_CHARS`, the probe's
+# signature, the `message()` call-site census, the `VisualOcrStatus` holders and
+# the `asdict` / `vars` / `__dict__` clauses scoped to them. The tree-wide half,
+# which never depended on the probe, stays and still bites: a production
+# `.detail` read, by ANY receiver or by `getattr` string, is allowed only where
+# `ALLOWED_DETAIL_READERS` says why.
 
 
 #: Every production `.detail` attribute read in the tree, and WHY each one is
@@ -1815,8 +1795,6 @@ def test_no_document_can_reach_the_probe():
 #: `def telemetry_detail(probe): return probe.detail` (review MINOR-1). A rule
 #: keyed on what someone called their variable is not a rule.
 ALLOWED_DETAIL_READERS = {
-    "ocr/availability.py":
-        "VisualOcrStatus.message() - THE reader, and it renders to a console",
     "ocr/native_text.py":
         "_PageRefusal.detail - a DIFFERENT dataclass on a different object; it "
         "reaches deterministic_coverage_audit's CSV, which W3 SS-WORKERPRIV WP1 "
@@ -1834,24 +1812,12 @@ def _detail_attribute_sites() -> list[str]:
 
 
 def _indirect_detail_reads(modules=None) -> list[str]:
-    """The three ways to read `detail` WITHOUT writing `.detail`.
-
-    `getattr(obj, "detail")` names the field as a string; `asdict(status)` and
-    `vars(status)` / `status.__dict__` take the whole dataclass, `detail`
-    included, and hand it to whatever wanted a dict - a telemetry record, a
-    JSON body, a CSV row. The attribute walk cannot see any of them.
-
-    The dataclass-wide clauses are scoped to modules that actually hold a
-    `VisualOcrStatus`, which `test_only_the_availability_module_names_the_status_class_in_production`
-    pins at one. Elsewhere `asdict` is the serialization layer's ordinary idiom
-    over unrelated dataclasses, and flagging those would be noise, not a guard.
-    """
+    """The way to read `detail` WITHOUT writing `.detail`: `getattr(obj,
+    "detail")` names the field as a string, and the attribute walk cannot see
+    it. (The dataclass-wide `asdict` / `vars` / `__dict__` clauses were scoped
+    to modules holding the deleted `VisualOcrStatus`, and left with it.)"""
     findings: list[str] = []
     for relative, tree in (modules if modules is not None else _repository_modules()):
-        names_status = any(
-            isinstance(node, ast.Name) and node.id == "VisualOcrStatus"
-            for node in ast.walk(tree)
-        )
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Call)
@@ -1862,108 +1828,22 @@ def _indirect_detail_reads(modules=None) -> list[str]:
                 and node.args[1].value == "detail"
             ):
                 findings.append(f"{relative}:{node.lineno}: getattr(..., 'detail')")
-            if not names_status:
-                continue
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in {"asdict", "vars"}
-            ):
-                findings.append(f"{relative}:{node.lineno}: {node.func.id}(...)")
-            if isinstance(node, ast.Attribute) and node.attr == "__dict__":
-                findings.append(f"{relative}:{node.lineno}: __dict__")
     return findings
 
 
-#: `VisualOcrStatus.message()` call sites and how many live in each, updated
-#: by P20-SEAM: `parse.py --visual` and `batch.py --visual` (OQ7) now probe
-#: before allowing the visual rung, and print the SAME console-only shape
-#: `discovery/cli.py` always has — `print(f"error: {status.message()}...",
-#: file=sys.stderr)`, never a telemetry field, a CSV cell or an HTTP body.
-ALLOWED_MESSAGE_CALLERS = {
-    "discovery/cli.py": 2,
-    "parse.py": 1,
-    "batch.py": 1,
-}
-
-
-def test_the_probe_detail_has_exactly_one_reader_and_it_is_a_console():
-    """The invariant `ocr/availability.py`'s module docstring has claimed since
-    Wave 3 - "kept for the operator console only and never travels into
-    telemetry (H-3 sensitivity invariant)" - asserted for the first time.
-
-    Four clauses, and clause 1 is the one the review widened. `detail` is read
-    only in the files `ALLOWED_DETAIL_READERS` names, by ANY receiver;
-    `message()` is called only from the files `ALLOWED_MESSAGE_CALLERS` names;
-    every one of those calls sits inside a `print(..., file=sys.stderr)`; and
-    nothing in production reaches the field the other three ways.
-
-    Asserted by FILE and COUNT, never by line number: a guard that pins
-    `discovery/cli.py:208` turns red the moment an unrelated cell adds a line
-    above it, and a composed train of ten branches is where that happens. The
-    line numbers stay in the failure message, where they help.
-    """
+def test_detail_is_read_in_production_only_where_allowed():
+    """`detail` is read only in the files `ALLOWED_DETAIL_READERS` names, by ANY
+    receiver, and never by `getattr` string. Asserted by FILE, never by line
+    number: a guard that pins a line turns red the moment an unrelated change
+    adds a line above it. The line numbers stay in the failure message."""
     detail_sites = _detail_attribute_sites()
     files = sorted({site.rsplit(":", 1)[0] for site in detail_sites})
     assert files == sorted(ALLOWED_DETAIL_READERS), detail_sites
-    assert sum(s.startswith("ocr/availability.py") for s in detail_sites) == 1, detail_sites
-
-    message_sites = [
-        f"{relative}:{node.lineno}"
-        for relative, tree in _repository_modules()
-        if relative != "ocr/availability.py"
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "message"
-    ]
-    assert sorted({s.rsplit(":", 1)[0] for s in message_sites}) == sorted(
-        ALLOWED_MESSAGE_CALLERS
-    ), message_sites
-    assert len(message_sites) == sum(ALLOWED_MESSAGE_CALLERS.values()), message_sites
-
-    printed = 0
-    for relative, expected in ALLOWED_MESSAGE_CALLERS.items():
-        file_printed = 0
-        tree = ast.parse((PROJECT_ROOT / relative).read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
-                continue
-            if node.func.id != "print":
-                continue
-            if not any(
-                isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Attribute)
-                and inner.func.attr == "message"
-                for argument in node.args
-                for inner in ast.walk(argument)
-            ):
-                continue
-            keywords = {kw.arg: ast.unparse(kw.value) for kw in node.keywords}
-            assert keywords.get("file") == "sys.stderr", (relative, keywords)
-            file_printed += 1
-        assert file_printed == expected, (relative, file_printed, expected)
-        printed += file_printed
-    assert printed == sum(ALLOWED_MESSAGE_CALLERS.values())
-
     assert _indirect_detail_reads() == [], _indirect_detail_reads()
 
 
-def test_only_the_availability_module_names_the_status_class_in_production():
-    """The scope clause `_indirect_detail_reads` rests on. If a second
-    production module ever holds a `VisualOcrStatus`, the `asdict`/`vars`
-    clause has to widen with it, and this is what says so."""
-    holders = sorted({
-        relative
-        for relative, tree in _repository_modules()
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Name) and node.id == "VisualOcrStatus"
-    })
-    assert holders == ["ocr/availability.py"], holders
-
-
-#: The reviewer's bypass, verbatim, plus the three indirect reads. Each must be
-#: FOUND; the three clean shapes must not be.
+#: The reviewer's bypass, verbatim, plus the indirect read. Each must be FOUND;
+#: the clean shape must not be.
 _DETAIL_MUTANTS = [
     ("reviewer-bypass-any-receiver",
      "def telemetry_detail(probe):\n    return probe.detail\n", 1, 0),
@@ -1971,17 +1851,6 @@ _DETAIL_MUTANTS = [
      "def f(x):\n    return x.detail\n", 1, 0),
     ("getattr-by-string",
      "def f(x):\n    return getattr(x, 'detail')\n", 0, 1),
-    ("asdict-the-whole-status",
-     "from dataclasses import asdict\n"
-     "def f(status: VisualOcrStatus):\n    return asdict(status)\n", 0, 1),
-    ("vars-the-whole-status",
-     "def f(status: VisualOcrStatus):\n    return vars(status)\n", 0, 1),
-    ("dunder-dict",
-     "def f(status: VisualOcrStatus):\n    return status.__dict__\n", 0, 1),
-    ("clean-class-name-only",
-     "def f(status: VisualOcrStatus):\n    return type(status).__name__\n", 0, 0),
-    ("clean-unrelated-asdict",
-     "from dataclasses import asdict\ndef f(report):\n    return asdict(report)\n", 0, 0),
     ("clean-unrelated-attribute",
      "def f(row):\n    return row.details\n", 0, 0),
 ]

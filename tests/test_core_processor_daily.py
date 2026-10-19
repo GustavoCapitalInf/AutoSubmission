@@ -810,3 +810,60 @@ def test_the_gates_are_blind_to_a_row_split_in_two_on_the_same_day():
     assert [entry.balance for entry in whole.stated_daily_balances] == [
         entry.balance for entry in halves.stated_daily_balances
     ]
+
+
+# ---------------------------------------------------------------------------
+# Audit round 3, R3-B09 (R3-91): a marked credit keeps the block it was marked
+# at, apart from its description (Transaction.unread_payer_text), as the
+# counted template's credits do. The text is still not read as the payer: it
+# waits on the owner's G7 admission (spec §17.1), and every hold stays.
+# ---------------------------------------------------------------------------
+
+def _published_rows(statement):
+    return [(t.date, t.description, t.amount, t.direction, t.running_balance) for t in statement.transactions]
+
+
+def _credits_with_block(label: str, block: str) -> str:
+    return f"CREDITS\nDate Description Additions\n04-03 ' {label} 300.00\n{block}\n"
+
+
+def _tier(statement):
+    from analysis.transaction_classifier import classify_statement_transactions
+
+    credit = next(record for record in classify_statement_transactions(statement) if record.amount > 0)
+    return credit.revenue_tier, credit.revenue_tier_reason
+
+
+def test_r3_91_a_marked_wire_keeps_its_block_apart_from_its_label_and_stays_held():
+    statement = parse(document(credits=_credits_with_block("Incoming Wire", "WT FABRIKAM SUPPLY LLC")))
+    assert statement is not None
+    # Every published field is what the reader published before: the label alone.
+    assert _published_rows(statement) == [
+        ("2054-04-02", "ACH Debit", -250.0, "debit", None),
+        ("2054-04-03", "Incoming Wire", 300.0, "credit", None),
+    ]
+    credit = statement.transactions[1]
+    assert (credit.payer_text_unread, credit.unread_payer_text) == (True, "WT FABRIKAM SUPPLY LLC")
+    assert _tier(statement) == ("excluded_pending_review", "wire_no_sender")
+    # The debit keeps its label and carries no text (G7).
+    debit = statement.transactions[0]
+    assert (debit.payer_text_unread, debit.unread_payer_text) == (False, "")
+
+
+def test_r3_91_a_marked_credit_whose_block_names_a_registry_lender_is_held_by_r07():
+    statement = parse(document(credits=_credits_with_block("ACH Credit", "KAPITUS LLC FUNDING 540403")))
+    assert statement is not None
+    assert _published_rows(statement)[1] == ("2054-04-03", "ACH Credit", 300.0, "credit", None)
+    assert statement.transactions[1].unread_payer_text == "KAPITUS LLC FUNDING 540403"
+    assert _tier(statement) == ("excluded_pending_review", "unread_run_names_financing")
+    # A wire whose block names one stays held as a wire with no sender read.
+    wire = parse(document(credits=_credits_with_block("Incoming Wire", "WT KAPITUS LLC")))
+    assert _tier(wire) == ("excluded_pending_review", "wire_no_sender")
+
+
+def test_r3_91_a_block_naming_a_customer_keeps_payer_text_not_read_and_a_teller_reference_gives_no_text():
+    statement = parse(document(credits=_credits_with_block("ACH Credit", "CONTOSO SUPPLY 540403")))
+    assert statement.transactions[1].unread_payer_text == "CONTOSO SUPPLY 540403"
+    assert _tier(statement) == ("counted_flagged", "payer_text_not_read")
+    teller = parse(document(credits=_credits_with_block("Deposit", "TLR 00 BR 00")))
+    assert (teller.transactions[1].payer_text_unread, teller.transactions[1].unread_payer_text) == (False, "")

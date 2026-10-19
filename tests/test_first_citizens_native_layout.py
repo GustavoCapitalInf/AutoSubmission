@@ -412,10 +412,15 @@ def test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else
         ), field
 
     assert (before_report.metrics.nsf_count, after_report.metrics.nsf_count) == (0, 1)
+    # R18: the underwriting NSF count is negative-ending days in the daily ledger, which recovered
+    # descriptions do not move; the recovered fee row is a returned item, counted in nsf_count above.
     assert (
         before_report.metrics.effective_nsf_count,
+        before_report.metrics.nsf_source,
+    ) == (
         after_report.metrics.effective_nsf_count,
-    ) == (0, 1)
+        after_report.metrics.nsf_source,
+    )
     assert (
         before_report.metrics.insurance_count,
         after_report.metrics.insurance_count,

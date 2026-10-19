@@ -130,7 +130,7 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "package membership: each account on its OWN validation, no duplicate digest"),
     ("webapp/jobs.py", "_classification_for", "per_account",
      "a reviewer's posting belongs to one account; every account is searched"),
-    ("analysis/revenue.py", "apply_serialized_revenue_review", "per_account",
+    ("analysis/revenue.py", "record_serialized_revenue_review", "per_account",
      "a reviewer acts on a POSTING, and a posting belongs to one account"),
     ("benchmark/ourside.py", "_account", "refuses",
      "the benchmark declares one value per FILENAME and has no account column"),
@@ -146,6 +146,41 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "PINNED_CURRENCY_SOURCE is path-keyed for the same reason"),
     ("discovery/runner.py", "_project_accounts", "per_account",
      "the row's account column is EMPTY on a document; account_count carries it"),
+    # (`vlm/truth.py::truth_from_payload`, the Phase 3 comparison's per-account
+    # reader, left with the visual pair in slice S4 of the model-code removal.)
+    ("analysis/flagged_view.py", "apply_flagged_groups_to_payload", "per_account",
+     "the flag groups are served per account ledger; every account is tagged, a malformed document passes untouched"),
+    ("analysis/nsf_days.py", "apply_nsf_basis_to_payload", "per_account",
+     "the NSF basis is a property of one account's ledger; every account is re-based, a malformed document passes untouched"),
+    ("webapp/reanalysis.py", "replay_reviews", "per_account",
+     "a decision names one posting of one account; every account is searched through payload_accounts"),
+    ("analysis/revenue_view.py", "apply_revenue_view", "per_account",
+     "the revenue flags and an older payload's nulled True revenue are served per account ledger; every account is "
+     "shown, a malformed document passes untouched"),
+    # Audit B11 (true revenue §9.2, §10.4, §10.8).
+    ("webapp/app.py", "_stored_accounts", "per_account",
+     "a package job's accounts for its duplicate test (I06): every account of a document, through payload_accounts"),
+    ("webapp/app.py", "_posted_credit_table", "per_account",
+     "the downloads' posted-credit table (I32): one block per account, under its section prefix"),
+    ("webapp/app.py", "_export_revenue_view", "per_account",
+     "the downloads' N/A rule (I51): every account's figures follow its own revenue flags"),
+    # Audit round 2, R2-B16 (R53; true revenue §10.8).
+    ("webapp/app.py", "_posted_debit_table", "per_account",
+     "the downloads' posted-debit table (R53): one block per account, under its section prefix"),
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): the Zelle setting's readings.
+    ("analysis/zelle_view.py", "reading", "per_account",
+     "the Zelle reading is a property of one account's ledger; every account is materialised in the chosen reading, a "
+     "malformed document passes untouched"),
+    ("analysis/zelle_view.py", "apply_zelle_view", "per_account",
+     "the Zelle figures and row tags are served per account ledger; every account is shown in the chosen reading, a "
+     "malformed document passes untouched"),
+    ("analysis/zelle_view.py", "with_both_readings", "per_account",
+     "a reviewer's decision names one posting of one account, written in both readings; each account keeps its own "
+     "edits, a malformed document takes today's path"),
+    # The owner's request of 2026-10-10 (active positions by month; true revenue §9.1).
+    ("analysis/active_positions.py", "apply_active_positions_view", "per_account",
+     "the active positions are served per account ledger; every account is read over its own rows, a malformed "
+     "document passes untouched"),
 )
 
 #: Production sites that read the key ``statement`` and are NOT payload
@@ -170,6 +205,37 @@ EXCUSED: dict[str, str] = {
     "benchmark/ourside.py::statement": "one account's view, reached only through the taught `_account`",
     "webapp/app.py::_statement_currency": "one MEMBER's currency; members come from the taught `_package_members`",
     "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
+    # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes read the same members.
+    "webapp/app.py::_package_matches": "reads each MEMBER's account payload, supplied by `_package_members`",
+    # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the package's chains read the same members.
+    "webapp/app.py::_package_lender_payment_changes": "reads each MEMBER's account payload, supplied by "
+                                                      "`_package_members`",
+    # Audit B11 (I06): one ACCOUNT's statement identity, and a left-out job's identifying fields from the first
+    # account; each is handed its account by the taught `_stored_accounts`.
+    "webapp/app.py::_account_identities": "one ACCOUNT's identity; `_stored_accounts` hands it each account",
+    "webapp/app.py::_duplicate_row": "a left-out job's identifying fields, from the first account `_stored_accounts` lists",
+    "webapp/reanalysis.py::_records": "one ACCOUNT's records; `replay_reviews` hands it each account from `payload_accounts`",
+    "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
+    "analysis/revenue_view.py::_served_account": "one ACCOUNT's revenue view; `apply_revenue_view` hands it each account from `payload_accounts`",
+    "analysis/revenue_view.py::revenue_flags": "one ACCOUNT's revenue flags; reached through `_served_account` with that account in hand",
+    # The owner's request of 2026-10-10 (active positions by month): one ACCOUNT's rows, handed it by the taught
+    # `apply_active_positions_view` from `payload_accounts`.
+    "analysis/active_positions.py::account_active_positions": "one ACCOUNT's active positions; `apply_active_positions_view` hands it each account from `payload_accounts`",
+    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): one ACCOUNT's Zelle rows and
+    # served view, each handed its account by the taught `apply_zelle_view` (and `zelle_rows` by it too).
+    "analysis/zelle_view.py::_posted_credits": "one ACCOUNT's posted credits; `zelle_rows` reads them for each account `apply_zelle_view` hands it from `payload_accounts`",
+    "analysis/zelle_view.py::_view_account": "one ACCOUNT's served Zelle view; `apply_zelle_view` hands it each account from `payload_accounts`",
+    # Audit round 2, R2-B14 (R16, R46, R14) and R2-OW17: package and copy readers handed one ACCOUNT by the taught
+    # `_stored_accounts`.
+    "webapp/app.py::_copy_rank": "a copy's accounts, read through the taught `_stored_accounts` in both Zelle readings (R2-OW17)",
+    "webapp/app.py::_printed_account_digits": "one ACCOUNT's printed number; its callers hand it accounts `_stored_accounts` lists or members `_package_members` publishes",
+    "webapp/app.py::_statement_span": "one ACCOUNT's period; `_package_superseded` hands it accounts `_stored_accounts` lists",
+    "webapp/app.py::_posted_rows": "one ACCOUNT's posted rows; `_package_superseded` hands it accounts `_stored_accounts` lists",
+    "webapp/app.py::_package_superseded": "reads each kept job's accounts through the taught `_stored_accounts`; its `accounts` key is its own entry's account count, not a payload",
+    # Audit round 3, final review (R3-FF), F1: R3-B23's title filter (R3-62) compares a section NAME of the flat sheet
+    # with "statement" inside one ACCOUNT's rows; the taught `_analysis_rows` hands it each account from
+    # `payload_accounts` (a single-account payload is that account).
+    "webapp/app.py::_account_analysis_rows": "one ACCOUNT's rows of the flat sheet; `_analysis_rows` hands it each account from `payload_accounts`",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.
@@ -217,6 +283,10 @@ EXCUSED: dict[str, str] = {
     # never something it mistook for one account. A caller that wants the
     # document asks `analyze_document`, which is why every production seam does.
     "analysis/pipeline.py::analyze_markdown": "the ACCOUNT entry point returning the first Report of the internal _Analysed object",
+    # The Phase 3.1 visual pair's six excused sites (its currency bridge, its
+    # adapter's two bridges and its account-by-account builder, its merge, and
+    # its two comparison harnesses) left with `vlm/` in slice S4 of the
+    # model-code removal.
 }
 
 

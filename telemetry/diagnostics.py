@@ -78,7 +78,26 @@ from analysis.payload_shape import payload_accounts, refuse_document_payload
 #:     and a v5 rollup are not comparing like with like on the code axis. The
 #:     call-site guard now counts `analysis/reconcile.py`'s six sites against
 #:     the six LIVE anchors and pins `pipeline.py` at zero.
-DIAGNOSTICS_VERSION = 5
+#: 6 - Owner report 2026-10-08 (Capital One daily ledger): the advisory
+#:     `adb_state:pre_period_carry_in_folded` added, the disclosure
+#:     `analysis/adb.py` writes when it folds a parser-declared
+#:     previous-balance-day carry-in into the opening balance (the
+#:     account-opening fold's sibling). Advisory, so it re-classes nothing
+#:     and decides no failure class; the code set grew, so a v5 and a v6
+#:     rollup are not comparable on the code axis.
+#: 7 - Audit 2026-10-13, REC-4: `integrity:ledger_sum_uncheckable` added,
+#:     the flag `assess_document_integrity` raises when the sum check could
+#:     not run (no beginning or ending balance), classed
+#:     `summary_field_missing` with `recon:sum_check_inputs_missing`, the
+#:     issue it accompanies, so no document's primary class moves; and
+#:     `integrity:ledger_sum_mismatch` now fires at the sum check's own
+#:     one-cent tolerance instead of a dollar (same code, more documents).
+#:     Composed into the same bump (one batch, one version, as at the batch-5
+#:     train), REC-1 step 1: the advisory `adb:bank_daily_balances_agree_with_rows`
+#:     and its warning code `adb_state:bank_daily_balances_disagree_with_rows`
+#:     (a bank-printed daily balance that is not the balance the rows reach
+#:     that day). Advisory: never required, it re-classes nothing.
+DIAGNOSTICS_VERSION = 7
 
 #: The explicit label for a document whose claiming parser could not be
 #: established. Defined here, in the lower layer, because both the telemetry
@@ -127,6 +146,8 @@ ADB_CHECKS: frozenset[str] = frozenset({
     "running_balances_support_daily_ledger",
     "posting_dates_cover_source",
     "agrees_with_bank_stated_average",
+    # Audit 2026-10-13 REC-1 (v7): advisory, see ADVISORY_CODES.
+    "bank_daily_balances_agree_with_rows",
 })
 
 # --------------------------------------------------------------------------
@@ -138,6 +159,9 @@ ADB_CHECKS: frozenset[str] = frozenset({
 INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "summary_math_inconsistent",
     "ledger_sum_mismatch",
+    # Audit 2026-10-13 REC-4: the sum check could not run (no beginning or no
+    # ending balance), so its finding is unknown rather than clean.
+    "ledger_sum_uncheckable",
     "running_balance_breaks",
     "credit_detail_coverage_mismatch",
     "debit_detail_coverage_mismatch",
@@ -234,6 +258,7 @@ ADB_WARNING_ANCHORS: tuple[tuple[str, str], ...] = (
     ("cannot determine a statement period", "adb_state:period_unresolvable"),
     ("fall outside the statement period", "adb_state:out_of_period_transactions"),
     ("account-opening posting(s) dated before the", "adb_state:initialization_event_folded"),
+    ("carry-in posting(s) dated on the previous-balance day", "adb_state:pre_period_carry_in_folded"),
     ("no opening balance and none derivable", "adb_state:opening_balance_underivable"),
     ("does not provide a valid, ordered start and end date", "adb_state:period_dates_invalid"),
     ("bank daily balance has invalid or out-of-period date", "adb_state:daily_balance_date_invalid"),
@@ -247,6 +272,7 @@ ADB_WARNING_ANCHORS: tuple[tuple[str, str], ...] = (
     ("running balances do not support", "adb_state:running_balances_unsupported"),
     ("posting date(s) but the statement", "adb_state:posting_dates_incomplete"),
     ("differs from the bank-printed", "adb_state:stated_average_disagrees"),
+    ("disagree with the balance the transactions reach", "adb_state:bank_daily_balances_disagree_with_rows"),
 )
 ADB_WARNING_UNMAPPED = "adb_state:unmapped_warning"
 
@@ -349,6 +375,9 @@ CLASS_OF: dict[str, str] = {
     "adb_state:out_of_period_transactions": "period_integrity",
     # an input the checks need was not published at all
     "recon:sum_check_inputs_missing": "summary_field_missing",
+    # REC-4 (v7): the integrity flag that accompanies the issue above, in the
+    # issue's own class, so adding it moves no document's primary class
+    "integrity:ledger_sum_uncheckable": "summary_field_missing",
     "adb:opening_balance_matches_statement": "summary_field_missing",
     "adb_state:beginning_balance_absent": "summary_field_missing",
     "adb_state:closing_balance_absent": "summary_field_missing",
@@ -411,11 +440,23 @@ CLASS_OF: dict[str, str] = {
 ADVISORY_CODES: frozenset[str] = frozenset({
     "adb:agrees_with_bank_stated_average",
     "adb_state:stated_average_disagrees",
+    # Audit 2026-10-13 REC-1, step 1 (v7): a bank-printed daily balance that is
+    # not the balance the rows reach that day. The engine uses the bank's
+    # table either way and the check is never required, so it can never be
+    # the reason a document was withheld: advisory, like the printed-average
+    # comparison above. Making it required is an owner ruling (step 2).
+    "adb:bank_daily_balances_agree_with_rows",
+    "adb_state:bank_daily_balances_disagree_with_rows",
     # The narrow account-opening fold. It is a DISCLOSURE, not a failure:
     # the engine states that it folded proven pre-period openings into the
     # opening balance and left the divisor alone. A document carrying it has
     # passed every required check, so it must never decide a failure class.
     "adb_state:initialization_event_folded",
+    # Its sibling (owner report 2026-10-08): postings a parser proved were
+    # dated on the previous-balance day and counted in the printed cycle,
+    # folded into the opening balance. Also a disclosure on a passing
+    # document, never a failure class.
+    "adb_state:pre_period_carry_in_folded",
     "integrity:transaction_detail_not_corporate_reliable",
     "integrity:not_a_formal_statement",
     "integrity:parser_ambiguous",

@@ -73518,3 +73518,2196 @@ section.
   wrong twice over — it is neither per-document nor a peak — and the honest fix
   is sampling, in the milestone that has a reason to measure.
 
+
+# §P23WAVE — Resumable research evidence, retention closure and lossless transport
+
+## Scope and outcome boundary
+
+Phase 2.3 cell W connects the existing research door to the approved Paddle instance. The wave records
+terminal evidence/refusal outcomes by document, keeps the original page rasters privately, and projects
+transient technical telemetry without changing markdown, analysis input, cache identity or routing.
+Official newly validated: **0**. The preserved base and closure production replays each cover the 3,380
+document population, resolve 3,351 cached texts, preserve all **2,625 previously validated payloads
+byte-identically**, and report zero regressions or other ladder movement. Twenty-nine documents have
+no replayable cached text. The frozen Phase 2.2 cache is read-only.
+
+The completed CTRL and U755 sessions were recovered from their original state and exact recorded
+chunk directories. Neither inference session was restarted. The user chose the configured instance
+and requested faster transfers on 2026-09-15. SLICE continuation uses the same approved production
+configuration in the research partition, with optional lossless SSH compression and serial OCR.
+
+## Populations
+
+| population | documents | pages | file SHA-256 | set SHA-256 |
+|---|---:|---:|---|---|
+| CTRL | 114 | 800 | `a9692cf073d53f4d25965488adc9a186e6abdb532a824fd4f9f52b4780c4ee38` | `b8627206ffd69ec6e51d0d6fe6b46647e613a1f6e3f0f7a72589b8536d9da9ed` |
+| U755 | 755 | 5110 | `e9f7a19547eafdb5dcb0e06a86dea35d8746c5dc5d5db28c15f71d4cdc09df83` | `4a71735468a8b3adab2fac736828b9e91421bffdd2ec61f76e69fd04f5265956` |
+| SLICE | 80 | 626 | `bcdfbd110efb10c7667562cd9bdcb04286e4f5e5cd01c179503047117629b36c` | `8c94e12173f0758b10c37617e13467f1342853ac55336f75a6f420c5340c7d89` |
+
+CTRL contains 36 validated local-Tesseract documents and 78 native-validated documents, selected
+deterministically from the recorded seed and family/page-count strata. U755 is the non-validated
+complement of the frozen run. SLICE is the 80 reachable manifest documents, 626 pages; the earlier
+34-document wording confused the corpus-test count with the population. Ocean ratified the original
+population file unchanged. Read-only derivation matched all three original files, `EXIT=0`.
+
+## Implemented closures
+
+The initial retention probe mistook its own command text for a live worker and did not cover all
+nested retained files. The closure checks real Python worker arguments, refuses missing runtime or
+failed enumeration, and rejects every non-directory runtime entry except the exact allowed worker
+and log paths. A completed no-work resume starts no lifecycle and reports no new attestation.
+
+The report now locates population-nested run directories and refuses ambiguous matches. It recovers
+refusal reasons from the specific state-recorded chunk rather than substituting the document's later
+analysis verdict. CTRL's recovered refusals are malformed evidence 20 and unnamed rung failure 4;
+U755's are malformed evidence 39, unnamed rung failure 349, invalid PDF 16 and transport error 10.
+All 438 refusal rows were found; neither historical state file changed. The original unnamed
+exceptions cannot be reconstructed from the saved records and remain explicitly unnamed.
+
+The remote interpreter path is a connection setting, preserving the image's separate Paddle
+environment. Optional SSH compression is also a connection setting: blank preserves the old command,
+yes/no is read at call time, and invalid values are refused without echoing them. Original HTTP/PNG
+bytes, pins and cache identities are preserved. The option takes effect only on a new tunnel.
+
+## Required branch proof floor
+
+| proof | observed result | evidence |
+|---|---|---|
+| Changed wave/vast targeted checks at `7897518` | 123 passed, EXIT=0 | `closure-20260915/targeted.log` |
+| Full suite at `7897518` | 9,929 passed, 48 skipped, 39 deselected, zero failed; EXIT=0 | `closure-20260915/suite.log` |
+| Canonical guards | 277 passed, EXIT=0 | `closure-20260915/guards.log` |
+| Preserved conformance | 1,282 passed, 41 skipped, EXIT=0 | `p23wave-conformance.log` |
+| Preserved corpus gate | GREEN, 105 PASS / 3 WITHHELD / 1 REFUSED; EXIT=0 | `p23wave-gate.log` |
+| Preserved corpus-marked tests | 34 passed, EXIT=0 | `p23wave-corpus.log` |
+| Base and closure whole-population replay | all 2,625 validated payloads identical, zero movement; both EXIT=0 | `p23wave-replay-{base,closure}.log` |
+
+The current suite used the committed host lock and a single OCR worker, with the 1.5 GB launch floor
+and 4 GB job cap. Measured suite wall time was 609.8 seconds and peak job memory 3,007.2 MB. The final
+tree was clean after the mutation harness restored each edit. Earlier unaffected proofs are retained
+because their source paths and semantics did not change; they were not rerun to duplicate evidence.
+
+## Mutation table
+
+The table below combines 11 unaffected historical kills with the 13 affected/new closure rows.
+M8's later result replaces its earlier observation. All 24 mutations were killed by the named tests;
+both harnesses report no survivor and a clean restored worktree.
+
+| # | mutant | file | killer | result |
+|---|---|---|---|---|
+| M1 | a document that produced no evidence is SKIPPED instead of recorded as refused | `tools/paddle_wave.py` | test_d4_every_document_is_attempted_or_refused_when_the_worker_fails | KILLED (1 failing) |
+| M2 | the research partition dropped from the runner's cached_ocr call | `discovery/runner.py` | test_research_reads_are_keyed_under_the_partition_in_their_own_cache | KILLED (1 failing) |
+| M3 | the preflight accepts one literal (only the remote opt-in is checked) | `tools/paddle_wave.py` | test_m3_each_literal_alone_refuses_and_names_the_other | KILLED (4 failing) |
+| M4 | the technical telemetry persisted into the OCR artifact | `webapp/artifact_cache.py` | test_m4_the_telemetry_never_enters_the_artifact_or_a_cache_key | KILLED (1 failing) |
+| M5 | raster retention accepts an empty (production) partition | `tools/paddle_wave.py` | test_m5_the_production_path_writes_no_raster_file | KILLED (1 failing) |
+| M6 | the Paddle read bypasses the cache, so a population sha is read twice | `discovery/runner.py` | test_research_reads_are_keyed_under_the_partition_in_their_own_cache, test_the_synthetic_wave_reads_every_page_once_resumes_and_then_hits_the_cache | KILLED (4 failing) |
+| M7 | the unresolved corpus may start while the control sample is incomplete | `tools/paddle_wave.py` | test_a_predecessor_run_under_a_different_partition_does_not_satisfy_the_order, test_m7_u755_refuses_to_start_while_the_control_sample_has_an_unattempted_document, test_the_slice_waits_for_both_earlier_populations | KILLED (3 failing) |
+| M8 | the attestation passes on the worker's declaration without inspecting | `tools/paddle_wave.py` | test_m8_a_fake_ssh_runner_that_lists_a_leftover_fails_the_attestation, test_m8_an_inspection_that_could_not_run_fails_closed | KILLED (10 failing) |
+| M9 | a cost key in the report | `tools/paddle_wave.py` | test_m9_no_cost_rate_price_or_billing_token_anywhere_in_the_tool | KILLED (1 failing) |
+| M10 | the wave runner imports the Paddle rung | `tools/paddle_wave.py` | test_m10_the_wave_runner_never_imports_the_rung_or_calls_read_document | KILLED (1 failing) |
+| M11 | the wave accepts a --data-dir inside a cold cache | `tools/paddle_wave.py` | test_m11_a_production_or_cold_cache_data_dir_is_refused_through_the_wave | KILLED (5 failing) |
+| M12 | the state resumes PAST a sha whose row was refused | `tools/paddle_wave.py` | test_a_refused_document_counts_as_attempted_for_the_order_rule, test_m12_a_refused_sha_stays_pending_so_a_resume_never_reads_past_it | KILLED (3 failing) |
+| M13 | the exit grace believes a process that is still alive (breaks on the first look) | `tools/paddle_wave.py` | test_a_worker_still_exiting_is_given_a_bounded_grace_and_then_believed | KILLED (1 failing) |
+| M14 | the temp-image count drops its session scope and counts the whole /tmp again | `tools/paddle_wave.py` | test_the_temp_image_count_is_scoped_to_this_session | KILLED (1 failing) |
+| M15 | process inspection counts its shell command as a worker | `tools/paddle_wave.py` | test_retention_process_count_distinguishes_the_inspector_from_the_worker | KILLED (2 failing) |
+| M16 | process inspection ignores a real live worker | `tools/paddle_wave.py` | test_retention_process_count_distinguishes_the_inspector_from_the_worker | KILLED (1 failing) |
+| M17 | telemetry searches only the flat directory and omits population runs | `tools/paddle_wave.py` | test_report_reads_each_populations_nested_run_directory | KILLED (2 failing) |
+| M18 | telemetry silently chooses one of two matching run directories | `tools/paddle_wave.py` | test_report_reads_each_populations_nested_run_directory | KILLED (1 failing) |
+| M19 | a failed process listing is reported as no worker | `tools/paddle_wave.py` | test_retention_executes_the_shell_and_refuses_incomplete_inspection | KILLED (1 failing) |
+| M20 | retention ignores unexpected nested files | `tools/paddle_wave.py` | test_retention_executes_the_shell_and_refuses_incomplete_inspection | KILLED (1 failing) |
+| M21 | a recovered report trusts stale state refusal vocabulary | `tools/paddle_wave.py` | test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state | KILLED (1 failing) |
+| M22 | a recovered report reads the first chunk instead of the recorded attempt | `tools/paddle_wave.py` | test_report_rederives_refusals_from_the_recorded_chunk_without_rewriting_state | KILLED (1 failing) |
+| M23 | a no-work resume performs an unstarted remote teardown | `tools/paddle_wave.py` | test_completed_population_resume_has_no_remote_lifecycle | KILLED (1 failing) |
+| M24 | the requested tunnel compression is silently omitted | `tools/paddle_vast.py` | test_tunnel_compression_is_read_at_launch_without_changing_the_endpoint | KILLED (1 failing) |
+
+## Live results, telemetry, retention and rasters
+
+The final read-only report `report-final-v2.json` completed at 21:38:53 UTC with EXIT=0 and all three
+state-file hashes unchanged. Its SHA-256 is `dd7ca16368f48989da87a261af2ef7d815abc4e93af2a6144fd4c480c86715ec`.
+All populations are complete with zero unattempted documents; every document/page count identity
+holds and every refusal is re-derived from its exact recorded rows, with zero missing rows.
+Complete means every population member has been attempted, not that all refusals eventually succeed.
+
+The first final-report attempt failed before report derivation because Windows PowerShell inherited
+a PowerShell7 module path and could not resolve its built-in file-hash command. Its EXIT=1 logs and
+resource record are preserved; it produced no report JSON. The unchanged pinned script succeeded in
+a disposable parent environment with that inherited path removed. Successful report winrun measured
+5.7 seconds and 258.1 MB peak job memory. No population inference was repeated for this correction.
+
+### Preserved completed populations
+
+The final report's complete CTRL and U755 entries match the immutable `report-after-live-01.json`
+entries exactly. They recover the original recorded runs; no OCR was repeated to obtain this table.
+The SLICE row is the final latest-outcome state after both live continuations. Accounted pages belong
+to document outcomes and are not HTTP-request counts or a count of successfully transmitted pages.
+
+| population | attempted documents | evidence documents / pages | refused documents / pages | successful raster-retention observations | original runner `rasters_mismatched` counter |
+|---|---:|---:|---:|---:|---:|
+| CTRL | 114 | 90 / 668 | 24 / 132 | 664 | 4 |
+| U755 | 755 | 341 / 2331 | 414 / 2779 | 2331 | 0 |
+| SLICE | 80 | 67 / 554 | 13 / 72 | 554 | 0 |
+
+The final SLICE refusals are 13 malformed-evidence documents accounting for 72 pages. The two live
+chunks attempted 10 and 72 documents: 82 attempt occurrences include two retried refusals; final
+state still counts 80 distinct population members. The report records two cache-hit occurrences,
+two chunks and three SLICE session records, including the historical unsuccessful preflight.
+Cache-hit and raster-retention totals are cumulative observations, not cross-population unique files.
+
+The four historical CTRL events counted by `rasters_mismatched` remain recorded unchanged. Separately,
+E's later exact-key CTRL census verifies 664 retained PNGs, finds four absent PNGs and zero present-file
+hash mismatches. That later observation does not establish the cause of each historical runner event.
+Neither observation asserts a distinct physical-file count across overlapping populations, and missing
+rasters are unmeasured.
+
+| population | measured document observations | inference ms/document p50 / p95 | document-average inference ms/page p50 / p95 | elapsed ms/document p50 / p95 | VRAM MB p50 / maximum |
+|---|---:|---:|---:|---:|---:|
+| CTRL | 90 | 3640.2 / 10859.3 | 598.3 / 824.9 | 17174.4 / 55822.2 | 16602 / 18133 |
+| U755 | 341 | 3633.3 / 13426.2 | 649.2 / 1032.8 | 13246.0 / 48733.2 | 21700 / 24251 |
+| SLICE | 67 | 3306.6 / 8709.8 | 463.1 / 594.8 | 80219.9 / 357892.9 | 12018 / 16590 |
+
+The page figures are percentiles of each measured document's mean, not a distribution of individual
+page requests. VRAM is the reported GPU observation, not memory newly attributed to the OCR process.
+Per-document peak RSS is unavailable. CTRL's raw PNG payload total is 318843995 bytes and its JSON
+response reserialization estimate is 26490308 bytes; U755's are 1437647641 and 100763406 bytes;
+SLICE's are 338531938 and 25651993 bytes.
+Neither measures encrypted network traffic; `transport_bytes_measured=false` remains explicit.
+These historical host/runtime timings are not a controlled speed baseline for the later SLICE host.
+
+### First bounded continuation (historical live01)
+
+The first continuation completed at 17:46:46 UTC, EXIT=0: 10 documents / 87 accounted pages,
+8 evidence / 76 pages, 2 malformed-evidence refusals / 11 pages. All 76 raster observations match.
+The corrected live retention attestation passes: declared and inspected, worker/pidfile absent,
+all recorded file counts zero, one probe, then tunnel-down. Winrun measured 1834.4 seconds and
+1341 MB peak job memory. Historical failed attestations remain visible and are not replaced by it.
+
+Eight measured document observations correspond to eight distinct documents. One later cached alias
+adds an evidence row with no new timing; it is not a second measured inference. Across these eight,
+inference totals 37521.5 ms, about 493.7 ms per accounted evidence page. Document elapsed totals
+1441405.6 ms, about 18965.9 ms per page; this includes local work and transfer, not pure network time.
+The separate aggregate timing binder binds these historical sums exactly to the completed rows file.
+Its first EXIT=1 is preserved: seven of eight checks passed, while the cache-alias check incorrectly
+required the independent RSS column to be empty. The source contract leaves four Paddle telemetry
+fields empty on cache hits; RSS uses its own measurement or explicit unavailability. A minimal v2
+measurement correction removed RSS from that four-field emptiness check while retaining the required
+RSS column. On the same exact rows hashes and byte lengths, all eight historical checks pass,
+EXIT=0; every summed measurement is unchanged. Each run has one cached evidence alias with all four
+Paddle fields empty and the same document identity as a measured row. The five-field count remains
+zero in the preserved first result, binding the mismatch to the independent RSS field.
+
+Evidence: `rev23-wave/slice-timing-denominators-v2.json`, SHA-256
+`2c1e85e88463363f5ceba6e6a0ad8a0df621bbdc59e93576ee7ef0a189a393e7`; winrun 1.3 seconds,
+88.6 MB peak job memory, EXIT=0. This corrects a private measurement predicate, not W code or data.
+
+| SLICE run | measured rows / distinct documents within the run | accounted measured pages | summed inference ms | summed document elapsed ms |
+|---|---:|---:|---:|---:|
+| live01 | 8 / 8 | 76 | 37521.5 | 1441405.6 |
+| live02 | 59 / 59 | 478 | 223074.6 | 6399706.4 |
+
+All measured rows have both elapsed and byte observations; no silent deduplication is applied to
+these sums. Across the two runs, the 67 measured observations total 260596.1 inference ms and
+7841112.0 document elapsed ms. The latter includes transfer and local work; neither sum measures
+pure network time. Evidence occurrence rows are 9/8 distinct in live01 and 60/59 in live02.
+
+### Final continuation (live02)
+
+The final continuation began at 19:25:40 UTC and completed at 21:31:44 UTC, EXIT=0. Its one chunk
+covered the authorized 72 pending documents and recorded 478 matching raster-retention observations with zero
+mismatches. The final cumulative latest outcomes are the SLICE row above; they are not a count of
+new outcomes in this chunk. No further retry campaign was launched to force the 13 refusals to pass.
+
+The corrected inspection again passed after worker stop: retention declared and inspected true,
+worker and pidfile absent, request artifacts/page-byte files/unexpected files all zero, one probe,
+then tunnel-down and session-end. The shared-temp image observation was also zero. Historical failed
+CTRL/U755 and preflight-SLICE attestations remain in the final report alongside both passing live
+SLICE attestations. Winrun measured 7564.3 seconds and 2416.8 MB peak whole-job memory; that value
+does not fill the unavailable per-document RSS field. Own-holder release is recorded at 21:31:44 UTC.
+
+Original CTRL/U755 evidence uses its original exact recorded settings key. A later SLICE overlap
+has four identical page objects under a different GPU/Python runtime and settings key; that single
+comparison neither proves general reading equivalence nor creates a controlled same-host model
+speed baseline. Downstream censuses bind each original population to its recorded reading version.
+
+## Lossless transfer measurements
+
+On 24 retained successful pages (eight per modality), gzip sizing of the base64 JSON representation
+preserved the exact original PNG bytes while reducing payload size by 29.89% digital, 29.16% mixed
+and 26.36% scanned. This is a sizing proxy, not measured encrypted-wire volume or a completion forecast.
+
+The synthetic SSH off/on/on/off comparison sent the same 850136-byte body each time. Off took
+22.692 and 41.546 seconds; on took 31.985 and 19.370. The means were 32.119 versus 25.678 seconds,
+about 20% shorter with compression, with substantial connection variation and fresh setup included.
+Every length/hash check passed; the live child uses optional SSH compression on its fresh tunnel.
+
+Concurrency did not establish a dependable gain. One persistent tunnel's serial/parallel HTTP
+checks measured 43.043 versus 41.084 seconds (4.55% shorter). The first undrained SSH-debug attempt
+timed out and remains preserved; only its drained successor is a valid timing observation. A later
+two-tunnel comparison was confounded by differing tunnel speeds. The balanced follow-up used equal
+3400544-byte workloads: serial tunnel 1 took 48.653 seconds, serial tunnel 2 took 88.626, and parallel
+took 54.428 — 11.87% longer than the faster serial connection. All twelve measured and two warm-up
+payloads matched, and all diagnostic processes were reaped. No parallel OCR scheduling was added.
+
+The earlier 33-hour projection covered a full population set and is not the remaining continuation
+time. These measurements justify trying lossless compression but do not establish its full-wave
+speedup without a matched live uncompressed control. No such extra customer rerun was performed.
+
+## Final scan evidence
+
+Final privacy closure requires added-line and real commit-message scans at the actual final W3
+documentation tip, against base `26f94f5`, plus the complete frozen output scan using the full
+3,380-document run-of-record population and frozen cache. Actual final tip, input hashes, exits,
+raw counts, approved exclusions and source-backed dispositions are recorded in
+`docs/moneythumb-replacement/reviews/PHASE2_P23WAVE_REVIEW.md`. Its independent approval is required
+before composition. A scanner's nonzero raw result remains visible alongside any accepted
+disposition; this section makes no advance claim that the final scans passed.
+
+## Risks and limits
+
+Evidence availability is not extraction accuracy or production admission. E and X's separate
+quality/agreement reviews are complete; B's reconstruction fallout remains outstanding. Historical refusals with lost exception details
+remain unnamed. Historical failed attestations remain in the record. Transient timing is absent on
+cache hits; retained row timings are document totals or per-document page means, not a full raw-page
+latency distribution. Transport byte totals are not wire measurements. Synthetic compression and
+concurrency experiments do not establish a wave completion time. No production pin, admission rule,
+validator or escalation edge changed.
+
+
+# §P23WAVE-PRIVACY-CLOSURE — Private custody and typed ordinary exports
+
+## Original finding and preserved history
+
+The final output scan exposed a reporting boundary defect: the generic discovery
+artifacts written beneath the ordinary wave output root retained archive-derived
+paths and row fields. The original 225-file snapshot and its **41,119 raw scan
+findings** remain immutable private evidence. The occurrence accounting matched
+those findings to **71,423 complete producing occurrences**; 11,151 hit records
+had a path, folder, duplicate-path or statement-field origin. These are historical
+findings, not a zero-result scan and not a statement that every scanner match was
+a customer disclosure.
+
+The root clarification in `docs/agent-handoffs/P23-WAVE.md` separates research
+custody, permitted by R1/H3, from ordinary wave publication. This section appends
+to the original §P23WAVE and preserves its measured populations, original output
+bytes, live sessions, failed historical attestations and original scan record.
+A new export does not change the disposition of an old raw artifact.
+
+## Implemented boundary
+
+Commits `7b5546abf74a7600a73fe9f0f7b8378729492107` and
+`5c8e86d9f8f5d3bf252f491376f22ff2911bc9ce` put future discovery child outputs
+under the research directory's derived `.wave/<partition>/discovery-runs/`
+population directory. Resolved private and ordinary roots must be disjoint.
+Exactly one newly created child is accepted. Raster retention, refusal recovery
+and technical aggregates use its original rows through the recorded storage
+identity; they do not depend on an ordinary export.
+
+The ordinary publication contains only `wave_technical_rows.csv` and the final
+`wave_export.json` marker. Its positive 14-field schema retains fingerprints,
+page counts, closed source/cache statuses, a derived `wave_refusal_reason`, and
+finite technical measurements. Alias order and missing readings are preserved.
+Raw relative paths, folder labels, duplicate paths, issuer/account fields,
+generic reports, hash maps, unrestricted objects and billing data are excluded.
+Unknown field values and derived reason codes refuse without echoing the value.
+The reader requires independently trusted source rows and provenance hashes plus
+the session identity, as well as the export's schema, row count and byte hash.
+Original lexical paths are checked again through reading and publication so a
+retargeted path cannot silently acquire the identity of the original source.
+
+New state format 2 carries the storage marker and source hashes. Legacy format 1
+remains readable; active continuation advances it, while a no-work legacy resume
+keeps format 1 and its existing zero-work session audit. New-format storage in a
+format-1 state is refused. Markerless historical chunks retain the exact explicit
+legacy-root lookup, including mixed old/new state. Missing private custody never
+falls back to a public or different historical run.
+
+Document outcomes are staged until the final private source-byte and path checks
+pass. Completed private extraction is then saved before publication. Publication
+failure has a separate status and offline retry path; it does not undo completed
+evidence or enter pending-document selection. The final audit counts only newly
+appended complete chunks, including the case where an initial state save failed
+and the final audit save succeeds. Failed children and no-work sessions contribute
+zero completed work. Lifecycle cleanup retains its existing ordering.
+
+Ordinary report/event validation also preserves the source-defined failed
+inspection shape: only its three unavailable counters may retain `-1`, with the
+corresponding failed inspection fields. An unavailable reading is not converted
+to zero. Arbitrary negative values, unbounded error text and extra nested fields
+are refused. Generic discovery, OCR, routing, canonical evidence, raster behavior
+and cache-key construction are unchanged by this correction.
+
+## Completed focused proofs at the corrected source
+
+Both following runs used reviewed driver
+`p23wave/export_proof_driver_v2.py`, SHA-256
+`f645f1a70df13d3324dcc4751ff550cebbbaa8809d0178f5ea02281aa4b2114d`,
+against clean source `5c8e86d9f8f5d3bf252f491376f22ff2911bc9ce`.
+Each held the committed root harness lock, used one OCR worker, a 1.5 GiB launch
+floor and a 4 GiB job cap, then recorded the actual child exit and its own release.
+The mutation invocation required the hash-bound successful baseline result.
+
+| proof | observed result | resource observation | durable evidence under `discovery_reports/train13-logs/p23wave/` |
+|---|---|---|---|
+| Focused wave baseline | 139 passed, zero failed; child/driver/release EXIT=0 | 51.3 s; 372.1 MiB peak job | `export-proof-baseline-custody-01/{child.log,resources.jsonl,result.json}` |
+| Affected mutation proof | 22/22 killed by named failures; restored clean source after every edit; child/driver/release EXIT=0 | 55.1 s; 380.5 MiB peak job | `export-proof-mutants-custody-01/{child.log,resources.jsonl,result.json,mutation-table.md}` |
+
+The affected set is **M1, M17, M21, M22 and M25–M42**: four updated historical
+mutations and eighteen new ones. These expose unsafe path/report copying,
+unvalidated field values or refusal keys, missing source/provenance bindings,
+storage overlap and format confusion, ambiguous children, publication/state
+ordering, false session counts, loss of unavailable readings, implicit export
+reuse, offline extraction entry and outcomes folded before custody checks.
+The twenty other historical mutation results remain recorded in the original
+§P23WAVE; the combined catalogue has forty-two distinct mutation identities.
+
+The synthetic baseline includes actual discovery artifact/field names with
+sensitive sentinels, missing measurement and alias controls, mixed-storage
+numeric/refusal equivalence, same-byte path retargeting, independent provenance
+binding, failed publication and offline retry, persistent and transient private
+save faults, rejected custody without changed outcomes, active legacy migration
+and no-work legacy audit behavior. The preserved full suite and production replay
+results in the original §P23WAVE remain accepted for their unchanged source scope.
+
+## Independent paired runtime closure
+
+The independent probe executed the same synthetic fixtures against preserved
+`7b5546a` and corrected `5c8e86d`, under one exclusive root-controlled window.
+Its old-source EXIT=0 means the expected defects were reproduced. Its corrected
+EXIT=0 means the corrected contract and controls passed.
+
+| trigger | preserved source | corrected source |
+|---|---|---|
+| Normal mixed evidence/refusal control | One completed chunk, two audited documents, one refusal pending, valid export | Same |
+| First completed-chunk state save fails once | Final save records completed mixed work with audit 0 chunks / 0 documents | Completed work remains recorded with truthful audit 1 / 2 |
+| Final rows-byte or multi-path check rejects custody | Outcomes change without a new completed chunk; one member remains pending | Prior outcomes/chunks preserved; both members pending; zero new audited work |
+
+All fault cases published no completion marker and each observed exactly one
+lifecycle cleanup. The actual preserved version-1 reader at `7897518` accepted
+format 1 and refused format 2; the corrected reader accepted both without
+rewriting state bytes. Independent CSV temporary-file open and marker rename
+faults produced rejected partial destinations. Same-destination retry refused
+without altering existing bytes; fresh offline retry preserved one evidence and
+one refusal row, with extraction, state-write, raster, subprocess and socket
+tripwires untouched.
+
+Evidence is under
+`discovery_reports/train13-logs/p23wave/closure-20260915/privacy-correction/recovery-01-paired/`:
+`old.log`, `fixed.log`, their resource records, both per-mode `result.json` files,
+and controller `results.json`. Old/fixed runs took 0.9 / 1.3 seconds and peaked at
+59.3 / 59.4 MiB. Both actual children and the controller returned 0; own-holder
+release completed at 23:33:13 UTC. The independent runtime review is
+`discovery_reports/train13-logs/p23composition-prep/W-SEQUENCING-PAIRED-RUNTIME-REVIEW.md`.
+These extracted synthetic probes do not establish customer-raster or holdout-door
+coverage; the unchanged real-raster and holdout controls retain their existing
+proof scope.
+
+## Historical exports and exact comparison
+
+The read-only historical operation processed the fifteen explicitly bound runs
+(five CTRL, eight U755, two SLICE), verified their recorded state/session and
+research-mode/partition identity, and produced thirty fresh ordinary files. All
+**97 input identities** remained unchanged: ninety original discovery artifacts,
+the accepted report, three state files and three population manifests. There
+were zero changed or unverified inputs and zero attempted audit-boundary denials.
+
+Every projected row matched an independently constructed positive-field
+projection, in original order. Per-run alias, evidence, timed-row, page, cache-hit
+and technical-sum checks matched exactly. The following sums retain historical
+row semantics:
+
+| population | recorded runs | exported rows | Paddle-present rows | evidence-row pages | timed rows | timed pages |
+|---|---:|---:|---:|---:|---:|---:|
+| CTRL | 5 | 17,530 | 90 | 668 | 90 | 668 |
+| U755 | 8 | 28,048 | 361 | 2,378 | 341 | 2,331 |
+| SLICE | 2 | 7,012 | 69 | 566 | 67 | 554 |
+
+The 52,590 exported rows include aliases, repeated historical runs and rows
+outside the active chunk. The named wave populations remain **114 / 755 / 80**
+documents, with zero unattempted members in each. Missing cache-hit telemetry is
+preserved; a Paddle-present row does not imply a timed row.
+The two SLICE runs retain 9 / 60 evidence-row observations for 8 / 59 distinct
+evidence documents within those respective runs, and 8 / 59 timed rows spanning
+76 / 478 pages. Each run has one cache-hit alias with all four Paddle telemetry
+fields empty. These are archived observations per run, without a new cross-run
+distinct-document union.
+
+The unmodified authoritative `wave_report(populations_dir=None)` result matched
+the accepted final report exactly after separating three population fields:
+`population_documents`, `unattempted` and `complete`. Those three fields were
+independently verified against the hash-bound original manifests and state for
+each population. This is an offline report equivalence proof, not a CLI rerun or
+a new extraction/production-admission result.
+
+The controller's actual child, controller and release exits are 0. The operation
+took 7.4 seconds, peaked at 161.0 MiB, and completed at 23:33:58 UTC. Evidence is
+under `discovery_reports/train13-logs/p23wave/closure-20260915/privacy-correction/`:
+`exports-01-controller/{child.log,resources.jsonl,results.json}` and
+`exports-01/{equivalence.json,authoritative-report.json,exports/}`.
+The equivalence record SHA-256 is
+`6f1e0cc5b27be10dd45f04c5fd193755b7cc9e21ff3b15802fea5e25633ddf91`.
+The independent export/equivalence runtime review is
+`discovery_reports/train13-logs/p23composition-prep/W-EXPORT-EQUIVALENCE-RUNTIME-REVIEW-E.md`.
+
+## Final documentation and scan boundary
+
+At this documentation commit, fresh added-line, real-message and ordinary-output
+scans remain outstanding. Their reserved result directory is
+`discovery_reports/train13-logs/p23wave/closure-20260915/final-scans-custody-01/`,
+with `added-lines.raw.log`, `real-messages.raw.log`, `outputs.raw.log`, resource
+records and `results.json`. The exact input list is
+`discovery_reports/train13-logs/p23wave/custody-original-inputs-01.txt`; its closed
+manifest and original-to-snapshot mapping belong under
+`discovery_reports/train13-logs/p23wave/frozen-output-custody-01/`.
+No count, exit or disposition for those future scans is claimed here. Root's
+subsequent orchestration attestation and independent final review will bind the
+actual final tip and record raw counts and any allowed source attribution.
+
+## Risks and limits
+
+The reporting correction preserves extraction and state evidence; it does not
+establish OCR accuracy, produce new validated documents or alter production
+admission. Original scan findings remain visible, and historical unnamed
+exceptions, failed attestations and absent readings remain explicit. Technical
+row totals include historical aliases and repeated runs; wave membership and
+document-level outcomes retain their original denominators. Final privacy
+disposition and independent approval precede root-owned composition.
+# §P23EGATE — extraction-quality v2: every candidate metric MEASURED on every page and VERSIONED in one threshold table, and every one of them ADMITTED AS NOTHING — the router's module byte-identical, thirteen `eq_*` columns only the report reads, a census that prints counts and percentiles and nothing else
+
+**Population.** Synthetic only. Nine control/defect pages rendered from literal
+strings by `tests/paddle_synthetic.py` (dated 2031, never derived from a
+document) and a seven-document fake-worker research partition built through the
+REAL research run mode. No customer page was read, nothing left this machine, no
+Paddle call was made — the wave is cell W's. `newly validated 0` · `ladder
+movement 0` · `regressions 0`.
+
+**Root cause — why this cell exists.** Phase 2.5 will derive Paddle's production
+triggers from MEASURED extraction-quality conditions, and those measurements did
+not exist. The only extraction-quality gate in the tree is
+`ExtractionQualityGate`'s parameter-free triad (no text produced, below the
+character floor, every page empty), which asks only whether an extractor
+returned *something*. The one criterion anybody proposed beyond it —
+alphanumeric density — was ruled SURFACE-ONLY precisely because it was a round
+number chosen just below the observed minimum of the very population it would
+then have been used to split (Ruling B; `ALNUM_DENSITY_FLOOR`'s own docstring,
+which is the most useful thing in this repository about how not to do this).
+Ruling B's discipline is labelled evidence FIRST, review SECOND, admission
+THIRD. 2.3 is the first step and only the first step.
+
+**Solution.** `ocr/extraction_quality.py` (new, `EXTRACTION_QUALITY_VERSION 1`):
+pure functions over ONE page of canonical `ExtractionEvidence`, plus that page's
+already-decoded grey raster where a metric needs pixels. Word count and density
+in the frame's own space; the rec-score mean and nearest-rank p10; the
+money-shape parse rate over numeric tokens; the lexicon rate over alphabetic
+tokens against a vocabulary DERIVED from `layout.signals.LEXICONS`; the
+garbage-token rate over both halves of the rule; box regularity (line-height CV,
+the numeric right-edge residual in the page's own character widths); the share of
+ink outside every word box; and the orientation votes the words' own boxes cast.
+Then `e_class` over exactly the plan's §H.4 vocabulary. Thirteen `eq_*` columns
+per document at the row's single exit; a census instrument over a research
+partition; and three independent pins that the whole thing is admitted as
+nothing.
+
+## What each metric is, and what it cannot say
+
+| metric | what it measures | what it cannot say |
+|---|---|---|
+| `word_count`, `density` | how much the extractor found, per square unit OF THE FRAME'S OWN SPACE | density is not comparable between a pdf-point frame and a 300-dpi pixel frame (a factor of (300/72)^2); it is described, never classified on, and `frame_space` travels beside it |
+| `rec_mean`, `rec_p10` | the extractor's own recognition scores, nearest-rank p10 | nothing across configurations, and nothing on its own: §H.4's own warning is that the score must be recalibrated per engine setup, so NO threshold names it and the one function that decides classes provably never reads it |
+| `money_rate` | of the tokens carrying a digit, the share that parse as a money figure | it is layout-sensitive as well as recognition-sensitive: a terms page or an address page of a genuine statement carries numeric tokens and no money |
+| `lexicon_rate` | of the tokens carrying letters, the share that are EN/FR/ES statement FURNITURE | the vocabulary is furniture, not a dictionary (224 words), so the rate is low even on a perfect page — which is why its threshold is a floor near zero and never a quality score |
+| `garbage_rate` | tokens over 20 characters OR carrying a repeated-letter run | letters only: a padded numeric field (`00000`) and a rule of dots are not garbage |
+| `line_height_cv`, `right_edge_residual` | whether the boxes are a page's boxes: uniform line heights, a right-aligned column of figures | two account columns on one page put two right edges in one distribution; a page with under 3 money lines is not judged at all |
+| `ink_outside_boxes` | of the page's ink, the share outside every word box (padded one pixel) | it needs pixels, and production keeps only `raster_sha256` — so in practice E1 is a CENSUS class, empty on every row |
+| `orientation_votes` | the share of votable tokens whose box reads down the page rather than across | it is a box fact, not an image fact: an extractor that already rotates its boxes reports horizontal on a rotated page, and the census's vertical-share distribution is the thing 2.5 calibrates on, not this v1 boolean |
+
+## The synthetic defect table (`tools/p23egate_synthetic_table.py`)
+
+Every page is a transform of the SAME clean ledger, so the defect is the only
+difference between it and the control.
+
+| page | metric it targets | measured | threshold | E-class | every class that fired |
+|---|---|---|---|---|---|
+| clean ledger (the control) | (none) | - | - | (none) | (none) |
+| blank | word_count | 0 | - | E0 | E0 |
+| partly covered | ink_outside_boxes | 0.733384 | ink_outside_boxes_ceiling = 0.35 | E1 | E1 |
+| 90 degrees | orientation_votes | vertical share 1.0 of 106 votes | orientation_unanimous_share = 1.0 | E3 | E3 |
+| noise | lexicon_rate | 0 | lexicon_rate_floor = 0.01 | E2 | E2 |
+| digit-glyph substitution | money_rate | 0 | money_rate_floor = 0.02 | E2 | E2 |
+| over-long tokens | garbage_rate | 0.0869565 | garbage_rate_ceiling = 0.05 | E2 | E2 |
+| repeated-letter runs | garbage_rate | 0.0869565 | garbage_rate_ceiling = 0.05 | E2 | E2 |
+| clean ledger + the page-integrity flag | truncated | True | - | E5 | E5 |
+
+And the half that makes "no other class fires" checkable rather than asserted —
+every metric on every page, beside the control's:
+
+| page | word_count | money_rate | lexicon_rate | garbage_rate | line_height_cv | right_edge_residual | ink_outside_boxes |
+|---|---|---|---|---|---|---|---|
+| clean ledger (the control) | 126 | 0.5 | 0.0869565 | 0 | 0 | 0 | unmeasured |
+| blank | 0 | unmeasured | unmeasured | 0 | unmeasured | unmeasured | unmeasured |
+| partly covered | 30 | 0.5 | 0.285714 | 0 | 0 | 0 | 0.733384 |
+| 90 degrees | 126 | 0.5 | 0.0869565 | 0 | 0.532246 | 0 | unmeasured |
+| noise | 72 | unmeasured | 0 | 0 | 0 | unmeasured | unmeasured |
+| digit-glyph substitution | 126 | 0 | 0.0366972 | 0 | 0 | unmeasured | unmeasured |
+| over-long tokens | 138 | 0.5 | 0.0689655 | 0.0869565 | 0 | 0 | unmeasured |
+| repeated-letter runs | 138 | 0.5 | 0.0689655 | 0.0869565 | 0 | 0 | unmeasured |
+| clean ledger + the flag | 126 | 0.5 | 0.0869565 | 0 | 0 | 0 | unmeasured |
+
+Three of those readings are worth naming rather than leaving to be noticed. The
+90-degree page also clears the line-height CV ceiling (0.532 against 0.5) —
+rotating a page turns one visual line into a column of separate ones whose
+heights are the words' own lengths — so it fires E3 twice over and E3 only. The
+digit-glyph page's right-edge residual is UNMEASURED, not zero: once no money
+token parses there is no column of figures to measure, which is the honest
+answer and the reason `None` and `0.0` are different values everywhere here.
+The partly-covered page's ink share outside its boxes is 0.733 while the share
+INSIDE them is 0.267 — deliberately asymmetric, so a gate that measured the
+inside would not land on the same number (M4).
+
+## The thresholds, and the version they are pinned to
+
+`EXTRACTION_QUALITY_VERSION = 1`. The table below is pinned beside that number
+in `tests/test_extraction_quality.py`: a threshold cannot move without the
+literal moving, and the literal cannot move without a reviewer reading the
+version line next to it (M1). A second test asserts every key is READ through
+the module's one accessor, so a table entry nothing consults is a failing build
+rather than documentation.
+
+| threshold | v1 | what it is |
+|---|---|---|
+| `min_words_for_page_metrics` | 12 | below this a page is not classified on its rates at all |
+| `money_rate_floor` | 0.02 | a floor for an anomaly, never a quality score |
+| `money_rate_min_numeric_tokens` | 20 | the denominator below which the rate is measured and NOT classified |
+| `lexicon_rate_floor` | 0.01 | likewise a floor: not one word of furniture in three languages |
+| `lexicon_rate_min_alphabetic_tokens` | 30 | likewise |
+| `lexicon_min_word_letters` | 3 | keeps `of` / `du` / `de` out of the vocabulary |
+| `alphabetic_token_min_letters` | 2 | what makes a token alphabetic |
+| `garbage_rate_ceiling` | 0.05 | |
+| `garbage_token_max_chars` | 20 | the card's own bound |
+| `garbage_repeat_run` | 4 | and the regex is BUILT from it, not echoing it |
+| `line_height_cv_ceiling` | 0.5 | |
+| `line_height_cv_min_lines` | 5 | |
+| `right_edge_residual_ceiling` | 1.5 | character widths |
+| `right_edge_residual_min_lines` | 3 | |
+| `ink_dark_luminance_max` | 128 | a pixel at or below this is ink |
+| `ink_box_pad_px` | 1 | a tight box plus antialiasing puts a rim of ink just outside the glyphs |
+| `ink_blank_page_share` | 0.0005 | below this the page is BLANK, not a coverage gap (§H.4's own guard) |
+| `ink_outside_boxes_ceiling` | 0.35 | |
+| `orientation_min_chars` | 2 | a one-character box votes for nothing |
+| `orientation_min_aspect` | 1.2 | a near-square box is indeterminate and is not in the share |
+| `orientation_min_votes` | 8 | |
+| `orientation_unanimous_share` | 1.0 | §H.4 says UNANIMOUS and v1 keeps it literal |
+| `raster_aspect_tolerance` | 0.02 | a raster whose axes disagree cannot be a raster of this page |
+| `rec_p10_percentile` | 10 | which percentile is REPORTED — not a threshold on the score |
+
+**These are a-priori labels, not corpus-fitted numbers.** No population was used
+to choose any of them, which also means no population has confirmed any of them.
+Each floor sits where the SHAPE of a page stops being a statement page at all,
+not where a corpus happens to sit; the census measures the real distributions per
+configuration and 2.5 recalibrates from them, and a recalibration is a version
+bump by construction.
+
+## The fold, per column
+
+Thirteen columns, appended to `ROW_FIELDS` and never reordered, in the module's
+own `EQ_ROW_COLUMNS` order — which is also the table the row-shape test pins
+against, so a column cannot be added, dropped or moved in one place only.
+
+| column | figure | fold |
+|---|---|---|
+| `eq_version` | `EXTRACTION_QUALITY_VERSION` | - |
+| `eq_word_count` | words on a page | min over pages |
+| `eq_density` | words per square unit of the frame | min over pages |
+| `eq_rec_mean` | mean recognition score | mean of the page means |
+| `eq_rec_p10` | p10 recognition score | min over pages |
+| `eq_money_rate` | money-shape parse rate | min over pages |
+| `eq_lexicon_rate` | lexicon rate | min over pages |
+| `eq_garbage_rate` | garbage-token rate | max over pages |
+| `eq_line_height_cv` | line-height CV | max over pages |
+| `eq_right_edge_residual` | right-edge residual | max over pages |
+| `eq_ink_outside_boxes` | ink outside the boxes | max over pages |
+| `eq_orientation_votes` | vertical share of the votes | max over pages |
+| `eq_class` | the page E-class | the WORST page's, by `E_CLASS_PRIORITY` |
+
+The rule is "name the worst page": the minimum where a low value is the defect,
+the maximum where a high one is. The two exceptions are stated where they live —
+`eq_rec_mean` is a distribution figure, and `eq_class` is a class. A metric no
+page measured is EMPTY at the document level too, never zero.
+
+## Admitted as nothing — three pins and a shape
+
+* **By blob.** `ocr/escalation.py` is byte-identical to its content at this
+  branch's base (SHA-256 over its bytes with line endings normalised, because
+  this repository checks out CRLF here and LF on the CI runner and a pin that
+  fired on a line ending would pin the platform). Deliberately the whole module
+  rather than "`ADMITTED_TRIGGERS` is unchanged": a set can be rebuilt from the
+  same names while the router around it moves.
+* **By vocabulary.** The admitted triggers, the defined-but-refused one,
+  `EXTRACTOR_ORDER` and `RouterInputs`' six fields restated in a second file, so
+  a change has to defeat two. No member of the trigger vocabulary is an E-class
+  or a metric name.
+* **By AST.** No module under `ocr/escalation.py`, `analysis/` or `webapp/`
+  imports `ocr.extraction_quality`, names one of its columns, or reads one off
+  anything; the scan covers `ocr/escalation.py` and every module of `analysis/` and `webapp/`. The guard is a pure function over source
+  TEXT, so M6 is planted in a SCRATCH COPY of the router and killed with the
+  working tree never touched, and the unmutated source is asserted clean in the
+  same test so the kill is not vacuous.
+* **By shape.** The metrics module imports the standard library, `evidence` and
+  `layout.signals` and nothing else (an AST test over its import set, plus
+  `sys.stdlib_module_names` for the rest). This is why the ink metric takes an
+  already-decoded grey buffer instead of PNG bytes: the decode belongs to the
+  caller, because a metrics module that could import an image library could
+  import the analysis layer. And a census of readers, by measurement: the
+  columns are named by the module that computes them, the runner that projects
+  them, the report that lists them and the census that reads them, and by
+  nothing else in the tree.
+
+The projection itself reads `document.evidence` — what an EXTRACTOR produced —
+and never `native_evidence`, and refuses the native reader's id a second time.
+Two independent conditions, because the mutant they exist to kill survives
+either one alone. It runs at the row's single exit after the analysis has
+finished, writes to the ROW and nothing else, takes truncation from the EXISTING
+page-integrity flag rather than re-deriving it, and leaves the columns empty
+rather than failing a run if it ever raises.
+
+## The census (`tools/extraction_quality_census.py`)
+
+READ-ONLY over a research partition's cached OCR artifacts. Counts and
+percentiles ONLY: no page text, no word, no sha, no path, no verdict — proven by
+a grep, since the partition the test measures is built from synthetic pages whose
+own literal strings and document shas are then searched for in the rendered
+tables. The artifacts are read as JSON and the SQLite index is never opened. A
+`--data-dir` that is or is inside the live cache, a `webapp_data*` directory or
+the read-only recovery area is refused by cell T's own
+`refuse_production_data_dir`, IMPORTED rather than re-implemented; a malformed
+partition id is refused before anything is read; an `--out` that is not
+git-ignored is refused; and a test asserts every file's mtime under the data dir
+is unchanged by a run.
+
+**Per configuration, structurally.** The grouping key is the extractor's OWN
+recorded identity — id, model token, detection and recognition models, pipeline
+switches, dpi, provider, execution class, read field by field out of
+`ExtractionEvidence.runtime` — never a label typed on the command line. Two
+configurations are two tables; a rec-score column in one is not the same
+measurement as the one beside it.
+
+**The fake-worker partition** (`tools/p23egate_fake_partition.py`, committed and
+re-runnable; seven synthetic documents through the real research mode, rasters
+retained per D2). One configuration found, 7 documents / 7 pages measured, 7
+cached negative results skipped and named (the offline ladder produced nothing,
+so the directory also holds its negatives — which is why the census counts what
+it could not measure instead of dropping it):
+
+| metric | measured | min | p05 | p25 | p50 | p75 | p95 | max |
+|---|---|---|---|---|---|---|---|---|
+| word_count | 7 | 30 | 30 | 72 | 126 | 138 | 138 | 138 |
+| density | 7 | 3.56506e-06 | 3.56506e-06 | 8.55615e-06 | 1.49733e-05 | 1.63993e-05 | 1.63993e-05 | 1.63993e-05 |
+| rec_mean | 7 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| rec_p10 | 7 | 1 | 1 | 1 | 1 | 1 | 1 | 1 |
+| money_rate | 6 | 0 | 0 | 0.5 | 0.5 | 0.5 | 0.5 | 0.5 |
+| lexicon_rate | 7 | 0 | 0 | 0.0366972 | 0.0689655 | 0.0869565 | 0.285714 | 0.285714 |
+| garbage_rate | 7 | 0 | 0 | 0 | 0 | 0.0869565 | 0.0869565 | 0.0869565 |
+| line_height_cv | 7 | 0 | 0 | 0 | 0 | 0 | 0.533307 | 0.533307 |
+| right_edge_residual | 5 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| ink_share | 7 | 0.00569495 | 0.00569495 | 0.0100858 | 0.0115879 | 0.014574 | 0.0172948 | 0.0172948 |
+| ink_outside_boxes | 7 | 0 | 0 | 0.0160785 | 0.35497 | 0.744944 | 0.744944 | 0.744944 |
+
+pages by E-class (the one precedence reports): (none) 1 · E1 2 · E2 4 · E0/E3/E5
+0. Pages by EVERY class that fired (overlapping, never summed): E1 2 · E2 4 ·
+E3 1.
+
+That difference is a finding about the instrument, not about the pages, and it
+is why the second table exists at all: the rotated document fires E1 as well as
+E3 once a raster is there — the fixture's renderer draws text one way only, so
+that page's tall narrow boxes genuinely do not cover its horizontal ink — and a
+census that kept only the class precedence reports would have shown E3 as a
+class that never fires. 2.5 calibrates from the overlapping table.
+
+The same seven documents' ROWS carry `eq_class` "" / "" / E2 / E3 / E2 / E2 / E2
+and an EMPTY `eq_ink_outside_boxes` on every one of them: no raster reaches a
+row, by construction. E1 is a census class in practice today, and that asymmetry
+between the row and the census is worth carrying forward rather than discovering
+in 2.5.
+
+**The census over cell W's real `paddle-v5-prod` partition has NOT run.** At
+this cell's closure that partition does not exist: cell W was still queued for
+the host lock behind cell X, so no customer page has been read by Paddle and
+there is nothing to census. The instrument is finished, proven on a partition
+of the same shape written by the same code path, and the run is a single
+command whenever Ocean says the partition is there:
+
+```
+python -m tools.extraction_quality_census --data-dir <W's research dir>        --research-partition paddle-v5-prod [--rasters <W's rasters>]
+```
+
+It is READ-ONLY and refuses a production cache at the door, so it can be run by
+whoever holds the partition without coordinating with this branch.
+
+## Commits (in order, each on a clean tree with its targeted tests green)
+
+| sha | what |
+|---|---|
+| `e8b142d` | the metrics module, the synthetic defect pages, the tests (TDD order: pages and expected classes, then the module) |
+| `d72d27d` | the row projection, the `ROW_FIELDS` append, the row-shape pin, the narrow `rate` exemption |
+| `55fbc51` | admitted as nothing: the router's blob pin, the vocabulary pin, the AST guard, M6 in a scratch copy |
+| `ccac230` | the census instrument, its tests, the OQ2 roots append |
+| `520ad74` | the M1-M10 mutation harness |
+| `37e6e75` | tests: the vocabulary helper imported rather than `__import__`ed |
+| `57bdca3` | census: ASCII tables; the raster lookup tolerant of the sha's case |
+| `463333b` | the synthetic-table instrument |
+| `9ef2774` | census: report EVERY class a page fired, not only the one precedence reports |
+| `11d8aa4` | the fake-worker partition builder, committed and re-runnable |
+| `561edf9` | census: rasters opened one page at a time (a document at a time would have been 400 MB) |
+| (the commit that carries this section) | this record |
+
+Four of those eleven are findings this cell made about its OWN instruments by
+running them rather than by reading them — the hidden co-occurring class, the
+document-at-a-time rasters, the non-ASCII tables, the case-sensitive raster
+lookup — and each is recorded as what it was.
+
+## Mutation table
+
+Every mutant is the edit the card words, applied to the working tree by
+`tools/p23egate_mutation_table.py` and run for real, without `-x`, with the tree
+asserted clean after each restore. Two extras beyond the ruled table, because a
+guard with two independent conditions needs a mutant per condition.
+
+| # | mutant | file | killer | first run at `561edf9` |
+|---|---|---|---|---|
+| M1 | a threshold changed without the version | `ocr/extraction_quality.py` | `test_the_threshold_table_and_the_version_are_pinned_together` | KILLED |
+| M2 | the money rate over ALL tokens, not the numeric ones | `ocr/extraction_quality.py` | `test_the_money_rate_denominator_is_the_numeric_tokens_not_every_token` | KILLED |
+| M3 | the garbage rate ignoring repeated letters | `ocr/extraction_quality.py` | `test_a_repeated_letter_page_is_E2_although_every_token_is_short` | KILLED |
+| M4 | ink-versus-box coverage computed INSIDE the boxes | `ocr/extraction_quality.py` | `test_a_partly_covered_page_is_E1_...`, `test_ink_far_from_every_word_box_is_a_coverage_gap` | KILLED |
+| M5 | the E-class set from the rec-score alone | `ocr/extraction_quality.py` | `test_the_rec_score_is_a_proxy_and_never_sets_a_class_on_its_own` | KILLED |
+| M6 | an `eq_*` value read in the router | (scratch copy; the tree is never touched) | `test_m6_an_extraction_quality_read_planted_in_a_scratch_router_is_caught` | NOT KILLED - see above; the guard was working, its suite was red on a different test |
+| M7 | `ROW_FIELDS` reordered | `discovery/report.py` | `test_the_new_columns_are_appended_...`, `test_the_extraction_quality_columns_are_the_modules_own_table_in_its_own_order` | KILLED |
+| M8 | the projection reading native-only rows (both halves of the guard) | `discovery/runner.py` | `test_the_projection_is_empty_on_a_native_only_read` | KILLED |
+| M8b | only the extractor-id half removed (extra) | `discovery/runner.py` | the same test's second assertion | KILLED |
+| M9 | the census printing a per-document identifier | `tools/extraction_quality_census.py` | `test_the_output_carries_counts_and_percentiles_and_no_document_content` | KILLED |
+| M10 | the metrics module importing `analysis` | `ocr/extraction_quality.py` | `test_the_module_imports_only_the_standard_library_evidence_and_layout_signals` | NOT KILLED - see above; the planted import did not exist, so the file errored at collection |
+| M10b | the metrics module importing `ocr.paddle_client` (extra) | `ocr/extraction_quality.py` | the same test | KILLED |
+
+Ten of twelve killed on the first run; the two that were not are analysed above
+and were fixed at `4145efd` (the reader census's allowance; an `analysis` import
+that succeeds). **The re-run at the fixed tip is queued behind cell W's wave and
+is reported to Ocean in this cell's closure message** — a section cannot carry a
+number measured over its own commit, which is the same reason the final scans
+are reported there too.
+
+## Proofs
+
+Every heavy proof ran ONE AT A TIME under
+`discovery_reports/train13-logs/HARNESS.lock` (mkdir-only, own-holder release),
+in two windows, behind cells X and P; every log is under
+`discovery_reports/train13-logs/p23egate/` and ends in an `EXIT=` line.
+
+| proof | result | exit |
+|---|---|---|
+| mutation table (M1-M10 + 2 named extras), first run at `561edf9` | 10 of 12 killed; M6 and M10 NOT killed — both for reasons that were real defects in THIS CELL's own tests, not survivals of the property (below) | 2 |
+| canonical guards (5 files) | **277 passed** | 0 |
+| canonical conformance (7 files) | **1,282 passed / 41 skipped** | 0 |
+| `python corpus_gate.py` | **GREEN - 105 PASS / 3 WITHHELD / 1 REFUSED** | 0 |
+| corpus-marked slice (`pytest -m corpus`) | **34 passed / 9,943 deselected** (23m 50s) | 0 |
+| full default suite at `561edf9` | 1 failed / **9,889 passed** / 48 skipped / 39 deselected - the single failure this cell's own reader census, fixed at `4145efd` | 1 |
+| union replay **BASE** (tree `26f94f5`, all 81 registration ids, 4 chunks of the cohort) | population 2,695 - **previously validated preserved 2,625 of 2,625, payload identical 2,625, payload changed 0** - newly validated 0 - other ladder movement 0 - validated regressions 0 - unchanged non-validated 70 (payload changed on 0) - no text 0 - 2,518s | 0 x4 |
+| union replay **CLOSURE** (tree `561edf9`, the same four chunks) | the SAME numbers, chunk for chunk: 680 / 681 / 679 / 585 preserved payload-identical, 20 / 19 / 21 / 10 unchanged non-validated, every movement counter 0 | 0 x4 |
+| privacy scan of ADDED lines vs the run-of-record population (`--base 26f94f5 --ref HEAD --rows <run>/rows.csv --run <run>`, cold cache `webapp_data_train12_cold`) | added lines 3,189; documents read 3,351 of 3,380 (29 `no_cached_text`, the known no-text shas); raw hits 12, **all 12 excluded by the scanner's `words_class` rule**; **hit_count 0**, residue_files 0, residue_sites 0 | 0 |
+| commit-message scan over this branch's commits | MONEY 0 / DIGITS 0 / DATES 0 / **WORDS 4**, all four adjudicated below | 1 |
+| the fake-worker census (`tools/p23egate_fake_partition.py`) | the partition built and censused | 0 |
+| **still queued behind cell W's wave, reported to Ocean in the closure message** | the mutation re-run and the full suite at the fixed tip `4145efd`, and the FINAL privacy and message scans over the tip that carries this section | - |
+| the synthetic defect table (`tools/p23egate_synthetic_table.py`) | the table above | 0 |
+| Python 3.12 (CI's pin) `py_compile` over every changed file, and an import of the metrics module | OK - 24 thresholds, a 224-word vocabulary | 0 |
+
+**The replayed tree IS the tip's code tree.** The commits after the closure
+replay touch `tests/`, `tools/` and `docs/` only: `git diff 561edf9 <tip> -- .
+':!tests' ':!tools' ':!docs'` is EMPTY. The replay's claim is about `ocr/`,
+`discovery/`, `evidence/` and `layout/`, and not one byte of those moved after
+it ran.
+
+### The two mutants that survived the first run, and what they actually found
+
+Neither was a property that failed to hold. Both were defects in this cell's own
+tests, which is what a mutation table is for.
+
+* **M6** (an `eq_*` read planted in a scratch copy of the router) reported NOT
+  KILLED because its in-process check requires the admission SUITE to pass, and
+  that suite was failing - on a different test, the reader census, which had
+  just caught two instruments this cell committed AFTER the census was written
+  (the mutation harness, which spells the column names in order to mutate them,
+  and the fake-partition builder, which prints a row's columns). The guard
+  itself was working perfectly: it found real namers. Fixed at `4145efd` by
+  naming the two instruments in a closed allowance, and by giving the test the
+  claim that actually matters as its own assertion - no module of the router's
+  layer, the analysis layer, the webapp, telemetry or `layout/` names a column
+  at all - plus a check that every name in the allowance still exists.
+* **M10** (the metrics module importing `analysis`) planted
+  `from analysis.money import find_money`, a name that does not exist. The
+  module then failed to IMPORT, pytest collected the whole file as one ERROR,
+  the AST guard never ran, and the harness honestly reported that the named
+  killer had not fired. The mutant now imports a real name, so the module still
+  imports and the guard is what fails - which is the proof the card asks for.
+  (M10b, the same mutant with `ocr.paddle_client`, was KILLED on the first run,
+  which is why the pair of them is worth having.)
+
+### The four WORDS hits in the commit messages, adjudicated
+
+The message scan compares a branch's commit messages against the run of record's
+cached document text. All four hits are ordinary English in this cell's own
+explanatory prose - no figure, no date, no identifier - and they collide with
+some document's words because 3,351 documents of English is a large vocabulary.
+Recorded rather than reworded: rewriting a published commit message is a worse
+trade than naming the collision.
+
+| commit | token | the sentence it came from |
+|---|---|---|
+| `37e6e75` | WORDS `DRAFTING` | "A **drafting** artefact, not a behaviour change" |
+| `463333b` | WORDS `SHOW THAT` | "a second metric moving on a defect page would **show** up in **that** block" |
+| `e8b142d` | WORDS `CAST` | "the orientation votes the words' own boxes **cast**" |
+| `e8b142d` | WORDS `PAGE ALREADY` | "that **page**'s **already**-decoded grey raster" |
+
+The added-LINE scan - the one that reads files rather than messages - is 0 hits
+with 0 residue over the same population.
+
+## Risks (last)
+
+* **What these metrics cannot say at all is whether the words are RIGHT.** Every
+  figure here is a self-consistency measure of one extractor's own output.
+  Agreement with the native read is cell X's, and it is the only evidence of
+  CORRECTNESS; whether a page Paddle read better ever becomes a validated
+  document is cell B's fallout, and it is the only evidence of USEFULNESS. An
+  E-class is a description of an extractor's output, never a verdict about a
+  document, and this cell deliberately produces no number that could be read as
+  one.
+* **The money and lexicon rates are layout-sensitive.** A terms-and-conditions
+  page, an address page or a cheque-image page of a perfectly good statement can
+  read E2 on either floor. The minimum-denominator guards keep a four-token page
+  from acquiring a class, but they do not make either rate a measure of
+  recognition alone. The census over U755 will show how large that population
+  is; until it does, an E2 count is not a count of bad pages.
+* **E3's orientation criterion is literally unanimous and will rarely fire on
+  real evidence.** PaddleOCR's own detector returns boxes in reading order for a
+  rotated page, so the votes will look horizontal on exactly the pages the
+  criterion is about. The measured vertical-share DISTRIBUTION, not this v1
+  boolean, is what 2.5 should calibrate; and SKEW — §H.4's third E3 criterion —
+  is not implemented here at all: it needs a baseline-angle estimate and belongs
+  with cell X's geometry census. Named, not implied.
+* **E0 here is narrower than E0 in §H.4.** This module sees one page of evidence,
+  so it can only say "no words". A worker error, a raster failure, a timeout or a
+  refusal never produces an evidence page at all; those are cell W's refusals,
+  counted where they happen. A census E0 count is therefore a floor, not the
+  E0 population.
+* **A defect in the metrics is invisible except as a population that should have
+  had columns.** The card's column list is closed, so there is no
+  `eq_exception` to mirror `classifier_exception`; a raising projection leaves
+  thirteen empty cells. That is the right trade for a first measuring cell, and
+  it is the thing to revisit when 2.5 gives these figures consequences.
+* **One collision recorded rather than smoothed over.** Three of the card's ruled
+  column names carry the word `rate` in its statistical sense, and the standing
+  no-cost grep bans that word at the key level (R2 withdrawn: cost is out of
+  scope). The ruling behind that grep is about money CHARGED, so the exemption
+  lifts the one word `rate` for exactly the columns the metric table names —
+  derived from the table, never typed, never widenable — while `cost`, `price`,
+  `usd` and `billing` stay refused on those columns as on every other key, and a
+  `rate` key outside the table still fails. Ocean's to rule otherwise; the
+  alternative is renaming three ruled columns.
+* **Ownership, reported.** The card places the `ROW_FIELDS` append in
+  `discovery/runner.py`; `ROW_FIELDS` lives in `discovery/report.py` (the row
+  DATACLASS is in the runner). The named edit was made where the list actually
+  is, confined to the appended block, and it is reported here rather than
+  skipped, because refusing it would have delivered the columns to no CSV. Cell
+  X's card carries the same sentence, so both cells append to that list; the two
+  blocks are disjoint and append-only, which is the composition Ocean is owed
+  notice of.
+# §P23EGATE-2 — the resumed cell: three red exits closed (a suite failure already fixed, a mutation row that measured the wrong thing, four commit-message collisions reworded on Ocean's ruling), every sha remapped, and the one thing still owed named as owed
+
+**What this section is.** The cell that wrote `§P23EGATE` was terminated by the
+monthly spend limit on 2026-09-11 at about 12:10 local, with three proofs red in
+its own logs and the section written — as it says — "honestly about what is still
+queued". This section is the resumed cell's, and it records only what was
+completed after that point. **The first section is not edited**: it is appended
+to by a script that asserts, byte for byte, that every byte before the append is
+unchanged and that `§P23EGATE` in particular has not moved. Where this section
+supersedes a claim there, it says so in those words.
+
+`newly validated 0` · `ladder movement 0` · `regressions 0` · nothing left this
+machine, no page reached Paddle, no metric was given a consequence, and the one
+reader of customer text anywhere in this work is the privacy scanner itself,
+which reads the cold cache in process and prints counts.
+
+## The three red exits, and what each one actually was
+
+| log | exit as it stood | what it was | what closed it |
+|---|---|---|---|
+| `p23egate-suite.log` | 1 | ONE failing test — this cell's own reader census, which the floor caught naming two instruments this cell had committed after the census was written | already fixed, before the termination, at the commit now `c8524ae`; the failing run PREDATES that fix |
+| `p23egate-mutants.log` | 2 | M10 planted an import of a name that does not exist, so the file errored at collection and the guard never ran; M6's row ran the whole SUITE its killer lives in and so reported that file's health rather than its own mutant | M10 at `c8524ae`; M6's row at `d232520`, which runs the killer NODE and counts what passed |
+| `p23egate-msgscan.log` | 1 | four WORDS-class collisions between this cell's explanatory prose and the run of record's cached document text | reworded at Ocean's ruling; the four sentences and the sha remap are below |
+
+**The suite failure was not a live failure, and one clock is all it takes to
+see that.** The suite ran at `2026-09-11T10:13:52Z`; the fix landed at
+`2026-09-11T11:50:22Z`, an hour and a half later. Read in TWO clocks — the logs
+stamp UTC, `git log` prints local — the fix appears to come first, at `07:50`,
+and the red exit reads as a standing failure of the tip. It is worth stating
+because a resumed cell's first instinct is to debug what is already fixed. The
+re-run at the resumed tip is below: nothing was re-fixed, a proof was re-run
+because the tree had moved under it.
+
+### M6's row now measures M6
+
+An in-process mutant is proven by a test that plants it in a scratch copy, so
+there is no tree edit to make a suite go red — the harness instead called the
+mutant KILLED when the suite the killer lives in was green. That made the row a
+report on every test beside it: M6 read NOT KILLED because the reader census two
+screens away was red, while the guard M6 exists to prove was working perfectly
+and had in fact just caught two real namers. The row now runs the killer node
+ids and nothing else, and counts what passed — an exit code alone cannot tell a
+green run from a run that selected nothing, and a mutation row that reads KILLED
+because no test ran is the worst row in a table. A renamed killer exits
+non-zero; a deselected one passes nothing; either reads NOT KILLED. No mutant,
+no killer and no threshold changed: this changes how one row is MEASURED, not
+what any row claims.
+
+### The four commit-message collisions, reworded
+
+**This supersedes** the first section's paragraph "Recorded rather than
+reworded: rewriting a published commit message is a worse trade than naming the
+collision", and the adjudication table under it. Ocean ruled the other way on
+the resume: reword by `git filter-branch --msg-filter`, trees byte-identical,
+and remap the shas in the records. That table therefore quotes three messages as
+they WERE and no longer as they are; the four sentences now read:
+
+| token class | the sentence now |
+|---|---|
+| WORDS | "A tidiness fix, not a behaviour change: the lexicon-vocabulary test ..." |
+| WORDS | "... a second metric moving on a defect page surfaces in the same block as a number out of line with the control's" |
+| WORDS | "... where a metric needs pixels, the grey raster its caller has already decoded" |
+| WORDS | "... and the orientation votes implied by the words' own boxes" |
+
+Each is an EXACT string replacement — the filter refuses a message where its
+target appears more than once rather than guessing which occurrence was meant —
+and the filter reads and writes BYTES: text mode on this host translated every
+`\n` it wrote into `\r\n` on the first attempt, which rewrote the line endings of
+all fourteen messages instead of the three sentences the ruling was about. That
+rewrite was rolled back to its backup ref and redone; the check below is what
+found it and is the reason it is worth stating.
+
+**Every tree is byte-identical and every subject is unchanged**: the fourteen
+commits before and after the rewrite carry the same fourteen tree objects in the
+same order, the same fourteen subject lines, and exactly three changed bodies.
+The working tree was clean before the rewrite and after it.
+
+| the sha in the first section | the sha now | body |
+|---|---|---|
+| `e8b142d` | `1fb8cf3` | reworded — two sentences |
+| `d72d27d` | `c11b663` | unchanged |
+| `55fbc51` | `419d053` | unchanged |
+| `ccac230` | `6e33033` | unchanged |
+| `520ad74` | `2325164` | unchanged |
+| `37e6e75` | `52e1d04` | reworded — one sentence |
+| `57bdca3` | `e5daa15` | unchanged |
+| `463333b` | `ab185b1` | reworded — one sentence |
+| `9ef2774` | `9e70411` | unchanged |
+| `11d8aa4` | `f89d66f` | unchanged |
+| `561edf9` | `342c7d9` | unchanged |
+| `4145efd` | `c8524ae` | unchanged |
+| `c83502e` | `0aafc16` | unchanged |
+| `4a26892` | `d232520` | unchanged (committed after the first section: the M6 row) |
+
+The first section's commit table, its mutation table header and its proof table
+name the OLD shas of this branch. They are the left column above. Nothing else
+about them changed.
+
+### A fifth collision, which only a scan at the true tip could find
+
+The message scan that reported four hits ran at a tip four commits back, so the
+commit that fixed the reader census had never been scanned at all. The scan
+over the whole branch found one more WORDS collision inside it — an ordinary
+English pair in a sentence about allowlists — reworded the same way: one exact
+string, bytes in and bytes out, the filter refusing rather than guessing. That
+second rewrite moved the last four commits and nothing before them, which is
+why three rows of the table above carry spellings that themselves replaced
+earlier ones (`e56ca3c`, `9ac7dcf`, `dff4223` — the table shows what they are
+now). The cheap lesson for the next cell: a scan that ran at anything but the
+tip has not scanned the branch.
+
+## One privacy-scan hit this cell cannot close, put to Ocean
+
+The final scan of ADDED LINES over the whole branch returns exactly **one**
+hit, and it is in the FIRST section: a DIGITS token inside the
+`ink_outside_boxes` row of the fake-worker census table — the cell holding that
+row's median. The scan is right that those digits are printed somewhere in the
+run of record's population. It is also true that the figure was MEASURED over
+seven synthetic documents built by a committed instrument out of literal
+strings, and that anyone can re-derive it from the committed fixtures without
+reading a document at all. Nothing from a customer page is in that table: a
+six-figure decimal and some document's digit run have the same digits in them.
+
+**This cell cannot close it.** There are three ways to close such a hit and
+this cell owns none of them. Editing the committed first section is what the
+resume forbade in those words. Adding an exclusion rule to
+`tools/privacy_scan_branch.py` is a standing change to the program's sharpest
+instrument and that file is not this cell's. Ruling the collision adjudicated
+and recorded is what the WORDS collisions had until this same resume reversed
+it. The recommendation is the third, with a fourth behind it if a rule is
+wanted later: the honest shape of such a rule is "a DIGITS token inside a
+figure that a committed instrument re-derives from committed fixtures", which
+a reviewer checks by RE-RUNNING the instrument rather than by believing the
+sentence — and it is a card, not a patch.
+
+Every other counter of that scan is clean: no MONEY, no DATES, and no WORDS
+token survives its standing class rule. The exact counts, measured over the
+commit that carries this paragraph, are in the closure message.
+
+## What was re-run, what was not, and why
+
+A proof is re-run when the tree it measured has moved under it, and not
+otherwise.
+
+| proof | re-run | why |
+|---|---|---|
+| the mutation table | YES | M10's mutant and M6's row both changed after the first run |
+| the full default suite | YES | its one failure was fixed after the run |
+| the privacy scan of added lines | YES | the first W3 section's 446 added lines were committed AFTER the scan that reported on this branch, and had never been scanned |
+| the commit-message scan | YES | it is the thing the rewording is for |
+| the union replay, base and closure | **no** | the runner projection they prove has not moved: `git diff <the closure replay's tree> HEAD -- . ':!tests' ':!tools' ':!docs'` is EMPTY, so not one byte of `ocr/`, `discovery/`, `evidence/` or `layout/` changed after they ran |
+| the 5 canonical guards, the 7 conformance files, `corpus_gate.py`, `pytest -m corpus` | **no** | each has an `EXIT=0` log, and every commit since touches `tests/`, `tools/` and `docs/` only — and the full-suite re-run above re-executes the guard and conformance files in any case |
+
+## Proofs at the resumed tip
+
+| proof | result | exit |
+|---|---|---|
+| mutation table (M1–M10 and the two named extras), re-run at `d232520` | **12 of 12 KILLED**, unkilled none, the tree asserted clean after every restore | **0** |
+| full default suite, re-run at `d232520` | **9,890 passed** / 48 skipped / 39 deselected (12m 19s) | **0** |
+
+Both are the same instruments, the same mutants and the same killers as the
+first run. The two rows that read NOT KILLED then read KILLED now for the two
+reasons above, and no other row moved: ten killed then, twelve killed now.
+
+The final privacy and message scans run over the tip that carries THIS section
+and are reported to Ocean in the closure message — a section cannot carry a
+number measured over its own commit, which is the reason the first section gave
+for the same thing.
+
+**One operational finding, recorded because it nearly became a proof.** At the
+resume, four lock waiters of this cell were still alive from before the
+termination, two of them queued DRIVERS — the same mutation table and the same
+full suite, twice, from two scripts that would both have acquired the lock the
+moment it freed (the helper returns success to a second waiter that finds the
+lock already held by its own name) and run concurrently on a memory-tight host,
+writing the same log files, at a tip that predates these fixes. They were
+terminated before anything else was started. A lock that is correct against
+other cells can still be wrong against a second copy of yourself.
+
+## Still owed, and owed is the right word
+
+**The census over cell W's real `paddle-v5-prod` partition has still not run,
+and cannot yet.** At this cell's closure the partition holds one bookkeeping
+file and not one evidence artifact: cell W's live control run was refused before
+it read anything, with `lifecycle.check reached=False versions_match_pins=False`
+— the approved instance did not answer — and its attestation failed remote
+inspection. No customer page has been read by Paddle by anyone. The instrument
+is finished and proven on a partition of the same shape written by the same code
+path, and the run remains one read-only command whenever Ocean says the
+partition is there. Two details for whoever runs it: the directory on disk
+carries the PRE-ruling partition id (`research-paddle-v5-prod`), and the ruled
+id is `paddle-v5-prod`; and the census reports per configuration, so a wave that
+ran more than one configuration produces more than one table and the rec-score
+columns of two tables are not the same measurement.
+
+Everything else in the first section stands as written: the metrics, the
+thresholds and their version, the thirteen columns and their folds, the three
+admission pins, the synthetic defect table, the fake-worker census, and the
+risks — of which the first is still the one that matters, that none of this says
+whether the words are RIGHT.
+
+# §P23EGATE-3 — review closure and the first real-evidence census
+
+## MAJOR-3: correction to the historical synthetic census
+
+The `ink_outside_boxes` row in §P23EGATE dropped the p25 zero and shifted the
+remaining percentile cells. The committed instrument's durable
+`p23egate-census-fakeworker.log` and the independent reviewer's reproduction agree:
+
+| metric | measured | min | p05 | p25 | p50 | p75 | p95 | max |
+|---|---|---|---|---|---|---|---|---|
+| ink_outside_boxes | 7 | 0 | 0 | 0 | 0.0160785 | 0.35497 | 0.744944 | 0.744944 |
+
+The figure called the median in §P23EGATE-2 is **p75**; the median is the p50
+cell above. This append-only correction supersedes the historical row and prose.
+It changes no measurement. The review re-derived the entire row from committed
+synthetic fixtures without reading a customer document; Ocean's recorded
+non-document-provenance adjudication stands. That completed proof was recovered,
+not repeated.
+
+## Integration findings before the real census
+
+Cell W retains the wave's rasters as `<sha>/pNNNN.png`; the initial census expected
+the fake partition's `<sha>/<index>.png`. The reader now accepts W's canonical
+name first and the legacy synthetic name second. Both shapes have synthetic pins.
+The census also exposes the named CTRL/U755 population selection, measures
+orientation votes and the document folds as distributions, and distinguishes
+identical cached evidence duplicates from conflicting evidence. Identical
+duplicates count once; conflicting evidence for one document/configuration is a
+named refusal. All processing is local and read-only; reports retain counts and
+percentiles only. No production projection, router, validator or cache changes.
+
+The independent re-review then found a second raster integration defect: replacing
+a retained white PNG with a same-size black PNG still produced a measurement,
+despite the frame recording the white PNG's hash. The implementer reproduced all
+three boolean findings from the reviewer's synthetic probe before changing code.
+The reader now hashes the retained bytes before decoding them; a mismatch is
+unmeasured and counted explicitly. Missing, unreadable, hash-verified and
+hashless-unverified rasters have separate counts. A native synthetic frame can
+carry no raster hash, so that case remains measurable with its unverified status
+visible. The fake-partition instrument now retains the actual image PDF's raster;
+its previous fresh native render looked similar but did not bind to the recorded
+input pixels. These changes precede the first real census and alter no customer
+artifact. The valid/mismatch, hashless and corrupt cases have synthetic pins; C7
+removes the hash comparison and must be killed by the mismatch pin.
+
+The re-review also found that the page-integrity sidecar lies outside the
+canonical evidence hash while still affecting E5. Reproduced with identical
+synthetic evidence: false/true truncation metadata in one traversal order
+reported no E-class; the reversed order reported E5. Both called the second
+artifact a duplicate. Duplicate identity now includes the normalized effective
+set of truncated evidence pages. Conflicting flags refuse in both orders;
+repeated/reordered flags and flags for pages absent from the evidence normalize
+to the same metric input. C8 drops that sidecar from the identity; its two-order
+pin must fail. This is a census selection correction, with no metric-version
+change and no change to the immutable cache.
+
+The output door now also rejects `--out` inside either input data or raster
+directory, resolving symlink aliases before checking containment. Git-ignored
+output alone did not enforce the promised read-only boundary. Equality with a
+source is refused too; a sibling log directory remains valid. The CLI checks
+this before reading artifacts. Direct, sibling, alias and call-site tests pin
+the boundary, and C9/C10 remove its check or its CLI call. No queued command ever
+targeted an input directory; the configured outputs stay in sibling logs.
+
+## Recovered production proofs and their exact scope
+
+Ocean accepted the completed production proofs after a source comparison:
+`discovery/runner.py`, `discovery/report.py`, `analysis/`, `ocr/escalation.py`,
+`evidence/`, `layout/` and `webapp/` are byte-identical between this closure and
+`342c7d9`, the implementation state those proofs exercised. The new edits are
+to the read-only census and its synthetic proof instruments. The earlier
+metric-definition closure remains `EXTRACTION_QUALITY_VERSION = 2`; the
+historical v1 synthetic report is retained as history, not relabeled as v2.
+
+| recovered proof | result | durable log prefix |
+|---|---|---|
+| canonical guards | 277 passed, exit zero | `p23egate-guards` |
+| canonical conformance | 1,282 passed, 41 skipped, exit zero | `p23egate-conformance` |
+| corpus gate | GREEN: 105 PASS, 3 WITHHELD, 1 REFUSED, exit zero | `p23egate-gate` |
+| corpus tests | 34 passed, exit zero | `p23egate-corpus` |
+| union replay at base and closure | all eight chunk logs end exit zero | `p23egate-replay-base-*`, `p23egate-replay-closure-*` |
+
+The replay population was 2,695 documents in four chunks: 700, 700, 700 and
+595. Their protected validated populations were 680, 681, 679 and 585,
+respectively: **2,625 preserved payload-identical, zero changed, zero
+regressions, zero newly validated**, with 70 unchanged nonvalidated documents.
+No completed chunk was repeated. This is evidence of unchanged production
+behavior; it is not a real-evidence calibration of the quality metrics.
+
+The closure still requires its affected tests, current synthetic table and
+fake-worker census, 36 mutation rows, first real CTRL/U755 census, full default
+suite and final privacy/message scans. Those results are recorded below when
+their durable runs complete. All heavy runs use the main checkout's committed
+lock helper and shared absolute lock, one OCR worker, and the Windows runner's
+1.5 GiB start floor with a 4 GiB job cap. Logs retain their exact tip and exit;
+failed or refused attempts remain separate from successful proofs.
+
+## Current closure instruments
+
+The implementation reviewed at `a44de13` is unchanged at proof tip `4bed171`.
+The intervening `568bfaf` commit records recovered evidence; `4bed171` corrects
+only a positive-control assertion: a document with both E3 and E5 reports E3
+under the already-pinned precedence, while its overlapping E5 page count remains
+two. The normalization itself had passed. The first affected-test attempt is
+retained as 118 passed, one skipped and one failed, exit one; the corrected
+attempt is 119 passed, one skipped, exit zero. Windows cannot create the tested
+symlink in this environment, so that capability-specific pin skips. Direct
+containment, equality, sibling output and CLI call-site pins execute.
+
+The current synthetic defect table retains the isolated E0/E1/E2/E3/E5 defect
+responses, and the clean multi-column and sparse-page controls fire no class.
+A clean ledger with a logo block still fires E1: the known ink-coverage false
+positive remains explicit. The table is an instrument check, not admission of
+any new trigger.
+
+The current fake-worker partition contains seven measured documents/pages and
+seven cached negative records. Every measured page has a hash-verified retained
+raster; no raster is absent, mismatched, corrupt or hashless. Page and document
+precedence counts are one unclassified, two E1 and four E2. One rotated page also
+fires E3 in the overlapping counts, which cannot be summed. The current ink
+median is approximately 0.0155 and p75 approximately 0.359; the exact full v2
+distributions are in `closure-20260915-fake.log`. The historical v1 transcription
+erratum above remains a separate measurement, not relabeled as this run.
+
+## A real refusal exposed a missing configuration distinction
+
+The first CTRL pass completed successfully at `4bed171`. The first U755 pass
+then refused one conflicting document/configuration pair and exited one, rather
+than choosing an artifact. The refusal and the completed CTRL proof remain in
+separate durable logs. A read-only diagnostic found 342 U755 evidence artifacts
+for 341 document/configuration pairs, with exactly one conflict. Both artifacts
+were indexed once under different settings keys; neither was an orphan. Their
+four complete page objects, raster hashes and effective truncation flags were
+identical. Only the full runtime's GPU and Python provenance differed, changing
+the canonical evidence hash. The six-field configuration label had collapsed
+that distinction and omitted recorded runtime versions too.
+
+The original U755 run rows record one artifact's full evidence hash; the later
+SLICE session's rows record the other. This association was proven from recorded
+identities, not inferred from filesystem timestamps. No artifact was deleted,
+rewritten or dismissed. Cell X's shared private binder then checked all original
+sessions: five CTRL sessions bind 90 distinct recorded extractor documents to one
+exact indexed key; eight U755 sessions bind 341 documents to that same key. Every
+recorded canonical evidence identity has one exact artifact match. The later
+SLICE key remains separate.
+
+The closure at `9371781` adds explicit recorded-key selection through the
+read-only SQLite index and the canonical `select_artifact` policy. Duplicate
+index tuples, conflicting envelopes or canonical document identities, a native
+reading in the extractor slot, and an indexed path outside the source refuse.
+Resolver errors reveal no key or document identity. Every closed `RUNTIME_FIELDS`
+field now participates in configuration grouping, including GPU, Python, model
+versions and worker contract. The whole-JSON synthetic audit remains available
+without an explicit key; it counts distinct document/configuration observations
+and does not choose a run of record. Strict evidence/truncation conflict refusal
+and missing/hash-mismatched raster semantics remain intact. Empty canonical page
+populations cannot report success. No metric formula, threshold or quality version
+changed.
+
+Each corrected real census revalidates the recorded source rows, exact index
+mapping and artifact bytes from that binder, then launches the E tool in a fresh
+interpreter at its own frozen worktree. The new CTRL run is necessary because the
+selection door changed. Its metric cells, E-class counts and measured
+document/page/raster counts are compared exactly with the preserved CTRL
+baseline. Cache-wide skipped-record counts and the fuller runtime label are
+expected to change under explicit key/population selection.
+
+The new targeted run at `9371781` passes 136 tests with the same one Windows
+symlink capability skip, exit zero. The original 36 mutation kills are preserved;
+C2's anchor was qualified after the new selector introduced a second condition
+at a different indentation, so C2 is rerun with the nine new C11–C19 mutations.
+The combined proof is 35 unaffected original rows plus that affected row and nine
+new rows, for 45 distinct mutations. The ten affected rows all are killed, exit
+zero, and the worktree is clean after every restoration. The corrected CTRL
+report's 64 numerical table/header/count rows are exactly identical to the
+preserved baseline; changed global skipped-record counters and the complete
+runtime header are excluded from that numerical comparison. Both corrected
+censuses exit zero. U755 measures 341 documents and 2,331 pages, with every
+raster hash-verified and no missing or mismatched image. Of 755 selected
+documents, 414 have no measurable evidence under the recorded original key;
+they contribute no quality measurement.
+
+## Narrow guard correction after the full suite
+
+The full default suite at `9371781` completed with 9,939 passing tests, one
+failure, 49 skipped and 39 deselected, **exit one**. That failure was the account
+digit-run guard matching the active calibration SHA256 string in
+`ocr/extraction_quality.py`. The required version-lock digest was introduced in
+the historical calibration closure; it is not an account value. Its exact value,
+the metric formulas, thresholds and quality version remain unchanged.
+
+At `b70cbc3`, the guard classifies only the active digest's AST string-value
+span, in the one named `CALIBRATION_DIGESTS` assignment of the exact module,
+and only when its value equals a fresh `calibration_digest()` computation.
+No hex, line or file exemption is introduced. Inactive, forged, malformed,
+misplaced and additional version values remain scanned. Adjacent literals stay
+visible, including after non-ASCII source text; AST byte columns are converted
+to character offsets before masking. Nine synthetic self-test cases and four
+new discriminating mutations pin those boundaries.
+
+Ocean authorized the narrow test-only closure and retained the 9,939 passing
+suite cases at their exact source scope. The failed suite log remains unchanged
+with exit one. Only the changed guard/self-tests, five canonical guard files
+and four new guard mutations are run after this correction; the full suite is
+not repeated or relabeled as successful. The five canonical guard files, including the new self-tests, pass 286 tests at `b70cbc3`, exit zero. C20–C23 all are killed, exit zero, bringing the combined proof to 49 distinct mutations. Final scans run over the committed documentation tip and are reported to the independent reviewer.
+
+## Mutation closure
+
+All 49 distinct mutations are killed by their named tests. The first 36-row
+proof is preserved at `4bed171`; 35 unaffected rows carry forward. The ten-row
+proof at `9371781` reruns the affected C2 anchor and adds C11–C19. The four-row
+guard proof at `b70cbc3` adds C20–C23. All three runs exit zero and verify a
+clean worktree after every restoration. A killed
+mutation means its named test detected the deliberately introduced defect.
+
+| id | introduced defect | named killer | result |
+|---|---|---|---|
+| M1 | a threshold changed without the version | test_the_threshold_table_and_the_version_are_pinned_together | KILLED |
+| M2 | the money-shape rate computed over ALL tokens, not the numeric ones | test_the_money_rate_denominator_is_the_numeric_tokens_not_every_token | KILLED |
+| M3 | the garbage rate ignoring repeated letters | test_a_repeated_letter_page_is_E2_although_every_token_is_short | KILLED |
+| M4 | ink-versus-box coverage computed INSIDE the boxes | test_a_partly_covered_page_is_E1_and_the_ink_it_measures_is_the_ink_OUTSIDE, test_ink_far_from_every_word_box_is_a_coverage_gap | KILLED |
+| M5 | the E-class set from the rec-score alone | test_the_rec_score_is_a_proxy_and_never_sets_a_class_on_its_own | KILLED |
+| M6 | an eq_ value read in ocr/escalation.py or by the router | test_m6_an_extraction_quality_read_planted_in_a_scratch_router_is_caught | KILLED |
+| M7 | ROW_FIELDS reordered | test_the_extraction_quality_columns_are_the_modules_own_table_in_its_own_order, test_the_new_columns_are_appended_at_the_end_of_row_fields_in_the_card_order | KILLED |
+| M8 | the projection reading native-only rows | test_the_projection_is_empty_on_a_native_only_read | KILLED |
+| M8b | only the extractor-id half of that guard removed (an extra: each half alone) | test_the_projection_is_empty_on_a_native_only_read | KILLED |
+| M9 | the census printing a per-document identifier | test_the_output_carries_counts_and_percentiles_and_no_document_content | KILLED |
+| M10 | the metrics module importing `analysis` (an import that SUCCEEDS) | test_the_module_imports_only_the_standard_library_evidence_and_layout_signals | KILLED |
+| M10b | the metrics module importing `ocr.paddle_client` (an extra: the other named import) | test_the_module_imports_only_the_standard_library_evidence_and_layout_signals | KILLED |
+| M11 | the right-edge residual measured over every column at once (the pre-review behaviour) | test_a_flawless_two_column_page_is_not_a_wandering_column, test_two_tidy_columns_of_the_same_page_are_two_columns_not_one_wide_one | KILLED |
+| M11b | the cluster tolerance dropped below the residual ceiling (a column splits into tidy halves) | test_a_single_column_that_really_wanders_still_fires_E3, test_the_cluster_tolerance_sits_above_the_residual_ceiling | KILLED |
+| M12 | the orientation criterion back to literal unanimity (one artefact box disarms it) | test_a_rotated_page_carrying_one_wide_box_still_fires_E3 | KILLED |
+| M12b | the frame never read: the votes disagree with nothing in particular | test_a_square_frame_has_no_reading_direction_to_disagree_with, test_the_square_tolerance_is_a_tolerance_not_an_equality | KILLED |
+| M13 | statement furniture counted as garbage again (the shape check removed) | test_a_sparse_furniture_page_is_measured_and_not_classified, test_statement_furniture_is_not_garbage_and_says_which_shape_it_is | KILLED |
+| M13b | the garbage rate classified with no minimum denominator | test_the_garbage_denominator_guard_measures_and_refuses_to_classify | KILLED |
+| M13c | a named shape widened until it excuses the run it resembles | test_the_named_shapes_do_not_excuse_the_runs_they_resemble | KILLED |
+| F2 | the garbage_rate_max fold replaced by min | test_every_folded_column_is_pinned_by_pages_that_disagree | KILLED |
+| F3 | the line_height_cv_max fold replaced by min | test_every_folded_column_is_pinned_by_pages_that_disagree | KILLED |
+| F4 | the money_rate_min fold replaced by max | test_every_folded_column_is_pinned_by_pages_that_disagree | KILLED |
+| F5 | the right_edge_residual_max fold replaced by min | test_every_folded_column_is_pinned_by_pages_that_disagree | KILLED |
+| F8 | the ink_outside_boxes_max fold replaced by min | test_every_folded_column_is_pinned_by_pages_that_disagree | KILLED |
+| F6 | the orientation-share fold replaced by min | test_every_folded_column_is_pinned_by_pages_that_disagree | KILLED |
+| F9 | a threshold moved WITH its test literal, the version left alone | test_the_calibration_surface_is_pinned_by_a_digest_against_the_version | KILLED |
+| C1 | the real wave raster filename ignored | test_a_retained_raster_is_measured_and_a_missing_one_is_counted | KILLED |
+| C2 | the requested population ignored | test_population_selection_and_duplicate_artifacts_do_not_inflate_the_census | KILLED |
+| C3 | duplicate artifacts counted as separate documents | test_population_selection_and_duplicate_artifacts_do_not_inflate_the_census | KILLED |
+| C4 | conflicting evidence silently selected | test_conflicting_evidence_is_refused_instead_of_selecting_an_artifact | KILLED |
+| C5 | document distribution copies the first page rather than the fold | test_document_distributions_and_orientation_are_measured_separately | KILLED |
+| C6 | a non-hash population token accepted | test_population_file_is_sha_only_and_never_echoed | KILLED |
+| C7 | retained pixels used despite a different recorded raster hash | test_retained_pixels_are_bound_to_the_recorded_raster_hash | KILLED |
+| C8 | duplicate evidence ignores conflicting effective truncation flags | test_duplicate_truncation_conflict_is_refused_in_both_orders | KILLED |
+| C9 | output allowed inside a read-only source | test_output_cannot_write_into_either_read_only_source | KILLED |
+| C10 | the CLI bypasses output containment refusal | test_cli_refuses_source_output_before_reading_any_artifact | KILLED |
+| C11 | the configuration collapses complete runtime provenance into six fields | test_complete_closed_runtime_identity_separates_equal_page_readings | KILLED |
+| C12 | an explicit settings key still scans every JSON artifact | test_exact_settings_key_excludes_other_runs_and_orphans_read_only | KILLED |
+| C13 | an indexed duplicate tuple silently selects its first row | test_indexed_duplicate_tuple_refuses_both_orders_without_identity_output | KILLED |
+| C14 | the selected envelope can disagree with its indexed identity | test_indexed_envelope_conflicts_refuse_with_valid_companion | KILLED |
+| C15 | canonical evidence can belong to another indexed document | test_indexed_canonical_document_and_native_slot_conflicts_refuse | KILLED |
+| C16 | an indexed path can escape the research artifact directory | test_indexed_source_path_cannot_escape_and_missing_index_is_not_created | KILLED |
+| C17 | native evidence is accepted in the selected extractor slot | test_indexed_canonical_document_and_native_slot_conflicts_refuse | KILLED |
+| C18 | the CLI drops its explicit settings key before reading | test_exact_settings_key_excludes_other_runs_and_orphans_read_only | KILLED |
+| C19 | an entirely empty canonical page population reports success | test_indexed_cli_refuses_wrong_key_and_empty_canonical_pages | KILLED |
+| C20 | the account guard accepts a forged calibration digest | test_ocr_account_guard_rejects_forged_or_malformed_digest_values | KILLED |
+| C21 | the account guard hides neighboring literals on a digest line | test_ocr_account_guard_preserves_neighboring_literals_on_the_same_line | KILLED |
+| C22 | the account guard classifies an inactive version digest | test_ocr_account_guard_keeps_inactive_version_values_scanned | KILLED |
+| C23 | the account guard classifies the digest in an unrelated module | test_ocr_account_guard_keeps_wrong_location_values_scanned | KILLED |
+
+Durable tables: `closure-20260915-mutation-table.md` and
+`closure-20260915-key-mutation-table.md`, plus
+`closure-20260915-guard-mutation-table.md`. No prior production proof was repeated.
+
+## First real-evidence census
+
+The two populations below use the same pinned production configuration:
+Paddle OCR with PP-OCRv5 server detection, English PP-OCRv5 mobile
+recognition, 300 dpi, word boxes enabled and recognition threshold zero;
+document orientation, unwarping and text-line orientation are disabled.
+Recognition-score distributions remain per configuration. These are
+read-only measurements of retained research artifacts, not new OCR calls.
+The exact original key is bound to recorded run-row evidence hashes and
+indexed canonical artifacts. Each census rechecks the recorded source rows,
+exact indexed mappings and artifact bytes before measurement. The later
+SLICE key remains a separate reading; no key or document identity is printed.
+
+CTRL was rerun because the selection door changed. Every numerical table
+cell and document/page/raster count equals the preserved pre-selection
+CTRL report. The original successful proof remains archived separately.
+
+Each metric table shows measured count and nearest-rank p05/p50/p95,
+rounded to three significant figures here. The committed instrument's
+durable logs contain every exact min/p05/p25/p50/p75/p95/max cell.
+
+Measured denominators differ by metric: absent pixels, a raster with no ink,
+or insufficient tokens/lines/votes remain unmeasured where that metric
+cannot be defined. They are never silently converted to zero.
+
+### CTRL
+
+Selected 114; measured 90 documents and 668 pages;
+24 selected documents have no measurable extractor evidence.
+Rasters: 664 measured and 4 without usable pixels.
+The missing selected documents do not contribute to metric distributions.
+
+| metric | measured | p05 | p50 | p95 |
+|---|---|---|---|---|
+| word_count | 668 | 98 | 363 | 836 |
+| density | 668 | 1.16e-05 | 4.31e-05 | 9.93e-05 |
+| rec_mean | 665 | 0.917 | 0.99 | 0.996 |
+| rec_p10 | 665 | 0.72 | 0.977 | 0.987 |
+| money_rate | 665 | 0 | 0.196 | 0.375 |
+| lexicon_rate | 664 | 0.0442 | 0.141 | 0.333 |
+| garbage_rate | 668 | 0 | 0 | 0.0126 |
+| line_height_cv | 662 | 0.0772 | 0.221 | 0.646 |
+| right_edge_residual | 552 | 0.0566 | 0.111 | 0.478 |
+| ink_share | 664 | 0.01 | 0.0418 | 0.105 |
+| ink_outside_boxes | 661 | 0.135 | 0.264 | 0.655 |
+| orientation_horizontal | 665 | 59 | 192 | 436 |
+| orientation_vertical | 665 | 8 | 50 | 157 |
+| orientation_indeterminate | 665 | 5 | 24 | 93 |
+| orientation_vertical_share | 665 | 0.0759 | 0.21 | 0.37 |
+
+Raster provenance
+
+| status | pages |
+|---|---|
+| hash verified | 664 |
+| no recorded hash (unverified) | 0 |
+| absent | 4 |
+| hash mismatch (unmeasured) | 0 |
+| unreadable (unmeasured) | 0 |
+| frame absent | 0 |
+
+Document folds
+
+| metric | measured | p05 | p50 | p95 |
+|---|---|---|---|---|
+| word_count_min | 90 | 4 | 168 | 435 |
+| density_min | 90 | 4.75e-07 | 1.95e-05 | 5.17e-05 |
+| rec_mean | 90 | 0.956 | 0.988 | 0.994 |
+| rec_p10_min | 90 | 0.464 | 0.959 | 0.979 |
+| money_rate_min | 90 | 0 | 0 | 0.286 |
+| lexicon_rate_min | 90 | 0.0288 | 0.0914 | 0.205 |
+| garbage_rate_max | 90 | 0 | 0.00183 | 0.0351 |
+| line_height_cv_max | 90 | 0.208 | 0.368 | 1.02 |
+| right_edge_residual_max | 88 | 0.0714 | 0.185 | 2 |
+| ink_outside_boxes_max | 90 | 0.198 | 0.399 | 0.833 |
+| orientation_vertical_share_max | 90 | 0.154 | 0.294 | 0.5 |
+
+pages by E-class (the one precedence reports) (of 668)
+
+| class | count | share |
+|---|---|---|
+| (none) | 441 | 0.6602 |
+| E0 | 3 | 0.0045 |
+| E1 | 184 | 0.2754 |
+| E2 | 17 | 0.0254 |
+| E3 | 23 | 0.0344 |
+| E5 | 0 | 0.0000 |
+
+pages by EVERY class that fired (overlapping; never summed) (of 668)
+
+| class | count | share |
+|---|---|---|
+| (none) | 0 | 0.0000 |
+| E0 | 3 | 0.0045 |
+| E1 | 184 | 0.2754 |
+| E2 | 26 | 0.0389 |
+| E3 | 61 | 0.0913 |
+| E5 | 0 | 0.0000 |
+
+documents by worst-page E-class (of 90)
+
+| class | count | share |
+|---|---|---|
+| (none) | 24 | 0.2667 |
+| E0 | 3 | 0.0333 |
+| E1 | 53 | 0.5889 |
+| E2 | 4 | 0.0444 |
+| E3 | 6 | 0.0667 |
+| E5 | 0 | 0.0000 |
+
+Source: `closure-20260915-CTRL-key.log`, proof tip `9371781`, exit zero.
+
+### U755
+
+Selected 755; measured 341 documents and 2331 pages;
+414 selected documents have no measurable extractor evidence.
+Rasters: 2331 measured and 0 without usable pixels.
+The missing selected documents do not contribute to metric distributions.
+
+| metric | measured | p05 | p50 | p95 |
+|---|---|---|---|---|
+| word_count | 2331 | 104 | 387 | 884 |
+| density | 2331 | 1.24e-05 | 4.58e-05 | 0.000104 |
+| rec_mean | 2323 | 0.959 | 0.991 | 0.996 |
+| rec_p10 | 2323 | 0.907 | 0.978 | 0.987 |
+| money_rate | 2311 | 0 | 0.218 | 0.429 |
+| lexicon_rate | 2322 | 0.0376 | 0.133 | 0.336 |
+| garbage_rate | 2331 | 0 | 0 | 0.013 |
+| line_height_cv | 2321 | 0.0993 | 0.257 | 0.714 |
+| right_edge_residual | 1972 | 0.0565 | 0.129 | 0.824 |
+| ink_share | 2331 | 0.0134 | 0.0426 | 0.0995 |
+| ink_outside_boxes | 2320 | 0.122 | 0.301 | 0.684 |
+| orientation_horizontal | 2322 | 60 | 213 | 458 |
+| orientation_vertical | 2322 | 10 | 52 | 177 |
+| orientation_indeterminate | 2322 | 5 | 24 | 95 |
+| orientation_vertical_share | 2322 | 0.08 | 0.221 | 0.339 |
+
+Raster provenance
+
+| status | pages |
+|---|---|
+| hash verified | 2331 |
+| no recorded hash (unverified) | 0 |
+| absent | 0 |
+| hash mismatch (unmeasured) | 0 |
+| unreadable (unmeasured) | 0 |
+| frame absent | 0 |
+
+Document folds
+
+| metric | measured | p05 | p50 | p95 |
+|---|---|---|---|---|
+| word_count_min | 341 | 11 | 189 | 487 |
+| density_min | 341 | 1.31e-06 | 2.26e-05 | 5.45e-05 |
+| rec_mean | 339 | 0.941 | 0.99 | 0.995 |
+| rec_p10_min | 339 | 0.531 | 0.969 | 0.981 |
+| money_rate_min | 338 | 0 | 0 | 0.317 |
+| lexicon_rate_min | 339 | 0.0102 | 0.0851 | 0.267 |
+| garbage_rate_max | 341 | 0 | 0 | 0.0175 |
+| line_height_cv_max | 339 | 0.162 | 0.423 | 1.04 |
+| right_edge_residual_max | 301 | 0.104 | 0.203 | 1.5 |
+| ink_outside_boxes_max | 341 | 0.162 | 0.521 | 0.854 |
+| orientation_vertical_share_max | 339 | 0.109 | 0.279 | 0.412 |
+
+pages by E-class (the one precedence reports) (of 2331)
+
+| class | count | share |
+|---|---|---|
+| (none) | 1146 | 0.4916 |
+| E0 | 8 | 0.0034 |
+| E1 | 862 | 0.3698 |
+| E2 | 92 | 0.0395 |
+| E3 | 223 | 0.0957 |
+| E5 | 0 | 0.0000 |
+
+pages by EVERY class that fired (overlapping; never summed) (of 2331)
+
+| class | count | share |
+|---|---|---|
+| (none) | 0 | 0.0000 |
+| E0 | 8 | 0.0034 |
+| E1 | 865 | 0.3711 |
+| E2 | 151 | 0.0648 |
+| E3 | 488 | 0.2094 |
+| E5 | 1 | 0.0004 |
+
+documents by worst-page E-class (of 341)
+
+| class | count | share |
+|---|---|---|
+| (none) | 66 | 0.1935 |
+| E0 | 8 | 0.0235 |
+| E1 | 236 | 0.6921 |
+| E2 | 15 | 0.0440 |
+| E3 | 16 | 0.0469 |
+| E5 | 0 | 0.0000 |
+
+Source: `closure-20260915-U755-key.log`, proof tip `9371781`, exit zero.
+
+## Completed proof exits and handoff
+
+| closure proof | source tip | result | exit |
+|---|---|---|---|
+| affected tests before exact-key closure | `4bed171` | 119 passed, one skipped | 0 |
+| current synthetic defect table | `4bed171` | isolated named defects; clean controls; known logo false positive recorded | 0 |
+| fake-worker census | `4bed171` | seven documents/pages; seven verified retained rasters | 0 |
+| original mutation proof | `4bed171` | 36 killed, clean after every restore | 0 |
+| original CTRL census | `4bed171` | 90 documents, 668 pages; retained numerical baseline | 0 |
+| first U755 census | `4bed171` | named configuration-conflict refusal; no result accepted | 1 |
+| read-only conflict diagnosis | `4bed171` | one runtime-only pair; equal four-page evidence objects | 0 |
+| affected exact-key tests | `9371781` | 136 passed, one skipped | 0 |
+| affected mutation proof | `9371781` | C2 and C11–C19 killed; 45 distinct rows proved in total | 0 |
+| original-key CTRL census | `9371781` | all 64 numerical table/count rows identical to the preserved baseline | 0 |
+| original-key U755 census | `9371781` | 341 documents, 2,331 pages; every raster hash verified | 0 |
+| full default suite, preserved | `9371781` | one account-guard false positive; 9,939 passed, 49 skipped, 39 deselected | 1 |
+| five canonical guards plus new self-tests | `b70cbc3` | 286 passed | 0 |
+| narrow guard mutation proof | `b70cbc3` | C20–C23 killed; 49 distinct rows proved in total | 0 |
+
+The successful exact-key proof logs are `closure-20260915-targeted-key.log`,
+`closure-20260915-mutants-key.log`, `closure-20260915-CTRL-key.log`,
+`closure-20260915-U755-key.log`, `closure-20260915-guards-final.log` and
+`closure-20260915-mutants-guard.log` under the private
+`discovery_reports/train13-logs/p23egate/` directory. The earlier successful
+synthetic/fake/mutation logs and failed/refused attempts remain beside them.
+The preserved `closure-20260915-suite.log` records exit one, including the
+9,939 passing cases and one false positive. It took 518.3 seconds with a peak
+job allocation of 3009.5 MiB. The guard-only correction did not change production
+source; only its affected checks were repeated.
+
+Two early prelaunch attempts were refused below the 1.5 GiB floor, exit 125;
+no proof subprocess started in either attempt. The floor and 4 GiB job cap were
+never reduced. The later positive-control test failure is recorded above and
+was corrected before the successful affected proofs. No running proof was
+interrupted for another cell, and no completed production replay was repeated.
+
+Implementation/review-closure commits are `59393e0`, `2cf75c0`, `b48ffb2`,
+`a44de13` and `9371781`; `b70cbc3` closes the narrow digest guard.
+`568bfaf` records recovered proof scope and `4bed171`
+corrects the test-only precedence assertion. The production source paths named
+in the recovered-proof section remain unchanged, so the accepted
+conformance, gate, corpus and union replay keep their stated scope. The changed
+guard has its new explicit proof above.
+
+The final added-lines privacy and real commit-message scans run after this
+append is committed, at `closure-20260915-privacy.log` and
+`closure-20260915-messages.log` respectively (or a separately preserved numbered
+attempt after an actual failed/refused launch). Their actual raw counts, exits and any provenance
+adjudication are supplied to Ocean for the independent closure record; this
+section does not claim a scan of its own future commit. The historical
+synthetic-census transcription value and its append-only correction retain the
+reviewer's existing non-document-provenance adjudication. Scanner hits are
+reported as raw hits, never silently called zero. Independent approval belongs
+to the reviewer, not this implementer.
+
+## Risks and admission
+
+The production ladder movement and newly validated count remain zero, with all
+2,625 protected validated payloads preserved identically and zero regressions.
+No quality metric reaches a trigger, verdict or router. Recognition scores are
+reported only within their extraction configuration. Quality, geometry and ink
+coverage do not prove that the extracted words are correct. Word-box geometry
+cannot detect a 180-degree rotation, and the clean ledger plus logo still fires
+the documented E1 ink-coverage false positive. Agreement and fallout review
+remain separate; these measured limitations are not tuned away.
+# §P23AGREE — native↔extractor word agreement and the geometry census (AGREEMENT_VERSION 1), the two latent native-reader defects closed with ZERO corpus movement; 0 coverage movement, 2,625 preserved payload-identical
+
+Phase 2.3 cell X (`docs/agent-handoffs/P23-AGREE.md`; umbrella `PHASE2-3-WAVE.md` D3, cases 7 and 13;
+plan §G.2.3 cell X and §H.4). Worktree `.claude/worktrees/mt23-agree`, branch `wave23-agree`, base
+`train13` `26f94f5`. Ocean reviews and composes; this cell never merged and never pushed.
+
+## What this cell is, and what it is not
+
+2.4's LayoutModel will build structure from geometry that comes from two sources — native PDF words and
+PaddleOCR words — and 2.5 will admit Paddle only where it is MEASURED to add evidence. Neither can be
+judged without knowing what agreement between the two sources looks like on known-good documents, and
+where they disagree on the unresolved ones. This cell builds that measurement and nothing else.
+
+It decides nothing. `layout/agreement.py` returns numbers; it names no verdict, no class, no threshold
+breach and no routing hint (an AST test asserts that no function, class or name in it carries
+`trigger`, `escalat`, `verdict`, `validated` or `refuse`). E4 — cross-engine disagreement below
+calibration — is review evidence recorded on the row, exactly as §H.4 rules it: it starts no extractor,
+no escalation and no third engine, and `ocr/` and `analysis/` may not import the module or name one of
+its columns.
+
+## Population
+
+* the synthetic pairs — one `tests/paddle_synthetic.py` ledger page (invented literals, a synthetic
+  year ≥ 2031, arithmetically generated figures), 54 words, read four ways: as ground truth in points,
+  as the same truth in a 300-dpi raster's pixels, by the ONE native reader on the rendered PDF, and by
+  `ocr/paddle_adapter.py` on the fake worker's result for that page;
+* the 3,380 of the run of record (`discovery_reports/TRAIN12-52bd8f2/2026-09-11T040247.502179-0000-fd6b4d7f`,
+  archive read-only) for the N-1 / N-2 census — 25,516 pages measured, 12 unreadable, 25,528 in total,
+  which is the re-reviewer's own page count;
+* the union cohort — every registration's baseline cohort, 2,625 documents in the seven `--parser`
+  chunks cell T used — replayed at base and at closure against the Phase 2.2 cold cache
+  `.claude/recovery/webapp_data_train12_cold` (READ-ONLY);
+* a FAKE-WORKER research partition (3 synthetic documents) for the census instrument's door.
+  **Cell W's real `paddle-v5-prod` partition does not exist yet**, so the CTRL calibration and the U755
+  distribution are NOT measured here; the instrument is ready and the run is owed the moment Ocean says
+  the partition exists (CTRL first, D3).
+
+## Root cause
+
+Three things did not exist. (1) There was no way to compare two readings of one page at all: the two
+geometries live in different units (PDF points and raster pixels) and nothing normalised them. (2) The
+row carried no record of such a comparison, so a wave could produce evidence that nobody could read
+back as a number. (3) The ONE native reader carried two defects its own re-review had named and left
+open — both latent, both reachable by a real PDF, and both of the kind that puts every word box of a
+page in the wrong place while the page still reads as successfully parsed.
+
+## Solution
+
+**`layout/agreement.py` (`AGREEMENT_VERSION` 1).** Pure functions over two `ExtractionEvidence` pages.
+Frame normalisation into the display frame in POINTS — a `pdf_point` frame as it stands, a `pixel`
+frame scaled by `72 / dpi`, the raster's own declared resolution, which the evidence contract has
+already checked against the per-axis raster/page ratio; the two frames are asserted to describe one
+rectangle within 1 % and a disagreement is RECORDED (`frame_mismatch`), never a refusal to measure.
+Greedy one-to-one alignment by descending IoU at 0.5, ties broken by index, each box used at most once.
+Then: the matched ratio each way; normalised character agreement over the matched pairs (case-folded,
+whitespace-collapsed, its own version, summed over pairs rather than averaged per pair); exact
+agreement of the money and date shapes `layout/signals.py` resolves, over the matched pairs that carry
+one; the density of unmatched words inside the candidate table region (a named, versioned counting
+device — the union of the y-bands of derived lines carrying ≥ 2 money shapes — never a structure
+hypothesis); and the page-size, rotation and skew census, skew being the median least-squares angle of
+the derived lines' word midpoints. The module imports the standard library, `evidence` and
+`layout.signals` and nothing else (AST-pinned).
+
+**Twelve row columns**, appended to `ROW_FIELDS` and never reordered — `agree_version`, `agree_pages`,
+`agree_matched_native`, `agree_matched_paddle`, `agree_char`, `agree_amounts`, `agree_dates`,
+`agree_unmatched_table_density`, `agree_frame_mismatch`, `geom_rotation`, `geom_skew_deg`,
+`geom_page_size` — projected at the row's single exit ONLY when the document carries BOTH readings and
+EMPTY otherwise, which is every production row today. The fold is stated per column in the code: every
+ratio is a sum-over-sum across the pages compared (never the mean of per-page ratios, which would weight
+a three-word page like a six-hundred-word one), `agree_pages` and `agree_frame_mismatch` are counts of
+pages, and the `geom_*` columns cover every native page. A defect in the projection is a finding (empty
+columns), never a lost document.
+
+**`tools/agreement_census.py`** — read-only over a research partition, printing the distribution of
+every statistic overall, by modality and by census family, plus the rotation / skew / page-size census.
+Counts, means and NEAREST-RANK percentiles only, so every printed percentile is a value the corpus
+actually produced; no text, no line, no word, no figure, no sha beside a verdict. Which partition it is
+reading is never guessed: an explicit key, or a research run's provenance whose recorded partition must
+be the one asked for (a production run is refused by the same check), or a last-resort scan that finds
+exactly ONE key carrying extractor evidence and says so — zero or several is a refusal that names the
+count.
+
+**The two latent defects, closed in `evidence/native.py`.**
+
+* **N-1** — on a page whose CropBox OVERHANGS its MediaBox and that carries a rotation, PyMuPDF clamps
+  `page.rect` and the word coordinates to the MediaBox (which is also what Poppler renders) but builds
+  `rotation_matrix`'s translation from the UNCLAMPED box. The display transform is now derived from
+  `page.rect` itself (`_display_matrix`, the affine form of the independent formula the four-angle pin
+  already carried) whenever PyMuPDF's matrix disagrees with it, and the page is noted
+  (`clamped_display_transform`). Where the two agree — every page whose CropBox sits inside its
+  MediaBox — PyMuPDF's own matrix is used verbatim, which is what closes the defect WITHOUT moving one
+  byte of any existing page's evidence.
+* **N-2** — a `/Rotate` written as an INDIRECT reference read back as "no value", so an indirect invalid
+  rotation escaped the refusal a direct one gets and was mis-framed exactly as that defect was. The
+  reference is now resolved through the object it names before the mod-90 test, with a bounded walk so
+  a chain is followed and a cycle cannot spin. A resolved value that is not an integer is the same fact
+  as an absent key; the reader never guesses an angle.
+
+## The synthetic pair table (card item 5)
+
+| pair | expectation | measured |
+|---|---|---|
+| identical words, 300-dpi pixel frame vs points | every statistic 1.0 | 54/54 matched each way, char 1.0, money 1.0 over 16 pairs, dates 1.0 over 8 pairs, table density 0.0, frames agree |
+| the same, shifted right by 2.5 character widths | the matched count the box arithmetic predicts (two `w × h` boxes offset by `dx` have IoU `(w−dx)/(w+dx)`, so a box matches iff `w ≥ 3dx`) | 19 of 54, exactly the tokens of ≥ 8 characters; char still 1.0 on what matched; money pairs 0 (unmeasured, `None`, never a manufactured 1.0); date pairs 8 at 1.0 |
+| two amount tokens with one digit changed | the exact-agreement drop equals the perturbed count | 54/54 still matched (geometry untouched), money 14/16, dates 1.0 |
+| one date token with its month changed | the same, on the date statistic only | dates 7/8, money 1.0 |
+| the same words in a different case and spacing | the normaliser makes character agreement 1.0 | 1.0 |
+| a rotated pair at 0 / 90 / 180 / 270 | matched and censused at every angle | 54/54 matched at each angle; the census reports the declared rotation and the display page size |
+| a page skewed by a known 0.6° | within the card's 0.5° | recovered within 0.05° (an unskewed page measures 0.00°) |
+| the REAL pair: the ONE native reader on the rendered PDF beside the adapter's evidence for the fake worker's result | independent geometries (font metrics vs fixed-width arithmetic) must still match | 54/54 matched, char / money / dates 1.0, minimum IoU over the 54 pairs **0.7017** (pinned at ≥ 0.65) |
+
+## The N-1 / N-2 corpus census (card item 4) — and the schema-version decision
+
+`tools/agree_native_census.py` over the 3,380 of the run of record, read-only. Two passes: a structural
+pass on every document (does PyMuPDF's matrix disagree with `page.rect`? is the `/Rotate` indirect, and
+what integer does it resolve to?) and a BYTE pass in which the document's evidence sha is computed twice
+from the same reader — once as it stands, once with the two fixed decisions suppressed (`_matrices_agree`
+forced true, `_resolved_rotate_int` forced to `None`), which is the Phase 2.2 behaviour reproduced
+through the Phase 2.3 code path rather than transcribed.
+
+| fact | measured | the re-reviewer's own census |
+|---|---|---|
+| documents / pages | 3,380 / 25,516 measured + 12 unreadable = 25,528 | 25,528 (12 unreadable) |
+| rotated pages | 82 | 82 |
+| pages whose CropBox overhangs its MediaBox | 7 (all unrotated) | 7, all unrotated |
+| **N-1: pages whose matrix disagrees with `page.rect`** | **0** | 0 |
+| pages with an INDIRECT `/Rotate` | 4, every one resolving to a multiple of 90 | 4 `xref` references, all resolving to 0 |
+| **N-2: pages whose resolved `/Rotate` is not a multiple of 90** | **0** | — |
+| documents flagged by the structural pass | 0 | — |
+| **documents byte-verified / evidence shas MOVED** | **3,380 / 0** | — |
+
+**No real corpus page moves, so `EXTRACTION_SCHEMA_VERSION` stays at 3** — no bump, and therefore no
+STOP to report. The verification is over the WHOLE corpus, not a sample: every one of the 3,380
+documents' evidence shas is identical with and without the fix.
+
+## Agreement evidence
+
+* **The fake-worker partition** (3 synthetic documents built through the real Paddle rung against the
+  in-process fake worker, loopback only): 3 paired, 3 pages compared, 0 frame mismatches; every
+  statistic 1.0 and the unmatched table density 0.0; the geometry census one page size, rotation 0,
+  skew 0.00°. That is the door proven end to end on evidence a rung actually produced.
+* **CTRL and U755 are NOT measured here.** Cell W's `paddle-v5-prod` partition does not exist yet. The
+  calibration (D3: the control sample first) is owed and the instrument is ready; the run is read-only
+  and costs the host one pass per partition.
+* **E4 population: 0.** No production row carries both readings, so every one of the twelve columns is
+  empty on the run of record by construction — which is exactly what the row-projection test pins.
+
+## Identity evidence
+
+* the 12-PDF unrotated pin and the four-angle pin are untouched and green;
+* every unrotated page's boxes are still PyMuPDF's own floats, verbatim (the identity applied as the
+  identity), and a CropBox INSIDE the MediaBox still uses PyMuPDF's own matrix at all four angles —
+  a test asserts the new note is absent there;
+* the two latents' corpus population is 0 and the byte pass proves it over all 3,380;
+* the union replay at base and at closure: population 2,695 documents replayed at each tree; previously validated preserved **2,625 of 2,625, payload identical 2,625**, payload changed 0; newly validated 0; other ladder movement 0; validated regressions **0**; other ladder regressions 0; no text / absent 0 — the SAME numbers at base and at closure, all seven chunks `EXIT=0` both times.
+
+## Mutation table (M1–M10) — 10 of 10 killed, tree clean after every mutant
+
+`tools/agree_mutation_table.py`, run at tree `053717a`; it refuses to start on a dirty tree, restores in
+a `finally`, asserts the tree clean after every row, runs its suites without `-x`, and APPENDS its table
+log rather than overwriting it (the 2.2 fence re-review's residue).
+
+| # | mutant | killer |
+|---|---|---|
+| M1 | the IoU threshold 0.5 → 0.1 without a version bump | the version/threshold pin + the shifted pair |
+| M2 | a box matched twice | the one-use test (pinned in both directions) |
+| M3 | the pixel frame not scaled by 72/dpi | the identical pair at 300 dpi + the real pair |
+| M4 | character agreement without the normaliser | the case/whitespace synthetic |
+| M5 | money and date agreement over UNMATCHED pairs | the shifted pair's money denominator (0, not 16) |
+| M6 | a decision package reading an agreement statistic | the AST guard, planted in an in-memory copy of the router's and the structurer's real sources |
+| M7 | the projection falling back to the ONE reading a document has | the empty-projection test |
+| M8 | N-1's transform taken from PyMuPDF's matrix regardless | the overhanging-CropBox pin, measured against the rasteriser's pixels |
+| M9 | N-2's indirect `/Rotate` treated as absent | the indirect-invalid-rotation pins |
+| M10 | the census printing a word | the census output-shape test |
+
+## Proof floor (every exit from a durable log under `discovery_reports/train13-logs/p23agree/`)
+
+| proof | result |
+|---|---|
+| full default suite | **9,877 passed / 48 skipped / 39 deselected / 0 failed** (616 s), `EXIT=0` — the 2.2 floor was 9,827 passed; +50 are this cell's |
+| the 5 canonical guards | **277 passed** (the 2.2 floor was 276; +1 is this card's roots-existence guard), `GUARDS_EXIT=0` |
+| the 7 canonical conformance files | **1,282 passed / 41 skipped**, `CONFORMANCE_EXIT=0` |
+| `python corpus_gate.py` | **GREEN 105 PASS / 3 WITHHELD / 1 REFUSED**, `GATE_EXIT=0` |
+| `pytest -m corpus` | **34 passed / 9,930 deselected** (1,413 s), `CORPUS_EXIT=0` |
+| N-1 / N-2 corpus census | 3,380 documents, 0 moved, `EXIT=0` |
+| mutation table | 10/10 killed, `unkilled: none` |
+| union cohort replay, base and closure | 7 chunks x 2 trees, every one ; 2,625 preserved payload-identical at both |
+| privacy scan over added lines (`--base 26f94f5 --ref <tip>`, the run-of-record population) | **0 hits, 0 residue sites** — at the code tip over 2,771 added lines, and again with THIS section included over 3,031 added lines, both against the 3,380 (3,351 with cached text); 22 and 23 raw hits, every one excluded by the standing `words_class` rule; MONEY / DIGITS / DATES **0** in both runs |
+| message scan over this branch's commits | **0 hits** — over the 4 code commits and again over all 5; one WORDS hit (a generic English word in a geometry sentence) was removed by a tree-preserving reword before the final runs; MONEY / DIGITS / DATES 0 in every run |
+
+## Report contract
+
+* **population** — the synthetic pairs; the 3,380 for the N-1/N-2 census; the 2,625-document union for
+  the replay; a 3-document fake-worker partition for the census door.
+* **newly validated 0** · **other ladder movement 0** · **previously validated preserved: all, payload
+  identical** · **regressions 0**.
+* **correctness evidence** — the pair table above; the overhanging-CropBox pin measured against
+  Poppler's own pixels; the indirect-`/Rotate` pins; 10/10 mutants killed.
+* **agreement evidence** — the fake-worker distribution; CTRL and U755 owed once cell W's partition
+  exists; E4 population 0.
+* **identity evidence** — unrotated byte-identical by construction and by test; both latents' corpus
+  population 0; 3,380 evidence shas unmoved; the union replay.
+
+## Commits (in order; each ends with the mandated trailer pair)
+
+| sha | what |
+|---|---|
+| `a2be3ca` | `layout/agreement.py` + `tests/test_agreement.py` + the row projection (`discovery/runner.py`), the `ROW_FIELDS` append (`discovery/report.py`) and the row-shape test |
+| `e63cbb1` | `evidence/native.py` N-1 and N-2 with their synthetic pins, and `tools/agree_native_census.py` |
+| `dbfae96` | `tools/agreement_census.py` and the OQ2 scan-roots append |
+| `913e3f4` | `tools/agree_mutation_table.py` (M1–M10) and the two widened tests the mutants die on |
+| this section | the W3 record |
+
+The first four were reworded ONCE, tree-preservingly, to remove a single generic English word the
+message scanner's WORDS class flagged: `git filter-branch --msg-filter` over `26f94f5..HEAD`, the
+resulting tree byte-identical (`8e2f00b`), every trailer intact, and both scans re-run at the new tip.
+The earlier shas (`9f77f5d`, `8f6479b`, `4a973a1`, `053717a`) appear in this cell's own logs — the
+mutation table records tree `053717a`, whose CONTENT is `913e3f4`'s.
+
+## Ownership notes for Ocean (reported, not resolved)
+
+1. **`ROW_FIELDS` lives in `discovery/report.py`, not `discovery/runner.py`.** The card names "the
+   `ROW_FIELDS` append" as this cell's item but attributes it to the runner. The append was made where
+   the list actually is, and NOTHING else in that file was touched.
+2. **The row-shape test is cell T's file** —
+   `tests/test_two_denominators.py::test_the_new_columns_are_appended_at_the_end_of_row_fields_in_the_card_order`.
+   Twelve names were appended to its expected tail and nothing else.
+3. **Cells E and W carry the same two items in their own cards** (`eq_*` columns; the wave's telemetry
+   columns). A composition collision on `ROW_FIELDS`, on `DocumentRow` and on that one test is expected
+   and is Ocean's to resolve; every cell's block is a pure append at the END.
+4. **Two new files under `tools/` beyond the card's named one**: `tools/agree_native_census.py` (the
+   N-1/N-2 corpus census — it produces headline numbers, which the standing rules require to be a
+   committed instrument) and `tools/agree_mutation_table.py` (the harness, as the card's sequence
+   allows). Both joined the OQ2 scan roots with the existence guard the roots convention requires.
+5. **A base worktree** `.claude/worktrees/mt23-agree-base` (detached at `26f94f5`) was created for the
+   base replay, following the 2.2 precedent (`mt22-truthtable-base`).
+6. **No lexicon addition was needed** in `layout/signals.py`; the money and date grammars were imported
+   unchanged.
+7. **The scratchpad directory is SHARED between the cells on this host.** A generic `lock.py` there was
+   rewritten twice by other cells while this cell's window was open; every script of this cell is
+   namespaced `p23agree_*`, and its release refuses unless `holder.txt` names P23-AGREE.
+
+## Risks (last)
+
+* **The skew measure rides on `evidence.group_lines`.** It is exact for a uniformly rotated page — the
+  midpoint of the axis-aligned hull of a rotated box is the rotated midpoint — but the ONE grouping rule
+  splits a line whose vertical drift exceeds 0.6 × the median word height, so a page skewed beyond
+  roughly three quarters of a degree over a 500 pt line produces fragments and the median then mixes
+  them. Measured cleanly at 0.6°; recorded as a known bound for 2.4 rather than fixed here, because the
+  grouping rule is not this cell's to change.
+* **The candidate table region is deliberately crude** (lines carrying two or more money shapes) and
+  versioned as such. It exists to give the unmatched-word density a denominator, not to describe a
+  table; 2.4's LayoutModel is where a real region model belongs.
+* **The census's last-resort key scan** assumes a research cache holds exactly one evidence-carrying OCR
+  key. It refuses rather than guesses when that is not true, but the honest door is `--run` or
+  `--settings-key` and the wave should hand one of those over.
+* **The calibration itself is still owed.** Everything here is instrument and identity; the numbers that
+  matter to 2.4 and 2.5 — what agreement looks like on CTRL, and how it falls on U755 — cannot be
+  produced until cell W's partition exists.
+
+
+# §P23AGREE-CLOSURE — real-library rotation contract, measuring-code pins and recorded-cache calibration
+
+Cell X, branch `wave23-agree`, census-fix proof tree `cfb4943`, closing the independent review
+`reviews/PHASE2_P23AGREE_REVIEW.md` of `1ee8b31`. This appendix supersedes contrary claims in
+§P23AGREE; the historical section is preserved. Independent re-review and composition remain
+Ocean's gates. No merge, push, production admission or self-approval is claimed here.
+
+## Population, scope and recovered evidence
+
+The Phase 2.2 run of record contains 3,380 documents: 2,625 validated and 755 unresolved. Its cold
+cache and original PDF bytes were read-only throughout. The union replay population is 2,695:
+all 2,625 validated documents plus 70 other members of those parser cohorts. Agreement calibration
+uses the exact recorded CTRL population (114) and U755 (755), selected from the research cache
+without another extraction. Metrics remain evidence for review and future reconstruction; no
+agreement statistic changes analysis, routing, admission, cost, or a financial verdict.
+
+Recovery read the durable child logs, not the predecessor driver's summary. The old outer
+`p23agree-closure-window.log` ended EXIT=0 despite a native-census crash and mutation EXIT=2.
+The crashed census still called the removed `_resolved_rotate_int`; M12 survived because its
+supposed per-axis stress was too near the page top. Neither was accepted as a completed proof.
+Valid suite, guards, conformance, corpus, gate and replay logs were preserved rather than repeated.
+
+New logs are under `discovery_reports/train13-logs/p23agree/closure/`. Heavy runs used the root
+committed `tools/train/harness_lock.py`, the shared absolute `HARNESS.lock`, `OCR_MAX_WORKERS=1`,
+and `winrun.py --floor-gb 1.5 --cap-gb 4`. The lock was released between bounded steps. Two
+prelaunch memory-floor refusals (EXIT=125) preceded the successful targeted run; they were not
+test failures and the floor was not lowered. The suite later completed normally after a parent-only
+handoff; a process-handle recovery helper recorded its exact winrun exit and released its own lock.
+
+## Review closures and corrected claims
+
+| review item | final behavior and pin |
+|---|---|
+| MAJOR-1: indirect rotation | `_indirect_rotate` makes one `xref_object` call and uses a resolved integer only when the page's observed geometry corroborates it. Real PDF fixtures cover genuine reference chains, writer-flattened integer bodies, inherited entries, valid and invalid angles, uncorroborated values and the one-call bound. M11 kills removing corroboration. |
+| MINOR-1: three surviving mutants | FR1 pins inclusive IoU at exactly one half; FR3 pins signed money; FR4 distinguishes the median from the mean with differently sloped lines. Each is an observed kill. |
+| MINOR-2: per-axis scaling | Pixel coordinates use `1/scale_x` and `1/scale_y`. The corrected fixture places short words at the page foot and asserts their true normalized boxes, so nominal-DPI scaling is visibly wrong. M12 now dies. |
+| MINOR-3: frame rotation | `frames_agree` compares `rotation_deg`, including square pages and half turns. M13 dies. |
+| MINOR-4: skew wording | The earlier claim of fragmentation beyond a universal angle is withdrawn. On the measured 20-row, 12-point-pitch, 8-point-word-height, 500-point-span fixture, grouping over-merges between 0.80° and 0.85°; the angle remains correct through 2°. Equal differently skewed blocks can report a median angle that neither block has. |
+| MINOR-5: in-process scoring | M6 is killed only if its named test is collected and passes, in addition to the suite passing. The preserved scorer probe reports NOT KILLED with the killer omitted and KILLED when present. |
+| MINOR-6: projection reads | Both evidence attribute reads are inside the exception guard. A raising property leaves empty agreement columns and records a finding rather than losing the run. M14 dies. |
+
+The library distinction matters. On genuine PDF bytes where one object's body is `B 0 R`,
+PyMuPDF's `xref_object` already resolves the chain. Its writer can instead serialize that body
+as a bare integer `B`; those different bytes describe a number, not a reference. The old fake
+chain stub obscured the difference. The closure tests generate both shapes as real PDFs and
+check the actual library contract. No extra walk over already-resolved values remains.
+
+The census instrument was also repaired. Native SHA comparison now loads the actual committed
+`phase2.2-final` reader, rather than suppressing pieces of the current reader to emulate a base.
+Population selection is exact, accepts the recorded comment headers and rejects empty, duplicate
+or malformed lists. Geometry is reported separately for native and extractor evidence; Paddle
+geometry is never labelled native. A missing research `paddle_ocr_key` refuses, because the
+run's offline key names a different configuration. The corrected private driver binds the original selected Paddle/research rows by their recorded
+canonical evidence hashes to the exact indexed settings key and passes it explicitly. Source-row
+and matched artifact byte digests are reverified before measurement; ambiguous bindings refuse.
+A later SLICE configuration cannot replace the original calibration merely because it is newer.
+Artifact envelope key/stage/input identity and canonical document identity must agree, source
+slots must be correctly labelled, and one key cannot combine conflicting extractor/model/runtime
+identities. A population with no canonical evidence pages refuses instead of returning success.
+An envelope conflict aborts the census even beside other readable records; only missing or unreadable
+records are counted as such. The key scan checks all records rather than silently limiting its
+search to the first twenty-five; a second key with evidence after that bound still makes it ambiguous.
+The shared `select_artifact` selector also refuses multiple indexed candidates for the same exact
+stage/document/settings tuple, regardless of insertion order. Its detailed internal error becomes
+a value-free named census refusal; unique and missing records retain their prior behavior.
+
+## Native bytes and schema identity
+
+`resume-native-census.log` at `f969079` compares every original PDF with the actual baseline
+reader at `d84af95dda699088b0593a8d8d83b5cefc372a22`: **3,380 byte-verified, 0 evidence SHA
+movement**, EXIT=0. The source is unchanged at the census-fix tip, so this proof stands.
+
+| structural measurement | count |
+|---|---:|
+| documents censused / missing or SHA-mismatched / unreadable documents | 3,380 / 0 / 0 |
+| pages censused / unreadable pages | 25,516 / 12 |
+| rotated pages | 82 |
+| CropBox overhangs | 7 |
+| N-1 matrix/frame disagreements | 0 |
+| direct / indirect Rotate entries | 8,185 / 4 |
+| unresolved indirect entries / corroborated invalid angles | 0 / 0 |
+| structurally flagged documents | 0 |
+
+The measured population of the latent defects is zero. `EXTRACTION_SCHEMA_VERSION` remains 3.
+The full reader comparison is necessary here: a cohort replay consumes cached text and therefore
+cannot validate a changed native reader by itself.
+
+## Corrected CTRL and U755 measurements
+
+The first resumed CTRL/U755 attempts used the provenance's offline key and read no selected
+records. Their logs returned EXIT=0 with all 114/755 records unreadable; **those outputs are invalid
+calibration and are retained only as reproductions of the census bug**. The refusal pins and the
+recorded-key runs below supersede them. Missing pairings or family labels are reported as missing
+measurements, never inferred from a parser, folder or another extractor's geometry.
+
+The corrected recorded-key diagnostic is `resume-bind-recorded-attempt3.log`, EXIT=0 (84.0 s,
+97.2 MB peak), with its own shared-lock acquire/release. It reads the explicit population's
+`source_path=paddle` / `paddle_rung=research` rows across all original sessions and binds their
+canonical evidence hashes to exact indexed artifact identities. The session CSVs also contain
+archive-wide and native/failed rows; those cannot identify the Paddle configuration. An initial
+binder that included native identities refused; its EXIT=1 is retained. An out-of-window corrected
+attempt was stopped and retained with EXIT=-1, then run under the assigned lock as attempt 3.
+
+| original population | selected documents | sessions | unique recorded Paddle evidence identities | exact artifact matches | settings keys |
+|---|---:|---:|---:|---:|---:|
+| CTRL | 114 | 5 | 90 | 90 | 1 |
+| U755 | 755 | 8 | 341 | 341 | 1 |
+
+Both bind to the same original key. The private binding records the source-row and artifact byte
+digests; the wrapper rechecks those bytes and exact indexed paths before measurement. This is an
+identity proof, not the agreement distribution. A later SLICE artifact has identical pages but a
+different full runtime/evidence identity under another key; it cannot silently replace an original
+recorded reading.
+
+Both corrected runs exit zero: `resume-fix-census-CTRL.log` (47.3 s, 84.5 MB peak) and
+`resume-fix-census-U755.log` (250.1 s, 135.4 MB peak). Each reads the same original settings key;
+its partition contains 431 records. The availability denominators are:
+
+| population | selected documents | paired | one reading | record unavailable | compared pages | frame mismatches |
+|---|---:|---:|---:|---:|---:|---:|
+| CTRL | 114 | 72 | 18 | 24 | 535 | 0 |
+| U755 | 755 | 281 | 60 | 414 | 2,124 | 0 |
+
+A record unavailable count includes a missing or unreadable artifact; it does not imply an OCR
+result. Each measured population has one extractor/model/runtime identity. The six distributions
+below use each statistic's own non-missing page denominator (`n`), not every selected document.
+All compared pages have recorded modality `digital`; the digital stratum equals the overall table.
+Other modalities supply no paired calibration in these records.
+
+| population / stratum | statistic | n | mean | p10 | p25 | p50 | p75 | p90 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| CTRL | matched, of the native words | 529 | 0.7293 | 0.5000 | 0.6684 | 0.7605 | 0.8283 | 0.8802 |
+| CTRL | matched, of the extractor words | 532 | 0.5225 | 0.3247 | 0.4265 | 0.5253 | 0.6373 | 0.7333 |
+| CTRL | normalised character agreement | 529 | 0.9602 | 0.9124 | 0.9538 | 0.9703 | 0.9811 | 0.9859 |
+| CTRL | exact money agreement | 463 | 0.6004 | 0.0714 | 0.3333 | 0.6667 | 0.8750 | 1.0000 |
+| CTRL | exact date agreement | 30 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| CTRL | unmatched density in table regions | 320 | 0.5151 | 0.2381 | 0.3939 | 0.5294 | 0.6555 | 0.7314 |
+| U755 | matched, of the native words | 2109 | 0.7313 | 0.5426 | 0.6737 | 0.7568 | 0.8310 | 0.9004 |
+| U755 | matched, of the extractor words | 2119 | 0.4906 | 0.2978 | 0.3845 | 0.4844 | 0.6101 | 0.7482 |
+| U755 | normalised character agreement | 2098 | 0.9533 | 0.9263 | 0.9440 | 0.9629 | 0.9761 | 0.9851 |
+| U755 | exact money agreement | 1831 | 0.4718 | 0.0000 | 0.1538 | 0.4474 | 0.7727 | 1.0000 |
+| U755 | exact date agreement | 239 | 0.9038 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| U755 | unmatched density in table regions | 1470 | 0.4700 | 0.2292 | 0.3526 | 0.4779 | 0.5714 | 0.6968 |
+
+### CTRL calibration by recorded census family
+
+The historical family map covers only two of the 114 CTRL documents. The tool's remaining
+`validated_or_unlisted` label denotes missing family attribution here; it is not a new truth label.
+The following are all three reported strata. A blank measurement has `n=0`, not agreement zero.
+
+| population / stratum | statistic | n | mean | p10 | p25 | p50 | p75 | p90 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| accounts_at_a_glance_category_number_amount | matched, of the native words | 8 | 0.4951 | 0.3833 | 0.3841 | 0.4754 | 0.4951 | 0.6900 |
+| accounts_at_a_glance_category_number_amount | matched, of the extractor words | 8 | 0.1694 | 0.0581 | 0.0615 | 0.0746 | 0.2476 | 0.3680 |
+| accounts_at_a_glance_category_number_amount | normalised character agreement | 8 | 0.9636 | 0.9311 | 0.9369 | 0.9613 | 0.9774 | 0.9914 |
+| accounts_at_a_glance_category_number_amount | exact money agreement | 8 | 0.5303 | 0.2727 | 0.3333 | 0.4545 | 0.6667 | 0.9216 |
+| accounts_at_a_glance_category_number_amount | exact date agreement | 0 | — | — | — | — | — | — |
+| accounts_at_a_glance_category_number_amount | unmatched density in table regions | 7 | 0.7589 | 0.6821 | 0.7047 | 0.7400 | 0.8101 | 0.8866 |
+| pnc_virtual_wallet_performance_spend | matched, of the native words | 24 | 0.8695 | 0.8271 | 0.8474 | 0.8553 | 0.8704 | 0.9551 |
+| pnc_virtual_wallet_performance_spend | matched, of the extractor words | 24 | 0.6746 | 0.6186 | 0.6282 | 0.6383 | 0.6710 | 0.8197 |
+| pnc_virtual_wallet_performance_spend | normalised character agreement | 24 | 0.9780 | 0.9725 | 0.9733 | 0.9775 | 0.9812 | 0.9854 |
+| pnc_virtual_wallet_performance_spend | exact money agreement | 20 | 0.9745 | 0.8158 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| pnc_virtual_wallet_performance_spend | exact date agreement | 6 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| pnc_virtual_wallet_performance_spend | unmatched density in table regions | 3 | 0.4212 | 0.2143 | 0.2143 | 0.3506 | 0.6986 | 0.6986 |
+| validated_or_unlisted | matched, of the native words | 497 | 0.7263 | 0.5202 | 0.6667 | 0.7580 | 0.8214 | 0.8780 |
+| validated_or_unlisted | matched, of the extractor words | 500 | 0.5209 | 0.3280 | 0.4265 | 0.5194 | 0.6313 | 0.7326 |
+| validated_or_unlisted | normalised character agreement | 497 | 0.9593 | 0.9069 | 0.9523 | 0.9690 | 0.9810 | 0.9860 |
+| validated_or_unlisted | exact money agreement | 435 | 0.5845 | 0.0417 | 0.3333 | 0.6471 | 0.8571 | 1.0000 |
+| validated_or_unlisted | exact date agreement | 24 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| validated_or_unlisted | unmatched density in table regions | 310 | 0.5105 | 0.2381 | 0.3939 | 0.5278 | 0.6463 | 0.7241 |
+
+All 69 U755 family strata, with the same six statistics, denominators and percentiles, remain
+in `resume-fix-census-U755.log`; its overall and digital distributions are above. These are the
+census taxonomy's recorded families, not labels inferred from filenames or folder names.
+
+### Separate native and extractor geometry
+
+| population / source | pages | rotation 0° | rotation 90° | rotation 270° | distinct point sizes |
+|---|---:|---:|---:|---:|---:|
+| CTRL / native | 535 | 535 | 0 | 0 | 5 |
+| CTRL / extractor | 668 | 668 | 0 | 0 | 10 |
+| U755 / native | 2,124 | 2,114 | 10 | 0 | 18 |
+| U755 / extractor | 2,331 | 2,315 | 10 | 6 | 33 |
+
+| population / stratum | statistic | n | mean | p10 | p25 | p50 | p75 | p90 |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| CTRL / native | skew, degrees | 529 | -0.0049 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| CTRL / extractor | skew, degrees | 664 | -0.0020 | -0.0164 | 0.0000 | 0.0000 | 0.0000 | 0.0013 |
+| U755 / native | skew, degrees | 2102 | -0.0164 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 |
+| U755 / extractor | skew, degrees | 2322 | -0.0016 | -0.0131 | 0.0000 | 0.0000 | 0.0000 | 0.0047 |
+
+The most common point size is 612.0 × 792.0: CTRL native/extractor counts 435/519;
+U755 native/extractor counts 1,871/2,018. The logs retain each source's point-size histogram,
+limited to its twelve most common sizes, and its distinct-size count. Extractor-only pages,
+including six 270-degree U755 pages, contribute only extractor geometry; they are not native
+measurements or cross-engine frame comparisons.
+
+These distributions calibrate what the two available readings measure. They supply no E4 admission
+threshold, truth label, routing rule or claim that a missing native reading agrees with Paddle.
+An E4 below-calibration population is not measured here because no selection threshold has been
+defined; it is not reported as zero. The recorded agreement and frame-disagreement counts remain
+the available review evidence.
+
+## Proof floor and mutation evidence
+
+| proof | measured result | evidence |
+|---|---|---|
+| recovered full default suite at `1d1ebc0` | 9,907 passed, 48 skipped, 39 deselected, 0 failed; EXIT=0 | `p23agree-closure-suite.log` |
+| resumed full default suite at `f969079` | 9,911 passed, 48 skipped, 39 deselected, 0 failed; EXIT=0 | `resume-suite.log`; 661.5 s winrun, 3,016.1 MB peak |
+| resumed targeted agreement/native files at `f969079` | 111 passed; EXIT=0 | `resume-targeted-attempt3.log` |
+| canonical guards / conformance | 277 passed / 1,282 passed and 41 skipped; EXIT=0 | recovered `p23agree-closure-guards.log` |
+| corpus gate / corpus slice | GREEN 105 PASS / 3 WITHHELD / 1 REFUSED; 34 corpus tests passed; EXIT=0 | recovered guard/corpus logs |
+| base and closure union replay | 2,695 replayed at each; all 2,625 previously validated preserved payload-identical; 0 new, moved, regressed or other payload changes; every chunk EXIT=0 | original 7 base + 7 closure chunk logs |
+| all original native bytes versus baseline reader | 3,380 compared; 0 SHA moved; EXIT=0 | `resume-native-census.log` |
+| retained fake-worker partition | 3 paired documents / 3 pages; agreement statistics 1.0, unmatched table density 0, frame mismatches 0; EXIT=0 | `../p23agree-fake-partition-census.log` |
+
+Production native/agreement/projection code is byte-identical between `1d1ebc0`, `f969079` and
+`cfb4943`. The latest census and fixture commits change only the census tool, its fixtures and mutation rows. Ocean
+accepted the valid suite floor and requested the affected checks and corrected census after that
+tool-only fix, without repeating the already completed native or replay proofs.
+
+The first final targeted attempt at `9b10d8c` reported 123 passed and three fixture-construction
+failures, EXIT=1, before any mutation ran. Those three `dataclasses.replace` calls changed runtime,
+pages or document identity while retaining the old canonical evidence digest. Test-only commit
+`cfb4943` clears that digest so canonical construction recomputes it; no tool refusal or production
+behavior was relaxed. `resume-fix-targeted-after-fixtures.log` then reports **126 passed**, EXIT=0
+(11.4 s, 179.6 MB peak). The prior failed log is retained and was never scored as mutation evidence.
+
+`resume-guards.log` reports **277 passed**, EXIT=0 (15.1 s, 104.5 MB peak), at the
+final source/test tip. The affected proof driver ends DRIVER_EXIT=0 and RELEASE_EXIT=0;
+its final own-holder release was 19:08:38Z. Final documentation/scanner sequencing follows below.
+
+The mutation table combines durable observed rows with affected reruns; no interrupted row and no
+survivor is counted as a kill. Recovered rows at `1d1ebc0` include M1–M11, M13–M14 and FR1/FR3/FR4.
+M12's surviving original run remains visible; the corrected page-foot pin kills it at `f969079`.
+That tip also kills the real-PDF M11, FR1, population M15 and baseline-reader M16. The final changed
+census rows are rerun below. Each row names an actually observed killer, and every mutation restore
+was checked clean. The in-process M6 also proves its killer was collected and passed.
+
+**28 distinct mutation rows are killed.** The final affected run is `resume-fix-mutations.log`,
+EXIT=0 (61.6 s, 158.0 MB peak), with clean restoration after every mutant.
+
+| row | mutation | observed killer | result | proof tree / table |
+|---|---|---|---|---|
+| M1 | the IoU threshold 0.5 -> 0.1 without a version bump | test_a_known_shift_drops_the_matched_ratio_exactly_as_the_box_arithmetic_says, test_the_versions_and_thresholds_are_pinned | KILLED (3 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M2 | a box may be matched twice (the extractor side is never spent) | test_alignment_is_greedy_and_uses_every_box_once | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M3 | a pixel frame is not scaled into points at all | test_identical_words_at_300_dpi_agree_completely, test_the_real_native_reader_agrees_with_the_fake_workers_evidence | KILLED (18 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M4 | the character agreement skips the normaliser | test_the_case_and_whitespace_normaliser_is_applied | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M5 | the money and date agreement is taken over UNMATCHED pairs | test_a_known_shift_drops_the_matched_ratio_exactly_as_the_box_arithmetic_says | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M6 | a decision package reads an agreement statistic | test_m6_the_guard_fires_on_a_scratch_copy_of_the_router_and_the_structurer (1 collected and passed) | KILLED (in-process, tree untouched) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M7 | the projection falls back to the ONE reading a document has | test_the_runner_projects_the_columns_only_when_both_evidences_exist | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M8 | N-1: the display transform is PyMuPDF's matrix regardless of the rect | test_an_overhanging_cropbox_on_a_rotated_page_lands_on_the_rasters_ink | KILLED (3 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M9 | N-2: an indirect /Rotate is treated as absent | test_an_indirect_invalid_rotate_is_resolved_and_refused_by_name, test_an_indirect_rotate_written_as_a_real_is_coerced_by_the_writer_and_refused, test_an_inherited_indirect_invalid_rotate_through_the_pages_node_is_refused_by_name | KILLED (9 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M10 | the census prints a word off the page | test_the_census_prints_counts_and_percentiles_and_never_a_word | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M11 | MAJOR-1: an indirect /Rotate is acted on WITHOUT the page corroborating it | test_a_genuine_reference_chain_is_resolved_by_the_library_in_the_readers_one_call, test_an_indirect_rotate_resolving_to_an_xref_number_is_read_through_the_parent_walk_too, test_an_indirect_rotate_resolving_to_an_xref_number_is_the_page_every_renderer_shows, test_an_indirect_rotate_the_page_does_not_corroborate_is_no_value, test_the_resolver_makes_one_call_so_no_reference_shape_can_spin | KILLED (13 failing) | `f969079` / `resume-mutation-table.md` |
+| M12 | MINOR-2: both axes scaled by one nominal 72 / dpi | test_a_legal_non_uniform_pixel_frame_normalises_to_the_true_points | KILLED (1 failing) | `f969079` / `resume-mutation-table.md` |
+| M13 | MINOR-3: `frames_agree` stops comparing the rotation | test_two_frames_that_disagree_about_the_rotation_are_a_frame_mismatch | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M14 | MINOR-6: the two evidence reads move back outside the guard | test_a_document_whose_evidence_attribute_raises_is_a_finding_not_an_exception | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| M15 | the census ignores the selected population in a shared partition | test_the_census_separates_populations_in_one_shared_partition | KILLED (4 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M16 | the sha census compares the current reader against itself | test_the_native_census_exits_nonzero_on_movement_or_an_absent_population | KILLED (1 failing) | `f969079` / `resume-mutation-table.md` |
+| M17 | research provenance silently substitutes the offline OCR key | test_the_census_never_substitutes_an_offline_key_for_an_unrecorded_paddle_key | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M18 | the census permits a selected population with no canonical evidence pages | test_the_census_refuses_an_empty_measurement_under_the_selected_key, test_the_census_refuses_empty_or_misidentified_evidence | KILLED (4 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M19 | the census combines conflicting extractor identities under one settings key | test_the_census_refuses_conflicting_extractor_identities_under_one_key | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M20 | the census trusts an envelope that conflicts with its cache record | test_the_census_refuses_empty_or_misidentified_evidence | KILLED (3 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M21 | the native census slot can contain extractor geometry | test_the_census_refuses_empty_or_misidentified_evidence | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M22 | the extractor census slot can contain native geometry | test_the_census_refuses_empty_or_misidentified_evidence | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M23 | the census accepts evidence for a different document | test_the_census_refuses_empty_or_misidentified_evidence | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M24 | the census searches only the first twenty-five records of another key | test_the_census_checks_for_another_evidence_key_beyond_the_first_twenty_five_records | KILLED (1 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| M25 | the census chooses the first of two indexed artifacts for one exact tuple | test_the_census_refuses_duplicate_index_rows_in_either_order | KILLED (2 failing) | `cfb4943` / `resume-fix-mutation-table.md` |
+| FR1 | the IoU threshold applied as `>` instead of `>=` | test_the_iou_threshold_is_inclusive_at_exactly_one_half | KILLED (1 failing) | `f969079` / `resume-mutation-table.md` |
+| FR3 | the money comparison drops the SIGN (a debit agrees with a credit) | test_a_negative_amount_never_agrees_with_its_positive_twin | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+| FR4 | the skew statistic is the MEAN of the line slopes, not the median | test_the_skew_statistic_is_the_MEDIAN_over_lines_not_the_mean | KILLED (1 failing) | `1d1ebc0` / `p23agree-closure-mutation-table.md` |
+
+## Scans, commits and risks
+
+At this documentation commit, the final-tip scanners have **not yet executed**. Their immutable
+planned logs are `discovery_reports/train13-logs/p23agree/closure/resume-final-privacy.log` and
+`discovery_reports/train13-logs/p23agree/closure/resume-final-messages.log`. No final count or exit
+is claimed in advance. The implementer's final report and independent re-review will carry their
+observed tip, counts and exits; Ocean's train attestation can record those facts before the
+composed-tree scan. No preliminary scanner pass was repeated merely to fill this appendix.
+
+The recovered `1d1ebc0` privacy attempt was EXIT=1 with four synthetic-coordinate MONEY collisions;
+those coordinate fixtures were corrected in `f969079`, and the final scanner must verify the result.
+The recovered message attempt was EXIT=1 with three ordinary WORDS hits, all attributed to historical
+commit `77d88bd`, and zero MONEY/DIGITS/DATES. Ocean's resumed scan disposition allows those ordinary
+word hits to be attributed rather than rewriting the old history; the final raw exit remains explicit.
+
+Closure commits retain the predecessor's `7aa6d28`, `63ea008`, `facd608`, `c946fb6`, `5deae41`,
+`77d88bd`, `1d1ebc0`, followed by `526dca6`, `25e166f`, `f969079`, `521642d`, `43958ab`, `9b10d8c` and `cfb4943`. The source repairs
+stay inside the card's reviewed ownership widening for census/mutation instruments and row fields.
+
+Risks: genuine-chain rotations retain the library/renderer disagreements recorded by the real-PDF
+pins; no arbitrary integer is promoted to trusted rotation. No corpus document was structurally
+flagged and no native evidence SHA moved; that does not prove every legal PDF renders alike. Page skew is a median across grouped lines and can
+mix distinct blocks; candidate money bands are a measurement heuristic. Missing native evidence
+and missing CTRL family attribution limit the calibration strata. These measurements do not supply
+adjudicated truth, production thresholds or a reconstruction strategy. Independent re-review and
+the composed-tree floor remain required before composition.

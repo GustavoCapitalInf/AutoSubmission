@@ -1,14 +1,17 @@
 """Normalized bank-statement data model.
 
-This is the hand-off contract between the LLM extraction stage (which fills these
-objects from the OCR markdown) and the deterministic stages (reconciliation,
-metrics, detection) that do all the math. Amounts are always signed: negative =
-money leaving the account (debit), positive = money entering (credit).
+This is the hand-off contract between the readers (the deterministic parsers,
+which fill these objects from the document's native text or local OCR markdown;
+until slice S3 of the model-code removal, also a hosted LLM extraction stage)
+and the deterministic stages (reconciliation, metrics, detection) that do all
+the math. Amounts are always signed: negative = money leaving the account
+(debit), positive = money entering (credit).
 """
 from __future__ import annotations
 from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, model_serializer
+from pydantic.json_schema import SkipJsonSchema
 
 # ---------------------------------------------------------------------------
 # WHERE A PUBLISHED CURRENCY CAME FROM (CURRENCY_DOCTRINE §B, made explicit)
@@ -64,9 +67,11 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field
 #       and naming them in the payload is what makes that debt visible instead
 #       of indistinguishable from a read.
 #   model_extracted
-#       The LLM extraction stage returned the currency (`analysis/extract.py`,
-#       reached from `pipeline.py` only when no deterministic parser claimed the
-#       document and `parse_mode="auto"`). The platform did not verify the
+#       A model returned the currency: the hosted LLM extraction stage
+#       (`analysis/extract.py`, removed in slice S3 of the model-code removal;
+#       stored payloads it produced keep the label) and the visual pair's
+#       currency bridge (removed with the pair in slice S4; its stored payloads
+#       keep the label too). Nothing produces it now. The platform did not verify the
 #       evidence, and the model may not certify its own provenance: whatever
 #       `currency_source` the model fills into the response schema is DISCARDED
 #       and replaced by this class at the boundary.
@@ -111,6 +116,31 @@ class Transaction(BaseModel):
     running_balance: float | None = Field(
         default=None, description="Account balance printed after this transaction, if any."
     )
+    # Audit B10 (I05, I60): a deterministic parser sets this on a CREDIT whose published description is only its own
+    # type or section label because the payer text the statement printed for the row could not be read (an
+    # indeterminate flush of merchant blocks, a description overlay that failed closed). The true-revenue pass then
+    # counts the row as 'payer text not read', never as Q2's 'no payer printed', which is for a row whose statement
+    # prints no payer. Kept out of the JSON schema (`SkipJsonSchema`; it was the hosted extractor's response schema
+    # until slice S3 of the model-code removal, and the marker stays, inert) and out of every serialized transaction
+    # that does not carry it (`_serialize`), so no stored payload gains a key it did not have.
+    payer_text_unread: SkipJsonSchema[bool] = False
+    # Audit round 2, R2-B07 (R07): on a credit the parser marked (`payer_text_unread`) because a flush of several rows'
+    # merchant blocks could not be attributed, the flush's text, joined: what the statement printed for SOME row of
+    # that flush, never proven this row's, so it is no description. The true-revenue pass reads it only to hold a
+    # marked credit whose run prints a lender's block (never to verify, to name a payer or to count a lender credit),
+    # and the review card prints it so a reviewer can release a customer's row. Kept out of the JSON schema and out
+    # of every serialized transaction that does not carry it, as `payer_text_unread` is.
+    unread_payer_text: SkipJsonSchema[str] = ""
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if isinstance(data, dict):
+            if not self.payer_text_unread:
+                data.pop("payer_text_unread", None)
+            if not self.unread_payer_text:
+                data.pop("unread_payer_text", None)
+        return data
 
 
 class StatementDailyBalance(BaseModel):
@@ -133,19 +163,34 @@ class Statement(BaseModel):
     # it from one of these.
     #
     # DELIBERATELY A COMMENT AND NOT A DOCSTRING, which is the one place this
-    # class cannot say it: `analysis/extract.py`:222 passes `Statement` as the
+    # class cannot say it: `analysis/extract.py` passed `Statement` as the
     # extraction call's `response_schema`, and pydantic publishes a model's
-    # docstring as its JSON-schema `description` — so a docstring here is
+    # docstring as its JSON-schema `description` — so a docstring here was
     # prompt text sent to the extractor, and prose addressed to implementers
-    # would silently become an instruction addressed to a model. The words
-    # belong to the reader of this file; the schema keeps the shape it had.
+    # would silently have become an instruction addressed to a model. The
+    # extractor was removed in slice S3 of the model-code removal and nothing
+    # sends the schema anywhere now; the comment stays a comment so the schema
+    # keeps the shape it had.
 
     # `populate_by_name` so a caller may use either the canonical field name or
     # a deprecated alias declared below; both resolve to the same storage.
     model_config = ConfigDict(populate_by_name=True)
 
     bank: str | None = Field(default=None, description="Bank name, e.g. 'Chase'.")
-    account_name: str | None = Field(default=None, description="Account holder / product name.")
+    account_name: str | None = Field(
+        default=None, description="The name printed for the account: a product, a nickname, or on some layouts a person."
+    )
+    #: Audit B9 (I13): the holder's own name, kept apart from `account_name` (which a parser fills with a product, a
+    #: nickname or nothing), so the revenue holds can read who owns the account. None when the parser reads none.
+    holder_name: str | None = Field(
+        default=None, description="Account holder's name as printed in the header or mailing address block."
+    )
+    # Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: the title the bank prints after the
+    # holder's name (a premium trust, an operating or a wire account), read from the holder reader's own anchor
+    # (analysis.holder_name.HolderReading); provenance for the revenue rule. Kept out of the extraction response schema
+    # (`SkipJsonSchema`: the extractor is told nothing new) and out of every serialized statement that carries none
+    # (`_serialize`), so no stored payload gains a key it did not have.
+    account_title: SkipJsonSchema[str | None] = None
     account_number: str | None = Field(default=None, description="Account number as printed.")
     period_start: str | None = Field(default=None, description="Statement period start, ISO YYYY-MM-DD.")
     period_end: str | None = Field(default=None, description="Statement period end, ISO YYYY-MM-DD.")
@@ -220,6 +265,49 @@ class Statement(BaseModel):
             "account-opening postings dated before the statement period."
         ),
     )
+    #: How many LEADING transactions this parser proved, from the document's
+    #: own printed evidence, are postings the bank dated on the day its
+    #: previous-balance line names (the day before the printed period) and
+    #: counted in THIS cycle's printed totals: activity posted after the last
+    #: statement closed. They set the balance day one opens with. Zero
+    #: everywhere except where a parser has declared it (Capital One, owner
+    #: report 2026-10-08); `analysis/adb.py` re-checks every condition itself
+    #: before folding them into the opening balance, never makes their day a
+    #: ledger day and never changes the ADB divisor. A parser's proof, never a
+    #: model's: kept out of the extraction response schema (`SkipJsonSchema`,
+    #: so the extractor is told nothing new, as for `account_title`), refused
+    #: from a visual pair's reviewed statement while the pair existed (its
+    #: adapter, removed in slice S4 of the model-code removal), and serialized
+    #: only when declared (see `_serialize`).
+    #:
+    #: What a producer that builds its own Statement owes (the planned
+    #: text-first reader, or anything else that is not a registered parser):
+    #: `analyze_statement` itself checks only `reconciliation.ok`, so the
+    #: admission checks the deleted adapter applied BEFORE calling it are the
+    #: producer's. Reference: `cfc7c48:vlm/pair_adapter.py`
+    #: (`_source_statement`, `_PARSER_PROOF_FIELDS`, `_complete_report`).
+    #:   * Parser proofs: this count and `initialization_transaction_count`
+    #:     are 0, and no field lies outside `Statement`, `Transaction` and
+    #:     `StatementDailyBalance`.
+    #:   * Required printed fields: `period_start`, `period_end`,
+    #:     `beginning_balance`, `ending_balance` and `currency` are present (a
+    #:     missing currency refuses rather than taking the USD default), and
+    #:     the ledger is not empty.
+    #:   * Period bounds: ISO dates with start <= end; every transaction and
+    #:     every printed daily balance dated inside the printed period; no date
+    #:     with two different daily balances; the currency three upper-case
+    #:     ASCII letters; every row a `credit` or `debit` with a non-blank
+    #:     description.
+    #:   * Finite numbers: no NaN or infinity anywhere in the statement.
+    #:   * Reconciliation: `reconcile(stmt).ok`, and neither the printed
+    #:     summary nor the printed credit or debit count disagrees
+    #:     (`summary_ok`, `stated_credit_count_matches`,
+    #:     `stated_debit_count_matches` are not False).
+    #:   * `currency_source` is assigned by the platform, never taken from the
+    #:     producer's own output.
+    #: After `analyze_statement`, the adapter also refused a report in which
+    #: any account's `metrics.adb_ok` was not True.
+    pre_period_carry_in_count: SkipJsonSchema[int] = 0
 
     transactions: list[Transaction] = Field(default_factory=list)
 
@@ -240,3 +328,16 @@ class Statement(BaseModel):
     @stated_average_balance.setter
     def stated_average_balance(self, value: float | None) -> None:
         self.bank_reported_average_balance = value
+
+    # Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: `account_title` is serialized only when a reader set it,
+    # as Transaction._serialize drops its unset parser marks. A comment, not a docstring (see the class's comment).
+    # Owner report 2026-10-08: `pre_period_carry_in_count` likewise only when a parser declared one, so every other
+    # statement's payload is unchanged.
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if isinstance(data, dict) and self.account_title is None:
+            data.pop("account_title", None)
+        if isinstance(data, dict) and not self.pre_period_carry_in_count:
+            data.pop("pre_period_carry_in_count", None)
+        return data

@@ -45,6 +45,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+#: `vlm` left both tuples when the visual pair was removed (model-code removal, slice S4): the root no longer exists,
+#: so scanning it would scan nothing and requiring it would fail. Every remaining root is still scanned and required.
 PRODUCTION_ROOTS = ("analysis", "layout", "ocr", "evidence", "discovery", "webapp", "telemetry")
 #: Roots that must exist for the scan to be non-vacuous (`layout/` lands with cell C).
 REQUIRED_ROOTS = ("analysis", "ocr", "evidence", "discovery", "webapp", "telemetry")

@@ -11,7 +11,7 @@ from analysis.adb import compute_average_daily_balance
 from analysis.reconcile import reconcile
 from analysis.metrics import compute_metrics, daily_closing_balances
 from analysis.detect import detect, find_known_funders, find_recurring_debits
-from analysis.extract import strip_embedded_images
+from analysis.transaction_classifier import classify_statement_transactions
 from analysis.altana import parse_altana_statement
 from analysis.atb import parse_atb_statement
 from analysis.b1 import parse_b1_statement
@@ -28,10 +28,9 @@ from analysis.linkbank import parse_linkbank_statement
 from analysis.midflorida import parse_midflorida_statement
 from analysis.navy_federal import parse_navy_federal_statement
 from analysis.pipeline import (
-    HOSTED_EXTRACTION_OPT_IN_ENV,
-    HOSTED_EXTRACTION_OPT_IN_LITERAL,
     analyze_markdown,
     apply_statement_repairs,
+    assess_quality,
     assess_document_integrity,
     normalize_statement,
     Quality,
@@ -154,14 +153,6 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     assert package["totals"]["average_daily_balance"] is None
 
 
-def test_strip_embedded_images_removes_base64_bloat():
-    md = ('Deposits\n<img class="doc-image" src="data:image/png;base64,QUJDRA==" alt="image" />\n'
-          '<table><tr><td>04/01</td><td>ACH</td><td>100.00</td></tr></table>')
-    out = strip_embedded_images(md)
-    assert "base64" not in out and "<img" not in out
-    assert "Deposits" in out and "100.00" in out  # text ledger preserved
-
-
 def test_normalize_statement_drops_daily_balance_summary_rows():
     stmt = Statement(transactions=[
         _txn("2054-04-30", -10.0, "MAINTENANCE FEE"),
@@ -216,11 +207,9 @@ Accounts issued by: THE TORONTO-DOMINION BANK
     assert reconcile(stmt).ok
 
 
-def test_analyze_td_canada_native_text_bypasses_gemini(monkeypatch):
-    def fail_extract(*args, **kwargs):
-        raise AssertionError("Gemini extraction should not run for deterministic TD Canada")
-
-    monkeypatch.setattr("analysis.pipeline.extract_statement", fail_extract)
+def test_analyze_td_canada_native_text_reads_deterministically():
+    # Was `..._bypasses_gemini`: it also stubbed the hosted extractor to fail, which slice S3 of the model-code
+    # removal deleted. The deterministic result it pins is unchanged.
     md = """
 --- Page 1 ---
 Accounts issued by: THE TORONTO-DOMINION BANK
@@ -291,12 +280,8 @@ Subtotal: 10.00
     assert reconcile(stmt).ok
 
 
-def test_deterministic_mode_rejects_unmatched_statement(monkeypatch):
-    def fail_extract(*args, **kwargs):
-        raise AssertionError("Gemini extraction should not run in deterministic-only mode")
-
-    monkeypatch.setattr("analysis.pipeline.extract_statement", fail_extract)
-
+def test_deterministic_mode_rejects_unmatched_statement():
+    # The hosted-extractor stub this test carried went with the extractor (model-code removal, slice S3).
     with pytest.raises(RuntimeError, match="no deterministic parser matched"):
         analyze_markdown("UNSUPPORTED BANK STATEMENT", parse_mode="deterministic")
 
@@ -687,6 +672,58 @@ Ending totals Ending totals Ending totals Ending totals 500.00 500.00 500.00 500
     assert stmt.stated_total_debits == 440.0
     assert [t.amount for t in stmt.transactions] == [500.0, -20.0, -120.0, -300.0]
     assert reconcile(stmt).ok
+
+
+B1_WIRE = """
+Last statement: February 28, 2054 This statement: March 31, 2054 Total days in statement period: 31
+B1Bank 1 Example St Exampletown XX 00000
+Essential Business Checking
+Account number XXXXXXX0000 Enclosures 0 Low balance $5,000.00 Average balance $30,000.00
+DAILY ACTIVITY DAILY ACTIVITY DAILY ACTIVITY DAILY ACTIVITY
+Date Date Description Description Additions Additions Subtractions Subtractions Balance Balance
+02-28 Beginning balance $5,000.00 03-09 Wire Transfer Credit 40,000.00 45,000.00
+FABRIKAM HOLDINGS LL
+REF 0001
+03-10 ' Transfer Credit 1,000.00 46,000.00
+TRANSFER FROM XXXXXX1234
+{break}03-11 ' Service Charge -20.00 45,980.00
+OUT WIRE OLB
+Ending totals Ending totals Ending totals Ending totals 41,000.00 41,000.00 41,000.00 41,000.00
+-20.00 -20.00 -20.00 -20.00 $45,980.00 $45,980.00 $45,980.00 $45,980.00
+"""
+B1_PAGE_BREAK = (
+    "\n--- Page 2 ---\n\nSAMPLE HOLDER LLC Page 2 March 31, 2054 XXXXXXX0000\n"
+    "Date Date Description Description Additions Additions Subtractions Subtractions Balance Balance "
+)
+
+
+@pytest.mark.parametrize("page_break", ["", B1_PAGE_BREAK])
+def test_r3_91_b1_an_incoming_wire_keeps_the_lines_printed_under_it_apart_from_its_label(page_break):
+    """Audit round 3, R3-B09 (R3-91): a wire credit keeps the lines printed under its row, up to the next row or the
+    page's end, as unread payer text (Transaction.unread_payer_text), marked as read only by its label; nothing
+    published moves, and a transfer, a debit and the page's furniture gain nothing."""
+    stmt = parse_b1_statement(B1_WIRE.format(**{"break": page_break}))
+    assert stmt is not None
+    assert [(t.date, t.description, t.amount, t.direction, t.running_balance) for t in stmt.transactions] == [
+        ("2054-03-09", "Wire Transfer Credit", 40000.0, "credit", 45000.0),
+        ("2054-03-10", "Transfer Credit", 1000.0, "credit", 46000.0),
+        ("2054-03-11", "Service Charge", -20.0, "debit", 45980.0),
+    ]
+    assert [(t.payer_text_unread, t.unread_payer_text) for t in stmt.transactions] == [
+        (True, "FABRIKAM HOLDINGS LL REF 0001"), (False, ""), (False, ""),
+    ]
+    from analysis.transaction_classifier import classify_statement_transactions
+
+    wire = classify_statement_transactions(stmt)[0]
+    assert (wire.revenue_tier, wire.revenue_tier_reason) == ("excluded_pending_review", "wire_no_sender")
+
+
+def test_r3_91_b1_a_wire_as_the_last_row_of_a_page_keeps_only_its_own_page_s_lines():
+    text = B1_WIRE.format(**{"break": ""}).replace(
+        "REF 0001\n", "REF 0001\n" + B1_PAGE_BREAK.rstrip(" ") + "\n")
+    stmt = parse_b1_statement(text)
+    assert stmt is not None
+    assert stmt.transactions[0].unread_payer_text == "FABRIKAM HOLDINGS LL REF 0001"
 
 
 def test_parse_santander_native_text_running_balances_and_summary_totals():
@@ -2301,14 +2338,17 @@ def test_an_llm_extraction_gets_its_repair_by_bank_label():
 
 
 def test_every_summary_repair_is_keyed_on_a_live_registration():
-    """The ids in `_SUMMARY_REPAIRS` are registry keys, so a renamed parser
-    would silently switch its repair off. This is what makes that loud."""
+    """The ids in `_SUMMARY_REPAIRS` (and, since the audit of 2026-10-13,
+    PARSERS-1, in `_STATEMENT_REPAIRS`: the three kept bank repairs) are
+    registry keys, so a renamed parser would silently switch its repair off.
+    This is what makes that loud."""
     from analysis import parser_registry
-    from analysis.pipeline import _SUMMARY_REPAIRS
+    from analysis.pipeline import _STATEMENT_REPAIRS, _SUMMARY_REPAIRS
 
-    assert _SUMMARY_REPAIRS, "the table must not be empty"
-    for parser_id in _SUMMARY_REPAIRS:
-        assert parser_registry.by_id(parser_id).id == parser_id
+    for table in (_SUMMARY_REPAIRS, _STATEMENT_REPAIRS):
+        assert table, "the table must not be empty"
+        for parser_id in table:
+            assert parser_registry.by_id(parser_id).id == parser_id
 
 
 def test_parse_regions_native_text_sections():
@@ -2499,7 +2539,9 @@ def test_parse_citizens_native_text_sections():
     assert stmt.stated_average_balance == 822.0
     assert stmt.stated_total_credits == 300.0
     assert stmt.stated_total_debits == 105.0
-    assert report.metrics.effective_nsf_count == 2
+    assert report.metrics.nsf_count == 2                 # two returned items, reported apart
+    assert report.metrics.negative_days == 30             # carry-over basis: every April day ends overdrawn
+    assert report.metrics.effective_nsf_count == 4        # printed basis (default): the four posting days
     assert stmt.stated_nsf_count is None
     assert [t.amount for t in stmt.transactions] == [-35.0, -70.0, 100.0, 200.0]
     assert reconcile(stmt).ok
@@ -2703,30 +2745,35 @@ def test_repair_first_community_never_rewrites_the_count_without_the_total():
     assert both.stated_debit_count == 3
 
 
-def test_analysis_marks_incomplete_detail_as_manual_review(monkeypatch):
-    def fake_extract(*args, **kwargs):
-        return Statement(
-            bank="BMO",
-            account_name="Example",
-            beginning_balance=100.0,
-            ending_balance=250.0,
-            stated_total_credits=200.0,
-            stated_total_debits=50.0,
-            transactions=[_txn("2054-01-01", 100.0)],
-        )
+def test_analysis_marks_incomplete_detail_as_manual_review():
+    """Adapted in slice S3 of the model-code removal. This test fed the statement below through a stubbed hosted
+    extractor behind the operator opt-in; the extractor and the opt-in are gone. The rule it pinned is the
+    deterministic quality stage, so it is pinned on that stage directly (`assess_quality` with no dispatch, as for a
+    statement no parser claimed). The same text in auto mode now gets exactly the deterministic refusal."""
+    stmt = Statement(
+        bank="BMO",
+        account_name="Example",
+        beginning_balance=100.0,
+        ending_balance=250.0,
+        stated_total_credits=200.0,
+        stated_total_debits=50.0,
+        transactions=[_txn("2054-01-01", 100.0)],
+    )
+    recon = reconcile(stmt)
+    quality = assess_quality(stmt, recon)
+    assert not recon.ok
+    assert recon.summary_ok is True
+    assert quality.level == "needs_review"
+    assert quality.corporate_use == "manual_review_required"
+    assert quality.transaction_detail_reliable is False
 
-    monkeypatch.setattr("analysis.pipeline.extract_statement", fake_extract)
-    # P22-FENCE (Ruling A in code): this test exercises the HOSTED branch on a
-    # fake extractor, and that branch runs only behind the operator's exact
-    # opt-in literal; without it auto mode takes the deterministic refusal.
-    monkeypatch.setenv(HOSTED_EXTRACTION_OPT_IN_ENV, HOSTED_EXTRACTION_OPT_IN_LITERAL)
-    report = analyze_markdown("BMO Account Summary")
-    assert not report.reconciliation.ok
-    assert report.reconciliation.summary_ok is True
-    assert report.quality.level == "needs_review"
-    assert report.quality.corporate_use == "manual_review_required"
-    assert report.quality.transaction_detail_reliable is False
-    assert not any("UNCAPTURED" in t.description for t in report.statement.transactions)
+    with pytest.raises(RuntimeError) as deterministic:
+        analyze_markdown("BMO Account Summary", parse_mode="deterministic")
+    with pytest.raises(RuntimeError) as auto:
+        analyze_markdown("BMO Account Summary")
+    assert type(auto.value) is type(deterministic.value)
+    assert str(auto.value) == str(deterministic.value)
+    assert not hasattr(auto.value, "hosted_extraction")
 
 
 def test_chase_business_transaction_export_reconciles_but_requires_review():
@@ -3337,9 +3384,9 @@ def test_metrics_effective_nsf_uses_classified_rows_over_bank_stated_count():
         _txn("2054-01-02", -30.0, "NSF FEE"),
     ])
     m = compute_metrics(s)
-    assert m.nsf_count == 1
-    assert m.effective_nsf_count == 1
-    assert m.nsf_source == "classified_line_items"
+    assert m.nsf_count == 1                                   # returned items stay as evidence
+    assert m.effective_nsf_count == 0                         # R18: no validated ledger, so no negative-day count
+    assert m.nsf_source == "negative_ending_days_unavailable"
     assert any("bank-stated NSF count 4 differs" in note for note in m.notes)
 
 
@@ -3355,11 +3402,19 @@ def test_metrics_computes_true_revenue_cash_flow_lender_pos_and_loan_counts():
     assert m.lender_credits == 2000.0
     assert m.lender_debits == 500.0
     assert m.monthly_lender_debits == 500.0
+    # 5.6 (T9): true_revenue is True revenue; the bare teller CUSTOMER DEPOSIT is counted (no payer printed).
     assert m.true_revenue == 10000.0
+    assert m.verified_revenue_total == 0.0
     assert m.cash_flow == 7000.0
     assert m.withholding_rate == 5.0
     assert m.pos_count == 1
     assert m.loan_count == 1
+    # Owner ruling 2026-09-24: SBA is an alternative position, never a potential lender.
+    assert classify_statement_transactions(s)[4].classification == "alternative_position"
+    assert m.potential_lender_debit_count == 0
+    assert m.flagged_groups == {
+        "alternative_positions": {"count": 1, "total": 750.0, "count_credited": 0, "total_credited": 0.0, "payees": 1}
+    }
 
 
 def test_metrics_uses_exact_posted_lender_debits_for_withholding_rate():
@@ -3574,7 +3629,12 @@ def test_detect_affirm_without_space():
     ])
     matches = find_known_funders(s)
     assert matches == []
-    assert compute_metrics(s).pos_count == 2
+    # D8: a card-paid Affirm instalment is classified by who was paid.
+    assert [record.classification for record in classify_statement_transactions(s)] == [
+        "alternative_position",
+        "alternative_position",
+    ]
+    assert compute_metrics(s).pos_count == 0
 
 
 def test_detect_expanded_lender_keyword_aliases():
@@ -3583,7 +3643,7 @@ def test_detect_expanded_lender_keyword_aliases():
         _txn("2054-01-03", -225.0, "DIRECT DEB DELAGELANDEN LEASE"),
     ])
     matches = find_known_funders(s)
-    assert [m.funder for m in matches] == ["FUNDWORKS"]
+    assert [m.funder for m in matches] == ["FUNDWORKS", "De Lage Landen"]
 
 
 def test_recurring_debits_filters_generic_processors():
@@ -3616,3 +3676,771 @@ def test_detect_ignores_one_off_debits():
     d = detect(s)
     assert d.recurring_debits == []
     assert d.known_funders == []
+
+
+def test_r18_underwriting_nsf_counts_negative_ending_days_not_returned_items():
+    stmt = Statement(
+        bank="Test Bank", period_start="2054-01-01", period_end="2054-01-05",
+        beginning_balance=100.0, ending_balance=-20.0,
+        transactions=[_txn("2054-01-02", -150.0, "ITEM RETURNED NSF", bal=-50.0), _txn("2054-01-04", 30.0, "DEPOSIT", bal=-20.0)],
+    )
+    assert reconcile(stmt).ok
+    m = compute_metrics(stmt)
+    assert m.nsf_count == 1                     # the returned item is still evidence
+    assert m.negative_days == 4                 # carry-over basis: 01-02 through 01-05 end below zero
+    assert m.negative_printed_days == 2         # printed basis: 01-02 and 01-04, the days with activity
+    assert m.effective_nsf_count == 2 and m.nsf_source == "negative_printed_days"
+
+
+def test_r18_underwriting_nsf_is_unavailable_without_a_validated_ledger():
+    stmt = Statement(
+        bank="Test Bank", period_start="2054-01-01", period_end="2054-01-05",
+        beginning_balance=100.0, ending_balance=-20.0,
+        transactions=[_txn("2054-01-02", -150.0, "ITEM RETURNED NSF"), _txn("2054-01-04", 30.0, "DEPOSIT")],
+    )
+    m = compute_metrics(stmt, trust_running_balances=False)
+    assert m.nsf_count == 1 and m.effective_nsf_count == 0 and m.nsf_source == "negative_ending_days_unavailable"
+    assert any("not computable" in note for note in m.notes)
+
+
+# --- Audit B9 (I13, I38): the holder's name is its own field, read from the header or the address block -------------
+# Fabricated statements only: invented names, the 555 telephone range, zero-filled mail-routing codes.
+
+_CHASE_SUMMARY_LINES = """Beginning Balance $1,000.00
+Deposits and Additions 2 800.00
+Fees 1 -15.00
+Ending Balance 3 $1,785.00
+*end*summary
+*start*deposits and additions
+DEPOSITS AND ADDITIONS
+DATE DESCRIPTION AMOUNT 01/02 Deposit 500.00 01/03 Zelle Payment From Client 300.00
+Total Deposits and Additions $800.00
+*end*deposits and additions
+*start*fees section
+FEES
+DATE DESCRIPTION AMOUNT 01/31 Monthly Service Fee $15.00
+Total Fees $15.00
+*end*fees section
+"""
+
+_CHASE_MAILING_BLOCK = """
+January 01, 2054 through January 31, 2054
+JPMorgan Chase Bank, N.A. P O Box 100000 Sampleville, TX 75001 - 0001
+000000123456789
+Account Number:
+CUSTOMER SERVICE INFORMATION
+Chase.com
+Web site:
+1-800-555-0100
+Service Center:
+Para Espanol: 1-888-555-0101
+00000001 DRE 001 001 00001 NNNNNNNNNNN T 1 000000001 01 0001
+International Calls:
+1-713-555-0102
+NORTHWIND MARINE LLC
+We accept operator relay calls
+DBA NORTHWIND BOATWORKS
+100 SAMPLE ST
+SAMPLEVILLE TX 75001-0001
+00000000000000000000
+*start*summary
+Chase Business Complete Checking
+CHECKING SUMMARY
+INSTANCES AMOUNT
+""" + _CHASE_SUMMARY_LINES
+
+_CHASE_FLAT_MAILING_LINE = """
+January 01, 2054 through January 31, 2054
+JPMorgan Chase Bank, N.A. P O Box 100000 Sampleville, TX 75001 - 0001
+Account Number: 000000123456789
+CUSTOMER SERVICE INFORMATION
+Web site: Chase.com Service Center: 1-800-555-0100 Para Espanol: 1-888-555-0101 We accept operator relay calls
+00000001 DRI 001 001 00001 NNNNNNNNNNN 1 000000001 01 0001 CONTOSO TRADING CO LLC 100 SAMPLE ST STE 2 SAMPLEVILLE TX 75001-0001
+00000000000000000000
+*start*summary
+CHECKING SUMMARY Chase Business Complete Checking
+INSTANCES AMOUNT Beginning Balance $1,000.00
+Deposits and Additions 2 800.00 Fees 1 -15.00 Ending Balance 3 $1,785.00
+*end*summary
+*start*deposits and additions
+DEPOSITS AND ADDITIONS
+DATE DESCRIPTION AMOUNT 01/02 Deposit 500.00 01/03 Zelle Payment From Client 300.00
+Total Deposits and Additions $800.00
+*end*deposits and additions
+*start*fees section
+FEES
+DATE DESCRIPTION AMOUNT 01/31 Monthly Service Fee $15.00
+Total Fees $15.00
+*end*fees section
+"""
+
+
+def test_chase_never_publishes_its_summary_grid_header_as_the_account_name():
+    stmt = parse_chase_statement(_CHASE_MAILING_BLOCK)
+    assert stmt is not None
+    assert reconcile(stmt).ok
+    assert stmt.account_name is None
+    assert [t.amount for t in stmt.transactions] == [500.0, 300.0, -15.0]
+
+
+@pytest.mark.parametrize("header", [
+    "INSTANCES AMOUNT\nBeginning Balance $1,000.00",
+    "AMOUNT\nBeginning Balance $1,000.00",
+    "INSTANCES AMOUNT Beginning Balance $1,000.00",
+])
+def test_chase_reads_no_grid_header_spelling_as_the_account_name(header):
+    md = _CHASE_MAILING_BLOCK.replace("INSTANCES AMOUNT\nBeginning Balance $1,000.00\n", f"{header}\n")
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.account_name is None
+
+
+def test_chase_reads_the_holder_from_its_mailing_block():
+    stmt = parse_chase_statement(_CHASE_MAILING_BLOCK)
+    assert stmt is not None
+    assert stmt.holder_name == "NORTHWIND MARINE LLC DBA NORTHWIND BOATWORKS"
+
+
+def test_chase_reads_the_holder_from_a_mailing_block_flattened_onto_one_line():
+    stmt = parse_chase_statement(_CHASE_FLAT_MAILING_LINE)
+    assert stmt is not None
+    assert reconcile(stmt).ok
+    assert stmt.holder_name == "CONTOSO TRADING CO LLC"
+    assert stmt.account_name is None
+
+
+def test_chase_reads_no_holder_without_its_mailing_block():
+    md = "\n".join(line for line in _CHASE_MAILING_BLOCK.splitlines() if " DRE " not in line)
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.holder_name is None
+
+
+def test_chase_s_owner_line_after_the_holder_is_no_part_of_the_holder_s_name():
+    md = _CHASE_MAILING_BLOCK.replace("DBA NORTHWIND BOATWORKS", "SAMPLE PERSON NAME")
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.holder_name == "NORTHWIND MARINE LLC"
+
+
+def test_a_chase_product_line_after_the_summary_heading_is_still_the_account_name():
+    md = _CHASE_MAILING_BLOCK.replace(
+        "Chase Business Complete Checking\nCHECKING SUMMARY\nINSTANCES AMOUNT\n",
+        "CHECKING SUMMARY\nChase Business Complete Checking\nINSTANCES AMOUNT\n",
+    )
+    stmt = parse_chase_statement(md)
+    assert stmt is not None and stmt.account_name == "Chase Business Complete Checking"
+
+
+_FIRST_CITIZENS_HOLDER_LINE = (
+    "CONTOSO LLC DBA NORTHWIND AGENCY, LLC PREMIUM TRUST ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001 1,234.56"
+)
+
+
+def test_first_citizens_reads_the_holder_line_before_its_summary():
+    import re
+
+    real = parse_first_citizens_statement(_artifact_markdown("064_First Citizens Bank.md"))
+    md = re.sub(
+        r"^[^\n]*\n(?=Your Account\(s\) At A Glance)", _FIRST_CITIZENS_HOLDER_LINE + "\n",
+        _artifact_markdown("064_First Citizens Bank.md"), count=1, flags=re.MULTILINE,
+    )
+    stmt = parse_first_citizens_statement(md)
+    assert stmt is not None and real is not None
+    assert stmt.holder_name == "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"
+    # Owner ruling 2026-10-02 (Q10), R2-OW10: the designation the line prints after the name is the account's title,
+    # read from the same line.
+    assert stmt.account_title == "PREMIUM TRUST ACCOUNT"
+    # The holder line changes nothing else the parser reads.
+    assert stmt.model_dump(exclude={"holder_name", "account_title"}) == real.model_dump(
+        exclude={"holder_name", "account_title"}
+    )
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    (_FIRST_CITIZENS_HOLDER_LINE, "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"),
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC OPERATING ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001",
+     "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC WIRE ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001 12.00",
+     "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("CONTOSO LLC DBA NORTHWIND AGENCY, LLC PRODUCER PAYABLE ACCOUNT PO BOX 100 SAMPLEVILLE SC 29000-0001",
+     "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"),
+    # A designation printed after the legal form is never part of the name, whatever its words.
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC SAMPLE SYNDICATE PO BOX 100 SAMPLEVILLE SC 29000-0001",
+     "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("CONTOSO LLC PO BOX 100 SAMPLEVILLE SC 29000-0001", "CONTOSO LLC"),
+    ("FABRIKAM HOMES INC 1000 SAMPLE HAVEN DR SAMPLEVILLE NC 27000-0001", "FABRIKAM HOMES INC"),
+    ("FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY 1000 SAMPLE TRAIL RD STE 100 SAMPLEVILLE GA 30000-0001",
+     "FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY"),
+    ("SAMPLE J PERSON DMD PA 10000 SAMPLE POINT DR UNIT C SAMPLEVILLE NC 28000-0001", "SAMPLE J PERSON DMD PA"),
+    ("NORTHWIND SERVICES TRUST ACCOUNT P O BOX 100 SAMPLEVILLE SC 29000-0001", "NORTHWIND SERVICES"),
+    # An address with no name before it names nobody.
+    ("PO BOX 100 SAMPLEVILLE SC 29000-0001", None),
+    ("", None),
+])
+def test_the_address_line_reader_keeps_the_name_and_drops_the_designation_and_the_address(line, holder):
+    from analysis.holder_name import holder_from_address_line, read_address_line
+
+    assert holder_from_address_line(line) == holder
+    assert read_address_line(line).name == holder
+
+
+@pytest.mark.parametrize(("lines", "holder"), [
+    (["NORTHWIND MARINE LLC", "DBA NORTHWIND BOATWORKS", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "NORTHWIND MARINE LLC DBA NORTHWIND BOATWORKS"),
+    (["NORTHWIND MARINE LLC", "SAMPLE PERSON NAME", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "NORTHWIND MARINE LLC"),
+    (["CONTOSO TRADING CO LLC", "PO BOX 100", "SAMPLEVILLE KS 66000-0001"], "CONTOSO TRADING CO LLC"),
+    # A name wrapped after a connector continues on the next line; a returned-mail hold is no part of the name.
+    (["NORTHWIND HEART &", "VASCULAR CARE LLC", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "NORTHWIND HEART & VASCULAR CARE LLC"),
+    (["HOLD - RETURN MAIL CONTOSO BUILDERS GROUP LLC", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"],
+     "CONTOSO BUILDERS GROUP LLC"),
+    (["SAMPLE PERSON", "OR SAMPLE OTHER PERSON", "100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"], "SAMPLE PERSON"),
+    (["100 SAMPLE ST", "SAMPLEVILLE TX 75001-0001"], None),
+    ([], None),
+])
+def test_the_address_block_reader_keeps_the_name_lines_before_the_street(lines, holder):
+    from analysis.holder_name import holder_from_address_block, read_address_block
+
+    assert holder_from_address_block(lines) == holder
+    assert read_address_block(lines).name == holder
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    # A contact or a case printed after the name is no part of it.
+    ("NORTHWIND PDR ATTN SAMPLE PERSON 100 SAMPLE ST STE 2 SAMPLEVILLE TX 75001-0001", "NORTHWIND PDR"),
+    ("CONTOSO TRADING LLC C/O SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE TX 75001-0001", "CONTOSO TRADING LLC"),
+    ("SAMPLE PERSON CASE 12-34567-AB 100 SAMPLE LN SAMPLEVILLE SC 29000-0001", "SAMPLE PERSON"),
+    # A numbered company keeps its number.
+    ("1234567 ONTARIO INC. 100 SAMPLE ST W UNIT 2 SAMPLEVILLE ON L1M 2L3", "1234567 ONTARIO INC."),
+    ("1234-5678 QUEBEC INC. SAMPLE PERSON 100A SAINT-SAMPLE BOUL SAMPLEVILLE PQ H1R 2J3", "1234-5678 QUEBEC INC."),
+])
+def test_the_address_line_reader_cuts_a_contact_and_keeps_a_numbered_company(line, holder):
+    from analysis.holder_name import holder_from_address_line, read_address_line
+
+    assert holder_from_address_line(line) == holder
+    assert read_address_line(line).name == holder
+
+
+@pytest.mark.parametrize(("name", "holder"), [
+    ("CONTOSO LLC DBA NORTHWIND AGENCY LLC OPERATING ACCOUNT", "CONTOSO LLC DBA NORTHWIND AGENCY LLC"),
+    ("NORTHWIND TRANSPORT CO.", "NORTHWIND TRANSPORT CO."),
+    ("SAMPLE PERSON DBA SAMPLE PERSON CONSULTING", "SAMPLE PERSON DBA SAMPLE PERSON CONSULTING"),
+    ("", None),
+])
+def test_a_bare_name_line_loses_only_its_designation(name, holder):
+    from analysis.holder_name import holder_from_name, read_name
+
+    assert holder_from_name(name) == holder
+    assert read_name(name).name == holder
+
+
+# Owner ruling 2026-10-02 (the underwriter's Q10), audit round 2, R2-OW10: the holder readers return the account title
+# they drop after the holder's name (HolderReading: name, title), from the same tokens; every holder name stays as it
+# was. Fabricated lines only.
+
+def _frozen_without_designation(tokens):
+    """analysis.holder_name._without_designation as it stood before R2-OW10 (audit B9), frozen for the fuzz below."""
+    from analysis import holder_name as hn
+
+    last_form = max((index for index, token in enumerate(tokens) if index > 0 and hn._legal_form(token)), default=None)
+    if last_form is not None:
+        return tokens[: last_form + 1]
+    if tokens and hn._word(tokens[-1]) in hn._ACCOUNT_WORDS:
+        cut = len(tokens) - 1
+        while cut > 0 and len(tokens) - 1 - cut < hn._MAX_DESIGNATION_WORDS and hn._word(tokens[cut - 1]) in (
+            hn._DESIGNATION_WORDS
+        ):
+            cut -= 1
+        if cut > 0:
+            return tokens[:cut]
+    return tokens
+
+
+def _frozen_name(tokens):
+    """analysis.holder_name._name as it stood before R2-OW10 (audit B9), frozen for the fuzz below."""
+    from analysis import holder_name as hn
+
+    tokens = hn._without_contact(tokens)
+    split = next(((index, width) for index in range(1, len(tokens)) if (width := hn._dba(tokens, index))), None)
+    if split is None:
+        parts = [_frozen_without_designation(tokens)]
+        markers: list[str] = []
+    else:
+        index, width = split
+        parts = [_frozen_without_designation(tokens[:index]), _frozen_without_designation(tokens[index + width:])]
+        markers = [" ".join(tokens[index:index + width])]
+        if not parts[1]:
+            parts, markers = parts[:1], []
+    words = list(parts[0])
+    for marker, part in zip(markers, parts[1:]):
+        words.extend([marker, *part])
+    name = " ".join(words).strip(" ,;:")
+    return name if sum(character.isalpha() for character in name) >= 2 else None
+
+
+_FUZZ_VOCABULARY = [
+    "CONTOSO", "NORTHWIND", "AGENCY", "LLC", "LLC,", "INC", "L.L.C.", "CO", "CO.", "PREMIUM", "TRUST", "ACCOUNT",
+    "ACCT", "OPERATING", "WIRE", "PRODUCER", "PAYABLE", "ESCROW", "CLIENT", "DBA", "D/B/A", "D", "B", "A", "THE", "OF",
+    "&", "100", "SAMPLE", "ATTN", "ATTN:", "C/O", "CASE", "12-345", "TRUST,", "ACCOUNT,", "LTD", "PA", "DMD", "-",
+    "–", "X",
+]
+
+
+def test_the_designation_split_keeps_every_name_the_frozen_cut_kept():
+    """_split_designation returns (name tokens, title tokens): its first element is the frozen _without_designation's
+    cut, byte for byte, and the two together are the tokens (200,000 random token lists, 0 mismatches)."""
+    import random
+
+    from analysis import holder_name as hn
+
+    generator = random.Random(7)
+    mismatches = 0
+    for _ in range(200_000):
+        tokens = [generator.choice(_FUZZ_VOCABULARY) for _ in range(generator.randint(0, 9))]
+        name, title = hn._split_designation(list(tokens))
+        mismatches += (
+            name != _frozen_without_designation(list(tokens)) or name + title != tokens
+            or hn._without_designation(list(tokens)) != name
+        )
+    assert mismatches == 0
+
+
+def test_every_reader_s_name_is_the_frozen_reader_s_name():
+    """The readings' names equal the frozen B9 reader's on random name lines (50,000, the DBA split, the contact cut and
+    the designation cut included); a reading with no name has no title."""
+    import random
+
+    from analysis.holder_name import read_name
+
+    generator = random.Random(11)
+    for _ in range(50_000):
+        text = " ".join(generator.choice(_FUZZ_VOCABULARY) for _ in range(generator.randint(0, 10)))
+        reading = read_name(text)
+        assert reading.name == _frozen_name(text.split()), text
+        if reading.name is None:
+            assert reading.title is None, text
+
+
+_TITLE_ADDRESS = "PO BOX 100 SAMPLEVILLE SC 29000-0001"
+
+
+@pytest.mark.parametrize(("line", "holder", "title"), [
+    (_FIRST_CITIZENS_HOLDER_LINE, "CONTOSO LLC DBA NORTHWIND AGENCY, LLC", "PREMIUM TRUST ACCOUNT"),
+    (f"NORTHWIND INSURANCE AGENCY LLC - PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
+     "PREMIUM TRUST ACCOUNT"),
+    ("NORTHWIND INSURANCE AGENCY LLC – PREMIUM TRUST ACCOUNT 100 SAMPLE ST SAMPLEVILLE SC 29000-0001",
+     "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (f"CONTOSO LLC DBA NORTHWIND AGENCY LLC OPERATING ACCOUNT {_TITLE_ADDRESS}", "CONTOSO LLC DBA NORTHWIND AGENCY LLC",
+     "OPERATING ACCOUNT"),
+    (f"CONTOSO LLC {_TITLE_ADDRESS}", "CONTOSO LLC", None),
+    ("NORTHWIND SERVICES TRUST ACCOUNT P O BOX 100 SAMPLEVILLE SC 29000-0001", "NORTHWIND SERVICES", "TRUST ACCOUNT"),
+    (f"NORTHWIND AGENCY PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND AGENCY", "PREMIUM TRUST ACCOUNT"),
+    ("FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY 1000 SAMPLE TRAIL RD STE 100 SAMPLEVILLE GA 30000-0001",
+     "FABRIKAM KIDS DENTISTRY INC DBA FABRIKAM DENTISTRY", None),
+    (_TITLE_ADDRESS, None, None),
+    # The question's own example as a holder line: a name with no legal form keeps its dash (today's name, pinned
+    # byte for byte), and the title is read.
+    (f"NORTHWIND INSURANCE AGENCY – PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY –",
+     "PREMIUM TRUST ACCOUNT"),
+    (f"NORTHWIND INSURANCE AGENCY - PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY -",
+     "PREMIUM TRUST ACCOUNT"),
+    (f"NORTHWIND INSURANCE AGENCY LLC – PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
+     "PREMIUM TRUST ACCOUNT"),
+    # A second trade name printed after the legal form is what the reader drops: it is published as printed (the
+    # revenue rule reads only the title forms, R2-OW11).
+    ("CONTOSO HOLDINGS LLC PREMIUM TRUST ROOFING 100 MAIN ST SAMPLEVILLE SC 29000-0001", "CONTOSO HOLDINGS LLC",
+     "PREMIUM TRUST ROOFING"),
+    (f"NORTHWIND INSURANCE AGENCY LLC OPERATING ACCOUNT {_TITLE_ADDRESS}", "NORTHWIND INSURANCE AGENCY LLC",
+     "OPERATING ACCOUNT"),
+    # A contact after the name is never a title, whatever words it prints, except a contact whose words are the
+    # premium-trust designation itself, the account's title in any spacing (audit round 3, R3-B11: R3-61, which
+    # re-pins the spaced ATTN: case below; test_r3_61_a_contact_is_a_title_only_when_it_names_the_premium_trust_account
+    # holds the other spellings).
+    (f"CONTOSO INSURANCE AGENCY INC ATTN PREMIUM TRUST DEPT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC", None),
+    (f"CONTOSO INSURANCE AGENCY INC ATTN: PREMIUM TRUST ACCOUNT {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC",
+     "PREMIUM TRUST ACCOUNT"),
+    (f"CONTOSO INSURANCE AGENCY INC C/O PREMIUM TRUST SERVICES LLC {_TITLE_ADDRESS}", "CONTOSO INSURANCE AGENCY INC",
+     None),
+])
+def test_the_address_line_reader_returns_the_title_it_drops(line, holder, title):
+    from analysis.holder_name import HolderReading, holder_from_address_line, read_address_line
+
+    assert read_address_line(line) == HolderReading(holder, title)
+    assert holder_from_address_line(line) == holder
+
+
+@pytest.mark.parametrize(("lines", "holder", "title"), [
+    (["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (["NORTHWIND INSURANCE AGENCY LLC PREMIUM TRUST ACCOUNT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    (["CONTOSO LLC", "DBA NORTHWIND AGENCY", "PREMIUM TRUST", "PO BOX 100", "SAMPLEVILLE SC 29000-0001"],
+     "CONTOSO LLC DBA NORTHWIND AGENCY", "PREMIUM TRUST"),
+    # An owner's line is never published.
+    (["NORTHWIND INSURANCE AGENCY LLC", "SAMPLE PERSON", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    (["NORTHWIND INSURANCE AGENCY LLC", "OPERATING ACCOUNT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", "OPERATING ACCOUNT"),
+    # A wrapped name line is the name's.
+    (["NORTHWIND HEART &", "VASCULAR LLC", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND HEART & VASCULAR LLC", None),
+    (["SAMPLE PERSON", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"], "SAMPLE PERSON", None),
+    # A contact's line is never published, even when it prints the title's words (its first token is the marker,
+    # which _without_contact never cuts), unless its words are the premium-trust designation itself (audit round 3,
+    # R3-B11: R3-61; test_r3_61_a_contact_line_in_a_block_is_a_title_only_when_it_names_the_premium_trust_account).
+    (["NORTHWIND INSURANCE AGENCY LLC", "ATTN PREMIUM TRUST DEPT", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    (["NORTHWIND INSURANCE AGENCY LLC", "C/O PREMIUM TRUST ACCOUNTING", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    (["NORTHWIND INSURANCE AGENCY LLC", "ATTENTION: ACCOUNTS PAYABLE", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"],
+     "NORTHWIND INSURANCE AGENCY LLC", None),
+    # A title line's own contact after its words is cut, as the holder's is.
+    (["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT ATTN SAMPLE PERSON", "100 SAMPLE ST",
+      "SAMPLEVILLE SC 29000-0001"], "NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"),
+    # No street after the name: no reading at all.
+    (["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT"], None, None),
+])
+def test_the_address_block_reader_returns_the_title_and_never_an_owner_s_or_a_contact_s_line(lines, holder, title):
+    from analysis.holder_name import HolderReading, holder_from_address_block, read_address_block
+
+    assert read_address_block(lines) == HolderReading(holder, title)
+    assert holder_from_address_block(lines) == holder
+
+
+@pytest.mark.parametrize(("name", "holder", "title"), [
+    ("NORTHWIND AGENCY PREMIUM TRUST ACCOUNT", "NORTHWIND AGENCY", "PREMIUM TRUST ACCOUNT"),
+    ("CONTOSO INC PREMIUM TRUST", "CONTOSO INC", "PREMIUM TRUST"),
+    ("CONTOSO TRADING LLC", "CONTOSO TRADING LLC", None),
+    ("SAMPLE PERSON", "SAMPLE PERSON", None),
+    # A name the reader cannot keep carries no title.
+    ("X ACCOUNT", None, None),
+    ("", None, None),
+    # Audit round 3, R3-B11 (R3-61): a contact glued to its marker is cut as a spaced one is; only the premium-trust
+    # designation itself is a contact's title.
+    ("CONTOSO TRADING LLC ATTN:JORDAN SAMPLE", "CONTOSO TRADING LLC", None),
+    ("CONTOSO INSURANCE AGENCY INC ATTN:PREMIUM TRUST ACCOUNT", "CONTOSO INSURANCE AGENCY INC",
+     "PREMIUM TRUST ACCOUNT"),
+    ("CONTOSO INSURANCE AGENCY INC CARE OF PREMIUM TRUST ACCT", "CONTOSO INSURANCE AGENCY INC", "PREMIUM TRUST ACCT"),
+])
+def test_the_name_reader_returns_the_title_it_drops(name, holder, title):
+    from analysis.holder_name import HolderReading, holder_from_name, read_name
+
+    assert read_name(name) == HolderReading(holder, title)
+    assert holder_from_name(name) == holder
+
+
+# Audit round 3, R3-B11 (R3-61; the underwriter's Q10 of 2026-10-02, "Hold every deposit into an account titled
+# "premium trust""): a contact line is read by its words, not its spacing. A contact (ATTN, ATTENTION, C/O, glued to its
+# text by a colon or a dot or not, and CARE OF after the name's legal form) is never part of the name, and it is the
+# account's title only when its words are the premium-trust designation itself; a person or a department never is.
+# Fabricated lines only.
+
+_R3_61_HOLDER = "CONTOSO INSURANCE AGENCY INC"
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN: PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTENTION:PREMIUM TRUST ACCT", "PREMIUM TRUST ACCT"),
+    ("ATTENTION: PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("C/O:PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("C/O PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN.PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("CARE OF PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("Attn: Premium Trust Account", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN: PREMIUM TRUST ACCT #XXXX1234", "PREMIUM TRUST ACCT #XXXX1234"),
+    # A person, a department or any other words: no title.
+    ("ATTN:SAMPLE PERSON", None),
+    ("CARE OF SAMPLE PERSON", None),
+    ("ATTN PREMIUM TRUST DEPT", None),
+    ("ATTN:PREMIUM TRUST DEPT", None),
+    ("C/O PREMIUM TRUST SERVICES LLC", None),
+    ("ATTN: PREMIUM TRUST ACCOUNTING", None),
+    ("ATTN: PREMIUM TRUST ACCOUNT SAMPLE PERSON", None),
+    ("ATTN: OPERATING ACCOUNT", None),
+])
+def test_r3_61_a_contact_is_a_title_only_when_it_names_the_premium_trust_account(contact, title):
+    from analysis.holder_name import HolderReading, read_address_line
+
+    assert read_address_line(f"{_R3_61_HOLDER} {contact} {_TITLE_ADDRESS}") == HolderReading(_R3_61_HOLDER, title)
+
+
+@pytest.mark.parametrize(("line", "holder", "title"), [
+    # A glued contact on a name with no legal form never leaks into the name.
+    ("NORTHWIND PDR ATTN:SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "NORTHWIND PDR", None),
+    ("NORTHWIND PDR ATTN.SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "NORTHWIND PDR", None),
+    # CARE OF is a contact only after the name's legal form: '… HOME CARE OF <place>' is a business name.
+    ("CONTOSO HOME CARE OF SAMPLEVILLE LLC 100 SAMPLE ST SAMPLEVILLE SC 29000-0001",
+     "CONTOSO HOME CARE OF SAMPLEVILLE LLC", None),
+    ("CONTOSO HOME CARE OF SAMPLEVILLE 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "CONTOSO HOME CARE OF SAMPLEVILLE",
+     None),
+    ("CONTOSO HOME CARE OF SAMPLEVILLE LLC CARE OF SAMPLE PERSON 100 SAMPLE ST SAMPLEVILLE SC 29000-0001",
+     "CONTOSO HOME CARE OF SAMPLEVILLE LLC", None),
+    # Recorded (not fixed): CARE OF on a name with no legal form stays in the name; the trailing designation is still
+    # the title, so the hold fires.
+    ("CONTOSO AGENCY CARE OF PREMIUM TRUST ACCOUNT 100 SAMPLE ST SAMPLEVILLE SC 29000-0001", "CONTOSO AGENCY CARE OF",
+     "PREMIUM TRUST ACCOUNT"),
+    # A court case's number is never a title.
+    ("SAMPLE PERSON CASE 12-34567-AB 100 SAMPLE LN SAMPLEVILLE SC 29000-0001", "SAMPLE PERSON", None),
+])
+def test_r3_61_a_glued_or_care_of_contact_never_leaks_into_the_name(line, holder, title):
+    from analysis.holder_name import HolderReading, read_address_line
+
+    assert read_address_line(line) == HolderReading(holder, title)
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN:PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("CARE OF PREMIUM TRUST ACCOUNT", "PREMIUM TRUST ACCOUNT"),
+    ("C/O: PREMIUM TRUST ACCT", "PREMIUM TRUST ACCT"),
+    ("ATTN:SAMPLE PERSON", None),
+    ("CARE OF SAMPLE PERSON", None),
+    ("C/O:PREMIUM TRUST ACCOUNTING", None),
+    ("ATTN PREMIUM TRUST DEPT", None),
+    ("C/O PREMIUM TRUST ACCOUNTING", None),
+    ("ATTENTION: ACCOUNTS PAYABLE", None),
+    ("ATTENTION: OPERATING ACCOUNT", None),
+])
+def test_r3_61_a_contact_line_in_a_block_is_a_title_only_when_it_names_the_premium_trust_account(contact, title):
+    from analysis.holder_name import HolderReading, read_address_block
+
+    lines = ["NORTHWIND INSURANCE AGENCY LLC", contact, "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("NORTHWIND INSURANCE AGENCY LLC", title)
+
+
+def test_r3_61_a_title_line_s_own_glued_contact_is_cut():
+    from analysis.holder_name import HolderReading, read_address_block
+
+    lines = ["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT ATTN:SAMPLE PERSON", "100 SAMPLE ST",
+             "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("NORTHWIND INSURANCE AGENCY LLC", "PREMIUM TRUST ACCOUNT")
+
+
+# Audit round 3, R3-B11, review round 1 (finding 1): CARE OF is a contact only where the name has ended: right after the
+# name's legal form (a trailing comma allowed), or after an account designation printed right after it. A trade name
+# after DBA, or a name whose legal form prints earlier than the word before CARE OF, keeps its CARE OF, as before the
+# batch. Fabricated lines only.
+@pytest.mark.parametrize(("name", "holder", "title"), [
+    # A DBA trade name: the name has not ended.
+    ("CONTOSO HOLDINGS LLC DBA HOME CARE OF SAMPLEVILLE LLC", "CONTOSO HOLDINGS LLC DBA HOME CARE OF SAMPLEVILLE LLC",
+     None),
+    ("CONTOSO LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE", "CONTOSO LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE", None),
+    ("CONTOSO HOLDINGS INC D/B/A NORTHWIND HOME CARE OF SAMPLEVILLE",
+     "CONTOSO HOLDINGS INC D/B/A NORTHWIND HOME CARE OF SAMPLEVILLE", None),
+    # A legal form inside the name, not right before CARE OF: read as before the batch.
+    ("SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC", "SAMPLE & CO HOME CARE OF SAMPLEVILLE LLC", None),
+    ("NORTHWIND CO HOME CARE OF SAMPLEVILLE", "NORTHWIND CO", "HOME CARE OF SAMPLEVILLE"),
+    # Right after the legal form (a trailing comma allowed), or after the designation printed right after it.
+    ("CONTOSO LLC DBA NORTHWIND AGENCY, LLC CARE OF PREMIUM TRUST ACCOUNT", "CONTOSO LLC DBA NORTHWIND AGENCY, LLC",
+     "PREMIUM TRUST ACCOUNT"),
+    ("CONTOSO INSURANCE AGENCY INC, CARE OF SAMPLE PERSON", "CONTOSO INSURANCE AGENCY INC", None),
+    ("CONTOSO LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE LLC CARE OF SAMPLE PERSON",
+     "CONTOSO LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE LLC", None),
+    ("CONTOSO INSURANCE AGENCY INC PREMIUM TRUST ACCOUNT CARE OF SAMPLE PERSON", "CONTOSO INSURANCE AGENCY INC",
+     "PREMIUM TRUST ACCOUNT"),
+])
+def test_r3_b11_r1_care_of_is_a_contact_only_where_the_name_has_ended(name, holder, title):
+    from analysis.holder_name import HolderReading, read_address_line, read_name
+
+    assert read_address_line(f"{name} {_TITLE_ADDRESS}") == HolderReading(holder, title)
+    assert read_name(name) == HolderReading(holder, title)
+
+
+def test_r3_b11_r1_a_dba_line_s_care_of_stays_in_the_trade_name():
+    from analysis.holder_name import HolderReading, read_address_block
+
+    lines = ["CONTOSO HOLDINGS LLC", "DBA HOME CARE OF SAMPLEVILLE", "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("CONTOSO HOLDINGS LLC DBA HOME CARE OF SAMPLEVILLE", None)
+
+
+# Audit round 3, R3-B11, review round 1 (finding 2): a contact is the account's title when its words are the
+# premium-trust designation as the title rule reads a title at a field's end, from the contact's first word: the words,
+# then kind words (an account, a product or a fund word, a product adjective before one) and a reference (a number,
+# masked or not, after #, NO or an account word, in parentheses or not; a roman numeral); a #, NO or NUMBER the address
+# cut leaves dangling is dropped. A department, a person, OPERATING, an adjective alone, any other word after the
+# designation, or a name before the words is never one. Fabricated lines only.
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN:PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN: PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN:PREMIUM TRUST", "PREMIUM TRUST"),
+    ("C/O PREMIUM TRUST", "PREMIUM TRUST"),
+    ("ATTN: PREMIUM TRUST BUSINESS CHECKING", "PREMIUM TRUST BUSINESS CHECKING"),
+    ("CARE OF PREMIUM TRUST MONEY MARKET", "PREMIUM TRUST MONEY MARKET"),
+    ("ATTN:PREMIUM FUND TRUST ACCOUNT", "PREMIUM FUND TRUST ACCOUNT"),
+    ("ATTN:PREMIUM TRUST ACCOUNT (1234)", "PREMIUM TRUST ACCOUNT (1234)"),
+    ("ATTN:PREMIUM TRUST ACCOUNT II", "PREMIUM TRUST ACCOUNT II"),
+    ("ATTN:PREMIUM TRUST ACCT #1234", "PREMIUM TRUST ACCT #1234"),
+    # The address cut reads the number as a house number and leaves its marker dangling: dropped.
+    ("ATTN:PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT"),
+    ("ATTN: PREMIUM TRUST ACCT # 1234", "PREMIUM TRUST ACCT"),
+    # Never a title.
+    ("ATTN: PREMIUM TRUST OPERATING", None),
+    ("ATTN: PREMIUM TRUST BUSINESS", None),
+    ("ATTN: PREMIUM TRUST TEAM", None),
+    ("ATTN: PREMIUM TRUST CHECKING SAMPLE PERSON", None),
+    ("ATTN: PREMIUM TRUST ACCOUNT - SAMPLE PERSON", None),
+    ("ATTN:PREMIUM TRUST DEPT", None),
+    # Recorded false negative (it overstates True): a name printed before the words.
+    ("CARE OF NORTHWIND PREMIUM TRUST ACCOUNT", None),
+])
+def test_r3_b11_r1_a_contact_reads_the_title_rule_s_designation(contact, title):
+    from analysis.holder_name import HolderReading, read_address_line
+
+    assert read_address_line(f"{_R3_61_HOLDER} {contact} {_TITLE_ADDRESS}") == HolderReading(_R3_61_HOLDER, title)
+
+
+@pytest.mark.parametrize(("contact", "title"), [
+    ("ATTN: PREMIUM TRUST CHECKING", "PREMIUM TRUST CHECKING"),
+    ("ATTN:PREMIUM TRUST", "PREMIUM TRUST"),
+    ("C/O:PREMIUM TRUST ACCOUNT NO 1234", "PREMIUM TRUST ACCOUNT NO 1234"),
+    ("ATTN: PREMIUM TRUST DEPT", None),
+    ("ATTN: PREMIUM TRUST BUSINESS", None),
+])
+def test_r3_b11_r1_a_block_contact_line_reads_the_title_rule_s_designation(contact, title):
+    from analysis.holder_name import HolderReading, read_address_block
+
+    lines = ["NORTHWIND INSURANCE AGENCY LLC", contact, "100 SAMPLE ST", "SAMPLEVILLE SC 29000-0001"]
+    assert read_address_block(lines) == HolderReading("NORTHWIND INSURANCE AGENCY LLC", title)
+
+
+def test_a_statement_without_a_title_serializes_as_before_and_the_extraction_schema_never_names_one():
+    """Statement.account_title is kept out of the extraction response schema and out of every payload that carries no
+    title, so no stored payload gains a key it did not have; a title, when read, is serialized and read back."""
+    plain = Statement(bank="SAMPLE BANK", holder_name="CONTOSO LLC", transactions=[
+        Transaction(date="2054-01-02", description="DEPOSIT", amount=10.0, direction="credit"),
+    ], bank_reported_average_balance=5.0)
+    assert plain.account_title is None
+    assert "account_title" not in plain.model_dump()
+    assert "account_title" not in plain.model_dump(mode="json")
+    assert "account_title" not in plain.model_dump_json()
+    assert plain.model_dump()["stated_average_balance"] == 5.0
+    assert "account_title" not in Statement.model_json_schema().get("properties", {})
+    titled = plain.model_copy(update={"account_title": "PREMIUM TRUST ACCOUNT"})
+    assert titled.model_dump()["account_title"] == "PREMIUM TRUST ACCOUNT"
+    assert Statement.model_validate(titled.model_dump()).account_title == "PREMIUM TRUST ACCOUNT"
+    assert "account_title" not in titled.model_dump(exclude={"account_title"})
+    assert titled.model_dump(exclude={"account_title"}) == plain.model_dump()
+
+
+# Audit B9 (I13): the other parsers that publish a product name read the holder's line their banks print.
+
+def test_td_bank_reads_the_holder_line_before_its_account_number():
+    from analysis import td_us
+
+    header = (
+        "STATEMENT OF ACCOUNT\n"
+        "Page: 1 of 2 Statement Period: Mar 01 2054-Mar 31 2054 Cust Ref #: 1234567890-000-E-*** "
+        "Primary Account #: 123-4567890\n"
+        "CONTOSO TRADING LLC 100 SAMPLE AVE UNIT 2 SAMPLEVILLE NJ 07000\n"
+        "TD Business Convenience Plus\n"
+        "CONTOSO TRADING LLC Account # 123-4567890\n"
+        "ACCOUNT SUMMARY Beginning Balance 100.00\n"
+    )
+    assert td_us._holder_reading(header).name == "CONTOSO TRADING LLC"
+    assert td_us._holder_reading(header.replace("CONTOSO TRADING LLC Account #", "Account #")) == (None, None)
+    document = td_us_statement_with_holder("CONTOSO TRADING LLC Account # 9999999999\n")
+    assert parse_td_us_statement(document).holder_name == "CONTOSO TRADING LLC"
+
+
+def td_us_statement_with_holder(holder_line: str) -> str:
+    """tests/test_parser_crash_shapes.py's fabricated TD Bank document with a holder line."""
+    from tests.test_parser_crash_shapes import td_us_document
+
+    return td_us_document().replace("Primary Account #: 9999999999\n", "Primary Account #: 9999999999\n" + holder_line)
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    ("123-45-67-89  12345   1  C  123  45  S    67  890 CONTOSO TRADING LLC 1000 SAMPLE CIR SAMPLEVILLE FL  34000-0001",
+     "CONTOSO TRADING LLC"),
+    ("123-45-67-89  12345  U  1  C  123  45  S  T  67  890 NORTHWIND PDR ATTN SAMPLE PERSON 100 S SAMPLE ST STE 1 "
+     "SAMPLEVILLE TX  75000-0001", "NORTHWIND PDR"),
+    ("123-45-67-89  12345    12  C  123  45       67  890 FABRIKAM CONST PO BOX 1000 SAMPLEVILLE TX  78700-0001",
+     "FABRIKAM CONST"),
+])
+def test_truist_reads_the_holder_after_its_mail_routing_code(line, holder):
+    from analysis import truist
+
+    assert truist._holder_reading(f"Page 1 of 2 01/01/54 FL 1234567890123\n{line}\nContact us\n").name == holder
+    assert truist._holder_reading("Page 1 of 2\nContact us\n") == (None, None)
+
+
+def test_pnc_reads_the_holder_before_its_product_summary():
+    from analysis import pnc
+
+    for product in ("Business Checking", "Business Checking Plus", "Treasury Enterprise Plan"):
+        line = f"CONTOSO TRADING LLC {product} Summary Account number:   XX-XXXX-0000\n"
+        assert pnc._holder_reading("PNC Bank\n" + line).name == "CONTOSO TRADING LLC"
+    assert pnc._holder_reading("PNC Bank\nBusiness Checking Summary Account number:\n") == (None, None)
+    from tests.test_pnc_layouts import TREASURY_DOC
+
+    document = TREASURY_DOC.replace(
+        "Balance Summary\n", "CONTOSO TRADING LLC Treasury Enterprise Plan Summary Account number: XX-XXXX-0000\n"
+        "Balance Summary\n", 1,
+    )
+    statement = parse_pnc_statement(document)
+    assert statement is not None and statement.holder_name == "CONTOSO TRADING LLC"
+    assert statement.account_name == "Treasury Enterprise Plan"
+
+
+def test_pnc_never_reads_its_own_product_in_capitals_as_the_holder():
+    # Audit B9 review round 1: a summary title whose product prints in capitals names no holder.
+    from analysis import pnc
+
+    for line in ("TREASURY ENTERPRISE PLAN", "ANALYSIS BUSINESS CHECKING", "BUSINESS CHECKING PLUS",
+                 "PNC CORE COMMERCIAL CHECKING"):
+        assert pnc._holder_reading(f"PNC Bank\n{line} Summary Account number: XX-XXXX-0000\n") == (None, None)
+    line = "CONTOSO TRADING LLC TREASURY ENTERPRISE PLAN Summary Account number: XX-XXXX-0000\n"
+    assert pnc._holder_reading("PNC Bank\n" + line).name == "CONTOSO TRADING LLC"
+
+
+def test_navy_federal_reads_the_holder_from_its_mailing_block():
+    from analysis import navy_federal
+
+    block = (
+        "Questions about this Statement?\n"
+        "CONTOSO TRADING LLC\n"
+        "Toll-free in the U.S. 1-888-555-0100\n"
+        "1000 SAMPLE CT\n"
+        "For toll-free numbers when overseas,\n"
+        "SAMPLEVILLE MD 21000-0001\n"
+        "visit\n"
+        "navyfederal.org/overseas/\n"
+    )
+    assert navy_federal._holder_reading("Statement of Account\n" + block).name == "CONTOSO TRADING LLC"
+    # A block whose first line is already the street names no holder.
+    assert navy_federal._holder_reading(
+        "Statement of Account\n" + block.replace("CONTOSO TRADING LLC\n", "")
+    ) == (None, None)
+    from tests.test_declines_c_variants import _navy_federal
+
+    statement = parse_navy_federal_statement(block + _navy_federal("Business Checking"))
+    assert statement is not None and statement.holder_name == "CONTOSO TRADING LLC"
+
+
+@pytest.mark.parametrize(("line", "holder"), [
+    ("CONTOSO CONSTRUCTION LTD. 1000 SAMPLE DR SAMPLEVILLE BC V1E 2C3", "CONTOSO CONSTRUCTION LTD."),
+    ("1234567 ONTARIO INC 10 SAMPLE CRES SAMPLEVILLE ON L1P 2W3", "1234567 ONTARIO INC"),
+    ("SAMPLE DELUXE S.E.N.C. 1000 SAMPLE RUE O SUITE 100 SAMPLEVILLE PQ H1P 2N3", "SAMPLE DELUXE S.E.N.C."),
+])
+def test_td_canada_trust_reads_the_holder_after_its_mail_routing_code(line, holder):
+    from analysis import td_can
+
+    markdown = f"Tel: 1-800-555-0100\nTDCDA12345_1234567_123 E R 12345 12345\n{line}\nStatement of Account\n"
+    assert td_can._holder_reading(markdown).name == holder
+    assert td_can._holder_reading(markdown.replace("TDCDA12345_1234567_123", "TDXX")) == (None, None)
+
+
+def test_td_canada_trust_s_native_entry_point_reads_the_holder_too():
+    # The registry dispatches the native layout straight to its own entry point, never through
+    # parse_td_canada_statement: the holder is read there as well (the frozen oracle of the row reader is untouched).
+    from analysis import td_can
+    from tests.test_row_grouping import TD_DOCUMENTS
+
+    routing = "TDCDA12345_1234567_123 E R 12345 12345\nCONTOSO CONSTRUCTION LTD. 1000 SAMPLE DR SAMPLEVILLE BC V1E 2C3\n"
+    parsed = [td_can.parse_native_td_canada_statement(routing + document) for document in TD_DOCUMENTS]
+    assert any(statement is not None for statement in parsed)
+    assert all(statement.holder_name == "CONTOSO CONSTRUCTION LTD." for statement in parsed if statement is not None)
+    assert all(
+        statement is None or statement.holder_name is None
+        for statement in map(td_can.parse_native_td_canada_statement, TD_DOCUMENTS)
+    )

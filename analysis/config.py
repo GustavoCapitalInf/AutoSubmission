@@ -1,10 +1,20 @@
-"""Settings for the Gemini-backed analysis layer. Reads a gitignored .env so the
-API key never lives in tracked code."""
+"""Settings for the deterministic analysis layer: the withholding basis and
+the reconstruction mode. Reads a gitignored .env at import, so a setting
+never lives in tracked code.
+
+The analysis layer calls no model (owner ruling 2026-10-13). The hosted
+extractor these settings once also named (`analysis/extract.py`) was removed
+in slice S3 of the model-code removal, and its three fields (`api_key`,
+`model`, `escalation_model`) and their `GEMINI_*` environment reads left in
+slice S4 with their last reader, the visual pair's currency bridge. The
+analysis cache key carries the two model names' old default values as frozen
+literals (`webapp/artifact_cache.py::analysis_settings_key`), so no stored
+analysis was re-keyed."""
 from __future__ import annotations
 import os
 from dataclasses import dataclass
 from dotenv import load_dotenv
-from .revenue import normalize_withholding_denominator_mode
+from .revenue import DEFAULT_WITHHOLDING_DENOMINATOR_MODE, normalize_withholding_denominator_mode
 
 load_dotenv()
 
@@ -42,18 +52,8 @@ def normalize_reconstruction_mode(value: object) -> str:
 
 @dataclass
 class Settings:
-    api_key: str
-    # The hosted extraction model — the ONE hosted call `analysis/pipeline.py`
-    # can make, and only behind the operator opt-in documented there (P22-FENCE).
-    model: str
-    # RETAINED, NOT READ (R9, P22-FENCE). The second extraction this model was
-    # for — re-extracting a statement that failed reconciliation and keeping
-    # whichever result reconciled — was removed from `analysis/pipeline.py`;
-    # nothing under `analysis/` reads this field now. It stays because it is
-    # analysis settings-key material (`webapp/artifact_cache.py`), so removing
-    # it would silently repartition every analysis cache.
-    escalation_model: str
-    withholding_denominator_mode: str = "legacy_eligible_deposits"
+    # Owner ruling 2026-10-02 (the underwriter's Q7; R2-OW14): True revenue by default; legacy and verified selectable.
+    withholding_denominator_mode: str = DEFAULT_WITHHOLDING_DENOMINATOR_MODE
     # P22-IDENTITY (D6): see `RECONSTRUCTION_MODES`. Validated on construction
     # too, so a `Settings` built by hand cannot carry an out-of-vocabulary mode.
     reconstruction_mode: str = RECONSTRUCTION_MODE_DEFAULT
@@ -63,16 +63,12 @@ class Settings:
 
 
 def load_settings() -> Settings:
+    # R2-OW14 (Q7): an unset, empty or invalid WITHHOLDING_DENOMINATOR_MODE reads as the default, True revenue.
     denominator_mode = normalize_withholding_denominator_mode(
-        os.environ.get(
-            "WITHHOLDING_DENOMINATOR_MODE",
-            "legacy_eligible_deposits",
-        )
+        os.environ.get("WITHHOLDING_DENOMINATOR_MODE"),
+        default=DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
     )
     return Settings(
-        api_key=os.environ.get("GEMINI_API_KEY", ""),
-        model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
-        escalation_model=os.environ.get("GEMINI_ESCALATION_MODEL", "gemini-3.5-flash"),
         withholding_denominator_mode=denominator_mode,
         reconstruction_mode=normalize_reconstruction_mode(
             os.environ.get(RECONSTRUCTION_MODE_ENV, RECONSTRUCTION_MODE_DEFAULT)

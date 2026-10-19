@@ -222,8 +222,10 @@ def test_the_generic_structurer_flag_partitions_the_analysis_key(monkeypatch):
     # and through an explicit settings object, independently of the environment
     monkeypatch.delenv(RECONSTRUCTION_MODE_ENV, raising=False)
     monkeypatch.setenv(STRUCTURER_ENV, "1")
-    explicit_off = Settings(api_key="", model="m", escalation_model="e")
-    explicit_on = Settings(api_key="", model="m", escalation_model="e", reconstruction_mode="research")
+    # (Slice S4 of the model-code removal deleted the inert `api_key` / `model` / `escalation_model` fields these
+    # two used to fill with placeholders; the assertions are unchanged.)
+    explicit_off = Settings()
+    explicit_on = Settings(reconstruction_mode="research")
     assert structurer_enabled(explicit_off) is False and structurer_enabled(explicit_on) is True
     assert analysis_settings_key(parse_mode="deterministic", analysis_settings=explicit_off) != \
         analysis_settings_key(parse_mode="deterministic", analysis_settings=explicit_on)

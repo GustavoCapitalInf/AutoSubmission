@@ -1,13 +1,30 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
-from .date_tokens import iso_from_month_day
+from .date_tokens import iso_from_month_day, iso_from_month_day_year
+from .holder_name import CITY_STATE_ZIP, NO_READING, HolderReading, first_page, page_lines, read_address_line
 from .money import parse_digit_scrubbed
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
 from .tables import compact_whitespace, table_rows
+
+#: Audit round 2, R2-B05 (R04 part 2): the summary heading that ends the page-1 header where Capital One prints the
+#: holder's mailing line (before or after its business-solutions line).
+_SUMMARY_HEADING = re.compile(r"^ACCOUNT SUMMARY\b", re.IGNORECASE)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name from page 1's mailing line, the first line before the
+    account summary that closes on a state and ZIP, without the address; NO_READING without one. Owner ruling
+    2026-10-02 (Q10), audit round 2, R2-OW10: with the account title that line prints after the name."""
+    for line in page_lines(first_page(markdown)):
+        if _SUMMARY_HEADING.match(line):
+            return NO_READING
+        if CITY_STATE_ZIP.search(line):
+            return read_address_line(line)
+    return NO_READING
 
 
 
@@ -76,9 +93,12 @@ def _magnitude(value: float | None, *, outflow: bool) -> float | None:
     return abs(value)
 
 
-def _native_summary(markdown: str, stmt: Statement) -> tuple[Statement, float | None]:
+def _native_summary(markdown: str, stmt: Statement) -> tuple[Statement, float | None, str | None]:
+    """The flattened summary line: the statement with its printed figures, the
+    signed printed service charge, and the date the `Previous Balance` line
+    prints (``MM/DD/YY``) — or the statement unchanged and two Nones."""
     m = re.search(
-        r"Previous Balance\s+\d{2}/\d{2}/\d{2}\s+" + _SUMMARY_CELL + r"\s+"
+        r"Previous Balance\s+(\d{2}/\d{2}/\d{2})\s+" + _SUMMARY_CELL + r"\s+"
         r"Number of Days in Cycle\s+(\d+)\s+"
         r"(\d+)\s+Deposits/Credits\s+" + _SUMMARY_CELL + r"\s+"
         r"Minimum Balance This Cycle\s+\(?\$[\d,]+\.\d{2}\)?\s+"
@@ -90,15 +110,15 @@ def _native_summary(markdown: str, stmt: Statement) -> tuple[Statement, float | 
         re.IGNORECASE | re.DOTALL,
     )
     if not m:
-        return stmt, None
-    beginning, days, credit_count, credits, debit_count, debits, avg, fees, ending = m.groups()
+        return stmt, None, None
+    previous, beginning, days, credit_count, credits, debit_count, debits, avg, fees, ending = m.groups()
     charge = _money(fees)
     total_credits = _magnitude(_money(credits), outflow=False)
     total_debits = _magnitude(_money(debits), outflow=True)
     service_charge = _magnitude(charge, outflow=True)
     if total_credits is None or total_debits is None or service_charge is None:
         # A printed cell contradicts its own column. The summary is not read.
-        return stmt, None
+        return stmt, None, None
     return stmt.model_copy(update={
         "beginning_balance": _money(beginning),
         "days_in_period": int(days),
@@ -110,10 +130,13 @@ def _native_summary(markdown: str, stmt: Statement) -> tuple[Statement, float | 
         "bank_reported_average_label": "Average Collected Balance",
         "stated_service_charge": service_charge,
         "ending_balance": _money(ending),
-    }), charge
+    }), charge, previous
 
 
-def _native_transactions(markdown: str, *, year: int, beginning_balance: float | None) -> list[Transaction]:
+def _native_transactions(markdown: str, *, year: int, beginning_balance: float | None,
+                         printed: list[float] | None = None) -> list[Transaction]:
+    """The detail rows of the native layout. `printed`, when given, receives the
+    amount cell each kept row prints, as a magnitude, aligned with the rows."""
     detail = re.search(
         r"ACCOUNT DETAIL\s+FOR PERIOD.*?(?=Total For This Period|Date Service Description|PAGE \d+ OF \d+\s*$|$)",
         markdown,
@@ -149,6 +172,8 @@ def _native_transactions(markdown: str, *, year: int, beginning_balance: float |
             direction="credit" if signed >= 0 else "debit",
             running_balance=balance,
         ))
+        if printed is not None:
+            printed.append(abs(amount))
         prev_balance = balance
     return txns
 
@@ -280,6 +305,102 @@ def _normalize_cycle_service_charge_dates(
     return normalized
 
 
+def _previous_balance_day(token: str | None) -> date | None:
+    """The day the `Previous Balance` line prints (``MM/DD/YY``, the bank's own year), or None."""
+    if token is None:
+        return None
+    try:
+        return date.fromisoformat(iso_from_month_day_year(token))
+    except ValueError:
+        return None
+
+
+def _printed_amount(credit: float | None, debit: float | None) -> float | None:
+    """The one amount cell a table row prints, as a magnitude; None when it prints none or both."""
+    if (credit is None) == (debit is None):
+        return None
+    return abs(credit if credit is not None else debit)
+
+
+def _pre_period_carry_in(
+    stmt: Statement, previous_balance: str | None, printed: list[float | None],
+) -> tuple[int, list[Transaction]]:
+    """How many LEADING rows this statement proves were posted on its previous-balance day and counted in this
+    cycle (owner report 2026-10-08), with the ledger those rows are dated in.
+
+    Capital One can open a statement's detail with postings dated the day its `Previous Balance` line names: the
+    day before the printed period, after the previous statement closed. The bank counts them in THIS cycle. The
+    engine (`analysis/adb.py`) folds a declared count into the balance day one opens with, re-checking it itself;
+    this proves the count from the page, and declares 0 unless every one of these holds:
+
+    1. the `Previous Balance` line prints the day before the printed period, and the printed `Number of Days in
+       Cycle` is the printed period's length (that day is not one of the cycle's days);
+    2. the detail OPENS with rows printing that day's month and day, and every other row lies inside the period;
+    3. each of those rows' printed amount is exactly the step in printed resulting balance, walking from the
+       printed previous balance;
+    4. the printed credit and debit counts and totals hold with them: `N Checks/Debits` and its total leave out the
+       one row the printed `Service Charges` figure covers (see `_is_cycle_charge`), so the debit rows are the
+       printed count plus one, and their sum the printed total plus the charge, when a charge is printed. Every
+       row moves one of the two counts, so the identity cannot also hold without them;
+    5. the printed previous balance plus every row is the printed ending balance, and without them it is not.
+
+    The rows keep their printed month and day; the year is the one the `Previous Balance` line prints, which a
+    January statement's row (December) cannot take from the period. Nothing else is touched."""
+    transactions = list(stmt.transactions)
+    previous = _previous_balance_day(previous_balance)
+    start = date.fromisoformat(stmt.period_start)
+    end = date.fromisoformat(stmt.period_end)
+    if previous is None or previous != start - timedelta(days=1):
+        return 0, transactions
+    if stmt.days_in_period != (end - start).days + 1 or len(printed) != len(transactions):
+        return 0, transactions
+    if stmt.beginning_balance is None or stmt.ending_balance is None:
+        return 0, transactions
+
+    count = 0
+    for txn in transactions:
+        posted = date.fromisoformat(txn.date)
+        if (posted.month, posted.day) != (previous.month, previous.day):
+            break
+        count += 1
+    if not count:
+        return 0, transactions
+    lead = [txn.model_copy(update={"date": previous.isoformat()}) for txn in transactions[:count]]
+    rest = transactions[count:]
+    if any(not start <= date.fromisoformat(txn.date) <= end for txn in rest):
+        return 0, transactions
+
+    carry = round(stmt.beginning_balance, 2)
+    for txn, amount in zip(lead, printed):
+        if txn.running_balance is None or amount is None:
+            return 0, transactions
+        step = round(round(txn.running_balance, 2) - carry, 2)
+        if round(txn.amount, 2) != step or abs(step) != round(amount, 2):
+            return 0, transactions
+        carry = round(txn.running_balance, 2)
+
+    ledger = lead + rest
+    credits = [txn.amount for txn in ledger if txn.amount > 0]
+    debits = [-txn.amount for txn in ledger if txn.amount < 0]
+    charge = stmt.stated_service_charge
+    if (len(credits) + len(debits) != len(ledger) or charge is None
+            or None in (stmt.stated_credit_count, stmt.stated_total_credits,
+                        stmt.stated_debit_count, stmt.stated_total_debits)):
+        return 0, transactions
+    if (len(credits) != stmt.stated_credit_count
+            or round(sum(credits), 2) != round(stmt.stated_total_credits, 2)
+            or len(debits) != stmt.stated_debit_count + (1 if charge > 0 else 0)
+            or round(sum(debits), 2) != round(stmt.stated_total_debits + charge, 2)):
+        return 0, transactions
+
+    closing = round(stmt.ending_balance, 2)
+    if round(stmt.beginning_balance + sum(txn.amount for txn in ledger), 2) != closing:
+        return 0, transactions
+    if round(stmt.beginning_balance + sum(txn.amount for txn in rest), 2) == closing:
+        return 0, transactions
+    return count, ledger
+
+
 DETECTION_MARKERS = (
     required("bank_name", lambda t: "CAPITALONE" in t.upper().replace(" ", "")),
     # The bank name alone is not evidence the bank ISSUED the statement: a card
@@ -305,9 +426,12 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
     year = int(period_end[:4])
 
     product, number = _account_line(markdown)
+    holder = _holder_reading(markdown)
     stmt = Statement(
         bank="Capital One",
         account_name=product,
+        holder_name=holder.name,
+        account_title=holder.title,
         period_start=period_start,
         period_end=period_end,
     )
@@ -322,6 +446,10 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
     #: `stated_service_charge` is published as a magnitude, and a magnitude
     #: cannot tell a charge from a refund.
     signed_charge: float | None = None
+    #: The date the `Previous Balance` line prints, and each detail row's printed amount cell (a magnitude),
+    #: aligned with `txns`: the evidence `_pre_period_carry_in` reads.
+    previous_balance_date: str | None = None
+    printed: list[float | None] = []
 
     for cells in rows:
         if len(cells) == 2:
@@ -331,6 +459,8 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
             if "previous balance" in low:
                 stmt.beginning_balance = value
                 prev_balance = value
+                dated = re.search(r"\b(\d{2}/\d{2}/\d{2})\b", label)
+                previous_balance_date = dated.group(1) if dated else None
             elif "deposits/credits" in low:
                 count = re.search(r"\b(\d+)\b", label)
                 stmt.stated_credit_count = int(count.group(1)) if count else stmt.stated_credit_count
@@ -384,15 +514,23 @@ def parse_capital_one_statement(markdown: str) -> Statement | None:
             direction="credit" if amount >= 0 else "debit",
             running_balance=balance,
         ))
+        printed.append(_printed_amount(printed_credit, printed_debit))
         prev_balance = balance
 
     if not txns:
-        stmt, signed_charge = _native_summary(markdown, stmt)
-        txns = _native_transactions(markdown, year=year, beginning_balance=stmt.beginning_balance)
+        stmt, signed_charge, previous_balance_date = _native_summary(markdown, stmt)
+        printed = []
+        txns = _native_transactions(
+            markdown, year=year, beginning_balance=stmt.beginning_balance, printed=printed)
 
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
     stmt.transactions = _normalize_cycle_service_charge_dates(
         txns, period_end, signed_charge
     )
+    # The DECLARATION (owner report 2026-10-08): how many leading rows the page proves were posted on its
+    # previous-balance day and counted in this cycle. The ADB engine re-checks it before folding them into the
+    # balance day one opens with. Zero on every statement that proves nothing.
+    stmt.pre_period_carry_in_count, stmt.transactions = _pre_period_carry_in(
+        stmt, previous_balance_date, printed)
     return stmt

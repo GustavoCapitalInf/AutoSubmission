@@ -258,6 +258,51 @@ def _within_digit_bound(text: str) -> bool:
     return len(whole) <= MAX_INTEGER_DIGITS
 
 
+#: A plain decimal number: an optional sign, digits, an optional point and
+#: fraction (or a bare ``.56``), and nothing else.
+#:
+#: `Decimal` and `float` accept far more than a statement prints as money —
+#: ``NaN``, ``Infinity``, ``sNaN``, exponent notation (``1e30``) and PEP 515
+#: underscores (``1_000.00``) — and the raising family below converted
+#: whatever they accepted (audit 2026-10-13 PARSERS-4; the non-finite part was
+#: already a carried latent, W3_TRACKA_LOG item 11). Exponent notation also
+#: defeated `MAX_INTEGER_DIGITS`, whose `_within_digit_bound` counts
+#: CHARACTERS: ``1e30`` is four of them, and the ``Decimal("1E+30")`` it
+#: became is exactly the value the ADB engine's cents quantize cannot hold.
+#: Every raising reader therefore requires this shape, after its own cleaning
+#: and before converting, and refuses anything else through `_refusal`.
+#:
+#: Whitespace around the number is stripped before matching, because the two
+#: converters always ignored it (tab, newline and NBSP padding included): a
+#: padded cell still reads as the number inside it.
+_PLAIN_NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)")
+
+
+def _is_plain_number(text: str) -> bool:
+    """Whether the cleaned token is a plain decimal number (see `_PLAIN_NUMBER`)."""
+    return _PLAIN_NUMBER.fullmatch(text.strip()) is not None
+
+
+def _readable(text: str) -> bool:
+    """The raising family's admission test: a plain number within the bound."""
+    return _is_plain_number(text) and _within_digit_bound(text)
+
+
+def _brackets_are_one_pair_around(text: str) -> bool:
+    """No bracket at all, or exactly one ``(`` first and one ``)`` last.
+
+    A bracket format reads the PAIR as the sign, but its strip takes either
+    bracket off on its own, so a token holding one of them (``(5.00``,
+    ``5.00)``) used to come back POSITIVE (audit 2026-10-13 PARSERS-4). A
+    bracket anywhere else (``((5.00)``, ``-(5.00)``) is not the printed
+    convention either. Every such token now refuses.
+    """
+    opens, closes = text.count("("), text.count(")")
+    if opens == closes == 0:
+        return True
+    return opens == closes == 1 and text.startswith("(") and text.endswith(")")
+
+
 # ---------------------------------------------------------------------------
 # The strict engine: clean -> detect sign -> strip sign -> validate -> convert
 # ---------------------------------------------------------------------------
@@ -278,7 +323,11 @@ class AmountFormat:
         rewritten to ``0.56``, and whether that happens before or after the
         sign markers are removed. Empty means never.
     ``leading_minus`` / ``trailing_minus`` / ``parens``
-        Which markers mean "negative". Several banks use more than one.
+        Which markers mean "negative". Several banks use more than one. A
+        trailing ``-`` in a format without ``trailing_minus``, or a bracket
+        that is not one pair around the whole token in a ``parens`` format,
+        refuses the token (audit 2026-10-13 PARSERS-4) rather than being
+        stripped and ignored.
     ``strip_chars`` / ``lstrip_chars`` / ``remove_chars``
         How the sign markers are then taken off: ``str.strip`` (both ends),
         ``str.lstrip`` (leading only), or deletion everywhere followed by a
@@ -314,6 +363,15 @@ def parse_amount(value: str | None, fmt: AmountFormat) -> float | None:
 
     if fmt.pad_leading_decimal == "before_sign":
         text = pad_leading_decimal(text)
+
+    # A sign marker the format cannot read whole is not taken off and ignored
+    # (audit 2026-10-13 PARSERS-4): one bracket without its partner, or a
+    # trailing ``-`` in a format that does not honour one, refuses the token.
+    # Before, the strip removed either and the amount came back POSITIVE.
+    if fmt.parens and not _brackets_are_one_pair_around(text):
+        return None
+    if text.endswith("-") and not fmt.trailing_minus:
+        return None
 
     negative = (
         (fmt.leading_minus and text.startswith("-"))
@@ -746,7 +804,7 @@ def parse_decimal(value: str) -> Decimal:
     cell — see `_refusal`.
     """
     text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").strip()
-    if _within_digit_bound(text):
+    if _readable(text):
         try:
             return Decimal(text)
         except InvalidOperation:
@@ -813,19 +871,27 @@ def parse_decimal_mixed_separator(value: str, *, single_comma_only: bool = False
     ``1,234.56`` and ``1,234`` keep the US reading. `single_comma_only`
     additionally requires that there be exactly one comma, which is the
     stricter rule one layout needs to avoid re-reading ``1,23,45``.
+
+    Under `single_comma_only`, a two-digit tail after a SECOND comma
+    (``1,234,56``, ``1,23,45``) is neither reading and refuses (audit
+    2026-10-13 PARSERS-4). It used to fall through to the US reading, which
+    deletes every comma and returns a hundred times the cents reading.
     """
     text = normalize_sign_glyphs(value).replace("$", "").strip()
+    two_digit_tail = "," in text and len(text.rsplit(",", 1)[1]) == 2
+    if single_comma_only and "." not in text and text.count(",") > 1 and two_digit_tail:
+        raise _refusal("parse_decimal_mixed_separator", value)
     comma_is_decimal = (
         "." not in text
         and (text.count(",") == 1 if single_comma_only else "," in text)
-        and len(text.rsplit(",", 1)[1]) == 2
+        and two_digit_tail
     )
     if comma_is_decimal:
         whole, cents = text.rsplit(",", 1)
         text = f"{whole.replace(',', '')}.{cents}"
     else:
         text = text.replace(",", "")
-    if _within_digit_bound(text):
+    if _readable(text):
         try:
             return Decimal(text)
         except InvalidOperation:
@@ -840,7 +906,7 @@ def parse_grouped_float(value: str) -> float:
     cell — see `_refusal`.
     """
     text = normalize_sign_glyphs(value).replace(",", "")
-    if _within_digit_bound(text):
+    if _readable(text):
         try:
             return float(text)
         except ValueError:
@@ -858,7 +924,7 @@ def parse_trailing_minus_dropped(value: str) -> float:
     the reader and the refusal CLASS, never the cell (see `_refusal`).
     """
     text = normalize_sign_glyphs(value).replace("$", "").replace(",", "").rstrip("-")
-    if _within_digit_bound(text):
+    if _readable(text):
         try:
             return float(text)
         except ValueError:
@@ -873,17 +939,25 @@ def parse_french_amount(value: str, *, parens: bool = False) -> float:
     the bracket convention French-language Canadian statements use instead of
     a minus sign. Raises ValueError when the token is not a number — naming
     the reader and the refusal CLASS, never the cell (see `_refusal`).
+
+    With `parens`, a bracket that is not one pair around the whole cell
+    (``(1 066,25`` with its closing bracket lost) refuses rather than reading
+    POSITIVE (audit 2026-10-13 PARSERS-4): `analysis/rbc.py` records the time
+    a capture that dropped the closing bracket sign-flipped every overdrawn
+    balance of the French family.
     """
     normalized = normalize_sign_glyphs(value)
     if parens:
         bracketed = normalized.strip()
+        if not _brackets_are_one_pair_around(bracketed):
+            raise _refusal("parse_french_amount", value)
         negative = bracketed.startswith("(") and bracketed.endswith(")")
         text = normalized.strip("()")
     else:
         negative = False
         text = normalized
     text = text.replace(" ", "").replace(",", ".")
-    if _within_digit_bound(text):
+    if _readable(text):
         try:
             amount = float(text)
         except ValueError:

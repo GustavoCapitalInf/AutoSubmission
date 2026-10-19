@@ -4,6 +4,7 @@ import re
 from datetime import date, timedelta
 
 from .date_tokens import iso_from_month_day
+from .holder_name import NO_READING, HolderReading, read_address_line
 from .money import EITHER_MINUS_DROPPED, parse_amount, read_money
 from .parser_registry import make_detector, required
 from .schema import Statement, Transaction
@@ -27,6 +28,25 @@ def _money(value: str | None) -> float | None:
 #: summary is the parser's entry gate, so a single un-admitted symbol returned
 #: None for the whole statement.
 _DOLLAR = r"\$?\s*"
+#: Audit B9 (I13): the mail-routing code line Truist prints above 'Contact us': the sort fields, then the holder's name
+#: and mailing address run together ('<code> <holder> <street> <city> <ST>  <ZIP>').
+_MAIL_ROUTING_LINE = re.compile(
+    r"^\d{3}-\d{2}-\d{2}-\d{2}\s+\d{5}(?:\s+[A-Z])?\s+\d{1,3}\s+C\s+\d{3}\s+\d{2}(?:\s+[A-Z])*\s+\d{2}\s+\d{3}\s+"
+    r"(?P<rest>\S[^\n]*)$",
+    re.MULTILINE,
+)
+_CITY_STATE_ZIP = re.compile(r"\b[A-Z]{2}\s+\d{5}(?:-\d{4})?\s*$")
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit B9 (I13): the holder's name after Truist's mail-routing code, without the address and any contact or
+    designation after the name; NO_READING without the code line or an address that closes on a state and ZIP.
+    `account_name` keeps the parser's product. Owner ruling 2026-10-02 (Q10), audit round 2, R2-OW10: with the
+    designation printed after the name as the account title (a contact never is one)."""
+    match = _MAIL_ROUTING_LINE.search(markdown)
+    if match is None or not _CITY_STATE_ZIP.search(match.group("rest")):
+        return NO_READING
+    return read_address_line(match.group("rest"))
 
 
 def _summary(markdown: str) -> tuple[Statement, int] | None:
@@ -247,4 +267,6 @@ def parse_truist_statement(markdown: str) -> Statement | None:
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
     stmt.transactions = txns
+    # Audit B9 (I13): the holder's name from the mailing block the whole document prints once.
+    stmt.holder_name, stmt.account_title = _holder_reading(markdown)
     return stmt

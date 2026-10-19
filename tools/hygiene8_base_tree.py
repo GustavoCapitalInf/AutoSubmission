@@ -13,10 +13,21 @@ away rather than eliminated.
 WHY THIS IS SAFE, and it is a property of the package rather than a hope:
 `analysis/` imports nothing from this repository outside itself. Every
 non-relative import in the package is stdlib or third-party (measured:
-`dotenv`, `google.genai`, `pydantic` and stdlib), so a copy of the directory
+`dotenv`, `google.genai`, `pydantic` and stdlib; `google.genai` left with
+`analysis/extract.py` in slice S3 of the model-code removal), so a copy of the directory
 under a DIFFERENT package name is an entire second analysis stack, consistent
 with itself. Relative imports (`from .money import ...`) resolve to whatever package
 the module actually lives in, which is the whole mechanism.
+
+ONE MODULE IS NOT THE BASE'S (model-code removal, slice S6): a base revision
+from before slice S3 holds `analysis/extract.py`, the hosted extractor, which
+imports the extraction SDK (`google.genai`) at module level, and its
+`analysis/pipeline.py` imports `extract_statement` from it. The SDK is no longer
+installed anywhere (CI included) and the product uses no model, so the base
+copy's `extract` module is a stand-in whose `extract_statement` refuses every
+call (`RETIRED_EXTRACTOR`). Nothing compared here reaches it: the comparisons
+drive deterministic parser and analysis paths only, and an extraction would
+have refused anyway with no key. Every other base blob runs byte for byte.
 
     from tools.hygiene8_base_tree import load_base_analysis
     base = load_base_analysis("10cc722", repo=Path.cwd(), scratch=scratch)
@@ -41,9 +52,26 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import types
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+#: What the stand-in for a base revision's hosted extractor raises (see the module docstring).
+RETIRED_EXTRACTOR = (
+    "the hosted extractor was removed (model-code removal): a base tree's extract_statement cannot run"
+)
+
+
+def _retired_extractor(package: str) -> types.ModuleType:
+    """`<package>.extract` for a base copy: the one name its pipeline imports, refusing every call."""
+    module = types.ModuleType(f"{package}.extract", RETIRED_EXTRACTOR)
+
+    def extract_statement(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(RETIRED_EXTRACTOR)
+
+    module.extract_statement = extract_statement
+    return module
 
 
 @dataclass(frozen=True)
@@ -64,7 +92,9 @@ def _extract(repo: Path, revision: str, destination: Path) -> None:
         capture_output=True,
     ).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as handle:
-        handle.extractall(destination)
+        # The `data` filter (Python 3.12+, the default from 3.14): no DeprecationWarning on 3.12 and 3.13, the
+        # same unpack on every interpreter, and a member that would land outside `destination` is refused.
+        handle.extractall(destination, filter="data")
 
 
 def load_base_analysis(revision: str, *, repo: Path, scratch: Path) -> BaseAnalysis:
@@ -96,6 +126,8 @@ def load_base_analysis(revision: str, *, repo: Path, scratch: Path) -> BaseAnaly
         shutil.rmtree(tmp_dir, ignore_errors=True)
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
+    if (target / "extract.py").is_file() and f"{package}.extract" not in sys.modules:
+        sys.modules[f"{package}.extract"] = _retired_extractor(package)
     pipeline = importlib.import_module(f"{package}.pipeline")
     serialization = importlib.import_module(f"{package}.serialization")
     return BaseAnalysis(

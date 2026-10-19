@@ -14,10 +14,10 @@ The real local-Tesseract path is preserved, not deleted:
 fixtures with the local binary and compares the resulting report to the
 artifact-served one. It carries the `live` marker, so it is deselected from the
 default run (`pytest.ini` addopts) and runs with `pytest -m live`. That marker
-is documented as "hits the real OCR endpoint"; this widens it to "runs real OCR
-rather than a committed fixture", which is the property that matters here — a
-dedicated marker would need a `pytest.ini` registration plus an addopts change
-to stay out of the default run, and that file is outside this task's allowlist.
+was documented as "hits the real OCR endpoint" and this test widened it to "runs
+real OCR rather than a committed fixture"; since the OCR endpoint was removed
+(model-code removal, slice S6) the marker text says exactly that: it runs the
+real local Tesseract instead of a committed OCR artifact.
 """
 from __future__ import annotations
 
@@ -119,7 +119,7 @@ EXPECTED = {
         "revenue": (0.00, 6705.81, 0.00, 6705.81),
         "revenue_counts": (0, 5, 0),
         "channels": (0, 0, 5, 0, 1, 0),
-        "lenders": (1, 100.00, 0, 0.00),
+        "lenders": (0, 0.00, 0, 0.00),
         "insurance": (0, 0.00),
         "reversal_pairs": 0,
         "daily": [
@@ -150,7 +150,8 @@ EXPECTED = {
         "revenue": (1543.85, 107438.89, 41501.50, 108982.74),
         "revenue_counts": (1, 19, 11),
         "channels": (1, 37, 30, 0, 20, 5),
-        "lenders": (0, 0.00, 1, 1191.00),
+        # 5.3: its three fixed weekly debits are a payroll provider's billing (payroll), no longer a potential lender.
+        "lenders": (0, 0.00, 0, 0.00),
         "insurance": (2, 1251.74),
         "reversal_pairs": 11,
         "daily": [
@@ -178,7 +179,7 @@ EXPECTED = {
         "printed_average": None,
         "revenue": (2020.00, 0.00, 12779.79, 2020.00),
         "revenue_counts": (2, 0, 49),
-        "channels": (2, 8, 66, 9, 0, 0),
+        "channels": (2, 8, 59, 9, 0, 0),
         "lenders": (0, 0.00, 0, 0.00),
         "insurance": (0, 0.00),
         "reversal_pairs": 9,
@@ -473,7 +474,11 @@ def test_new_statement_api_and_exports_preserve_authoritative_values():
     # over its members and one member left.
     package = _package_analysis(jobs)
     assert package["totals"]["average_daily_balance"] == 1957.43
-    assert package["totals"]["verified_revenue_total"] == 3563.85
+    # 5.6 (true revenue spec §9.2, §10.4): navigant's captured credits are not the money its bank total counts (its
+    # verified_revenue_established is false, as the Monthly Statements' True deposits already said), so the
+    # package's verified total is N/A rather than a sum that includes a partial figure.
+    assert package["totals"]["verified_revenue_total"] is None
+    assert package["totals"]["revenue_unestablished_documents"] == ["new-corpus-navigant"]
     assert package["totals"]["unverified_deposit_total"] == 114144.70
     assert package["totals"]["non_revenue_total"] == 54281.29
     assert package["totals"]["maximum_revenue"] == 117708.55
@@ -493,3 +498,14 @@ def test_dashboard_uses_backend_adb_without_frontend_recalculation():
     assert "daily_balance_sum /" not in javascript
     assert "daily_balances.reduce" not in javascript
     assert "computeAverageDailyBalance" not in javascript
+
+
+def test_first_farmers_bluevine_named_row_is_not_flagged():
+    """Owner decision 2026-09-25: the bare BLUEVINE alias is dropped. first_farmers' one
+    BlueVine-named debit pays another business that banks with Bluevine, so it is no
+    lender, no line of credit and no flagged row."""
+    report = _source_report("first_farmers")
+    assert not any(record.classification == "line_of_credit" for record in report.classifications)
+    assert not any(record.canonical_entity == "BLUEVINE" for record in report.classifications)
+    assert report.metrics.lenders_detected == 0
+    assert "lines_of_credit" not in report.metrics.flagged_groups

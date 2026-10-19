@@ -1,16 +1,38 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, timedelta
+from decimal import Decimal
 from typing import NamedTuple
 
-from .date_tokens import iso_or_none
+from .date_tokens import iso_or_none, iso_unique_in_period
+from .holder_name import NO_READING, HolderReading, first_page, page_lines, read_name
 from .money import parse_money, read_money
 from .parser_registry import make_detector, required
-from .schema import Statement, Transaction
+from .schema import Statement, StatementDailyBalance, Transaction
 from .tables import table_rows, tables_after
 
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+#: Audit round 2, R2-B05 (R04 part 2): the period line Bank of America prints above the holder's name on page 1
+#: ('for May 1, 2054 to May 31, 2054 Account number: 0000 0000 0000').
+_HOLDER_ANCHOR = re.compile(
+    r"^for [A-Z][a-z]+ \d{1,2}, \d{4} to [A-Z][a-z]+ \d{1,2}, \d{4} Account number:", re.IGNORECASE
+)
+#: The page's own headings that can follow the period line where no name prints.
+_NOT_A_HOLDER_LINE = re.compile(r"^(?:Account summary|Your |Page \d)", re.IGNORECASE)
+
+
+def _holder_reading(markdown: str) -> HolderReading:
+    """Audit round 2, R2-B05 (R04 part 2): the holder's name, the line Bank of America prints after page 1's period
+    line ('for <period> Account number: <number>'). NO_READING without that line or where a heading follows it.
+    `account_name` keeps the product line ('Your <product> for <period>'). Owner ruling 2026-10-02 (Q10), audit round
+    2, R2-OW10: with the account title that line prints after the name."""
+    lines = page_lines(first_page(_IMG_RE.sub("", markdown)))
+    for index, line in enumerate(lines[:-1]):
+        if _HOLDER_ANCHOR.match(line):
+            following = lines[index + 1]
+            return NO_READING if _NOT_A_HOLDER_LINE.match(following) else read_name(following)
+    return NO_READING
 
 
 def _money(value: str) -> float | None:
@@ -506,6 +528,124 @@ def _parse_section(markdown: str, heading: str, *, total_label: str, sign: int) 
     return txns
 
 
+# ---------------------------------------------------------------------------
+# The `Daily ledger balances` table (owner report 2026-10-08, NSF)
+#
+# After the detail sections Bank of America prints its own end-of-day balance
+# for each day it lists, up to three `Date Balance ($)` column pairs wide, and
+# breaks the block across pages as `Daily ledger balances - continued`:
+#
+#     Daily ledger balances Date Balance ($) Date Balance($) Date Balance ($)
+#     03/01 -500.00 03/09 -310.00
+#     03/02 1,500.00 03/11 690.00
+#
+# The list includes the cycle's opening day even when nothing posts on it
+# (measured over the archive: every listed day with no posting is the period's
+# first day). The owner ruling of 2026-09-22 counts NSF days on the PRINTED
+# days, a posting day or a day the bank printed in its daily balance table
+# (`analysis/nsf_days.py`). Unread, the table left such a day `carried` in the
+# ledger, so a cycle opening on a quiet day that ends negative lost that day
+# from the printed-day count.
+#
+# The table is BANK EVIDENCE to `analysis/adb.py`, which lets a snapshot
+# OVERRIDE the reconstructed balance for its day. So it is published only when
+# this reader can vouch for every cell: the printed beginning balance, walked
+# through the parsed rows (a day with no posting carrying the day before), must
+# close on the printed ending balance, and every cell must equal that walk on
+# its day, to the cent. Published, the table relabels printed days and moves no
+# balance. Anything else (a cell the printed period cannot date, a day printed
+# twice, a cell a cent off, a row the parser did not read) publishes no table
+# at all, and the ledger stays exactly as reconstructed.
+# ---------------------------------------------------------------------------
+
+_LEDGER_HEADING = re.compile(r"^\s*Daily ledger balances(?:\s+-\s+continued)?\b(.*)$", re.IGNORECASE)
+_LEDGER_COLUMNS = re.compile(r"(?:\s*Date\s+Balance\s*\(\$\))+", re.IGNORECASE)
+_LEDGER_CELL = re.compile(rf"(\d{{2}})/(\d{{2}})\s+({_MONEY_CELL})")
+#: A physical line of the table: nothing but `MM/DD balance` cells.
+_LEDGER_LINE = re.compile(rf"\s*(?:\d{{2}}/\d{{2}}\s+{_MONEY_CELL}\s*)+")
+
+
+def _daily_ledger_cells(text: str) -> list[tuple[str, str, str]]:
+    """Every `(month, day, balance)` cell the table prints, in printed order.
+
+    A block opens at a line the heading owns (the heading, optionally
+    `- continued`, optionally the column header, then nothing or cells) and
+    closes at the first line that is not cells: the page footer, the next page's
+    furniture, the next block. A line that merely begins with the heading words
+    opens nothing."""
+    cells: list[tuple[str, str, str]] = []
+    inside = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        heading = _LEDGER_HEADING.match(raw)
+        if heading is not None:
+            rest = heading.group(1)
+            columns = _LEDGER_COLUMNS.match(rest)
+            line = (rest[columns.end():] if columns else rest).strip()
+            inside = not line or _LEDGER_LINE.fullmatch(line) is not None
+            if not inside:
+                continue
+        elif not inside or not line or _LEDGER_COLUMNS.fullmatch(line):
+            continue
+        elif _LEDGER_LINE.fullmatch(line) is None:
+            inside = False
+            continue
+        cells.extend(_LEDGER_CELL.findall(line))
+    return cells
+
+
+def _cents(value: float) -> Decimal:
+    return Decimal(str(value)).quantize(Decimal("0.01"))
+
+
+def _walked_balances(stmt: Statement) -> dict[str, Decimal] | None:
+    """Each printed-period day's ending balance: the printed beginning balance
+    walked through the parsed rows, a day with no posting carrying the day
+    before. None unless every row is dated inside the printed period and the
+    walk closes on the printed ending balance."""
+    if stmt.beginning_balance is None or stmt.ending_balance is None:
+        return None
+    try:
+        start = date.fromisoformat(stmt.period_start or "")
+        end = date.fromisoformat(stmt.period_end or "")
+        posted = [(date.fromisoformat(txn.date), _cents(txn.amount)) for txn in stmt.transactions]
+    except (TypeError, ValueError):
+        return None
+    movement: dict[date, Decimal] = {}
+    for day, amount in posted:
+        if not start <= day <= end:
+            return None
+        movement[day] = movement.get(day, Decimal("0")) + amount
+    walked: dict[str, Decimal] = {}
+    balance = _cents(stmt.beginning_balance)
+    day = start
+    while day <= end:
+        balance += movement.get(day, Decimal("0"))
+        walked[day.isoformat()] = balance
+        day += timedelta(days=1)
+    return walked if balance == _cents(stmt.ending_balance) else None
+
+
+def _printed_daily_balances(text: str, stmt: Statement) -> list[StatementDailyBalance]:
+    """The `Daily ledger balances` table as `stated_daily_balances`, or [] when
+    the statement prints none or any cell fails the walk (see the note above)."""
+    cells = _daily_ledger_cells(text)
+    walked = _walked_balances(stmt) if cells else None
+    if walked is None:
+        return []
+    start, end = date.fromisoformat(stmt.period_start), date.fromisoformat(stmt.period_end)
+    printed: dict[str, Decimal] = {}
+    for month, day, amount in cells:
+        iso = iso_unique_in_period(int(month), int(day), start=start, end=end)
+        value = _money(amount)
+        if iso is None or value is None or iso in printed:
+            return []
+        printed[iso] = _cents(value)
+    if any(walked.get(iso) != value for iso, value in printed.items()):
+        return []
+    return [StatementDailyBalance(date=iso, balance=float(value)) for iso, value in sorted(printed.items())]
+
+
 def detection_text(markdown: str) -> str:
     """The text this parser recognises itself in."""
     return _IMG_RE.sub("", markdown).upper()
@@ -531,7 +671,11 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
     if period is None:
         return None
 
-    stmt = Statement(bank="Bank of America", period_start=period[0], period_end=period[1])
+    holder = _holder_reading(markdown)
+    stmt = Statement(
+        bank="Bank of America", holder_name=holder.name, account_title=holder.title, period_start=period[0],
+        period_end=period[1],
+    )
     acct = re.search(r"Account number:\s*([0-9 ]+)", text, re.IGNORECASE)
     if acct:
         stmt.account_number = re.sub(r"\s+", "", acct.group(1))
@@ -587,6 +731,8 @@ def parse_bofa_statement(markdown: str) -> Statement | None:
     if not txns or stmt.beginning_balance is None or stmt.ending_balance is None:
         return None
     stmt.transactions = txns
+    # Last, because the rows and the printed balances are what vouch for it.
+    stmt.stated_daily_balances = _printed_daily_balances(text, stmt)
     return stmt
 
 

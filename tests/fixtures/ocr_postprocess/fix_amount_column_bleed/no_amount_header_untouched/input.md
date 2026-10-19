@@ -1,1 +1,0 @@
-<table><tr><td>Item</td><td>Note</td></tr><tr><td>Foo</td><td>bar baz -74.88</td></tr></table>

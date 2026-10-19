@@ -33,8 +33,9 @@ own `run_document`, called unchanged):
 * the **document-wide one-to-one** count, where `taken` is a single set across
   every ledger of the document rather than one per ledger pair;
 * how many pairs carry a **PRINTED internal-movement designation** on either leg,
-  decided by `analysis/transaction_classifier.py`'s
-  `_INTERNAL_TRANSFER_CREDIT_PATTERNS` **alone** (13 patterns) — this instrument
+  decided by `analysis/transaction_classifier.py`'s own
+  `prints_internal_transfer_designation` (`_INTERNAL_TRANSFER_CREDIT_PATTERNS`
+  and, since 5.5, the narrowed book and funds transfer rule) — this instrument
   writes no transfer grammar of its own;
 * **the vocabulary split**, because the first version of this probe also ORed
   `_TRANSFER_PATTERNS` and that was wrong. That tuple is production's
@@ -142,11 +143,15 @@ def _descriptions_for(section, walks) -> list[str] | None:
 def prints_transfer_designation(description: str) -> bool:
     """Does this printed row designate a movement between the member's OWN accounts?
 
-    **Only `_INTERNAL_TRANSFER_CREDIT_PATTERNS` decides this**
-    (`analysis/transaction_classifier.py`:433-465, 13 patterns): `TRANSFER FROM
-    <CHECKING|SAVINGS|SHARE|...>`, `SH TO SH`, `ACCOUNT TO ACCOUNT`,
-    `TRANSFER FROM <masked account> TO <masked account>`. Every member of it
-    names one member's own accounts as the source or the destination.
+    **Production's own `prints_internal_transfer_designation` decides this**,
+    the reader R-d's clause 4 calls: `_INTERNAL_TRANSFER_CREDIT_PATTERNS`
+    (`TRANSFER FROM <CHECKING|SAVINGS|SHARE|...>`, `SH TO SH`,
+    `ACCOUNT TO ACCOUNT`, `TRANSFER FROM <masked account> TO <masked account>`;
+    every member of it names one member's own accounts as the source or the
+    destination) and, since classification 5.5 (§7.11), a `BOOK TRANSFER` or
+    `FUNDS TRANSFER` that prints no third-party originator, read on the
+    normalised row. Until the S2.3 review round this instrument emulated the
+    tuple alone on the upper-cased row, which 5.5 left behind.
 
     THE VOCABULARY THIS DELIBERATELY REFUSES, AND WHY
     -------------------------------------------------
@@ -173,10 +178,9 @@ def prints_transfer_designation(description: str) -> bool:
     clause**, and the split below is reported on every run so the two can never
     be conflated again by accident.
     """
-    from analysis.transaction_classifier import _INTERNAL_TRANSFER_CREDIT_PATTERNS
+    from analysis.transaction_classifier import prints_internal_transfer_designation
 
-    upper = description.upper()
-    return any(pattern.search(upper) for pattern in _INTERNAL_TRANSFER_CREDIT_PATTERNS)
+    return prints_internal_transfer_designation(description)
 
 
 def prints_generic_transfer_word(description: str) -> bool:
@@ -398,8 +402,8 @@ def main(argv: list[str] | None = None) -> int:
           "(`tools/l1_split_prototype.py::run_document`, unchanged). Three "
           "pairing rules over the same postings, and the printed designation "
           "decided by `analysis/transaction_classifier.py`'s OWN committed "
-          "vocabularies — 13 internal-transfer credit patterns and 7 transfer "
-          "patterns. This instrument writes no transfer grammar.")
+          "readers — `prints_internal_transfer_designation` and the refused "
+          "`_TRANSFER_PATTERNS`. This instrument writes no transfer grammar.")
     print()
     print("| measure | value |")
     print("|---|---:|")
@@ -427,7 +431,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print("## Does the paper print an INTERNAL-movement designation?")
     print()
-    print("Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` ALONE. The generic "
+    print("Decided by production's `prints_internal_transfer_designation` "
+          "(`_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5, the narrowed "
+          "book and funds transfer rule), and by nothing else. The generic "
           "`_TRANSFER_PATTERNS` tuple is production's non-lender exclusion — "
           "peer-to-peer rails included — and is never evidence here; the split "
           "below is what refusing it costs.")

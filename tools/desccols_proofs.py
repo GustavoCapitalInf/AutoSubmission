@@ -273,10 +273,10 @@ def command_pinned(args) -> int:
         # is what the log carries.
         sha = hashlib.sha256(raw).hexdigest().upper()
         native_text.parse_native_printed_rows = lambda *a, **k: None
-        native_text._native_pages_cached.cache_clear()
+        native_text.clear_page_caches()
         before = verdict(raw)
         native_text.parse_native_printed_rows = real
-        native_text._native_pages_cached.cache_clear()
+        native_text.clear_page_caches()
         after = verdict(raw)
         if before is None or after is None:
             counts["unresolved"] += 1
@@ -308,7 +308,7 @@ def command_fallback(args) -> int:
     real = native_text.parse_native_printed_rows
 
     def key(pdf: Path):
-        native_text._native_pages_cached.cache_clear()
+        native_text.clear_page_caches()
         markdown, pages, model = _repaired_markdown(pdf)
         return (None, None) if markdown is None else (
             analysis_input_sha(markdown, pages), model)

@@ -74,12 +74,26 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
 ``ocr`` (:func:`ocr_settings_key`)
     ``force_ocr``, ``allow_local_ocr``, ``allow_visual_ocr`` — the ladder
     capability flags; they decide WHICH rung produces the text (the worker's
-    deterministic preflight passes ``allow_visual_ocr=False``, auto mode
-    passes ``allow_local_ocr=True``, the escalation call passes
-    ``force_ocr=True``).
-    ``dpi``, ``fallback_dpi`` — rasterization and the mis-segmentation retry.
+    one read passes ``force_ocr=False, allow_local_ocr=True,
+    allow_visual_ocr=False``; discovery passes ``force_ocr=False,
+    allow_visual_ocr=False`` and its mode's ``allow_local_ocr``). No read
+    passes ``force_ocr=True`` any more: the escalation calls left with the
+    model rungs (slices S1-S5 of the model-code removal), and
+    :func:`ocr.pipeline.parse_statement` refuses ``force_ocr=True`` and
+    ``allow_visual_ocr=True``. The forced shape is still a key a caller can
+    compute, for historical reconstruction only (``telemetry/run_of_record.py``'s
+    visual partition, ``tools/train/provenance.py``).
+    ``dpi``, ``fallback_dpi`` — frozen key material: no rung reads them since
+    slices S2 and S5 (they set the removed model rungs' rasterization and
+    mis-segmentation retry; local Tesseract renders at its own resolution).
+    They are still hashed, with the defaults 300 and 250 that every key
+    keeps, so no key moved.
     ``ocr_model``, ``ocr_base_url``, ``ngram_size``, ``window_size`` — the
-    visual-OCR service knobs from ``ocr.config.Settings``.
+    retired visual-OCR service knobs. Since slice S2 of the model-code removal
+    they are FROZEN literals (:data:`FROZEN_OCR_SETTINGS`, the defaults the
+    retired ``ocr.config.Settings`` held) unless a caller passes its own
+    ``ocr_settings`` (historical reconstruction); the environment no longer
+    moves them.
     ``stage_version`` = :data:`OCR_STAGE_VERSION`.
 
     Joining at v5 (P20-ARTIFACTS, Phase 2.0, OQ8/F-6) — present only when
@@ -96,24 +110,20 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     ladder still gets first refusal inside a single :func:`ocr.pipeline.parse_statement`
     call — is ``"offline"``. This is a LABEL on the settings partition, not a
     certified claim about which rung actually produced a given artifact (the
-    artifact's own ``model`` field is that record); a third extractor stack
-    (PaddleOCR) would add a third label here in a later phase — excluded now.
+    artifact's own ``model`` field is that record). The third label,
+    ``"paddle"`` (the forced PaddleOCR call shape, P21-ROUTING), is computed by
+    :func:`_ocr_extractor` for historical reconstruction only: since slice S5
+    of the model-code removal :func:`ocr_settings_key` refuses
+    ``allow_paddle_ocr=True`` before any material is built.
     ``postprocess_state`` / ``postprocess_admitted`` — the legacy OCR
-    postprocess chain's quarantine state, read from ``ocr.ocr_client`` via
-    ``getattr`` with the pinned defaults ``"quarantined"`` / ``()`` (cell B1
-    owns the module-level constants; until it composes, or for any
-    ``"offline"``-labelled call, the pinned defaults are used directly WITHOUT
-    importing ``ocr.ocr_client`` — that chain is reachable only from the
-    visual rung (``ocr/pipeline.py``), so importing it for an offline read
-    would be a pure regression against the "the model client module is never
-    even imported" property two tests already enforce
-    (``tests/test_discovery.py``, ``tests/test_visual_rung.py``); the value is
-    identical either way because the constants are process-wide, not
-    per-call).
+    postprocess chain's quarantine state: the pinned ``"quarantined"`` /
+    ``()`` for every extractor label (frozen key material since slice S2; the
+    retired client's own constants always held exactly these values).
     ``raster_version`` = ``ocr.rasterize.RASTER_VERSION``.
     ``extraction_schema_version`` = :data:`EXTRACTION_SCHEMA_VERSION`.
     ``endpoint_class`` — from ``ocr_settings`` via ``getattr``, default
-    ``"loopback"`` (cell B2 adds the real field to ``ocr.config.Settings``).
+    ``"loopback"`` (the frozen :data:`FROZEN_OCR_SETTINGS` value when no
+    ``ocr_settings`` is passed).
     ``tesseract_version``, ``poppler_version``, ``pymupdf_version`` — the
     binary/library versions the offline and visual rungs actually depend on
     (F-6), from :func:`ocr_toolchain_versions` — a never-raising, once-per-
@@ -125,9 +135,12 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     string) for every production call, so the production key is unchanged.
 
 ``analysis`` (:func:`analysis_settings_key`)
-    ``parse_mode`` (``auto`` | ``deterministic``), ``model``,
-    ``escalation_model``, ``withholding_denominator_mode`` — the whole of
-    ``analysis.config.Settings`` that reaches the output, plus
+    ``parse_mode`` (``auto`` | ``deterministic``), ``withholding_denominator_mode``
+    — the part of ``analysis.config.Settings`` that reaches the output; ``model``
+    and ``escalation_model`` (frozen key material since slice S3 of the
+    model-code removal: the literals :data:`FROZEN_ANALYSIS_MODEL` /
+    :data:`FROZEN_ANALYSIS_ESCALATION_MODEL`, the names of the removed hosted
+    extractor, never read from the settings), plus
     ``stage_version`` = :data:`ANALYSIS_STAGE_VERSION`, plus
     ``parser_registry`` = ``analysis.parser_registry.registry_fingerprint()``,
     plus ``generic_structurer`` =
@@ -157,6 +170,11 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     decides what "enabled" means. ``off`` today and always: no artifact in the
     archive was written under any other value.
 
+    ``hosted_extraction_opt_in`` (P22-FENCE review F3) = the frozen literal
+    ``False`` (:data:`FROZEN_HOSTED_EXTRACTION_OPT_IN`) since slice S3: it
+    recorded whether the removed hosted extractor's operator opt-in was set,
+    and no default environment ever set it.
+
     Since Phase 2.2 the analysis INPUT hash also carries the sha of the
     evidence a geometry-fed analysis consumed (absent for text-only) — see
     :func:`analysis_input_sha`.
@@ -179,18 +197,16 @@ Deliberately EXCLUDED from the keys, with reasons:
   Keying on it now would mint a separate, durably-cached report for every
   rename of the same statement: N copies of one answer, each recomputed, and
   a cache that grows with operator filing habits rather than with documents.
-* ``max_workers`` — page concurrency; ``ocr/config.py`` documents that it does
-  not change output.
-* ``timeout``, ``retries``, ``api_key`` — transport and secrets. Secrets must
-  never be hashed into a key that is written to disk.
-* callbacks (``on_stage``, ``on_page_delta``, ``on_page_replace``,
-  ``page_ocr_fn``) and the preflight ``profile`` — the profile is derived from
-  the bytes already in the key.
+* ``max_workers`` — the retired visual rung's page concurrency, which did not
+  change output (never key material).
+* ``timeout``, ``retries``, ``api_key`` — the retired visual rung's transport
+  and secrets. Secrets must never be hashed into a key that is written to disk.
+* callbacks (``on_stage``, ``on_page_replace``) and the preflight ``profile``
+  — the profile is derived from the bytes already in the key.
 
-Over-partitioning is safe, under-partitioning is not: when the native rung
-wins, the visual-OCR service knobs did not affect the result yet still
-partition the key. That costs a cheap offline recompute after an env change
-and never returns a stale artifact.
+Over-partitioning is safe, under-partitioning is not: the frozen visual-OCR
+service knobs did not affect any offline result yet still partition the key,
+exactly as they always have, so no cached reading is re-keyed.
 
 CODE changes are NOT captured by any key, with one carve-out named below. If
 the OCR ladder or the analysis pipeline changes its output, bump
@@ -282,6 +298,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -294,6 +311,7 @@ from ocr.document import StatementMarkdown
 from ocr.inspect import content_sha256
 from ocr.truncation import PageIntegrity
 
+from .settings import _replace as _replace_retrying
 from .storage import Storage
 
 __all__ = [
@@ -521,9 +539,355 @@ OCR_STAGE_VERSION = 5
 # rotates once, at the train's cold run, together with the OCR partition
 # (`EXTRACTION_SCHEMA_VERSION` 3). Pinned in the same commit
 # (`tests/test_artifact_cache.py`).
-ANALYSIS_STAGE_VERSION = 18
+# 18 -> 19: LENDER-DETECTION (2026-09-24 design, service S2) — classification
+# version 5.0: ten flag-group states, the premium-financing flag on insurance
+# rows, and the `flagged_group` / `contributes_to_flagged_totals` record
+# fields; the reordered payee rules (known-payee matcher, card-paid lenders,
+# LOC wording); financing-proceeds credits; obligation descriptors;
+# unknown-payee naming and the fixed-debit
+# review tier; `metrics.flagged_groups` and `detection.flagged_positions` join
+# the payload. The classifier's registry is not key material, so a warm cache
+# keyed on 18 would serve the old lender groups. OCR stays cached. Pinned in the
+# same commit (`tests/test_artifact_cache.py`).
+# 19 -> 20: LENDER-DETECTION D6 clarification (2026-09-26) — classification
+# version 5.1: a same-amount recurrence (D6 and the financing-keyword tier) needs
+# at least three different dates, several rows on one date counting as one; and
+# D6 never takes a card-purchase posting the POS rule does not read (a posting
+# that starts PURCHASE and its mmdd, or a processor*merchant star on a row with
+# no ACH field mark). Stored rows lose `recurring_fixed_debit` /
+# `recurring_financing_counterparty` promotions, so a warm cache keyed on 19
+# would serve them; a re-analysis (webapp/reanalysis.py) misses the analysis
+# stage and recomputes it from the cached reading. OCR stays cached. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+# 20 -> 21: LENDER-DETECTION second D6 clarification (2026-09-27) —
+# classification version 5.2: D6 never takes a row whose words name
+# compensation (a commission and its misspellings, a bonus, a salary, a stipend,
+# a reimbursement), and a masked recipient account printed after TO joins the D6
+# payee key, so payments to two recipient accounts are never one payee. Stored
+# rows lose `recurring_fixed_debit` promotions, so a warm cache keyed on 20 would
+# serve them; a re-analysis recomputes the analysis stage from the cached
+# reading. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+# 21 -> 22: LENDER-DETECTION false-potential release (2026-09-27) —
+# classification version 5.3: new D6 skips, fee/NSF, cheque, card, payroll,
+# mortgage and POS wording, admitted payees in the bank's field order, unconfirmed
+# flag payees routed to their flag, D11 naming fixes, one Potential Lenders line
+# per unnamed payee key (potential_payee_label), and the Debt relief group (a new
+# state). The groups D6 no longer promotes (the skips and the $25 floor for
+# unnamed payees) also leave detect.find_recurring_debits, so the CLI's
+# 'Recurring fixed debits' lines, batch.py's recurring_debit_groups and the
+# payload's detection.recurring_debits lose them too. Stored rows change state,
+# entity and fields, so a warm cache keyed on 21 would serve them; a re-analysis
+# recomputes the analysis stage from the cached reading. OCR stays cached.
+# Pinned in the same change (`tests/test_artifact_cache.py`).
+# 22 -> 23: LENDER-DETECTION Idea Financial ruling (owner, 2026-09-28) —
+# classification version 5.4: IDEA FINANCIAL moves from the line-of-credit table
+# to the lender table and gains its printed ACH spellings (IDEALOAN, IDEA 247
+# INC), so its debits become counted lender rows (a row printing LOC or LINE OF
+# CREDIT stays a line of credit, D9) and its credits stay financing proceeds.
+# Stored rows change state and entity, so a warm cache keyed on 22 would serve
+# them; a re-analysis recomputes the analysis stage from the cached reading. OCR
+# stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 23 -> 24: TRUE-REVENUE bug fixes (2026-09-28 design, §7) — classification
+# version 5.5: credits move between verified_revenue, unverified_deposit and
+# non_revenue (card and payout forms, the recurrence pass, payer remittance,
+# public and healthcare payers, invoice wires, the non-revenue narrowings), and
+# SQ CAP and SBA or EIDL credits become financing proceeds. Stored rows change
+# revenue state, so a warm cache keyed on 23 would serve them; a re-analysis
+# recomputes the analysis stage from the cached reading. OCR stays cached.
+# Pinned in the same change (`tests/test_artifact_cache.py`).
+# Review fixes (2026-09-29): glued dates never change a reading; the holder's
+# name never names a payer; own-account transfers, glued and invoice wires and
+# platform financing words keep their vetoes.
+# 24 -> 25: TRUE-REVENUE definitional rules (2026-09-28 design, §8) —
+# classification version 5.6: every posted credit carries revenue_tier,
+# revenue_initial_tier and revenue_tier_reason, the metrics gain True revenue and
+# its counted and held parts, true_revenue is repointed, and
+# revenue_review_required follows the held share (T7). A payload-shape change:
+# a warm cache keyed on 24 would serve tier-less rows; a re-analysis recomputes
+# the analysis stage from the cached reading. OCR stays cached. Pinned in the
+# same change (`tests/test_artifact_cache.py`).
+# Review decisions (2026-09-29): direction conflicts never lifted; bare
+# transfers, micro entries, owner money, deferred sources and round-sum repeats
+# held or counted as ruled; Q7 honours the section 8.1 holds.
+# 25 -> 26: TRUE-REVENUE audit batch B9 (holder identity) — the statement
+# gains `holder_name` (the holder's name read from the header or the mailing
+# block, apart from the product in `account_name`); the Chase parser stops
+# publishing its CHECKING SUMMARY grid header as the account name and reads the
+# holder from its mailing block, and First Citizens reads its holder line; TD
+# Bank, Truist, PNC, Navy Federal and TD Canada Trust read theirs too (the
+# batch's second code commit, under the same bump; so is its review round 1,
+# where PNC never reads its own product printed in capitals as the holder,
+# stage 26 never having been published). A
+# payload-shape change (the statement, each classification record and the
+# metrics' `holder_unscreened`), and the holder holds read the new name, so a
+# warm cache keyed on 25 would serve rows held or counted without it; a
+# re-analysis recomputes the analysis stage from the cached reading. OCR stays
+# cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 26 -> 27: TRUE-REVENUE audit batch B10 (lost payer text) — the parsers keep
+# the payer a credit prints beside its posting-type label: BMO US's activity
+# grid (the head line after the amount and the Description column's lines
+# below it), the counted core-processor template (the merchant block printed
+# below a credit's amount, by the attribution count), the community platform's
+# same-line text after a credit's amount (Arbor, Falcon's wire sender), the
+# balance-by-date template's transfer field and U.S. Bank's `ORG=` wire sender;
+# a credit whose printed payer a parser could not read is marked
+# (`Transaction.payer_text_unread`, serialized only where set) and counted as
+# `payer_text_not_read`; the metrics gain `payer_text_unread` and its count.
+# The batch's review round 1 lands under the same version (nothing between
+# was released): the daily core-processor template marks the credits whose
+# block it does not read yet, U.S. Bank reads the ORG= field up to the sender's
+# address or the next field, the community platform's tail stops at a heading
+# and reads published credits only, BMO US skips a page break whole, and a
+# marked cash, branch, teller or ATM label keeps `no_payer_printed`.
+# Descriptions and tiers move, so a warm cache keyed on 26 would serve the bare
+# labels; a re-analysis recomputes the analysis stage from the cached reading.
+# OCR stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 27 -> 28: TRUE-REVENUE audit batch B11 (the review gate) — T7 also gates a
+# statement whose held credits are 10% or more of True plus held and at least
+# $500 (`REVENUE_REVIEW_HELD_FLOOR`), so `metrics.revenue_review_required`
+# moves on statements heavy with non-revenue; the metrics gain
+# `revenue_tiers_sum_to_posted`, the four-tier identity under its own name
+# (`revenue_reconciles` stays as its alias), and the BNPL or marketplace
+# settlement reason gets its new label. No tier and no figure moves. A warm
+# cache keyed on 27 would serve the old gate; a re-analysis recomputes the
+# analysis stage from the cached reading. OCR stays cached. Pinned in the same
+# change (`tests/test_artifact_cache.py`).
+# 28 -> 29: TRUE-REVENUE audit round 2, batch R2-B04 (holder screening, the
+# holder-name strip and the holder's own push) — `metrics.holder_unscreened`
+# reads a holder name the parser read as known whatever its shape (a trailing
+# CO, a partnership, a DBA or 'Operating as' name, S.E.N.C., five words or
+# more) and reads a statement with no transaction (R19); the I47 strip reads
+# each side of such a name, a cut last word at the row's end and the holder's
+# business names beside a person's (R19, R40); the holder test reads two shared
+# trade words, and a person's given name, as no holder (R20); the holder's own
+# push is held where an earlier rule verified it and on American Express's
+# receiver block (R41); a processor's or a franchisor's credit printing the
+# holder's name is no holder's own money, and Capital One's Mercury tails never
+# hide one (R04 parts 1 and 3). The stored metric and the holds move, so a warm
+# cache keyed on 28 would serve them; a re-analysis recomputes the analysis
+# stage from the cached reading. OCR stays cached. No parser changes. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+# 29 -> 30: TRUE-REVENUE audit round 2, batch R2-B05 (R04 parts 2 and 4: the
+# holder-name readers) — fourteen more parsers publish `Statement.holder_name`
+# from page 1's mailing address (Bank of America, Wells Fargo, U.S. Bank, RBC
+# and Banque Royale, Scotiabank, Bluevine, Huntington, Capital One, CIBC,
+# Square, Mission Valley, BMO's US activity layout, Santander and Citibank;
+# Desjardins' reader is held for the owner), TD Canada Trust's French issue reads the
+# English issue's mail-routing anchor, and Chase, Navy Federal, TD Bank and PNC
+# gain a page-1 block fallback where their anchor reads none. Only the holder
+# name moves in the extraction (every transaction is byte-identical); the holder
+# holds read it, so a warm cache keyed on 29 would serve the old tiers; a
+# re-analysis recomputes the analysis stage from the cached reading. OCR stays
+# cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 30 -> 31: TRUE-REVENUE audit round 2, batch R2-B06 (R03; R21 part B's parser
+# line) — Navy Federal's compatibility path reads its block text as tokens with
+# one token of lookahead, so a retail product's amount-first text gives each
+# row its own date and description (the old line reader runs only where that
+# reading does not fit), and the native layout rung reads the one checking
+# product the summary declares instead of 'Business Checking' alone. The
+# cached readings of the four EveryDay Checking statements are the generic
+# block text, so their rows move on re-analysis; a warm cache keyed on 30
+# would serve the shifted rows. OCR stays cached and OCR_STAGE_VERSION is not
+# bumped (a fresh upload reads the layout rung; Business Checking's native
+# output is byte-identical). Pinned in the same change
+# (`tests/test_artifact_cache.py`). The batch's second parser commit (R21 part
+# B) drops the page header both readers glued into the last row before a page
+# break ('Statement of Account', 'Joint Owner(s): NONE'); it ships under the
+# same stage, as nothing was released between the two commits.
+# 31 -> 32: TRUE-REVENUE audit round 2, batch R2-B07 (R07) — the counted
+# core-processor template keeps, on each credit it marks 'payer text not read'
+# at a welded flush, that flush's joined text in a new stored transaction field
+# (`Transaction.unread_payer_text`, written only where set and kept out of the
+# extraction schema), and the true-revenue pass holds such a credit when the
+# run prints a registry lender's or a lending bank's block. Every amount and
+# every published description is unchanged; a warm cache keyed on 31 would
+# serve stored transactions without the field, so those credits would stay
+# counted. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+# 32 -> 33: TRUE-REVENUE audit round 2, batch R2-B16 (R56), in the commit that
+# moves CLASSIFICATION_VERSION 5.6 -> 5.7 (the audit's fix batches B01 to B12,
+# round 2's R2-B01 to R2-B16 and the owner's rulings of 2026-10-02 and
+# 2026-10-06, R2-OW01 to R2-OW18 with R2-L01's ledger admission, moved tiers,
+# reasons and the review gate under 5.6). This bump is required with it:
+# Re-analyze reads the analysis cache through (`_CacheOnly` passes
+# `get_analysis` through), so with 5.7 alone it would return the stage-32
+# entry still stamped 5.6 and the re-analyze notice would survive its own
+# button; at 33 a re-analysis or a re-upload misses that entry and recomputes
+# the analysis stage from the cached reading. A shape change, not only a tier
+# move: the owner batches (their CR2) changed the stored payload without a
+# bump of their own, so a stage-32 entry lacks `Statement.account_title`
+# (R2-OW10, where the holder reader reads a title); the record fields
+# `revenue_funding_series` (R2-OW12, a list on every record),
+# `returned_funder_payment_by` and `returns_funder_payment` (R2-OW13) and
+# `potential_payee_key` (R2-OW18); the metrics' `non_revenue_by_reason`
+# (R2-OW03), `premium_trust_account` (R2-OW11) and
+# `returned_funder_payment_total`, `_count` and `_evidence` (R2-OW13, with the
+# new meaning of `withholding_numerator`); the detection's
+# `returned_funder_payments` and the funder matches' `returned_count`,
+# `returned_total` and `returned_payments` (R2-OW13) and
+# `lender_payment_changes` (R2-OW18); the account key `zelle_counted_reading`
+# (R2-OW17: the counted reading's edits, so a stage-32 entry is served as
+# analysed until it is recomputed); and the reason codes `zelle_excluded`
+# (R2-OW02), `government_no_purpose` (R2-OW03), `customer_financing_payout`
+# and `customer_financing_lump_sum` (R2-OW04), `lender_paid_for_services`
+# (R2-OW05), `construction_progress_draw` and `asset_sale_proceeds`
+# (R2-OW06), `insurer_paid_for_services` (R2-OW08), `finance_named_customer`
+# and `lessor_rent` (R2-OW09) and `premium_trust_account` (R2-OW11), beside
+# R2-B07's `unread_run_names_financing`. The withholding default `true_revenue`
+# (R2-OW14) changes the analysis settings key itself. The package's keys
+# (R2-OW11's premium trust, R2-OW13's returned totals, R2-OW15's matches and
+# R2-OW16's `own_account_transfer_matched` overlay, R2-OW18's payment changes)
+# and the served ones (R2-OW15's flag keys, R2-OW17's `zelle_deposits` and row
+# tag) are computed when served, from the stored analysis. Nothing between 32
+# and 33 was released. OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`). Folded into 33 (the final review of round
+# 2, F2(a), true revenue spec §9.3): a confirmed funder's paid payment pairs on
+# the lender side only with a return dated on or after it, which changes the
+# stored lender fields of a pair a return printed before the payment made (the
+# payment's `reversed_by`, `returned_funder_payment_by`, contributions and
+# reason; the return's `reversal_of`, `settlement_reversal` and
+# `returns_funder_payment`). Stage 33 was never released and the cache held no
+# stage-33 analysis when it landed, so it needs no bump of its own. F1 (the
+# withholding basis) is applied when an analysis is served and F2(b) when a
+# package is built: neither changes a stored analysis.
+# 33 -> 36:TRUE-REVENUE audit round 3, batch R3-B25, in the commit that moves
+# CLASSIFICATION_VERSION 5.7 -> 5.8 (required with it: Re-analyze reads the
+# analysis cache through, so with 5.8 alone it would return the stage-33 entry
+# still stamped 5.7 and the notice would survive its own button; at 36 a
+# re-analysis or a re-upload misses that entry and recomputes the analysis
+# stage from the cached reading). Stages 34 and 35 are skipped: the hosting
+# line (fix/boa-nsf, deployed on the Fly demo) used them for its Capital One
+# carry-in fix (34) and its Bank of America daily-ledger table (35), code this
+# branch merges after the run, never back to 34 or 35, so no entry cached under
+# 34 or 35 is served as this branch's reading. 36 is reserved for this branch
+# (a further hosting-line change takes 37 or above), and since the merge
+# changes the analysis output (those two parsers), the merge commit moves the
+# stage again, to the next free stage above both lines (37 if neither line has
+# moved by then), so no entry cached at 36 before the merge is served as the
+# merged code's (R3-B25 review round 1). The round-3 fix batches (R3-B01 to
+# R3-B24) changed stored output under 5.7 and stage 33 with no bump of their
+# own: R3-B01, the classification of a bank's stop-payment and item charges
+# that name a funder (`fee` or `nsf_or_return`, no lender row; R3-80) and of
+# ODKRAOD's debits as ONDECK's (R3-26: paid to lenders, the withholding
+# numerator and rates, the funder rollup); R3-B02, the record field
+# `represented_by` and, on a returned funder payment the funder re-debited, its
+# `contributes_to_withholding_rate` and reason, the numerator, the rates, the
+# metrics note and the detection item's `represented_*` keys (R3-73), a
+# potential lender's return paired only with a payment on or before it
+# (`reversed_by`, `reversal_of`, contributions; R3-71) and the funding aid's
+# `revenue_funding_series` where a bounced attempt precedes the deposit
+# (R3-66); R3-B03, the metrics' `withholding_basis_below_floor`,
+# `lump_sum_payoff_total` and `lump_sum_payoff_count`, the record field
+# `lump_sum_payoff`, the detection's `lump_sum_payoffs`, the rates, exposure,
+# notes and potential lenders' denominators under the $500 basis floor (R3-20)
+# and a worded payoff's place outside the rate (R3-79); R3-B04 to R3-B06, the
+# statement items of `detection.lender_payment_changes` (items gained and
+# lost, the `catch_up` kind and its fields, `first_after_amount`,
+# `first_after_multiple`, `larger_debits_inside`, `catch_ups_inside`,
+# `other_debits_after.catch_ups`, `payoff.earlier`, `same_amount_debits`,
+# `alongside` and the weekly totals, the funding note's credit); R3-B07,
+# R3-B08, R3-B10 and R3-B12 to R3-B17, the revenue reading of the credits
+# their readers move (state, tier, reason, method, matched rule, sentence,
+# contribution flags; R3-B12's PNC and French P2P rails with their
+# `zelle_prior` signals and `zelle_counted_reading` edits) with their
+# statements' totals, review gate and True-basis rates, R3-B08's credit
+# classes and check, ACH and POS facts where page furniture decided them
+# (R3-92) and R3-B14's Cherry loan credits' D1 record (R3-06); R3-B09, the
+# parser output `Transaction.payer_text_unread` and `unread_payer_text` the
+# daily core-processor, balance-by-date and B1 readers now write (R3-91), the
+# metrics' `payer_text_unread` and its count, and the `possible_return` holds
+# on outgoing e-Transfer labels (R3-75); R3-B11, the 22 holder readers'
+# `Statement.holder_name` and `account_title` on contact lines and the
+# premium-trust forms (R3-61, R3-65; 0 corpus statements); R3-B15, the held
+# rows' `revenue_reason` (R3-53) and the $1 floor's method on demoted rows
+# (R3-63). A warm cache keyed on 33 would serve each of them as the round-2
+# reading. The package (R3-B03's mixed basis, R3-B06's reappearance, R3-B18's
+# `days_shared`, R3-B19's gate on the sums, R3-B20's Zelle `setting`, R3-B24's
+# large-deposit totals), the served flags (R3-B20's unestablished Zelle
+# parts, R3-B24's `large_unsourced_deposit_*`), the downloads (R3-B05's
+# catch-up fields and notes, R3-B06's `reappears_in_other_account` cells,
+# R3-B20's empty Zelle cells and the package's `setting` row, R3-B23's
+# sections, empty cells and title filter, R3-B24's metric rows and sections),
+# the CLI and batch output (R3-B05's catch-up line and
+# `lender_payment_catch_ups` column, R3-B06's stop line, R3-B20's N/A Zelle
+# line and empty `zelle_in_true_revenue_total`, R3-B22's basis columns,
+# R3-B24's columns and line), the copied memos (R3-B22's, R3-B24's) and the
+# census tools are computed when served or exported, never stored. Nothing of
+# this branch's between 33 and 36 was released. OCR stays cached. Pinned in
+# the same change (`tests/test_artifact_cache.py`).
+# The round's final review (R3-FF) is folded into 36, still unreleased: the
+# stored `metrics.withholding_formula` words (F5) and, latent in the corpus, a
+# returned payment whose only re-debit was a worded payoff (F3) and a wire from
+# a company named only with R3-40's words (F4); its member-row rates (F2) and
+# large-deposit floor (F6) are computed when served.
+# The hosting line (`fix/boa-nsf`, served on the Fly demo) moved the stage on
+# its own, from 33, for code this branch did not carry until the merge-back:
+# 33 -> 34 (owner report 2026-10-08, Capital One daily ledger): the parser declares postings printed on the
+# previous-balance day (`Statement.pre_period_carry_in_count`) and the ADB engine folds them into the opening
+# balance, so such a statement's stored ADB and NSF days change from withheld to published; OCR stays cached.
+# 34 -> 35 (owner report 2026-10-08, Bank of America NSF): its verified Daily ledger balances join the stored ledger.
+# 36 -> 37: TRUE-REVENUE audit round 3, R3-MERGE, the merge-back of the hosting
+# line (`fix/boa-nsf` f2e9ae1) into this branch, in the merge commit itself.
+# The merged analysis output differs from both lines' (round 3's readings at
+# 36 with the hosting line's two parser fixes at 34 and 35: a Capital One
+# statement's carry-in fold and a Bank of America statement's verified Daily
+# ledger balances in the stored ledger), so neither line's entry may be served
+# as the merged code's: 37 is the next free stage above both lines (34 and 35
+# are the hosting line's, 36 this branch's). CLASSIFICATION_VERSION stays 5.8:
+# the hosting line changed no classification. The hosting line's dashboard
+# changes (the plain-voice lender notes, the hero, the Monthly Statements
+# columns, the chart's colours) are computed when served, never stored. OCR
+# stays cached. Pinned in the same change (`tests/test_artifact_cache.py`).
+# 37 -> 38: LENDER-DETECTION Amerifi Capital ruling (owner, 2026-10-11), in
+# the commit that moves CLASSIFICATION_VERSION 5.8 -> 5.9 (required with it:
+# Re-analyze reads the analysis cache through, so with 5.9 alone it would
+# return the stage-37 entry still stamped 5.8 and the notice would survive its
+# own button). The ledger admits Amerifi Capital as a confirmed lender (alias
+# AMERIFI CAPITAL), so its debits, stored until now as `potential_lender` rows
+# (D6), become counted lender rows (state, entity, alias, match method, reason,
+# the lender, withholding and lender-count contributions, the potential ones
+# off; a row printing LOC or LINE OF CREDIT is `line_of_credit`, D9) with the
+# account's lender and withholding metrics and its detection (`known_funders`,
+# `potential_lenders`, the lender payment changes' series), and its credits,
+# held until now as unverified deposits, become financing proceeds (D1:
+# `non_revenue`, the lender-credit exclusion) with the revenue totals. No
+# cached corpus row prints the name, so no cached analysis moves; a statement
+# that prints it (the owner's, not in the local cache) does. This change rides
+# the hosting line ahead of true revenue audit round 4, whose last batch
+# therefore takes 39 (and 5.10). OCR stays cached. Pinned in the same change
+# (`tests/test_artifact_cache.py`).
+# 38 -> 39: the code audit of 2026-10-13 (one pull request, branch
+# `audit/2026-10-13`; this is its ONE stage move, made in batch A03). It
+# supersedes the line above: 39 is the audit's, so true revenue audit round 4
+# takes 40 or above. What a warm cache keyed on 38 would serve wrongly: the
+# integrity block of a document whose sum check failed by at most a dollar or
+# could not run (REC-4: `ledger_sum_mismatch` at one cent, the new
+# `ledger_sum_uncheckable`, their notes and risk level); the ADB's
+# `validations` and `warnings` and the account's `notes` on every statement
+# that publishes a bank-printed daily balance (REC-1 step 1, the advisory
+# `bank_daily_balances_agree_with_rows`); every reading of a PNC, IBC,
+# Columbia Bank or First Community statement whose period crosses a year
+# boundary or prints a row or printed cell outside its period (PARSERS-2),
+# and of a CIBC-named document carrying IBC's product phrase (PARSERS-8); and
+# a money token the raising or strict grammar now refuses (PARSERS-4). The
+# batch's other analysis changes need the same invalidation and are covered
+# by this one move: A02's five fenced bank repairs and the re-keyed three
+# (an archive replay moved nothing; an upload could). CLASSIFICATION_VERSION
+# stays 5.9: no classification changed. OCR stays cached. Pinned in the same
+# change (`tests/test_artifact_cache.py`).
+ANALYSIS_STAGE_VERSION = 39
 #: Bump when the HTML renderer's output changes for unchanged settings.
-REPORT_STAGE_VERSION = 1
+#: 1 -> 2: audit 2026-10-13, EXP-1 (`ocr/render.py`): markup printed in statement text is shown as text, the visual-OCR
+#: table markup let through loses its attributes, the header comment is kept only when it carries no angle bracket,
+#: and the page head carries the report's Content-Security-Policy meta tag. Text with no markup renders as before; a
+#: v1 report would keep serving live markup and no policy. OCR and analysis stay cached. Pinned in
+#: `tests/test_artifact_cache.py`.
+#: 2 -> 3: the final review of the same audit, finding 2 (`ocr/render.py`): only the exact, attribute-free table tags
+#: pass through; a table tag carrying anything more or written in capitals, and statement text that only starts like
+#: one ("<TD SAMPLE BANK>"), is shown as text instead of becoming a bare tag that hid its words. A v2 report would keep
+#: hiding them. Value 3 was never used by any branch. OCR and analysis stay cached.
+REPORT_STAGE_VERSION = 3
 #: The OCR artifact's own record shape (P20-ARTIFACTS, Phase 2.0, F-6/§10):
 #: joins the OCR settings key at :data:`OCR_STAGE_VERSION` 5+ so a change to
 #: what `StatementMarkdown` records (independent of which extractor or binary
@@ -716,13 +1080,69 @@ def cache_key(stage: str, input_sha256: str, settings_key: str) -> str:
 # ----------------------------------------------------------------------
 
 
-#: Pinned defaults for the legacy OCR postprocess chain's quarantine state
-#: (`ocr.ocr_client`, cell B1) — used directly, with no import, whenever a
-#: call is labelled ``"offline"`` (that chain is unreachable from the offline
-#: rungs; see `ocr_settings_key`'s docstring) and as the getattr fallback once
-#: B1's module-level constants are read for a ``"visual"``-labelled call.
+#: Pinned values of the legacy OCR postprocess chain's quarantine state (the
+#: retired visual OCR client's `POSTPROCESS_STATE` / `ADMITTED_POSTPROCESS`,
+#: cell B1). FROZEN KEY MATERIAL since slice S2 of the model-code removal: the
+#: client is gone, and these are the values it held ("quarantined", nothing
+#: admitted; proven equal at the S1 head before it was deleted), so every
+#: extractor label's key keeps exactly the material it always had.
 POSTPROCESS_STATE_DEFAULT = "quarantined"
 ADMITTED_POSTPROCESS_DEFAULT: tuple[str, ...] = ()
+
+#: FROZEN KEY MATERIAL (model-code removal, slice S2; plan D3). The visual OCR
+#: service knobs `ocr_settings_key` has always hashed when no ``ocr_settings``
+#: is passed: the defaults `ocr.config.load_settings()` produced on an
+#: environment that set none of OCR_MODEL / OCR_BASE_URL / OCR_NGRAM_SIZE /
+#: OCR_WINDOW_SIZE, with the endpoint class that base URL classified as. The
+#: client and its settings are gone (owner ruling of 2026-10-13: the product
+#: uses no model), but dropping or changing any of these fields would re-key
+#: every cached reading, Tesseract ones included, so they stay as literals.
+#: They name an endpoint and a model that no longer exist; they are key
+#: material only, read by nothing else. Those four environment names no longer
+#: move the key (declared in the S2 report).
+@dataclass(frozen=True)
+class _FrozenOcrSettings:
+    """The frozen stand-in `ocr_settings_key` reads when no ``ocr_settings`` is
+    passed: the same five attributes, by `getattr`, as an explicitly passed
+    settings object (the historical reconstructions in
+    `telemetry/run_of_record.py` and `tools/train/provenance.py`)."""
+
+    model: str = "baidu/Unlimited-OCR"
+    base_url: str = "http://localhost:8000/v1"
+    ngram_size: int = 35
+    window_size: int = 128
+    endpoint_class: str = "loopback"
+
+
+FROZEN_OCR_SETTINGS = _FrozenOcrSettings()
+
+#: FROZEN KEY MATERIAL (model-code removal, slice S3; plan D3). The three
+#: analysis-key fields that described the hosted extractor and its opt-in:
+#: the defaults `analysis.config.load_settings()` produced on an environment
+#: that set neither GEMINI_MODEL nor GEMINI_ESCALATION_MODEL, and the opt-in
+#: absent. The extractor and the opt-in are gone; dropping or changing any of
+#: these would re-key every stored analysis, so `analysis_settings_key` writes
+#: them as these literals for every call. They name models nothing calls; they
+#: are key material only, read by nothing else. GEMINI_MODEL,
+#: GEMINI_ESCALATION_MODEL and HOSTED_EXTRACTION_OPT_IN no longer move the key
+#: (declared in the S3 report).
+FROZEN_ANALYSIS_MODEL = "gemini-3.5-flash-lite"
+FROZEN_ANALYSIS_ESCALATION_MODEL = "gemini-3.5-flash"
+FROZEN_HOSTED_EXTRACTION_OPT_IN = False
+
+#: Model-code removal, slice S4: the fixed refusal of a key or cached read that
+#: asks for the retired visual pair's partition (`allow_visual_pair=True`). The
+#: pair and its settings (`ocr/visual_pair_config.py`) are gone, so that
+#: partition's key cannot be computed; its stored readings are left orphaned.
+VISUAL_PAIR_RETIRED = "the visual pair was removed: no OCR key has a visual-pair partition any more"
+
+#: Model-code removal, slice S5: the fixed refusal of a key or cached read that
+#: asks for the retired PaddleOCR rung's partition (`allow_paddle_ocr=True`).
+#: The rung and its settings (`ocr/paddle_config.py`) are gone, so that
+#: partition's key cannot be computed; its stored readings are left orphaned.
+#: `allow_paddle_ocr=False` stays key material (it always entered the v5+
+#: material), so no deterministic key moves.
+PADDLE_OCR_RETIRED = "the PaddleOCR rung was removed: no OCR key has a Paddle partition any more"
 
 #: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
 #: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
@@ -770,13 +1190,12 @@ def _ocr_extractor(
     ``allow_paddle_ocr=True`` — discovery's Paddle rung,
     `discovery/runner.py::_read_paddle`, P21-ROUTING); ``"visual"`` for the
     forced-escalation call shape (``force_ocr=True`` AND
-    ``allow_visual_ocr=True`` — discovery's visual rung,
-    `discovery/runner.py::_read_visual`). Every other shape, including the
-    ambiguous "auto" call (``force_ocr=False``, ``allow_visual_ocr=True``)
-    where a single ``ocr.pipeline.parse_statement`` call lets the offline
-    ladder go first and only falls through to the visual rung internally, is
-    ``"offline"`` — the offline ladder is what CAN run, whatever eventually
-    does. ``allow_local_ocr`` does not enter the decision: it already
+    ``allow_visual_ocr=True`` — discovery's retired visual rung, deleted in
+    slice S2 of the model-code removal; the label stays so historical
+    reconstructions still compute that partition's key). Every other shape,
+    including the old ambiguous "auto" call (``force_ocr=False``,
+    ``allow_visual_ocr=True``), is ``"offline"`` — the offline ladder is what
+    CAN run, whatever eventually does. ``allow_local_ocr`` does not enter the decision: it already
     partitions the key on its own (native vs local-Tesseract share one
     "offline" label and one settings key, exactly as they always have).
 
@@ -802,25 +1221,14 @@ def _ocr_extractor(
 def _ocr_postprocess_readout(extractor: str) -> tuple[str, tuple[str, ...]]:
     """``(postprocess_state, postprocess_admitted)`` for the OCR settings key.
 
-    The legacy postprocess chain (`ocr.ocr_client`) is imported ONLY for a
-    ``"visual"``-labelled call: ``ocr/pipeline.py`` never even imports that
-    module outside its visual-rung branch, and two tests
-    (`tests/test_discovery.py`, `tests/test_visual_rung.py`) assert the model
-    client module is absent from ``sys.modules`` after an offline-only run.
-    Importing it here unconditionally would silently break that property for
-    every offline document a real cache processes. The value is identical
-    either way — B1's constants are process-wide, not per-call — so skipping
-    the import for ``"offline"`` costs nothing but the import itself."""
-    if extractor != "visual":
-        return POSTPROCESS_STATE_DEFAULT, ADMITTED_POSTPROCESS_DEFAULT
-    from ocr import ocr_client  # lazy: only the visual partition's key needs it
-
-    state = str(getattr(ocr_client, "POSTPROCESS_STATE", POSTPROCESS_STATE_DEFAULT))
-    admitted = tuple(
-        str(item)
-        for item in getattr(ocr_client, "ADMITTED_POSTPROCESS", ADMITTED_POSTPROCESS_DEFAULT)
-    )
-    return state, admitted
+    The frozen pinned values for EVERY extractor label (model-code removal,
+    slice S2). A ``"visual"``-labelled key used to read them off the legacy
+    client (`ocr.ocr_client`), whose module-level constants always equalled
+    these pins; the client is gone, so the visual partition's key — still
+    computed for historical reconstruction (`telemetry/run_of_record.py`,
+    `tools/train/provenance.py`) — keeps exactly the material it had."""
+    del extractor  # every label reads the same frozen pins
+    return POSTPROCESS_STATE_DEFAULT, ADMITTED_POSTPROCESS_DEFAULT
 
 
 def ocr_toolchain_versions() -> dict[str, str]:
@@ -894,6 +1302,8 @@ def ocr_settings_key(
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
     allow_paddle_ocr: bool = False,
+    allow_visual_pair: bool = False,
+    visual_pair_settings: Any | None = None,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -910,10 +1320,14 @@ def ocr_settings_key(
     production's, and `telemetry/run_of_record.py` refuses a run recorded
     under one as historical truth.
 
-    ``ocr_settings`` is an ``ocr.config.Settings`` (or anything with the same
-    attributes); when omitted it is loaded from the environment, so callers
-    that never touch the OCR service still partition correctly if
-    ``OCR_MODEL`` changes under them.
+    ``ocr_settings`` is anything with the attributes ``model``, ``base_url``,
+    ``ngram_size``, ``window_size`` and ``endpoint_class``, read by
+    ``getattr`` (the historical reconstructions in
+    ``telemetry/run_of_record.py`` and ``tools/train/provenance.py`` pass
+    one). When omitted, the frozen :data:`FROZEN_OCR_SETTINGS` literals are
+    hashed: the defaults the retired ``ocr.config.load_settings()`` produced,
+    so every key on a default environment is unchanged, and the environment
+    no longer moves it (model-code removal, slice S2).
 
     ``stage_version`` defaults to the live :data:`OCR_STAGE_VERSION` (5+: the
     v5 key material below is included). Passing an EXPLICIT older version
@@ -922,11 +1336,32 @@ def ocr_settings_key(
     with none of the v5 fields present, because at v4 they did not exist. This
     is what lets ``telemetry/run_of_record.py`` reconstruct a historical run's
     own OCR key (batch 8, batch 9) rather than recompute today's shape under
-    yesterday's version number — the two are not the same key."""
-    if ocr_settings is None:
-        from ocr.config import load_settings as _load_ocr_settings
+    yesterday's version number — the two are not the same key.
 
-        ocr_settings = _load_ocr_settings()
+    ``allow_visual_pair=True`` RAISES ``ValueError`` (model-code removal,
+    slice S4): the visual pair was removed, so no key names its partition any
+    more and its stored readings are orphaned, never re-keyed into a
+    deterministic partition. The parameter and its ``False`` default stay
+    (``False`` never entered the material, so every other key is unchanged);
+    ``visual_pair_settings`` was read only on that branch and is ignored. A
+    stored reading that carries ``visual_pair`` evidence still restores
+    through :func:`cached_ocr`, which re-verifies its hash.
+
+    ``allow_paddle_ocr=True`` RAISES ``ValueError`` the same way (slice S5:
+    the PaddleOCR rung was removed, and its settings with it). The parameter
+    and its ``False`` default stay, and ``"allow_paddle_ocr": False`` stays in
+    the v5+ material, so every deterministic key is unchanged; the Paddle
+    partition's stored readings are orphaned. A stored reading that carries
+    extractor ``evidence`` still restores through :func:`cached_ocr`, which
+    re-verifies it."""
+    if allow_visual_pair:
+        raise ValueError(VISUAL_PAIR_RETIRED)
+    if allow_paddle_ocr:
+        raise ValueError(PADDLE_OCR_RETIRED)
+    del visual_pair_settings  # read only by the retired visual-pair branch
+    if ocr_settings is None:
+        # Frozen key material (plan D3): never read from the environment.
+        ocr_settings = FROZEN_OCR_SETTINGS
     version = OCR_STAGE_VERSION if stage_version is None else int(stage_version)
     partition = _validate_research_partition(research_partition)
     if partition and version < 5:
@@ -984,17 +1419,10 @@ def ocr_settings_key(
             # D7: present ONLY when non-empty — see the docstring. Every
             # extractor label gets its own research partition.
             settings["research_partition"] = partition
-        if extractor == "paddle":
-            # Lazy import: the offline and visual partitions' keys must
-            # never touch Paddle settings at all (asserted by test) — only a
-            # paddle-labelled call reaches this branch. A Paddle read whose
-            # settings CANNOT be loaded (no env) REFUSES here rather than
-            # falling back to a default block: `PaddleConfigError` propagates
-            # unchanged, exactly as the rung itself refuses before any
-            # request (D5, design item 5).
-            from ocr.paddle_config import load_paddle_settings, paddle_settings_key_material
-
-            settings["paddle"] = paddle_settings_key_material(load_paddle_settings())
+        # The Paddle settings block (`settings["paddle"]`, read from
+        # `ocr.paddle_config` for a paddle-labelled key only) was removed with
+        # the rung (slice S5): `allow_paddle_ocr=True` is refused above, so no
+        # key reaches that label any more.
     return _fingerprint(settings)
 
 
@@ -1030,12 +1458,20 @@ def analysis_settings_key(
     different sources would let the key and the rung disagree. The retired
     ``GENERIC_STRUCTURER_ENABLED`` variable is not consulted at all.
 
-    ``hosted_extraction_opt_in`` (P22-FENCE review F3, Ocean's composition
-    item) is the fence's own predicate ``hosted_extraction_opted_in()`` read
-    from the process environment: an auto-mode payload produced under the
-    opt-in literal must never be served later to a process without it (a
-    cache hit is not a call, but it is the same payload). The boolean is
-    derived by the fence, never recomposed here.
+    FROZEN KEY MATERIAL (model-code removal, slice S3; plan D3). ``model``
+    ``"gemini-3.5-flash-lite"``, ``escalation_model`` ``"gemini-3.5-flash"``
+    and ``hosted_extraction_opt_in`` ``False`` are literals for EVERY call,
+    including one that passes a settings object. They named the hosted
+    extractor (``analysis/extract.py``) and its operator opt-in, both removed:
+    nothing they described can change an analysis any more, but dropping or
+    changing any of them would re-key every stored analysis. The literals are
+    the values every default environment wrote (``analysis.config.
+    load_settings``'s defaults, and the opt-in absent), so every entry in the
+    archive keeps its key. Only a process that had overridden ``GEMINI_MODEL``
+    / ``GEMINI_ESCALATION_MODEL`` or set the exact opt-in literal re-keys once,
+    under these frozen defaults (declared). ``parse_mode`` stays real key
+    material: Auto and Deterministic only read alike now, and are still cached
+    apart, as they always were.
     """
     if analysis_settings is None:
         from analysis.config import load_settings as _load_analysis_settings
@@ -1044,20 +1480,23 @@ def analysis_settings_key(
     # Function-local, like ``analysis.config``: importing this module must stay
     # cheap, and the structurer package is only needed when a key is derived.
     from analysis.structurer import structurer_enabled
-    from analysis.pipeline import hosted_extraction_opted_in
     return _fingerprint(
         {
             "stage_version": ANALYSIS_STAGE_VERSION,
             "parse_mode": str(parse_mode),
-            "model": str(getattr(analysis_settings, "model", "")),
-            "escalation_model": str(getattr(analysis_settings, "escalation_model", "")),
+            # Frozen key material (see the docstring): never read from
+            # ``analysis_settings`` or the environment.
+            "model": FROZEN_ANALYSIS_MODEL,
+            "escalation_model": FROZEN_ANALYSIS_ESCALATION_MODEL,
             "withholding_denominator_mode": str(
                 getattr(analysis_settings, "withholding_denominator_mode", "")
             ),
             "parser_registry": registry_fingerprint(),
             "reconstruction_mode": str(getattr(analysis_settings, "reconstruction_mode", "off")),
             "generic_structurer": bool(structurer_enabled(analysis_settings)),
-            "hosted_extraction_opt_in": bool(hosted_extraction_opted_in()),
+            # Frozen key material: the removed opt-in was never set by any
+            # default environment.
+            "hosted_extraction_opt_in": FROZEN_HOSTED_EXTRACTION_OPT_IN,
         }
     )
 
@@ -1120,11 +1559,20 @@ class ArtifactCache:
         return self.root / stage / key[:2] / f"{key}.json"
 
     def _write_payload(self, path: Path, payload: dict) -> int:
+        """Write a payload file through a temporary file of its own and rename it into place (audit 2026-10-13,
+        BE-4): one fixed ``<key>.json.tmp`` was shared by every writer of a key, so two writers of the same entry at
+        once (a CLI pointed at a live server's data directory) could fail each other. The rename is retried briefly
+        on the Windows refusal while a reader has the target open; the temporary file is always removed. The
+        temporary name ends in ``.tmp``, so nothing that lists ``*.json`` payloads ever sees it."""
         path.parent.mkdir(parents=True, exist_ok=True)
         blob = _canonical_json(payload).encode("utf-8")
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_bytes(blob)
-        os.replace(tmp, path)
+        handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.stem[:16]}-", suffix=".json.tmp")
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(blob)
+            _replace_retrying(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
         return len(blob)
 
     # -- generic get/put -----------------------------------------------
@@ -1206,7 +1654,13 @@ class ArtifactCache:
 
         P22-IDENTITY (D5, schema 3): ``native_evidence`` serializes the same
         way, and ``native_evidence_sha256`` stores its sha BESIDE it — the
-        sha a restore must reproduce byte-for-byte and re-verify against."""
+        sha a restore must reproduce byte-for-byte and re-verify against.
+
+        ``visual_pair`` / ``visual_pair_sha256`` are written only for a
+        document that carries visual-pair evidence. No reader produces one
+        since the pair was removed (model-code removal, slice S4); the shape
+        stays unchanged so the artifact format, and every stored reading, is
+        exactly what it was."""
         evidence = getattr(document, "evidence", None) if document is not None else None
         native_evidence = getattr(document, "native_evidence", None) if document is not None else None
         return self.put(
@@ -1218,6 +1672,9 @@ class ArtifactCache:
                 if document is None
                 else {
                     "model": document.model,
+                    **({"visual_pair": document.visual_pair,
+                        "visual_pair_sha256": _fingerprint(document.visual_pair)}
+                       if getattr(document, "visual_pair", None) is not None else {}),
                     "pages": [str(page) for page in document.pages],
                     "page_integrity": [
                         item.to_dict()
@@ -1322,6 +1779,8 @@ def cached_ocr(
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
     allow_paddle_ocr: bool = False,
+    allow_visual_pair: bool = False,
+    visual_pair_settings: Any | None = None,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -1380,7 +1839,15 @@ def cached_ocr(
     overwritten on that path (nothing was computed to overwrite it with): it
     is found — and reported — again on the next call, never lost and never
     served. An exception with no drift behind it carries no attribute.
+
+    ``allow_visual_pair=True`` (model-code removal, slice S4) and
+    ``allow_paddle_ocr=True`` (slice S5) raise ``ValueError`` before
+    ``compute`` runs, with or without a cache (see :func:`ocr_settings_key`).
     """
+    if allow_visual_pair:
+        raise ValueError(VISUAL_PAIR_RETIRED)
+    if allow_paddle_ocr:
+        raise ValueError(PADDLE_OCR_RETIRED)
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
     input_sha = content_hash or content_sha256(pdf_bytes)
@@ -1389,6 +1856,8 @@ def cached_ocr(
         allow_local_ocr=allow_local_ocr,
         allow_visual_ocr=allow_visual_ocr,
         allow_paddle_ocr=allow_paddle_ocr,
+        allow_visual_pair=allow_visual_pair,
+        visual_pair_settings=visual_pair_settings,
         dpi=dpi,
         fallback_dpi=fallback_dpi,
         ocr_settings=ocr_settings,
@@ -1400,6 +1869,11 @@ def cached_ocr(
     if hit:
         try:
             evidence_payload = document.get("evidence") if document is not None else None
+            # Kept after the visual pair's removal (slice S4): a stored reading that carries its evidence still
+            # restores, and only when the evidence reproduces the hash stored beside it.
+            if document is not None and document.get("visual_pair") is not None:
+                if _fingerprint(document["visual_pair"]) != document.get("visual_pair_sha256"):
+                    raise ProvenanceTokenError("visual pair cache evidence hash mismatch")
             value = (
                 None
                 if document is None
@@ -1414,6 +1888,7 @@ def cached_ocr(
                     page_extractor=list(document.get("page_extractor") or []),
                     evidence=from_json(evidence_payload) if evidence_payload is not None else None,
                     native_evidence=_restore_native_evidence(document),
+                    visual_pair=document.get("visual_pair"),
                 )
             )
         except (EvidenceError, ProvenanceTokenError, TypeError, KeyError):

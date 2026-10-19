@@ -1,1 +1,0 @@
-<table><tr><td>DATE04/06</td><td>DESCRIPTIONx</td><td>DEBIT10.00</td><td>BALANCE5.00</td></tr></table>

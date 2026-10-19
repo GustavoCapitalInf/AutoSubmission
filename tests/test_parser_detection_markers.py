@@ -209,3 +209,51 @@ def test_bare_bank_name_alone_is_never_enough(module, name, positive, negative, 
         "First Citizens", "Mission Valley Bank", "Texas Bank and Trust",
     ):
         assert not _detect(module, name, f"Some other bank's statement\n{bare}\n").claims
+
+
+# --- IBC: the issuer marker must not fire inside another bank's name ----------
+# (audit 2026-10-13 PARSERS-8). The marker was the substring "IBC", which every
+# CIBC statement prints ("CIBC") and which RBC/TD/BMO documents carry in
+# counterparty text, so IBC's claim rested on its product phrase alone and a
+# false `ibc` near-miss was published for every such document. The marker is
+# now the WORD IBC. Fabricated fixtures; account numbers are zeros.
+
+_IBC_PRODUCT = "Biz Rite Account Recap Account Number: 0000\n"
+
+
+@pytest.mark.parametrize("text", [
+    "CIBC\nAccount Summary\n",
+    "CIBC Bank USA\nAccount Summary\n",
+    "www.cibc.com\nAccount Summary\n",
+    "CONTOSO TRADING\n01/15 WIRE FROM CIBC REF 0000 250.00\n",
+])
+def test_the_ibc_bank_name_marker_does_not_fire_inside_another_name(text):
+    from analysis import ibc
+
+    detection = ibc.detect(text)
+    assert "bank_name" not in detection.matched, detection
+    assert detection.score == 0.0, detection
+
+
+def test_another_banks_statement_quoting_the_ibc_product_phrase_is_not_claimed():
+    """The latent hazard: before, a CIBC document that printed IBC's product
+    phrase scored 0.5 and was claimed by IBC."""
+    from analysis import ibc
+
+    detection = ibc.detect("CIBC Bank USA\n" + _IBC_PRODUCT)
+    assert not detection.claims, detection
+    assert "bank_name" not in detection.matched
+
+
+@pytest.mark.parametrize("header", ["IBC", "IBC BANK", "WWW.IBC.COM", "Member FDIC IBC"])
+def test_ibc_still_recognises_its_own_name(header):
+    from analysis import ibc
+
+    detection = ibc.detect(f"{header}\n" + _IBC_PRODUCT)
+    assert detection.claims, detection
+
+
+def test_the_ibc_name_alone_is_never_enough():
+    from analysis import ibc
+
+    assert not ibc.detect("Some other bank's statement\nIBC\n").claims

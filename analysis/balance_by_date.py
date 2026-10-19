@@ -309,7 +309,9 @@ _ROW_AMOUNT_RE = re.compile(rf"{_DATE_RE}[ \t]+({_FIGURE})(?!\d)")
 _ROW_SERIAL_RE = re.compile(rf"{_DATE_RE}[ \t]+(\d{{2,7}})[ \t]*\*?[ \t]+({_FIGURE})(?!\d)")
 
 
-def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str]] | None:
+def _grid_rows(
+    body: str, kind: str, columns: int, *, own_transfers: bool = False, unread: list[str] | None = None,
+) -> list[tuple[str, float, str]] | None:
     """`(mm/dd, value, description)` for every row of one grid.
 
     Read ONE PRINTED LINE AT A TIME, and a line may yield at most `columns`
@@ -340,14 +342,23 @@ def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str
     row's column - so the continuation lines of two side-by-side rows arrive
     interleaved with no column boundary left in the text, and attributing one
     to a row would be a guess with a plausible-looking result.  What is
-    published is what the row's own line printed.
+    published is what the row's own line printed. Audit B10 (I05): with one
+    exception the printing proves, `_with_own_transfer_field`, on a credit
+    section (`own_transfers`).
+
+    Audit round 3, R3-B09 (R3-91): `unread`, when given, receives one string
+    per returned row, in order: the continuation line an incoming wire on that
+    line keeps apart from its description (`_unread_wire_lines`), else "". The
+    caller passes it for a credit section only.
     """
     pattern = _ROW_SERIAL_RE if kind == "serial" else _ROW_AMOUNT_RE
     rows: list[tuple[str, float, str]] = []
-    for line in body.splitlines():
+    lines = body.splitlines()
+    for number, line in enumerate(lines):
         matches = list(pattern.finditer(line))
         if len(matches) > columns:
             return None
+        published: list[tuple[str, float, str]] = []
         for index, match in enumerate(matches):
             value = _figure(match.group(pattern.groups))
             if value is None:
@@ -358,8 +369,88 @@ def _grid_rows(body: str, kind: str, columns: int) -> list[tuple[str, float, str
                 description = f"Check {match.group(2)}"
             else:
                 description = " ".join(trailing.split())
-            rows.append((match.group(1), value, description))
+            published.append((match.group(1), value, description))
+        below = lines[number + 1] if number + 1 < len(lines) else ""
+        texts = [""] * len(published)
+        if unread is not None and kind == "amount":
+            texts = _unread_wire_lines(published, below, pattern)
+        if own_transfers and kind == "amount":
+            published = _with_own_transfer_field(published, below, pattern)
+        rows.extend(published)
+        if unread is not None:
+            unread.extend(texts)
     return rows
+
+
+#: Audit B10 (I05): the label this template prints on an online-banking transfer
+#: into the account, and the field it prints for it on the line below, in the
+#: row's own column: `OLB XFER FROM <the other account's last four digits>`.
+_TRANSFER_CREDIT_LABEL = "TRNSFR CREDIT"
+_OWN_TRANSFER_FROM = re.compile(r"(?<![A-Z0-9])OLB XFER FROM \d{4}(?![0-9])")
+
+
+def _with_own_transfer_field(
+    published: list[tuple[str, float, str]], below: str, pattern: re.Pattern[str],
+) -> list[tuple[str, float, str]]:
+    """Audit B10 (I05): the one continuation field this reader attributes.
+
+    The line below a row's line carries the continuations of every row of that
+    line with no column boundary left, which is why `_grid_rows` attributes
+    none of them. The transfer field is the exception the printing proves: it
+    is a fixed form only a `TRNSFR CREDIT` row prints, so when the line below
+    (a line printing no row of its own) holds exactly as many such fields as
+    the row's line holds such rows, they are those rows' fields, left to right,
+    the order the columns print in. Any other count attributes nothing."""
+    transfers = [index for index, (_day, _value, text) in enumerate(published) if text == _TRANSFER_CREDIT_LABEL]
+    if not transfers or not below or pattern.search(below):
+        return published
+    fields = _OWN_TRANSFER_FROM.findall(below)
+    if len(fields) != len(transfers):
+        return published
+    result = list(published)
+    for index, field in zip(transfers, fields):
+        day, value, text = result[index]
+        result[index] = (day, value, f"{text} {' '.join(field.split())}")
+    return result
+
+
+#: Audit round 3, R3-B09 (R3-91): this template's incoming-wire labels, read on
+#: the published description after any column rule the layer left before it
+#: (`| INCOMING USD WIRE`): a short list of the platform's own wording, never a
+#: sender's name.
+_INCOMING_WIRE_LABEL = re.compile(
+    r"^[^A-Za-z]*(?:INCOMING(?: (?:USD|FX|INTL|INTERNATIONAL|DOMESTIC|FOREIGN))? WIRE|DOMESTIC WIRE|FEDWIRE|WIRE)"
+    r"(?![A-Za-z])",
+    re.IGNORECASE,
+)
+#: A page break's marker, which never continues a row.
+_PAGE_MARK = re.compile(r"^\s*-{3} Page \d+ -{3}\s*$")
+
+
+def _unread_wire_lines(
+    published: list[tuple[str, float, str]], below: str, pattern: re.Pattern[str],
+) -> list[str]:
+    """Audit round 3, R3-B09 (R3-91): the payer line an incoming wire keeps
+    apart from its description, one string per row of its line ("" for none).
+
+    The line below a row's line carries the continuations of every row of that
+    line with no column boundary left, so `_grid_rows` attributes none of them
+    (a guess with a plausible-looking result), and the wire published only its
+    label reads as 'no sender printed' although the statement printed one. When
+    that line prints no row of its own, is no page furniture, and is not only
+    the own-transfer field `_with_own_transfer_field` reads, each incoming wire
+    of the row's line (`_INCOMING_WIRE_LABEL`) keeps the WHOLE line: text the
+    statement printed for SOME row of the line, never proven the wire's, which
+    is what `Transaction.unread_payer_text` means. No description moves."""
+    blank = [""] * len(published)
+    if not below.strip() or pattern.search(below) or _PAGE_MARK.match(below) or _PERIOD_RE.search(below):
+        return blank
+    if _with_own_transfer_field(published, below, pattern) != published and not re.search(
+        r"[A-Za-z0-9]", _OWN_TRANSFER_FROM.sub(" ", below)
+    ):
+        return blank
+    line = " ".join(below.split())
+    return [line if _INCOMING_WIRE_LABEL.match(text) else "" for _day, _value, text in published]
 
 
 # ---------------------------------------------------------------------------
@@ -684,7 +775,14 @@ def _parse(text: str) -> Statement | None:
     debits: list[float] = []
     daily_rows: list[tuple[str, float, str]] = []
     for name, kind, columns, body in sections:
-        rows = _grid_rows(body, kind, columns)
+        # Audit B10 (I05): a credit section reads its transfers' own field (a
+        # debit section keeps its labels until the owner admits the debit
+        # readings, G7). Audit round 3, R3-B09 (R3-91): and keeps the line an
+        # incoming wire's payer was printed on apart from its description.
+        credit_section = name in _CREDIT_SECTIONS
+        unread: list[str] = []
+        rows = _grid_rows(body, kind, columns, own_transfers=credit_section,
+                          unread=unread if credit_section else None)
         if rows is None:
             return None
         if name == "balance by date":
@@ -693,7 +791,9 @@ def _parse(text: str) -> Statement | None:
         if name not in _CREDIT_SECTIONS and name not in _DEBIT_SECTIONS:
             return None
         sign = 1 if name in _CREDIT_SECTIONS else -1
-        for token, value, description in rows:
+        if len(unread) != len(rows):
+            unread = [""] * len(rows)
+        for (token, value, description), payer_line in zip(rows, unread):
             day = _resolve(token, start=start, end=end)
             if day is None:
                 return None
@@ -703,6 +803,8 @@ def _parse(text: str) -> Statement | None:
                 description=description or "(no description)",
                 amount=round(sign * value, 2),
                 direction="credit" if sign > 0 else "debit",
+                payer_text_unread=bool(payer_line) and sign > 0,
+                unread_payer_text=payer_line if sign > 0 else "",
             ))
 
     if not txns or not daily_rows:

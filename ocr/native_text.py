@@ -144,6 +144,58 @@ def _native_pages(pdf_bytes: bytes) -> list[str] | None:
     return None if pages is None else list(pages)
 
 
+@lru_cache(maxsize=4)
+def _sorted_pages_cached(pdf_bytes: bytes) -> tuple[str, ...] | None:
+    """Every page's layout-sorted text (`get_text("text", sort=True)`), memoised on the document's own bytes.
+
+    Audit 2026-10-13 (INTAKE-3 / PERF-01 part a; speed only, owner ruling of 2026-10-13). The sort is PyMuPDF's
+    pure-Python one and the largest single cost of the native read. Two rungs read it: the first rung of the ladder
+    for every native document (its markers, then its rows), and the fifth for every document no earlier rung
+    claimed. Without the memo the same text was built two or three times per page; with it, once per document.
+
+    The value is the one each rung computed for itself, page for page: the same call through `_page_text`, the same
+    `or ""`. The outcomes are remembered as they were answered:
+
+    * None when PyMuPDF is missing, the bytes do not open, or any page's text layer is unreadable
+      (`_UnreadableTextLayer`): a whole-document refusal, which both rungs answer with None, as they did;
+    * any other exception (a mistake in how get_text is called, a defect) escapes and is NOT remembered, because
+      lru_cache never caches an exception: the next call reads again and fails as loudly.
+
+    A TUPLE is held; `_sorted_pages` hands each caller a fresh list. The handle opened here is closed here (the two
+    rungs used to open their own and leave them open). Four entries, as `_native_pages_cached`: the ladder works one
+    document at a time.
+    """
+    try:
+        import fitz
+    except Exception:
+        return None
+    try:
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return None
+    try:
+        return tuple(_page_text(page, "text", sort=True) or "" for page in doc)
+    except _UnreadableTextLayer:
+        return None
+    finally:
+        try:
+            doc.close()
+        except Exception:  # noqa: BLE001 — a close failure is not an answer
+            pass
+
+
+def _sorted_pages(pdf_bytes: bytes) -> list[str] | None:
+    pages = _sorted_pages_cached(pdf_bytes)
+    return None if pages is None else list(pages)
+
+
+def clear_page_caches() -> None:
+    """Empty both page-text memos (`_native_pages_cached`, `_sorted_pages_cached`): for tests and tools that stub
+    MuPDF under the same bytes, or that time a cold read."""
+    _native_pages_cached.cache_clear()
+    _sorted_pages_cached.cache_clear()
+
+
 def text_layer_refusal(pdf_bytes: bytes) -> str | None:
     """Why MuPDF could not read this PDF's text layer, or None if it could.
 
@@ -165,6 +217,52 @@ _NAVY_AMOUNT_BALANCE_RE = re.compile(
     r"^(.*?)([\d,]+\.\d{2})\s*(-)?\s+([\d,]+\.\d{2})\s*(-)?\s*$"
 )
 _NAVY_PERIOD_RE = re.compile(r"\d{2}/\d{2}/\d{2}\s+-\s+\d{2}/\d{2}/\d{2}")
+#: Audit round 2, R2-B06 (R03 part 2): the deposit table the statement declares its accounts in, a deposit product's
+#: own line ('<qualifier> Checking' / '<qualifier> Savings') and the account number that opens the line under it, as
+#: analysis.navy_federal reads them (`_SUMMARY_HEADING`, `_PRODUCT_LINE_RE`, `_ACCOUNT_LINE_RE`; ocr never imports
+#: analysis, so the rule is restated here).
+_NAVY_SUMMARY_HEADING_RE = re.compile(r"Summary of your deposit accounts", re.IGNORECASE)
+_NAVY_PRODUCT_LINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9&'./ -]{0,30}?(?:Checking|Savings)")
+_NAVY_ACCOUNT_LINE_RE = re.compile(r"(\d{6,})(?:\s|$)")
+#: Audit round 2, R2-B06 (R03 part 2): the grid's column header a section heading can be merged into
+#: (analysis.navy_federal._GRID_HEADER).
+_NAVY_GRID_HEADER = r"(?:Date\s+Transaction Detail\s+Amount\(\$\)\s+Balance\(\$\)\s+)?"
+#: Audit round 2, R2-B06 (R03 part 2): any account's section heading, '<name> - <digits>' on its own line (a
+#: continuation marker after it), where the next account's section begins whatever its product.
+_NAVY_SECTION_HEADING_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9&'./ -]{0,30}\s+-\s+\d{4,}(?:\s+\(Continued from previous page\))?$"
+)
+
+
+def _navy_checking_account(full_text: str) -> tuple[str, str] | None:
+    """Audit round 2, R2-B06 (R03 part 2): (product, account) of the one checking product the summary table declares,
+    confirmed by its own '<product> - <account>' section heading (analysis.navy_federal._checking_account's rule); None
+    for no checking product, for two or more checking products, or for a product no section heading confirms."""
+    text = "\n".join(re.sub(r"\s+", " ", line).strip() for line in full_text.splitlines())
+    heading = _NAVY_SUMMARY_HEADING_RE.search(text)
+    if heading is None:
+        return None
+    region = text[heading.end():]
+    stops = [index for index in (region.find("\nTotals"), region.find("REMITTANCE")) if index > 0]
+    if stops:
+        region = region[:min(stops)]
+    checking: list[tuple[str, str]] = []
+    product: str | None = None
+    for line in region.splitlines():
+        if not line:
+            continue
+        name = _NAVY_PRODUCT_LINE_RE.fullmatch(line)
+        if name:
+            product = name.group(0)
+            continue
+        account = _NAVY_ACCOUNT_LINE_RE.match(line)
+        if account and product and product.lower().endswith("checking"):
+            checking.append((product, account.group(1)))
+    if len({name for name, _ in checking}) != 1:
+        return None
+    product, account_number = checking[0]
+    confirmed = re.search(r"(?m)^" + _NAVY_GRID_HEADER + re.escape(f"{product} - {account_number}") + r"(?!\d)", text)
+    return (product, account_number) if confirmed else None
 
 
 class _NavyPendingRow(TypedDict):
@@ -174,13 +272,18 @@ class _NavyPendingRow(TypedDict):
     balance: str | None
 
 
-def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
+def _navy_transaction_rows(pages: list[str], account: str, product: str) -> tuple[list[str], list[str]]:
     """Recover Navy Federal's primary checking rows from the PDF's geometry.
 
     Generic block sorting loses row ownership because the date/description and
     amount/balance columns have slightly different baselines. Layout-sorted text
     preserves that ownership, including descriptions and amounts that wrap onto
     the next line or page.
+
+    Audit round 2, R2-B06 (R03 part 2): the section opens on the checking
+    product's own heading, `<product> - <account>` (it opened on 'Business
+    Checking' alone, so a retail product's statement was never read here), and
+    it also ends at any other account's `<name> - <digits>` heading.
     """
     rows: list[str] = []
     source_dates: list[str] = []
@@ -212,18 +315,22 @@ def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
             )
         pending = None
 
-    for page in doc:
-        for raw_line in _page_text(page, "text", sort=True).splitlines():
+    # Audit 2026-10-13 (INTAKE-3): the pages' sorted text, as the rung's marker test read it (_sorted_pages_cached),
+    # not a second sort of every page.
+    for page_text in pages:
+        for raw_line in page_text.splitlines():
             line = re.sub(r"\s+", " ", raw_line).strip()
             if not line:
                 continue
 
-            if line.startswith(f"Business Checking - {account}"):
+            if line.startswith(f"{product} - {account}"):
                 active = True
                 continue
             if not active:
                 continue
-            if line.startswith(("Mbr Business Savings", "Bus Money Mkt Savings", "Savings")):
+            if line.startswith(("Mbr Business Savings", "Bus Money Mkt Savings", "Savings")) or (
+                _NAVY_SECTION_HEADING_RE.match(line)
+            ):
                 flush()
                 active = False
                 continue
@@ -234,6 +341,9 @@ def _navy_transaction_rows(doc, account: str) -> tuple[list[str], list[str]]:
                         "Statement Period",
                         "Access No.",
                         "Statement of Account",
+                        # Audit round 2, R2-B06 (R21 part B): the joint owners' line a retail statement prints
+                        # under every continued section heading, after the last row of the page before.
+                        "Joint Owner",
                         "For ",
                         "(Continued",
                         "Date Transaction Detail",
@@ -289,34 +399,24 @@ def parse_native_navy_federal(
     pdf_bytes: bytes, source_file: str = ""
 ) -> StatementMarkdown | None:
     """Native Navy Federal extraction with explicit, layout-aware ledger rows."""
-    try:
-        import fitz
-    except Exception:
+    # Audit 2026-10-13 (INTAKE-3 / PERF-01 a): the sorted text is read once per document (_sorted_pages_cached), and
+    # its None is every refusal this rung made itself: no PyMuPDF, bytes that do not open, an unreadable text layer.
+    sorted_pages = _sorted_pages(pdf_bytes)
+    if sorted_pages is None:
         return None
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception:
-        return None
-
-    try:
-        full_text = "\n".join(_page_text(page, "text", sort=True) or "" for page in doc)
-    except _UnreadableTextLayer:
-        return None
+    full_text = "\n".join(sorted_pages)
     upper = full_text.upper()
-    if (
-        "NAVY FEDERAL" not in upper
-        or "SUMMARY OF YOUR DEPOSIT ACCOUNTS" not in upper
-        or "BUSINESS CHECKING" not in upper
-    ):
+    if "NAVY FEDERAL" not in upper or "SUMMARY OF YOUR DEPOSIT ACCOUNTS" not in upper:
         return None
-    account_match = re.search(r"Business Checking\s+(\d{6,})", full_text)
-    if account_match is None:
+    # Audit round 2, R2-B06 (R03 part 2): the one checking product the summary declares, confirmed by its own section
+    # heading, as the analysis parser reads it; 'Business Checking' was the only product read here, so every retail
+    # statement fell through to the generic rung's block text.
+    checking = _navy_checking_account(full_text)
+    if checking is None:
         return None
+    product, account = checking
 
-    try:
-        rows, source_dates = _navy_transaction_rows(doc, account_match.group(1))
-    except _UnreadableTextLayer:
-        return None
+    rows, source_dates = _navy_transaction_rows(sorted_pages, account, product)
     pages = _native_pages(pdf_bytes)
     if not pages or not rows:
         return None
@@ -856,18 +956,10 @@ def parse_native_desjardins(pdf_bytes: bytes, source_file: str = "") -> Statemen
     description stream. PyMuPDF's sorted text preserves enough spacing and row
     continuation to parse the ledger deterministically.
     """
-    try:
-        import fitz
-    except Exception:
-        return None
-    try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    except Exception:
-        return None
-
-    try:
-        pages = [_page_text(page, "text", sort=True) or "" for page in doc]
-    except _UnreadableTextLayer:
+    # Audit 2026-10-13 (INTAKE-3 / PERF-01 a): the same sorted text the first rung read, from the memo, as a list of
+    # this rung's own; None is every refusal this rung made itself.
+    pages = _sorted_pages(pdf_bytes)
+    if pages is None:
         return None
     full_text = "\n".join(pages).upper()
     if (

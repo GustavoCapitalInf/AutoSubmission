@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 import sys
 from PIL import Image
-from pdf2image import convert_from_bytes, pdfinfo_from_bytes
+from pdf2image import convert_from_bytes, convert_from_path, pdfinfo_from_bytes, pdfinfo_from_path
 
 POPPLER_PATH = (
     None if sys.platform != "win32"
@@ -39,6 +39,31 @@ def rasterize_pdf(pdf_bytes: bytes, dpi: int = 300) -> list[Image.Image]:
     relative to — so a raster's pixel frame and the native display frame
     describe the same rectangle."""
     return convert_from_bytes(pdf_bytes, dpi=dpi, poppler_path=POPPLER_PATH, use_cropbox=True)
+
+
+def rasterize_pages_to_files(
+    pdf_path: str | os.PathLike, output_folder: str | os.PathLike, *,
+    first_page: int, last_page: int, dpi: int, timeout: float | None = None,
+) -> list[str]:
+    """Rasterize pages `first_page`..`last_page` (1-based, inclusive) of the PDF at `pdf_path` into PPM files in
+    `output_folder`, returning their paths in page order.
+
+    The same Poppler call as `rasterize_pdf` (`pdftoppm -r <dpi> -cropbox -f <first> -l <last>`; RASTER_VERSION 2);
+    only the output target differs: files named `<prefix>-<page>.ppm` instead of one stdout stream holding every
+    page, so a caller can decode and release one page at a time (audit 2026-10-13, INTAKE-1/BE-3). The pixels are
+    the same, so RASTER_VERSION does not move. `timeout` (seconds) kills a pdftoppm that runs past it and raises
+    pdf2image's `PDFPopplerTimeoutError`. pdf2image does not read pdftoppm's exit status, so a caller must check that
+    it got the pages it asked for."""
+    return convert_from_path(
+        os.fspath(pdf_path), dpi=dpi, first_page=first_page, last_page=last_page,
+        output_folder=os.fspath(output_folder), paths_only=True, poppler_path=POPPLER_PATH,
+        use_cropbox=True, timeout=timeout,
+    )
+
+
+def pdf_page_count_at(pdf_path: str | os.PathLike, *, timeout: float | None = None) -> int:
+    """The page count of the PDF at `pdf_path` (pdfinfo), killed past `timeout` seconds."""
+    return pdfinfo_from_path(os.fspath(pdf_path), poppler_path=POPPLER_PATH, timeout=timeout)["Pages"]
 
 
 def pdf_page_count(pdf_bytes: bytes) -> int:

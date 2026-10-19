@@ -1,0 +1,23 @@
+# Intern-testing webapp. Do not copy into a production image.
+#
+# Bank Statements/ holds customer PDFs — never bake them into the image.
+Bank Statements/
+Bank Statements/**
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+webapp_data
+telemetry_runs
+discovery_reports
+benchmark_reports
+moneythumbResults
+.claude
+docs
+tests
+*.md
+!README.md
+.env
+.env.local
+.cursor

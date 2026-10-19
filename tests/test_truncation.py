@@ -13,13 +13,10 @@ import re
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
 from corpus_artifacts import DEFAULT_CACHE, manifest_entries
-from ocr.config import Settings
 from ocr.document import StatementMarkdown
 from ocr.native_text import _native_pages
-from ocr.ocr_client import ocr_page, postprocess
 from ocr.pipeline import parse_statement
 from ocr.truncation import (
     PageIntegrity,
@@ -191,10 +188,13 @@ def test_empty_and_whitespace_pages_do_not_flag():
     ]
 
 
-def test_postprocess_of_a_full_read_never_manufactures_a_signal():
-    # The cleanup chain rebuilds tables (fused-header repair, amount-bleed fix,
-    # det-tag stripping, image embedding). Whatever it does, a complete read must
-    # come out balanced — otherwise the detector would flag clean pages.
+def test_a_complete_raw_legacy_visual_read_never_manufactures_a_signal():
+    # A stored legacy visual read (region tags, a placeholder marker, a fused
+    # table) that is complete must come out balanced — otherwise the detector
+    # would flag clean pages. The postprocess-chain half of this test left
+    # with the visual OCR client (slice S2); OQ1 = C already meant nothing
+    # ran that chain on the analysis path, so the detector only ever saw the
+    # raw completion, which is what is asserted here.
     raw = (
         "<|det|>title [10, 10, 900, 40]<|/det|>STATEMENT OF ACCOUNT\n"
         "[Non-Text]\n"
@@ -204,14 +204,6 @@ def test_postprocess_of_a_full_read_never_manufactures_a_signal():
         "<td>235.17</td></tr></table>\n"
         "<|det|>footer [819, 811, 942, 825] Page 4 of 10 Page 4 of 10"
     )
-    cleaned = postprocess(raw)
-    assert "<table>" in cleaned  # the chain really did run over a table
-    assert structural_tail_signals(cleaned) == []
-    # Review MINOR-5: OQ1 = C means NOTHING calls `postprocess` on the
-    # analysis path any more -- `assess_pages` sees the RAW completion, not
-    # `cleaned`. The property this test exists to prove ("a complete read
-    # never flags") must hold on the text the detector actually sees now,
-    # not only on a text no production path produces any more.
     assert structural_tail_signals(raw) == []
 
 
@@ -261,120 +253,28 @@ def test_page_integrity_serializes_to_a_plain_dict():
 
 
 # ---------------------------------------------------------------------------
-# OCR client: the endpoint's own signals reach the page text
-# ---------------------------------------------------------------------------
-
-class _M:  # generic attribute holder, matching tests/test_ocr_client.py
-    pass
-
-
-class _FakeCompletions:
-    def __init__(self, text, finish_reason=None, completion_tokens=None):
-        self.text = text
-        self.finish_reason = finish_reason
-        self.completion_tokens = completion_tokens
-        self.calls = []
-
-    def create(self, **kwargs):
-        self.calls.append(kwargs)
-        if kwargs.get("stream"):
-            return self._stream()
-        choice = _M()
-        choice.message = _M()
-        choice.message.content = self.text
-        if self.finish_reason is not None:
-            choice.finish_reason = self.finish_reason
-        resp = _M()
-        resp.choices = [choice]
-        if self.completion_tokens is not None:
-            resp.usage = _M()
-            resp.usage.completion_tokens = self.completion_tokens
-        return resp
-
-    def _stream(self):
-        mid = len(self.text) // 2
-        for part in (self.text[:mid], self.text[mid:]):
-            chunk = _M()
-            choice = _M()
-            choice.delta = _M()
-            choice.delta.content = part
-            chunk.choices = [choice]
-            yield chunk
-        # Terminal chunk: empty delta, finish_reason attached (the real shape).
-        chunk = _M()
-        choice = _M()
-        choice.delta = _M()
-        choice.delta.content = None
-        choice.finish_reason = self.finish_reason
-        chunk.choices = [choice]
-        yield chunk
-        if self.completion_tokens is not None:
-            # A usage-only trailing chunk carries no choices at all.
-            usage_chunk = _M()
-            usage_chunk.choices = []
-            usage_chunk.usage = _M()
-            usage_chunk.usage.completion_tokens = self.completion_tokens
-            yield usage_chunk
-
-
-class _FakeClient:
-    def __init__(self, text, finish_reason=None, completion_tokens=None):
-        self.chat = _M()
-        self.chat.completions = _FakeCompletions(text, finish_reason, completion_tokens)
-
-
-def _settings():
-    return Settings(base_url="http://x/v1", api_key="k", model="m", timeout=1, retries=1,
-                    max_workers=1, ngram_size=35, window_size=128)
-
-
-def _img():
-    return Image.new("RGB", (40, 40), (255, 255, 255))
-
-
-def test_ocr_page_carries_the_endpoint_finish_reason_and_usage():
-    client = _FakeClient("<table><tr><td>03/19</td><td>DEPO",
-                         finish_reason="length", completion_tokens=4096)
-    out = ocr_page(_img(), settings=_settings(), client=client)
-    assert out.finish_reason == "length"
-    assert out.completion_tokens == 4096
-    assert out.max_tokens == 4096  # ocr_client._MAX_TOKENS, the ceiling requested
-    assert assess_page(out).truncated
-
-
-def test_ocr_page_carries_the_finish_reason_from_the_final_stream_chunk():
-    client = _FakeClient("HELLO WORLD 12345", finish_reason="length", completion_tokens=4096)
-    deltas = []
-    out = ocr_page(_img(), settings=_settings(), client=client, on_delta=deltas.append)
-    assert "".join(deltas) == "HELLO WORLD 12345"  # streaming unchanged
-    assert out == "HELLO WORLD 12345"
-    assert out.finish_reason == "length"
-    assert out.completion_tokens == 4096
-
-
-def test_ocr_page_reports_no_model_signal_when_the_endpoint_is_silent():
-    # The bundled local_ocr_server.py reports finish_reason but never usage;
-    # a barer endpoint reports neither. Neither case may invent a flag.
-    client = _FakeClient("# Page markdown\n<table></table>")
-    out = ocr_page(_img(), settings=_settings(), client=client)
-    assert out == "# Page markdown\n<table></table>"
-    assert out.finish_reason is None and out.completion_tokens is None
-    assert not assess_page(out).truncated
-
-    stopped = _FakeClient("# Page markdown\n<table></table>", finish_reason="stop")
-    assert not assess_page(ocr_page(_img(), settings=_settings(), client=stopped)).truncated
-
-
-# ---------------------------------------------------------------------------
 # The intake ladder surfaces the flag on StatementMarkdown
 # ---------------------------------------------------------------------------
+#
+# Model-code removal, slice S2: the visual OCR client's own signal tests
+# (`ocr_page` carrying the endpoint's finish reason and usage) and the visual
+# ladder tests (`page_ocr_fn`, the mis-segmentation and TD page-1 recoveries)
+# were deleted with the client. The ladder's flag surfacing and its advisory
+# property are pinned below on the offline rung, the one the ladder still has.
 
-def test_ladder_flags_a_truncated_visual_page_and_leaves_clean_pages_alone(monkeypatch):
-    pages = [DENSE_PAGE_COMPLETE, DENSE_PAGE_TRUNCATED, DENSE_PAGE_COMPLETE]
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: pages)
 
-    doc = parse_statement(b"%PDF", force_ocr=True, max_workers=1,
-                          page_ocr_fn=lambda image: image)
+def _native_rung(monkeypatch, pages):
+    monkeypatch.setattr(
+        "ocr.pipeline._native_statement",
+        lambda pdf_bytes, source_file="": StatementMarkdown(
+            source_file=source_file, model="native-pdf-text", pages=list(pages)),
+    )
+
+
+def test_ladder_flags_a_structurally_truncated_page_and_leaves_clean_pages_alone(monkeypatch):
+    _native_rung(monkeypatch, [DENSE_PAGE_COMPLETE, DENSE_PAGE_TRUNCATED, DENSE_PAGE_COMPLETE])
+
+    doc = parse_statement(b"%PDF-fake")
     assert doc.truncated_pages == [1]
     assert doc.has_truncated_pages
     assert doc.page_integrity[1].signals == [SIGNAL_OPEN_TABLE, SIGNAL_OPEN_ROW,
@@ -382,27 +282,11 @@ def test_ladder_flags_a_truncated_visual_page_and_leaves_clean_pages_alone(monke
     assert [item.truncated for item in doc.page_integrity] == [False, True, False]
 
 
-def test_ladder_flags_a_model_reported_truncation_on_a_structurally_clean_page(monkeypatch):
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["img0"])
-    monkeypatch.setattr(
-        "ocr.ocr_client.ocr_page",
-        lambda image, *, settings, client, on_delta=None: PageText(
-            DENSE_PAGE_COMPLETE, finish_reason="length", completion_tokens=4096,
-            max_tokens=4096),
-    )
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-
-    doc = parse_statement(b"%PDF", force_ocr=True, max_workers=1)
-    assert doc.truncated_pages == [0]
-    assert doc.page_integrity[0].finish_reason == "length"
-
-
 def test_flag_is_advisory_only_and_changes_no_extraction_output(monkeypatch):
     pages = [DENSE_PAGE_COMPLETE, DENSE_PAGE_TRUNCATED]
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: pages)
+    _native_rung(monkeypatch, pages)
 
-    doc = parse_statement(b"%PDF", source_file="s.pdf", force_ocr=True, max_workers=1,
-                          page_ocr_fn=lambda image: image)
+    doc = parse_statement(b"%PDF-fake", source_file="s.pdf")
     assert doc.has_truncated_pages
     # The pages, and the markdown every parser consumes, are byte-identical to
     # what the same read produced before O-3 existed.
@@ -410,46 +294,6 @@ def test_flag_is_advisory_only_and_changes_no_extraction_output(monkeypatch):
     assert all(type(page) is str for page in doc.pages)
     assert doc.to_markdown() == StatementMarkdown(
         source_file="s.pdf", model=doc.model, pages=pages).to_markdown()
-
-
-def test_flags_describe_the_read_that_was_kept_not_a_discarded_one(monkeypatch):
-    # TD page-1 recovery: the first read is truncated, a render variant recovers
-    # the full page. The kept read is clean, so nothing may be flagged.
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["main"])
-    monkeypatch.setattr("ocr.rasterize.rasterize_page", lambda b, i, dpi=200: "rec")
-    monkeypatch.setattr("ocr.ocr_client._mask_qr", lambda image: image)
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-
-    truncated = PageText("TD Bank STATEMENT OF ACCOUNT\n" + DENSE_PAGE_TRUNCATED,
-                         finish_reason="length", max_tokens=4096, completion_tokens=4096)
-    full = PageText("TD Bank STATEMENT OF ACCOUNT\nACCOUNT SUMMARY\n" + DENSE_PAGE_COMPLETE,
-                    finish_reason="stop")
-    monkeypatch.setattr(
-        "ocr.ocr_client.ocr_page",
-        lambda image, *, settings, client, on_delta=None: truncated if image == "main" else full,
-    )
-
-    doc = parse_statement(b"%PDF", force_ocr=True, max_workers=1)
-    assert doc.pages == [str(full)]
-    assert doc.truncated_pages == []  # the discarded truncated read is not reported
-
-
-def test_flags_report_a_recovery_that_did_not_recover(monkeypatch):
-    # Same path, but every render variant still truncates: the kept read is the
-    # original truncated one, and it must be flagged.
-    monkeypatch.setattr("ocr.pipeline.rasterize_pdf", lambda b, dpi=300: ["main"])
-    monkeypatch.setattr("ocr.rasterize.rasterize_page", lambda b, i, dpi=200: "rec")
-    monkeypatch.setattr("ocr.ocr_client._mask_qr", lambda image: image)
-    monkeypatch.setattr("ocr.ocr_client._build_client", lambda settings: object())
-
-    truncated = PageText("TD Bank STATEMENT OF ACCOUNT\n" + DENSE_PAGE_TRUNCATED,
-                         finish_reason="length", max_tokens=4096, completion_tokens=4096)
-    monkeypatch.setattr("ocr.ocr_client.ocr_page",
-                        lambda image, *, settings, client, on_delta=None: truncated)
-
-    doc = parse_statement(b"%PDF", force_ocr=True, max_workers=1)
-    assert doc.truncated_pages == [0]
-    assert doc.page_integrity[0].signals[0] == SIGNAL_FINISH_REASON
 
 
 def test_offline_rungs_are_assessed_too(monkeypatch):

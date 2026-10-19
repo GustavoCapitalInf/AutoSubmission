@@ -21,6 +21,36 @@ from layout.refusals import KINDS, MODALITIES, TIERS
 FORBIDDEN_TOKENS = {"cost", "price", "rate", "usd", "billing"}
 
 
+def _statistical_rate_columns() -> set[str]:
+    """P23-EGATE (Phase 2.3 cell E): the extraction-quality columns, whose
+    names come from `ocr.extraction_quality.EQ_ROW_COLUMNS`.
+
+    Three of them (`eq_money_rate`, `eq_lexicon_rate`, `eq_garbage_rate`)
+    carry the word `rate` in its statistical sense — the SHARE of numeric
+    tokens that parse as a money figure, of alphabetic tokens that are
+    statement furniture, of tokens that are garbage. None of them is a price
+    per unit of anything, and the ruling this scan enforces (cost is out of
+    scope, R2 withdrawn) is about MONEY CHARGED, not about proportions.
+
+    The exemption is DERIVED from the module's own table rather than typed
+    here, so it cannot be widened by hand, and it lifts the ONE word `rate`:
+    an `eq_cost`, `eq_price`, `eq_usd` or `eq_billing` column is refused on
+    these columns exactly as on every other, and a `rate` key anywhere
+    outside this table still fails. Recorded for Ocean as a collision between
+    P23-EGATE's ruled column names and this grep, closed the narrow way.
+    """
+    from ocr.extraction_quality import EQ_ROW_COLUMNS
+
+    return {column for column, _, _ in EQ_ROW_COLUMNS}
+
+
+def _forbidden_tokens_in(key: str) -> set[str]:
+    tokens = FORBIDDEN_TOKENS & set(key.lower().replace(".", "_").split("_"))
+    if key in _statistical_rate_columns():
+        tokens -= {"rate"}
+    return tokens
+
+
 def _row(sha: str, **overrides) -> DocumentRow:
     base = dict(relative_path=f"F/{sha[:4]}.pdf", folder_label="F", content_sha256=sha, byte_size=1,
                 document_class="STATEMENT_COMPLETE", class_modality="digital", class_tier="structural",
@@ -161,6 +191,23 @@ def test_refused_rows_count_in_the_outcome_lines_and_never_in_the_ladder():
     assert "refused" in render_report(summary)
 
 
+def test_r_counts_the_offline_ladder_reading_nothing_in_both_spellings():
+    """Model-code removal, slice S5 (plan D19): `--scanned` records the offline ladder reading nothing as
+    `refused:insufficient_evidence` with `source_path` `none` (it was `deferred_visual_ocr`). R counts both
+    spellings, so the historical row (sha 6) and a new one are both R; the new one is also a refused row, and
+    processed rather than deferred."""
+    rows = _rows() + [_row(_sha(8), document_class="KIND_UNCERTAIN", class_modality="scanned",
+                           class_tier="uncertain", class_account_kind="unknown", outcome_class="refused",
+                           outcome_reason="insufficient_evidence", dispatch_outcome=None, parser_id=None,
+                           source_path="none")]
+    summary = summarize(rows, mode=MODE_DIGITAL, run_id="r")
+    labels = summary["diagnostic_labels"]
+    assert (labels["R"], labels["refused"], labels["U"]) == (2, 1, 1)
+    assert summary["deferred_reasons"] == {"deferred_visual_ocr": 1}
+    assert summary["outcome"]["refused"] == 1 and summary["reasons"]["insufficient_evidence"] == 1
+    assert summary["raw_coverage"]["denominator"] == 8
+
+
 # ---------------------------------------------------------------------------
 # funnel + technical telemetry (case 25), and the no-cost grep (M9)
 # ---------------------------------------------------------------------------
@@ -175,9 +222,49 @@ def test_the_new_columns_are_appended_at_the_end_of_row_fields_in_the_card_order
         "primary_reason_layer", "primary_reason", "unresolved_taxonomy_version",
         "document_class", "class_sub_kind", "class_modality", "class_account_kind", "class_tier",
         "class_signals", "class_version", "completeness_findings", "classifier_exception",
+        # P23-EGATE (Phase 2.3 cell E), appended at the END in the module's
+        # own EQ_ROW_COLUMNS order — the pin that makes M7 (a reordered
+        # ROW_FIELDS) a failing test rather than a silently shifted CSV.
+        "eq_version", "eq_word_count", "eq_density", "eq_rec_mean", "eq_rec_p10",
+        "eq_money_rate", "eq_lexicon_rate", "eq_garbage_rate", "eq_line_height_cv",
+        "eq_right_edge_residual", "eq_ink_outside_boxes", "eq_orientation_votes", "eq_class",
+        # P23-AGREE (Phase 2.3 cell X): the agreement and geometry columns,
+        # appended after the extraction-quality block and never reordered.
+        "agree_version", "agree_pages", "agree_matched_native", "agree_matched_paddle",
+        "agree_char", "agree_amounts", "agree_dates", "agree_unmatched_table_density",
+        "agree_frame_mismatch", "geom_rotation", "geom_skew_deg", "geom_page_size",
     ]
     assert ROW_FIELDS[:ROW_FIELDS.index("stage_extract")][-2:] == ["cache_finding", "paddle_refusal_reason"]
     assert "escalation_trigger" in ROW_FIELDS[:ROW_FIELDS.index("stage_extract")]
+
+
+def test_the_rate_exemption_is_exactly_the_metric_table_and_lifts_only_that_word():
+    """The narrow exemption, pinned narrow. Only the extraction-quality
+    columns may carry the statistical word `rate`; a cost-shaped key is
+    refused on them as on every other key, and a `rate` key outside the
+    table is refused."""
+    exempt = _statistical_rate_columns()
+    assert {"eq_money_rate", "eq_lexicon_rate", "eq_garbage_rate"} <= exempt
+    assert all(name.startswith("eq_") for name in exempt)
+    assert _forbidden_tokens_in("eq_money_rate") == set()
+    assert _forbidden_tokens_in("gpu_rate") == {"rate"}
+    assert _forbidden_tokens_in("eq_cost_rate") == {"cost", "rate"}   # not in the table at all
+    for cost_shaped in ("eq_cost", "eq_price", "eq_usd", "eq_billing"):
+        assert _forbidden_tokens_in(cost_shaped), cost_shaped
+    # and the substring ban on the four unambiguous cost words is untouched
+    assert not [name for name in ROW_FIELDS
+                if any(token in name.lower() for token in ("cost", "price", "billing", "usd"))]
+
+
+def test_the_extraction_quality_columns_are_the_modules_own_table_in_its_own_order():
+    """The column list is not a second copy of the metric table: the names
+    and their ORDER come from `ocr.extraction_quality.EQ_ROW_COLUMNS`, so a
+    column cannot be added, dropped or moved in one place only."""
+    from ocr.extraction_quality import EQ_ROW_COLUMNS
+
+    assert ROW_FIELDS.count("eq_version") == 1
+    start = ROW_FIELDS.index("eq_version")
+    assert ROW_FIELDS[start:start + len(EQ_ROW_COLUMNS)] == [column for column, _, _ in EQ_ROW_COLUMNS]
 
 
 def test_the_defaults_are_not_attempted_and_empty(tmp_path):
@@ -187,6 +274,11 @@ def test_the_defaults_are_not_attempted_and_empty(tmp_path):
         assert fields[stage] == "not_attempted", stage
     for empty in ("bytes_up", "bytes_down", "inference_ms", "vram_mb", "research_partition"):
         assert fields[empty] == "", empty
+    # P23-EGATE: every extraction-quality column is EMPTY on a row no
+    # extractor evidence was measured for — never a zero, which would read as
+    # a measurement somebody made.
+    for column in [name for name in ROW_FIELDS if name.startswith("eq_")]:
+        assert fields[column] == "", column
     assert fields["peak_rss_mb"] == "not measured"
     assert fields["document_class"] == "KIND_UNCERTAIN" and fields["class_tier"] == "uncertain"
     assert fields["class_version"] == 0  # no classifier ran on a bare row
@@ -222,7 +314,7 @@ def test_no_cost_price_rate_usd_or_billing_key_anywhere(tmp_path):
     summary = summarize(rows, mode=MODE_RESEARCH_PADDLE, run_id="r", research_partition="p1")
     write_summary(tmp_path / "summary.json", summary)
     keys = set(ROW_FIELDS) | set(_keys(json.loads((tmp_path / "summary.json").read_text(encoding="utf-8"))))
-    offenders = sorted(key for key in keys if FORBIDDEN_TOKENS & set(key.lower().replace(".", "_").split("_")))
+    offenders = sorted(key for key in keys if _forbidden_tokens_in(key))
     assert offenders == [], offenders
     offenders = sorted(key for key in keys if any(token in key.lower() for token in ("cost", "price", "billing", "usd")))
     assert offenders == [], offenders
@@ -532,6 +624,5 @@ def test_truth_report_carries_no_cost_price_rate_usd_or_billing_key(tmp_path):
 
     report = join(read_rows(_write_rows_csv(tmp_path / "rows.csv", _rows())), None)
     keys = set(_keys(report)) | {"per_document"}
-    offenders = sorted(key for key in keys
-                       if FORBIDDEN_TOKENS & set(key.lower().replace(".", "_").split("_")))
+    offenders = sorted(key for key in keys if _forbidden_tokens_in(key))
     assert offenders == [], offenders

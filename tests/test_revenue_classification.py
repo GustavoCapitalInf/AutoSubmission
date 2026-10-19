@@ -61,7 +61,6 @@ def _txn(
         ("ACH Credit Customer Payment INV-42", None),
         ("Merchant processor settlement", None),
         ("Card sales deposit", None),
-        ("Customer check deposit", None),
         ("DoorDash payout", "DoorDash"),
         ("Invoice payment 1042", None),
         ("Direct Deposit Misc. Payments MRCH22064280019", None),
@@ -104,6 +103,8 @@ def test_verified_operating_credits_are_verified_revenue(
         "INTERAC e-Transfer Received",
         "Check deposit",
         "Cash deposit",
+        # 5.5 (true revenue spec §6.1 step 9b, Q3): a check deposit is never verified, whatever it prints.
+        "Customer check deposit",
         "Incoming credit from unknown source",
     ],
 )
@@ -205,8 +206,8 @@ def test_serialized_revenue_views_fail_when_a_credit_lacks_a_classification():
 def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
     statement = Statement(
         transactions=[
-            _txn("2054-01-02", "Customer ACH payment", 100.0, balance=1100.0),
-            _txn("2054-01-02", "Customer ACH payment", 100.0, balance=1100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0, balance=1100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0, balance=1100.0),
         ]
     )
     records = classify_statement_transactions(statement)
@@ -225,7 +226,7 @@ def test_proven_duplicate_credit_is_non_revenue_without_changing_credit_math():
 def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     statement = Statement(
         transactions=[
-            _txn("2054-01-02", "Customer ACH payment", 100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0),
             _txn("2054-01-03", "Mobile deposit", 50.0),
             _txn("2054-01-04", "Internal transfer from savings", 25.0),
             _txn("2054-01-05", "Rent payment", -20.0),
@@ -247,7 +248,8 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
     assert metrics.revenue_classified_count == 3
     assert metrics.revenue_reconciliation_delta == 0.0
     assert metrics.revenue_reconciles
-    assert metrics.revenue_review_required
+    # 5.6 (T7): the mobile deposit is a counted check deposit, and counted credits never gate review.
+    assert not metrics.revenue_review_required
     assert len(metrics.verified_revenue_evidence) == 1
     assert len(metrics.unverified_deposit_evidence) == 1
     assert len(metrics.non_revenue_evidence) == 1
@@ -256,7 +258,7 @@ def test_revenue_metrics_reconcile_to_exact_posted_credit_rows():
 def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
     statement = Statement(
         transactions=[
-            _txn("2054-01-02", "Customer ACH payment", 100.0),
+            _txn("2054-01-02", "Fabrikam customer ACH payment", 100.0),
             _txn("2054-01-03", "Mobile deposit", 50.0),
             _txn("2054-01-04", "Debit Card Credit", 25.0),
             _txn("2054-01-05", "Online transfer from savings 1234", 40.0),
@@ -283,18 +285,21 @@ def test_only_ambiguous_deposits_enter_the_revenue_review_queue():
     assert metrics["non_revenue_total"] == 566.0
     assert metrics["maximum_revenue"] == 150.0
     assert metrics["revenue_reconciles"]
+    # 5.6 (§5.4): only a held credit requires review; the mobile deposit is a counted check deposit.
     assert [
         record["source_location"]
         for record in analysis["detection"]["manual_review"]
         if record.get("revenue_review_required")
-    ] == ["transaction:2"]
+    ] == []
     assert len(analysis["detection"]["unverified_deposit_evidence"]) == 1
 
 
-def test_withholding_denominator_is_legacy_by_default_and_configurable():
+def test_withholding_denominator_legacy_and_verified_modes_stay_selectable():
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default basis; the legacy and verified
+    # modes stay selectable, so the legacy reading passes its mode explicitly.
     statement = Statement(
         transactions=[
-            _txn("2054-01-01", "Customer ACH payment", 1000.0),
+            _txn("2054-01-01", "Fabrikam customer ACH payment", 1000.0),
             _txn("2054-01-02", "Mobile deposit", 200.0),
             _txn("2054-01-03", "INTERAC e-Transfer Returned", 100.0),
             _txn("2054-01-04", "Rapid Finance funding", 500.0),
@@ -303,7 +308,11 @@ def test_withholding_denominator_is_legacy_by_default_and_configurable():
     )
     records = classify_statement_transactions(statement)
 
-    legacy = compute_metrics(statement, classifications=records)
+    legacy = compute_metrics(
+        statement,
+        classifications=records,
+        withholding_denominator_mode="legacy_eligible_deposits",
+    )
     assert legacy.confirmed_true_revenue_total == 1000.0
     assert legacy.legacy_eligible_deposits == 1300.0
     assert legacy.eligible_deposits == legacy.withholding_denominator == 1300.0
@@ -324,14 +333,21 @@ def test_withholding_denominator_is_legacy_by_default_and_configurable():
 
 
 def test_withholding_denominator_environment_configuration(monkeypatch):
+    # Owner ruling 2026-10-02 (the underwriter's Q7), R2-OW14 (U2): unset or invalid reads as the default, True revenue.
     monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
+    assert load_settings().withholding_denominator_mode == "true_revenue"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "")
+    assert load_settings().withholding_denominator_mode == "true_revenue"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "legacy_eligible_deposits")
     assert load_settings().withholding_denominator_mode == "legacy_eligible_deposits"
+    monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "true_revenue")
+    assert load_settings().withholding_denominator_mode == "true_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "verified_revenue")
     assert load_settings().withholding_denominator_mode == "verified_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "confirmed_true_revenue")
     assert load_settings().withholding_denominator_mode == "verified_revenue"
     monkeypatch.setenv("WITHHOLDING_DENOMINATOR_MODE", "invalid")
-    assert load_settings().withholding_denominator_mode == "legacy_eligible_deposits"
+    assert load_settings().withholding_denominator_mode == "true_revenue"
 
 
 def _atb_november_report():
@@ -359,8 +375,11 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert metrics.non_revenue_count == 1
     assert metrics.maximum_revenue == 57810.74
     assert metrics.revenue_reconciles
-    assert metrics.eligible_deposits == metrics.withholding_denominator == 59310.74
-    assert metrics.withholding_denominator_mode == "legacy_eligible_deposits"
+    # Re-pinned by the owner's ruling of 2026-10-02 (the underwriter's Q7), R2-OW14: True revenue is the default
+    # withholding basis; the legacy figure this test pinned is unchanged on legacy_eligible_deposits.
+    assert metrics.legacy_eligible_deposits == 59310.74
+    assert metrics.eligible_deposits == metrics.withholding_denominator == metrics.true_revenue_total
+    assert metrics.withholding_denominator_mode == "true_revenue"
 
     true_rows = [
         transaction
@@ -400,9 +419,9 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert metrics.pos_count == 0
     assert metrics.nsf_count == 0
     assert metrics.lenders_detected == 3
-    assert metrics.lender_debit_count == 43
-    assert metrics.lender_debits == 8658.91
-    assert metrics.potential_lender_debit_total == 571.88
+    assert metrics.lender_debit_count == 45
+    assert metrics.lender_debits == 9757.26
+    assert metrics.potential_lender_debit_total == 3178.19
     assert metrics.insurance_total == 362.17
 
     payload = report_to_dict(report)
@@ -432,8 +451,10 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
     assert totals["non_revenue_count"] == 1
     assert totals["maximum_revenue"] == 57810.74
     assert totals["revenue_reconciles"]
-    assert totals["withholding_denominator"] == 59310.74
-    assert totals["withholding_denominator_mode"] == "legacy_eligible_deposits"
+    # Re-pinned by the owner's ruling of 2026-10-02 (the underwriter's Q7), R2-OW14: the package divides by its
+    # members' True revenue, the default basis.
+    assert totals["withholding_denominator"] == totals["true_revenue_total"]
+    assert totals["withholding_denominator_mode"] == "true_revenue"
     assert len(package["verified_revenue_evidence"]) == 30
     assert len(package["unverified_deposit_evidence"]) == 7
     assert len(package["non_revenue_evidence"]) == 1
@@ -660,8 +681,10 @@ def test_atb_december_revenue_regression_from_transaction_evidence():
     assert export_row["verified_revenue_total"] == "47195.63"
     assert export_row["unverified_deposit_total"] == "11675.11"
     assert export_row["non_revenue_total"] == "1880.25"
-    assert export_row["needs_review"] == "REVIEW"
-    assert coverage_status(report) == "needs_review"
+    # 5.6 (T7): the statement's eight unverified deposits are two check deposits and six e-Transfers, all counted,
+    # so no credit is held and the revenue gate is clear.
+    assert export_row["needs_review"] == ""
+    assert coverage_status(report) == "clean"
 
     client = app.test_client()
     job = store.create("atb-dec-revenue.pdf")
@@ -671,9 +694,15 @@ def test_atb_december_revenue_regression_from_transaction_evidence():
     assert api_analysis["metrics"]["unverified_deposit_total"] == 11675.11
     api_package = client.get(f"/package_analysis?ids={job.id}").get_json()
     assert api_package["totals"]["maximum_revenue"] == 58870.74
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the CSV names neither Verified revenue nor
+    # 5.4's unverified deposits; the JSON download (the backend) keeps both, and the figures above are unchanged.
     csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
-    assert "verified_revenue" in csv_body
-    assert "unverified_deposit" in csv_body
+    assert "verified_revenue" not in csv_body
+    assert "unverified_deposit" not in csv_body
+    assert "metrics,non_revenue_total,1880.25" in csv_body
+    json_body = client.get(f"/download/{job.id}/json").get_json()
+    assert json_body["metrics"]["verified_revenue_total"] == 47195.63
+    assert json_body["metrics"]["unverified_deposit_total"] == 11675.11
 
 
 def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
@@ -770,9 +799,14 @@ def test_revenue_review_api_updates_records_metrics_package_and_exports():
     assert downloaded["statement"]["transactions"][0]["classification"][
         "revenue_review_status"
     ] == "confirmed"
+    assert downloaded["statement"]["transactions"][0]["classification"]["revenue_classification"] == "verified_revenue"
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the CSV carries the decision but names no
+    # Verified revenue (the JSON download, above, keeps the state). Review round 1: this statement was analysed before
+    # 5.6 (no tier), so its credit's state is written in the page's words, "revenue" as its tag reads.
     csv_body = client.get(f"/download/{job.id}/csv").get_data(as_text=True)
-    assert "revenue_classification" in csv_body
-    assert "verified_revenue" in csv_body
+    assert "posted_credit,1,2054-01-02,Mobile deposit,441.0,USD,revenue,,confirmed" in csv_body
+    assert '""revenue_classification"": ""revenue""' in csv_body
+    assert "verified_revenue" not in csv_body
 
     rejected = client.post(
         f"/analysis/{job.id}/revenue-review",
@@ -815,19 +849,23 @@ def test_revenue_ui_uses_authoritative_fields_and_exposes_review_controls():
 
     assert 'id="revenueTable"' in html
     assert 'id="statementModalRevenue"' in html
-    for state in REVENUE_STATES:
+    for state in ("true_revenue", "excluded_pending_review", "non_revenue"):
         assert f'data-transaction-filter="{state}"' in html
         assert f'data-modal-transaction-filter="{state}"' in html
+    # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.6): no Verified and no Counted filter.
+    for state in ("verified_revenue", "counted_flagged"):
+        assert f'data-transaction-filter="{state}"' not in html
+        assert f'data-modal-transaction-filter="{state}"' not in html
     assert "record.revenue_classification" in javascript
     assert "data-revenue-review-action" in javascript
     assert "/revenue-review" in javascript
-    assert "Verified Revenue" in html
-    assert "Unverified Deposits" in html
-    assert "Revenue Upper Bound" in javascript
-    assert "Upper-bound estimate: verified revenue plus unverified deposits" in javascript
-    assert "Confirmed operating revenue" in javascript
-    assert "Deposits requiring analyst review" in javascript
-    assert "Excluded from revenue analysis" in javascript
+    assert "True Revenue" in html
+    assert "Held for Review" in html
+    assert "Revenue Upper Bound" not in javascript
+    assert "Unverified Deposits" not in javascript
+    assert "Posted credits minus known non-revenue and the deposits held for review" in javascript
+    assert "Kept out of true revenue until you confirm it" in javascript
+    assert "Own-account transfers, funding, refunds and other known non-revenue" in javascript
     assert "Confirm Revenue" in javascript
     assert "Mark Non-Revenue" in javascript
     assert "Generic deposit with insufficient source information." in javascript

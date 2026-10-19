@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
 
-from .date_tokens import date_refusal, iso_or_none, parsed_datetime
+from .date_tokens import date_refusal, iso_or_none, iso_unique_in_period, parsed_datetime
 from .money import MINUS_GLYPHS, normalize_sign_glyphs, parse_decimal_mixed_separator
 from .parser_registry import make_detector, required
 from .schema import Statement, StatementDailyBalance, Transaction
@@ -129,12 +129,49 @@ def _clean_description(value: str) -> str:
     return text
 
 
-def _rows(block: str, *, start: date, end: date, sequence: int) -> tuple[list[_Row], int]:
+def _is_a_calendar_date(month: int, day: int, start: date, end: date) -> bool:
+    """Whether ``month``/``day`` is a real date in either year the period spans."""
+    return any(
+        iso_or_none(year, month, day) is not None
+        for year in dict.fromkeys((start.year, end.year))
+    )
+
+
+def _period_months(start: date, end: date) -> set[int]:
+    """Every calendar month the printed period touches."""
+    months, cursor = set(), date(start.year, start.month, 1)
+    while cursor <= end:
+        months.add(cursor.month)
+        cursor = date(cursor.year + cursor.month // 12, cursor.month % 12 + 1, 1)
+    return months
+
+
+def _period_day(month: int, day: int, start: date, end: date) -> date | None:
+    """The one date inside the printed period ``month``/``day`` can mean, or None."""
+    iso = iso_unique_in_period(month, day, start=start, end=end)
+    return date.fromisoformat(iso) if iso is not None else None
+
+
+def _rows(block: str, *, start: date, end: date, sequence: int) -> tuple[list[_Row], int] | None:
+    """The rows of one section, dated through the printed period.
+
+    None when a row is dated outside the period: the document declines
+    (audit 2026-10-13 PARSERS-2). Two older behaviours are gone. A row whose
+    printed month is not a month of the period and that carries no embedded
+    ``YYYYMMDD`` used to be moved onto the START month (a silent re-date: a
+    deposit printed ``05-02`` on an April statement was published as April 2),
+    and a row dated outside the period was dropped without a word. Every row
+    used the period's END year, so the second month of a period that crosses
+    New Year (or any two-month period, once the start month was forced) never
+    read. A printed date that is not a calendar date at all is passed over, as
+    `date()` failing on it was.
+    """
     output: list[_Row] = []
     line_re = re.compile(
         rf"^[^0-9\n]{{0,16}}(?P<month>\d{{2}})-(?P<day>\d{{2}})\b"
         rf"(?P<description>.*?)\s+(?P<amount>{_MONEY})\s*$"
     )
+    months = _period_months(start, end)
     for raw_line in block.splitlines():
         match = line_re.match(raw_line.strip())
         if not match:
@@ -144,19 +181,18 @@ def _rows(block: str, *, start: date, end: date, sequence: int) -> tuple[list[_R
         description = _clean_description(match.group("description"))
         txn_month = raw_month
         txn_day = raw_day
-        if raw_month != start.month or not 1 <= raw_month <= 12:
+        if raw_month not in months:
+            # A month the period cannot contain: the description's own
+            # effective date, when it prints one, is the reading (as before).
             embedded = re.search(r"\b(20\d{2})(\d{2})(\d{2})\b", description)
             if embedded:
                 _, embedded_month, embedded_day = embedded.groups()
                 txn_month, txn_day = int(embedded_month), int(embedded_day)
-            else:
-                txn_month = start.month
-        try:
-            txn_date = date(end.year, txn_month, txn_day)
-        except ValueError:
+        if not _is_a_calendar_date(txn_month, txn_day, start, end):
             continue
-        if not start <= txn_date <= end:
-            continue
+        txn_date = _period_day(txn_month, txn_day, start, end)
+        if txn_date is None:
+            return None
         output.append(
             _Row(
                 date=txn_date,
@@ -233,14 +269,34 @@ def _rows(block: str, *, start: date, end: date, sequence: int) -> tuple[list[_R
 _GRID_CELL = re.compile(rf"(\d{{2}})-(\d{{2}})\s+({_SIGN}?{_MONEY})")
 
 
-def _daily_snapshots(block: str, *, year: int) -> dict[date, Decimal]:
+def _daily_snapshots(block: str, *, start: date, end: date) -> tuple[dict[date, Decimal], bool]:
+    """The Daily Balances grid's cells inside the printed period, dated by it,
+    and whether the grid prints a cell from outside the period.
+
+    The grid opens with the previous statement's closing day (the carried
+    opening balance, printed on the day before the period starts); that line
+    is not a balance of this period and is left out, as it always was. Any
+    other cell the period does not contain is a page from another statement:
+    it is reported (the second value) so the reader can decline the document,
+    and a cell that is not a calendar date is passed over, as `date()` failing
+    on it was (audit 2026-10-13 PARSERS-2: cells used to take the period's END
+    year, so the first month of a period that crosses New Year was dated a
+    year late and dropped).
+    """
+    opening_line = start - timedelta(days=1)
     snapshots: dict[date, Decimal] = {}
+    foreign = False
     for month, day, amount in _GRID_CELL.findall(block):
-        try:
-            snapshots[date(year, int(month), int(day))] = _signed(amount)
-        except ValueError:
+        month_number, day_number = int(month), int(day)
+        if not _is_a_calendar_date(month_number, day_number, start, end):
             continue
-    return snapshots
+        cell = _period_day(month_number, day_number, start, end)
+        if cell is None:
+            if (month_number, day_number) != (opening_line.month, opening_line.day):
+                foreign = True
+            continue
+        snapshots[cell] = _signed(amount)
+    return snapshots, foreign
 
 
 def _ending_by_date(opening: Decimal, rows: list[tuple[_Row, int]]) -> dict[date, Decimal]:
@@ -436,11 +492,14 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         return None
 
     sequence = 0
-    deposits, sequence = _rows(deposit_block, start=period_start, end=period_end, sequence=sequence)
-    ach_debits, sequence = _rows(ach_debit_block, start=period_start, end=period_end, sequence=sequence)
-    ach_credits, sequence = _rows(ach_credit_block, start=period_start, end=period_end, sequence=sequence)
-    other_credits, sequence = _rows(other_credit_block, start=period_start, end=period_end, sequence=sequence)
-    other_debits, sequence = _rows(other_debit_block, start=period_start, end=period_end, sequence=sequence)
+    sections: list[list[_Row]] = []
+    for block in (deposit_block, ach_debit_block, ach_credit_block, other_credit_block, other_debit_block):
+        read = _rows(block, start=period_start, end=period_end, sequence=sequence)
+        if read is None:
+            return None
+        rows, sequence = read
+        sections.append(rows)
+    deposits, ach_debits, ach_credits, other_credits, other_debits = sections
 
     checks: list[_Row] = []
     for check_number, amount, month, day in _CHEQUE_ROW.findall(checks_block):
@@ -450,12 +509,17 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
         # (and the day and year on a day-range failure). Funnelled through
         # `iso_or_none` and refused from OUTSIDE the funnel; the class stays
         # `ValueError`, so the document refuses exactly as it refused before.
-        cheque_iso = iso_or_none(period_end.year, int(month), int(day))
-        if cheque_iso is None:
+        # A real date is then dated through the printed period (audit
+        # 2026-10-13 PARSERS-2), and a cheque the period does not contain
+        # declines the document; it used to be kept under the END year.
+        if not _is_a_calendar_date(int(month), int(day), period_start, period_end):
             raise date_refusal("columbia_bank.cheque_row", f"{month}-{day}")
+        cheque_day = _period_day(int(month), int(day), period_start, period_end)
+        if cheque_day is None:
+            return None
         checks.append(
             _Row(
-                date=date.fromisoformat(cheque_iso),
+                date=cheque_day,
                 description=f"Check {check_number}" if check_number else "Check",
                 amount=_money(amount),
                 sequence=sequence,
@@ -486,7 +550,9 @@ def parse_columbia_bank_statement(markdown: str) -> Statement | None:
     deposit_total = Decimal() if deposit_total is None else deposit_total
     other_credit_total = Decimal() if other_credit_total is None else other_credit_total
 
-    snapshots = _daily_snapshots(daily_block, year=period_end.year)
+    snapshots, foreign_cell = _daily_snapshots(daily_block, start=period_start, end=period_end)
+    if foreign_cell:
+        return None
 
     # Every section against its OWN printed total, then the two summary
     # figures against the sum of the section totals. No row is believed on its
@@ -618,11 +684,7 @@ def daily_grid_contradictions(markdown: str, stmt: Statement) -> list[str]:
     block = section_between(markdown, r"Daily Balances", r"Overdraft Fee Summary")
     if not block:
         return []
-    printed = {
-        day: amount
-        for day, amount in _daily_snapshots(block, year=end.year).items()
-        if start <= day <= end
-    }
+    printed, _foreign = _daily_snapshots(block, start=start, end=end)
     if not printed:
         return []
 

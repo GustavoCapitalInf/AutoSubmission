@@ -47,7 +47,6 @@ from discovery.runner import (
     PARSER_ID_UNAVAILABLE,
     DiscoveryRunner,
     DocumentRow,
-    estimate_class_a_population,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -316,36 +315,9 @@ def test_profile_only_and_invalid_pdf_rows_carry_no_evidence_verdict(tree: Path)
     assert invalid.failure_class == ""
 
 
-def test_estimate_class_a_population_counts_scanned_and_mixed_profiles_only(tmp_path: Path):
-    """The cheap pre-run ceiling: `digital` never reaches the router, so it
-    must never be counted. P20-ROUTER review, MINOR-7: the predicate is
-    LITERALLY the router's own admission test
-    (`_profile_triggers(profile) & ADMITTED_TRIGGERS`), so an unreadable file
-    — whose profile trivially has `native_text_total_chars == 0` — is a
-    sound OVER-count too: an invalid/unparseable PDF never reaches the
-    router in production (`process()` returns `failed` before any evidence
-    logic runs), but counting it toward a safety CEILING is the safe
-    direction, never the dangerous one."""
-    (tmp_path / "F").mkdir()
-    (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
-    (tmp_path / "F" / "scanned.pdf").write_bytes((CORPUS / SCANNED).read_bytes())
-    (tmp_path / "F" / "missing.pdf").write_bytes(b"not even a pdf")
-
-    count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/scanned.pdf", "F/missing.pdf"])
-    assert count == 2  # scanned.pdf + the unreadable missing.pdf; digital.pdf never counts
-
-
-def test_estimate_class_a_population_counts_an_unreadable_file_toward_the_ceiling(tmp_path: Path):
-    """MINOR-7's own reproduction: a document the runner literally cannot
-    read must never SILENTLY LOWER the ceiling — the safe failure direction
-    for a budget guard is to over-count, never to under-count."""
-    (tmp_path / "F").mkdir()
-    (tmp_path / "F" / "digital.pdf").write_bytes((CORPUS / DIGITAL).read_bytes())
-
-    count = estimate_class_a_population(tmp_path, ["F/digital.pdf", "F/does-not-exist.pdf"])
-    # "does-not-exist.pdf" cannot even be opened (FileNotFoundError, an
-    # OSError) -> counted toward the ceiling, never silently skipped.
-    assert count == 1
+# `test_estimate_class_a_population_*` (2) pinned the retired Paddle mode's
+# pre-run escalation ceiling; they left with `estimate_class_a_population`,
+# its only caller's subject (model-code removal, slice S5).
 
 
 def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path: Path):
@@ -359,48 +331,52 @@ def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path:
 # --- the offline guarantee --------------------------------------------------
 
 
-def test_no_model_extraction_can_happen(tree: Path, monkeypatch):
-    """parse_mode='deterministic' makes the LLM branch unreachable."""
-    import analysis.pipeline as pipeline
+#: A discovery read of the synthetic tree's digital statement, run in a fresh
+#: process by N2's helper (`tests/test_no_model_clients.py`).
+_DISCOVERY_READ = """
+from pathlib import Path
+from discovery.inventory import DedupIndex
+from discovery.runner import DiscoveryRunner, MODE_DIGITAL
+row = DiscoveryRunner(Path({root!r}), mode=MODE_DIGITAL, run_id="t", sink=None, cache=None,
+                      dedup=DedupIndex()).process("BankX/statement.pdf", "BankX")
+RESULT["parser_id"] = row.parser_id
+"""
 
-    monkeypatch.setattr(
-        pipeline, "extract_statement",
-        lambda *a, **k: pytest.fail("discovery must never call the extraction model"),
-    )
-    row = _runner(tree).process("BankX/statement.pdf", "BankX")
-    assert row.parser_id == "chase"
+
+def test_no_model_extraction_can_happen(tree: Path, tmp_path_factory):
+    """There is no extraction model to call: the hosted extractor was deleted
+    in slice S3 of the model-code removal (this test used to stub it to fail),
+    and the analysis module discovery runs holds no handle to one. Since slice
+    S6 the read runs in a fresh process through N2's helper, which also proves
+    no model module, no third-party network client and no outbound connection
+    (a check of `sys.modules` for the deleted module alone became vacuous)."""
+    from tests.test_no_model_clients import assert_no_model_module_after
+
+    result = assert_no_model_module_after(_DISCOVERY_READ.format(root=str(tree)) + """
+import importlib.util
+import analysis.pipeline as pipeline
+RESULT["extractor"] = hasattr(pipeline, "extract_statement")
+RESULT["extract_module"] = importlib.util.find_spec("analysis.extract") is not None
+""", tmp_path_factory.mktemp("data"))
+    assert result == {"parser_id": "chase", "extractor": False, "extract_module": False}
 
 
-def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path):
-    """`ocr.pipeline` imports `ocr.ocr_client` lazily inside the visual rung,
-    so `allow_visual_ocr=False` means no model client exists in the process.
-    P21-ROUTING: the SAME property holds for `ocr.paddle_rung` /
-    `ocr.paddle_client` — a `MODE_DIGITAL` run never reaches the forced
-    Paddle branch either, so neither module is ever imported (`ocr.paddle_
-    config` is a separate, deliberately lightweight module `ocr.config`
-    already imports unconditionally for OQ2's `RESERVED_MODEL_PREFIXES`, and
-    is NOT checked here — see `test_artifact_cache.py::test_ocr_settings_
-    key_only_calls_load_paddle_settings_for_the_paddle_branch` for that
-    distinction's own test)."""
-    code = (
-        "import sys; from pathlib import Path;"
-        "from discovery.runner import DiscoveryRunner, MODE_DIGITAL;"
-        "from discovery.inventory import DedupIndex;"
-        f"r = DiscoveryRunner(Path({str(tree)!r}), mode=MODE_DIGITAL, run_id='t',"
-        " sink=None, cache=None, dedup=DedupIndex());"
-        "r.process('BankX/statement.pdf', 'BankX');"
-        "print('ocr.ocr_client' in sys.modules,"
-        " 'ocr.paddle_rung' in sys.modules, 'ocr.paddle_client' in sys.modules)"
-    )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True,
-                            text=True, cwd=ROOT)
-    assert result.returncode == 0, result.stderr
-    # Compare only the LAST stdout line: on the CI runner a library prints a
-    # harmless warning line to stdout before our sentinel (observed in run
-    # 31137747002), and the sentinel is the verdict, not the noise around it.
-    assert result.stdout.strip().splitlines()[-1] == "False False False", (
-        "a model client (or the Paddle rung/client) was imported: " + result.stdout.strip()
-    )
+def test_the_visual_ocr_client_module_is_never_even_imported(tree: Path, tmp_path_factory):
+    """The visual OCR client (`ocr.ocr_client`) was deleted in slice S2 of the
+    model-code removal and the PaddleOCR rung, client and settings in slice S5:
+    none can be found at all, and nothing tries to import them (before S5,
+    `discovery.runner` imported `ocr.paddle_config` for a refusal vocabulary;
+    it now holds that vocabulary as a literal). Since slice S6 the check is
+    N2's helper: no model package and no removed model module is loaded after
+    the read (the deleted modules' names alone could no longer be loaded)."""
+    from tests.test_no_model_clients import assert_no_model_module_after
+
+    result = assert_no_model_module_after(_DISCOVERY_READ.format(root=str(tree)) + """
+import importlib.util
+gone = ("ocr.ocr_client", "ocr.paddle_rung", "ocr.paddle_client", "ocr.paddle_config", "ocr.endpoint_policy")
+RESULT["found"] = sorted(m for m in gone if importlib.util.find_spec(m) is not None)
+""", tmp_path_factory.mktemp("data"))
+    assert result == {"parser_id": "chase", "found": []}
 
 
 # --- report -----------------------------------------------------------------

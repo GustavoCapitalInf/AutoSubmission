@@ -1,15 +1,8 @@
 from __future__ import annotations
+
 from analysis.pipeline import DocumentReport, analyze_document
 from analysis.serialization import document_report_to_dict
 from ocr.document import StatementMarkdown
-from ocr.escalation import (
-    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
-    OPERATOR_FORCED_VISUAL,
-    Escalation,
-    EscalationRouter,
-    ExtractionQualityGate,
-    router_inputs,
-)
 from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.pipeline import parse_statement
 from ocr.render import markdown_to_html
@@ -45,22 +38,25 @@ def document_to_json(document: DocumentReport) -> dict:
 
 
 # O-1: the worker owns NO routing decisions. The single intake ladder
-# (native -> tesseract -> visual OCR) lives in ocr.pipeline.parse_statement,
-# driven by the preflight DocumentProfile; this module only expresses mode
-# policy (deterministic short-circuits and the analysis-driven visual-OCR
-# escalation) and job-store bookkeeping. The ladder reports each rung through
-# on_stage, mapped here to the dashboard's historical stage labels.
+# (native PDF text -> local Tesseract) lives in ocr.pipeline.parse_statement,
+# driven by the preflight DocumentProfile; this module only does job-store
+# bookkeeping. Auto and Deterministic only read and analyse the same way: the
+# product uses no model (owner ruling, 2026-10-13), so no read and no analysis
+# reaches a model service in either mode, and `parse_mode` only reaches the
+# analysis and its cache key. The ladder reports each rung through on_stage,
+# mapped here to the dashboard's historical stage labels. The ladder has no
+# visual rung any more (slice S2), so `reading_visual_ocr` is only a stored
+# historical stage value now; the dashboard still labels it.
 _STAGE_NAMES = {
     "native": "reading",
     "local_ocr": "reading_local_ocr",
-    "visual_ocr": "reading_visual_ocr",
 }
 
 #: The named stages this module publishes at its exception boundary. Constants
 #: of ours, never anything read out of a document, so a stage name cannot
 #: itself be a leak. `preflight`/`reading`/`analysis` are the three coarse
 #: phases `run_job` runs in; the store's finer `stage` column
-#: (`reading_visual_ocr`, `analyzing`, …) still records which rung was live.
+#: (`reading_local_ocr`, `analyzing`, …) still records which rung was live.
 _PHASE_PREFLIGHT = "preflight"
 _PHASE_READING = "reading"
 _PHASE_ANALYSIS = "analysis"
@@ -85,9 +81,9 @@ _STUCK_JOB_FAILURE = (
 #: `analysis/pipeline.py` raises a small number of refusals that are FIXED
 #: LITERALS of ours: they say why the deterministic path declined and carry no
 #: document content by construction. This is the one that a user can act on —
-#: `webapp/static/app.js:friendlyAnalysisError` matches it and answers "use
-#: Auto mode, or add a deterministic parser for this bank", which is the most
-#: common and most actionable outcome the deterministic mode produces.
+#: `webapp/static/app.js:friendlyAnalysisError` matches it and answers that
+#: nothing was guessed and the layout needs a parser before it can be analysed,
+#: which is the most common outcome the deterministic path produces.
 #:
 #: Matching is EXACT and the value published is the member of this tuple, not
 #: the exception's own string, so what crosses the boundary is provably a
@@ -107,50 +103,26 @@ _DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
     "no deterministic parser matched this statement",
 )
 
-#: P21-ROUTING (Phase 2.1, D4, Ruling A). The webapp's ONE `enabled` value: a
-#: module-level constant, never computed per document. The webapp is NOT
-#: wired to PaddleOCR in Phase 2.1 — only the pre-existing visual (local,
-#: $0-vendor) rung is ever named here — so this fallback's behaviour stays
-#: byte-identical to Phase 2.0 (CASE 12).
-WORKER_ENABLED_EXTRACTORS: frozenset[str] = frozenset({"visual"})
+#: What a job asked for with Force visual OCR ends in (owner ruling, 2026-10-13: the product uses no model, so the
+#: visual readers are gone). `/upload` refuses `force_ocr=1` before anything is stored (webapp/app.py), so only a job
+#: stored before that ruling still carries the flag, and only its re-analysis (`webapp/reanalysis.py`, which re-runs a
+#: job with its own read flag) reaches this: `run_job` ends before preflight with this fixed text, reads nothing and
+#: names no stage, so the re-analysis answers it as its reason and the saved job is kept. Fixed text of ours, never
+#: anything read out of a document.
+FORCED_OCR_RETIRED = (
+    "This statement was read with the retired visual OCR; upload it again to read it deterministically."
+)
 
+#: The class name the forced refusal's telemetry record carries (`error_type`). A name of ours, not an exception's.
+FORCED_OCR_ERROR_TYPE = "ForcedOcrRemoved"
 
-def _force_ocr_decision(doc, profile: DocumentProfile | None, analysis: dict | None) -> Escalation:
-    """P20-ROUTER item 3: the deterministic `force_ocr` fallback's ONE router
-    call — the only legal path from "the offline ladder did not produce a
-    claim" to the visual rung in this module.
-
-    START = the operator's explicit flag, `OPERATOR_FORCED_VISUAL`. It is the
-    SOLE trigger here (unlike `discovery/runner.py`'s automatic, unattended
-    UPGRADE path, which never admits it — see that trigger's docstring in
-    `ocr/escalation.py`): `force_ocr` is set by a human or API caller BEFORE
-    any stage runs, for exactly this one document, which is a different
-    epistemic situation from a bulk pipeline reaching for a second engine
-    because the first one did not balance.
-
-    STOP = `analysis is not None`. This is legal ONLY because in deterministic
-    mode a payload exists IFF a parser claimed: `analysis/pipeline.py:917-918`
-    raises `RuntimeError("no deterministic parser matched this statement")`
-    (and `AmbiguousParserError` / `ParserCrashError` before it) on every other
-    `resolve` outcome — `tests/test_escalation_router.py` pins that exact
-    string. `EscalationRouter.decide` checks `stop` FIRST, before any trigger,
-    so a document that already claimed — even one that will go on to fail
-    financial validation (Class C) — can never reach `OPERATOR_FORCED_VISUAL`,
-    regardless of the flag. That is what makes "no C -> OCR edge" hold at this
-    call site too, and it is a STRICTER reading than the literal ruling this
-    card implements it against (which names `stop` for "validated" specifically
-    on the discovery runner's own upgrade path) — flagged in the P20-ROUTER
-    report rather than silently narrowed.
-    """
-    evidence = ExtractionQualityGate.assess(doc, profile)
-    triggers = frozenset({OPERATOR_FORCED_VISUAL})
-    if doc is None:
-        triggers = triggers | frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT})
-    return EscalationRouter.decide(router_inputs(
-        profile=profile, evidence=evidence, triggers=triggers,
-        attempted=("local_tesseract",), stop=analysis is not None,
-        enabled=WORKER_ENABLED_EXTRACTORS,
-    ))
+#: The analysis error of a document neither reading rung could read: no usable native PDF text, and local Tesseract
+#: OCR read nothing usable from its pages. A fixed literal; `webapp/static/app.js:friendlyAnalysisError` matches its
+#: prefix ("native PDF text unavailable") and explains it. It used to end with advice to turn on Force visual OCR or
+#: use Auto mode; neither reads anything more, so the advice is gone and the prefix is unchanged.
+NO_USABLE_TEXT = (
+    "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text"
+)
 
 
 def _stage_failure(stage: str, exc: BaseException) -> str:
@@ -333,6 +305,9 @@ def _emit(
             escalated=bool((analysis or {}).get("escalated")),
             error_type=error_type,
             error_reason="analysis_error" if analysis_error and not error_type else None,
+            # `refused="contradictory"` was declared here for the visual pair's verified source contradiction
+            # (vlm/source_contradiction.py, removed with the pair in slice S4); no reader of this worker produces
+            # one, so no record is refused. The vocabulary member stays (telemetry REFUSED_REASONS is append-only).
         ))
     except Exception:
         return None
@@ -355,7 +330,6 @@ def _read_document(
     allow_local_ocr: bool,
     allow_visual_ocr: bool,
     on_stage,
-    on_delta,
     on_replace,
     timer: StageTimer | None = None,
 ) -> StatementMarkdown | None:
@@ -379,7 +353,6 @@ def _read_document(
             allow_local_ocr=allow_local_ocr,
             allow_visual_ocr=allow_visual_ocr,
             on_stage=on_stage,
-            on_page_delta=on_delta,
             on_page_replace=on_replace,
         ),
         cache=cache,
@@ -412,7 +385,7 @@ def run_job(
     #
     # Cache (D-3): every expensive stage below goes through the content-hash
     # artifact cache bound to the same data directory, so re-processing
-    # byte-identical content performs zero OCR and zero LLM calls.
+    # byte-identical content performs zero OCR.
     store.set_status(job_id, "processing")
     cache = store.cache
     # Telemetry (H-3): write-only side-band. The collector observes the R-3
@@ -425,7 +398,7 @@ def run_job(
     doc: StatementMarkdown | None = None
     # The named stage for the job-level exception boundary below (#WORKERPRIV
     # site 2). Advanced inside the `read`/`analyze` closures rather than at
-    # their six call sites, so a new mode branch cannot forget it.
+    # their call sites, so a new branch cannot forget it.
     #
     # KNOWN GRANULARITY, stated rather than hidden: `set_result` runs after
     # `analyze` returns, so a storage-layer crash while publishing is
@@ -433,14 +406,18 @@ def run_job(
     # telemetry record's per-stage timings separate the two.
     phase = _PHASE_PREFLIGHT
     try:
+        if force_ocr:
+            # Force visual OCR is retired (FORCED_OCR_RETIRED): refused before preflight, with nothing read and no
+            # stage named, so a re-analysis of a job stored with the flag answers this text and keeps the saved job.
+            store.set_error(job_id, FORCED_OCR_RETIRED)
+            _emit(store, job_id, None, len(pdf_bytes), None, None, None, None,
+                  collector, timer, error_type=FORCED_OCR_ERROR_TYPE)
+            return
         with timer.time("preflight"):
             profile = inspect_pdf(pdf_bytes)
 
         def on_stage(rung: str) -> None:
             store.set_stage(job_id, _STAGE_NAMES[rung])
-
-        def on_delta(page: int, chunk: str) -> None:
-            store.append_page_live(job_id, page, chunk)
 
         def on_replace(page: int, text: str) -> None:
             store.set_page_live(job_id, page, text)
@@ -450,7 +427,7 @@ def run_job(
             phase = _PHASE_READING
             return _read_document(
                 job_id, store, cache, pdf_bytes, filename, profile,
-                on_stage=on_stage, on_delta=on_delta, on_replace=on_replace,
+                on_stage=on_stage, on_replace=on_replace,
                 timer=timer, **flags,
             )
 
@@ -462,76 +439,21 @@ def run_job(
                 collector=collector, timer=timer,
             )
 
-        if parse_mode == "deterministic":
-            # Offline rungs only (native, then tesseract); no visual OCR yet.
-            doc = read(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)
-            if doc is not None:
-                store.set_stage(job_id, "analyzing", doc.model)
-                markdown, html, analysis, analysis_error = analyze(doc)
-                decision = _force_ocr_decision(doc, profile, analysis) if force_ocr else None
-                if analysis is not None or not force_ocr or decision.extractor != "visual":
-                    store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
-                    _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
-                          analysis, analysis_error, collector, timer)
-                    return
-                # Analysis failed and the router admitted the operator's
-                # force_ocr flag (P20-ROUTER item 3): escalate to the visual
-                # rung below (mode policy, not ladder routing).
-            elif not force_ocr:
-                markdown = (
-                    f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
-                    "No usable native PDF text was found."
-                )
-                html = markdown_to_html(markdown, title=filename)
-                store.set_result(
-                    job_id,
-                    markdown,
-                    html,
-                    None,
-                    "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text; turn on Force visual OCR to use the OCR service, or use Auto mode",
-                    "deterministic-native-preflight",
-                )
-                _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
-                      "native text unavailable", collector, timer,
-                      error_type="NoUsableNativeText")
-                return
-            elif _force_ocr_decision(None, profile, None).extractor != "visual":
-                # Refused (structurally unreachable today: the offline ladder
-                # produced nothing, which always admits
-                # `offline_rungs_produced_no_text`, and nothing has claimed,
-                # so `stop` is always False here — kept explicit so a future
-                # refactor of the branches above cannot silently drop the
-                # router call). Same response as the `not force_ocr` arm:
-                # force_ocr never widens what a document can legally read.
-                markdown = (
-                    f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
-                    "No usable native PDF text was found."
-                )
-                html = markdown_to_html(markdown, title=filename)
-                store.set_result(
-                    job_id,
-                    markdown,
-                    html,
-                    None,
-                    "native PDF text unavailable, and the visual OCR escalation was refused",
-                    "deterministic-native-preflight",
-                )
-                _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
-                      "native text unavailable", collector, timer,
-                      error_type="NoUsableNativeText")
-                return
-
-            doc = read(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True)
-            store.set_stage(job_id, "analyzing", doc.model)
-            markdown, html, analysis, analysis_error = analyze(doc)
-            store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
-            _emit(store, job_id, profile, len(pdf_bytes), doc, markdown,
-                  analysis, analysis_error, collector, timer)
+        # The one read: native PDF text, then local Tesseract. These are the flags (and so the OCR cache key) every
+        # read of this worker has used on the default environment; the visual rung is a literal False.
+        doc = read(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False)
+        if doc is None:
+            markdown = (
+                f"<!-- source: {filename} | model: deterministic-native-preflight -->\n\n"
+                "No usable native PDF text was found."
+            )
+            html = markdown_to_html(markdown, title=filename)
+            store.set_result(job_id, markdown, html, None, NO_USABLE_TEXT, "deterministic-native-preflight")
+            _emit(store, job_id, profile, len(pdf_bytes), None, None, None,
+                  "native text unavailable", collector, timer,
+                  error_type="NoUsableNativeText")
             return
 
-        # Auto mode: the full ladder in one call (force_ocr jumps straight to
-        # the visual rung, exactly as before).
-        doc = read(force_ocr=force_ocr, allow_local_ocr=True, allow_visual_ocr=True)
         store.set_stage(job_id, "analyzing", doc.model)
         markdown, html, analysis, analysis_error = analyze(doc)
         store.set_result(job_id, markdown, html, analysis, analysis_error, doc.model)
@@ -580,8 +502,8 @@ def run_job(
         # be interrupted: a `BaseException` raised INSIDE a handler (between
         # `set_error` and `_emit`, or during either) leaves the same stuck job
         # the arms exist to prevent. A `finally` is the only place that runs on
-        # every exit — including the four `return`s in the body, where the job
-        # is already `done` and this is a no-op read.
+        # every exit — including the two `return`s in the body, where the job
+        # is already terminal and this is a no-op read.
         #
         # It never overwrites a terminal state and it never raises: a status
         # check that could itself crash the thread would be a fifth way to

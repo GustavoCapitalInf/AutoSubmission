@@ -44,12 +44,30 @@ N3 the attached overdrawn minus
     An overdrawn balance prints with a trailing minus, detached ("136.51 -") or
     attached ("136.51-"). Only the detached form was read, so the ledger walk
     stopped at the first overdrawn day.
+
+N4 the amount-first text (audit round 2, R2-B06: R03)
+    A retail statement (EveryDay Checking) reaches the compatibility path
+    through generic block text in which every row's amount and balance sort
+    ABOVE its own date and description. The path gave each pair the text read
+    before it, the previous row's, from the first debit on. The section is
+    now read as tokens (a pair, a date group, a description line with no date
+    before it) with one token of lookahead: a pair followed by a date group is
+    one row, and a date group followed by a pair, then any lone description
+    lines, is one row with its wrap lines. A reading that does not fit falls
+    back to the old loop unchanged. The native layout rung reads the one
+    checking product the summary declares, as the parser does, instead of
+    "Business Checking" alone.
 """
 from __future__ import annotations
+
+import pytest
 
 from analysis.bluevine import parse_bluevine_statement
 from analysis.navy_federal import parse_navy_federal_statement
 from analysis.relay import _restore_glyphs, parse_relay_statement
+from analysis.transaction_classifier import classify_statement_transactions
+from ocr import native_text
+from tests.zelle_reading import rules_reading
 
 # --------------------------------------------------------------- bluevine
 
@@ -448,9 +466,17 @@ def test_navy_federal_attached_and_detached_minus_read_alike():
 
 
 def _navy_federal_dated_credit() -> str:
-    """The same platform printing a credit's date and description ABOVE its
-    money columns, which is the arrangement the archive's text-layer documents
-    use: every row is `<date>` / `<description>` / `<amount> <balance>`.
+    """The same platform printing every row's date and description ABOVE its
+    money columns: `<date>` / `<description>` / `<amount> <balance>`.
+
+    This is the date-first arrangement the af117fd narrowing was written for
+    (its withheld documents are not in the corpus). It is NOT what the
+    archive's text-layer documents print: the corpus's four EveryDay Checking
+    statements print every row amount-first (`<amount>` `<balance>` /
+    `<date>` / `<description>`, the pair sorting above its own date), which
+    `_navy_federal_amount_first` reproduces (audit round 2, R2-B06: R03). Both
+    arrangements read through the lookahead reading; this one is kept as its
+    control.
 
     1,000.00 + 300.00 - 200.00 = 1,100.00.
     """
@@ -515,3 +541,406 @@ def test_the_platforms_other_row_order_still_reads_its_credit():
         ("2054-01-05", -200.00),
         ("2054-01-09", 300.00),
     ]
+
+
+# ------------------------- navy_federal amount-first (audit round 2, R2-B06: R03)
+
+#: The archive's amount-first arrangement of the generic block text: each row's
+#: amount and balance sort ABOVE its own date and description (a separate pair
+#: or a one-line pair, a debit's detached '-' after it). The Zelle row prints
+#: its date and description first and wraps a line AFTER its pair (G P D).
+#: 1,000.00 + 300.00 - 200.00 + 450.00 + 2,500.00 - 50.00 + 75.00 = 4,075.00.
+NAVY_AMOUNT_FIRST_LEDGER = (
+    "300.00\n"
+    "1,300.00\n"
+    "01-02\n"
+    "Transfer From Shares\n"
+    "200.00 1,100.00\n"
+    "-\n"
+    "01-05\n"
+    "POS Debit- Debit Card 0000 FABRIKAM STORE\n"
+    "01-07\n"
+    "Zelle CR CONTOSO LLC\n"
+    "450.00 1,550.00\n"
+    "SAMPLE CITY ST\n"
+    "2,500.00 4,050.00\n"
+    "01-09\n"
+    "Bank Wire Deposit\n"
+    "50.00 4,000.00\n"
+    "-\n"
+    "01-12\n"
+    "Paid To - NORTHWIND UTILITIES\n"
+    "75.00 4,075.00\n"
+    "01-15\n"
+    "Deposit\n"
+)
+
+#: What the PDF prints, row by row.
+NAVY_AMOUNT_FIRST_ROWS = [
+    ("2054-01-02", 300.00, "Transfer From Shares"),
+    ("2054-01-05", -200.00, "POS Debit- Debit Card 0000 FABRIKAM STORE"),
+    ("2054-01-07", 450.00, "Zelle CR CONTOSO LLC SAMPLE CITY ST"),
+    ("2054-01-09", 2500.00, "Bank Wire Deposit"),
+    ("2054-01-12", -50.00, "Paid To - NORTHWIND UTILITIES"),
+    ("2054-01-15", 75.00, "Deposit"),
+]
+
+
+def _navy_federal_amount_first(
+    product: str = "EveryDay Checking",
+    ledger: str = NAVY_AMOUNT_FIRST_LEDGER,
+    ending: str = "01-31\nEnding Balance\n4,075.00\n",
+) -> str:
+    """A Navy Federal statement whose generic block text prints the ledger
+    amount-first, as the archive's four EveryDay Checking statements do."""
+    return (
+        "Navy Federal\n"
+        "Statement Period 01/01/54 - 01/31/54\n"
+        "Summary of your deposit accounts\n"
+        "Previous Deposits/ Withdrawals/ Ending YTD "
+        "Balance Credits Debits Balance Dividends\n"
+        f"{product}\n"
+        "7000000001 $1,000.00 $3,325.00 $250.00 $4,075.00 $0.00\n"
+        "Membership Savings\n"
+        "3000000002 $5.00 $0.00 $0.00 $5.00 $0.00\n"
+        "Totals $1,005.00 $3,325.00 $250.00 $4,080.00 $0.00\n"
+        "Checking\n"
+        "Date Transaction Detail Amount($) Balance($)\n"
+        f"{product} - 7000000001\n"
+        "1,000.00\n"
+        "01-01\n"
+        "Beginning Balance\n"
+        f"{ledger}"
+        f"{ending}"
+        "Average Daily Balance - Current Cycle: $2,000.00\n"
+        "Membership Savings - 3000000002\n"
+        "5.00\n"
+        "01-01\n"
+        "Beginning Balance\n"
+        "01-31\n"
+        "Ending Balance\n"
+        "5.00\n"
+    )
+
+
+def _credit_tiers(statement):
+    # The owner's ruling of 2026-10-02 (the underwriter's Q3): the Zelle deposit is read through the rules' own
+    # reading, its final tier (non_revenue, zelle_excluded) asserted (tests/zelle_reading.py, R2-OW02 CR7).
+    return [
+        (record.amount, *rules_reading(record, method=True))
+        for record in classify_statement_transactions(statement)
+        if record.amount > 0
+    ]
+
+
+#: The credits' tiers once each row carries its own text: the member's own
+#: share transfer is non-revenue, the Zelle is counted as P2P by the rules
+#: (Q4; then excluded by the owner's Zelle policy of 2026-10-02), the wire
+#: that prints no sender is held (Q5), the bare deposit is counted (Q2).
+NAVY_AMOUNT_FIRST_CREDIT_TIERS = [
+    (300.00, "non_revenue"),
+    (450.00, ("counted_flagged", "p2p")),
+    (2500.00, ("excluded_pending_review", "wire_no_sender")),
+    (75.00, ("counted_flagged", "no_payer_printed")),
+]
+
+
+def _matches_tiers(observed, expected):
+    for (amount, tier, reason), (want_amount, want) in zip(observed, expected, strict=True):
+        assert amount == want_amount
+        if isinstance(want, tuple):
+            assert (tier, reason) == want, (amount, tier, reason)
+        else:
+            assert tier == want, (amount, tier, reason)
+
+
+def test_an_amount_first_retail_statement_reads_each_row_s_own_date_and_text():
+    """N4 (T1): each pair owns the date group that FOLLOWS it; the Zelle row
+    printed date-first keeps its wrap line. Before, the +2,500.00 wire read
+    the Zelle's wrap line 'SAMPLE CITY ST', the -200.00 debit read the share
+    transfer's date, and the +75.00 deposit read the 'Paid To' debit's text."""
+    statement = parse_navy_federal_statement(_navy_federal_amount_first())
+
+    assert statement is not None
+    assert [(t.date, t.amount, t.description) for t in statement.transactions] == NAVY_AMOUNT_FIRST_ROWS
+
+
+def test_an_amount_first_retail_statement_tiers_each_credit_on_its_own_text():
+    """N4 (T1): before, the +2,500.00 and +75.00 credits read another row's
+    text and were both counted as a named payer with no channel; the wire with
+    no sender was out of the review it is owed."""
+    statement = parse_navy_federal_statement(_navy_federal_amount_first())
+
+    assert statement is not None
+    _matches_tiers(_credit_tiers(statement), NAVY_AMOUNT_FIRST_CREDIT_TIERS)
+
+
+def test_the_business_product_printed_amount_first_reads_the_same():
+    """N4 (T2): the product is a label, not a layout."""
+    retail = parse_navy_federal_statement(_navy_federal_amount_first())
+    business = parse_navy_federal_statement(_navy_federal_amount_first("Business Checking"))
+
+    assert retail is not None and business is not None
+    assert [(t.date, t.amount, t.description) for t in business.transactions] == NAVY_AMOUNT_FIRST_ROWS
+    _matches_tiers(_credit_tiers(business), NAVY_AMOUNT_FIRST_CREDIT_TIERS)
+
+
+def test_an_ending_balance_printed_above_its_own_date_is_no_description():
+    """N4: amount-first, the Ending Balance's own figure can sort above its
+    date too, right after the last row's description. It is that balance,
+    not a wrap line of the last row."""
+    statement = parse_navy_federal_statement(
+        _navy_federal_amount_first(ending="4,075.00\n01-31\nEnding Balance\n")
+    )
+
+    assert statement is not None
+    assert [(t.date, t.amount, t.description) for t in statement.transactions] == NAVY_AMOUNT_FIRST_ROWS
+
+
+def test_the_date_first_and_mixed_arrangements_read_as_before():
+    """N4 controls: the af117fd date-first fixture and the base mixed fixture
+    read their rows exactly as they did before the lookahead reading."""
+    dated = parse_navy_federal_statement(_navy_federal_dated_credit())
+    mixed = parse_navy_federal_statement(_navy_federal("Business Checking"))
+
+    assert dated is not None and mixed is not None
+    assert [(t.date, t.amount, t.description) for t in dated.transactions] == [
+        ("2054-01-05", 300.00, "Example Payer Deposit"),
+        ("2054-01-09", -200.00, "Example Vendor Purchase"),
+    ]
+    assert [(t.date, t.amount, t.description) for t in mixed.transactions] == [
+        ("2054-01-05", -200.00, "Example Vendor Purchase"),
+        ("2054-01-09", 300.00, "Example Payer Deposit"),
+    ]
+
+
+def test_a_row_with_no_date_still_falls_back_to_the_line_reader():
+    """N4 control: a description line with no date before it opens the ledger,
+    so the lookahead reading does not fit; the old line reader decides, and it
+    refuses a debit with no date as it always did."""
+    no_date = _navy_federal_dated_credit().replace(
+        "01-05\nExample Payer Deposit\n300.00 1,300.00\n01-09\nExample Vendor Purchase\n200.00 1,100.00\n",
+        "Example Vendor Purchase\n200.00 800.00\n300.00 1,100.00\n01-09\nExample Payer Deposit\n",
+    )
+
+    assert "Example Vendor Purchase\n200.00 800.00" in no_date
+    assert parse_navy_federal_statement(no_date) is None
+
+
+# ---------------------- navy_federal native layout rung (audit round 2, R2-B06: R03)
+
+#: The layout-sorted text (MuPDF `sort=True`) of one page: one visual row per
+#: line, each row's date, description, amount and balance together.
+def _navy_layout_text(product: str = "EveryDay Checking", extra_summary: str = "",
+                      ending: str = "01-31 Ending Balance 4,075.00\n") -> str:
+    return (
+        "Navy Federal Credit Union\n"
+        "Statement of Account\n"
+        "Statement Period 01/01/54 - 01/31/54\n"
+        "Summary of your deposit accounts\n"
+        "Previous Deposits/ Withdrawals/ Ending YTD\n"
+        "Balance Credits Debits Balance Dividends\n"
+        f"{product}\n"
+        "7000000001 $1,000.00 $3,325.00 $250.00 $4,075.00 $0.00\n"
+        f"{extra_summary}"
+        "Membership Savings\n"
+        "3000000002 $5.00 $0.01 $0.00 $5.01 $0.01\n"
+        "Totals $1,005.00 $3,325.01 $250.00 $4,080.01 $0.01\n"
+        "Statement of Account\n"
+        f"{product} - 7000000001\n"
+        "Date Transaction Detail Amount($) Balance($)\n"
+        "01-01 Beginning Balance 1,000.00\n"
+        "01-02 Transfer From Shares 300.00 1,300.00\n"
+        "01-05 POS Debit- Debit Card 0000 FABRIKAM STORE 200.00 - 1,100.00\n"
+        "01-07 Zelle CR CONTOSO LLC 450.00 1,550.00\n"
+        "SAMPLE CITY ST\n"
+        "01-09 Bank Wire Deposit 2,500.00 4,050.00\n"
+        "01-12 Paid To - NORTHWIND UTILITIES 50.00 - 4,000.00\n"
+        "01-15 Deposit 75.00 4,075.00\n"
+        f"{ending}"
+        "Average Daily Balance - Current Cycle: $2,000.00\n"
+        "Membership Savings - 3000000002\n"
+        "01-01 Beginning Balance 5.00\n"
+        "01-31 Dividend 0.01 5.01\n"
+        "01-31 Ending Balance 5.01\n"
+    )
+
+
+class _LayoutPage:
+    """A page whose layout-sorted text and blocks are the given text."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def get_text(self, mode: str = "text", **_options):
+        if mode == "blocks":
+            return [
+                (0.0, float(10 * number), 100.0, float(10 * number + 8), line, number, 0)
+                for number, line in enumerate(self._text.splitlines())
+            ]
+        return self._text
+
+
+class _LayoutDoc:
+    def __init__(self, text: str) -> None:
+        self._pages = [_LayoutPage(text)]
+        self.page_count = 1
+
+    def __iter__(self):
+        return iter(self._pages)
+
+    def __getitem__(self, index):
+        return self._pages[index]
+
+    def close(self) -> None:
+        return None
+
+
+@pytest.fixture
+def navy_layout(monkeypatch):
+    """Stub MuPDF so the rung reads the given layout text as the document."""
+    import fitz
+
+    def install(text: str) -> bytes:
+        native_text.clear_page_caches()
+        monkeypatch.setattr(fitz, "open", lambda *a, **k: _LayoutDoc(text))
+        return b"%PDF-1.4 navy " + text.encode("utf-8")
+
+    yield install
+    native_text.clear_page_caches()
+
+
+def _nfcu_rows(document):
+    markdown = document.to_markdown()
+    return [line.split("|", 2)[2] for line in markdown.splitlines() if line.startswith("NFCU_TX|")]
+
+
+def test_the_layout_rung_reads_the_retail_product_the_summary_declares(navy_layout):
+    """N4 (T3): the rung read only 'Business Checking', so a retail statement
+    fell through to the generic rung and the amount-first block text."""
+    raw = navy_layout(_navy_layout_text())
+
+    document = native_text.parse_native_navy_federal(raw, source_file="x.pdf")
+
+    assert document is not None
+    assert document.model == "native-pdf-text+navy-federal-layout"
+    assert _nfcu_rows(document) == [
+        "01-02|300.00|1,300.00|Transfer From Shares",
+        "01-05|200.00|1,100.00|POS Debit- Debit Card 0000 FABRIKAM STORE",
+        "01-07|450.00|1,550.00|Zelle CR CONTOSO LLC SAMPLE CITY ST",
+        "01-09|2,500.00|4,050.00|Bank Wire Deposit",
+        "01-12|50.00|4,000.00|Paid To - NORTHWIND UTILITIES",
+        "01-15|75.00|4,075.00|Deposit",
+    ]
+    assert native_text.native_statement(raw, source_file="x.pdf").model == document.model
+
+
+def test_the_layout_rung_s_retail_rows_publish_the_statement(navy_layout):
+    """N4 (T3): the rung's rows are what the parser publishes for the product."""
+    raw = navy_layout(_navy_layout_text())
+
+    statement = parse_navy_federal_statement(
+        native_text.parse_native_navy_federal(raw, source_file="x.pdf").to_markdown()
+    )
+
+    assert statement is not None
+    assert statement.account_name == "EveryDay Checking"
+    assert [(t.date, t.amount, t.description) for t in statement.transactions] == NAVY_AMOUNT_FIRST_ROWS
+
+
+def test_the_layout_rung_refuses_two_checking_products(navy_layout):
+    """N4 (T3), N2's rule: two checking products have no single account."""
+    raw = navy_layout(_navy_layout_text(extra_summary="e-Checking\n7000000003 $10.00 $0.00 $0.00 $10.00 $0.00\n"))
+
+    assert native_text.parse_native_navy_federal(raw, source_file="x.pdf") is None
+
+
+def test_the_layout_rung_refuses_a_product_its_section_never_heads(navy_layout):
+    """N4 (T3): the summary's product is confirmed by its own section heading."""
+    raw = navy_layout(_navy_layout_text().replace("EveryDay Checking - 7000000001\n", "Checking\n"))
+
+    assert native_text.parse_native_navy_federal(raw, source_file="x.pdf") is None
+
+
+@pytest.mark.parametrize("product", ["EveryDay Checking", "Business Checking"])
+def test_the_layout_rung_stops_at_any_other_account_s_heading(navy_layout, product):
+    """N4 (T3): a section with no Ending Balance line ends where the next
+    account's '<name> - <digits>' heading begins, whatever that product is."""
+    raw = navy_layout(_navy_layout_text(product, ending=""))
+
+    document = native_text.parse_native_navy_federal(raw, source_file="x.pdf")
+
+    assert document is not None
+    rows = _nfcu_rows(document)
+    assert len(rows) == 6
+    assert not any("Dividend" in row for row in rows)
+
+
+# ------------- navy_federal page header (audit round 2, R2-B06: R21 part B, parser line)
+
+#: The page header Navy Federal prints at the top of every page, as the generic
+#: block text glues it into the last row before a page break: the statement's
+#: title, then the joint owners' label with its value on the line after it.
+NAVY_PAGE_HEADER = "Statement of Account\nJoint Owner(s):\nNONE\n"
+
+
+def test_the_page_header_is_no_part_of_a_row_s_description():
+    """R21 part B: 'Statement of Account' and 'Joint Owner(s): NONE', glued
+    after a credit's and a debit's own text at a page break, are furniture;
+    every amount and date reads as without them."""
+    ledger = NAVY_AMOUNT_FIRST_LEDGER.replace(
+        "Bank Wire Deposit\n", "Bank Wire Deposit\n" + NAVY_PAGE_HEADER
+    ).replace(
+        "POS Debit- Debit Card 0000 FABRIKAM STORE\n",
+        "POS Debit- Debit Card 0000 FABRIKAM STORE\n" + NAVY_PAGE_HEADER,
+    )
+
+    statement = parse_navy_federal_statement(_navy_federal_amount_first(ledger=ledger))
+
+    assert statement is not None
+    assert [(t.date, t.amount, t.description) for t in statement.transactions] == NAVY_AMOUNT_FIRST_ROWS
+
+
+def test_a_mobile_deposit_ending_a_page_is_counted_as_a_check_deposit():
+    """R21 part B: the joint owners' label glued to a mobile deposit read as a
+    purpose (OWNER) and held it; its own text is a check deposit (Q3)."""
+    ledger = NAVY_AMOUNT_FIRST_LEDGER.replace(
+        "01-15\nDeposit\n", "01-15\nMobile Deposit\n" + NAVY_PAGE_HEADER
+    )
+
+    statement = parse_navy_federal_statement(_navy_federal_amount_first(ledger=ledger))
+
+    assert statement is not None
+    assert statement.transactions[-1].description == "Mobile Deposit"
+    assert _credit_tiers(statement)[-1] == (75.00, "counted_flagged", "check_deposit")
+
+
+def test_a_none_line_the_owner_label_did_not_print_stays_text():
+    """R21 part B control: only the joint owners' value after its label is
+    furniture; a description line that happens to read NONE elsewhere stays."""
+    ledger = NAVY_AMOUNT_FIRST_LEDGER.replace("01-15\nDeposit\n", "01-15\nDeposit\nNONE\n")
+
+    statement = parse_navy_federal_statement(_navy_federal_amount_first(ledger=ledger))
+
+    assert statement is not None
+    assert statement.transactions[-1].description == "Deposit NONE"
+
+
+def test_the_layout_rung_reads_no_page_header_into_the_row_before_a_page_break(navy_layout):
+    """R21 part B: the layout-sorted text prints the joint owners' line under a
+    continued section's heading, after the last row of the page before."""
+    text = _navy_layout_text().replace(
+        "01-09 Bank Wire Deposit 2,500.00 4,050.00\n",
+        "01-09 Bank Wire Deposit 2,500.00 4,050.00\n"
+        "Statement of Account\n"
+        "EveryDay Checking - 7000000001 (Continued from previous page)\n"
+        "Joint Owner(s): NONE\n"
+        "Date Transaction Detail Amount($) Balance($)\n",
+    )
+    raw = navy_layout(text)
+
+    document = native_text.parse_native_navy_federal(raw, source_file="x.pdf")
+
+    assert document is not None
+    assert "01-09|2,500.00|4,050.00|Bank Wire Deposit" in _nfcu_rows(document)
+    assert not any("Owner" in row for row in _nfcu_rows(document))

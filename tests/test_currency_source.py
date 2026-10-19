@@ -432,13 +432,23 @@ class TestJurisdictionDefault:
         """Doctrine §B's final paragraph: the same shape generalizes to TD, BMO
         and CIBC only after each proves its own jurisdiction evidence base. Until
         then exactly one module may write this class, and this test is what
-        makes a second one a deliberate act."""
+        makes a second one a deliberate act.
+
+        `analysis/currency_default.py` is that deliberate act, made by the
+        owner, not by a reader: Gustavo's rulings of 2026-09-22 and 2026-09-23
+        ("USD unless its a canadian bank"; a Canadian bank keeps its
+        jurisdiction default, CAD, from its printed name) were implemented in
+        the visual pair's `vlm/currency.py`, outside this layer, and moved here
+        unchanged when the pair was removed (model-code removal, slice S4). It
+        is a function no production reader calls today (the text-first reader
+        is its planned caller); the reader that calls it owes the evidence
+        doctrine §B asks for."""
         writers = set()
         for name, tree in _modules():
             for node in ast.walk(tree):
                 if isinstance(node, ast.Constant) and node.value == "jurisdiction_default":
                     writers.add(name)
-        assert writers == {"analysis/rbc.py", "analysis/schema.py"}, sorted(writers)
+        assert writers == {"analysis/rbc.py", "analysis/schema.py", "analysis/currency_default.py"}, sorted(writers)
 
 
 #: One well-formed Scotiabank ledger, the shape `tests/test_scotia_layouts.py`
@@ -487,54 +497,10 @@ class TestInstitutionDefault:
         assert parse_scotiabank_statement(document) is None
 
 
-class TestModelExtracted:
-    """`model_extracted` — and a model may not certify its own provenance."""
-
-    def test_the_llm_branchs_currency_is_labelled_as_the_models(self, monkeypatch):
-        import analysis.extract as extract
-
-        monkeypatch.setattr(
-            extract, "_get_client", lambda _settings: _StubClient(
-                Statement(currency="CAD")
-            )
-        )
-        stmt = extract.extract_statement("--- Page 1 ---\n", settings=_StubSettings())
-        assert (stmt.currency, stmt.currency_source) == ("CAD", "model_extracted")
-
-    def test_a_source_the_model_filled_in_itself_is_discarded(self, monkeypatch):
-        """`Statement` is this call's `response_schema`, so `currency_source` is
-        a field the model can fill. A returned `printed` is a language model
-        asserting that it read evidence, which is precisely the claim nothing
-        here can verify."""
-        import analysis.extract as extract
-
-        monkeypatch.setattr(
-            extract, "_get_client", lambda _settings: _StubClient(
-                Statement(currency="CAD", currency_source="printed")
-            )
-        )
-        stmt = extract.extract_statement("--- Page 1 ---\n", settings=_StubSettings())
-        assert stmt.currency_source == "model_extracted"
-
-
-class _StubSettings:
-    model = "stub-model"
-    escalation_model = "stub-model"
-
-
-class _StubModels:
-    def __init__(self, parsed):
-        self._parsed = parsed
-
-    def generate_content(self, **_kwargs):
-        return type("_Resp", (), {"parsed": self._parsed})()
-
-
-class _StubClient:
-    """Offline by construction — no vendor call is made anywhere in this file."""
-
-    def __init__(self, parsed):
-        self.models = _StubModels(parsed)
+# `TestModelExtracted` (the hosted extractor labelled its currency `model_extracted` and discarded any source the model
+# filled in itself) was deleted in slice S3 of the model-code removal with `analysis/extract.py`, its subject.
+# `model_extracted` stays a member of the closed vocabulary (above): stored payloads carry it. The visual pair's
+# currency bridge, its last setter, was removed in slice S4.
 
 
 class TestSchemaDefault:
@@ -606,7 +572,6 @@ PROVENANCE_MODULES = {
     "analysis/chase.py",
     "analysis/cibc.py",
     "analysis/desjardins.py",
-    "analysis/extract.py",
     "analysis/farmers_merchants.py",
     "analysis/found_lead.py",
     "analysis/frost.py",
@@ -624,6 +589,12 @@ PROVENANCE_MODULES = {
     "analysis/welch_state_bank.py",
     "analysis/woodforest.py",
     "corpus_gate.py",
+    # The owner's currency default (ruling of 2026-09-22: USD unless Canadian). It SETS the label in the result it
+    # returns ("schema_default" for USD, "jurisdiction_default" for a Canadian bank's CAD) and reads no money. Moved
+    # here from vlm/currency.py when the visual pair was removed (model-code removal, slice S4); the pair's modules
+    # (vlm/currency.py, vlm/pair.py, vlm/pair_adapter.py, vlm/pair_accounts.py) and its oracle comparison
+    # (tools/phase3_pair/oracle_compare.py) left this set with it. Nothing in production calls it today.
+    "analysis/currency_default.py",
 }
 
 

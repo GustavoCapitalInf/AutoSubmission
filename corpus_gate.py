@@ -765,6 +765,12 @@ PRODUCTION_SUPPLIES_SHEETS = True
 #: document shape — so a version of it that stopped forwarding `sheets` would
 #: take the page-declaration check offline for EVERY caller at once, which is
 #: precisely the drift this declaration exists to make loud.
+#:
+#: The two visual-pair callers (Phase 3.1, `vlm/pair_adapter.py::
+#: analyze_visual_pair` and `vlm/currency.py::resolve_currency`), declared here
+#: by the audit of 2026-10-13 (HYG-03), left this list with their modules in
+#: slice S4 of the model-code removal; the sweep's stale-caller check would
+#: have failed had either entry outlived its module.
 ANALYSIS_CALL_SITES = (
     ("discovery/runner.py", "_analyse"),
     ("webapp/worker.py", "_analyze_doc"),
@@ -863,15 +869,9 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only omission probe at the document seam; publishes no verdict, "
         "and already supplies the reconstructed page partition"
     ),
-    # W3 §EXTRACTPRIV. Calls the analysis to prove the LLM branch is NOT
-    # reachable in deterministic mode: `extract_statement` is replaced by a
-    # recording sentinel and the assertion is that it records nothing. It
-    # analyses one string literal, never a document, and publishes no verdict —
-    # so there is no intake object to supply and nothing for `sheets` to
-    # describe. Excused rather than declared, deliberately: adding it to
-    # ANALYSIS_CALL_SITES would assert that this probe should pass sheets,
-    # which would be a false statement about what it measures.
-    "tools/extractpriv_reachability.py": "reachability probe over a literal; asserts the call never happens",
+    # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
+    # stood here until slice S3 of the model-code removal deleted it with the
+    # hosted extractor whose unreachability it probed.)
     # W3 §WELCH's family replay, excused on the same two grounds as §REGFP's
     # sweep: it publishes no verdict — it prints an outcome CLASS and reason
     # per content_sha256, row counts, and the distribution of caller-named
@@ -1066,6 +1066,19 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "tools/l1s4_document_replay.py": (
         "read-only document-seam replay; publishes no verdict, and already "
         "supplies the run's reconstructed page partition"
+    ),
+    # A research instrument that went unclassified when it landed (audit
+    # 2026-10-13, HYG-03), excused on the same two grounds as the replays
+    # above. The revenue census re-analyses cached readings with a checkout's
+    # code and writes per-row decisions, digit-masked, to an output file it
+    # refuses to place inside a repository. It publishes no verdict to a user,
+    # a job record or a discovery row, and hands the analysis the page
+    # partition of the reading it analyses. (The visual-pair oracle,
+    # `tools/phase3_pair/oracle_compare.py`, was excused beside it until it was
+    # removed with the pair in slice S4 of the model-code removal.)
+    "tools/revenue_census.py": (
+        "read-only research instrument; publishes no verdict to a user, job "
+        "record or discovery row, and supplies the reading's page partition"
     ),
 }
 
