@@ -4,4 +4,5 @@ markdown
 flask
 waitress
 pytest
-PyMuPDF
+# 2.0 (2026-10-19) imports an ONNX layout model with `fitz` (pymupdf.layout), and no model may run (tests/test_no_model_clients.py).
+PyMuPDF==1.27.2.3
