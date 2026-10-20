@@ -61,13 +61,17 @@ def checkout_at(tmp_path):
 
 
 @pytest.fixture
-def intent_to_add_index(tmp_path, monkeypatch):
+def absent_index(tmp_path, monkeypatch):
     objects = subprocess.run(["git", "rev-parse", "--git-path", "objects"], cwd=PACKAGE_DIR,
                              capture_output=True, text=True, check=True).stdout.strip()
     monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "index"))
     monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "objects"))
     monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str((PACKAGE_DIR / objects).resolve()))
     (tmp_path / "objects").mkdir()
+
+
+@pytest.fixture
+def intent_to_add_index(absent_index):
     for args in (["read-tree", "HEAD"], ["update-index", "--force-remove", "--", "README.md"],
                  ["add", "--intent-to-add", "--", "README.md"]):
         subprocess.run(["git", *args], cwd=PACKAGE_DIR, capture_output=True, check=True)
@@ -403,18 +407,74 @@ def test_scanhyg_reads_the_repo_it_is_given(analysis_modules, checkout_at):
     assert install_modules(checkout_at(SCHEMA_BASE), SCHEMA_BASE, SCHEMA_BASE) == []
 
 
-@pytest.mark.usefixtures("intent_to_add_index")
-def test_lili_scans_a_working_tree_with_an_intent_to_add_file():
+def test_scanhyg_reads_sources_at_a_ref_of_the_repo_it_is_given(analysis_modules, checkout_at, monkeypatch):
+    from tools import scanhyg_family_replay as replay
+
+    def schema(ref):
+        return subprocess.run(["git", "show", f"{ref}:analysis/schema.py"], cwd=PACKAGE_DIR,
+                              capture_output=True, check=True).stdout
+
+    back = next(n for n in range(1, 500) if schema(f"{PRE_MOVE}~{n}") != schema(PRE_MOVE))
+    expected = schema(f"{PRE_MOVE}~{back}")
+    shown = []
+    real_run = subprocess.run
+
+    def recording(argv, **kwargs):
+        proc = real_run(argv, **kwargs)
+        if "show" in argv:
+            shown.append(proc.stdout)
+        return proc
+
+    monkeypatch.setattr(replay.subprocess, "run", recording)
+    assert replay.install_modules(checkout_at(PRE_MOVE), f"HEAD~{back}", SCHEMA_BASE) == ["schema"]
+    assert shown == [expected]
+
+
+def test_withheldgrids_dates_reads_the_repo_it_is_given(checkout_at):
+    from tools.withheldgrids_srcdates_audit import _base_source
+
+    expected = subprocess.run(["git", "show", f"{DEFAULT_BASE}:analysis/dates.py"], cwd=PACKAGE_DIR,
+                              capture_output=True, text=True, check=True).stdout
+    assert _base_source("HEAD", checkout_at(DEFAULT_BASE)) == expected
+
+
+def test_withheldgrids_materialises_the_base_of_the_repo_it_is_given(tmp_path, monkeypatch, capsys, checkout_at):
+    from tools import withheldgrids_tests_at_base as tool
+
+    monkeypatch.setattr(tool, "added_test_names", lambda *a: ["test_fabricated"])
+    real_run = subprocess.run
+
+    def fabricated_pytest(args, **kwargs):
+        if args[0] == sys.executable:
+            return subprocess.CompletedProcess(args, 0, "PASSED tests/x.py::test_fabricated\n", "")
+        return real_run(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", fabricated_pytest)
+    repo = checkout_at(DEFAULT_BASE)
+    for path in tool.TEST_FILES:
+        (repo / path).parent.mkdir(parents=True, exist_ok=True)
+        (repo / path).write_text("")
+    work = tmp_path / "work"
+    assert tool.main(["--repo", str(repo), "--base-rev", "HEAD", "--work", str(work), "--keep"]) == 0
+    expected = real_run(["git", "show", f"{DEFAULT_BASE}:analysis/dates.py"], cwd=PACKAGE_DIR,
+                        capture_output=True, check=True).stdout
+    assert (work / "base_tree" / "analysis" / "dates.py").read_bytes() == expected
+
+
+@pytest.mark.parametrize("index", ["intent_to_add_index", "absent_index"])
+def test_lili_scans_the_working_tree_whatever_the_index(request, index):
     from tools.lili_privacy_scan import haystacks
 
+    request.getfixturevalue(index)
     authored, _ = haystacks("HEAD")
     assert isinstance(authored, str)
 
 
-@pytest.mark.usefixtures("intent_to_add_index")
-def test_withheldtd_scans_a_working_tree_with_an_intent_to_add_file(tmp_path, monkeypatch, capsys):
+@pytest.mark.parametrize("index", ["intent_to_add_index", "absent_index"])
+def test_withheldtd_scans_the_working_tree_whatever_the_index(request, index, tmp_path, monkeypatch, capsys):
     from tools import withheldtd_privacy_scan as scan
 
+    request.getfixturevalue(index)
     monkeypatch.setattr(scan, "texts", lambda rows, data_dir: iter([("A" * 64, "fabricated")]))
     scan.main(["--base", "HEAD", "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path)])
     assert "documents read 1 of 1" in capsys.readouterr().out
