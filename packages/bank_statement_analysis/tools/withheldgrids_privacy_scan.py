@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from tools.git_layout import changed_files, diff as layout_diff
 
-    diff = layout_diff(args.base_rev, "HEAD")
+    diff = layout_diff(args.base_rev, "HEAD", repo=repo)
     added = [
         line[1:] for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
@@ -177,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     for token in other:
         print(f"    -- {token!r}")
 
-    changed = changed_files(args.base_rev, "HEAD")
+    changed = changed_files(args.base_rev, "HEAD", repo=repo)
     offenders = []
     for name in changed:
         path = repo / name

@@ -131,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
 
     from tools.git_layout import diff as layout_diff, working_tree
 
-    diff = layout_diff(args.base, working_tree())
+    here = Path.cwd()
+    diff = layout_diff(args.base, working_tree(here), repo=here)
     added = "\n".join(line[1:] for line in diff.splitlines()
                       if line.startswith("+") and not line.startswith("+++"))
     print(f"branch diff {len(diff)} chars; added lines {len(added)} chars")

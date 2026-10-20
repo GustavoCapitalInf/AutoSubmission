@@ -376,7 +376,7 @@ def _literals(args: argparse.Namespace) -> int:
 
     from tools.git_layout import diff as layout_diff
 
-    diff = layout_diff(args.base, "HEAD")
+    diff = layout_diff(args.base, "HEAD", repo=repo)
     added: dict[str, set[str]] = {}
     current = "(no file)"
     for line in diff.splitlines():
