@@ -162,8 +162,11 @@ $env:BANK_STATEMENTS_DIR = "D:\statements\Bank Statements"
 ```
 
 - The corpus gate, both forensic audits, `build_corpus_cache.py`, `python -m discovery`, the benchmark and the
-  research tools under `tools/` take their default folder from it. Without it they stop and name the variable,
-  unless you pass the folder on the command line.
+  research tools under `tools/` that used to read the checkout's own folder take their default folder from it.
+  Without it, a tool that needs statements stops and names the variable, unless you pass the folder on the command
+  line. `tools/batch9_census.py` skips its optional magic-byte check instead. The other research tools never had a
+  default and still need the folder passed, for example as `--corpus`. `tools/record_parser_expectations.py` crashes
+  before it reads a statement, on `main` as well.
 - The tests that read real statements skip when it is unset; the rest of the suite runs.
 - Set it in the shell. pytest never reads `.env` (`conftest.py`), and some tools do not either.
 - The web app does not use it: it reads only the statements that are uploaded to it.
