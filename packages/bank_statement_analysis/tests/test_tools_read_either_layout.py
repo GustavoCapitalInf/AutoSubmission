@@ -48,6 +48,14 @@ def from_the_package_folder(monkeypatch):
     monkeypatch.chdir(PACKAGE_DIR)
 
 
+@pytest.fixture(params=["default", "diff.relative"])
+def git_config(request, monkeypatch):
+    if request.param == "diff.relative":
+        monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+        monkeypatch.setenv("GIT_CONFIG_KEY_0", "diff.relative")
+        monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
+
+
 @pytest.fixture
 def checkout_at(tmp_path):
     def make(ref):
@@ -198,6 +206,7 @@ def test_lili_does_not_author_lines_the_base_had(inherited_line):
     assert inherited_line not in authored
 
 
+@pytest.mark.usefixtures("git_config")
 def test_lili_inherited_content_includes_files_outside_the_package():
     from tools.lili_privacy_scan import haystacks
 
@@ -219,6 +228,7 @@ def test_privacy_diff_has_the_same_sites_and_exclusions():
                for path, text in dates)
 
 
+@pytest.mark.usefixtures("git_config")
 def test_privacy_diff_scans_files_outside_the_package():
     from tools.privacy_scan_branch import added_lines
 
@@ -274,6 +284,7 @@ def test_scanhyg_rename_installs_no_changed_modules(analysis_modules):
     assert install_modules(PACKAGE_DIR, POST_MOVE, PRE_MOVE) == []
 
 
+@pytest.mark.usefixtures("git_config")
 def test_scanhyg_installs_the_same_historical_modules(analysis_modules):
     from tools.scanhyg_family_replay import install_modules
 
@@ -294,6 +305,7 @@ def test_scanhyg_day_gate_reads_either_layout(analysis_modules):
     assert after == before
 
 
+@pytest.mark.usefixtures("git_config")
 def test_train_stops_on_a_conflict_outside_the_package(monkeypatch, capsys):
     from tools import train_merge_one as train
 
@@ -497,6 +509,7 @@ def test_withheldgrids_recognises_inherited_literals(base):
     assert _in_base(PACKAGE_DIR, POST_MOVE, "Statement")
 
 
+@pytest.mark.usefixtures("git_config")
 @pytest.mark.parametrize("name", ["analysis/dates.py", "../../README.md", "../../apps/auto_submission/README.md"],
                          ids=["package", "root", "apps"])
 def test_withheldgrids_checks_control_bytes_in_changed_files(tmp_path, monkeypatch, capsys, name):
@@ -546,6 +559,7 @@ def test_withheldgrids_selects_the_same_added_tests():
     assert added_test_names(PACKAGE_DIR, PRE_MOVE) == added_test_names(PACKAGE_DIR, POST_MOVE)
 
 
+@pytest.mark.usefixtures("git_config")
 def test_withheldgrids_default_leaves_out_tests_the_base_had():
     from tools.withheldgrids_tests_at_base import TEST_FILES, added_test_names, parse_args
 
