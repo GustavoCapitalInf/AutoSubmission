@@ -49,6 +49,31 @@ def from_the_package_folder(monkeypatch):
 
 
 @pytest.fixture
+def checkout_at(tmp_path):
+    def make(ref):
+        clone = tmp_path / f"checkout-{ref}"
+        subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(REPO_DIR), str(clone)], check=True)
+        sha = subprocess.run(["git", "rev-parse", ref], cwd=PACKAGE_DIR, capture_output=True, text=True,
+                             check=True).stdout.strip()
+        subprocess.run(["git", "update-ref", "--no-deref", "HEAD", sha], cwd=clone, check=True)
+        return clone
+    return make
+
+
+@pytest.fixture
+def intent_to_add_index(tmp_path, monkeypatch):
+    objects = subprocess.run(["git", "rev-parse", "--git-path", "objects"], cwd=PACKAGE_DIR,
+                             capture_output=True, text=True, check=True).stdout.strip()
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "index"))
+    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "objects"))
+    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str((PACKAGE_DIR / objects).resolve()))
+    (tmp_path / "objects").mkdir()
+    for args in (["read-tree", "HEAD"], ["update-index", "--force-remove", "--", "README.md"],
+                 ["add", "--intent-to-add", "--", "README.md"]):
+        subprocess.run(["git", *args], cwd=PACKAGE_DIR, capture_output=True, check=True)
+
+
+@pytest.fixture
 def inherited_line():
     source = subprocess.run(
         ["git", "show", f"{DEFAULT_BASE}:tests/test_no_statement_hardcodes.py"],
@@ -339,6 +364,60 @@ def test_withheldtd_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch,
     monkeypatch.setattr(scan, "texts", lambda rows, data_dir: iter([("A" * 64, INHERITED_AMOUNT)]))
     scan.main(["--base", DEFAULT_BASE, "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path)])
     assert "A. DISTINCTIVE TOKENS IN THE DIFF: 0" in capsys.readouterr().out
+
+
+def test_coreenc_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
+    from tools.coreenc_archive_census import _literals
+
+    shas = tmp_path / "shas.txt"
+    shas.write_text("")
+    out = tmp_path / "report.json"
+    assert _literals(SimpleNamespace(
+        data_dir=tmp_path, shas=shas, repo=checkout_at(PRE_MOVE), base=PRE_MOVE,
+        out=out, show_residual=False,
+    )) == 0
+    assert json.loads(out.read_text())["summary"]["added_lines_literals"] == 0
+
+
+def test_withheldgrids_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
+    from tools.withheldgrids_privacy_scan import main
+
+    shas = tmp_path / "shas.txt"
+    shas.write_text("")
+    main([
+        "--shas", str(shas), "--data-dir", str(tmp_path), "--repo", str(checkout_at(PRE_MOVE)),
+        "--baseline-settings-key", "fabricated", "--base-rev", PRE_MOVE,
+    ])
+    assert re.search(r"files changed by the branch\s+= 0\n", capsys.readouterr().out)
+
+
+def test_withheldgrids_selects_tests_from_the_repo_it_is_given(checkout_at):
+    from tools.withheldgrids_tests_at_base import added_test_names
+
+    assert added_test_names(checkout_at(DEFAULT_BASE), DEFAULT_BASE) == []
+
+
+def test_scanhyg_reads_the_repo_it_is_given(analysis_modules, checkout_at):
+    from tools.scanhyg_family_replay import install_modules
+
+    assert install_modules(checkout_at(SCHEMA_BASE), SCHEMA_BASE, SCHEMA_BASE) == []
+
+
+@pytest.mark.usefixtures("intent_to_add_index")
+def test_lili_scans_a_working_tree_with_an_intent_to_add_file():
+    from tools.lili_privacy_scan import haystacks
+
+    authored, _ = haystacks("HEAD")
+    assert isinstance(authored, str)
+
+
+@pytest.mark.usefixtures("intent_to_add_index")
+def test_withheldtd_scans_a_working_tree_with_an_intent_to_add_file(tmp_path, monkeypatch, capsys):
+    from tools import withheldtd_privacy_scan as scan
+
+    monkeypatch.setattr(scan, "texts", lambda rows, data_dir: iter([("A" * 64, "fabricated")]))
+    scan.main(["--base", "HEAD", "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path)])
+    assert "documents read 1 of 1" in capsys.readouterr().out
 
 
 def test_welch_reads_the_same_tracked_text():
