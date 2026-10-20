@@ -791,7 +791,7 @@ def tokens_of(text: str, digit_min: int, word_min: int) -> dict[str, set[str]]:
 def tracked_text(ref: str) -> str:
     """Every tracked TEXT file at `ref`, concatenated and upper-cased (one cat-file batch)."""
     listing = subprocess.run(
-        ["git", "ls-tree", "-r", ref], cwd=ROOT, capture_output=True, text=True, check=True
+        ["git", "ls-tree", "-r", "--full-tree", ref], cwd=ROOT, capture_output=True, text=True, check=True
     ).stdout
     blobs = []
     for line in listing.splitlines():
@@ -932,7 +932,7 @@ def main(argv: list[str] | None = None) -> int:
     lines = added_lines(args.base, args.ref)
     if args.include_tree:
         listing = subprocess.run(
-            ["git", "ls-tree", "-r", "--name-only", args.ref], cwd=ROOT,
+            ["git", "ls-tree", "-r", "--full-tree", "--name-only", args.ref], cwd=ROOT,
             capture_output=True, text=True, check=True,
         ).stdout.splitlines()
         for name in listing:

@@ -57,6 +57,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from tools.git_layout import project_dir
+
 #: What the stand-in for a base revision's hosted extractor raises (see the module docstring).
 RETIRED_EXTRACTOR = (
     "the hosted extractor was removed (model-code removal): a base tree's extract_statement cannot run"
@@ -85,9 +87,9 @@ class BaseAnalysis:
     module: Any
 
 
-def _extract(repo: Path, revision: str, destination: Path) -> None:
+def _extract(revision: str, destination: Path) -> None:
     archive = subprocess.run(
-        ["git", "-C", str(repo), "archive", revision, "analysis"],
+        ["git", "-C", str(project_dir(revision)), "archive", revision, "analysis"],
         check=True,
         capture_output=True,
     ).stdout
@@ -117,7 +119,7 @@ def load_base_analysis(revision: str, *, repo: Path, scratch: Path) -> BaseAnaly
         if tmp_dir.exists():
             shutil.rmtree(tmp_dir)
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        _extract(repo, resolved, tmp_dir)
+        _extract(resolved, tmp_dir)
         # The directory is renamed rather than the imports rewritten: a package
         # named `analysis_base_<sha>` whose modules say `from .money import ...`
         # is a complete second stack with no edits to any blob, so what runs
