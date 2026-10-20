@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.git_layout import PACKAGE_DIR
+from tools.git_layout import PACKAGE_DIR, PACKAGE_PREFIX
 
 PRE_MOVE = "8ccd1d46"
 POST_MOVE = "ded21ce2"
@@ -21,7 +21,6 @@ DEFAULT_BASE = "10cc722"
 SCHEMA_BASE = "223e21d0"
 APPS_ADDED = "04c926de"
 REPO_DIR = PACKAGE_DIR.parents[1]
-PACKAGE_PREFIX = f"{PACKAGE_DIR.relative_to(REPO_DIR).as_posix()}/"
 #: An amount on unchanged lines of tests/test_no_statement_hardcodes.py since before DEFAULT_BASE. A plain diff
 #: across the move reports that heavily changed file as wholly added. Built here so this file never adds it.
 INHERITED_AMOUNT = f"{1111.11:,.2f}"

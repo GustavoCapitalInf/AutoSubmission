@@ -49,6 +49,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.git_layout import changed_files, diff as layout_diff
+
 CONTROL_BYTES = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 
 HARVEST = (
@@ -137,8 +139,6 @@ def main(argv: list[str] | None = None) -> int:
                     if len(token) >= args.min_length:
                         literals.add(token)
         resolved += 1 if found_one else 0
-
-    from tools.git_layout import changed_files, diff as layout_diff
 
     diff = layout_diff(args.base_rev, "HEAD", repo=repo)
     added = [

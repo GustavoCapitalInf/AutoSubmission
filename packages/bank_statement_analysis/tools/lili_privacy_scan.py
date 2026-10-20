@@ -65,6 +65,7 @@ import sys
 from pathlib import Path
 
 from ocr.document import StatementMarkdown
+from tools.git_layout import changed_files, diff, working_tree
 from tools.lili_family_replay import DEFAULT_CENSUS, DEFAULT_FAMILY, family_shas
 from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
 
@@ -149,8 +150,6 @@ def family_tokens(texts: list[str], rare_max: int) -> dict[str, set[str]]:
 
 def haystacks(base: str) -> tuple[str, str]:
     """`(authored, inherited)`: the branch's added lines, and everything else."""
-    from tools.git_layout import changed_files, diff, working_tree
-
     tree = working_tree()
     authored = "\n".join(
         line[1:] for line in diff(base, tree).split("\n")

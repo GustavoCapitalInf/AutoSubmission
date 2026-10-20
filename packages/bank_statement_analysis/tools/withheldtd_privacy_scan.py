@@ -42,6 +42,8 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from tools.git_layout import diff as layout_diff, working_tree
+
 PARSERS = ("td_canada_native", "td_canada_french", "td_us")
 
 #: Every entry is a column legend, a section heading, a summary label, one of
@@ -128,8 +130,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--data-dir", required=True, type=Path)
     parser.add_argument("--base", required=True, help="the commit the branch started at")
     args = parser.parse_args(argv)
-
-    from tools.git_layout import diff as layout_diff, working_tree
 
     here = Path.cwd()
     diff = layout_diff(args.base, working_tree(here), repo=here)
