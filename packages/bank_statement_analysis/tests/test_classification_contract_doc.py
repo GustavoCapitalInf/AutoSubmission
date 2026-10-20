@@ -139,7 +139,7 @@ def test_the_contract_says_only_held_credits_need_review():
 #: The run and deploy files of this repository (B12 review round 1: the contract says none sets the mode).
 RUN_AND_DEPLOY_PATTERNS = (
     "*.toml", "*.yml", "*.yaml", "*.ini", "*.cfg", "*.ps1", "*.sh", ".env*", "Dockerfile*", "Procfile",
-    ".github/**/*", "tools/**/*.sh", "tools/**/*.ps1", "webapp/**/*.sh", "webapp/**/*.ps1", "webapp/**/*.toml",
+    "../../.github/**/*", "tools/**/*.sh", "tools/**/*.ps1", "webapp/**/*.sh", "webapp/**/*.ps1", "webapp/**/*.toml",
 )
 
 

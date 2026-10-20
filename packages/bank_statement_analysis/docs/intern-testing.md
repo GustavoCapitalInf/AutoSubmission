@@ -19,6 +19,8 @@ and no statement data leaves it.
 Do **not** upload live customer statements to a host you do not control. Use
 synthetic or already-authorized intern fixtures.
 
+Run every command below from `packages/bank_statement_analysis/`.
+
 ## Fastest path — Docker Compose on a machine you control
 
 Needs Docker Engine + Compose v2, Python is inside the image.
@@ -74,9 +76,10 @@ A `.devcontainer` config is in the repo. Opening the repository in Codespaces
 installs Poppler, Tesseract, and the Python deps, and forwards port 5000 as
 **org-private** (not public).
 
-In the Codespace terminal:
+In the Codespace terminal, which opens at the repository root:
 
 ```bash
+cd packages/bank_statement_analysis
 WEBAPP_AUTH_PASSWORD='...' ./scripts/run_intern.sh
 ```
 
@@ -86,7 +89,7 @@ forwarded URL plus the password. Still fail-closed: the app will not bind
 
 ## Putting it on a cloud VM (Render / Railway / Fly / a company box)
 
-1. Build from the `Dockerfile` in the repo root (it already binds `0.0.0.0`).
+1. Build from `packages/bank_statement_analysis/`, the folder that holds the `Dockerfile` (it already binds `0.0.0.0`).
 2. Set `WEBAPP_AUTH_PASSWORD` as a **secret**. The process exits on boot if it
    is missing.
 3. Map container port `5000`. Put TLS in front (the platform's HTTPS, Caddy,

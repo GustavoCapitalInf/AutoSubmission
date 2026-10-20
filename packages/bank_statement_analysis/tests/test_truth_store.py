@@ -141,6 +141,12 @@ def test_refuses_the_checkout_parent_its_siblings_and_every_ancestor(monkeypatch
                 TruthStore.open()
 
 
+def test_refuses_a_sibling_of_the_monorepo_checkout(monkeypatch):
+    monkeypatch.setenv("SEALED_TRUTH_DIR", str(ROOT.parents[2] / "sibling_probe" / "sealed"))
+    with pytest.raises(StoreLocationError):
+        TruthStore.open()
+
+
 def test_refuses_a_onedrive_root_named_by_the_environment(tmp_path, monkeypatch):
     cloud = tmp_path / "cloud"
     monkeypatch.setenv("OneDriveProbe", str(cloud))

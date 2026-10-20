@@ -1,7 +1,7 @@
 {
   "name": "Bank statement intern testing",
   "image": "mcr.microsoft.com/devcontainers/python:3.12",
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-analysis.txt",
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng && cd packages/bank_statement_analysis && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-analysis.txt",
   "forwardPorts": [5000],
   "portsAttributes": {
     "5000": {

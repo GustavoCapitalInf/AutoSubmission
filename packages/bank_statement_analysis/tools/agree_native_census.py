@@ -53,6 +53,7 @@ from pathlib import Path
 import evidence.native as native_module
 from bank_statements import ENV_VAR, bank_statements_dir
 from evidence.native import _display_matrix, _matrices_agree, native_evidence_from_pdf
+from tools.git_layout import project_dir
 
 DEFAULT_VERIFY_EVERY = 50
 ROOT = Path(__file__).resolve().parents[1]
@@ -190,7 +191,7 @@ def _baseline_reader(ref: str):
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     source = subprocess.run(
-        ["git", "show", f"{resolved}:evidence/native.py"], cwd=ROOT,
+        ["git", "show", f"{resolved}:./evidence/native.py"], cwd=project_dir(resolved),
         capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout
     module = types.ModuleType("evidence._agreement_census_baseline")

@@ -41,8 +41,16 @@ name: Corpus gate
 
 on:
   pull_request:
+    paths:
+      - "packages/bank_statement_analysis/**"
+      - ".github/workflows/corpus-gate.yml"
+      - ".gitattributes"
   push:
     branches: [main]
+    paths:
+      - "packages/bank_statement_analysis/**"
+      - ".github/workflows/corpus-gate.yml"
+      - ".gitattributes"
   workflow_dispatch:
 
 jobs:
@@ -56,6 +64,9 @@ jobs:
     # no longer fit the old 30 minutes; this is a ceiling for a hung run, not
     # an expected duration.
     timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: packages/bank_statement_analysis
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,9 +77,9 @@ jobs:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: |
-            requirements.txt
-            requirements-analysis.txt
-            requirements-dev.txt
+            packages/bank_statement_analysis/requirements.txt
+            packages/bank_statement_analysis/requirements-analysis.txt
+            packages/bank_statement_analysis/requirements-dev.txt
 
       - name: Install OCR system dependencies
         # poppler-utils: `ocr.rasterize.pdf_page_count` shells out to pdfinfo.
@@ -170,4 +181,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: corpus-gate-report
-          path: corpus-gate-report.json
+          path: packages/bank_statement_analysis/corpus-gate-report.json

@@ -44,6 +44,12 @@ def test_checkout_root_and_descendants_are_refused(suffix, external_root):
     assert not (private.CHECKOUT_ROOT / ".claude").exists()
 
 
+def test_a_folder_at_the_monorepo_root_is_refused():
+    root_folder = Path(private.__file__).resolve().parents[3] / "data"
+    with pytest.raises(private.PrivateArtifactPathError, match="outside_checkout"):
+        private.validate_private_artifact_path(root_folder)
+
+
 def test_root_symlink_into_checkout_is_refused(tmp_path, external_root):
     alias = tmp_path / "alias"
     alias.symlink_to(private.CHECKOUT_ROOT, target_is_directory=True)

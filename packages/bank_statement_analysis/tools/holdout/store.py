@@ -107,7 +107,9 @@ class RecordError(StoreError):
 
 
 def _this_checkout_root() -> Path:
-    return Path(__file__).resolve().parents[2]
+    """The git checkout that holds this file, else the package folder."""
+    package = Path(__file__).resolve().parents[2]
+    return next((path for path in (package, *package.parents) if (path / ".git").exists()), package)
 
 
 def _main_repository_root(checkout: Path) -> Path | None:

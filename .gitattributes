@@ -5,13 +5,14 @@
 *.pdf binary
 
 # Committed OCR source artifacts are pinned by SHA-256 in
-# tests/corpus_cache/manifest.json and verified on every read. They are text, so
-# without this they would check out with CRLF on Windows and hash differently
-# there than in CI — the same defect as above, one layer up.
-tests/corpus_cache/ocr/*.md -text
+# packages/bank_statement_analysis/tests/corpus_cache/manifest.json and verified
+# on every read. They are text, so without this they would check out with CRLF
+# on Windows and hash differently there than in CI — the same defect as above,
+# one layer up.
+packages/bank_statement_analysis/tests/corpus_cache/ocr/*.md -text
 # The other half of the same artifact — the intake page list — is pinned and
 # verified the same way, so it needs the same protection.
-tests/corpus_cache/pages/*.json -text
+packages/bank_statement_analysis/tests/corpus_cache/pages/*.json -text
 
 # Other binary evidence and export formats.
 *.png binary

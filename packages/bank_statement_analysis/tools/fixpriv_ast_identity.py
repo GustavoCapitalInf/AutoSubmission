@@ -35,6 +35,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.git_layout import project_dir
+
 ROOT = Path(__file__).resolve().parent.parent
 
 _HOLDERS = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
@@ -64,7 +66,7 @@ def strip_docstrings(tree: ast.AST) -> ast.AST:
 
 
 def show(ref: str, path: str) -> str | None:
-    proc = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=ROOT,
+    proc = subprocess.run(["git", "show", f"{ref}:./{path}"], cwd=project_dir(ref),
                           capture_output=True, text=True, errors="replace")
     return proc.stdout if proc.returncode == 0 else None
 
@@ -75,13 +77,13 @@ def exists(ref: str, path: str) -> bool:
     `git show` cannot tell absence from failure, and the difference is the
     difference between a skip and an exit 2.
     """
-    return subprocess.run(["git", "cat-file", "-e", f"{ref}:{path}"], cwd=ROOT,
+    return subprocess.run(["git", "cat-file", "-e", f"{ref}:./{path}"], cwd=project_dir(ref),
                           capture_output=True, text=True).returncode == 0
 
 
 def changed_python(base: str, ref: str) -> list[str]:
-    proc = subprocess.run(["git", "diff", "--name-only", f"{base}...{ref}"],
-                          cwd=ROOT, capture_output=True, text=True, check=True)
+    proc = subprocess.run(["git", "diff", "--name-only", "--relative", f"{base}...{ref}"],
+                          cwd=project_dir(ref), capture_output=True, text=True, check=True)
     return [name for name in proc.stdout.splitlines() if name.endswith(".py")]
 
 

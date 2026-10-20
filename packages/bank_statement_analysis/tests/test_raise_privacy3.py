@@ -1245,7 +1245,7 @@ def test_the_replay_population_is_derived_from_a_list_checked_against_the_diff()
         )
         changed = subprocess.run(
             ["git", "-C", str(PROJECT_ROOT), "diff", "--name-only",
-             base, tip, "--", "analysis/"],
+             base, tip, "--", ":(top)analysis/"],
             check=True, capture_output=True, text=True,
         ).stdout.split()
     except (OSError, subprocess.CalledProcessError) as exc:   # pragma: no cover

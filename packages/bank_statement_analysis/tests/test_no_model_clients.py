@@ -47,7 +47,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "corpus-gate.yml"
+REPO_ROOT = ROOT.parents[1]
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "corpus-gate.yml"
 
 #: Model packages: refused in every file, tests included. The first eight are the owner ruling's (the hosted
 #: extraction's and the visual OCR client's SDKs, PaddleOCR, the GPU server's and the visual pair's stacks), then
@@ -1476,14 +1477,15 @@ def _launcher_findings(root: Path, launchers: list[str]) -> list[str]:
 
 def _launchers(root: Path) -> list[str]:
     found = ["run.ps1"]
-    for pattern in ("*.ps1", "*.sh", "tools/**/*.ps1", "tools/**/*.sh", ".github/workflows/*.yml"):
+    for pattern in ("*.ps1", "*.sh", "tools/**/*.ps1", "tools/**/*.sh"):
         found += [path.relative_to(root).as_posix() for path in root.glob(pattern) if path.is_file()]
+    found += [path.relative_to(root, walk_up=True).as_posix() for path in (REPO_ROOT / ".github" / "workflows").glob("*.yml")]
     return sorted(set(found))
 
 
 def test_the_launchers_name_no_model_switch_and_run_ps1_only_the_data_directory_mirror():
     launchers = _launchers(ROOT)
-    assert {"run.ps1", ".github/workflows/corpus-gate.yml", "tools/train/coldrun.sh"} <= set(launchers), launchers
+    assert {"run.ps1", "../../.github/workflows/corpus-gate.yml", "tools/train/coldrun.sh"} <= set(launchers), launchers
     assert _launcher_findings(ROOT, launchers) == []
     # The data-directory rule's mirror stays (D12).
     text = (ROOT / "run.ps1").read_text(encoding="utf-8").replace("\r\n", "\n")

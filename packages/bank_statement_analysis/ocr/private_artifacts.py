@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Mapping
 
 PRIVATE_ROOT_ENV = "VISUAL_PAIR_PRIVATE_ROOT"
-CHECKOUT_ROOT = Path(__file__).resolve().parents[1]
+_PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+#: The git checkout that holds this package (the monorepo root, two levels up), or the package folder itself where
+#: there is no checkout, as in the image's /app.
+CHECKOUT_ROOT = next((path for path in (_PACKAGE_ROOT, *_PACKAGE_ROOT.parents) if (path / ".git").exists()),
+                     _PACKAGE_ROOT)
 
 
 class PrivateArtifactPathError(ValueError):
