@@ -863,28 +863,10 @@ def added_lines_from_diff(diff: str) -> list[tuple[str, int, str]]:
 
 
 def added_lines(base: str, ref: str) -> list[tuple[str, int, str]]:
-    """(file, new-line-number, upper-cased text) for every added line of base...ref.
+    """(file, new-line-number, upper-cased text) for every added line of base...ref."""
+    from tools.git_layout import diff, merge_base
 
-    Each side's own project tree is diffed, so a base from before the monorepo move lines up file by file
-    with a ref after it. A moved ref's files outside the package are diffed too, and reported from the
-    package folder (`../../README.md`), so no project rule matches them.
-    """
-    from tools.git_layout import PACKAGE_PREFIX, moved, project_path, project_tree
-
-    def diff(*argv: str) -> list[tuple[str, int, str]]:
-        return added_lines_from_diff(subprocess.run(
-            ["git", "diff", *argv], cwd=ROOT, capture_output=True, text=True, check=True, errors="replace",
-        ).stdout)
-
-    merge_base = subprocess.run(
-        ["git", "merge-base", base, ref], cwd=ROOT,
-        capture_output=True, text=True, check=True,
-    ).stdout.strip()
-    lines = diff(project_tree(merge_base), project_tree(ref), "--unified=0")
-    if moved(ref):
-        outside = diff(merge_base, ref, "--unified=0", "--", f":(top,exclude){PACKAGE_PREFIX}")
-        lines += [(project_path(path), number, text) for path, number, text in outside]
-    return lines
+    return added_lines_from_diff(diff(merge_base(base, ref), ref, "--unified=0"))
 
 
 def main(argv: list[str] | None = None) -> int:

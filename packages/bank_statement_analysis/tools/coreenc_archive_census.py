@@ -374,7 +374,9 @@ def _literals(args: argparse.Namespace) -> int:
         read += 1
         archive |= _tokens(markdown)
 
-    diff = _git(repo, "diff", f"{args.base}..HEAD")
+    from tools.git_layout import diff as layout_diff
+
+    diff = layout_diff(args.base, "HEAD")
     added: dict[str, set[str]] = {}
     current = "(no file)"
     for line in diff.splitlines():

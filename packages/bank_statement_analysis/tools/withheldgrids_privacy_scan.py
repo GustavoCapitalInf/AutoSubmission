@@ -74,11 +74,9 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _in_base(repo: Path, base_rev: str, literal: str) -> bool:
-    from tools.git_layout import project_dir
-
     proc = subprocess.run(
-        ["git", "grep", "-F", "-q", "-e", literal, base_rev],
-        cwd=project_dir(base_rev), capture_output=True, text=True,
+        ["git", "grep", "-F", "-q", "-e", literal, base_rev, "--", ":/"],
+        cwd=repo, capture_output=True, text=True,
     )
     return proc.returncode == 0
 
@@ -140,7 +138,9 @@ def main(argv: list[str] | None = None) -> int:
                         literals.add(token)
         resolved += 1 if found_one else 0
 
-    diff = _git(repo, "diff", f"{args.base_rev}..HEAD")
+    from tools.git_layout import changed_files, diff as layout_diff
+
+    diff = layout_diff(args.base_rev, "HEAD")
     added = [
         line[1:] for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
@@ -177,14 +177,10 @@ def main(argv: list[str] | None = None) -> int:
     for token in other:
         print(f"    -- {token!r}")
 
-    changed = [
-        name for name in _git(repo, "diff", "--name-only", f"{args.base_rev}..HEAD").split("\n")
-        if name.strip()
-    ]
-    top = Path(_git(repo, "rev-parse", "--show-toplevel").strip())
+    changed = changed_files(args.base_rev, "HEAD")
     offenders = []
     for name in changed:
-        path = top / name
+        path = repo / name
         if not path.exists():
             continue
         data = path.read_bytes()
