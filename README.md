@@ -161,12 +161,16 @@ export BANK_STATEMENTS_DIR="$HOME/statements/Bank Statements"
 $env:BANK_STATEMENTS_DIR = "D:\statements\Bank Statements"
 ```
 
-- The corpus gate, both forensic audits, `build_corpus_cache.py`, `python -m discovery`, the benchmark and the
-  research tools under `tools/` that used to read the checkout's own folder take their default folder from it.
-  Without it, a tool that needs statements stops and names the variable, unless you pass the folder on the command
-  line. `tools/batch9_census.py` skips its optional magic-byte check instead. The other research tools never had a
-  default and still need the folder passed, for example as `--corpus`. `tools/record_parser_expectations.py` crashes
-  before it reads a statement, on `main` as well.
+- These programs default to it: the corpus gate, both forensic audits, `build_corpus_cache.py`,
+  `python -m discovery`, the benchmark, `experiments/w3_3a/evaluate.py`, `telemetry/stated_counts.py --corpus-audit`,
+  `tools/train/coldrun.sh` (unless `CORPUS_ROOT` is set), and the `tools` modules `adjudicate queue`,
+  `agree_native_census`, `hygiene8_pinned_replay`, `l1_census`, `l1_structure_census`, `measure_structurer` and
+  `scanhyg_pinned_replay`. When it is unset and you pass no folder, each of them stops with an error that names it.
+- `tools/batch9_census.py` also defaults to it, but skips its optional magic-byte check when it is unset.
+- `tools/record_parser_expectations.py` also defaults to it, but crashes before it reads a statement, on `main` as well.
+- `tools/train/control_b7.sh` runs the gate inside the old worktree you pass it, and that gate reads the worktree's
+  own tracked statements.
+- Every other program that reads statements takes the file or folder as an argument, as it did before.
 - The tests that read real statements skip when it is unset; the rest of the suite runs.
 - Set it in the shell. pytest never reads `.env` (`conftest.py`), and some tools do not either.
 - The web app does not use it: it reads only the statements that are uploaded to it.
