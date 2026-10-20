@@ -122,7 +122,7 @@ def main(argv: list[str]) -> int:
     merged = run("git", "merge", "--no-ff", "--no-commit", branch, check=False)
     if merged.returncode != 0:
         conflicts = [project_path(name)
-                     for name in run("git", "diff", "--name-only", "--diff-filter=U").stdout.decode().split()]
+                     for name in run("git", "diff", "--no-relative", "--name-only", "--diff-filter=U").stdout.decode().split()]
         print("CONFLICTS:", conflicts)
         # `--compose-registry N`: a cell that ADDS registrations bumps the two
         # registry-count pins from the base count to its own, so every such cell

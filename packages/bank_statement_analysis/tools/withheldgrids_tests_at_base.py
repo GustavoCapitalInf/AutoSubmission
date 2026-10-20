@@ -57,7 +57,7 @@ def _git(repo: Path, *args: str, binary: bool = False):
 
 def added_test_names(repo: Path, base_rev: str) -> list[str]:
     """The `def test_...` names this branch ADDS to the four files."""
-    diff = _git(repo, "diff", project_tree(base_rev, repo), project_tree("HEAD", repo),
+    diff = _git(repo, "diff", "--no-relative", project_tree(base_rev, repo), project_tree("HEAD", repo),
                 "--", *(f":(top){path}" for path in TEST_FILES))
     return sorted({
         match.group(1)

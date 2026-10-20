@@ -2,13 +2,15 @@
 
 Since the monorepo move it lives in packages/bank_statement_analysis/; older revisions hold it at the
 repository root. Git run from `project_dir(ref)` reads `ref:./path`, and a pathspec, as the same file in
-either layout. `project_tree(ref)` names the tool's own tree, and `project_spec(ref, path)` one of
-its files. `git diff --name-only` and
-`git ls-tree --full-tree` print paths from the repository top; `project_path` turns one from a moved
-revision into a path from the package folder. Functions that take `repo` read its HEAD and working tree.
+either layout. `project_tree(ref)` names the tool's own tree, and `project_spec(ref, path)` one of its
+files. `git diff --name-only` and `git ls-tree --full-tree` print paths from the repository top;
+`project_path` turns one from a moved revision into a path from the package folder. Functions that take
+`repo` read its HEAD and working tree, and run git from its top folder, where neither a pathspec nor
+`diff.relative` narrows what git reports.
 """
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import subprocess
@@ -21,8 +23,14 @@ _OUTSIDE = f":(top,exclude){PACKAGE_PREFIX}"
 _UP = "../" * PACKAGE_PREFIX.count("/")
 
 
+@functools.cache
+def _top(repo: Path) -> Path:
+    return Path(subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=repo, capture_output=True, text=True,
+                               check=True).stdout.strip())
+
+
 def _git(*args: str, repo: Path = PACKAGE_DIR, env: dict[str, str] | None = None) -> str:
-    return subprocess.run(["git", *args], cwd=repo, env=env, capture_output=True, text=True, check=True,
+    return subprocess.run(["git", *args], cwd=_top(repo), env=env, capture_output=True, text=True, check=True,
                           errors="replace").stdout
 
 
@@ -59,7 +67,8 @@ def working_tree(repo: Path = PACKAGE_DIR) -> str:
     Built in a copy of the index, which leaves the real one untouched and takes intent-to-add entries. A
     missing index is an empty one, as git treats it.
     """
-    index = repo / (os.environ.get("GIT_INDEX_FILE") or _git("rev-parse", "--git-path", "index", repo=repo).strip())
+    configured = os.environ.get("GIT_INDEX_FILE")
+    index = Path(configured) if configured else _top(repo) / _git("rev-parse", "--git-path", "index", repo=repo).strip()
     with tempfile.TemporaryDirectory() as scratch:
         env = {**os.environ, "GIT_INDEX_FILE": os.path.join(scratch, "index")}
         if index.exists():

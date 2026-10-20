@@ -136,7 +136,7 @@ def install_modules(repo: Path, rev: str, base: str) -> list[str]:
     from tools.git_layout import project_spec, project_tree
 
     changed = subprocess.run(
-        ["git", "-C", str(repo), "diff", "--name-only", project_tree(base, repo), project_tree("HEAD", repo),
+        ["git", "-C", str(repo), "diff", "--no-relative", "--name-only", project_tree(base, repo), project_tree("HEAD", repo),
          "--", ":(top)analysis/"],
         check=True, capture_output=True, text=True,
     ).stdout.split()
