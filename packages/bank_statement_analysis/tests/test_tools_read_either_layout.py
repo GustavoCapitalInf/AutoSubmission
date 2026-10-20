@@ -22,6 +22,9 @@ SCHEMA_BASE = "223e21d0"
 APPS_ADDED = "04c926de"
 REPO_DIR = PACKAGE_DIR.parents[1]
 PACKAGE_PREFIX = f"{PACKAGE_DIR.relative_to(REPO_DIR).as_posix()}/"
+#: An amount on unchanged lines of tests/test_no_statement_hardcodes.py since before DEFAULT_BASE. A plain diff
+#: across the move reports that heavily changed file as wholly added. Built here so this file never adds it.
+INHERITED_AMOUNT = f"{1111.11:,.2f}"
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -43,6 +46,15 @@ def history():
 @pytest.fixture(autouse=True)
 def from_the_package_folder(monkeypatch):
     monkeypatch.chdir(PACKAGE_DIR)
+
+
+@pytest.fixture
+def inherited_line():
+    source = subprocess.run(
+        ["git", "show", f"{DEFAULT_BASE}:tests/test_no_statement_hardcodes.py"],
+        cwd=PACKAGE_DIR, capture_output=True, text=True, check=True,
+    ).stdout
+    return next(line.strip() for line in source.splitlines() if INHERITED_AMOUNT in line and "docstring" in line)
 
 
 @pytest.fixture
@@ -147,6 +159,14 @@ def test_lili_inherited_content_includes_project_files():
     source = (PACKAGE_DIR / "analysis" / "eq_bank_scanned.py").read_text()
     included = source in inherited
     assert included, "the inherited haystack omitted a changed analysis module"
+
+
+def test_lili_does_not_author_lines_the_base_had(inherited_line):
+    from tools.lili_privacy_scan import haystacks
+
+    authored, _ = haystacks(DEFAULT_BASE)
+    assert authored
+    assert inherited_line not in authored
 
 
 def test_lili_inherited_content_includes_files_outside_the_package():
@@ -296,6 +316,31 @@ def test_train_recognises_a_project_conflict(monkeypatch, capsys):
     assert "W3 SHAPE VIOLATION" in capsys.readouterr().out
 
 
+def test_welch_does_not_add_lines_the_base_had(inherited_line):
+    from tools.welch_privacy_scan import _added_lines
+
+    added = _added_lines(DEFAULT_BASE)
+    assert added
+    assert inherited_line.upper() not in added
+
+
+def test_coreiss2_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch, capsys):
+    from tools import coreiss2_probe as probe
+
+    monkeypatch.setattr(probe, "census_family", lambda name: {"A" * 64})
+    monkeypatch.setattr(probe, "document_text", lambda artifacts, sha: INHERITED_AMOUNT)
+    probe.run_privacy(tmp_path, DEFAULT_BASE)
+    assert "FOUND: figures/dates/accounts=0 " in capsys.readouterr().out
+
+
+def test_withheldtd_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch, capsys):
+    from tools import withheldtd_privacy_scan as scan
+
+    monkeypatch.setattr(scan, "texts", lambda rows, data_dir: iter([("A" * 64, INHERITED_AMOUNT)]))
+    scan.main(["--base", DEFAULT_BASE, "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path)])
+    assert "A. DISTINCTIVE TOKENS IN THE DIFF: 0" in capsys.readouterr().out
+
+
 def test_welch_reads_the_same_tracked_text():
     from tools.welch_privacy_scan import _tracked_text
 
@@ -313,21 +358,39 @@ def test_withheldgrids_recognises_inherited_literals(base):
     assert _in_base(PACKAGE_DIR, POST_MOVE, "Statement")
 
 
-@pytest.mark.parametrize("name", [f"{PACKAGE_PREFIX}analysis/dates.py", "apps/auto_submission/README.md"],
-                         ids=["package", "outside"])
+@pytest.mark.parametrize("name", ["analysis/dates.py", "../../README.md", "../../apps/auto_submission/README.md"],
+                         ids=["package", "root", "apps"])
 def test_withheldgrids_checks_control_bytes_in_changed_files(tmp_path, monkeypatch, capsys, name):
     from tools.withheldgrids_privacy_scan import main
 
     shas = tmp_path / "shas.txt"
     shas.write_text("")
     original = Path.read_bytes
-    target = REPO_DIR / name
-    monkeypatch.setattr(Path, "read_bytes", lambda path: b"\x01" if path == target else original(path))
+    target = (PACKAGE_DIR / name).resolve()
+    monkeypatch.setattr(Path, "read_bytes", lambda path: b"\x01" if path.resolve() == target else original(path))
     assert main([
         "--shas", str(shas), "--data-dir", str(tmp_path), "--repo", str(PACKAGE_DIR),
         "--baseline-settings-key", "fabricated",
     ]) == 2
     assert f"control bytes in {name}" in capsys.readouterr().out
+
+
+def test_withheldgrids_skips_files_the_move_only_renamed(tmp_path, capsys):
+    from tools.withheldgrids_privacy_scan import main
+
+    shas = tmp_path / "shas.txt"
+    shas.write_text("")
+    main([
+        "--shas", str(shas), "--data-dir", str(tmp_path), "--repo", str(PACKAGE_DIR),
+        "--baseline-settings-key", "fabricated", "--base-rev", PRE_MOVE,
+    ])
+    assert "pdfFolderIcon" not in capsys.readouterr().out
+
+
+def test_withheldgrids_recognises_literals_outside_the_package():
+    from tools.withheldgrids_privacy_scan import _in_base
+
+    assert _in_base(PACKAGE_DIR, APPS_ADDED, "Auto-Submission platform")
 
 
 def test_withheldgrids_dates_reads_either_layout():
