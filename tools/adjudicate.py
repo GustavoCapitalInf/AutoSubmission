@@ -40,6 +40,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from collections import Counter
@@ -591,6 +592,10 @@ def print_holdout_list(manifest: HoldoutManifest, out=print) -> None:
 # --- the parser --------------------------------------------------------------
 
 
+#: `bank_statements.ENV_VAR`, copied because this tool imports only the standard library and itself.
+STATEMENTS_ENV = "BANK_STATEMENTS_DIR"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m tools.adjudicate",
                                      description=__doc__.splitlines()[0])
@@ -601,7 +606,7 @@ def build_parser() -> argparse.ArgumentParser:
     queue.add_argument("--slice", required=True)
     queue.add_argument("--shas", type=Path, required=True)
     queue.add_argument("--packets", type=Path, required=True, help="PRIVATE dir, outside the checkout")
-    queue.add_argument("--pdf-root", type=Path, default=_this_checkout_root() / "Bank Statements")
+    queue.add_argument("--pdf-root", type=Path, default=os.environ.get(STATEMENTS_ENV) or None, help=f"default: ${STATEMENTS_ENV}")
     queue.add_argument("--census", type=Path, default=None, help="census per_sha.csv (evidence only)")
     queue.add_argument("--classification", type=Path, default=None, help="per-sha classifier CSV (evidence only)")
     queue.add_argument("--moneythumb", type=Path, default=None, help="explicit MoneyThumb comparison CSV (evidence only)")
@@ -663,6 +668,9 @@ def main(argv: list[str] | None = None) -> int:
         return int(exc.code or 0)
     try:
         if args.command == "queue":
+            if args.pdf_root is None:
+                print(f"queue: pass --pdf-root or set {STATEMENTS_ENV}", file=sys.stderr)
+                return 2
             build_queue(args.rows, args.slice, args.shas, args.packets, pdf_root=args.pdf_root,
                         census_csv=args.census, classification_csv=args.classification,
                         moneythumb_csv=args.moneythumb, dpi=args.dpi, max_pages=args.max_pages)

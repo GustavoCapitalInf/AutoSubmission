@@ -66,11 +66,15 @@ from ocr.escalation import (
     RouterInputs,
     router_inputs,
 )
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
-CORPUS = ROOT / "Bank Statements"
 SCANNED = "Misc/First Farmers 2026 01-document.pdf"
-SCAN_BYTES = (CORPUS / SCANNED).read_bytes()
+
+
+def _scan_bytes() -> bytes:
+    return (statements_dir() / SCANNED).read_bytes()
+
 
 #: A long, well-formed, real-prose page — genuinely USABLE evidence by every
 #: criterion the gate checks (well above the char floor, no empty pages, high
@@ -132,7 +136,7 @@ def _runner(root: Path, **kwargs) -> DiscoveryRunner:
 @pytest.fixture
 def scan_tree(tmp_path: Path) -> Path:
     (tmp_path / "BankZ").mkdir()
-    (tmp_path / "BankZ" / "scan.pdf").write_bytes(SCAN_BYTES)
+    (tmp_path / "BankZ" / "scan.pdf").write_bytes(_scan_bytes())
     return tmp_path
 
 
@@ -684,7 +688,7 @@ def test_case2_claimed_but_financially_failing_never_escalates(scan_tree, monkey
     visual call, regardless of the underlying evidence quality."""
     from corpus_artifacts import cached_markdown
 
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
+    claimable = cached_markdown(_scan_bytes(), ROOT / "tests" / "corpus_cache")
     _tesseract(monkeypatch, claimable)
     _forbid_visual(monkeypatch)
 
@@ -723,7 +727,7 @@ def test_case4_stop_a_validated_document_is_never_re_escalated(scan_tree, monkey
     'already produced a payload' shape) and `_forbid_visual` proves it."""
     from corpus_artifacts import cached_markdown
 
-    claimable = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
+    claimable = cached_markdown(_scan_bytes(), ROOT / "tests" / "corpus_cache")
     _tesseract(monkeypatch, claimable)
     _forbid_visual(monkeypatch)
 

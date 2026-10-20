@@ -43,10 +43,10 @@ from analysis.metrics import compute_metrics  # noqa: E402
 from analysis.pipeline import normalize_statement  # noqa: E402
 from analysis.reconcile import reconcile  # noqa: E402
 from analysis.transaction_classifier import classify_statement_transactions  # noqa: E402
+from bank_statements import ENV_VAR, bank_statements_dir_or_exit  # noqa: E402
 
 from .structurer import structure  # noqa: E402
 
-ARCHIVE = Path("Bank Statements")
 ARTIFACTS = Path("tests/corpus_cache")
 
 
@@ -109,7 +109,8 @@ def pinned_paths() -> list[Path]:
     """The 109 pinned documents, from the same manifest the corpus gate pins."""
     from corpus_gate import BALANCE_CSV, manifest_paths, read_csv
 
-    return [ROOT / ARCHIVE / relative for relative in manifest_paths(read_csv(BALANCE_CSV))]
+    root = bank_statements_dir_or_exit()
+    return [root / relative for relative in manifest_paths(read_csv(BALANCE_CSV))]
 
 
 def field_agreement(structured, reference) -> dict[str, bool]:
@@ -266,15 +267,16 @@ def main() -> int:
     )
     parser.add_argument("--reports", default="discovery_reports")
     parser.add_argument(
-        "--archive-root", default=str(ROOT / ARCHIVE),
-        help="Where the discovery archive lives (the main checkout, not this worktree).",
+        "--archive-root",
+        help=f"Where the discovery archive lives (default: ${ENV_VAR}).",
     )
     args = parser.parse_args()
 
     if args.corpus:
         run_corpus(args.limit, args.date_anywhere)
     if args.archive:
-        run_archive(Path(args.reports), args.per_cluster, Path(args.archive_root), args.date_anywhere)
+        archive_root = Path(args.archive_root) if args.archive_root else bank_statements_dir_or_exit()
+        run_archive(Path(args.reports), args.per_cluster, archive_root, args.date_anywhere)
     if not args.corpus and not args.archive:
         parser.error("choose --corpus and/or --archive")
     return 0

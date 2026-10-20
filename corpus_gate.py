@@ -35,16 +35,16 @@ a single document, and only `python corpus_gate.py` (or `pytest -m corpus`)
 compares all 109 against the product. A green default suite is not a verified
 truth set.
 
-    python corpus_gate.py                     # the gate
+    python corpus_gate.py                     # the gate, over $BANK_STATEMENTS_DIR
     python corpus_gate.py --json report.json  # plus a machine-readable report
     python corpus_gate.py --corpus <path>     # same gate against another root
     pytest -m corpus                          # same gate, through pytest
 
 Scope: the **pinned manifest**, not the directory. The gate enumerates the 109
 corpus-relative paths recorded in the committed audit CSVs and audits exactly
-those. The corpus root is shared with untracked, sensitive discovery material
-(`.gitignore`: `Bank Statements/**`), so "every PDF under the root is pinned" is
-no longer a property the tree can have. What replaces it is stricter about the
+those. The corpus root lives outside the repository (`BANK_STATEMENTS_DIR`) and
+is shared with sensitive discovery material, so "every PDF under the root is
+pinned" is no longer a property the tree can have. What replaces it is stricter about the
 validated set and honest about the rest — see `check_foreign_files`.
 
 Guarantees:
@@ -89,6 +89,7 @@ import balance_forensic_audit
 # published SHAPES a payload is. Importing it here does not couple this gate to
 # the analysis stack the two oracles above deliberately load without.
 from analysis.payload_shape import refuse_document_payload
+from bank_statements import ENV_VAR, bank_statements_dir
 from corpus_artifacts import (
     DEFAULT_CACHE,
     ArtifactError,
@@ -98,7 +99,7 @@ from corpus_artifacts import (
 )
 
 ROOT = Path(__file__).resolve().parent
-CORPUS = ROOT / "Bank Statements"
+CORPUS = bank_statements_dir()
 ADB_CSV = ROOT / "docs" / "adb-audit-results.csv"
 BALANCE_CSV = ROOT / "docs" / "balance-metrics-audit-results.csv"
 
@@ -2282,14 +2283,16 @@ def main() -> None:
         "--corpus",
         "--corpus-root",
         dest="corpus",
-        default=str(CORPUS),
+        default=CORPUS,
         help="Corpus root the pinned manifest is resolved against "
-             "(default: this checkout's 'Bank Statements'). Lets one checkout's "
+             f"(default: ${ENV_VAR}). Lets one checkout's "
              "gate code audit another checkout's corpus root.",
     )
     parser.add_argument("--ocr-cache", default=str(DEFAULT_CACHE))
     parser.add_argument("--json", help="Write a machine-readable report here.")
     args = parser.parse_args()
+    if args.corpus is None:
+        parser.error(f"pass --corpus or set {ENV_VAR}")
 
     result = run_gate(Path(args.corpus), Path(args.ocr_cache))
     print(render(result))

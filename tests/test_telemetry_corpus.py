@@ -34,9 +34,9 @@ from telemetry import (
     source_section,
 )
 from telemetry.report import diagnostics_rollup, render_diagnostics
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
-CORPUS = ROOT / "Bank Statements"
 CACHE = ROOT / "tests" / "corpus_cache"
 
 #: The three proven source contradictions the gate withholds. Same set as
@@ -160,7 +160,7 @@ def _telemetry_for(rel: str) -> tuple[dict, dict | None]:
     """
     from ocr.pipeline import parse_statement
 
-    raw = (CORPUS / rel).read_bytes()
+    raw = (statements_dir() / rel).read_bytes()
     profile = inspect_pdf(raw)
     timer, collector = StageTimer(), DispatchCollector()
     with timer.time("read"):
@@ -429,7 +429,7 @@ def test_the_identity_fields_are_what_they_claim_to_be():
     import re
     import uuid
 
-    raw = (CORPUS / "Chase/Chase Mar.pdf").read_bytes()
+    raw = (statements_dir() / "Chase/Chase Mar.pdf").read_bytes()
     record, _ = _telemetry_for("Chase/Chase Mar.pdf")
 
     assert uuid.UUID(hex=record["record_id"])
@@ -531,7 +531,7 @@ def test_truncation_survives_a_cache_round_trip(tmp_path):
     from webapp.artifact_cache import ArtifactCache, cached_ocr
     from webapp.storage import Storage
 
-    source = CORPUS / "Misc/Columbia May 26 complete.pdf"
+    source = statements_dir() / "Misc/Columbia May 26 complete.pdf"
     raw = source.read_bytes()
     cache = ArtifactCache(Storage(tmp_path))
 

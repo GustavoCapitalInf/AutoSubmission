@@ -51,9 +51,9 @@ import types
 from pathlib import Path
 
 import evidence.native as native_module
+from bank_statements import ENV_VAR, bank_statements_dir
 from evidence.native import _display_matrix, _matrices_agree, native_evidence_from_pdf
 
-DEFAULT_ARCHIVE_ROOT = Path("Bank Statements")
 DEFAULT_VERIFY_EVERY = 50
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -202,13 +202,15 @@ def _baseline_reader(ref: str):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run", required=True, type=Path, help="the run of record's directory")
-    parser.add_argument("--archive-root", type=Path, default=DEFAULT_ARCHIVE_ROOT)
+    parser.add_argument("--archive-root", type=Path, default=bank_statements_dir(), help=f"default: ${ENV_VAR}")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--verify-every", type=int, default=DEFAULT_VERIFY_EVERY,
                         help="also compare evidence shas for every Kth document (0 = only the flagged)")
     parser.add_argument("--verify-all", action="store_true")
     parser.add_argument("--baseline-ref", default="phase2.2-final")
     args = parser.parse_args(argv)
+    if args.archive_root is None:
+        parser.error(f"pass --archive-root or set {ENV_VAR}")
     baseline_ref, baseline_reader = _baseline_reader(args.baseline_ref)
 
     documents = _rows(args.run)

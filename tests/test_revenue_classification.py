@@ -17,6 +17,7 @@ from analysis.transaction_classifier import classify_statement_transactions, cla
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
 from webapp.app import _package_analysis, app, store
 from webapp.jobs import Job
+from tests.statements import statements_dir
 
 
 def coverage_status(report) -> str:
@@ -351,7 +352,7 @@ def test_withholding_denominator_environment_configuration(monkeypatch):
 
 
 def _atb_november_report():
-    path = Path("Bank Statements/ATB/ATB Nov 2023.pdf")
+    path = statements_dir() / "ATB" / "ATB Nov 2023.pdf"
     pdf_bytes = path.read_bytes()
     document = (
         parse_native_navy_federal(pdf_bytes, source_file=path.name)
@@ -607,7 +608,7 @@ def test_source_direction_conflict_fails_closed():
 
 
 def _atb_december_report():
-    path = Path("Bank Statements/ATB/ATB Dec 2023.pdf")
+    path = statements_dir() / "ATB" / "ATB Dec 2023.pdf"
     pdf_bytes = path.read_bytes()
     document = (
         parse_native_navy_federal(pdf_bytes, source_file=path.name)

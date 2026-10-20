@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from .classify import ComparisonRow
+from bank_statements import ENV_VAR, bank_statements_dir
+
 from .compare import (
     _mt_summary_for,
     _primary_result,
@@ -323,8 +325,8 @@ def main(argv: list[str] | None = None) -> int:
         "(default: <repo>/moneythumbResults).",
     )
     parser.add_argument(
-        "--corpus", default=str(REPO_ROOT / "Bank Statements"),
-        help="Corpus root containing the benchmark PDFs.",
+        "--corpus", default=bank_statements_dir(),
+        help=f"Corpus root containing the benchmark PDFs (default: ${ENV_VAR}).",
     )
     parser.add_argument(
         "--cache", default=str(REPO_ROOT / "tests" / "corpus_cache"),
@@ -339,6 +341,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Optional subset of benchmark set names.",
     )
     args = parser.parse_args(argv)
+    if args.corpus is None:
+        parser.error(f"pass --corpus or set {ENV_VAR}")
     return run_harness(
         Path(args.mt_results),
         Path(args.corpus),

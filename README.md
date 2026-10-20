@@ -147,12 +147,48 @@ python -m benchmark --mt-results <moneythumbResults dir>           # MoneyThumb 
   Reports go to the gitignored `discovery_reports/<run_id>/`.
 - The benchmark verifies its manifest's PDF hashes first and writes masked reports to `benchmark_reports/`.
 
+## Bank statements
+
+Statements are customer data, so the repository does not hold them. Set `BANK_STATEMENTS_DIR` to the folder that
+holds them: the corpus root, with one folder per bank, that the paths in
+`docs/balance-metrics-audit-results.csv` are relative to.
+
+```bash
+export BANK_STATEMENTS_DIR="$HOME/statements/Bank Statements"
+```
+
+```powershell
+$env:BANK_STATEMENTS_DIR = "D:\statements\Bank Statements"
+```
+
+- These programs default to it: the corpus gate, both forensic audits, `build_corpus_cache.py`,
+  `python -m discovery`, the benchmark, `experiments/w3_3a/evaluate.py`, `telemetry/stated_counts.py --corpus-audit`,
+  `tools/train/coldrun.sh` (unless `CORPUS_ROOT` is set), and the `tools` modules `adjudicate queue`,
+  `agree_native_census`, `hygiene8_pinned_replay`, `l1_census`, `l1_structure_census --pinned`, `measure_structurer`
+  and `scanhyg_pinned_replay`. When it is unset and you pass no folder, each of them stops with an error that names it.
+- `tools/batch9_census.py` also defaults to it, but skips its optional magic-byte check when it is unset.
+- `tools/record_parser_expectations.py` also defaults to it, but crashes before it reads a statement, on `main` as well.
+- `tools/train/control_b7.sh` runs the gate inside the old worktree you pass it, and that gate reads the worktree's
+  own tracked statements.
+- `tools/train/floor.sh` runs the gate and the corpus tests, so those steps need it too.
+- Every other program that reads statements takes the file or folder as an argument, as it did before.
+- The tests that read real statements skip when it is unset; the rest of the suite runs.
+- Set it in the shell. pytest never reads `.env` (`conftest.py`), and some tools do not either.
+- The web app does not use it: it reads only the statements that are uploaded to it.
+- `main` tracked the 109 pinned statements until commit `7a20fd35`. Updating an existing checkout past that commit
+  deletes those 109 files from its `Bank Statements/` folder; files git never tracked stay. Copy the folder out
+  first, or restore the 109 afterwards: run
+  `git archive 7a20fd35 "Bank Statements" | tar -x -C <folder>` and point the variable at
+  `<folder>/Bank Statements`.
+- `.gitignore` ignores every `Bank Statements/` folder at any depth, so a copy inside the checkout is never
+  committed.
+
 ## Tests
 
 ```bash
 python -m pip install -r requirements-dev.txt   # both runtime files plus pytest
 python -m pytest                                # the default suite
-python -m pytest -m corpus                      # the 34 corpus tests, the gate among them
+python -m pytest -m corpus                      # the 34 corpus tests, the gate among them (needs BANK_STATEMENTS_DIR)
 ```
 
 - `requirements-dev.txt` is the two runtime files plus pytest; CI installs it.
@@ -165,7 +201,7 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 ## Corpus gate (required before merge)
 
 ```bash
-python corpus_gate.py                      # exit 0 green, 1 red (about 17 minutes on Windows)
+python corpus_gate.py                      # over $BANK_STATEMENTS_DIR: exit 0 green, 1 red (about 17 minutes on Windows)
 python corpus_gate.py --json report.json   # plus a machine-readable report
 python corpus_gate.py --corpus <path>      # the same gate against another checkout's corpus root
 ```
@@ -181,20 +217,22 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 
 - It is offline: no network, no model, no `tesseract`. The six image-only statements are served from committed
   OCR artifacts keyed by the SHA-256 of their PDF ([`tests/corpus_cache/README.md`](tests/corpus_cache/README.md)).
-- It audits the pinned manifest, not every PDF under `Bank Statements/` (`.gitignore` ignores
-  `Bank Statements/**`); other PDFs there are counted, never named. Adding a statement means regenerating the
-  audits and `git add -f`.
+- It audits the pinned manifest, not every PDF under `BANK_STATEMENTS_DIR`; other PDFs there are counted, never
+  named. Adding a statement means regenerating the audits.
 - Run it locally before merging anything that touches parsing, reconciliation, ADB, balance metrics,
   serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml`, Ubuntu 24.04,
   Python 3.12) runs on every pull request and every push to `main`: it checks that the shipped entry points import
   with the two runtime files alone and load no model package, installs `requirements-dev.txt`, runs the suite, and
   runs the gate whether or not the suite passed (the job fails if either fails). Nothing makes a merge wait for
   it: GitHub's branch protection is not available on this repository's plan.
+- The hosted CI runner has no statements. Its suite skips the tests that read them, and it skips the corpus byte
+  check and the gate with a notice on the run. They run only on a runner whose environment sets
+  `BANK_STATEMENTS_DIR`, so run the gate locally.
 - The gate never rewrites the audits. Regenerating the truth set is a separate, deliberate act:
-  `python adb_forensic_audit.py "Bank Statements" --ocr-cache tests/corpus_cache`, then the same with
+  `python adb_forensic_audit.py "$BANK_STATEMENTS_DIR" --ocr-cache tests/corpus_cache`, then the same with
   `balance_forensic_audit.py`. Both read every PDF under the path they are given, not the pinned manifest, and
   overwrite the committed audit CSVs and reports under `docs/`. Run them only on a folder that holds exactly the
-  109 pinned PDFs (a fresh clone, where `Bank Statements/` holds only tracked files), and check that both CSVs
+  109 pinned PDFs (such as a folder restored with `git archive`, above), and check that both CSVs
   still hold 109 rows before committing.
 - `.gitattributes` marks PDFs binary and the committed OCR artifacts `-text`. Do not remove it: with
   `core.autocrlf=true` git would rewrite some PDFs and the pinned hashes would stop reproducing.
@@ -203,6 +241,7 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 
 | Variable | Default | Effect |
 |---|---|---|
+| `BANK_STATEMENTS_DIR` | unset | The bank statement folder for the command-line tools and the tests (see Bank statements). The web app does not read it. |
 | `WEBAPP_HOST` | `127.0.0.1` | Bind address. Beyond loopback it exposes an app with no login. |
 | `WEBAPP_PORT` | `5000` | Port. |
 | `WEBAPP_DATA_DIR` | unset | The data directory; absolute and outside the checkout. |
@@ -269,8 +308,8 @@ Where each rule is defined:
 - Statements are customer data. No statement value, name, account number or copied page text goes into code,
   tests, fixtures, docs or commit messages; tests use fabricated rows. Guards:
   `tests/test_no_statement_hardcodes.py` and `tools/privacy_scan_branch.py` (scans a branch's added lines for
-  the documents' printed tokens). Only the 109 pinned corpus PDFs are tracked; the rest of `Bank Statements/`
-  is ignored. The data directory is enforced outside the checkout.
+  the documents' printed tokens). No statement is tracked: they live in `BANK_STATEMENTS_DIR`, and
+  every `Bank Statements/` folder is ignored. The data directory is enforced outside the checkout.
 - Masking happens only at the web app boundary: `analyze.py` and `batch.py` output keeps account numbers as
   printed, so treat it as customer data.
 - Telemetry (on by default) carries hashes, registry ids, codes, counts and timings only, never account

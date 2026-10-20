@@ -22,6 +22,7 @@ from pathlib import Path
 
 import pytest
 
+from bank_statements import ENV_VAR
 from tools import adjudicate
 from tools.holdout.digest import parse_digest, render_digest
 from tools.holdout.manifest import HoldoutManifest
@@ -621,3 +622,7 @@ def test_holdout_graduate_records_which_repository_was_consulted(world, tmp_path
     assert consulted["root_commit"] == root and len(root) == 40
     out = capsys.readouterr().out
     assert consulted["path_digest"][:16] in out and root[:12] in out
+
+
+def test_the_pdf_root_default_reads_the_shared_statement_variable():
+    assert adjudicate.STATEMENTS_ENV == ENV_VAR

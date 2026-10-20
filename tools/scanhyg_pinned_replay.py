@@ -45,6 +45,7 @@ import sys
 import time
 from pathlib import Path
 
+from bank_statements import bank_statements_dir_or_exit
 from tools.scanhyg_family_replay import canonical, flatten, install_modules, template
 
 
@@ -72,7 +73,7 @@ def run_side(args: argparse.Namespace) -> int:
     from ocr.pipeline import parse_statement
     from telemetry.record import classify_outcome
 
-    corpus = args.corpus or (repo / "Bank Statements")
+    corpus = args.corpus or bank_statements_dir_or_exit()
     cache = args.ocr_cache or (repo / "tests" / "corpus_cache")
     records: dict[str, dict] = {}
     started = time.perf_counter()

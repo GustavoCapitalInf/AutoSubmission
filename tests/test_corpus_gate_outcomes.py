@@ -37,6 +37,7 @@ from pathlib import Path
 import pytest
 
 import corpus_gate
+from tests.statements import statements_dir
 
 ROOT = Path(corpus_gate.__file__).resolve().parent
 
@@ -495,7 +496,7 @@ PROBE = "Misc/Builder June 2026.pdf"
 def _run(expectations: dict) -> corpus_gate.Check:
     result = corpus_gate.Result()
     corpus_gate.check_outcome_classes(
-        result, corpus_gate.CORPUS, [PROBE], corpus_gate.DEFAULT_CACHE
+        result, statements_dir(), [PROBE], corpus_gate.DEFAULT_CACHE
     )
     return result.checks[0]
 
@@ -810,7 +811,7 @@ def test_the_ceremony_document_publishes_cad_end_to_end(monkeypatch):
     """
     rel = "RBC/Chequing Statement-DEC+.pdf"
     verdict, payload = corpus_gate.production_verdict(
-        corpus_gate.CORPUS / Path(rel), corpus_gate.DEFAULT_CACHE
+        statements_dir() / Path(rel), corpus_gate.DEFAULT_CACHE
     )
     assert payload["statement"]["currency"] == "CAD"
     assert payload["statement"]["bank"] == "Royal Bank of Canada"
@@ -1049,7 +1050,7 @@ def test_the_ceremony_documents_publish_their_provenance_end_to_end(monkeypatch)
     `institution_default` beside it."""
     for rel in sorted(CEREMONY_CAD):
         _verdict, payload = corpus_gate.production_verdict(
-            corpus_gate.CORPUS / Path(rel), corpus_gate.DEFAULT_CACHE
+            statements_dir() / Path(rel), corpus_gate.DEFAULT_CACHE
         )
         assert payload["statement"]["currency"] == "CAD"
         assert payload["statement"]["currency_source"] == "jurisdiction_default"
@@ -1057,7 +1058,7 @@ def test_the_ceremony_documents_publish_their_provenance_end_to_end(monkeypatch)
 
     french = "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf"
     _verdict, payload = corpus_gate.production_verdict(
-        corpus_gate.CORPUS / Path(french), corpus_gate.DEFAULT_CACHE
+        statements_dir() / Path(french), corpus_gate.DEFAULT_CACHE
     )
     assert payload["statement"]["currency"] == "CAD"
     assert payload["statement"]["currency_source"] == "institution_default"

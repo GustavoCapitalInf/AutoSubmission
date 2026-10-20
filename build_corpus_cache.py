@@ -22,6 +22,7 @@ import argparse
 import json
 from pathlib import Path
 
+from bank_statements import ENV_VAR, bank_statements_dir
 from corpus_artifacts import MANIFEST_NAME, sha256_hex
 from ocr.local_tesseract import LocalOcrIncomplete, parse_local_tesseract
 # The production native-text ladder itself — see
@@ -32,7 +33,7 @@ from ocr.native_text import native_statement as native_document
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--corpus", default="Bank Statements")
+    parser.add_argument("--corpus", default=bank_statements_dir(), help=f"Corpus root (default: ${ENV_VAR}).")
     parser.add_argument("--cache", default="tests/corpus_cache")
     parser.add_argument(
         "--allow-drift",
@@ -40,6 +41,8 @@ def main() -> None:
         help="Overwrite an artifact whose OCR output no longer matches the committed one.",
     )
     args = parser.parse_args()
+    if args.corpus is None:
+        parser.error(f"pass --corpus or set {ENV_VAR}")
 
     corpus = Path(args.corpus)
     cache = Path(args.cache)

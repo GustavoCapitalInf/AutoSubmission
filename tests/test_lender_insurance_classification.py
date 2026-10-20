@@ -19,6 +19,7 @@ from analysis.transaction_classifier import (
 from ocr.native_text import parse_native_td_canada
 from webapp.app import _package_analysis
 from webapp.jobs import Job
+from tests.statements import statements_dir
 
 
 def _txn(
@@ -501,8 +502,7 @@ def test_every_record_exposes_required_audit_fields():
 
 def test_td_cmca_fixture_counts_cmca_finance_as_a_lender():
     """Owner decision 2026-09-25: CMCA Finance is a merchant cash advance funder, a counted lender."""
-    root = Path(__file__).resolve().parents[1]
-    pdf = root / "Bank Statements" / "TD Can" / "Jan_30-Feb_27_2026 (3).pdf"
+    pdf = statements_dir() / "TD Can" / "Jan_30-Feb_27_2026 (3).pdf"
     document = parse_native_td_canada(pdf.read_bytes(), source_file=pdf.name)
     assert document is not None
 

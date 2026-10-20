@@ -23,6 +23,7 @@ from ocr.inspect import (
     inspect_pdf,
     _page_texts,
 )
+from tests.statements import statements_dir
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -236,7 +237,7 @@ def test_corpus_parity_with_the_balance_audit_source_type():
     must match the committed audit's source_type column exactly:
     digital/native <-> digital, scanned/local_ocr <-> scanned. Native-text
     detection only — no OCR, no network — so it stays in the default suite."""
-    corpus = PROJECT_ROOT / "Bank Statements"
+    corpus = statements_dir()
     audit_csv = PROJECT_ROOT / "docs" / "balance-metrics-audit-results.csv"
     if not corpus.is_dir() or not audit_csv.exists():
         pytest.skip("statement corpus or audit CSV not present")

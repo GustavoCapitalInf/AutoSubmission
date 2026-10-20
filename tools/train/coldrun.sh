@@ -44,7 +44,7 @@ BASE="${2:?base run dir (explicit; the same-host batch-7 control run)}"
 COLD="${3:?cold data dir (absent or empty; becomes WEBAPP_DATA_DIR)}"
 TREE=$(git rev-parse --short HEAD)
 OUT="${4:-discovery_reports/TRAIN8-$TREE}"
-ROOT="${CORPUS_ROOT:-Bank Statements}"
+ROOT="${CORPUS_ROOT:-${BANK_STATEMENTS_DIR:?set BANK_STATEMENTS_DIR or CORPUS_ROOT}}"
 QUARANTINE="${QUARANTINE_FILE:-tools/train/recon_b7_quarantine_nonnative_208.shas}"
 : > "$LOG"
 echo "TREE=$TREE BASE=$BASE COLD=$COLD ROOT=$ROOT OUT=$OUT START=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$LOG"

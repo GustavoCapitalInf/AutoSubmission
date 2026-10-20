@@ -3,6 +3,9 @@ name: Corpus gate
 # Required before merge. Re-runs both independent forensic oracles over all 109
 # corpus statements and fails red on any drift from the committed audits.
 #
+# The statements live outside the repository, in BANK_STATEMENTS_DIR. The corpus
+# byte check and the gate run only on a runner that sets it.
+#
 # The GATE is deliberately offline: no OCR endpoint, no Gemini key, no
 # Tesseract. The six image-only statements are served from committed OCR
 # artifacts, so `corpus_gate.py` needs nothing but the repository and the
@@ -134,9 +137,20 @@ jobs:
         # package this install does not hold.
         run: pip install -r requirements-dev.txt
 
-      - name: Verify the corpus checked out byte-identically
-        # .gitattributes marks PDFs binary. If that ever regresses, the pinned
-        # SHA-256s stop reproducing and every later step is meaningless.
+      - name: Look for the statement corpus
+        id: statements
+        run: |
+          if [ -n "${BANK_STATEMENTS_DIR:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Corpus gate skipped::BANK_STATEMENTS_DIR is not set on this runner, so the corpus byte check and the corpus gate do not run."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify the corpus byte-identically
+        # The pinned SHA-256s must reproduce, or every later step is
+        # meaningless.
+        if: steps.statements.outputs.present == 'true'
         id: corpus_bytes
         run: python -c "import corpus_gate, sys; r = corpus_gate.Result(); corpus_gate.check_source_integrity(r, corpus_gate.CORPUS, corpus_gate.read_csv(corpus_gate.BALANCE_CSV)); print(r.checks[0].summary); sys.exit(0 if r.ok else 1)"
 
@@ -152,7 +166,7 @@ jobs:
         run: python corpus_gate.py --json corpus-gate-report.json
 
       - name: Upload gate report
-        if: always()
+        if: ${{ always() && steps.statements.outputs.present == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: corpus-gate-report
