@@ -12,6 +12,7 @@ import balance_forensic_audit
 import corpus_gate
 from analysis.schema import Statement, Transaction
 from balance_forensic_audit import independent_balances
+from tests.statements import statements_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +39,7 @@ def test_balance_audit_inventory_and_source_hashes_are_complete():
     assert len(rows) == 109
     assert len(audited_paths) == 109
     for row in rows:
-        source = ROOT / "Bank Statements" / Path(row["path"])
+        source = statements_dir() / Path(row["path"])
         assert source.is_file(), row["path"]
         digest = hashlib.sha256(source.read_bytes()).hexdigest().upper()
         assert digest == row["sha256"], row["statement"]
@@ -233,8 +234,8 @@ def test_the_refusal_guard_is_one_rule_in_both_oracles(exc, recognised, monkeypa
     # three copies of this decision cannot drift apart in silence.
     assert corpus_gate.PINNED_REFUSALS["Misc/Columbia May 26 complete.pdf"] == DECLARED
 
-    source = ROOT / "Bank Statements" / "Misc" / "Columbia May 26 complete.pdf"
-    corpus, cache = ROOT / "Bank Statements", ROOT / "tests" / "corpus_cache"
+    corpus, cache = statements_dir(), ROOT / "tests" / "corpus_cache"
+    source = corpus / "Misc" / "Columbia May 26 complete.pdf"
 
     def raise_it(*args, **kwargs):
         raise exc

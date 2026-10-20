@@ -63,9 +63,9 @@ from evidence import (
     to_pixels,
     word_id,
 )
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parent.parent
-CORPUS = ROOT / "Bank Statements"
 LETTER_PT = (612.0, 792.0)
 
 
@@ -333,7 +333,7 @@ def test_geometry_from_pdf_is_byte_identical_on_the_pinned_corpus(relative_path,
     closure ruling (a `pdf_point` frame is a viewport: an out-of-frame word
     is kept verbatim and noted, never refused), so the display-frame reader
     is byte-identical to the Phase 2.0 copy on every unrotated page."""
-    data = (CORPUS / relative_path).read_bytes()
+    data = (statements_dir() / relative_path).read_bytes()
     assert hashlib.sha256(data).hexdigest().upper()[:16] == expected_sha16, (
         "the pinned corpus file's content changed since this pin was written"
     )
@@ -971,7 +971,7 @@ def test_no_page_in_the_pinned_corpus_sample_is_rotated():
     rotated = 0
     total_pages = 0
     for relative_path in _PINNED_CORPUS_RELATIVE_PATHS:
-        data = (CORPUS / relative_path).read_bytes()
+        data = (statements_dir() / relative_path).read_bytes()
         evidence = native_evidence_from_pdf(data)
         if evidence is None:
             continue
@@ -1063,7 +1063,7 @@ def test_unrotated_geometry_is_byte_identical_on_all_12_pinned_pdfs_and_out_of_f
     on any page of any pinned PDF, fails this test."""
     from evidence import outside_frame_word_ids, words_outside_frame
 
-    data = (CORPUS / relative_path).read_bytes()
+    data = (statements_dir() / relative_path).read_bytes()
     assert hashlib.sha256(data).hexdigest().upper()[:16] == expected_sha16
     legacy = _legacy_geometry_from_pdf(data)
     evidence = native_evidence_from_pdf(data)

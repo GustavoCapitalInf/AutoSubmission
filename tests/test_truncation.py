@@ -32,6 +32,7 @@ from ocr.truncation import (
     model_truncation_signals,
     structural_tail_signals,
 )
+from tests.statements import statements_dir
 
 
 # ---------------------------------------------------------------------------
@@ -321,11 +322,10 @@ def test_statement_markdown_built_outside_the_ladder_reports_nothing():
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 AUDIT_CSV = PROJECT_ROOT / "docs" / "balance-metrics-audit-results.csv"
-CORPUS = PROJECT_ROOT / "Bank Statements"
 
 
 def _audit_rows():
-    if not CORPUS.is_dir() or not AUDIT_CSV.exists():
+    if not statements_dir().is_dir() or not AUDIT_CSV.exists():
         pytest.skip("statement corpus or audit CSV not present")
     with open(AUDIT_CSV, encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
@@ -363,7 +363,7 @@ def test_no_corpus_native_page_is_flagged():
     version below is the corpus-marked twin."""
     flagged = []
     for row in _audit_rows():
-        pdf_bytes = (CORPUS / row["path"]).read_bytes()
+        pdf_bytes = (statements_dir() / row["path"]).read_bytes()
         for index, page in enumerate(_native_pages(pdf_bytes)):
             integrity = assess_page(page, page_index=index)
             if integrity.truncated:
@@ -378,7 +378,7 @@ def test_no_corpus_document_is_flagged_through_the_real_ladder():
     ladder attaches an assessment to every page and flags none of them."""
     flagged = []
     for row in _audit_rows():
-        pdf_bytes = (CORPUS / row["path"]).read_bytes()
+        pdf_bytes = (statements_dir() / row["path"]).read_bytes()
         doc = parse_statement(pdf_bytes, source_file=row["path"], allow_visual_ocr=False)
         if doc is None:
             continue  # image-only: served from the committed artifact above

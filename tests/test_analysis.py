@@ -60,14 +60,15 @@ from ocr.native_text import (
     parse_native_navy_federal,
     parse_native_pdf_text,
 )
+from tests.statements import statements_dir
 
 
 @lru_cache(maxsize=1)
 def _pinned_corpus_pdfs() -> dict[str, list[Path]]:
     """Pinned corpus PDFs by file stem, from the committed balance audit.
 
-    Resolution is against the pinned manifest rather than an rglob of
-    `Bank Statements/`: that root is shared with untracked discovery material,
+    Resolution is against the pinned manifest rather than an rglob of the
+    statement folder: that root is shared with untracked discovery material,
     whose stems collide with corpus stems, so an rglob would either pick a
     foreign document or trip the uniqueness assertion below. The manifest is the
     same 109 paths the corpus gate audits.
@@ -77,7 +78,7 @@ def _pinned_corpus_pdfs() -> dict[str, list[Path]]:
         rows = list(csv.DictReader(handle))
     by_stem: dict[str, list[Path]] = {}
     for row in rows:
-        path = Path("Bank Statements", row["path"])
+        path = statements_dir() / row["path"]
         by_stem.setdefault(path.stem, []).append(path)
     return by_stem
 
@@ -97,7 +98,7 @@ def _artifact_markdown(filename: str) -> str:
 
 
 def _raw_pdf_report(relative_path: str):
-    source = Path("Bank Statements", relative_path)
+    source = statements_dir() / relative_path
     document = parse_native_pdf_text(source.read_bytes(), source_file=source.name)
     assert document is not None
     markdown = document.to_markdown()
@@ -1164,7 +1165,7 @@ def test_navy_federal_native_layout_preserves_dates_and_descriptions(
     nsf_count: int,
     average_daily_balance: float,
 ):
-    path = Path("Bank Statements/Navy Fed", filename)
+    path = statements_dir() / "Navy Fed" / filename
     doc = parse_native_navy_federal(path.read_bytes(), source_file=filename)
     assert doc is not None
     assert doc.model == "native-pdf-text+navy-federal-layout"
@@ -1389,7 +1390,7 @@ def test_parse_altana_june_handles_intraday_negative_balance_crossing():
 
 
 def test_parse_desjardins_usd_layout_statement_reconciles_native_text():
-    pdf = Path("Bank Statements/Misc/USD FEB 2026.pdf").read_bytes()
+    pdf = (statements_dir() / "Misc" / "USD FEB 2026.pdf").read_bytes()
     doc = parse_native_desjardins(pdf, source_file="USD FEB 2026.pdf")
     assert doc is not None
     assert doc.model == "native-pdf-text+desjardins-layout"

@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bank_statements import bank_statements_dir_or_exit  # noqa: E402
 from tools.cohort_replay import ColdCache  # noqa: E402
 
 #: The census group that carries the credit-union suffix reservoir. Read from
@@ -271,7 +272,7 @@ def pinned_shas(repo: Path) -> dict[str, str]:
     """{content sha256 (upper) -> pinned relative path}. The corpus root is
     gitignored; a missing file is reported, never guessed."""
     out: dict[str, str] = {}
-    root = repo / "Bank Statements"
+    root = bank_statements_dir_or_exit()
     for rel in pinned_paths(repo):
         path = root / rel
         if not path.is_file():

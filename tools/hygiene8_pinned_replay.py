@@ -55,6 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     sys.path.insert(0, str(repo))
 
     import corpus_gate
+    from bank_statements import bank_statements_dir_or_exit
     from analysis.count_semantics import claiming_parser_id
     from analysis.pipeline import analyze_markdown
     from analysis.serialization import report_to_dict
@@ -68,7 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     base = load_base_analysis(args.base, repo=repo, scratch=args.scratch)
     touched = set(derive_population(repo))
 
-    corpus = args.corpus or corpus_gate.CORPUS
+    corpus = args.corpus or bank_statements_dir_or_exit()
     manifest = corpus_gate.manifest_paths(corpus_gate.read_csv(corpus_gate.BALANCE_CSV))
     counts = {
         "pinned": len(manifest),

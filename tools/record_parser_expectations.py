@@ -52,9 +52,9 @@ sys.path.insert(0, str(ROOT))
 
 from analysis import pipeline  # noqa: E402
 from balance_forensic_audit import source_markdown  # noqa: E402
+from bank_statements import bank_statements_dir_or_exit  # noqa: E402
 from corpus_artifacts import DEFAULT_CACHE, sha256_hex  # noqa: E402
 
-CORPUS = ROOT / "Bank Statements"
 BALANCE_CSV = ROOT / "docs" / "balance-metrics-audit-results.csv"
 OUTPUT = ROOT / "tests" / "data" / "parser_expectations.json"
 EXPECTED_ROWS = 109
@@ -200,9 +200,10 @@ def record() -> dict:
     recorder = Recorder()
     saved = install(recorder)
     rows = []
+    corpus = bank_statements_dir_or_exit()
     try:
         for relative in manifest:
-            path = CORPUS / Path(relative)
+            path = corpus / Path(relative)
             markdown, source_type, pdf_bytes = source_markdown(path, ocr_cache=DEFAULT_CACHE)
             recorder.reset()
             statement = pipeline._deterministic_statement(markdown)

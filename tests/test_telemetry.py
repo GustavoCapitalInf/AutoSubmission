@@ -42,6 +42,7 @@ from telemetry import (
 from telemetry.prices import PRICE_TABLE_VERSION, estimate
 from telemetry.record import model_calls_for
 from telemetry.report import coverage, render, summarize
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -55,7 +56,7 @@ def claimed_markdown() -> str:
     """
     from ocr.native_text import parse_native_pdf_text
 
-    source = ROOT / "Bank Statements" / "Chase" / "Chase Mar.pdf"
+    source = statements_dir() / "Chase" / "Chase Mar.pdf"
     document = parse_native_pdf_text(source.read_bytes(), source_file=source.name)
     assert document is not None
     return document.to_markdown()

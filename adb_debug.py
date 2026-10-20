@@ -1,7 +1,7 @@
 """Print exactly how Average Daily Balance was calculated for a statement.
 
-    python adb_debug.py "Bank Statements/Chase/Chase Apr.pdf"
-    python adb_debug.py "Bank Statements/Chase" --summary
+    python adb_debug.py "$BANK_STATEMENTS_DIR/Chase/Chase Apr.pdf"
+    python adb_debug.py "$BANK_STATEMENTS_DIR/Chase" --summary
     python adb_debug.py extracted.md
     python adb_debug.py statement.json
 

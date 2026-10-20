@@ -18,6 +18,7 @@ import pytest
 import corpus_artifacts
 import corpus_gate
 from corpus_artifacts import ArtifactError, cached_markdown, sha256_hex
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "tests" / "corpus_cache"
@@ -25,7 +26,7 @@ CACHE = ROOT / "tests" / "corpus_cache"
 
 @pytest.mark.corpus
 def test_corpus_gate_is_green():
-    result = corpus_gate.run_gate(corpus_gate.CORPUS, CACHE)
+    result = corpus_gate.run_gate(statements_dir(), CACHE)
     failed = [check for check in result.checks if not check.ok]
     assert not failed, "\n".join(
         f"{check.name}: {check.summary}\n  " + "\n  ".join(check.details) for check in failed
@@ -67,7 +68,7 @@ def test_every_pinned_corpus_pdf_is_accounted_for_without_parsing():
 
     assert len(manifest) == corpus_gate.EXPECTED_PDF_COUNT
     assert balance == adb == set(manifest)
-    for path in corpus_gate.manifest_pdfs(corpus_gate.CORPUS, manifest):
+    for path in corpus_gate.manifest_pdfs(statements_dir(), manifest):
         assert path.is_file(), path
 
 
@@ -85,7 +86,7 @@ def test_committed_ocr_artifacts_cover_every_scanned_statement():
     assert {entry["path"] for entry in entries.values()} == scanned
     assert {entry["path"] for entry in entries.values()} <= on_disk
     for entry in entries.values():
-        source = corpus_gate.CORPUS / entry["path"]
+        source = statements_dir() / entry["path"]
         assert sha256_hex(source.read_bytes()) == entry["pdf_sha256"], entry["path"]
         artifact = CACHE / entry["artifact"]
         assert sha256_hex(artifact.read_text(encoding="utf-8").encode("utf-8")) == (
@@ -126,7 +127,7 @@ def test_the_committed_page_list_rejoins_to_the_committed_markdown():
     from ocr.document import StatementMarkdown
 
     for entry in corpus_artifacts.manifest_entries(CACHE).values():
-        source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+        source = (statements_dir() / entry["path"]).read_bytes()
         pages = corpus_artifacts.cached_pages(source, CACHE)
         assert pages, entry["path"]
         rejoined = StatementMarkdown(
@@ -146,7 +147,7 @@ def test_cached_pages_returns_none_for_an_unknown_document():
 def test_cached_pages_returns_none_when_an_artifact_has_no_page_list(tmp_path):
     """Fail-closed on absence: an older artifact simply proves no structure."""
     entry = dict(next(iter(corpus_artifacts.manifest_entries(CACHE).values())))
-    source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+    source = (statements_dir() / entry["path"]).read_bytes()
     entry.pop("pages", None)
     entry.pop("pages_sha256", None)
     (tmp_path / corpus_artifacts.MANIFEST_NAME).write_text(
@@ -163,7 +164,7 @@ def test_cached_pages_rejects_an_altered_page_list(tmp_path):
     absent.
     """
     entry = next(iter(corpus_artifacts.manifest_entries(CACHE).values()))
-    source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+    source = (statements_dir() / entry["path"]).read_bytes()
 
     (tmp_path / "pages").mkdir()
     (tmp_path / entry["pages"]).write_text(
@@ -179,7 +180,7 @@ def test_cached_pages_rejects_an_altered_page_list(tmp_path):
 
 def test_cached_markdown_rejects_an_altered_artifact(tmp_path):
     entry = next(iter(corpus_artifacts.manifest_entries(CACHE).values()))
-    source = (corpus_gate.CORPUS / entry["path"]).read_bytes()
+    source = (statements_dir() / entry["path"]).read_bytes()
 
     (tmp_path / "ocr").mkdir()
     (tmp_path / entry["artifact"]).write_text("tampered", encoding="utf-8")

@@ -35,6 +35,7 @@ from ocr.native_text import (
     parse_native_first_citizens,
     parse_native_pdf_text,
 )
+from tests.statements import statements_dir
 
 # The printed template, in points. Rows sit 9pt apart; a description's baseline
 # is ~1.3pt above the date and amount it belongs to, which is why row ownership
@@ -360,13 +361,7 @@ def test_the_intake_ladder_reaches_this_rung_before_the_generic_one():
 # The pinned corpus document, end to end through the real ladder
 # ---------------------------------------------------------------------------
 
-PINNED = (
-    Path(__file__).resolve().parents[1]
-    / "Bank Statements"
-    / "Others"
-    / "First Citizen"
-    / "First Citizens Bank.pdf"
-)
+PINNED = Path("Others", "First Citizen", "First Citizens Bank.pdf")
 
 
 @pytest.mark.corpus
@@ -383,7 +378,7 @@ def test_the_pinned_statement_recovers_its_printed_descriptions_and_nothing_else
     from analysis.pipeline import analyze_markdown
     from ocr.pipeline import _native_statement
 
-    pdf = PINNED.read_bytes()
+    pdf = (statements_dir() / PINNED).read_bytes()
     generic = parse_native_pdf_text(pdf, source_file=PINNED.name)
     layout = _native_statement(pdf, source_file=PINNED.name)
     assert generic is not None and layout is not None

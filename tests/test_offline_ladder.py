@@ -30,22 +30,24 @@ from discovery.runner import (
     DiscoveryRunner,
 )
 from ocr.document import StatementMarkdown
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
-CORPUS = ROOT / "Bank Statements"
 #: An image-only corpus statement whose committed OCR artifact a registration both claims AND publishes (see the
 #: history of `tests/test_visual_rung.py` for why it is this document).
 SCANNED = "Misc/First Farmers 2026 01-document.pdf"
 
-#: A real image-only statement: the profile reports zero native text, so the native rung is skipped and only the
-#: Tesseract rung can serve it.
-SCAN_BYTES = (CORPUS / SCANNED).read_bytes()
+
+def _scan_bytes() -> bytes:
+    """A real image-only statement: the profile reports zero native text, so the native rung is skipped and only the
+    Tesseract rung can serve it."""
+    return (statements_dir() / SCANNED).read_bytes()
 
 
 def _claimable() -> str:
     from corpus_artifacts import cached_markdown
 
-    text = cached_markdown(SCAN_BYTES, ROOT / "tests" / "corpus_cache")
+    text = cached_markdown(_scan_bytes(), ROOT / "tests" / "corpus_cache")
     assert text, "the committed artifact is the claimable fixture"
     return text
 
@@ -53,7 +55,7 @@ def _claimable() -> str:
 @pytest.fixture
 def scan_tree(tmp_path: Path) -> Path:
     (tmp_path / "BankZ").mkdir()
-    (tmp_path / "BankZ" / "scan.pdf").write_bytes(SCAN_BYTES)
+    (tmp_path / "BankZ" / "scan.pdf").write_bytes(_scan_bytes())
     return tmp_path
 
 

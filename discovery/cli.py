@@ -27,6 +27,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from bank_statements import ENV_VAR, bank_statements_dir
 from telemetry import JsonlSink, NullSink, new_run_id, telemetry_disabled
 
 from .inventory import (
@@ -45,7 +46,6 @@ from .runner import (
     DiscoveryRunner,
 )
 
-DEFAULT_ROOT = Path("Bank Statements")
 DEFAULT_OUT = Path("discovery_reports")
 
 
@@ -160,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
                       help="Tranche 1: the discovery set through the offline rungs.")
     mode.add_argument("--scanned", action="store_true",
                       help="Tranche 2: as --digital plus the local Tesseract rung.")
-    parser.add_argument("--root", default=str(DEFAULT_ROOT), help="Corpus root.")
+    parser.add_argument("--root", default=bank_statements_dir(), help=f"Corpus root (default: ${ENV_VAR}).")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="Report directory.")
     parser.add_argument("--limit", type=int, help="Process at most N documents.")
     parser.add_argument("--no-cache", action="store_true", help="Bypass the D-3 cache.")
@@ -168,6 +168,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Do not verify the frozen archive baseline. Scoped runs only.")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
+    if args.root is None:
+        parser.error(f"pass --root or set {ENV_VAR}")
 
     selected_mode = (
         MODE_DRY_RUN if args.dry_run

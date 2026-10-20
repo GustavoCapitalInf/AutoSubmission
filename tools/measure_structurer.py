@@ -39,8 +39,8 @@ from analysis.pipeline import normalize_statement  # noqa: E402
 from analysis.reconcile import reconcile  # noqa: E402
 from analysis.structurer import geometry_from_pdf, structure_document  # noqa: E402
 from analysis.transaction_classifier import classify_statement_transactions  # noqa: E402
+from bank_statements import ENV_VAR, bank_statements_dir_or_exit  # noqa: E402
 
-ARCHIVE = Path("Bank Statements")
 ARTIFACTS = Path("tests/corpus_cache")
 
 CLUSTERS: dict[str, tuple[str, ...]] = {
@@ -125,7 +125,8 @@ def run_one(path: Path, *, scanned: bool, flat: bool):
 def pinned_paths() -> list[Path]:
     from corpus_gate import BALANCE_CSV, manifest_paths, read_csv
 
-    return [ROOT / ARCHIVE / relative for relative in manifest_paths(read_csv(BALANCE_CSV))]
+    root = bank_statements_dir_or_exit()
+    return [root / relative for relative in manifest_paths(read_csv(BALANCE_CSV))]
 
 
 def run_corpus(limit: int | None, flat: bool) -> None:
@@ -245,13 +246,14 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--per-cluster", type=int, default=25)
     parser.add_argument("--reports", default="discovery_reports")
-    parser.add_argument("--archive-root", default=str(ROOT / ARCHIVE))
+    parser.add_argument("--archive-root", help=f"default: ${ENV_VAR}")
     args = parser.parse_args()
 
     if args.corpus:
         run_corpus(args.limit, args.flat)
     if args.archive:
-        run_archive(Path(args.reports), Path(args.archive_root), args.per_cluster, args.flat)
+        archive_root = Path(args.archive_root) if args.archive_root else bank_statements_dir_or_exit()
+        run_archive(Path(args.reports), archive_root, args.per_cluster, args.flat)
     if not args.corpus and not args.archive:
         parser.error("choose --corpus and/or --archive")
     return 0

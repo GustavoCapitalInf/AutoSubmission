@@ -64,6 +64,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from bank_statements import ENV_VAR, bank_statements_dir
+
 SHA_LINE = re.compile(r"^[0-9A-F]{64}$")
 SHA64 = re.compile(r"[0-9A-F]{64}")
 SHA16 = re.compile(r"\b[0-9A-F]{16}\b")
@@ -937,8 +939,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run", type=Path, default=None, help="run directory (default: the train8 pointer file)")
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--b8-census-ref", default=DEFAULT_B8_REF)
-    parser.add_argument("--archive-root", default="Bank Statements",
-                        help="archive root, read ONLY for the magic bytes of invalid-PDF shas ('' to skip)")
+    parser.add_argument("--archive-root", default=bank_statements_dir(),
+                        help=f"archive root, read ONLY for the magic bytes of invalid-PDF shas (default: ${ENV_VAR}; '' or unset to skip)")
     parser.add_argument("--out-dir", type=Path, default=Path("docs/moneythumb-replacement/census_batch9"))
     parser.add_argument("--report", type=Path, default=Path("docs/moneythumb-replacement/CENSUS_BATCH9.md"))
     args = parser.parse_args(argv)

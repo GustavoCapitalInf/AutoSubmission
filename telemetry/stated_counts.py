@@ -114,6 +114,7 @@ from analysis.count_semantics import (  # noqa: F401
     expected_count,
     semantics_for,
 )
+from bank_statements import ENV_VAR, bank_statements_dir
 
 #: Bumped when the vocabulary, the evaluation order or the semantics table
 #: changes, so two measurement runs can be told apart. Phase 1 shipped at 1.
@@ -1054,10 +1055,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run", required=True, help="A discovery run directory (contains rows.csv).")
     parser.add_argument("--data-dir", required=True, help="The webapp data directory holding the D-3 artifact cache.")
     parser.add_argument("--corpus-audit", help="docs/adb-audit-results.csv - pins the 109.")
-    parser.add_argument("--corpus-root", default="Bank Statements", help="Corpus root for --corpus-audit.")
+    parser.add_argument("--corpus-root", default=bank_statements_dir(), help=f"Corpus root for --corpus-audit (default: ${ENV_VAR}).")
     parser.add_argument("--all-rows", action="store_true", help="Do not collapse duplicate documents.")
     parser.add_argument("--json", action="store_true", help="Emit the rollup as JSON.")
     args = parser.parse_args(argv)
+    if args.corpus_audit and args.corpus_root is None:
+        parser.error(f"--corpus-audit needs --corpus-root or {ENV_VAR}")
 
     corpus_status = (
         load_corpus_status(args.corpus_audit, args.corpus_root) if args.corpus_audit else None

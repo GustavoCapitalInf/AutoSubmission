@@ -25,11 +25,11 @@ import pytest
 
 from analysis import parser_registry as pr
 from analysis import parser_registry_entries  # noqa: F401  — populates the registry
+from tests.statements import statements_dir
 
 pytestmark = pytest.mark.corpus
 
 ROOT = Path(__file__).resolve().parent.parent
-CORPUS = ROOT / "Bank Statements"
 EXPECTATIONS = ROOT / "tests" / "data" / "parser_expectations.json"
 BALANCE_CSV = ROOT / "docs" / "balance-metrics-audit-results.csv"
 
@@ -45,7 +45,7 @@ def sources(documents) -> dict[str, str]:
     from corpus_artifacts import DEFAULT_CACHE
 
     return {
-        row["path"]: source_markdown(CORPUS / Path(row["path"]), ocr_cache=DEFAULT_CACHE)[0]
+        row["path"]: source_markdown(statements_dir() / Path(row["path"]), ocr_cache=DEFAULT_CACHE)[0]
         for row in documents
     }
 

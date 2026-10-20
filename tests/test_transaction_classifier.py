@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from pathlib import Path
 
 import pytest
 
@@ -13,6 +12,7 @@ from analysis.transaction_classifier import classify_transaction
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
 from webapp.app import _package_analysis
 from webapp.jobs import Job
+from tests.statements import statements_dir
 
 
 def _txn(
@@ -221,7 +221,7 @@ def test_classification_preserves_transaction_description():
 
 
 def _real_statement_report(relative_path: str):
-    path = Path("Bank Statements", relative_path)
+    path = statements_dir() / relative_path
     pdf_bytes = path.read_bytes()
     document = (
         parse_native_navy_federal(pdf_bytes, source_file=path.name)

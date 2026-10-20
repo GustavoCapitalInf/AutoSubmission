@@ -20,6 +20,7 @@ from typing import Any
 from analysis.payload_shape import refuse_document_payload
 from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
+from bank_statements import ENV_VAR, bank_statements_dir
 from corpus_artifacts import ArtifactError, cached_markdown
 from ocr.local_tesseract import parse_local_tesseract
 # The production native-text ladder itself — see
@@ -763,7 +764,7 @@ def write_report(rows: list[dict[str, Any]], destination: Path, csv_path: Path) 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("path", nargs="?", default="Bank Statements")
+    parser.add_argument("path", nargs="?", default=bank_statements_dir(), help=f"A PDF or a folder of them (default: ${ENV_VAR}).")
     parser.add_argument("--artifacts", help="Reuse indexed raw markdown artifacts instead of extracting PDFs.")
     parser.add_argument("--csv", default="docs/adb-audit-results.csv")
     parser.add_argument("--report", default="docs/adb-forensic-audit.md")
@@ -776,6 +777,8 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
+    if args.path is None:
+        parser.error(f"pass a path or set {ENV_VAR}")
 
     root = Path(args.path)
     files = [root] if root.is_file() else sorted(root.rglob("*.pdf"))

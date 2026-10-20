@@ -51,6 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bank_statements import bank_statements_dir_or_exit  # noqa: E402
 from tools.cohort_replay import ColdCache  # noqa: E402
 from tools.l1_census import (  # noqa: E402
     ATB_GROUP,
@@ -939,8 +940,9 @@ def pinned_survey(data_dir: Path, rows_csv: Path) -> list[tuple[str, str, str, D
             in_run.add(row["content_sha256"].upper())
 
     out: list[tuple[str, str, str, DocStructure | None]] = []
+    root = bank_statements_dir_or_exit()
     for rel in pinned_paths(repo):
-        path = repo / "Bank Statements" / Path(rel)
+        path = root / Path(rel)
         if not path.is_file():
             out.append((rel, "-", "missing-from-corpus-root", None))
             continue

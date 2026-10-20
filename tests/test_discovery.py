@@ -48,9 +48,9 @@ from discovery.runner import (
     DiscoveryRunner,
     DocumentRow,
 )
+from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
-CORPUS = ROOT / "Bank Statements"
 DIGITAL = "Chase/Chase Mar.pdf"
 #: An image-only corpus statement whose committed OCR artifact a registration
 #: both claims AND publishes — the two properties every use below needs.
@@ -70,7 +70,7 @@ def tree(tmp_path: Path) -> Path:
     """A synthetic corpus root: one digital, one duplicate, one broken, one non-PDF."""
     (tmp_path / "BankX").mkdir()
     (tmp_path / "BankY").mkdir()
-    digital = (CORPUS / DIGITAL).read_bytes()
+    digital = (statements_dir() / DIGITAL).read_bytes()
     (tmp_path / "BankX" / "statement.pdf").write_bytes(digital)
     (tmp_path / "BankX" / "again.pdf").write_bytes(digital)
     (tmp_path / "BankY" / "broken.pdf").write_bytes(b"%PDF-1.4 not really a pdf\n")
@@ -103,7 +103,7 @@ def test_the_partition_is_the_pinned_manifest(tree: Path):
     manifest = pinned_manifest()
     target = tree / manifest[0]
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes((CORPUS / manifest[0]).read_bytes())
+    target.write_bytes((statements_dir() / manifest[0]).read_bytes())
 
     inventory = enumerate_root(tree)
     assert manifest[0] in inventory.pinned
@@ -120,7 +120,7 @@ def test_a_case_different_pinned_path_is_still_pinned(tree: Path):
     assert wanted in pinned_manifest()
     on_disk = tree / "scotiabank" / "scotiabank -2.pdf"
     on_disk.parent.mkdir(parents=True, exist_ok=True)
-    on_disk.write_bytes((CORPUS / wanted).read_bytes())
+    on_disk.write_bytes((statements_dir() / wanted).read_bytes())
 
     inventory = enumerate_root(tree)
     # The MANIFEST spelling is the document's identity from here on; the
@@ -158,7 +158,7 @@ def test_a_case_folded_pinned_document_is_unique_not_a_duplicate_of_itself(tree:
     wanted = "ScotiaBank/Scotiabank -2.pdf"
     on_disk = tree / "scotiabank" / "scotiabank -2.pdf"
     on_disk.parent.mkdir(parents=True, exist_ok=True)
-    on_disk.write_bytes((CORPUS / wanted).read_bytes())
+    on_disk.write_bytes((statements_dir() / wanted).read_bytes())
 
     inventory = enumerate_root(tree)
     assert inventory.pinned == (wanted,)
@@ -254,7 +254,7 @@ def test_a_scanned_document_is_deferred_never_skipped(tree: Path, tmp_path: Path
 
     scanned = tree / "BankZ" / "scan.pdf"
     scanned.parent.mkdir()
-    scanned.write_bytes((CORPUS / SCANNED).read_bytes())
+    scanned.write_bytes((statements_dir() / SCANNED).read_bytes())
 
     sink = JsonlSink(tmp_path / "telemetry.jsonl")
     runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=sink,
@@ -322,7 +322,7 @@ def test_profile_only_and_invalid_pdf_rows_carry_no_evidence_verdict(tree: Path)
 
 def test_the_dry_run_reads_scanned_statements_from_committed_artifacts(tmp_path: Path):
     """That is what lets the dry run cover all 109 with zero OCR."""
-    row = _runner(CORPUS, MODE_DRY_RUN).process(SCANNED, "Misc")
+    row = _runner(statements_dir(), MODE_DRY_RUN).process(SCANNED, "Misc")
     assert row.source_path == "committed_artifact"
     assert row.parser_id == "first_farmers"
     assert row.outcome_class in {"validated", "review"}
@@ -702,7 +702,7 @@ def test_a_document_the_analysis_never_saw_emits_a_record_that_claims_nothing(
     """
     scanned = tree / "BankZ" / "scan.pdf"
     scanned.parent.mkdir()
-    scanned.write_bytes((CORPUS / SCANNED).read_bytes())
+    scanned.write_bytes((statements_dir() / SCANNED).read_bytes())
 
     sink = _ListSink()
     runner = DiscoveryRunner(tree, mode=MODE_DIGITAL, run_id="t", sink=sink,
@@ -869,11 +869,11 @@ def test_masking_keeps_only_the_last_four_characters():
 
 def test_a_real_account_number_never_reaches_the_row():
     """The scanned statement carries an account number; only its last 4 survive."""
-    row = _runner(CORPUS, MODE_DRY_RUN).process(SCANNED, "Misc")
+    row = _runner(statements_dir(), MODE_DRY_RUN).process(SCANNED, "Misc")
     from analysis.pipeline import analyze_markdown
     from corpus_artifacts import cached_markdown
 
-    markdown = cached_markdown((CORPUS / SCANNED).read_bytes(),
+    markdown = cached_markdown((statements_dir() / SCANNED).read_bytes(),
                                ROOT / "tests" / "corpus_cache")
     full = analyze_markdown(markdown, parse_mode="deterministic").statement.account_number
     assert full and len(full) > 4
@@ -905,7 +905,7 @@ def test_dry_run_reproduces_known_truth():
     """
     from discovery.cli import run
 
-    summary = run(CORPUS, MODE_DRY_RUN, Path("discovery_reports"), use_cache=False)
+    summary = run(statements_dir(), MODE_DRY_RUN, Path("discovery_reports"), use_cache=False)
     rows = {row.relative_path: row for row in summary.pop("_rows")}
 
     assert summary["documents"] == 109
@@ -1005,13 +1005,13 @@ def test_a_warm_rerun_reproduces_the_cold_run_with_identity_recovered(tmp_path: 
 
     # A PRIVATE cache in tmp_path: the shared `webapp_data` store is read-only
     # to a proof, and `discovery.cli.run(use_cache=True)` would open it.
-    inventory = enumerate_root(CORPUS)
+    inventory = enumerate_root(statements_dir())
     paths = list(inventory.pinned)
     assert len(paths) == 109
 
     def pass_(cache):
         sink = _ListSink()
-        runner = DiscoveryRunner(CORPUS, mode=MODE_DRY_RUN, run_id="warm-proof",
+        runner = DiscoveryRunner(statements_dir(), mode=MODE_DRY_RUN, run_id="warm-proof",
                                  sink=sink, cache=cache,
                                  dedup=DedupIndex.with_pinned_corpus())
         rows = [

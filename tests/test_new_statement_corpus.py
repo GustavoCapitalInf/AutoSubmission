@@ -48,31 +48,32 @@ from webapp.app import (
     store,
 )
 from webapp.jobs import Job
+from tests.statements import statements_dir
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 SOURCES = {
     "columbia": {
-        "path": "Bank Statements/Misc/Columbia May 26 complete.pdf",
+        "path": "Misc/Columbia May 26 complete.pdf",
         "sha256": "0CBD2AD897B90137878F81EF608778735CA0DFEAB23D25793F2C6F1DF6C6127D",
         "pages": 4,
         "ocr": True,
     },
     "first_farmers": {
-        "path": "Bank Statements/Misc/First Farmers 2026 01-document.pdf",
+        "path": "Misc/First Farmers 2026 01-document.pdf",
         "sha256": "58CB0DCC7460A445541C6181F461432BBF948BC31AB7F1C64459FF6ADC8F0243",
         "pages": 3,
         "ocr": True,
     },
     "navigant": {
-        "path": "Bank Statements/Others/Navigant Credit Union 2026-06-30.pdf",
+        "path": "Others/Navigant Credit Union 2026-06-30.pdf",
         "sha256": "B1DECFC9A6C43C3D28F49F7D70D490CB970079324E7D5BFE49575C71A56F24EF",
         "pages": 8,
         "ocr": False,
     },
     "relay": {
-        "path": "Bank Statements/Others/Relay Operations-June-2026.pdf",
+        "path": "Others/Relay Operations-June-2026.pdf",
         "sha256": "6FBA5B1AC5707B4C4758791C4F780EB6351AF1A228A15301F2301B858CC7DB9D",
         "pages": 12,
         "ocr": False,
@@ -207,7 +208,7 @@ def _source_markdown(name: str, *, live_ocr: bool = False) -> str:
     assertion.
     """
     source = SOURCES[name]
-    path = ROOT / source["path"]
+    path = statements_dir() / source["path"]
     pdf_bytes = path.read_bytes()
     native = parse_native_pdf_text(pdf_bytes, source_file=path.name)
     if not source["ocr"]:
@@ -237,7 +238,7 @@ def _money(value: float) -> Decimal:
 @pytest.mark.parametrize("name", SOURCES)
 def test_new_source_inventory_is_exact(name: str):
     source = SOURCES[name]
-    path = ROOT / source["path"]
+    path = statements_dir() / source["path"]
     pdf_bytes = path.read_bytes()
     assert hashlib.sha256(pdf_bytes).hexdigest().upper() == source["sha256"]
     assert pdf_page_count(pdf_bytes) == source["pages"]
@@ -247,10 +248,10 @@ def test_new_source_inventory_is_exact(name: str):
 def test_scanned_fixtures_are_served_from_their_pinned_committed_artifact(name: str):
     """The OCR markdown these tests assert on is the pinned artifact, byte for byte."""
     source = SOURCES[name]
-    pdf_bytes = (ROOT / source["path"]).read_bytes()
+    pdf_bytes = (statements_dir() / source["path"]).read_bytes()
     entry = manifest_entries(CACHE)[source["sha256"]]
 
-    assert entry["path"] == source["path"].split("Bank Statements/", 1)[1]
+    assert entry["path"] == source["path"]
     assert entry["pdf_sha256"] == sha256_hex(pdf_bytes) == source["sha256"]
 
     markdown = _source_markdown(name)

@@ -8,7 +8,6 @@ skips (named skip) when the corpus is absent.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -32,6 +31,7 @@ from benchmark.normalize import (
     parse_money,
 )
 from benchmark.report import outcome_counts, write_csv_summary, write_set_report
+from tests.statements import statements_dir
 
 
 # --------------------------------------------------------------------------
@@ -326,9 +326,9 @@ class TestCoverage:
 
 class TestManifest:
     def test_manifest_paths_and_hashes(self):
-        corpus = Path(__file__).resolve().parent.parent / "Bank Statements"
+        corpus = statements_dir()
         if not corpus.is_dir():
-            pytest.skip("benchmark corpus absent (Bank Statements/ not found)")
+            pytest.skip(f"benchmark corpus absent ({corpus} not found)")
         check = verify_manifest(corpus)
         assert check.ok, check.problems
 
