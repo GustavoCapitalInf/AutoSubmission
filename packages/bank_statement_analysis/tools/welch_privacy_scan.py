@@ -80,7 +80,7 @@ def _tracked_text(ref: str) -> str:
     spends minutes in process creation alone.
     """
     listing = subprocess.run(
-        ["git", "ls-tree", "-r", ref],
+        ["git", "ls-tree", "-r", "--full-tree", ref],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout
     blobs = []

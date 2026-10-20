@@ -74,9 +74,11 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _in_base(repo: Path, base_rev: str, literal: str) -> bool:
+    from tools.git_layout import project_dir
+
     proc = subprocess.run(
         ["git", "grep", "-F", "-q", "-e", literal, base_rev],
-        cwd=repo, capture_output=True, text=True,
+        cwd=project_dir(base_rev), capture_output=True, text=True,
     )
     return proc.returncode == 0
 
@@ -179,9 +181,10 @@ def main(argv: list[str] | None = None) -> int:
         name for name in _git(repo, "diff", "--name-only", f"{args.base_rev}..HEAD").split("\n")
         if name.strip()
     ]
+    top = Path(_git(repo, "rev-parse", "--show-toplevel").strip())
     offenders = []
     for name in changed:
-        path = repo / name
+        path = top / name
         if not path.exists():
             continue
         data = path.read_bytes()

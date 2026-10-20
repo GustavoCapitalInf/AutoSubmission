@@ -65,6 +65,7 @@ import sys
 from pathlib import Path
 
 from bank_statements import ENV_VAR, bank_statements_dir
+from tools.git_layout import project_dir
 
 SHA_LINE = re.compile(r"^[0-9A-F]{64}$")
 SHA64 = re.compile(r"[0-9A-F]{64}")
@@ -171,7 +172,8 @@ def load_movers(run: Path) -> dict[str, dict]:
 # ----------------------------------------------------------------------------
 
 def git_show(ref: str, path: str) -> str:
-    out = subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, check=True)
+    out = subprocess.run(["git", "show", f"{ref}:./{path}"], cwd=project_dir(ref),
+                         capture_output=True, check=True)
     return out.stdout.decode("utf-8")
 
 

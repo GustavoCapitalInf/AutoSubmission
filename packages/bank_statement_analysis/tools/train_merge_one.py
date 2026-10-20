@@ -33,6 +33,13 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.git_layout import project_dir, project_path
 
 W3 = "docs/moneythumb-replacement/W3_TRACKA_LOG.md"
 #: The two registry-count pins every registration-adding cell bumps.
@@ -44,7 +51,8 @@ def run(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
 
 
 def blob(rev: str) -> bytes:
-    return run("git", "show", f"{rev}:{W3}").stdout
+    return subprocess.run(["git", "show", f"{rev}:./{W3}"], cwd=project_dir(rev),
+                          capture_output=True, check=True).stdout
 
 
 def resolve_hunks(text: str, keep: str) -> str:
@@ -113,7 +121,8 @@ def main(argv: list[str]) -> int:
     merge_base = run("git", "merge-base", "HEAD", branch).stdout.decode().strip()
     merged = run("git", "merge", "--no-ff", "--no-commit", branch, check=False)
     if merged.returncode != 0:
-        conflicts = run("git", "diff", "--name-only", "--diff-filter=U").stdout.decode().split()
+        conflicts = [project_path(name)
+                     for name in run("git", "diff", "--name-only", "--diff-filter=U").stdout.decode().split()]
         print("CONFLICTS:", conflicts)
         # `--compose-registry N`: a cell that ADDS registrations bumps the two
         # registry-count pins from the base count to its own, so every such cell

@@ -863,12 +863,28 @@ def added_lines_from_diff(diff: str) -> list[tuple[str, int, str]]:
 
 
 def added_lines(base: str, ref: str) -> list[tuple[str, int, str]]:
-    """(file, new-line-number, upper-cased text) for every added line of base...ref."""
-    diff = subprocess.run(
-        ["git", "diff", f"{base}...{ref}", "--unified=0"],
-        cwd=ROOT, capture_output=True, text=True, check=True, errors="replace",
-    ).stdout
-    return added_lines_from_diff(diff)
+    """(file, new-line-number, upper-cased text) for every added line of base...ref.
+
+    Each side's own project tree is diffed, so a base from before the monorepo move lines up file by file
+    with a ref after it. A moved ref's files outside the package are diffed too, and reported from the
+    package folder (`../../README.md`), so no project rule matches them.
+    """
+    from tools.git_layout import PACKAGE_PREFIX, moved, project_path, project_tree
+
+    def diff(*argv: str) -> list[tuple[str, int, str]]:
+        return added_lines_from_diff(subprocess.run(
+            ["git", "diff", *argv], cwd=ROOT, capture_output=True, text=True, check=True, errors="replace",
+        ).stdout)
+
+    merge_base = subprocess.run(
+        ["git", "merge-base", base, ref], cwd=ROOT,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    lines = diff(project_tree(merge_base), project_tree(ref), "--unified=0")
+    if moved(ref):
+        outside = diff(merge_base, ref, "--unified=0", "--", f":(top,exclude){PACKAGE_PREFIX}")
+        lines += [(project_path(path), number, text) for path, number, text in outside]
+    return lines
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -931,6 +947,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     lines = added_lines(args.base, args.ref)
     if args.include_tree:
+        from tools.git_layout import moved, project_path
+
+        layout = project_path if moved(args.ref) else str
         listing = subprocess.run(
             ["git", "ls-tree", "-r", "--full-tree", "--name-only", args.ref], cwd=ROOT,
             capture_output=True, text=True, check=True,
@@ -943,7 +962,7 @@ def main(argv: list[str] | None = None) -> int:
                 capture_output=True, text=True, errors="replace",
             ).stdout
             for number, text in enumerate(blob.splitlines(), 1):
-                lines.append((f"tree:{name}", number, text.upper()))
+                lines.append((f"tree:{layout(name)}", number, text.upper()))
 
     # The branch side is tokenised with the SAME patterns, so a match is a
     # whole token on both sides: an OCR fragment such as `WELC` printed by a

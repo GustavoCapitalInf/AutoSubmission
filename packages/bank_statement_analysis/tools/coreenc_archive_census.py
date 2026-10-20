@@ -389,7 +389,7 @@ def _literals(args: argparse.Namespace) -> int:
     raw = archive & added_all
     base_vocabulary: set[str] = set()
     files = 0
-    for path in _git(repo, "ls-tree", "-r", "--name-only", args.base).splitlines():
+    for path in _git(repo, "ls-tree", "-r", "--full-tree", "--name-only", args.base).splitlines():
         if Path(path).suffix.lower() not in _TEXTUAL:
             continue
         files += 1

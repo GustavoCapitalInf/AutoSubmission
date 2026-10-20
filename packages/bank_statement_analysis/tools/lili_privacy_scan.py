@@ -164,9 +164,12 @@ def haystacks(base: str) -> tuple[str, str]:
         ["git", "diff", "--name-only", base], cwd=REPO,
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
+    top = Path(subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"], cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout.strip())
     whole = []
     for name in names.stdout.split("\n"):
-        path = REPO / name.strip()
+        path = top / name.strip()
         if name.strip() and path.is_file():
             whole.append(path.read_text(encoding="utf-8", errors="replace"))
     inherited_text = "\n".join(whole)

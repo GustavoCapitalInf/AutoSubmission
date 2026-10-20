@@ -272,7 +272,7 @@ def run_privacy(artifacts: Path, diff_from: str) -> int:
     # nothing. What survives is the archive's own vocabulary — a merchant, a
     # holder, a descriptor keyword — and none of it may appear in the diff.
     tracked = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", diff_from],
+        ["git", "ls-tree", "-r", "--full-tree", "--name-only", diff_from],
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
     ).stdout.split()
     known: set[str] = set()
