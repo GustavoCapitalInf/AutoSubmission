@@ -9,6 +9,9 @@ figures prove the reading; otherwise it is withheld or sent to review with the r
 
 The model-based OCR and extraction paths were removed by the owner's ruling of 2026-10-13; git history holds them.
 
+This tool lives in `packages/bank_statement_analysis/` of the Capital Infusion monorepo
+([root README](../../README.md)). Run every command below from this folder.
+
 ## How it works
 
 | Stage | What happens | Where |
@@ -64,7 +67,7 @@ is needed. Every command below assumes the venv is active.
   ("native PDF text unavailable").
 - **Node: optional.** Only the dashboard script tests use `node`; they skip without it.
 
-**3. Run the web app** from the repository root.
+**3. Run the web app** from this folder.
 
 ```powershell
 .\run.ps1                           # http://127.0.0.1:5000, the default data directory
@@ -220,8 +223,8 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 - It audits the pinned manifest, not every PDF under `BANK_STATEMENTS_DIR`; other PDFs there are counted, never
   named. Adding a statement means regenerating the audits.
 - Run it locally before merging anything that touches parsing, reconciliation, ADB, balance metrics,
-  serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml`, Ubuntu 24.04,
-  Python 3.12) runs on every pull request and every push to `main`: it checks that the shipped entry points import
+  serialization, the API, dashboard bindings or exports. CI (`.github/workflows/corpus-gate.yml` at the repository
+  root, Ubuntu 24.04, Python 3.12) runs on every pull request and every push to `main` that changes this folder: it checks that the shipped entry points import
   with the two runtime files alone and load no model package, installs `requirements-dev.txt`, runs the suite, and
   runs the gate whether or not the suite passed (the job fails if either fails). Nothing makes a merge wait for
   it: GitHub's branch protection is not available on this repository's plan.
@@ -252,7 +255,7 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 | `TELEMETRY_DISABLED` | unset | `1`, `true`, `yes` or `on` turns telemetry off everywhere. |
 | `RECONSTRUCTION_MODE` | `off` | Leave it `off`; the other values belong to a research path. |
 
-A gitignored `.env` at the repository root is read at start and fills in any variable the shell leaves unset.
+A gitignored `.env` in this folder is read at start and fills in any variable the shell leaves unset.
 Settings an old `.env` still holds for the removed model paths are ignored and can be deleted.
 
 ## Product rules
