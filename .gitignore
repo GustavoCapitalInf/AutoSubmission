@@ -8,12 +8,8 @@ logs.txt
 .env.local
 node_modules/
 frontend/node_modules/
-# The tracked validated corpus under "Bank Statements/" stays tracked (needed
-# for golden tests; ignore rules never affect tracked files). Everything ELSE
-# under that root is the sensitive discovery archive and must never be
-# committed. Intentional corpus additions require `git add -f` plus an
-# Ocean-approved audit re-baseline.
-Bank Statements/**
+# Customer data, at any depth. Tools and tests read it from BANK_STATEMENTS_DIR.
+Bank Statements/
 
 .claude/
 moneythumbResults/
