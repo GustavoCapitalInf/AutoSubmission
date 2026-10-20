@@ -153,11 +153,11 @@ def _load_module(name: str, source: str) -> types.ModuleType:
 
 
 def _base_source(base_rev: str, repo: Path) -> str:
-    from tools.git_layout import project_dir
+    from tools.git_layout import project_spec
 
     return subprocess.run(
-        ["git", "show", f"{base_rev}:./analysis/dates.py"],
-        cwd=project_dir(base_rev), check=True, capture_output=True, text=True,
+        ["git", "show", project_spec(base_rev, "analysis/dates.py", repo)],
+        cwd=repo, check=True, capture_output=True, text=True,
     ).stdout
 
 

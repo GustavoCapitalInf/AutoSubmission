@@ -2,7 +2,8 @@
 
 Since the monorepo move it lives in packages/bank_statement_analysis/; older revisions hold it at the
 repository root. Git run from `project_dir(ref)` reads `ref:./path`, and a pathspec, as the same file in
-either layout. `project_tree(ref)` names the tool's own tree. `git diff --name-only` and
+either layout. `project_tree(ref)` names the tool's own tree, and `project_spec(ref, path)` one of
+its files. `git diff --name-only` and
 `git ls-tree --full-tree` print paths from the repository top; `project_path` turns one from a moved
 revision into a path from the package folder. Functions that take `repo` read its HEAD and working tree.
 """
@@ -38,6 +39,10 @@ def project_tree(ref: str, repo: Path = PACKAGE_DIR) -> str:
     return _git("rev-parse", f"{ref}:{PACKAGE_PREFIX}" if moved(ref, repo) else f"{ref}^{{tree}}", repo=repo).strip()
 
 
+def project_spec(ref: str, path: str, repo: Path = PACKAGE_DIR) -> str:
+    return f"{ref}:{PACKAGE_PREFIX if moved(ref, repo) else ''}{path}"
+
+
 def project_path(name: str) -> str:
     if name.startswith(PACKAGE_PREFIX):
         return name.removeprefix(PACKAGE_PREFIX)
@@ -51,12 +56,14 @@ def merge_base(a: str, b: str, repo: Path = PACKAGE_DIR) -> str:
 def working_tree(repo: Path = PACKAGE_DIR) -> str:
     """A tree of the tracked files as they are on disk, so a diff can take the working tree as a ref.
 
-    Built in a copy of the index, which leaves the real one untouched and takes intent-to-add entries.
+    Built in a copy of the index, which leaves the real one untouched and takes intent-to-add entries. A
+    missing index is an empty one, as git treats it.
     """
-    index = os.environ.get("GIT_INDEX_FILE") or repo / _git("rev-parse", "--git-path", "index", repo=repo).strip()
+    index = repo / (os.environ.get("GIT_INDEX_FILE") or _git("rev-parse", "--git-path", "index", repo=repo).strip())
     with tempfile.TemporaryDirectory() as scratch:
         env = {**os.environ, "GIT_INDEX_FILE": os.path.join(scratch, "index")}
-        shutil.copyfile(index, env["GIT_INDEX_FILE"])
+        if index.exists():
+            shutil.copyfile(index, env["GIT_INDEX_FILE"])
         _git("add", "--update", repo=repo, env=env)
         return _git("write-tree", repo=repo, env=env).strip()
 

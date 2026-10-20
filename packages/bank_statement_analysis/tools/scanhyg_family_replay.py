@@ -133,7 +133,7 @@ def install_modules(repo: Path, rev: str, base: str) -> list[str]:
     tree's — which is what "base vs branch" means here: only the diff moves.
     """
     import analysis
-    from tools.git_layout import project_dir, project_tree
+    from tools.git_layout import project_spec, project_tree
 
     changed = subprocess.run(
         ["git", "-C", str(repo), "diff", "--name-only", project_tree(base, repo), project_tree("HEAD", repo),
@@ -144,7 +144,7 @@ def install_modules(repo: Path, rev: str, base: str) -> list[str]:
     order = {"date_tokens": 0, "parser_registry_entries": 2}
     for name in sorted(names, key=lambda n: (order.get(n, 1), n)):
         source = subprocess.run(
-            ["git", "-C", str(project_dir(rev)), "show", f"{rev}:./analysis/{name}.py"],
+            ["git", "-C", str(repo), "show", project_spec(rev, f"analysis/{name}.py", repo)],
             check=True, capture_output=True,
         ).stdout.decode("utf-8")
         spec = importlib.util.spec_from_loader(f"analysis.{name}", loader=None)

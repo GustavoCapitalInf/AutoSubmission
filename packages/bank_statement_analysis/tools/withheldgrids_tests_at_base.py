@@ -37,7 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from tools.git_layout import project_dir, project_tree
+from tools.git_layout import project_tree
 
 TEST_FILES = (
     "tests/test_adb.py",
@@ -89,7 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         shutil.rmtree(tree, ignore_errors=True)
     tree.mkdir(parents=True)
     archive = work / "base.tar"
-    archive.write_bytes(_git(project_dir(args.base_rev), "archive", "--format=tar", args.base_rev, binary=True))
+    top = Path(_git(repo, "rev-parse", "--show-toplevel").strip())
+    archive.write_bytes(_git(top, "archive", "--format=tar", project_tree(args.base_rev, repo), binary=True))
     with tarfile.open(archive) as handle:
         handle.extractall(tree, filter="data")
     for relative in TEST_FILES:
