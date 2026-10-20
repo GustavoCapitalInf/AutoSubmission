@@ -7,6 +7,10 @@
 # The compose file fails closed if WEBAPP_AUTH_PASSWORD is unset — the
 # webapp has no per-user accounts, so a shared password is the intern gate.
 
+# Named so the intern-data volume keeps the name it had when this stack ran
+# from the repository root, before the monorepo move.
+name: bankstatementanalysis
+
 services:
   webapp:
     build: .

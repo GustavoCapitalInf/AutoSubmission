@@ -57,6 +57,12 @@ Job state lives in the `intern-data` volume (`/data` inside the container,
 outside the checkout at `/app`, where the app refuses to keep customer data).
 Wipe it with `docker compose down -v` when the intern round is over.
 
+Docker names that volume `bankstatementanalysis_intern-data`. Before the
+monorepo move, Compose named it after the checkout folder instead. If your
+checkout folder had another name, `docker volume ls` shows the old volume as
+`<folder>_intern-data`, in lowercase. To keep that job history, set
+`COMPOSE_PROJECT_NAME=<folder>` (in lowercase) in `.env`.
+
 ## Same machine, no Docker
 
 Install Poppler + Tesseract, then the Python deps, then:
