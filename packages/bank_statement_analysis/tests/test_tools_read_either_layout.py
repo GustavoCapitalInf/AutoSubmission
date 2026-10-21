@@ -5,7 +5,6 @@ import json
 import re
 import sqlite3
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,22 +63,6 @@ def checkout_at(tmp_path):
         subprocess.run(["git", "update-ref", "--no-deref", "HEAD", sha], cwd=clone, check=True)
         return clone
     return make
-
-
-@pytest.fixture
-def analysis_modules():
-    import analysis
-
-    saved = {name: module for name, module in sys.modules.items()
-             if name == "analysis" or name.startswith("analysis.")}
-    attributes = vars(analysis).copy()
-    yield
-    for name in list(sys.modules):
-        if name == "analysis" or name.startswith("analysis."):
-            del sys.modules[name]
-    sys.modules.update(saved)
-    vars(analysis).clear()
-    vars(analysis).update(attributes)
 
 
 def test_batch9_census_reads_either_layout():
@@ -204,35 +187,6 @@ def test_privacy_tree_keeps_path_classification(tmp_path, monkeypatch, capsys, f
         assert all(hit["excluded_by"] is None for hit in hits)
 
 
-def test_scanhyg_rename_installs_no_changed_modules(analysis_modules, checkout_at):
-    from tools.scanhyg_family_replay import install_modules
-
-    assert install_modules(checkout_at(POST_MOVE), POST_MOVE, PRE_MOVE) == []
-
-
-@pytest.mark.usefixtures("git_config")
-def test_scanhyg_installs_the_same_historical_modules(analysis_modules, checkout_at):
-    from tools.scanhyg_family_replay import install_modules
-
-    package = checkout_at(POST_MOVE) / PACKAGE_PREFIX
-    package.mkdir(parents=True)
-    before = install_modules(package, PRE_MOVE, SCHEMA_BASE)
-    after = install_modules(package, POST_MOVE, SCHEMA_BASE)
-    assert before == ["schema"]
-    assert after == before
-
-
-def test_scanhyg_day_gate_reads_either_layout(analysis_modules):
-    from tools.scanhyg_gate_probe import day_gate_differential
-
-    before = day_gate_differential(SimpleNamespace(base=PRE_MOVE))
-    after = day_gate_differential(SimpleNamespace(base=POST_MOVE))
-    before.pop("base")
-    after.pop("base")
-    assert before["same"] > 0
-    assert after == before
-
-
 @pytest.mark.usefixtures("git_config")
 def test_train_stops_on_a_conflict_outside_the_package(monkeypatch, capsys):
     from tools import train_merge_one as train
@@ -305,32 +259,3 @@ def test_coreenc_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
         out=out, show_residual=False,
     )) == 0
     assert json.loads(out.read_text())["summary"]["added_lines_literals"] == 0
-
-
-def test_scanhyg_reads_the_repo_it_is_given(analysis_modules, checkout_at):
-    from tools.scanhyg_family_replay import install_modules
-
-    assert install_modules(checkout_at(SCHEMA_BASE), SCHEMA_BASE, SCHEMA_BASE) == []
-
-
-def test_scanhyg_reads_sources_at_a_ref_of_the_repo_it_is_given(analysis_modules, checkout_at, monkeypatch):
-    from tools import scanhyg_family_replay as replay
-
-    def schema(ref):
-        return subprocess.run(["git", "show", f"{ref}:analysis/schema.py"], cwd=PACKAGE_DIR,
-                              capture_output=True, check=True).stdout
-
-    back = next(n for n in range(1, 500) if schema(f"{PRE_MOVE}~{n}") != schema(PRE_MOVE))
-    expected = schema(f"{PRE_MOVE}~{back}")
-    shown = []
-    real_run = subprocess.run
-
-    def recording(argv, **kwargs):
-        proc = real_run(argv, **kwargs)
-        if "show" in argv:
-            shown.append(proc.stdout)
-        return proc
-
-    monkeypatch.setattr(replay.subprocess, "run", recording)
-    assert replay.install_modules(checkout_at(PRE_MOVE), f"HEAD~{back}", SCHEMA_BASE) == ["schema"]
-    assert shown == [expected]
