@@ -448,17 +448,6 @@ def test_the_td_can_refusal_names_its_own_site():
 STRPTIME_MODULES = ("community_section", "demo_national", "relay")
 
 
-def _strptime_calls(path: Path) -> list[int]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "strptime"
-    ]
-
-
 @pytest.mark.parametrize("module", STRPTIME_MODULES)
 def test_the_repointed_modules_call_strptime_nowhere(module):
     """`datetime.strptime`'s own ValueError is
@@ -1514,6 +1503,7 @@ from webapp.worker import (                                                # noq
     _STUCK_JOB_FAILURE,
     run_job,
 )
+from tests.helpers import _strptime_calls
 
 
 class _FakeDoc:
@@ -1770,7 +1760,6 @@ def test_the_pipeline_holds_no_handle_to_a_hosted_extractor():
         "model_used = settings.model\n",
     ):
         assert pipeline_hosted_extraction_handles(source + "\n" + planted), planted
-
 
 
 # ---------------------------------------------------------------------------

@@ -14,16 +14,7 @@ import pytest
 
 from analysis import date_tokens as dt
 from analysis import tables as tb
-
-
-def _both(fn_a, fn_b, value):
-    out = []
-    for fn in (fn_a, fn_b):
-        try:
-            out.append(("ok", fn(value)))
-        except Exception as exc:  # noqa: BLE001 - equivalence includes failures
-            out.append(("raise", type(exc).__name__))
-    return out[0], out[1]
+from tests.helpers import _both
 
 
 def assert_equivalent(oracle, replacement, inputs):

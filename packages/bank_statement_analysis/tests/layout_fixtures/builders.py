@@ -38,6 +38,7 @@ from tests.paddle_synthetic import (
     SyntheticLine,
     SyntheticPage,
     SyntheticWord,
+    _word,
     render_image_pdf,
     render_native_pdf,
 )
@@ -91,14 +92,6 @@ def tok(text: str, x: float) -> Tok:
 def rtok(text: str, right_x: float) -> Tok:
     """A token whose RIGHT edge sits at `right_x` (how a money column is set)."""
     return Tok(text=text, x=right_x - len(text) * CHAR_WIDTH)
-
-
-def _word(text: str, x: float, y_baseline: float) -> SyntheticWord:
-    """The same box arithmetic as `tests.paddle_synthetic._word` (top-left
-    origin, y down; the box spans one font size above the baseline; width is
-    exact for the fixed-width font every fixture uses)."""
-    width = max(len(text), 1) * CHAR_WIDTH
-    return SyntheticWord(text=text, x0=x, y0=y_baseline - FONT_SIZE, x1=x + width, y1=y_baseline)
 
 
 def line_at(y_baseline: float, tokens: list[Tok]) -> SyntheticLine:

@@ -1,5 +1,6 @@
 import types
 import parse as cli
+from tests.helpers import _cp1252_stdout
 
 
 def test_main_writes_markdown(monkeypatch, tmp_path):
@@ -122,15 +123,6 @@ def test_main_none_document_fails_closed(monkeypatch, tmp_path, capsys):
 # here is a cp1252 TextIOWrapper, the Windows host's redirected stdout, on any
 # host. Fabricated text only.
 # ---------------------------------------------------------------------------
-
-
-def _cp1252_stdout(monkeypatch):
-    import io
-    import sys
-
-    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
-    monkeypatch.setattr(sys, "stdout", stream)
-    return stream
 
 
 _LIGATURES = "--- Page 1 ---\n\n03/03 SAMPLE Ofﬁce reﬁnd\n03/08 Staﬀing \n"

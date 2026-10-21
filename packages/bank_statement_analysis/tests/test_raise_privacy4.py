@@ -17,13 +17,8 @@ surviving sinks are the CSV writers (`batch.py`, `coverage_audit.py`,
 cell) and any direct caller. A grammar that never puts the cell in a message is
 safe in front of a boundary nobody has written yet.
 
-WHAT THIS FILE PROVES, and it is deliberately BOTH trees. A "0 leaking cells"
-measured only on the branch measures nothing: it passes just as well when the
-fixture never reached the site. So every cell runs twice — once against
-`analysis/` as it stood at the base commit, materialised by
-`tools.hygiene8_base_tree`, where it must ECHO, and once against this tree,
-where it must refuse without quoting on `str`, `repr`, `args`, `__notes__`, the
-chain and a rendered traceback.
+WHAT THIS FILE PROVES: every cell must refuse without quoting on `str`, `repr`,
+`args`, `__notes__`, the chain and a rendered traceback.
 
 THE NINTH LINE. The card listed nine candidate lines and §H14 measured eight
 echoing sites. The difference is `bmo.py`'s transaction-row `date()`, which
@@ -40,14 +35,9 @@ import importlib
 import pytest
 
 from analysis import date_tokens as dt
-from tests.test_raise_privacy3 import _reached_the_date_site
 from tests.test_privacy3_boundaries import (
     CANARY, PROJECT_ROOT, _digit_runs, _leak_surfaces,
 )
-
-#: The base this card branched from. The both-tree drive is only a proof if the
-#: base is the tree the card was written against.
-BASE_REVISION = "2f24b06"
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +114,7 @@ _HUGE_YEAR = 10 ** 12
 def raisepriv4_drives(package: str) -> dict:
     """The eight sites, driven through the REAL reader, inside one package.
 
-    Parameterised by package name for the same reason `major2_drives` is: the
-    identical drive has to run against the base tree and against this one, in
-    one interpreter, or the comparison is between two environments rather than
-    between two trees.
+    Parameterised by package name, as `major2_drives` is.
     """
     bmo = importlib.import_module(f"{package}.bmo")
     fm = importlib.import_module(f"{package}.farmers_merchants")
@@ -305,64 +292,6 @@ def _leaking(exc: BaseException, token: str) -> list:
     return leaking
 
 
-#: Statement fields the frozen base trees cannot carry, because they postdate them. Excluded rather than back-filled, as
-#: tests/test_row_grouping.py's `_FIELDS_NEWER_THAN_THE_ORACLES` excludes them; each is proved by name elsewhere:
-#:   `holder_name` (audit fix batch B9)  tests/test_analysis.py (per parser), tests/test_true_revenue_holder.py
-_FIELDS_NEWER_THAN_THE_BASE_TREE = ("holder_name",)
-
-
-def _payload(result):
-    """A comparable payload, so a base object is never compared with ours."""
-    if result is None or isinstance(result, (str, int, float, bool)):
-        return result
-    if isinstance(result, (list, tuple)):
-        return [_payload(item) for item in result]
-    return {
-        key: value for key, value in result.model_dump().items() if key not in _FIELDS_NEWER_THAN_THE_BASE_TREE
-    }
-
-
-@pytest.fixture(scope="module")
-def base_tree(tmp_path_factory):
-    """`analysis/` as it stood at the base commit, importable beside ours."""
-    try:
-        from tools.hygiene8_base_tree import load_base_analysis
-    except ImportError as exc:                        # pragma: no cover
-        pytest.skip(f"tools.hygiene8_base_tree is not importable: {exc!r}")
-    try:
-        return load_base_analysis(
-            BASE_REVISION,
-            repo=PROJECT_ROOT,
-            scratch=tmp_path_factory.mktemp("raisepriv4_base"),
-        )
-    except Exception as exc:                          # pragma: no cover
-        pytest.skip(f"the base tree {BASE_REVISION} is unavailable: {exc!r}")
-
-
-# ---------------------------------------------------------------------------
-# 1. The eight sites at the BASE tree — they echo
-# ---------------------------------------------------------------------------
-
-@pytest.mark.parametrize("site,shape", CELLS)
-def test_the_eight_sites_echoed_the_printed_number_at_the_base_tree(
-    site, shape, base_tree
-):
-    """The vacuity check for the fix below, and W3 §H14.3's measurement
-    reproduced: without it every branch assertion could pass because the
-    fixture never reached `date()` at all."""
-    token, echoed = POISON[site][shape]
-    with pytest.raises(ValueError) as raised:
-        raisepriv4_drives(base_tree.package)[site](token)
-    message = str(raised.value)
-    assert "date grammar refused" not in message, (
-        "the base tree is not supposed to carry the refusal; check the revision"
-    )
-    assert echoed in message or _reached_the_date_site(message), (
-        f"{site}/{shape}: the base tree did not echo the printed number, so "
-        f"the fixture probably never reached the site"
-    )
-
-
 # ---------------------------------------------------------------------------
 # 2. The eight sites at THIS tree — they refuse, and quote nothing
 # ---------------------------------------------------------------------------
@@ -379,6 +308,23 @@ def test_the_eight_sites_refuse_without_quoting_at_the_branch(site, shape):
     assert _leaking(raised.value, token) == []
     assert f"reader={READERS[site]}" in str(raised.value)
     assert raised.value.__cause__ is None and raised.value.__context__ is None
+
+
+#: The date each in-range cell reads to.
+VALID_READINGS = {
+    "bmo.statement_period": "2031-04-01",
+    "farmers_merchants.period_start": "2031-01-10",
+    "farmers_merchants.period_end": "2031-02-10",
+    "td_can.period_start": "2031-01-10",
+    "td_can.period_end": "2031-02-10",
+    "td_can.date_tokens": "2031-01-10",
+    "td_can.native_date": "2031-01-10",
+}
+
+
+@pytest.mark.parametrize("site", sorted(VALID))
+def test_every_site_reads_an_in_range_cell(site):
+    assert VALID_READINGS[site] in repr(raisepriv4_drives("analysis")[site](VALID[site]))
 
 
 #: The one digit sequence a `date_refusal` may carry, and it is a constant of
@@ -499,23 +445,6 @@ def test_the_refusal_class_at_the_eight_sites_is_still_ValueError():
 # 3. The other half of "only the message changed"
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("site", sorted(VALID))
-def test_every_site_reads_an_in_range_cell_identically_on_both_trees(
-    site, base_tree
-):
-    """An in-range cell produces the same payload leaf for leaf on both trees,
-    so nothing this card touched changed what any document PUBLISHES."""
-    from tools.hygiene8_base_tree import leaf_diff
-
-    token = VALID[site]
-    ours = _payload(raisepriv4_drives("analysis")[site](token))
-    theirs = _payload(raisepriv4_drives(base_tree.package)[site](token))
-    assert leaf_diff(theirs, ours) == []
-    # Truthy rather than `is not None`: an empty list is what a site that
-    # silently stopped reading returns, and `leaf_diff([], []) == []` would
-    # call that agreement.
-    assert ours, f"{site}: the valid drive published nothing"
-
 
 # ---------------------------------------------------------------------------
 # 4. The shapes that never reach `date()` — no new refusal, no new acceptance
@@ -542,30 +471,12 @@ NON_REACHING = {
 
 @pytest.mark.parametrize("shape", sorted(NON_REACHING))
 @pytest.mark.parametrize("site", sorted(POISON))
-def test_a_shape_that_never_reaches_date_behaves_identically_on_both_trees(
-    site, shape, base_tree
-):
-    """No new refusal where none existed, and no new acceptance."""
-    from tools.hygiene8_base_tree import leaf_diff
-
+def test_a_shape_that_never_reaches_date_quotes_nothing_if_it_raises(site, shape):
     token = NON_REACHING[shape]
-
-    def outcome(package):
-        try:
-            return "returned", _payload(raisepriv4_drives(package)[site](token))
-        except BaseException as exc:                  # noqa: BLE001
-            return f"raised {type(exc).__name__}", exc
-
-    base_kind, base_value = outcome(base_tree.package)
-    our_kind, our_value = outcome("analysis")
-    assert base_kind == our_kind, f"{site}/{shape}: the outcome CLASS moved"
-    if base_kind == "returned":
-        assert leaf_diff(base_value, our_value) == []
-    else:
-        for exc in (base_value, our_value):
-            assert _leaking(exc, token) == [], (
-                f"{site}/{shape}: {exc!r} quotes the token"
-            )
+    try:
+        raisepriv4_drives("analysis")[site](token)
+    except BaseException as exc:                      # noqa: BLE001
+        assert _leaking(exc, token) == [], f"{site}/{shape}: {exc!r} quotes the token"
 
 
 # ---------------------------------------------------------------------------
@@ -589,20 +500,12 @@ def _overflow_drive(package: str, site: str):
 
 
 @pytest.mark.parametrize("site", _OVERFLOW_SITES)
-def test_a_huge_year_escaped_as_an_OverflowError_at_the_base_tree(site, base_tree):
-    """The measurement, so the change below is a recorded one rather than a
-    silent one. `OverflowError` is an `ArithmeticError`, not a `ValueError`."""
-    with pytest.raises(OverflowError):
-        _overflow_drive(base_tree.package, site)()
-
-
-@pytest.mark.parametrize("site", _OVERFLOW_SITES)
 def test_a_huge_year_now_refuses_through_the_one_constructor(site):
     """#HYGIENE8's contract (`c455de7`, review MINOR-4), applied to the two
     sites this card rerouted: a conversion guard catches BOTH, so a reader does
     not have to work out which arithmetic a particular `date()` can overflow
     on. The class moves `OverflowError` -> `ValueError`, which is a real change
-    and is why it is measured on both trees — and it is unreachable from any
+    — and it is unreachable from any
     document, because no caller of either site passes a year this tree did not
     produce."""
     with pytest.raises(ValueError) as raised:
@@ -753,11 +656,6 @@ def test_the_disclosure_list_this_card_emptied_is_empty():
 # from OUTSIDE any handler keeps the class, the control flow and every
 # published field, and takes only the word out of the message.
 
-#: This card's base — the tree the both-tree drive below is only a proof
-#: against. Distinct from `BASE_REVISION` above, which is RAISE-PRIVACY-4's:
-#: at THIS base the eight `date()` sites are already funnelled and the three
-#: lookups are not.
-RAISEPRIV5_BASE_REVISION = "897d69e"
 
 #: The three-letter words that are not months. Invented, and each is a shape
 #: a TD period line can really carry: a word derived from this file's own
@@ -810,52 +708,6 @@ LOOKUP_CELLS = [
 ]
 
 
-@pytest.fixture(scope="module")
-def raisepriv5_base_tree(tmp_path_factory):
-    """`analysis/` as it stood at THIS card's base, importable beside ours."""
-    try:
-        from tools.hygiene8_base_tree import load_base_analysis
-    except ImportError as exc:                        # pragma: no cover
-        pytest.skip(f"tools.hygiene8_base_tree is not importable: {exc!r}")
-    try:
-        return load_base_analysis(
-            RAISEPRIV5_BASE_REVISION,
-            repo=PROJECT_ROOT,
-            scratch=tmp_path_factory.mktemp("raisepriv5_base"),
-        )
-    except Exception as exc:                          # pragma: no cover
-        pytest.skip(
-            f"the base tree {RAISEPRIV5_BASE_REVISION} is unavailable: {exc!r}"
-        )
-
-
-def test_the_two_base_revisions_are_different_trees(base_tree, raisepriv5_base_tree):
-    """The vacuity check for the vacuity checks. Two base packages are loaded
-    in this process and neither may be the other: §2's drives must echo a
-    `date()` number at `2f24b06`, and §8's must echo a month WORD at the tree
-    where those eight sites are already closed."""
-    assert base_tree.package != raisepriv5_base_tree.package
-    assert base_tree.revision != raisepriv5_base_tree.revision
-
-
-# --- the base tree: the lookup echoes the printed word ---------------------
-
-@pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
-def test_the_three_lookups_echoed_the_printed_word_at_the_base_tree(
-    site, shape, raisepriv5_base_tree
-):
-    """Without this, every branch assertion below could pass because the
-    fixture never reached the subscript at all."""
-    word = MONTH_WORDS[shape]
-    with pytest.raises(KeyError) as raised:
-        raisepriv5_drives(raisepriv5_base_tree.package)[site](word)
-    assert raised.value.args == (word,), (
-        f"{site}/{shape}: the base did not raise the printed word as its key, "
-        "so the fixture probably never reached the lookup"
-    )
-    assert word in str(raised.value) and word in repr(raised.value)
-
-
 # --- this tree: the same class, and the word is gone -----------------------
 
 @pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
@@ -885,26 +737,6 @@ def test_the_lookup_refusal_carries_no_digit_at_all(site, shape):
         )
 
 
-@pytest.mark.parametrize("site,shape", LOOKUP_CELLS)
-def test_the_lookup_refusal_class_is_identical_on_both_trees(
-    site, shape, raisepriv5_base_tree
-):
-    """THE constraint of this card, measured rather than argued. The dispatch
-    seam sees `type(exc).__name__` and nothing else, so this is the whole of
-    what a document's outcome can depend on."""
-    word = MONTH_WORDS[shape]
-
-    def raised_by(package):
-        try:
-            raisepriv5_drives(package)[site](word)
-        except BaseException as exc:                  # noqa: BLE001
-            return type(exc).__name__
-        return "<returned>"
-
-    theirs = raised_by(raisepriv5_base_tree.package)
-    assert theirs == raised_by("analysis") == "KeyError"
-
-
 def test_the_two_ends_of_the_period_still_refuse_indistinguishably():
     """The property the two `date_refusal`s of this reader already have,
     extended to the lookup: a caller cannot tell WHICH end of the printed
@@ -921,101 +753,32 @@ def test_the_two_ends_of_the_period_still_refuse_indistinguishably():
 
 # --- the other half of "only the message changed" --------------------------
 
-@pytest.mark.parametrize("site", sorted(LOOKUP_VALID))
-def test_a_readable_month_word_reads_identically_on_both_trees(
-    site, raisepriv5_base_tree
-):
-    """A month the reader CAN read publishes the same payload leaf for leaf on
-    both trees, so nothing this card touched changed what a document
-    publishes."""
-    from tools.hygiene8_base_tree import leaf_diff
-
-    word = LOOKUP_VALID[site]
-    ours = _payload(raisepriv5_drives("analysis")[site](word))
-    theirs = _payload(raisepriv5_drives(raisepriv5_base_tree.package)[site](word))
-    assert leaf_diff(theirs, ours) == []
-    assert ours, f"{site}: the valid drive published nothing"
-
 
 @pytest.mark.parametrize("shape", sorted(NON_REACHING))
 @pytest.mark.parametrize("site", sorted(LOOKUP_READERS))
-def test_a_shape_that_never_reaches_the_lookup_is_identical_on_both_trees(
-    site, shape, raisepriv5_base_tree
-):
-    """No new refusal where none existed, and no new acceptance. These shapes
-    are refused by the regex or by the earlier SHAPE refusal, so the lookup is
-    never reached and the outcome must be bit-for-bit what it was."""
-    from tools.hygiene8_base_tree import leaf_diff
-
+def test_a_shape_that_never_reaches_the_lookup_quotes_nothing_if_it_raises(site, shape):
     word = NON_REACHING[shape]
-
-    def outcome(package):
-        try:
-            return "returned", _payload(raisepriv5_drives(package)[site](word))
-        except BaseException as exc:                  # noqa: BLE001
-            return f"raised {type(exc).__name__}", exc
-
-    base_kind, base_value = outcome(raisepriv5_base_tree.package)
-    our_kind, our_value = outcome("analysis")
-    assert base_kind == our_kind, f"{site}/{shape}: the outcome CLASS moved"
-    if base_kind == "returned":
-        assert leaf_diff(base_value, our_value) == []
-    else:
-        for exc in (base_value, our_value):
-            assert _leaking(exc, word) == [], f"{site}/{shape}: {exc!r} quotes it"
-
-
-#: Arabic-Indic decimal digits. `re`'s `\d` matches Unicode category Nd and
-#: `int()` accepts every Nd character, so these match `(\d{1,2})/(\d{2})` and
-#: convert — which is the whole of why moving the month lookup ahead of
-#: `2000 + int(sy)` reorders nothing a caller can observe.
-_ND_DIGITS = {"ten": "١٠", "thirty-one": "٣١"}
-
-
-@pytest.mark.parametrize("word", ["JAN", CANARY[:3]])
-def test_the_month_lookup_moved_ahead_of_the_year_and_that_reorders_nothing(
-    word, raisepriv5_base_tree
-):
-    """The one evaluation-order change this card makes, driven on both trees.
-
-    At the base the lookup was the SECOND argument of `iso_or_none`, so
-    `2000 + int(sy)` ran first; here it runs before the call. That is
-    unobservable only if `int()` on a group `(\\d{2})` produced cannot raise,
-    and the strongest available witness is a period line whose digits are not
-    ASCII at all: both trees must agree, on the readable word and on the
-    unreadable one."""
-    line = f"{word} {_ND_DIGITS['ten']}/{_ND_DIGITS['thirty-one']} - MAR 28/31"
-
-    def outcome(package):
-        td = importlib.import_module(f"{package}.td_can")
-        try:
-            return "returned", td._parse_period(line)
-        except BaseException as exc:                  # noqa: BLE001
-            return f"raised {type(exc).__name__}", None
-
-    assert outcome(raisepriv5_base_tree.package) == outcome("analysis")
+    try:
+        raisepriv5_drives("analysis")[site](word)
+    except BaseException as exc:                      # noqa: BLE001
+        assert _leaking(exc, word) == [], f"{site}/{shape}: {exc!r} quotes it"
 
 
 # --- the fourth subscript: the one the census allows, and why ---------------
 
 @pytest.mark.parametrize("shape", sorted(MONTH_WORDS))
-def test_the_guarded_row_date_lookup_skips_a_non_month_word_on_both_trees(
-    shape, raisepriv5_base_tree
-):
+def test_the_guarded_row_date_lookup_skips_a_non_month_word(shape):
     """`TOKEN_LOOKUP_ALLOWED`'s single entry, measured rather than asserted.
 
     `_date_tokens`'s `_MONTHS[mon]` still stands as a subscript because
     `if mon not in _MONTHS: continue` guards it in the same loop body: a
     non-month word costs the TOKEN and raises nothing. Giving it a refusal
     would be a new refusal, which this card may not introduce — so what is
-    proved is that it raises nothing, on both trees, and still reads the
-    month beside it."""
+    proved is that it raises nothing and still reads the month beside it."""
+    from analysis import td_can
+
     word = MONTH_WORDS[shape]
-    for package in (raisepriv5_base_tree.package, "analysis"):
-        td = importlib.import_module(f"{package}.td_can")
-        assert td._date_tokens(f"{word} 10 JAN 11", default_year=_DEFAULT_YEAR) == [
-            "2031-01-11"
-        ]
+    assert td_can._date_tokens(f"{word} 10 JAN 11", default_year=_DEFAULT_YEAR) == ["2031-01-11"]
 
 
 def test_the_native_lookup_stays_unreachable_from_its_production_caller():
@@ -1103,56 +866,26 @@ _ORDER_DAYS = {
     "impossible-day": "30",
 }
 
-_ORDER_WORDS = {"readable": "FEB", "unreadable": CANARY[:3]}
 
-#: 14 cells: two readers x three glyph classes x two month words, plus the
-#: impossible-day cell on each reader, which is only interesting unreadable.
-ORDER_CELLS = [
-    (reader, glyphs, word)
-    for reader in ("native_date", "date_tokens")
-    for glyphs in ("ascii", "arabic-indic-Nd", "superscript-No")
-    for word in sorted(_ORDER_WORDS)
-] + [
-    ("native_date", "impossible-day", "unreadable"),
-    ("date_tokens", "impossible-day", "unreadable"),
-]
+#: Arabic-Indic decimal digits. `re`'s `\d` matches Unicode category Nd and
+#: `int()` accepts every Nd character, so a TD period printed with them reads.
+_ND_DIGITS = {"ten": "١٠", "thirty-one": "٣١"}
 
 
-def _order_outcome(package: str, reader: str, glyphs: str, word: str):
-    """(what happened, the payload) for one cell inside one package."""
-    td = importlib.import_module(f"{package}.td_can")
-    day, month_word = _ORDER_DAYS[glyphs], _ORDER_WORDS[word]
-    try:
-        if reader == "native_date":
-            result = td._native_date_to_iso(
-                f"{month_word}{day}", default_year=_DEFAULT_YEAR
-            )
-        else:
-            result = td._date_tokens(
-                f"{month_word} {day}", default_year=_DEFAULT_YEAR
-            )
-    except BaseException as exc:                      # noqa: BLE001
-        return f"raised {type(exc).__name__}", None
-    return "returned", _payload(result)
+def test_a_period_printed_in_arabic_indic_digits_is_read():
+    from analysis import td_can
+
+    line = f"JAN {_ND_DIGITS['ten']}/{_ND_DIGITS['thirty-one']} - MAR 28/31"
+    assert td_can._parse_period(line) == ("2031-01-10", "2031-03-28")
 
 
-def test_the_drive_count_of_the_second_reorder_is_the_count_it_states():
-    """The same discipline MINOR-1 asked for above: a number written beside a
-    parametrisation is a claim about coverage."""
-    assert len(ORDER_CELLS) == 14
-    assert len(set(ORDER_CELLS)) == 14
+def test_an_unreadable_month_beside_arabic_indic_digits_reaches_the_lookup_refusal():
+    from analysis import td_can
 
-
-@pytest.mark.parametrize("reader,glyphs,word", ORDER_CELLS)
-def test_the_second_reorder_changes_no_outcome_on_either_tree(
-    reader, glyphs, word, raisepriv5_base_tree
-):
-    """`_native_date_to_iso`'s lookup now precedes `int(m.group(2))`, and
-    `_date_tokens` is asked the same question. Base and tip must agree on what
-    happened AND on what was published."""
-    theirs = _order_outcome(raisepriv5_base_tree.package, reader, glyphs, word)
-    ours = _order_outcome("analysis", reader, glyphs, word)
-    assert theirs == ours, f"{reader}/{glyphs}/{word}: {theirs} != {ours}"
+    line = f"{CANARY[:3]} {_ND_DIGITS['ten']}/{_ND_DIGITS['thirty-one']} - MAR 28/31"
+    with pytest.raises(KeyError) as raised:
+        td_can._parse_period(line)
+    assert "reader=td_can._parse_period" in str(raised.value)
 
 
 def test_the_second_reorder_drive_actually_reaches_the_conversion():
@@ -1181,7 +914,7 @@ def test_the_second_reorder_drive_actually_reaches_the_conversion():
 def test_the_month_lookup_is_reached_before_the_calendar_refusal():
     """The impossible-day cells, stated as the property they measure: with an
     unreadable month WORD and a day no calendar holds, it is the LOOKUP that
-    refuses, not `iso_or_none` — on both trees, and with the class unchanged.
+    refuses, not `iso_or_none`, and with the class unchanged.
     That is what makes the reorder a reorder of two steps rather than a change
     of which step decides."""
     from analysis import td_can

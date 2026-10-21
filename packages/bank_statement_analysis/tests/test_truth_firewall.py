@@ -43,6 +43,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers import _imports
+
 ROOT = Path(__file__).resolve().parents[1]
 
 #: `vlm` left both tuples when the visual pair was removed (model-code removal, slice S4): the root no longer exists,
@@ -189,20 +191,6 @@ def _findings(path: Path) -> list[str]:
 
 def _modules(root: Path) -> list[Path]:
     return sorted(p for p in root.rglob("*.py") if "__pycache__" not in p.parts)
-
-
-def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:
-                continue
-            if node.module:
-                names.add(node.module)
-    return names
 
 
 # --- the production roots never reach the store -----------------------------

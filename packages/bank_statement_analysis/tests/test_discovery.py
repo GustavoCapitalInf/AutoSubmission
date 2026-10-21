@@ -49,6 +49,7 @@ from discovery.runner import (
     DocumentRow,
 )
 from tests.statements import statements_dir
+from tests.helpers import _row
 
 ROOT = Path(__file__).resolve().parents[1]
 DIGITAL = "Chase/Chase Mar.pdf"
@@ -380,13 +381,6 @@ RESULT["found"] = sorted(m for m in gone if importlib.util.find_spec(m) is not N
 
 
 # --- report -----------------------------------------------------------------
-
-
-def _row(**kwargs) -> DocumentRow:
-    base = dict(relative_path="F/a.pdf", folder_label="F",
-                content_sha256="A" * 64, byte_size=1)
-    base.update(kwargs)
-    return DocumentRow(**base)
 
 
 def test_folder_agreement_buckets():

@@ -34,6 +34,7 @@ from analysis.money import parse_money
 from analysis.rbc import _MONEY_RE, parse_rbc_statement
 from analysis.tables import read_grid_rows
 from analysis.reconcile import reconcile
+from tests.helpers import _checkout_ancestor
 
 HEAD = """
 ROYAL BANK OF CANADA
@@ -1770,23 +1771,6 @@ def test_curj_the_nine_currency_1_corrections_are_untouched():
 #: because a re-read preparation lives under a different key and would feed the
 #: replay a text the run never saw.
 _RUN_OF_RECORD = "2026-08-16T000943.012887-0000-2e3ea385"
-
-
-def _checkout_ancestor(*relative: str):
-    """The nearest enclosing directory that holds `relative`, or None.
-
-    A git worktree does not carry the gitignored `webapp_data/` or the
-    discovery reports; the checkout it was created from does. Searching
-    upwards is what lets this test run from either.
-    """
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    for base in (root, *root.parents):
-        candidate = base.joinpath(*relative)
-        if candidate.exists():
-            return candidate
-    return None
 
 
 @pytest.mark.corpus

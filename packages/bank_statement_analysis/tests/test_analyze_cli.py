@@ -15,6 +15,7 @@ from pathlib import Path
 
 import analyze
 import batch
+from tests.helpers import _cp1252_stdout
 
 #: The payers each fabricated account is paid by: never a name the account itself carries (the holder holds).
 _PAYERS = {"CONTOSO LLC": ("NORTHWIND SUPPLY LLC", "FABRIKAM INC"), "FABRIKAM LLC": ("NORTHWIND SUPPLY LLC", "CONTOSO INC"),
@@ -175,15 +176,6 @@ def test_a_flag_computed_from_the_report_matches_the_served_copy():
 # analyze.py now writes UTF-8 to stdout, as --json already does. Given a PDF, it prints one line naming parse.py and
 # batch.py and exits 2 (it used to die with a UnicodeDecodeError traceback). The stdout here is a cp1252 TextIOWrapper,
 # the redirected stdout of the Windows host, on any host. Fabricated rows (tests/zelle_setting_fixtures.py).
-
-
-def _cp1252_stdout(monkeypatch):
-    import io
-    import sys
-
-    stream = io.TextIOWrapper(io.BytesIO(), encoding="cp1252", newline="\r\n")
-    monkeypatch.setattr(sys, "stdout", stream)
-    return stream
 
 
 def _run_analyze(monkeypatch, path, analyze_document):

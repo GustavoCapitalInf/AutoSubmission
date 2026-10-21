@@ -20,6 +20,7 @@ from analysis import lender_payment_changes as lpc
 from analysis.reconcile import reconcile
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import TransactionClassification
+from tests.helpers import bdays, every
 
 HOLDER = "CONTOSO PLUMBING LLC"
 SALE = "FABRIKAM SUPPLY INC DES:PAYMENT ID:0001 INDN:CONTOSO PLUMBING LLC CO ID:0000000001 CCD"
@@ -38,23 +39,6 @@ def M(day):  # noqa: N802
 
 def A(day):  # noqa: N802
     return date(2054, 4, day)
-
-
-def bdays(first, last):
-    days, day = [], first
-    while day <= last:
-        if day.weekday() < 5 and day not in lpc._holidays("US", day.year):
-            days.append(day)
-        day += timedelta(days=1)
-    return days
-
-
-def every(first, last, step=7):
-    days, day = [], first
-    while day <= last:
-        days.append(day)
-        day += timedelta(days=step)
-    return days
 
 
 def _statement(rows, *, start=M(1), end=M(31), bank=BOFA, currency="USD", account="000000001010") -> Statement:

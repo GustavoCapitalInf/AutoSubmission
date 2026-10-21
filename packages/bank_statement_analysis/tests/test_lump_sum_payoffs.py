@@ -205,13 +205,6 @@ def _payload(rows, *, month=3, opening=50000.0, number="000000001010"):
     return document_report_to_dict(report), balance
 
 
-def _package(*members):
-    from webapp.app import _package_analysis
-    from webapp.jobs import Job
-    return _package_analysis([Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload,
-                                  content_sha256=job_id) for job_id, payload in members], settings={})
-
-
 def _months():
     march, closing = _payload(_weekly([(20, "KAPITUS PAYOFF", -15000.0)]))
     april, _ = _payload(_weekly([], month=4), month=4, opening=closing)
@@ -389,3 +382,4 @@ def test_g7_the_snapshot_records_the_lump_sum_rows(tmp_path, fake_payees):  # no
 
 
 from tests.flag_group_fixtures import fake_payees  # noqa: E402,F401  (fixture)
+from tests.helpers import _package
