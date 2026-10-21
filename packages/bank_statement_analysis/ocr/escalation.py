@@ -1,9 +1,6 @@
 """The failure-class vocabulary and the extraction-quality gate.
 
-Phase 2.0 (P20-ROUTER) built this module around an escalation router that
-chose a second extractor for a document the offline ladder read badly. The
-router lost its last call site when the model rungs were removed, and was
-deleted with them. What stays:
+It holds:
 
 * `FAILURE_CLASSES`, the closed A/B/C vocabulary a discovery row names its
   failure with (mirrored in `telemetry.record.FAILURE_CLASSES`);
