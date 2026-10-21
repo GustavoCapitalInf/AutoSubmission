@@ -330,7 +330,7 @@ def test_a_signed_ledger_amount_refuses_because_the_banner_states_direction():
 
 # ---------------------------------------------------------------------------
 # The four printed oracles have ONE degree of redundancy, and these are the
-# documents that separate them. See `tools/welch_mutation_table.py`: with the
+# documents that separate them. With the
 # per-direction COUNTS and the daily grid held fixed, the closing identity, the
 # two printed TOTALS and the replay's arrival at the printed ending balance are
 # four constraints of which any three imply the fourth. So no single one of

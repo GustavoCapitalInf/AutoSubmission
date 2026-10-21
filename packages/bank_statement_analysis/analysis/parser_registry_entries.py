@@ -470,8 +470,8 @@ _OVERRIDES: dict[str, dict] = {
     # finding 2). `tests/data/parser_expectations.json` pins exactly one
     # document registered to `wilson_muir`, that document is one of the 14 this
     # registration claims, and with this edge removed it resolves `ambiguous`.
-    # What the edge does NOT do is move it: measured base vs branch by
-    # `tools/glance_family_replay.py`, its published payload is byte-identical,
+    # What the edge does NOT do is move it: measured base vs branch,
+    # its published payload is byte-identical,
     # and identical to the payload the run of record stored - 14 of 14.
     "wilson_muir": {"band": 10, "supersedes": frozenset({"category_partition"})},
     # The three issuers that already had their own reader on the FOURTH

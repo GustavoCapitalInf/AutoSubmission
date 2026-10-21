@@ -388,7 +388,7 @@ def test_only_the_promoted_sub_dispatches_supersede_anything():
         # registers the signed category partition on the template furniture
         # alone, so it claims every document of the issuer whose printing of
         # it `wilson_muir` reads. Evidence, measured over the run of record
-        # `356a4269` by `tools/glance_detection_probe.py` and named in the
+        # `356a4269` and named in the
         # commit message: the general reader claims 22 of the 3,351 documents
         # with cached text — its own 8 and this issuer's 14, every one of the
         # 14 validated today. Without the edge those 14 resolve `ambiguous`;

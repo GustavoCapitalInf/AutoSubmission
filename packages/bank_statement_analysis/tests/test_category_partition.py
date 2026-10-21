@@ -264,8 +264,8 @@ def test_the_edge_is_what_keeps_the_one_PINNED_document_of_this_template_on_its_
     # The ROUTING is what this pins. The document body is invented, so the
     # issuer reader declines it and the dispatch is `unclaimed` — what matters
     # is that the edge left exactly one candidate standing and that it is the
-    # issuer's. On the real pinned document, measured over its cached text by
-    # `tools/glance_family_replay.py`, the same routing ends in
+    # issuer's. On the real pinned document, measured over its cached text,
+    # the same routing ends in
     # `claimed/wilson_muir` with `attempted == []`.
     dispatch = pr.resolve(document)
     assert dispatch.outcome != "ambiguous"
