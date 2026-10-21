@@ -7,7 +7,8 @@ N1  Every git-tracked .py file parses (a file that does not is a failure, never 
     a Google or Azure model package's versioned module (`google.cloud.vision_v1`) counts as the package.
     No production module imports a generic network client (HTTP, websocket, SSH/SFTP, libcurl, gRPC, AWS); the one
     declared use is `tools/train/provenance.py`'s `socket.gethostname()`. No production module starts a remote
-    program (`REMOTE_PROGRAMS`: `ssh`, `scp`, `curl`, `wget` and the like), the route the deleted GPU tooling took,
+    program (`REMOTE_PROGRAMS`: `ssh`, `scp`, `curl`, `wget` and the like, and a model runtime's own program such as
+    `ollama`), the route the deleted GPU tooling took,
     where its source fixes the command: a string that is one, an argv, a command line (each command of a chain,
     pipe or substitution, through `env`/`sudo`-style wrappers and into `sh`/`bash -c`, `cmd /c` and `powershell
     -Command`, whose web commands count too), `.split()` / `shlex.split()` of one, and a name bound to any of these
@@ -75,12 +76,15 @@ MODEL_PACKAGE_PREFIXES = (
     "langchain_", "google.genai_", "google.generativeai_", "google.cloud.aiplatform_", "google.cloud.vision_",
     "google.cloud.documentai_", "azure.ai.formrecognizer_", "azure.ai.documentintelligence_",
 )
-#: First-party model modules the removal deleted (slices S2-S5); `ocr.paddle_*` is a name prefix.
+#: First-party model modules the removal deleted (slices S2-S5), with the Paddle and visual-pair tools; `ocr.paddle_*`,
+#: `tools.p23egate_*` and `tools.vlm_*` are name prefixes.
 REMOVED_MODULES = (
     "vlm", "tools.phase3_pair", "ocr.ocr_client", "ocr.availability", "ocr.endpoint_policy",
     "ocr.visual_pair_config", "analysis.extract",
+    "tools.paddle_vast", "tools.paddle_wave", "tools.extraction_quality_census", "tools.agreement_census",
+    "tools.p23wave_mutation_table", "tests.paddle_fake_worker",
 )
-REMOVED_PREFIXES = ("ocr.paddle_",)
+REMOVED_PREFIXES = ("ocr.paddle_", "tools.p23egate_", "tools.vlm_")
 #: Third-party network clients: the HTTP and websocket ones, then the SSH/SFTP clients (the Python route to what the
 #: deleted GPU tooling did with `ssh` and `scp`), libcurl's binding, gRPC (the transport of Google's model APIs) and
 #: the AWS SDK.
@@ -92,7 +96,7 @@ THIRD_PARTY_NETWORK_CLIENTS = (
 #: third-party one (N2); the standard library's are loaded by libraries.
 NETWORK_CLIENTS = (
     "urllib.request", "http.client", "ftplib", "smtplib", "socket", "xmlrpc.client", "imaplib", "poplib", "nntplib",
-    "telnetlib",
+    "telnetlib", "asyncio.open_connection",
 ) + THIRD_PARTY_NETWORK_CLIENTS
 #: The one declared network-module use, (file, client) -> why.
 NETWORK_ALLOWANCES = {
@@ -101,7 +105,9 @@ NETWORK_ALLOWANCES = {
 #: Programs that move data to or from another host. The deleted GPU tooling reached its server through `ssh` and
 #: `scp` from `subprocess`, a route no import rule sees, so no production module may start one. Local programs
 #: (`tesseract`, `pdftoppm`, `pdfinfo`, `git`) stay.
-REMOTE_PROGRAMS = ("ssh", "scp", "sftp", "rsync", "curl", "wget", "plink", "pscp")
+#: A model runtime's own programs are refused the same way.
+MODEL_PROGRAMS = ("ollama", "llama-cli", "llama-server", "llamafile", "vllm", "lms")
+REMOTE_PROGRAMS = ("ssh", "scp", "sftp", "rsync", "curl", "wget", "plink", "pscp") + MODEL_PROGRAMS
 #: PowerShell's own web commands and their aliases, refused where a PowerShell command line runs one (`curl` and
 #: `wget` are among REMOTE_PROGRAMS already; Windows PowerShell aliases them to Invoke-WebRequest).
 POWERSHELL_REMOTE_COMMANDS = ("invoke-webrequest", "iwr", "invoke-restmethod", "irm", "start-bitstransfer")
@@ -118,8 +124,9 @@ PROCESS_STARTERS = {
     "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
     "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
 }
-#: Removed in S4 (the visual pair) and S6 (the GPU server and its requirement file).
-REMOVED_PATHS = ("vlm", "tools/phase3_pair", "local_ocr_server.py", "serve_local.sh", "requirements-vlm.txt")
+#: Removed in S4 (the visual pair), S5 (Paddle) and S6 (the GPU server and its requirement file).
+REMOVED_PATHS = ("vlm", "tools/phase3_pair", "local_ocr_server.py", "serve_local.sh", "requirements-vlm.txt",
+                 ".env.visual-pair.example", ".env.paddle.example", "tests/fixtures/paddle")
 #: The P8 entry points: what the web app, the CLIs, the gate, discovery and the provenance tooling import.
 ENTRY_POINTS = (
     "webapp.app", "webapp.worker", "analyze", "batch", "parse", "corpus_gate", "discovery.runner", "discovery.cli",
@@ -647,6 +654,8 @@ def test_the_removed_model_code_is_gone():
     present = [relative for relative in REMOVED_PATHS if (ROOT / relative).exists()]
     assert present == [], present
     assert list((ROOT / "ocr").glob("paddle_*.py")) == []
+    assert list((ROOT / "tools").glob("p23egate_*.py")) == []
+    assert list((ROOT / "tools").glob("vlm_*.py")) == []
     for module in REMOVED_MODULES:
         assert importlib.util.find_spec(module) is None, module
 
@@ -820,6 +829,15 @@ N1_MUTANTS = [
      b"import subprocess\nWRAP = ('bash', '-c')\nsubprocess.run([*WRAP, 'ssh gpu true'])\n", "remote", "ssh"),
     ("remote program, quoted path with spaces as an argv element", "webapp/n1_planted.py",
      b"import subprocess\nsubprocess.run(['\"C:/Program Files/Git/usr/bin/ssh.exe\"', 'gpu'])\n", "remote", "ssh"),
+    ("model program, argv list", "webapp/n1_planted.py",
+     b"import subprocess\nsubprocess.run(['ollama', 'run', 'sample'], input='page')\n", "remote", "ollama"),
+    ("model program, looked up on the path", "analysis/n1_planted.py",
+     b"import shutil\nLLAMA = shutil.which('llama-cli')\n", "remote", "llama-cli"),
+    ("network client, asyncio connection", "analysis/n1_planted.py",
+     b"import asyncio\n\nasync def fetch():\n    return await asyncio.open_connection('192.0.2.1', 443)\n", "network",
+     "asyncio.open_connection"),
+    ("removed tool prefix", "tools/n1_planted.py", b"from tools import vlm_vast, p23egate_fake_partition\n", "model",
+     "tools.vlm_vast"),
     # A versioned Google module (prefix), in each spelling.
     ("versioned Google module, package-submodule", "ocr/n1_planted.py", b"from google.cloud import vision_v1\n",
      "model", "google.cloud.vision_v1"),
@@ -1145,6 +1163,8 @@ for revision in {HISTORICAL_BASE_REVISIONS!r}:
     ("import subprocess\ntry:\n"
      "    subprocess.run(['powershell', '-Command', 'Invoke-WebRequest https://example.invalid'])\n"
      "except OSError:\n    pass", "remote_processes", ["invoke-webrequest"]),
+    ("import subprocess\ntry:\n    subprocess.run(['ollama', 'list'])\nexcept OSError:\n    pass", "remote_processes",
+     ["ollama"]),
     # A local program still runs (check=True: the spy passes it through), through a shell too.
     ("import subprocess\nsubprocess.run([sys.executable, '-c', 'pass'], check=True)", "remote_processes", []),
     ("import subprocess\nsubprocess.run('echo local', shell=True, check=True, capture_output=True)",

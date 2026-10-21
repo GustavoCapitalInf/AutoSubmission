@@ -29,7 +29,7 @@ def test_the_module_imports_no_endpoint_paddle_or_pair_configuration():
     names = {module for _, module in imported}
     assert not names & {"endpoint_policy", "paddle_config", "visual_pair_config", "ocr.endpoint_policy",
                         "ocr.paddle_config", "ocr.visual_pair_config"}, names
-    assert "dotenv" in names  # the import-time .env load stays (plan D20)
+    assert "dotenv" in names
 
 
 def test_the_import_time_dotenv_load_stays():

@@ -3,7 +3,7 @@
 Carried from the deleted `tests/test_visual_rung.py`: the offline modes' own pins (the `--scanned` no-text outcome
 and the `--digital` deferral, an offline read that claims, the offline summary reporting no visual activity) and the
 `ROW_FIELDS` block-order pin, which `discovery/report.py`'s append-only column list must keep. Added: the retired
-`--scanned-visual` mode is refused (by the runner and the CLI), and the visual OCR client modules are gone.
+`--scanned-visual` mode is refused (by the runner and the CLI).
 
 Slice S5 (declared, re-pinned): `--scanned`'s document the offline ladder reads nothing from moved from
 `deferred:deferred_visual_ocr` to `refused:insufficient_evidence`, in the row and in its telemetry record, and
@@ -13,10 +13,6 @@ Nothing here reaches a server; the local-Tesseract rung is pinned with a fake, n
 """
 from __future__ import annotations
 
-import importlib
-import importlib.util
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -229,23 +225,3 @@ def test_the_no_visual_escalation_knob_is_refused_in_every_mode(tmp_path: Path, 
             cli.main([mode, "--no-visual-escalation", "--root", str(tmp_path)])
         assert raised.value.code == 2
 
-
-def test_the_visual_ocr_client_modules_are_gone():
-    for name in ("ocr.ocr_client", "ocr.availability"):
-        assert importlib.util.find_spec(name) is None, name
-        with pytest.raises(ImportError):
-            importlib.import_module(name)
-
-
-def test_no_offline_entry_point_imports_a_model_client():
-    """A fresh process: discovery, the parse and batch CLIs and the pipeline import no visual OCR client and no
-    OpenAI-compatible client."""
-    code = (
-        "import sys, discovery.cli, discovery.runner, ocr.pipeline, parse, batch; "
-        "banned = ('ocr.ocr_client', 'ocr.availability', 'openai'); "
-        "print(sorted(m for m in sys.modules if m in banned or m.startswith('openai.')))"
-    )
-    result = subprocess.run([sys.executable, "-B", "-c", code], capture_output=True, text=True, cwd=ROOT,
-                            timeout=300)
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == "[]", result.stdout
