@@ -204,10 +204,15 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 ## Corpus gate (required before merge)
 
 ```bash
-python corpus_gate.py                      # over $BANK_STATEMENTS_DIR: exit 0 green, 1 red (about 17 minutes on Windows)
-python corpus_gate.py --json report.json   # plus a machine-readable report
-python corpus_gate.py --corpus <path>      # the same gate against another checkout's corpus root
+D=$(mktemp -d)
+PYTHON_DOTENV_DISABLED=1 WEBAPP_DATA_DIR="$D" python corpus_gate.py                      # over $BANK_STATEMENTS_DIR: exit 0 green, 1 red (about 17 minutes on Windows)
+PYTHON_DOTENV_DISABLED=1 WEBAPP_DATA_DIR="$D" python corpus_gate.py --json report.json   # plus a machine-readable report
+PYTHON_DOTENV_DISABLED=1 WEBAPP_DATA_DIR="$D" python corpus_gate.py --corpus <path>      # the same gate against another checkout's corpus root
+rm -rf "$D"
 ```
+
+Set both variables on every run. Without `PYTHON_DOTENV_DISABLED=1` the gate reads any `.env` in this folder or a
+folder above it. Without a scratch `WEBAPP_DATA_DIR` it opens the live web app store.
 
 The gate re-runs the two independent forensic oracles (`adb_forensic_audit.py`, `balance_forensic_audit.py`)
 over the 109 pinned corpus PDFs and compares them, field by field, with the committed audits
