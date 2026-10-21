@@ -9,6 +9,8 @@
 - **Kind:** an umbrella spec. It splits the roadmap into sub-projects. Each sub-project later gets its own spec, plan and implementation, the way lender detection did.
 - **Citation note:** paths are relative to the repository root. `webapp/app.py` and `webapp/static/app.js` were being edited in the main checkout while this was written (their line numbers moved during the session). They are cited by function or route name. Every other file is cited by line, as read on 2026-09-27.
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../../HISTORY.md) says how to read them.
+
 ## 1. Why
 
 The owner wants to license the analyzer to other lenders: MCA funders, equipment financiers and their brokers. Today it is an in-house tool. It reads statements, proves them against their own printed figures, computes the underwriting metrics under the ratified doctrines, and classifies every transaction. It has no users, no tenants and no access control, and its live PDF reader depends on an AGPL library.

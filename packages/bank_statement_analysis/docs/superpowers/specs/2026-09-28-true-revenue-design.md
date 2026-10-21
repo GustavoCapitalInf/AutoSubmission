@@ -7,6 +7,8 @@
 - **Replaces:** the lender work, which the owner set aside on 2026-09-28 for this project
 - **Evidence (private, never committed):** `lender-research/revenue/`: `trace_report.md` (the pipeline trace), `definition_memo.md` (the eight questions and their measured options), `digest_families.md` and `hunt_result.json` (nine payer families, each reviewed by two independent Opus verifiers; 60 structural misses found in 437 fabricated statement shapes), `work/spec/review/` (the first review's 48-row simulation) and `work/spec/revision/revision_probe.py` (the revised holds re-measured on the memo's rows). Every example in this spec is fabricated in the bank's format. Only public companies (processors, marketplaces, lenders, agencies, large retailers) are named.
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../../HISTORY.md) says how to read them.
+
 ## 1. Why
 
 Most uploads show $0 of verified revenue, and some of those merchants plainly had revenue.

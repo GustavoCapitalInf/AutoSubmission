@@ -4,6 +4,8 @@ Agent B (HARBOR), 2026-08-07. Branch `wave3-diagnostics`.
 Card: `WAVE3_BRIEF.md` §W3-2. Data contract: `H3_SCHEMA.md` (this extends the
 record per its own conventions; every invariant there still holds).
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../HISTORY.md) says how to read them.
+
 ---
 
 ## 1. The question this answers

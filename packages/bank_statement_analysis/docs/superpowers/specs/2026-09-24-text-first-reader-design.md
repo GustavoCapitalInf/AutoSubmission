@@ -6,6 +6,8 @@ implementation plan. It was written from scratch: by the owner's ruling, the ear
 evidence/native.py, ocr/column_grid.py, layout/, reconstruction_mode and their documents) is neither reused
 nor used as evidence here, and implementers must not consult it.
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../../HISTORY.md) says how to read them.
+
 ## 1. Goal
 
 Some digital bank statements come from banks no Phase 1 parser recognises; today they end as "no
