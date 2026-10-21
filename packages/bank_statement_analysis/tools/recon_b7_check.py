@@ -58,6 +58,10 @@ surviving prefix and suffix against the run's shas and used only when exactly
 one sha matches; unmatched or ambiguous tokens are reported, not scored.
 Output names documents by the first 16 hex characters of their sha, never by
 path.
+
+The records this docstring names were removed from the tree and resolve at
+`RECORDS_COMMIT`. Without `--w3`, `--census` or `--rbc`, the checker reads that
+record there with `git show`.
 """
 from __future__ import annotations
 
@@ -65,15 +69,17 @@ import argparse
 import csv
 import json
 import re
+import subprocess
 import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-W3_PATH = ROOT / "docs" / "moneythumb-replacement" / "W3_TRACKA_LOG.md"
-CENSUS_PATH = ROOT / "docs" / "moneythumb-replacement" / "CENSUS_BATCH8_DIGITAL.md"
-RBC_PATH = ROOT / "docs" / "moneythumb-replacement" / "RBC_CURRENCY_MEASUREMENT.md"
+RECORDS_COMMIT = "c895d449"
+W3_RECORD = "docs/moneythumb-replacement/W3_TRACKA_LOG.md"
+CENSUS_RECORD = "docs/moneythumb-replacement/CENSUS_BATCH8_DIGITAL.md"
+RBC_RECORD = "docs/moneythumb-replacement/RBC_CURRENCY_MEASUREMENT.md"
 WELCH_PATH = ROOT / "tools" / "welch_population.txt"
 BALANCE_CSV_PATH = ROOT / "docs" / "balance-metrics-audit-results.csv"
 
@@ -549,6 +555,15 @@ def render(report: Report, *, run_dir: str) -> str:
     return "\n".join(lines)
 
 
+def read_record(path: Path | None, record: str) -> str:
+    if path is not None:
+        return path.read_text(encoding="utf-8")
+    return subprocess.run(
+        ["git", "show", f"{RECORDS_COMMIT}:./{record}"],
+        cwd=ROOT, check=True, capture_output=True, encoding="utf-8",
+    ).stdout
+
+
 def main(argv: list[str] | None = None) -> int:
     try:  # a cp1252 console cannot print the report's arrows; the FILE is the record, never the console
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -557,9 +572,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run", required=True, type=Path, help="a discovery run directory")
     parser.add_argument("--report", type=Path, default=None, help="write the markdown report here")
-    parser.add_argument("--w3", type=Path, default=W3_PATH)
-    parser.add_argument("--census", type=Path, default=CENSUS_PATH)
-    parser.add_argument("--rbc", type=Path, default=RBC_PATH)
+    parser.add_argument("--w3", type=Path, default=None)
+    parser.add_argument("--census", type=Path, default=None)
+    parser.add_argument("--rbc", type=Path, default=None)
     parser.add_argument("--welch", type=Path, default=WELCH_PATH)
     parser.add_argument("--balance-csv", type=Path, default=BALANCE_CSV_PATH)
     args = parser.parse_args(argv)
@@ -571,15 +586,15 @@ def main(argv: list[str] | None = None) -> int:
         {path: verdict.outcome for path, verdict in corpus_gate.PINNED_OUTCOMES.items()},
         dict(corpus_gate.PINNED_REFUSALS),
     )
-    census_text = args.census.read_text(encoding="utf-8")
+    census_text = read_record(args.census, CENSUS_RECORD)
     report = check(
         load_run_view(args.run),
         pinned=pinned,
         census_failed=census_failed_tokens(census_text),
         census_withheld=census_withheld_tokens(census_text),
         welch=welch_population(args.welch.read_text(encoding="utf-8")),
-        rbc=rbc_expectations(args.rbc.read_text(encoding="utf-8")),
-        batch7_named=batch7_named_shas(args.w3.read_text(encoding="utf-8")),
+        rbc=rbc_expectations(read_record(args.rbc, RBC_RECORD)),
+        batch7_named=batch7_named_shas(read_record(args.w3, W3_RECORD)),
     )
     text = render(report, run_dir=str(args.run))
     if args.report is not None:
