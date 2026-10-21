@@ -3,7 +3,7 @@
 - **Date:** 2026-09-28
 - **Branch:** `true-revenue`, from `lender-detection` at `c106634` (classification 5.4, `ANALYSIS_STAGE_VERSION` 23)
 - **Owner:** Gustavo
-- **Status:** draft for the owner's review, revised after the first independent review (§18)
+- **Status:** implemented as classification 5.5 to 5.8. §20 lists the implementation amendments, and `docs/transaction-classification.md` states the rules as built.
 - **Replaces:** the lender work, which the owner set aside on 2026-09-28 for this project
 - **Evidence (private, never committed):** `lender-research/revenue/`: `trace_report.md` (the pipeline trace), `definition_memo.md` (the eight questions and their measured options), `digest_families.md` and `hunt_result.json` (nine payer families, each reviewed by two independent Opus verifiers; 60 structural misses found in 437 fabricated statement shapes), `work/spec/review/` (the first review's 48-row simulation) and `work/spec/revision/revision_probe.py` (the revised holds re-measured on the memo's rows). Every example in this spec is fabricated in the bank's format. Only public companies (processors, marketplaces, lenders, agencies, large retailers) are named.
 
