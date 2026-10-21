@@ -1,5 +1,6 @@
 from __future__ import annotations
 import re
+from pathlib import Path
 
 try:
     from dotenv import load_dotenv
@@ -10,7 +11,7 @@ except Exception:
 # `load_dotenv()` through this module (`ocr.document` imports it), and the
 # order in which the `.env` values become visible must not move.
 if load_dotenv is not None:
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 # What lives here is the provenance-token content policy every `StatementMarkdown` is checked against.
 
