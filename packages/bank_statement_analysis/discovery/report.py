@@ -11,7 +11,6 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter
-from dataclasses import dataclass
 from pathlib import Path
 
 #: The outcome class for "the tranche chose not to do this work" (H-3).
@@ -104,14 +103,6 @@ def folder_agreement(row) -> str:
         if candidate and (candidate in folder or folder in candidate):
             return "agree"
     return "label_unmatched"
-
-
-@dataclass
-class Rollups:
-    payload: dict
-
-    def render(self) -> str:
-        return render_report(self.payload)
 
 
 #: P22-TRUTHTABLE. The two labels that are DERIVED rather than carried: R is
