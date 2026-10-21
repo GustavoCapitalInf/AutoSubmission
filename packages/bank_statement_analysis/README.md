@@ -165,7 +165,7 @@ $env:BANK_STATEMENTS_DIR = "D:\statements\Bank Statements"
 ```
 
 - These programs default to it: the corpus gate, both forensic audits, `build_corpus_cache.py`,
-  `python -m discovery`, the benchmark, `experiments/w3_3a/evaluate.py`, `telemetry/stated_counts.py --corpus-audit`,
+  `python -m discovery`, the benchmark, `telemetry/stated_counts.py --corpus-audit`,
   `tools/train/coldrun.sh` (unless `CORPUS_ROOT` is set), and the `tools` modules `adjudicate queue`,
   `agree_native_census`, `hygiene8_pinned_replay`, `l1_census`, `l1_structure_census --pinned`, `measure_structurer`
   and `scanhyg_pinned_replay`. When it is unset and you pass no folder, each of them stops with an error that names it.
