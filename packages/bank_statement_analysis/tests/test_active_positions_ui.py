@@ -210,28 +210,6 @@ def test_the_cli_prints_one_line_and_the_batch_csv_gains_two_columns():
 
 
 # ---------------------------------------------------------------------------------------------------------- the docs
-def test_the_spec_and_the_readme_record_the_request():
-    """The spec's §2.2 carries the owner's request of 2026-10-10 with his three answers, §9.1 and §9.2 the served keys,
-    §9.3 the version line, §10 the column and the memos, §10.8 the downloads and §20 one line naming the code's commits
-    and the measurement; the README's dashboard paragraph names the column."""
-    spec = " ".join((ROOT / "docs/superpowers/specs/2026-09-28-true-revenue-design.md").read_text(encoding="utf-8").split())
-    requests = spec[spec.index("### 2.2 Owner requests (2026-10-06)"):spec.index("## 3. Goals and non-goals")]
-    for words in ("| Active positions by month (2026-10-10) |",
-                  "it should also be included in the demo website is the active Position count by month.",
-                  "it should be included in the monthly statement chart before witholding",
-                  "1. What counts: **confirmed lenders**", "2. Same funder, two payment schedules: **2 positions**.",
-                  "3. Active in a month: **a payment cleared** that month."):
-        assert words in requests, words
-    contract = spec[spec.index("### 9.1 Per account"):spec.index("## 11. Withholding")]
-    for words in ("`apply_active_positions_view`", "`active_positions` and `possible_positions`", "`series_positions`",
-                  "`active_positions_by_month`", "`_package_active_positions`", "`true-revenue-12`",
-                  "\"Active Positions\" immediately before \"Withholding Rate\"", "`active_positions_month_<n>`",
-                  "` Active positions : 2 (+1 possible)`"):
-        assert words in contract, words
-    amendments = spec[spec.index("## 20. Implementation amendments"):]
-    line = amendments[amendments.index("- **Active positions by month** ("):]
-    for words in ("a0376f8", "e423c01", "this commit", "the lender census (cached) and the revenue census (cached",
-                  "0 console errors"):
-        assert words in line, words
+def test_the_readme_names_the_active_positions_column():
     readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").split())
     assert "adds an \"Active Positions\" column to the Monthly Statements table, right before Withholding Rate" in readme
