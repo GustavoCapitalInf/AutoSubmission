@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: fly-deploy
+  group: fly-deploy-bank-statement-tryout
   cancel-in-progress: false
 
 permissions:

@@ -25,6 +25,7 @@ import pytest
 from analysis import transaction_classifier, true_revenue
 from analysis.revenue import REVENUE_TIER_REASONS, REVENUE_TIERS, WITHHOLDING_DENOMINATOR_MODES
 from analysis.schema import Statement, Transaction
+from tests.workflows import project_workflows
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "docs" / "transaction-classification.md"
@@ -139,7 +140,7 @@ def test_the_contract_says_only_held_credits_need_review():
 #: The run and deploy files of this repository (B12 review round 1: the contract says none sets the mode).
 RUN_AND_DEPLOY_PATTERNS = (
     "*.toml", "*.yml", "*.yaml", "*.ini", "*.cfg", "*.ps1", "*.sh", ".env*", "Dockerfile*", "Procfile",
-    "../../.github/**/*", "tools/**/*.sh", "tools/**/*.ps1", "webapp/**/*.sh", "webapp/**/*.ps1", "webapp/**/*.toml",
+    "tools/**/*.sh", "tools/**/*.ps1", "webapp/**/*.sh", "webapp/**/*.ps1", "webapp/**/*.toml",
 )
 
 
@@ -147,8 +148,9 @@ def test_no_run_or_deploy_file_of_the_repository_sets_the_withholding_mode():
     contract = _section(_flat(CONTRACT), "## Withholding rate", "## Extension rule")
     assert "no run or deploy file in this repository sets `WITHHOLDING_DENOMINATOR_MODE`" in contract
     files = {path for pattern in RUN_AND_DEPLOY_PATTERNS for path in ROOT.glob(pattern) if path.is_file()}
+    files |= set(project_workflows())
     assert ROOT / "run.ps1" in files and ROOT / "pytest.ini" in files
-    setting = sorted(str(path.relative_to(ROOT)) for path in files
+    setting = sorted(path.relative_to(ROOT, walk_up=True).as_posix() for path in files
                      if "WITHHOLDING_DENOMINATOR_MODE" in path.read_text(encoding="utf-8", errors="replace"))
     assert setting == []
 

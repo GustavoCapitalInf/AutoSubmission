@@ -46,6 +46,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.workflows import project_workflows
+
 ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ROOT.parents[1]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "corpus-gate.yml"
@@ -1479,7 +1481,7 @@ def _launchers(root: Path) -> list[str]:
     found = ["run.ps1"]
     for pattern in ("*.ps1", "*.sh", "tools/**/*.ps1", "tools/**/*.sh"):
         found += [path.relative_to(root).as_posix() for path in root.glob(pattern) if path.is_file()]
-    found += [path.relative_to(root, walk_up=True).as_posix() for path in (REPO_ROOT / ".github" / "workflows").glob("*.yml")]
+    found += [path.relative_to(root, walk_up=True).as_posix() for path in project_workflows()]
     return sorted(set(found))
 
 

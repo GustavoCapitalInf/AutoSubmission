@@ -1,23 +1,19 @@
 .venv/
 __pycache__/
 *.pyc
-output/
 .pytest_cache/
-logs.txt
 .env
 .env.local
 node_modules/
-frontend/node_modules/
 # Customer data, at any depth. Tools and tests read it from BANK_STATEMENTS_DIR.
 Bank Statements/
 
 .claude/
+
+# Bank statement analysis results, which hold customer data. Some of its tools write them
+# relative to the folder they run from, so these stay ignored at any depth.
 moneythumbResults/
 benchmark_reports/
 webapp_data/
 telemetry_runs/
 discovery_reports/
-
-# Phase 2.1: the Paddle/Vast lifecycle tool's runtime directory (pidfiles, the per-session
-# worker token, tunnel logs). Never committed.
-.paddle_runtime/
