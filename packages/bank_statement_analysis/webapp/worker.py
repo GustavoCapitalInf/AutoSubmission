@@ -37,13 +37,13 @@ def document_to_json(document: DocumentReport) -> dict:
     return document_report_to_dict(document)
 
 
-# O-1: the worker owns NO routing decisions. The single intake ladder
-# (native PDF text -> local Tesseract) lives in ocr.pipeline.parse_statement,
-# driven by the preflight DocumentProfile; this module only does job-store
-# bookkeeping. The ladder reports each rung through on_stage, mapped here to
-# the dashboard's historical stage labels. The ladder has no visual rung any
-# more (slice S2), so `reading_visual_ocr` is only a stored historical stage
-# value now; the dashboard still labels it.
+# O-1: the worker owns NO routing decisions. The single intake ladder (native
+# PDF text -> local Tesseract) lives in ocr.pipeline.parse_statement, driven by
+# the preflight DocumentProfile; this module only does job-store bookkeeping.
+# The ladder reports each rung through on_stage, mapped here to the dashboard's
+# historical stage labels. The ladder has no visual rung any more, so
+# `reading_visual_ocr` is only a stored historical stage value now; the
+# dashboard still labels it.
 _STAGE_NAMES = {
     "native": "reading",
     "local_ocr": "reading_local_ocr",
@@ -58,11 +58,10 @@ _PHASE_PREFLIGHT = "preflight"
 _PHASE_READING = "reading"
 _PHASE_ANALYSIS = "analysis"
 
-#: The job states `run_job` may NOT leave behind (#PRIVACY3, closing
-#: #WORKERPRIV m-7). `queued`/`processing` mean "a worker is still on it"; once
-#: `run_job` has returned or unwound, no worker is, so either one is a job that
-#: will never move again. The store's own vocabulary is
-#: queued/processing/done/error/interrupted (`webapp/jobs.py:35`).
+#: The job states `run_job` may NOT leave behind. `queued`/`processing` mean "a
+#: worker is still on it"; once `run_job` has returned or unwound, no worker is,
+#: so either one is a job that will never move again. The store's own vocabulary
+#: is queued/processing/done/error/interrupted (`webapp/jobs.py:35`).
 _NON_TERMINAL_STATUSES = frozenset({"queued", "processing"})
 
 #: What a job that reached neither `set_result` nor an exception arm is marked
@@ -73,7 +72,7 @@ _STUCK_JOB_FAILURE = (
     "(message withheld; an exception message can quote statement text)"
 )
 
-#: The analysis pipeline's DECLARED refusals (#WORKERPRIV D2).
+#: The analysis pipeline's DECLARED refusals.
 #:
 #: `analysis/pipeline.py` raises a small number of refusals that are FIXED
 #: LITERALS of ours: they say why the deterministic path declined and carry no
@@ -100,12 +99,11 @@ _DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
     "no deterministic parser matched this statement",
 )
 
-#: What a job asked for with Force visual OCR ends in (owner ruling, 2026-10-13: the product uses no model, so the
-#: visual readers are gone). `/upload` refuses `force_ocr=1` before anything is stored (webapp/app.py), so only a job
-#: stored before that ruling still carries the flag, and only its re-analysis (`webapp/reanalysis.py`, which re-runs a
-#: job with its own read flag) reaches this: `run_job` ends before preflight with this fixed text, reads nothing and
-#: names no stage, so the re-analysis answers it as its reason and the saved job is kept. Fixed text of ours, never
-#: anything read out of a document.
+#: What a job asked for with Force visual OCR ends in. `/upload` refuses `force_ocr=1` before anything is stored
+#: (webapp/app.py), so only a job stored before that ruling still carries the flag, and only its re-analysis
+#: (`webapp/reanalysis.py`, which re-runs a job with its own read flag) reaches this: `run_job` ends before preflight
+#: with this fixed text, reads nothing and names no stage, so the re-analysis answers it as its reason and the saved
+#: job is kept. Fixed text of ours, never anything read out of a document.
 FORCED_OCR_RETIRED = (
     "This statement was read with the retired visual OCR; upload it again to read it deterministically."
 )
@@ -145,12 +143,12 @@ def _stage_failure(stage: str, exc: BaseException) -> str:
 
     Deliberately NO second sink for the message. This module has no logger
     today, and adding one to hold the full text would MOVE the content rather
-    than stop it: a new durable, unmasked, unaudited copy of the same fragment
-    (#WORKERPRIV D1). The operator channel already exists and is already
-    compliant — the telemetry record carries `error_type` (the class name) and
-    the per-stage timings, so WHICH stage raised and WHAT raised are both
-    recoverable without the text. Reproducing a crash needs the document, and
-    the document is in the store already.
+    than stop it: a new durable, unmasked, unaudited copy of the same fragment.
+    The operator channel already exists and is already compliant — the telemetry
+    record carries `error_type` (the class name) and the per-stage timings, so
+    WHICH stage raised and WHAT raised are both recoverable without the text.
+    Reproducing a crash needs the document, and the document is in the store
+    already.
     """
     return (
         f"{stage} stage failed: {type(exc).__name__} "
@@ -274,10 +272,10 @@ def _emit(
     """
     try:
         sink = open_sqlite_sink(getattr(store, "storage", None))
-        # The collector holds this job's dispatch, so the near-miss sweep
-        # reuses its prepared text instead of preparing the document a second
-        # time (#PREPHAND). Guarded on the text inside `score_vector`: on a
-        # D-3 analysis cache hit nothing dispatched and the sweep runs whole.
+        # The collector holds this job's dispatch, so the near-miss sweep reuses
+        # its prepared text instead of preparing the document a second time.
+        # Guarded on the text inside `score_vector`: on a D-3 analysis cache hit
+        # nothing dispatched and the sweep runs whole.
         scores, registration_count = score_vector(markdown, collector) if markdown else ([], 0)
         dispatch = dispatch_section(
             collector.dispatch, scores, registration_count, payload=analysis,
@@ -380,9 +378,9 @@ def run_job(
     collector = DispatchCollector()
     profile: DocumentProfile | None = None
     doc: StatementMarkdown | None = None
-    # The named stage for the job-level exception boundary below (#WORKERPRIV
-    # site 2). Advanced inside the `read`/`analyze` closures rather than at
-    # their call sites, so a new branch cannot forget it.
+    # The named stage for the job-level exception boundary below. Advanced
+    # inside the `read`/`analyze` closures rather than at their call sites, so a
+    # new branch cannot forget it.
     #
     # KNOWN GRANULARITY, stated rather than hidden: `set_result` runs after
     # `analyze` returns, so a storage-layer crash while publishing is
@@ -472,8 +470,7 @@ def run_job(
         # thread still dies, exactly as it did before, and the stderr traceback
         # this raise produces is UNCHANGED — recorded, not decided, because
         # where a worker crash's full text should go is the D-2b/D-7 logging
-        # question (#WORKERPRIV WP6.5), not something an exception-boundary card
-        # gets to invent.
+        # question, not something an exception-boundary card gets to invent.
         store.set_error(job_id, _stage_failure(phase, e))
         _emit(store, job_id, profile, len(pdf_bytes), doc, None, None, None,
               collector, timer, error_type=type(e).__name__)

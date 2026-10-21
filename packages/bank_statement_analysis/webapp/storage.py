@@ -288,10 +288,10 @@ class Storage:
     """
 
     def __init__(self, data_dir: str | Path | None = None, *, read_only: bool = False) -> None:
-        """``read_only`` (audit 2026-10-13, BE-1): the store the web app falls back to when the normal one cannot be
-        opened or written at start-up (a full data volume). It creates, migrates and writes nothing — not at
-        construction, and every connection is opened ``mode=ro``, so a write raises instead of landing — and it
-        checks nothing either: the caller asks ``schema_version()`` before serving from it."""
+        """``read_only``: the store the web app falls back to when the normal one cannot be opened or written at
+        start-up (a full data volume). It creates, migrates and writes nothing — not at construction, and every
+        connection is opened ``mode=ro``, so a write raises instead of landing — and it checks nothing either: the
+        caller asks ``schema_version()`` before serving from it."""
         from ocr.private_artifacts import validate_private_artifact_path
 
         self.read_only = read_only
@@ -375,12 +375,12 @@ class Storage:
         identical content hashes to an identical name, so an existing file is
         already the right bytes).
 
-        Audit 2026-10-13 (BE-4): written through a temporary file of its own (``tempfile.mkstemp`` beside the target)
-        and renamed into place. One fixed ``<sha>.pdf.tmp`` used to be shared by two requests storing the same new
-        bytes at once, and one of them failed (about one aligned pair in four on Windows, measured). The rename is
-        retried briefly as ``webapp/settings.py`` does (Windows refuses it while a reader has the target open); a
-        rename still refused while the target exists means another request stored these same bytes first, which is
-        the file this call wanted. The temporary file is always removed."""
+        Written through a temporary file of its own (``tempfile.mkstemp`` beside the target) and renamed into place.
+        One fixed ``<sha>.pdf.tmp`` used to be shared by two requests storing the same new bytes at once, and one of
+        them failed (about one aligned pair in four on Windows, measured). The rename is retried briefly as
+        ``webapp/settings.py`` does (Windows refuses it while a reader has the target open); a rename still refused
+        while the target exists means another request stored these same bytes first, which is the file this call
+        wanted. The temporary file is always removed."""
         path = self.pdf_path(sha256_upper)
         if path.exists():
             return path
@@ -526,15 +526,15 @@ class Storage:
         """Record one upload in ONE transaction: its document row (when it has bytes), its job row and its `upload`
         audit row. Returns the earliest PRIOR job whose document holds the same bytes, or None.
 
-        Audit 2026-10-13 (BE-2): one transaction is what makes that answer final. `duplicate_of` finds a prior
-        document only through its job row, and the document and job rows used to be written in two transactions, so
-        two concurrent uploads of the same new bytes could commit A's document, then all of B, then A's job: B's
-        answer was None at its upload and named A a moment later. Now no document row is ever visible without its
-        job row; SQLite has one writer at a time and AUTOINCREMENT ids only grow, so document ids follow commit
-        order; and no document or job row is ever deleted or renumbered. Every document with a lower id therefore
-        has its job row when this transaction commits, and the answer read here, inside it, is the one
-        `duplicate_of` gives at any later time, None included. Retention work that deletes or renumbers documents or
-        jobs must revisit this and the `Job.duplicate_of` memo built on it (`webapp/jobs.py`)."""
+        One transaction is what makes that answer final. `duplicate_of` finds a prior document only through its job
+        row, and the document and job rows used to be written in two transactions, so two concurrent uploads of the
+        same new bytes could commit A's document, then all of B, then A's job: B's answer was None at its upload and
+        named A a moment later. Now no document row is ever visible without its job row; SQLite has one writer at a
+        time and AUTOINCREMENT ids only grow, so document ids follow commit order; and no document or job row is
+        ever deleted or renumbered. Every document with a lower id therefore has its job row when this transaction
+        commits, and the answer read here, inside it, is the one `duplicate_of` gives at any later time, None
+        included. Retention work that deletes or renumbers documents or jobs must revisit this and the
+        `Job.duplicate_of` memo built on it (`webapp/jobs.py`)."""
         with closing(self._connect()) as conn, conn:
             document_id = None
             if content_sha256 is not None:

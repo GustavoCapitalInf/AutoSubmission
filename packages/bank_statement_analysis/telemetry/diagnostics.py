@@ -1,4 +1,4 @@
-"""W3-2 — why a claimed document was withheld, as a closed check taxonomy.
+"""Why a claimed document was withheld, as a closed check taxonomy.
 
 Discovery withheld 614 claimed documents (17.5% of the archive). "Withheld"
 says the platform refused to publish an ADB; it does not say *which* check
@@ -39,64 +39,9 @@ from __future__ import annotations
 
 from analysis.payload_shape import payload_accounts, refuse_document_payload
 
-#: Bumped when a code is added, removed or re-classed. Travels in every record
-#: so a rollup over mixed runs can tell which vocabulary produced a row.
-#:
-#: 1 - W3-2, as shipped.
-#: 2 - W3-2b: `integrity:integrity_check_exception` re-classed from advisory to
-#:     the new `check_unavailable` class. A record emitted at version 1 that
-#:     carries that code would rank one class lower than the same document
-#:     ranks now, so a rollup spanning both versions is comparing two
-#:     vocabularies - which is what this field exists to make visible.
-#: 3 - COUNTS-P2: `integrity:credit_count_mismatch` and
-#:     `integrity:debit_count_mismatch` added, both `detail_coverage`; and
-#:     `DIAGNOSABLE_CLASSES` extended to `review`, so a rollup at version 3
-#:     diagnoses a population version 2 left empty by construction. Two runs
-#:     across this boundary are NOT comparable on either axis.
-#: 4 - REPAIR-GUARD/PIPE5: `integrity:repair_exception` added, classed
-#:     `extraction_failure`. The code set grew, so a v3 rollup and a v4 rollup
-#:     are not comparable on the code axis - even though the code fires on
-#:     zero documents in the archive today, which is exactly the state in
-#:     which the version is the ONLY way to tell the two vocabularies apart.
-#:     `test_the_diagnostics_version_moves_when_the_vocabulary_does` is what
-#:     makes this contract self-enforcing; it did not exist when this entry
-#:     was written, and its absence is why the bump was initially missed.
-#:     COMPOSED at the batch-5 train: v4 also carries ADB-SPLIT's advisory
-#:     `adb_state:initialization_event_folded` (a disclosure on a passing
-#:     document) and the `summary_fields_absent` vocabulary shift
-#:     (`stated_average_balance` -> `bank_reported_average_balance`). One
-#:     train, one bump — the ANALYSIS_STAGE_VERSION composed-bump policy
-#:     applied to this constant.
-#: 5 - P22-TRUTHTABLE (Phase 2.2; cell F's consequence). `analysis/pipeline.py`
-#:     no longer WRITES the `escalation extraction failed ...` issue (R9 removed
-#:     the reconciliation-based selection between two hosted extractions, and
-#:     the one `issues.append(` site in `pipeline.py` went with it), so the
-#:     `recon:escalation_extraction_failed` anchor can never fire on a record
-#:     emitted at v5 or later. The anchor STAYS in `RECON_ISSUE_ANCHORS` and in
-#:     `CLASS_OF` — a record written before the change must still classify —
-#:     but the set of codes a LIVE analysis can produce shrank, so a v4 rollup
-#:     and a v5 rollup are not comparing like with like on the code axis. The
-#:     call-site guard now counts `analysis/reconcile.py`'s six sites against
-#:     the six LIVE anchors and pins `pipeline.py` at zero.
-#: 6 - Owner report 2026-10-08 (Capital One daily ledger): the advisory
-#:     `adb_state:pre_period_carry_in_folded` added, the disclosure
-#:     `analysis/adb.py` writes when it folds a parser-declared
-#:     previous-balance-day carry-in into the opening balance (the
-#:     account-opening fold's sibling). Advisory, so it re-classes nothing
-#:     and decides no failure class; the code set grew, so a v5 and a v6
-#:     rollup are not comparable on the code axis.
-#: 7 - Audit 2026-10-13, REC-4: `integrity:ledger_sum_uncheckable` added,
-#:     the flag `assess_document_integrity` raises when the sum check could
-#:     not run (no beginning or ending balance), classed
-#:     `summary_field_missing` with `recon:sum_check_inputs_missing`, the
-#:     issue it accompanies, so no document's primary class moves; and
-#:     `integrity:ledger_sum_mismatch` now fires at the sum check's own
-#:     one-cent tolerance instead of a dollar (same code, more documents).
-#:     Composed into the same bump (one batch, one version, as at the batch-5
-#:     train), REC-1 step 1: the advisory `adb:bank_daily_balances_agree_with_rows`
-#:     and its warning code `adb_state:bank_daily_balances_disagree_with_rows`
-#:     (a bank-printed daily balance that is not the balance the rows reach
-#:     that day). Advisory: never required, it re-classes nothing.
+#: Bump when a code is added, removed or re-classed; see git log for history. It travels in every record, so a rollup
+#: over mixed runs can tell which vocabulary produced a row. `test_the_diagnostics_version_moves_when_the_vocabulary_does`
+#: enforces the bump.
 DIAGNOSTICS_VERSION = 7
 
 #: The explicit label for a document whose claiming parser could not be
@@ -111,15 +56,15 @@ UNATTRIBUTED = "(parser unknown)"
 #: autopsy.
 #:
 #: `review` was in the second group until COUNTS-P2 and is now diagnosed, per
-#: the standing Ocean ruling of 2026-08-10 ("DIAGNOSABLE_CLASSES extends to
-#: review WHEN phase 2 lands, not before"). The reason is that phase 2 makes
-#: `review` a class this taxonomy has something to say about: a count mismatch
-#: publishes its number and lands the document in `review`, so a
-#: `withheld`-only scope would have made the new codes invisible in the only
-#: rollup that reads them (W3-2 open question 2). The acceptance property this
-#: changes is named rather than dropped: it was "the 106 produce empty
-#: diagnostics" and it is now "every VALIDATED document produces empty
-#: diagnostics" - see `tests/test_telemetry_corpus.py`.
+#: the standing Ocean ruling ("DIAGNOSABLE_CLASSES extends to review WHEN phase
+#: 2 lands, not before"). The reason is that phase 2 makes `review` a class this
+#: taxonomy has something to say about: a count mismatch publishes its number
+#: and lands the document in `review`, so a `withheld`-only scope would have
+#: made the new codes invisible in the only rollup that reads them (W3-2 open
+#: question 2). The acceptance property this changes is named rather than
+#: dropped: it was "the 106 produce empty diagnostics" and it is now "every
+#: VALIDATED document produces empty diagnostics" - see
+#: `tests/test_telemetry_corpus.py`.
 DIAGNOSABLE_CLASSES = ("withheld", "review")
 
 
@@ -146,7 +91,7 @@ ADB_CHECKS: frozenset[str] = frozenset({
     "running_balances_support_daily_ledger",
     "posting_dates_cover_source",
     "agrees_with_bank_stated_average",
-    # Audit 2026-10-13 REC-1 (v7): advisory, see ADVISORY_CODES.
+    # Audit 2026-10-13 advisory, see ADVISORY_CODES.
     "bank_daily_balances_agree_with_rows",
 })
 
@@ -159,8 +104,8 @@ ADB_CHECKS: frozenset[str] = frozenset({
 INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "summary_math_inconsistent",
     "ledger_sum_mismatch",
-    # Audit 2026-10-13 REC-4: the sum check could not run (no beginning or no
-    # ending balance), so its finding is unknown rather than clean.
+    # Audit 2026-10-13 the sum check could not run (no beginning or no ending
+    # balance), so its finding is unknown rather than clean.
     "ledger_sum_uncheckable",
     "running_balance_breaks",
     "credit_detail_coverage_mismatch",
@@ -221,12 +166,12 @@ RECON_ISSUE_ANCHORS: tuple[tuple[str, str | None, str], ...] = (
 )
 RECON_UNMAPPED = "recon:unmapped_issue"
 
-#: v5 (P22-TRUTHTABLE, cell F's consequence). Anchors whose WRITER no longer
-#: exists in `analysis/`: kept in `RECON_ISSUE_ANCHORS` so a record emitted
-#: before the writer was removed still classifies, but excluded from the
-#: live call-site count `tests/test_diagnostics.py` keeps against
-#: `analysis/reconcile.py` + `analysis/pipeline.py`. A member here without
-#: an anchor above is a defect the vocabulary test refuses.
+#: v5. Anchors whose WRITER no longer exists in `analysis/`: kept in
+#: `RECON_ISSUE_ANCHORS` so a record emitted before the writer was removed still
+#: classifies, but excluded from the live call-site count
+#: `tests/test_diagnostics.py` keeps against `analysis/reconcile.py` +
+#: `analysis/pipeline.py`. A member here without an anchor above is a defect the
+#: vocabulary test refuses.
 RETIRED_RECON_ISSUE_CODES: frozenset[str] = frozenset({"recon:escalation_extraction_failed"})
 
 #: The anchors a LIVE analysis can still write — what the call-site guard
@@ -375,8 +320,8 @@ CLASS_OF: dict[str, str] = {
     "adb_state:out_of_period_transactions": "period_integrity",
     # an input the checks need was not published at all
     "recon:sum_check_inputs_missing": "summary_field_missing",
-    # REC-4 (v7): the integrity flag that accompanies the issue above, in the
-    # issue's own class, so adding it moves no document's primary class
+    # The integrity flag that accompanies the issue above, in the issue's own
+    # class, so adding it moves no document's primary class
     "integrity:ledger_sum_uncheckable": "summary_field_missing",
     "adb:opening_balance_matches_statement": "summary_field_missing",
     "adb_state:beginning_balance_absent": "summary_field_missing",
@@ -452,10 +397,9 @@ ADVISORY_CODES: frozenset[str] = frozenset({
     # opening balance and left the divisor alone. A document carrying it has
     # passed every required check, so it must never decide a failure class.
     "adb_state:initialization_event_folded",
-    # Its sibling (owner report 2026-10-08): postings a parser proved were
-    # dated on the previous-balance day and counted in the printed cycle,
-    # folded into the opening balance. Also a disclosure on a passing
-    # document, never a failure class.
+    # Its sibling: postings a parser proved were dated on the previous-balance
+    # day and counted in the printed cycle, folded into the opening balance.
+    # Also a disclosure on a passing document, never a failure class.
     "adb_state:pre_period_carry_in_folded",
     "integrity:transaction_detail_not_corporate_reliable",
     "integrity:not_a_formal_statement",

@@ -43,7 +43,7 @@ def load_records(*, jsonl: str | None = None, sqlite: str | None = None,
 #: `classify_outcome` reaches each of them only from a payload, and reaches
 #: `failed` only without one, so this is a derivation from the record rather
 #: than a convention: it holds on every record ever emitted, including those
-#: written before `dispatch.source` could say `cached` (#TELCOV).
+#: written before `dispatch.source` could say `cached`.
 ANALYSED_CLASSES = frozenset({"validated", "review", "withheld"})
 
 
@@ -255,13 +255,13 @@ def render(summary: dict, run_id: str | None = None) -> str:
         )
 
     lines.append("outcome")
-    # P22-TRUTHTABLE (R11), review MINOR-2. `refused` is a member of
-    # `OUTCOME_CLASSES` and is COUNTED in `summary["outcome"]`; before this it
-    # was printed nowhere, so a record carrying it was silently absent from the
-    # one block that exists to say what happened to a document. A class that is
-    # counted and not rendered is worse than one that does not exist: the
-    # totals stop adding up and nothing says why. Zero population in 2.2 — the
-    # class is reserved — which is exactly when a rendering hole is invisible.
+    # `refused` is a member of `OUTCOME_CLASSES` and is COUNTED in
+    # `summary["outcome"]`; before this it was printed nowhere, so a record
+    # carrying it was silently absent from the one block that exists to say what
+    # happened to a document. A class that is counted and not rendered is worse
+    # than one that does not exist: the totals stop adding up and nothing says
+    # why. Zero population in 2.2 — the class is reserved — which is exactly
+    # when a rendering hole is invisible.
     for key in ("validated", "review", "withheld", "failed", "deferred", "refused"):
         if key in summary["outcome"]:
             lines.append(_line(key, summary["outcome"][key], total))

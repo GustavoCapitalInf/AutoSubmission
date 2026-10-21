@@ -1,5 +1,4 @@
-"""Extraction quality v2 — MEASURED, VERSIONED, admitted as NOTHING
-(Phase 2.3 cell E; Ruling B).
+"""Extraction quality v2: measured, versioned, and admitted as nothing.
 
 What this module is
 -------------------
@@ -10,52 +9,41 @@ recognition scores look like; what share of the numeric tokens parses as a
 money figure and what share of the alphabetic tokens is statement furniture
 in one of the three languages; how much of the page is garbage tokens; how
 regular the boxes are; how much of the page's ink lies outside every word
-box; and which way the words read. From those figures, an E-CLASS —
-`""` / `E0` / `E1` / `E2` / `E3` / `E5`, exactly the plan's §H.4 vocabulary.
+box; and which way the words read. From those figures, an E-class:
+`""` / `E0` / `E1` / `E2` / `E3` / `E5`.
 
 What this module is NOT, by construction
 ----------------------------------------
 **Nothing here is a trigger, a verdict, or a router input.** `ocr/escalation.py`
 does not import this module (`tests/test_extraction_quality_admission.py` pins
-it by AST).
-The only consumer of these figures in this phase is the REPORT: thirteen
-`eq_*` columns on `rows.csv` (the census instrument,
-`tools/extraction_quality_census.py`, was removed with the PaddleOCR rung in
-slice S5 of the model-code removal). Ruling B's discipline is labelled
-evidence FIRST, review SECOND, admission THIRD — and 2.3 is the first step
-only. An extraction-quality criterion becomes a production trigger in 2.5,
-from the measured distributions, or never.
+it by AST). The only consumer of these figures is the report: thirteen `eq_*`
+columns on `rows.csv`.
 
 The import boundary (pinned by AST in `tests/test_extraction_quality.py`)
 ------------------------------------------------------------------------
 The standard library, `evidence` and `layout.signals`. Nothing else — no
-`analysis`, no `ocr.paddle_client`, no `webapp`, no `telemetry`, no image
+`analysis`, no `webapp`, no `telemetry`, no image
 library. That is why the ink metric takes an already-decoded `RasterGray`
 (8-bit grey, row-major) rather than PNG bytes: decoding is the CALLER's job
-(the census tool and the tests own an image library; a metrics module that
-could import one could import anything). A module that cannot import the
+(the tests own an image library; a metrics module that could import one
+could import anything). A module that cannot import the
 analysis layer cannot be handed a verdict even by accident.
 
 Thresholds, honestly
 --------------------
 Every threshold is a named constant in ONE table (`THRESHOLDS`), pinned
 beside `EXTRACTION_QUALITY_VERSION` by test: a threshold cannot move without
-a reviewed version edit (M1). The v1 values are **a-priori labels, not
-corpus-fitted numbers** — the mistake `ocr/escalation.py::ALNUM_DENSITY_FLOOR`
-documents at length (a round number chosen just below the observed minimum of
-the very population it was then used to split) is not repeated here. Each
-floor is set where the SHAPE of a page stops being a statement page at all
-(a page with numeric tokens and no parseable money figure; a page with
-alphabetic tokens and not one word of statement furniture in three
-languages), not where a corpus happens to sit. The census measures the real
-distributions per configuration; 2.5 recalibrates from them, and a
-recalibration is a version bump by construction.
+a reviewed version edit. The values are a-priori labels, not corpus-fitted
+numbers (unlike `ocr/escalation.py::ALNUM_DENSITY_FLOOR`): each floor is set
+where the shape of a page stops being a statement page at all (numeric tokens
+and no parseable money figure; alphabetic tokens and not one word of statement
+furniture in three languages). A recalibration is a version bump.
 
 Two figures are deliberately NOT thresholded:
 
 * **the rec-score distribution** (`rec_mean`, `rec_p10`) — a PER-CONFIGURATION
   proxy that must be recalibrated for every engine setup, so it never gates a
-  page on its own (§H.4's own warning; `test_the_rec_score_is_a_proxy_and_
+  page on its own (`test_the_rec_score_is_a_proxy_and_
   never_sets_a_class_on_its_own`). It is carried, never compared across
   configurations;
 * **density** — words per square unit OF THE FRAME'S OWN SPACE, so a pixel
@@ -121,12 +109,11 @@ __all__ = [
 #: of one configuration and the census of the next are compared only through
 #: this number.
 #:
-#: v2 (P23-EGATE review closure): the right-edge residual is measured PER
-#: MONEY COLUMN rather than over the last token of each line (MAJOR-1); the
-#: garbage rate carries a minimum-denominator guard and four named token
-#: shapes are not garbage (MINOR-1); E3's orientation criterion reads the
-#: frame and takes a majority rather than unanimity (MINOR-2). Every one of
-#: those changes what a figure MEANS, so none of them may travel under v1.
+#: v2: the right-edge residual is measured PER MONEY COLUMN rather than over the
+#: last token of each line; the garbage rate carries a minimum-denominator guard
+#: and four named token shapes are not garbage; E3's orientation criterion reads
+#: the frame and takes a majority rather than unanimity. Every one of those
+#: changes what a figure MEANS, so none of them may travel under v1.
 EXTRACTION_QUALITY_VERSION = 2
 
 # ---------------------------------------------------------------------------
@@ -197,11 +184,11 @@ THRESHOLDS: Mapping[str, float] = MappingProxyType({
     "lexicon_min_word_letters": 3,
     # A token counts as ALPHABETIC once it carries this many letters.
     "alphabetic_token_min_letters": 2,
-    # E2 / garbage: over-long tokens and repeated-letter runs, over a page
-    # with enough tokens to have a rate at all. v2 (review MINOR-1): the
-    # minimum denominator its two siblings always had — without it a
-    # legitimate sparse page (a continuation page, a summary page, a "page 2
-    # of 4" header) was classified on a rate over as few as twelve tokens.
+    # E2 / garbage: over-long tokens and repeated-letter runs, over a page with
+    # enough tokens to have a rate at all. v2: the minimum denominator its two
+    # siblings always had — without it a legitimate sparse page (a continuation
+    # page, a summary page, a "page 2 of 4" header) was classified on a rate
+    # over as few as twelve tokens.
     "garbage_rate_ceiling": 0.05,
     "garbage_rate_min_tokens": 30,
     "garbage_token_max_chars": 20,
@@ -230,12 +217,11 @@ THRESHOLDS: Mapping[str, float] = MappingProxyType({
     # this factor (a near-square box is indeterminate and does not vote); the
     # votes decide only with at least this many of them.
     #
-    # v2: a MAJORITY, not unanimity. v1 kept §H.4's word "unanimous" literal
-    # at 1.0, and one horizontal box — a page number, a rule fragment, a stamp
-    # — disarmed the criterion completely on a page whose only defect was a
-    # quarter turn (review MINOR-2, reproduced at a share of 0.99). A frame
-    # whose two sides differ by no more than the square tolerance has no
-    # reading direction to disagree WITH, and fires nothing.
+    # v2: a MAJORITY, not unanimity. v1 kept §H.4's word "unanimous" literal at
+    # 1.0, and one horizontal box — a page number, a rule fragment, a stamp —
+    # disarmed the criterion completely on a page whose only defect was a
+    # quarter turn. A frame whose two sides differ by no more than the square
+    # tolerance has no reading direction to disagree WITH, and fires nothing.
     "orientation_min_chars": 2,
     "orientation_min_aspect": 1.2,
     "orientation_min_votes": 8,
@@ -275,11 +261,11 @@ def calibration_digest() -> str:
 
 #: The calibration surface's digest, RECORDED PER VERSION.
 #:
-#: v1 pinned the thresholds by a literal in a test, and the review defeated
-#: that in two lines: move a threshold, move the test's literal with it, and
-#: the version stays where it was (F9). The claim "a threshold cannot move
-#: without a reviewed version edit" then rested on the diff being read, not on
-#: anything structural.
+#: v1 pinned the thresholds by a literal in a test, and the review defeated that
+#: in two lines: move a threshold, move the test's literal with it, and the
+#: version stays where it was. The claim "a threshold cannot move without a
+#: reviewed version edit" then rested on the diff being read, not on anything
+#: structural.
 #:
 #: A version's digest is a RECORD. Once a figure has been measured and
 #: censused under v2, what v2 MEANT cannot change — so an edit to either table
@@ -315,9 +301,9 @@ _NON_LETTER_RE = re.compile(r"[\W\d_]+")
 #: Every bound is INSIDE its own pattern, so a shape cannot quietly widen to
 #: excuse a genuine run: a masked field of more than twenty X's is garbage
 #: again, and an IBAN is a real IBAN's length or it is not an IBAN. These are
-#: this module's own shapes deliberately — `layout/signals.py` is another
-#: cell's file, and a shared statement-furniture vocabulary is a card, not an
-#: edit made in passing (review MINOR-1).
+#: this module's own shapes deliberately — `layout/signals.py` is another cell's
+#: file, and a shared statement-furniture vocabulary is a card, not an edit made
+#: in passing.
 NON_GARBAGE_SHAPES: Mapping[str, str] = MappingProxyType({
     # a masked account or card number: XXXXXXXX4821, ****-1234
     "masked_account": r"[X*•·]{2,20}[\s-]?\d{2,6}",
@@ -550,12 +536,11 @@ def _is_garbage_token(text: str) -> bool:
     """Over-long, or carrying a repeated-letter run — unless the token has one
     of the named furniture shapes.
 
-    BOTH halves of the rule, always: a rule that only measured length reads
-    0.0 on a page of `lllll` runs (P23-EGATE M3). And the shapes first,
-    because a masked account number, an IBAN and a footer URL are what a
-    correctly-read statement looks like, and counting them as garbage made the
-    rate a measure of the LAYOUT rather than of the recognition (review
-    MINOR-1)."""
+    BOTH halves of the rule, always: a rule that only measured length reads 0.0
+    on a page of `lllll` runs. And the shapes first, because a masked account
+    number, an IBAN and a footer URL are what a correctly-read statement looks
+    like, and counting them as garbage made the rate a measure of the LAYOUT
+    rather than of the recognition."""
     if non_garbage_shape(text) is not None:
         return False
     return len(text) > int(_t("garbage_token_max_chars")) or bool(_REPEATED_LETTER_RE.search(text))
@@ -630,9 +615,8 @@ def _right_edge_residual(page: PageEvidence) -> tuple[int, float | None]:
     layouts. Measuring the dispersion of "the last money token of each line"
     measures the distance BETWEEN two columns on any page that has two
     (withdrawals and deposits, debit and credit, an amount beside a running
-    balance printed on only some lines), so a FLAWLESS two-column page read
-    five times the ceiling and fired E3 (P23-EGATE review MAJOR-1, reproduced
-    at 8.0 against 1.5).
+    balance printed on only some lines), so a FLAWLESS two-column page read five
+    times the ceiling and fired E3.
 
     So the edges are clustered into columns first, each column is measured on
     its own, and the page is reported by its WORST column. "Is this a column
@@ -866,11 +850,11 @@ def _with_classes(quality: PageQuality) -> PageQuality:
     frame_or_boxes = (
         (
             # §H.4: the votes disagree with THE FRAME. The frame says the page
-            # is read across it; a majority of the boxes running DOWN it is
-            # the disagreement. A frame with no reading direction (square
-            # within tolerance) is not judged on orientation — v2, review
-            # MINOR-2: at v1's literal unanimity one wide artefact box on a
-            # rotated page disarmed the criterion completely.
+            # is read across it; a majority of the boxes running DOWN it is the
+            # disagreement. A frame with no reading direction (square within
+            # tolerance) is not judged on orientation — v2, review at v1's
+            # literal unanimity one wide artefact box on a rotated page disarmed
+            # the criterion completely.
             votes is not None
             and quality.frame_reading is not None
             and votes.decided >= int(_t("orientation_min_votes"))

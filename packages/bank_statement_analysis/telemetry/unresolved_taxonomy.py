@@ -1,5 +1,5 @@
 """telemetry/unresolved_taxonomy.py — the layered unresolved-reason taxonomy
-(Phase 2.2 cell T; the W3-2 idiom of `W3_2_TAXONOMY.md`).
+(the idiom of `W3_2_TAXONOMY.md`).
 
 "755 unresolved" is one number. This module makes it seven, one per LAYER, and
 names exactly one of them the document's PRIMARY reason — so "why does this
@@ -102,15 +102,15 @@ __all__ = [
 #: v1 — P22-TRUTHTABLE, as shipped. Bumped whenever a layer's vocabulary or
 #: the precedence changes, for the reason `DIAGNOSTICS_VERSION` is bumped.
 #:
-#: WHEN THE BUMP RULE STARTS BINDING (review MINOR-8; Ocean's reading, recorded
-#: here because the question is about this constant and nowhere else). The
-#: closure added a code to a layer's set and left this number at 1, which reads
-#: against the rule one line above. It is not: **version 1 has never been
-#: emitted by any run of record.** No artifact anywhere carries the column —
-#: the reviewer checked — and this cell is a single unmerged delivery, so there
-#: is no v1 rollup in existence for a v2 rollup to be incomparable WITH. A
-#: vocabulary change made BEFORE the first run of record at v1 is therefore
-#: part of what v1 turns out to be, not a change to it, and does not bump.
+#: WHEN THE BUMP RULE STARTS BINDING (Ocean's reading, recorded here because the
+#: question is about this constant and nowhere else). The closure added a code
+#: to a layer's set and left this number at 1, which reads against the rule one
+#: line above. It is not: **version 1 has never been emitted by any run of
+#: record.** No artifact anywhere carries the column — the reviewer checked —
+#: and this cell is a single unmerged delivery, so there is no v1 rollup in
+#: existence for a v2 rollup to be incomparable WITH. A vocabulary change made
+#: BEFORE the first run of record at v1 is therefore part of what v1 turns out
+#: to be, not a change to it, and does not bump.
 #:
 #: From the first run of record that RECORDS v1 onward, the rule binds without
 #: exception, exactly as `DIAGNOSTICS_VERSION` is governed: ANY change to a
@@ -604,15 +604,15 @@ def diagnose_unresolved(
 
     primary_layer = next((layer for layer in LAYER_PRECEDENCE if codes[layer]), "")
     if not primary_layer:
-        # Review MINOR-4. An UNRESOLVED document always has a primary reason,
-        # by construction rather than by luck: if no layer spoke, L6 says so in
-        # its own closed word. A row reaching here carries an outcome reason
-        # this module deliberately mapped to no layer (the financial classes,
-        # whose layer comes from the withheld diagnosis) on a class that
-        # carries no diagnosis — so there is genuinely nothing to report, and
-        # "nothing to report" is a finding with a name, never an empty column.
-        # The validated early-return above is the one path that yields no
-        # diagnosis at all, and it yields no diagnosis on purpose.
+        # An UNRESOLVED document always has a primary reason, by construction
+        # rather than by luck: if no layer spoke, L6 says so in its own closed
+        # word. A row reaching here carries an outcome reason this module
+        # deliberately mapped to no layer (the financial classes, whose layer
+        # comes from the withheld diagnosis) on a class that carries no
+        # diagnosis — so there is genuinely nothing to report, and "nothing to
+        # report" is a finding with a name, never an empty column. The validated
+        # early-return above is the one path that yields no diagnosis at all,
+        # and it yields no diagnosis on purpose.
         codes["l6"] = "unknown"
         primary_layer = "l6"
     return UnresolvedDiagnosis(

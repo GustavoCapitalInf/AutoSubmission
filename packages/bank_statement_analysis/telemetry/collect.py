@@ -134,17 +134,17 @@ def score_vector(
 
     **Say plainly what "nothing" means.** Reusing the preparation reuses its
     MARKER MEMO too, so the second sweep is not a cheaper sweep — it is a
-    replay: measured on the largest pinned document, `Marker.test` is called
-    190 times in the first sweep and **0 times** in the second, and every
+    replay: measured on the largest pinned document, `Marker.test` is called 190
+    times in the first sweep and **0 times** in the second, and every
     `Detection` here is assembled from values the first sweep computed. The
-    paragraph above says re-running `detect` reproduces the run of record;
-    with a collector, the record is reproduced by not re-running it, which is
-    the same value for the same reason (`Marker.test` and the normalizers are
-    pure by contract) and is worth stating rather than implying. What is NOT
-    replayed is a crash: a marker that raises is never memoized, so the
-    `_guarded` seam is entered on this sweep exactly as on the first — proven
-    by deliberate injection over the whole archive, 2 raises per crashing
-    registration per document (#PREPHAND PH5.1).
+    paragraph above says re-running `detect` reproduces the run of record; with
+    a collector, the record is reproduced by not re-running it, which is the
+    same value for the same reason (`Marker.test` and the normalizers are pure
+    by contract) and is worth stating rather than implying. What is NOT replayed
+    is a crash: a marker that raises is never memoized, so the `_guarded` seam
+    is entered on this sweep exactly as on the first — proven by deliberate
+    injection over the whole archive, 2 raises per crashing registration per
+    document.
 
     The reuse is **guarded on the type and then on the text, not on the
     caller's word**: it is taken only from a real `PreparedDocument` whose
@@ -309,10 +309,10 @@ def reconstructed_claim(scores, payload: dict | None) -> tuple[str, float] | Non
     """
     from analysis.structurer import STRUCTURER_MODEL
 
-    # Guarded on the type, not on the caller's word — `score_vector`'s rule,
-    # for the same reason: this runs inside emit paths that swallow their own
-    # exceptions (I4), so a caller that hands over something that is not a
-    # serialized payload must reconstruct nothing rather than cost a record.
+    # Guarded on the type, not on the caller's word — `score_vector`'s rule, for
+    # the same reason: this runs inside emit paths that swallow their own
+    # exceptions, so a caller that hands over something that is not a serialized
+    # payload must reconstruct nothing rather than cost a record.
     model_used = payload.get("model_used") if isinstance(payload, dict) else None
     model_used = model_used if isinstance(model_used, str) else ""
     if not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX):

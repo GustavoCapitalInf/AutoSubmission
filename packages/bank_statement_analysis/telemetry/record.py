@@ -4,10 +4,10 @@ Schema and rationale: `docs/moneythumb-replacement/H3_SCHEMA.md`. This module
 is the single definition of the shape; both storage backends serialise exactly
 this object (H3_SCHEMA I2), so a field that is not built here does not exist.
 
-**Sensitivity invariant (I1), enforced by test.** A record carries hashes,
-registry ids, enum codes, counts and timings — never customer or business
-names, account numbers, amounts, statement dates, transaction text, or
-filenames. Two traps this module is written to avoid:
+**Sensitivity invariant, enforced by test.** A record carries hashes, registry
+ids, enum codes, counts and timings — never customer or business names, account
+numbers, amounts, statement dates, transaction text, or filenames. Two traps
+this module is written to avoid:
 
 - **No filename.** Customer names live in paths (`SALON BARK LLC March.pdf`).
   Documents are identified by `content_sha256` alone; a run that needs to act
@@ -55,13 +55,13 @@ TELEMETRY_VERSION = 1
 #: pathological document, not a policy. `scores_capped` records when it bites.
 SCORE_CAP = 12
 
-#: P22-TRUTHTABLE (Phase 2.2, R11): `refused` is a first-class TERMINAL
-#: class — the platform declining a document for a named, defensible reason
-#: (not a statement; an invalid file; insufficient evidence; a document that
-#: contradicts itself; incomplete; unreadable). It is NOT a rung of
-#: `DOCUMENT_LADDER` / `discovery.compare.LADDER`: it is unranked against
-#: failed / withheld / review, and ANY exit from `validated` — to `refused`
-#: included — is a regression (`discovery/compare.py::direction`).
+#: `refused` is a first-class TERMINAL class — the platform declining a document
+#: for a named, defensible reason (not a statement; an invalid file;
+#: insufficient evidence; a document that contradicts itself; incomplete;
+#: unreadable). It is NOT a rung of `DOCUMENT_LADDER` /
+#: `discovery.compare.LADDER`: it is unranked against failed / withheld /
+#: review, and ANY exit from `validated` — to `refused` included — is a
+#: regression (`discovery/compare.py::direction`).
 OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred", "refused")
 
 #: Reasons a document may be DEFERRED — recorded work that a tranche
@@ -70,47 +70,40 @@ OUTCOME_CLASSES = ("validated", "review", "withheld", "failed", "deferred", "ref
 #: did not try" and "we tried and it broke" is the whole point of the class,
 #: and inferring it would let a real failure hide as a decision.
 #:
-#: P22-TRUTHTABLE (D7, D8): the two research-mode declarations. A document
-#: the `--research-paddle` run enumerated but whose sha is not in the
-#: operator's population file is `research_skipped_not_in_population`; a
-#: population sha that appears in the holdout digest's list is
-#: `research_refused_holdout` — refused before any read, so a holdout item
-#: can never be studied by a research run (case 21). Both are statements
-#: about the RUN (its population, its cage), which is what `deferred` is for.
+#: The two research-mode declarations. A document the `--research-paddle` run
+#: enumerated but whose sha is not in the operator's population file is
+#: `research_skipped_not_in_population`; a population sha that appears in the
+#: holdout digest's list is `research_refused_holdout` — refused before any
+#: read, so a holdout item can never be studied by a research run (case 21).
+#: Both are statements about the RUN (its population, its cage), which is what
+#: `deferred` is for.
 #:
-#: Append-only. Since slice S5 of the model-code removal nothing emits
-#: `deferred_visual_ocr` (the runner records the offline ladder reading
-#: nothing as `refused:insufficient_evidence`) or the two research reasons
-#: (the research mode was removed); they stay members so historical rows and
-#: records still classify (`telemetry.unresolved_taxonomy.RETIRED_RUNNER_REASONS`).
+#: Append-only. Nothing emits `deferred_visual_ocr` or the two research
+#: reasons any more; they stay members so historical rows and records still
+#: classify (`telemetry.unresolved_taxonomy.RETIRED_RUNNER_REASONS`).
 DEFERRED_REASONS = (
     "deferred_scanned", "deferred_visual_ocr", "profile_only",
     "research_skipped_not_in_population", "research_refused_holdout",
 )
 
-#: P22-TRUTHTABLE (R11): the CLOSED reasons a `refused` outcome may carry,
-#: declared through `classify_outcome(..., refused=<reason>)`, exactly as
-#: `deferred=` is declared, never inferred. Reserved in Phase 2.2 (a test
-#: asserts zero `refused` rows on the run of record's replay). Since slice S5
-#: of the model-code removal ONE member has an emitter: `discovery/runner.py`
+#: The CLOSED reasons a `refused` outcome may carry, declared through
+#: `classify_outcome(..., refused=<reason>)`, exactly as `deferred=` is
+#: declared, never inferred. One member has an emitter: `discovery/runner.py`
 #: declares `insufficient_evidence` when `--scanned`'s offline ladder,
-#: Tesseract included, read nothing usable (it was `deferred_visual_ocr`).
-#: The other five are still reserved: nothing emits them.
+#: Tesseract included, read nothing usable. The other five are reserved.
 REFUSED_REASONS = (
     "not_a_statement", "file_invalid", "insufficient_evidence", "contradictory", "incomplete", "unreadable",
 )
-#: P21-ROUTING (Phase 2.1) adds `"paddle"`, between `"local_tesseract"` and
-#: `"visual"`.
 SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "visual_pair", "none")
 
-#: P20-ROUTER (Phase 2.0). `FAILURE_CLASSES` is mirrored, by value, from
-#: `ocr.escalation` and held equal to it by `tests/test_telemetry.py`; it is
-#: not imported because `ocr/escalation.py` must import nothing from
-#: `telemetry`, and the reverse import would tie this layer to the OCR package
-#: for one tuple. `EXTRACTION_TRIGGERS` is the vocabulary the retired
-#: escalation router named its triggers in; it stays so historical rows remain
-#: classifiable. A row or record token from outside either vocabulary is
-#: refused by the `discovery.runner` row projection.
+#: `FAILURE_CLASSES` is mirrored, by value, from `ocr.escalation` and held equal
+#: to it by `tests/test_telemetry.py`; it is not imported because
+#: `ocr/escalation.py` must import nothing from `telemetry`, and the reverse
+#: import would tie this layer to the OCR package for one tuple.
+#: `EXTRACTION_TRIGGERS` is the vocabulary the retired escalation router named
+#: its triggers in; it stays so historical rows remain classifiable. A row or
+#: record token from outside either vocabulary is refused by the
+#: `discovery.runner` row projection.
 FAILURE_CLASSES = ("A", "B", "C", "")
 EXTRACTION_TRIGGERS = (
     "image_only_document",
@@ -121,7 +114,7 @@ EXTRACTION_TRIGGERS = (
     "operator_forced_visual",
     "operator_forced_visual_pair",
     "deterministic_parse_unvalidated",
-    # P22-TRUTHTABLE (D8): the research run mode's trigger; see
+    # The research run mode's trigger; see
     # `ocr.escalation.OPERATOR_FORCED_PADDLE`.
     "operator_forced_paddle",
     "truncation_flagged",
@@ -178,40 +171,14 @@ def new_run_id() -> str:
     return f"{utc_now_iso()}-{uuid.uuid4().hex[:8]}"
 
 
-#: F-7 closure: the closed set of model tokens `source_path_for` will call
-#: "visual". Before this, ANY model string that matched none of the other
-#: branches fell through to `"visual"` — correct only because the only rung
-#: that has ever produced an unrecognised token IS the visual one; a future
-#: extractor's model string (e.g. a `paddle+...` prefix) would have been
-#: silently mis-attributed to the GPU/paid path by the same fallthrough. The
-#: fallthrough now returns `"none"` for anything not explicitly named here,
-#: which is loud (see `source_path_unrecognized_model`) rather than a guess.
-#: PaddleOCR gets its own member in Phase 2.1, not this one (no PaddleOCR
-#: token here in Phase 2.0).
-#:
-#: Case-sensitive BY DESIGN, matching every other branch in
-#: `source_path_for` (`"local-tesseract-ocr"`, `"deterministic-native-
-#: preflight"` are exact, case-sensitive comparisons too — a parser or
-#: extractor never has reason to vary the case of its OWN constant token).
-#: `"baidu/unlimited-ocr"` (lowercase) is therefore an UNRECOGNISED token,
-#: not a case-insensitive match for the real one — the same defensive
-#: default as any other token this module has never seen, surfaced the same
-#: way (`source_path_unrecognized_model`), never silently normalised.
-#:
-#: Placed immediately above `source_path_for`, the function it belongs to
-#: (MINOR-4) — cell A's `FAILURE_CLASSES` /
-#: `EXTRACTION_TRIGGERS` insert immediately after `SOURCE_PATHS` above,
-#: which is a different anchor, so the two cells no longer collide on the
-#: same line range at compose time.
+#: The closed set of model tokens `source_path_for` calls "visual". Any other unrecognised token returns `"none"`,
+#: surfaced by `source_path_unrecognized_model`, rather than a guess at a rung. Case-sensitive, like every other
+#: branch of `source_path_for`: a rung never varies the case of its own constant token.
 VISUAL_MODEL_TOKENS = frozenset({"baidu/Unlimited-OCR"})
 
-#: P21-ROUTING (Phase 2.1). A LITERAL mirror of what was
-#: `ocr.paddle_config.PADDLE_MODEL_TOKEN` — not imported, for the same reason
-#: `VISUAL_MODEL_TOKENS` is a literal rather than an import. The PaddleOCR rung
-#: and that module were removed (model-code removal, slice S5); the token stays
-#: here as historical vocabulary, because stored readings and telemetry records
-#: still carry it, and `tests/test_telemetry.py` and `tests/test_config.py` pin
-#: it as a literal (equal to `ocr.config.RESERVED_MODEL_PREFIXES`' member).
+#: The retired Paddle rung's model token, kept as historical vocabulary because stored readings and telemetry
+#: records still carry it. `tests/test_telemetry.py` and `tests/test_config.py` pin it as a literal, equal to
+#: `ocr.config.RESERVED_MODEL_PREFIXES`' member.
 PADDLE_MODEL_TOKENS = frozenset({"paddle-ocr+ppocrv5"})
 VISUAL_PAIR_MODEL_TOKENS = frozenset({"visual-pair-dots-qwen"})
 
@@ -222,14 +189,14 @@ def source_path_for(model: str | None) -> str:
     `model` is the one signal both the webapp and the CLI share — the ladder's
     `on_stage` rung is the same fact but is only wired up in the worker.
 
-    F-7 closure: the fallthrough is CLOSED, not a guess. `"visual"` is
-    returned only for a token in `VISUAL_MODEL_TOKENS` (case-sensitive);
-    `"paddle"` only for the exact `PADDLE_MODEL_TOKENS` member (P21-ROUTING);
-    any other non-empty, unrecognised token — including a `paddle`-LOOKING
-    string that is not the registered token — returns `"none"` rather than
-    being assumed to be either rung. See `source_path_unrecognized_model` for
-    the companion predicate a caller can use to surface that as an explicit
-    diagnostic instead of a silent mis-attribution.
+    The fallthrough is closed, not a guess. `"visual"` is returned
+    only for a token in `VISUAL_MODEL_TOKENS` (case-sensitive); `"paddle"` only
+    for the exact `PADDLE_MODEL_TOKENS` member; any other non-empty,
+    unrecognised token — including a `paddle`-LOOKING string that is not the
+    registered token — returns `"none"` rather than being assumed to be either
+    rung. See `source_path_unrecognized_model` for the companion predicate a
+    caller can use to surface that as an explicit diagnostic instead of a silent
+    mis-attribution.
     """
     if not model:
         return "none"
@@ -316,15 +283,15 @@ def source_section(doc: Any | None) -> dict:
     `page_integrity` means NOT ASSESSED, which is distinct from "zero truncated
     pages" and is reported as such (H3_SCHEMA I5).
 
-    P21-ROUTING (design item 4): `evidence_sha256` / `provider` /
-    `execution_class` are read from `doc.evidence.runtime` when present —
-    `None` for every rung that carries no canonical evidence (every read
-    before Phase 2.1, and every non-Paddle read since).
+    `evidence_sha256` / `provider` / `execution_class` are read from
+    `doc.evidence.runtime` when present — `None` for every rung that carries no
+    canonical evidence (every read before Phase 2.1, and every non-Paddle read
+    since).
 
-    P22-TRUTHTABLE (the one-line change cell K's W3 names): a native read
-    gains its NATIVE evidence sha (`StatementMarkdown.native_evidence_sha256`,
-    D5) when the read carries no extractor evidence — a Paddle read keeps its
-    own evidence sha; every other rung stays `None`.
+    A native read gains its NATIVE evidence sha
+    (`StatementMarkdown.native_evidence_sha256`, D5) when the read carries no
+    extractor evidence — a Paddle read keeps its own evidence sha; every other
+    rung stays `None`.
     """
     if doc is None:
         return {
@@ -376,13 +343,13 @@ def dispatch_section(
     Only ids, scores and enum outcomes cross this boundary.
 
     **`source` is DERIVED HERE, from the two facts that decide it, and is not
-    the caller's to assert (#TELCOV).** It had been a required keyword, and all
-    three emitters computed it themselves: the worker said `cached`, while
-    `batch.py` and the discovery runner said `unavailable` for the identical
-    state. Measured on the warm archive re-run `b7b40c73`, that spelled
+    the caller's to assert.** It had been a required keyword, and all three
+    emitters computed it themselves: the worker said `cached`, while `batch.py`
+    and the discovery runner said `unavailable` for the identical state.
+    Measured on the warm archive re-run `b7b40c73`, that spelled
     `dispatch.source = "unavailable"` over 2,561 records the analysis cache had
-    just served in full — H3_SCHEMA I5's own example of what the field exists
-    to prevent ("`dispatch.source = "cached"` is not `unclaimed`"), written the
+    just served in full — H3_SCHEMA I5's own example of what the field exists to
+    prevent ("`dispatch.source = "cached"` is not `unclaimed`"), written the
     other way round. One rule now, in one place:
 
     * `live` — a `Dispatch` was observed. The verdict is an OBSERVATION,
@@ -413,10 +380,10 @@ def dispatch_section(
     `exceptions` (W3-1) carries `[parser_id, stage, exception_class]` triples.
     Before the boundary existed a parser crash escaped `resolve`, so no
     `Dispatch` was ever built and the only surviving fact was the top-level
-    `outcome.error_type` — one class name for the whole document, with no way
-    to say WHICH parser broke. Discovery's 53 crashes were diagnosable only by
+    `outcome.error_type` — one class name for the whole document, with no way to
+    say WHICH parser broke. Discovery's 53 crashes were diagnosable only by
     re-running the archive by hand. The exception CLASS NAME is the whole
-    payload here, deliberately: a message quotes the document (I1).
+    payload here, deliberately: a message quotes the document.
     """
     capped = scores[:SCORE_CAP]
     section = {
@@ -468,38 +435,34 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     counts. Prompt tokens are not captured anywhere in the platform today;
     they are `None`, never estimated from character counts (H3_SCHEMA §9).
 
-    OQ3 provenance (MAJOR-2): every OCR-stage call
-    entry also carries `endpoint_class` and `remote_opt_in`. They used to be
-    read from the visual OCR settings (`ocr.config.load_settings()`) at record
-    time; since slice S2 of the model-code removal they are the fixed
-    historical constants `"loopback"` and `False` (M12): the values that
-    settings object held on every default environment, naming an endpoint
-    (the retired local visual OCR server) that no longer exists. The record
-    shape is unchanged.
+    Every OCR-stage call entry also carries `endpoint_class` and
+    `remote_opt_in`, as the fixed historical constants `"loopback"` and `False`
+    (the retired visual OCR settings' defaults), so the record shape is
+    unchanged.
 
-    F-7 (MAJOR-3): an unrecognised model token (`source_path_unrecognized_
-    model`) is reported one call per page, completion tokens summed where
-    reported — never silently downgraded to `purpose: "none"` / `calls: 1`,
-    which would under-report a real per-page GPU read as a single untimed
-    call. Its `purpose` is `"unrecognized_model"`, distinct from every
-    `source_path_for` value, so a rollup can tell them apart.
+    An unrecognised model token (`source_path_unrecognized_model`) is
+    reported one call per page, completion tokens summed where reported — never
+    silently downgraded to `purpose: "none"` / `calls: 1`, which would
+    under-report a real per-page GPU read as a single untimed call. Its
+    `purpose` is `"unrecognized_model"`, distinct from every `source_path_for`
+    value, so a rollup can tell them apart.
 
-    NEW-6 (re-review, closure 1cc759e) is closed by construction since S2:
-    nothing here reads the environment any more, so a hostile `OCR_MODEL`
-    can no longer cost these two fields (it used to make them `None`).
+    NEW-6 is closed by construction since S2: nothing here reads the environment
+    any more, so a hostile `OCR_MODEL` can no longer cost these two fields (it
+    used to make them `None`).
     """
     calls: list[dict] = []
     if doc is not None:
         path = source_path_for(doc.model)
         unrecognized = source_path_unrecognized_model(doc.model)
-        # Historical constant (M12): the endpoint class the retired visual OCR
+        # Historical constant: the endpoint class the retired visual OCR
         # settings classified their default base URL as. It names an endpoint
         # (the local visual OCR server) that no longer exists; kept so the
         # record's shape and values stay what every default environment wrote.
         endpoint_class = "loopback"
-        # Historical constant (M12): the retired visual OCR settings' remote
-        # opt-in on every default environment. The endpoint it described no
-        # longer exists; kept so the record's shape and values are unchanged.
+        # Historical constant: the retired visual OCR settings' remote opt-in on
+        # every default environment. The endpoint it described no longer exists;
+        # kept so the record's shape and values are unchanged.
         remote_opt_in = False
         if unrecognized:
             reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
@@ -529,7 +492,7 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     model_used = (payload or {}).get("model_used") or ""
     # The same suffix `reconstructed_claim` reads, through the same constant:
     # both are asking whether a model produced this payload, and two string
-    # literals asking one question is how they drift apart (#TELCOV).
+    # literals asking one question is how they drift apart.
     if (
         payload is not None
         and model_used
@@ -562,12 +525,11 @@ def classify_outcome(
     about the RUN, not about the document, and it is only ever reached by an
     explicit `deferred=` declaration from the caller.
 
-    `refused` (P22-TRUTHTABLE, R11) is the platform DECLINING the document
-    for one of `REFUSED_REASONS` — a terminal verdict about the DOCUMENT, so
-    it ranks below a deferral (the run's statement) and above the payload
-    (a refusal is decided before any figure is published). Like `deferred`
-    it is only ever reached by an explicit `refused=` declaration (since
-    slice S5 of the model-code removal, discovery's `--scanned` no-text site
+    `refused` is the platform DECLINING the document for one of
+    `REFUSED_REASONS` — a terminal verdict about the DOCUMENT, so it ranks below
+    a deferral (the run's statement) and above the payload (a refusal is decided
+    before any figure is published). Like `deferred` it is only ever reached by
+    an explicit `refused=` declaration (discovery's `--scanned` no-text site
     makes the one: `insufficient_evidence`).
 
     `failed` therefore means exactly one thing: attempted, and errored.
@@ -626,10 +588,10 @@ def classify_document(
 ) -> tuple[str, str]:
     """(class, reason) for one DOCUMENT: the WEAKEST account's, fail-closed.
 
-    `refused` (P22-TRUTHTABLE, R11) is threaded to `classify_outcome`
-    exactly as `deferred` is: an explicit declaration that outranks the
-    fold, never a value the fold can produce (an account never reaches the
-    fold `refused`, and the ladder check below stays the guard).
+    `refused` is threaded to `classify_outcome` exactly as `deferred` is: an
+    explicit declaration that outranks the fold, never a value the fold can
+    produce (an account never reaches the fold `refused`, and the ladder check
+    below stays the guard).
 
     One outcome per document is not a convenience. `discovery/compare.py` ranks
     on `LADDER` keyed on `content_sha256` alone, and that ladder is what the
@@ -650,17 +612,13 @@ def classify_document(
       (L1-C17): the section should never have been published as omitted, so
       the document `failed`s rather than being graded around it.
 
-    **The design's third override is deliberately NOT wired** (Ocean, from the
-    L1-S2 review; ruling Q10 is with Gustavo). §1.5 proposed that an omission on
-    RATIFIED evidence should stop a document being `validated` and file it
-    `review/sibling_section_omitted`. L1-S2 records exactly such omissions on
-    15 documents that batch 8 validated, every one admitted on printed evidence
-    — so wiring that override would fold 15 protected documents from
-    `validated` to `review`. That is a regression under the batch-9 doctrine
-    whatever its merits as a policy, and it is not a thing a stage that moves
-    zero documents may decide on its own. A ratified omission therefore leaves
-    the fold alone until the ruling lands; an UNRATIFIED one still fails the
-    document, because that one is a defect rather than a policy.
+    **The design's third override is deliberately not wired** (ruling Q10 is
+    open). §1.5 proposed that an omission on ratified evidence should stop a
+    document being `validated` and file it `review/sibling_section_omitted`;
+    wiring it would move validated documents, admitted on printed evidence, to
+    `review`. A ratified omission therefore leaves the fold alone; an
+    unratified one still fails the document, because that one is a defect
+    rather than a policy.
 
     `validated` on a document therefore means *every account validated, and
     nothing was omitted except on ratified printed evidence*, which on a
@@ -670,15 +628,10 @@ def classify_document(
     nicety: what this reads is a published PAYLOAD — a mapping, or `None` for a
     document that produced none. Anything else raises `TypeError` HERE, naming
     the shape it wanted, rather than being passed on to `classify_outcome` to
-    fail several frames down inside a `.get`. The L1-S3 review found what the
-    quiet version cost: `tests/test_l1s2_document_outcome.py`'s resolver
-    discovers this fold by AST and probes it with two call shapes — the
-    `DocumentReport` object first, then the payload — narrowing on `TypeError`
-    to mean *not this call shape, try the other*. Delegating the object instead
-    produced `AttributeError` two frames down, the resolver never reached the
-    payload leg, and eleven of L1-S2's Q10 pins went red at the merged tree.
-    `TypeError` at this door is therefore a published contract that a sibling
-    stage already depends on, not an implementation detail.
+    fail several frames down inside a `.get`. `TypeError` at this door is a
+    published contract: a test resolver probes this fold with two call shapes
+    (the `DocumentReport` object, then the payload) and reads `TypeError` as
+    "not this call shape, try the other".
     """
     if payload is not None and not isinstance(payload, Mapping):
         raise TypeError(
@@ -688,11 +641,10 @@ def classify_document(
             f"`analysis.serialization.document_report_to_dict` returns for it"
         )
     surface = "telemetry/record.py::classify_document"
-    # L1-C17's override, asked of BOTH shapes. A single-account document can
-    # carry a surfaced omission too (L1-S4 gives it a `document` block beside
-    # today's payload), and an omission whose reason is not a ratified evidence
-    # class is a publisher defect on ONE account exactly as it is on three. The
-    # check runs before the shape branch so neither shape can walk past it.
+    # The unratified-omission override, asked of both shapes. A single-account document can
+    # carry a surfaced omission too (in a `document` block beside its accounts), and an omission whose reason is not
+    # a ratified evidence class is a publisher defect on ONE account exactly as it is on three. The check runs before
+    # the shape branch so neither shape can walk past it.
     if deferred is None and refused is None and isinstance(payload, Mapping) and DOCUMENT_KEY in payload:
         for omission in payload_document_block(
             payload, surface=surface).get("omitted_sections") or []:

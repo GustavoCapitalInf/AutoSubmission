@@ -12,13 +12,13 @@ phase 1 of it.
 outcome class moves; no payload is written. This is a measuring instrument
 pointed at already-cached artifacts, and its whole output is a statistic.
 
-**Phase 2 landed (COUNTS-P2, 2026-08-13) and one thing here changed with it:**
-the per-bank semantics table moved to ``analysis/count_semantics.py``, where
-the shipping integrity check reads it, and this module imports it from there.
-The vocabulary, the evaluation order and every guard below are untouched. What
-that buys is the property the phase-2 card required — the instrument that
-PREDICTS the flag population and the code that EMITS it cannot disagree,
-because there is only one table. See :data:`OBSERVER_VERSION`.
+**Phase 2 landed (COUNTS-P2) and one thing here changed with it:** the per-bank
+semantics table moved to ``analysis/count_semantics.py``, where the shipping
+integrity check reads it, and this module imports it from there. The vocabulary,
+the evaluation order and every guard below are untouched. What that buys is the
+property the phase-2 card required — the instrument that PREDICTS the flag
+population and the code that EMITS it cannot disagree, because there is only one
+table. See :data:`OBSERVER_VERSION`.
 
 The closed result vocabulary (binding, from the sign-off)
 --------------------------------------------------------
@@ -577,13 +577,13 @@ def _advisory(
 ) -> dict[str, Any]:
     """Sub-measurements that are NOT the vocabulary and never rolled into it.
 
-    Phase 1's job is to tell Gustavo what phase 2 would do. For the
-    incomparable populations the vocabulary answer is deliberately silent, so
-    the counterfactual is measured here and labelled as a counterfactual: what
-    the comparison WOULD have said, and — for BofA — what it would say under
-    the `+ check_count` mapping the repair path applied UNTIL BOFA-COUNTS
-    removed it (2026-08-13); the counterfactual is kept as the historical
-    record of what that mapping would have manufactured.
+    Phase 1's job is to tell Gustavo what phase 2 would do. For the incomparable
+    populations the vocabulary answer is deliberately silent, so the
+    counterfactual is measured here and labelled as a counterfactual: what the
+    comparison WOULD have said, and — for BofA — what it would say under the `+
+    check_count` mapping the repair path applied UNTIL BOFA-COUNTS removed it;
+    the counterfactual is kept as the historical record of what that mapping
+    would have manufactured.
     """
     out: dict[str, Any] = {}
     for direction in DIRECTIONS:
@@ -834,20 +834,17 @@ class _ArtifactJoin:
     throughout the blindness and cannot warn about it; only an empty rollup over
     the real archive shows it.
 
-    **Artifact selection (P20-ARTIFACTS, Phase 2.0; OQ8/OQ10; F-9/MAJOR-3).**
-    This class is what the OCR-legacy audit named `CachedArtifacts` and cites
-    as F-9's prior art — but its own OCR-side selection was a declared,
-    ORDERED `_ocr_keys` preference list that put the visual partition LAST, an
+    **Artifact selection (OQ8/OQ10; F-9/MAJOR-3).** This class is what the OCR-legacy audit
+    named `CachedArtifacts` and cites as F-9's prior art — but its own OCR-side selection was
+    a declared, ORDERED `_ocr_keys` preference list that put the visual partition LAST, an
     unratified extractor ranking (Risk 7 / OQ10). It now resolves through
     `telemetry/run_of_record.py`'s ONE selection policy: the `run_dir` this instance is built
-    against supplies `RunPartitions` (recorded, or reconstructed and verified
-    against THIS `data_dir`'s own cache index), `payload_for` resolves each
-    document's OCR partition from ITS OWN row (`source_path` / `visual_rung`
-    — never a preference walk), and the analysis filter uses the RUN's
-    recorded analysis key rather than recomputing one from the current tree
-    (a historical run's analysis key can differ from what this tree would
-    compute today — the registry fingerprint alone rotates at nearly every
-    wave).
+    against supplies `RunPartitions` (recorded, or reconstructed and verified against THIS
+    `data_dir`'s own cache index), `payload_for` resolves each document's OCR partition from
+    ITS OWN row (`source_path` / `visual_rung` — never a preference walk), and the analysis
+    filter uses the RUN's recorded analysis key rather than recomputing one from the current
+    tree (a historical run's analysis key can differ from what this tree would compute today
+    — the registry fingerprint alone rotates at nearly every wave).
     """
 
     def __init__(self, data_dir: str | Path, run_dir: str | Path):
@@ -880,7 +877,7 @@ class _ArtifactJoin:
             # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
             # record or an unverifiable reconstruction — propagated to the CLI
             # boundary (`main`), never guessed past. Closed here on that path
-            # too (review MINOR-3): a `with _ArtifactJoin(...)` never reaches
+            # too: a `with _ArtifactJoin(...)` never reaches
             # `__enter__`/`__exit__` if the constructor itself raises.
             self.partitions = partitions_for_run(run_dir, conn=self._conn)
         except BaseException:
@@ -889,12 +886,12 @@ class _ArtifactJoin:
         self._analysis_key = analysis_partition(self.partitions)
 
     def close(self) -> None:
-        """Review MINOR-3: the old `_rows()` opened and closed a connection
-        PER CALL, in a `finally`; the per-document `select_artifact` design
-        keeps ONE connection open for the instance's lifetime instead, and
-        nothing released it. On Windows an unclosed `mode=ro` handle cannot
-        corrupt the (read-only) cold caches, but it can hold a file handle
-        open past a `tmp_path` fixture's teardown. Idempotent."""
+        """Review the old `_rows()` opened and closed a connection PER CALL, in
+        a `finally`; the per-document `select_artifact` design keeps ONE
+        connection open for the instance's lifetime instead, and nothing
+        released it. On Windows an unclosed `mode=ro` handle cannot corrupt the
+        (read-only) cold caches, but it can hold a file handle open past a
+        `tmp_path` fixture's teardown. Idempotent."""
         self._conn.close()
 
     def __enter__(self) -> "_ArtifactJoin":
@@ -1007,15 +1004,15 @@ def observe_run(
     `content_sha256` — the archive contains the same bytes under several paths
     and counting one document twice would inflate every rate in the rollup.
 
-    Raises `telemetry.run_of_record.RunOfRecordError` (P20-ARTIFACTS) if
-    `run_dir`'s partitions cannot be determined or a reconstruction does not
-    verify against `data_dir`'s own cache index — never a guess; `main()`
-    reports this as exit 5.
+    Raises `telemetry.run_of_record.RunOfRecordError` if `run_dir`'s partitions
+    cannot be determined or a reconstruction does not verify against
+    `data_dir`'s own cache index — never a guess; `main()` reports this as exit
+    5.
     """
     corpus_status = corpus_status or {}
     seen: set[str] = set()
     out: list[tuple[dict[str, Any], Observation]] = []
-    with _ArtifactJoin(data_dir, run_dir) as join:  # review MINOR-3: closed on every exit
+    with _ArtifactJoin(data_dir, run_dir) as join:  # review closed on every exit
         for row in load_run_rows(run_dir):
             content_sha256 = row.get("content_sha256") or ""
             if distinct:
