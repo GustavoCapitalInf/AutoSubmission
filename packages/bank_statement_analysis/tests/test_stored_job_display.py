@@ -40,7 +40,7 @@ function element() {
           setAttribute(key, value) { this.attributes[key] = value; }};
 }
 const els = Object.fromEntries(['downloadJson', 'downloadCsv', 'downloadExcel',
-  'exportText', 'openTextBtn', 'copyDataBtn', 'summaryBtn', 'copyTextBtn',
+  'exportText', 'openTextBtn', 'copyDataBtn', 'summaryBtn',
   'statusHeading', 'decisionPill', 'summaryBox'].map(key => [key, element()]));
 """
 
@@ -53,7 +53,6 @@ console.log(JSON.stringify(els));
 """)
     assert result["openTextBtn"]["href"] == "/result/synthetic-job"
     assert result["exportText"]["href"] == "/download/synthetic-job/md"
-    assert result["copyTextBtn"]["disabled"] is False
     for key in ("downloadJson", "downloadCsv", "downloadExcel"):
         assert result[key]["href"] == "#"
         assert result[key]["attributes"]["aria-disabled"] == "true"

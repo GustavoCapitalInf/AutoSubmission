@@ -695,10 +695,6 @@ class Storage:
             if cursor.rowcount:
                 self._insert_audit(conn, "status_change", job_id=job_id, detail={"status": "error"})
 
-    def set_job_analysis(self, job_id: str, analysis_json: str) -> None:
-        with closing(self._connect()) as conn, conn:
-            conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
-
     def record_reanalysis(self, job_id: str, *, analysis_json: str, detail: dict) -> bool:
         """Replace a job's analysis with a re-analysis of its statement (spec §8.6), in ONE transaction: the audit
         row carrying the analysis being replaced, verbatim, is written first, then the job row takes the new analysis

@@ -3852,15 +3852,6 @@ _PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
 #: the statement before it when it starts at most this many days before that statement ends (an overlap), or up to
 #: PACKAGE_CONSECUTIVE_DAYS after.
 LENDER_CHAIN_OVERLAP_DAYS = 5
-#: R2-OW18 (F2): why a member's lender payments were not checked across statements, and the words the package's
-#: neutral line and its downloads give each reason.
-LENDER_PAYMENT_UNCHECKED_WORDS = {
-    "not_ready": "not analysed yet",
-    "analysed_before_check": "analysed before the check: re-analyze",
-    "no_currency": "no currency declared: checked alone",
-    "no_period": "no statement period: checked alone",
-    "no_account_number": "fewer than 4 account digits and no balance chain: checked alone",
-}
 
 
 def _package_lender_payment_changes(members: list[tuple], overlays: dict | None = None, *,

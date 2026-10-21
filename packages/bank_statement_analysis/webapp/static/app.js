@@ -99,7 +99,6 @@ const els = {
   bulkSelectAll: document.getElementById("bulkSelectAll"),
   transactionsTitle: document.getElementById("transactionsTitle"),
   accountSummary: document.getElementById("accountSummary"),
-  copyTextBtn: document.getElementById("copyTextBtn"),
   openTextBtn: document.getElementById("openTextBtn"),
   downloadJson: document.getElementById("downloadJson"),
   downloadCsv: document.getElementById("downloadCsv"),
@@ -1276,8 +1275,7 @@ function packageFunderSummaryLine(funder, currency = "USD", returnedPayments = [
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
-// compared across statements, in the dashboard's plain words (the exports keep webapp/app.py
-// LENDER_PAYMENT_UNCHECKED_WORDS).
+// compared across statements, in the dashboard's plain words.
 const LENDER_PAYMENT_UNCHECKED_WORDS = {
   not_ready: "not analysed yet",
   analysed_before_check: "analysed before the check; re-analyze it to include it",
@@ -3150,7 +3148,7 @@ function setActions(jobId, ready, textReady = ready) {
       link.setAttribute("aria-disabled", "true");
     }
   });
-  [[els.copyDataBtn, ready], [els.summaryBtn, ready], [els.copyTextBtn, textReady]].forEach(([button, enabled]) => {
+  [[els.copyDataBtn, ready], [els.summaryBtn, ready]].forEach(([button, enabled]) => {
     if (!button) return;
     button.disabled = !enabled;
     button.classList.toggle("disabled", !enabled);
@@ -3180,10 +3178,6 @@ function setPackageActions(jobIds) {
     button.disabled = false;
     button.classList.remove("disabled");
   });
-  if (els.copyTextBtn) {
-    els.copyTextBtn.disabled = true;
-    els.copyTextBtn.classList.add("disabled");
-  }
 }
 
 // Legacy metric codes -> [monochrome glyph, plain-language label]
@@ -3648,11 +3642,6 @@ function tierReasonEntries(source = {}, tier = "excluded_pending_review") {
   return Object.entries(byReason)
     .map(([reason, figures]) => ({ reason, count: figures && figures.count, total: numberOrNull(figures && figures.total) }))
     .sort((a, b) => (b.total ?? 0) - (a.total ?? 0) || a.reason.localeCompare(b.reason));
-}
-
-// The held credits by reason: the Held for Review view.
-function heldReasonEntries(source = {}) {
-  return tierReasonEntries(source, "excluded_pending_review");
 }
 
 // The words naming one middle tier's reason rows in the evidence table. R2-OW03: and the non-revenue breakdown's,
@@ -7058,7 +7047,6 @@ function clearDropzoneParallax() {
   });
 });
 
-if (els.copyTextBtn) els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
 // A statement whose main account was not verified has no account on screen: its data is the whole statement, and
 // its summary is the explanation its view wrote (generateSummary leaves it).
 els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || currentDocument || {}, null, 2)));

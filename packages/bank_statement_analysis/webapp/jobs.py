@@ -288,15 +288,6 @@ class JobStore:
     # analysis mutation / analyst review
     # ------------------------------------------------------------------
 
-    def replace_analysis(self, job_id: str, analysis: dict) -> dict | None:
-        job = self.get(job_id)
-        if job is None or job.analysis is None:
-            return None
-        with self._lock:
-            job.analysis = deepcopy(analysis)
-        self._storage.set_job_analysis(job_id, json.dumps(analysis))
-        return deepcopy(analysis)
-
     def apply_reanalysis(
         self,
         job_id: str,
