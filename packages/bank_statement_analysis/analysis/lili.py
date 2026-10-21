@@ -11,7 +11,7 @@ unrelated statement. Every figure here is now that invented figure with its
 cent value multiplied by 428 — a whole-number scale, so the printed summary and
 the printed chain still close exactly — and 428 is the smallest scale under
 which neither the figures nor the digit runs they generate appear anywhere in
-the archive (`tools/fixpriv_invent.py --scale-search`). No amount, name,
+the archive. No amount, name,
 account number or date of any archive document appears in this module or in its
 tests: checked, not asserted.
 

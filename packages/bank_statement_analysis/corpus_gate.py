@@ -862,28 +862,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
     # stood here until slice S3 of the model-code removal deleted it with the
     # hosted extractor whose unreachability it probed.)
-    # W3 §ROWCAP's three measurements — the row-capture signature probe, the
-    # ceiling and the sheet-strip check. Excused on the same two grounds as
-    # §REGFP's sweep above. None publishes a verdict: between them they print
-    # a content_sha256, an outcome CLASS and reason, row COUNTS, coverage and
-    # capture RATIOS, gate NAMES and how many printed strips a ledger
-    # reproduces — never an amount, a date, a description or an account
-    # number. And each supplies the reconstructed page partition as `sheets`,
-    # because a measurement that fed the analysis a different partition from
-    # the one the run fed it would be measuring a difference it had itself
-    # created.
-    "tools/rowcap_probe.py": (
-        "read-only row-capture probe; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    "tools/rowcap_ceiling.py": (
-        "read-only ceiling measurement; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    "tools/rowcap_sheet_strips.py": (
-        "read-only printed-strip check; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
     # W3 §L1S1's cross-tree seam probe (RULE S at the pipeline seam), excused
     # on the same two grounds: it publishes no verdict — byte digests and leaf
     # paths only — and supplies the reconstructed page partition as `sheets`.

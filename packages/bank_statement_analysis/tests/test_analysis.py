@@ -1780,7 +1780,7 @@ FEES
     # not take the first token of the line — and only a zero-padded id can say
     # so. The number this replaces was a real one, printed by a document of the
     # pinned corpus and carried here since the fixture was written in July;
-    # `fixpriv_invent` reports the replacement CLEAR against all 208,695 digit
+    # the replacement is CLEAR against all 208,695 digit
     # runs of the 3,351-document universe.
     assert stmt.account_number == "000000700000031"
     assert stmt.account_name == "Chase Business Complete Checking"

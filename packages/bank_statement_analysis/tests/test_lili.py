@@ -18,8 +18,8 @@ nobody could see it.
 Every figure here is now the original invented figure with its CENT VALUE
 multiplied by 428. A whole-number scale on integer cents is exact, so all
 three closures below hold to the cent exactly as they did, and no figure had
-to be re-derived. 428 is not a taste: `tools/fixpriv_invent.py --scale-search`
-reports it as the smallest whole-number scale under which neither any scaled
+to be re-derived. 428 is not a taste: it was measured as
+the smallest whole-number scale under which neither any scaled
 figure NOR ANY DIGIT RUN IT GENERATES appears anywhere in the archive — the
 digit run matters, because writing a six-figure amount into a file writes a
 six-digit run with it, and the first attempt at this repair (scale 1013)
@@ -38,8 +38,7 @@ ONE CENT, whatever the figures around it are worth: the summary that does not
 close is a cent short, the broken chain is a cent out, the opening anchor moves
 a cent, and the posting pair the summary nets out is a cent in and a cent back.
 At a cent, a reader that tolerated any discrepancy at all fails here, which is
-the only thing these five tests exist to say. `tools/fixpriv_mutation_table.py`
-pins it: the `L` mutants widen `_CENT` and this file kills them.
+the only thing these five tests exist to say.
 
 The base document is arithmetically closed three ways, so that a mutant can
 only break it:

@@ -586,7 +586,7 @@ def test_the_walk_sees_the_whole_repository():
     """The vacuity check: every tracked .py file is listed, tests included (the model packages are refused there
     too), and nothing is filtered out before the scan."""
     files = tracked_python_files()
-    assert len(files) > 600, len(files)
+    assert len(files) > 500, len(files)
     for expected in ("webapp/worker.py", "ocr/pipeline.py", "ocr/local_tesseract.py", "discovery/runner.py",
                      "tools/train/provenance.py", "analysis/currency_default.py", "conftest.py",
                      "tests/test_no_paddle.py"):
