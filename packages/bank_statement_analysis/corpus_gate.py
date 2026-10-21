@@ -824,97 +824,9 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only cohort replay; publishes no verdict, and supplies the "
         "reconstructed page partition"
     ),
-    # The L-1 design cell's three read-only instruments and stage 1's seam
-    # probe, excused on the same two grounds as every replay above: each
-    # publishes no verdict — payload/leaf comparisons, reader answers by CLASS,
-    # skip-site counts, digests and content sha16s, never a figure, a name or a
-    # date — and each already supplies the reconstructed page partition as
-    # `sheets`. The first three were composed with the design and this guard was
-    # RED for them at `train9` before stage 1 began: it runs only in the full
-    # default suite, which is the train's, and the design cell's own floor ran
-    # the canonical guards rather than the suite. Classified here rather than
-    # left red, because a card cannot report a green floor over an inherited
-    # failure and the classification is the honest answer to the question the
-    # list asks.
-    "tools/l1_design_payload_probe.py": (
-        "read-only payload-shape probe; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    "tools/l1_design_reader_probe.py": (
-        "read-only payload-reader probe; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    "tools/l1_design_skip_probe.py": (
-        "read-only sibling-skip probe on the dispatch path; publishes no "
-        "verdict, and already supplies the reconstructed page partition"
-    ),
-    # Stage 2's successor to the probe above, excused on the same two grounds.
-    # It publishes no verdict — evidence-class names from a closed vocabulary,
-    # counts, exception CLASS names, content sha16s and payload leaf PATHS,
-    # never a figure, a name, a date or an omitted section's printed label — and
-    # it supplies the reconstructed page partition, because a probe that fed the
-    # analysis a different partition from the one the run fed it would measure a
-    # difference it had itself created.
-    "tools/l1s2_admission_probe.py": (
-        "read-only omission probe at the document seam; publishes no verdict, "
-        "and already supplies the reconstructed page partition"
-    ),
     # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
     # stood here until slice S3 of the model-code removal deleted it with the
     # hosted extractor whose unreachability it probed.)
-    # W3 §L1S1's cross-tree seam probe (RULE S at the pipeline seam), excused
-    # on the same two grounds: it publishes no verdict — byte digests and leaf
-    # paths only — and supplies the reconstructed page partition as `sheets`.
-    "tools/l1s1_seam_probe.py": (
-        "read-only cross-tree seam probe; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    # W3 §PAGECOV's probe. Excused on the same first ground as the replays
-    # above — it publishes no verdict: it prints a content_sha256, sheet and
-    # declaration COUNTS, page ORDINALS, declaration-form NAMES, cause tags and
-    # an outcome CLASS, never an amount, a date, a description or a name.
-    #
-    # Its second ground is stated differently from every entry above it, and
-    # deliberately, because a list whose whole purpose is to record what each
-    # caller does with `sheets` must not be allowed to imply something false.
-    # The probe makes TWO kinds of call. Its control (`published_flags`) and
-    # the `actual` arm of `blank_sheet_counterfactual` supply the reconstructed
-    # page partition, exactly as the sweeps do and for the same reason: a probe
-    # that fed the analysis a different partition from the one the run fed it
-    # would report a disagreement it had itself created. But the second arm of
-    # `blank_sheet_counterfactual` supplies a partition that is DELIBERATELY
-    # NOT the run's — one placeholder character substituted for each
-    # text-empty sheet — because measuring what the page-declaration check
-    # would decide if a blank sheet counted is the whole point of that mode.
-    # That is a measurement of a counterfactual, never a claim about a
-    # document, and it reaches no user, job record or discovery row. It is
-    # excused rather than declared for that reason: listing it in
-    # ANALYSIS_CALL_SITES would assert that this caller supplies the intake
-    # partition, which on one of its two arms is untrue by design.
-    "tools/pagecov_probe.py": (
-        "read-only page-declaration probe; publishes no verdict, supplies the "
-        "reconstructed page partition on its control arm, and deliberately "
-        "substitutes one on its counterfactual arm"
-    ),
-    # W3 §L1S4's document-seam replay, read-only over the run of record and its
-    # cold cache, and excused on the same two grounds as the replays above: it
-    # publishes shas, counts, outcome CLASSES, check NAMES and booleans — never
-    # an amount, a date, a description or a name — and it already supplies the
-    # run's own reconstructed page partition, because a replay that fed the
-    # analysis a different partition from the one the run fed it would report a
-    # disagreement it had itself created.
-    #
-    # This card's other two instruments are deliberately ABSENT from both
-    # lists, because neither calls the analysis at all: the marker sweep asks
-    # about DETECTION and calls a registration's `parse` directly, and the
-    # transfer killer set reconstructs its ledgers with the design's own
-    # prototype and hands them to one production function. A register entry for
-    # a tool that does not call the analysis is exactly the stale declaration
-    # `tests/test_corpus_gate_outcomes.py` refuses.
-    "tools/l1s4_document_replay.py": (
-        "read-only document-seam replay; publishes no verdict, and already "
-        "supplies the run's reconstructed page partition"
-    ),
     # A research instrument that went unclassified when it landed (audit
     # 2026-10-13, HYG-03), excused on the same two grounds as the replays
     # above. The revenue census re-analyses cached readings with a checkout's

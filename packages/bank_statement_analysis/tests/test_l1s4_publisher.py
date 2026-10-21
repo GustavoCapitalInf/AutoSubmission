@@ -2,9 +2,8 @@
 
 Constructed pages only (`tests/l1s4_pages.py`), whose arithmetic is generated so
 that a fixture can be broken in exactly ONE named way and the reader's answer to
-that one difference is what is under test. The archive half of this card is
-measured by `tools/l1s4_document_replay.py`, `tools/l1s4_marker_sweep.py`,
-`tools/l1s4_q3_oracle.py` and `tools/l1s4_transfer_killers.py`; these are the
+that one difference is what is under test. The archive half of this card was
+measured separately; these are the
 refusals, which the archive cannot exercise because the archive prints none of
 them.
 

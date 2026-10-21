@@ -15,10 +15,7 @@ claims, each in both directions, over the source text alone:
 
 2. **The seams.** Every production call site that turns a report into the
    published payload calls `document_report_to_dict`, and the declared list of
-   them is exactly the tree's. (`tools/l1_design_reader_probe.py --census` is
-   the design's own version of this half, pinned by LINE NUMBER; this one is
-   pinned by AST, so the two fail for different reasons and neither can be
-   satisfied by editing the other.)
+   them is exactly the tree's.
 
 Dispositions, and what each is checked against:
 
@@ -636,7 +633,7 @@ def main(argv: list[str] | None = None) -> int:
         print("## Seams")
         print()
         print("Counted by AST, so a call site is a CALL. The design's own "
-              "census (`tools/l1_design_reader_probe.py --census`) greps the "
+              "census greps the "
               "text and counts NINE, because one of its nine — "
               "`webapp/artifact_cache.py`:215 — is an example inside that "
               "module's docstring rather than a call. The cache seam every web "

@@ -606,15 +606,23 @@ def test_every_tracked_python_file_parses_and_none_imports_a_model_or_a_network_
     assert set(allowed) == set(NETWORK_ALLOWANCES)
 
 
-def test_the_command_reader_reaches_into_the_shells_the_tree_starts(monkeypatch):
-    """The vacuity check of the shell rule: three production tools start PowerShell with a fixed command line (a
-    process listing). Counted as remote for this test, its first command is found in each, so the clean scan above
-    read those command lines and did not skip them."""
+def test_the_command_reader_reaches_into_a_powershell_command_line(monkeypatch):
+    """The vacuity check of the shell rule: a planted tool starts PowerShell with a fixed command line (a process
+    listing) inside a function. Counted as remote for this test, its first command is found, so the scan reads such
+    a command line and does not skip it."""
     monkeypatch.setattr(sys.modules[__name__], "POWERSHELL_REMOTE_COMMANDS",
                         POWERSHELL_REMOTE_COMMANDS + ("get-ciminstance",))
-    for relative in ("tools/l1s1_mutation_table.py", "tools/l1s3_mutation_table.py", "tools/l1s4_mutation_table.py"):
-        programs = {program for _, program in remote_programs(ast.parse((ROOT / relative).read_bytes()))}
-        assert programs == {"get-ciminstance"}, (relative, programs)
+    planted = (
+        "import subprocess\n\n"
+        "def other_pythons():\n"
+        "    return subprocess.run(\n"
+        "        ['powershell', '-NoProfile', '-Command',\n"
+        "         \"Get-CimInstance Win32_Process -Filter \\\"Name='python.exe'\\\" | \"\n"
+        "         \"ForEach-Object { $_.ProcessId.ToString() + ' ' + $_.CommandLine }\"],\n"
+        "        capture_output=True, text=True).stdout\n"
+    )
+    programs = {program for _, program in remote_programs(ast.parse(planted))}
+    assert programs == {"get-ciminstance"}, programs
 
 
 def test_the_provenance_tool_uses_socket_for_the_host_name_only():

@@ -51,7 +51,7 @@ from pathlib import Path
 import pytest
 
 #: The 15 documents L-1 stage 2 surfaces an omission on, by content sha16, as
-#: measured by `tools/l1s2_admission_probe.py` at the branch tip. Prefixes and
+#: measured at the branch tip. Prefixes and
 #: not whole shas because that is how the record names them everywhere else;
 #: they are resolved against the run of record below and the resolution is
 #: asserted to be total.

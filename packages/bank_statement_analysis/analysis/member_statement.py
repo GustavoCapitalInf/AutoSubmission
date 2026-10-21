@@ -65,7 +65,7 @@ recorded with the class that admitted it, published as a gap, never dropped
 (L1-C17). On this template that class is normally
 `printed_pair_coincides_and_no_row_printed`, whose seventh condition is the
 enumerating table reproducing the section's closing — measured section by
-section by `tools/q3_corroboration_probe.py` before this reader was written.
+section before this reader was written.
 
 **NO FIGURE FROM THE ENUMERATING TABLE IS PUBLISHED, AND NO FIGURE ANYWHERE IS
 INVENTED.** Every amount in a payload this reader produces is a token the

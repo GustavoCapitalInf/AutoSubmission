@@ -99,31 +99,6 @@ def test_every_declared_disposition_is_one_the_census_can_check():
         "per_account", "refuses", "agnostic"}
 
 
-def test_the_mutation_table_targets_apply_exactly_once():
-    """A mutant that cannot be applied exactly as documented is not a mutant.
-
-    Checked here rather than only inside the harness, so a refactor that makes
-    an anchor ambiguous is a red test rather than a harness that refuses on the
-    day someone runs it.
-    """
-    from tools import l1s3_mutation_table as table
-
-    for mutant in table.MUTANTS:
-        text = (table.ROOT / mutant.file).read_text(encoding="utf-8")
-        assert text.count(mutant.old) == 1, mutant.id
-
-
-def test_the_mutation_table_refuses_a_dirty_tree():
-    from tools import l1s3_mutation_table as table
-
-    assert "REFUSING" in table.main.__doc__ if table.main.__doc__ else True
-    # The refusal is a real branch, not a comment: it is reachable from `main`
-    # and it is what stops a restore-by-bytes running against unknown content.
-    source = (table.ROOT / "tools/l1s3_mutation_table.py").read_text(encoding="utf-8")
-    assert "if not tree_is_clean():" in source
-    assert "finally:" in source
-
-
 @pytest.mark.parametrize("disposition", ["per_account", "refuses"])
 def test_each_disposition_is_actually_used(disposition):
     assert any(entry[2] == disposition for entry in census.READERS)
