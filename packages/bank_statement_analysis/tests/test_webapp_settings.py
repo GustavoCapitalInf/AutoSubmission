@@ -182,11 +182,11 @@ def test_the_served_analysis_and_its_exports_follow_the_zelle_choice(settings_fi
 
 
 def test_package_members_follow_the_zelle_choice(settings_file, zelle_job):
-    from webapp.app import _package_members
-    members, _ = _package_members([zelle_job])
+    from analysis.package.members import package_members
+    members, _ = package_members([zelle_job])
     assert members[0][1]["metrics"]["true_revenue_total"] == 11534.56
     save_settings(store.storage.data_dir, {"zelle_true_revenue": False})
-    members, _ = _package_members([zelle_job])
+    members, _ = package_members([zelle_job], settings=load_settings(store.storage.data_dir))
     assert members[0][1]["metrics"]["true_revenue_total"] == 10300.0
 
 
@@ -215,11 +215,11 @@ def test_the_analysis_and_its_exports_follow_the_toggle(settings_file, done_job)
 
 
 def test_package_members_carry_the_displayed_basis(settings_file, done_job):
-    from webapp.app import _package_members
-    members, _ = _package_members([done_job])
+    from analysis.package.members import package_members
+    members, _ = package_members([done_job])
     assert members[0][1]["metrics"]["effective_nsf_count"] == 1
     save_settings(store.storage.data_dir, {"nsf_carry_over": True})
-    members, _ = _package_members([done_job])
+    members, _ = package_members([done_job], settings=load_settings(store.storage.data_dir))
     assert members[0][1]["metrics"]["effective_nsf_count"] == 2
 
 
@@ -253,7 +253,7 @@ def test_a_replace_that_collides_with_a_reader_is_retried(settings_file, monkeyp
 
 def test_the_package_totals_and_rows_carry_the_basis(settings_file):
     from tests.test_package_currency import statement_payload
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     def member(job_id):
@@ -261,25 +261,25 @@ def test_the_package_totals_and_rows_carry_the_basis(settings_file):
         payload["metrics"].update(_ledger_metrics())
         return Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload, content_sha256=job_id)
 
-    package = _package_analysis([member("a"), member("b")])
+    package = package_analysis([member("a"), member("b")])
     assert package["totals"]["nsf_count"] == 2 and package["totals"]["nsf_source"] == "negative_printed_days"
     assert {row["nsf_source"] for row in package["documents"]} == {"negative_printed_days"}
     save_settings(settings_file.parent, {"nsf_carry_over": True})
-    package = _package_analysis([member("a"), member("b")])
+    package = package_analysis([member("a"), member("b")], settings=load_settings(settings_file.parent))
     assert package["totals"]["nsf_count"] == 4 and package["totals"]["nsf_source"] == "negative_ending_days"
 
 
 def test_a_member_without_analysis_adds_no_basis_to_the_package(settings_file):
     from tests.test_package_currency import statement_payload
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     payload = statement_payload("USD")
     payload["metrics"].update(_ledger_metrics())
     done = Job(id="a", filename="a.pdf", status="done", analysis=payload, content_sha256="a")
     failed = Job(id="b", filename="b.pdf", status="failed", analysis=None, content_sha256="b")
-    assert _package_analysis([done, failed])["totals"]["nsf_source"] == "negative_printed_days"
-    assert _package_analysis([failed])["totals"]["nsf_source"] is None
+    assert package_analysis([done, failed])["totals"]["nsf_source"] == "negative_printed_days"
+    assert package_analysis([failed])["totals"]["nsf_source"] is None
 
 
 def test_a_read_colliding_with_a_save_is_retried_rather_than_read_as_the_default(tmp_path, monkeypatch):
@@ -322,28 +322,28 @@ def _roster(main_status):
 
 
 def test_every_published_account_of_a_document_member_follows_the_basis(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_document_member("a")])
+    package = package_analysis([_document_member("a")])
     assert package["totals"]["nsf_source"] == "negative_printed_days" and package["totals"]["nsf_count"] == 2
     save_settings(settings_file.parent, {"nsf_carry_over": True})
-    package = _package_analysis([_document_member("a")])
+    package = package_analysis([_document_member("a")], settings=load_settings(settings_file.parent))
     assert package["totals"]["nsf_source"] == "negative_ending_days" and package["totals"]["nsf_count"] == 4
 
 
 def test_the_basis_never_changes_which_accounts_a_package_leaves_out(settings_file):
-    # The exclusions read the roster off the re-based copy (webapp/app.py::_package_members); the basis rewrites only
+    # The exclusions read the roster off the re-based copy (`package_members`); the basis rewrites only
     # each account's metrics, so the idle and unverified main-account rules decide the same way on both bases, and
     # the stored records are never rewritten.
     import copy
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
     jobs = [_document_member("idle", _roster("idle")), _document_member("held", _roster("held")),
             _document_member("verified", _roster("published")), _document_member("no-roster")]
     stored = [copy.deepcopy(job.analysis) for job in jobs]
 
     def decided():
-        members, excluded = _package_members(jobs)
+        members, excluded = package_members(jobs)
         return sorted((member[0].id, member[2]) for member in members), excluded
 
     printed = decided()

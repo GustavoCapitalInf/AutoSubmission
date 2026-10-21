@@ -441,3 +441,25 @@ class TestFlaggedHere:
         import benchmark.lenders as lenders
 
         assert not hasattr(lenders, "NON_MCA_SCOPE")
+
+
+def test_a_benchmark_package_follows_the_settings_the_web_app_saved(tmp_path, monkeypatch):
+    """`run_set` builds its package with the display settings saved in the web app's data folder, as the package
+    route does, so a flag group saved as unticked leaves the benchmark package too."""
+    from benchmark import ourside
+    from benchmark.manifest import BenchmarkSet
+    from tests.flagged_payloads import flagged_account_payload
+    from webapp.settings import save_settings
+
+    def package():
+        payloads = iter([flagged_account_payload(0), flagged_account_payload(1)])
+        monkeypatch.setattr(ourside, "source_markdown", lambda path, ocr_cache: ("", "native", b""))
+        monkeypatch.setattr(ourside, "analyze_document", lambda markdown, parse_mode: None)
+        monkeypatch.setattr(ourside, "document_report_to_dict", lambda report: next(payloads))
+        fabricated = BenchmarkSet(name="fabricated", files=("a.pdf", "b.pdf"), sha256=("A", "B"), package=True)
+        return ourside.run_set(fabricated, tmp_path, tmp_path).package
+
+    monkeypatch.setenv("WEBAPP_DATA_DIR", str(tmp_path))
+    assert "mortgages" in package()["flagged_positions"]
+    save_settings(tmp_path, {"flag_mortgages": False})
+    assert "mortgages" not in package()["flagged_positions"]

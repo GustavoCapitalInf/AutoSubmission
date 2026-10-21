@@ -811,7 +811,7 @@ def test_z12_a_batch_materialises_the_shown_reading_once(zelle_store, monkeypatc
 
 
 def test_z12_a_copy_whose_only_decision_is_a_yes_reject_ranks_as_decided(zelle_store):
-    from webapp.app import _copy_rank
+    from analysis.package.duplicates import _copy_rank
 
     job = _job(zelle_store, fx.case("Z1"))
     assert _copy_rank(zelle_store.get(job))[2] == 1

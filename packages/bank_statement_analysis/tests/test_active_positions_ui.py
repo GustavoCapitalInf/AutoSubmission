@@ -128,12 +128,12 @@ console.log(JSON.stringify(els.summaryBox.textContent));
 @needs_node
 def test_the_statement_memo_names_its_active_positions():
     from tests.test_webapp_studio_views import _serve
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     (march, _april, may), _built = _three_months_package()
     texts = []
     for payload in (march, may):
-        texts.append(run_dashboard(_serve(s=_displayed(payload, settings={})) + """
+        texts.append(run_dashboard(_serve(s=displayed(payload, settings={})) + """
 currentJobId = 's'; currentJobIds = ['s']; loadResults('s'); await settle();
 generateSummary(); console.log(JSON.stringify(els.summaryBox.textContent));
 """))
@@ -147,10 +147,11 @@ def _csv_rows(text):
 
 
 def test_the_statement_downloads_carry_both_figures():
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed, _masked
+    from webapp.app import _analysis_csv, _analysis_xlsx, _masked
+    from analysis.served_view import displayed
 
     (_march, _april, may), _built = _three_months_package()
-    exported = _masked(_displayed(may, settings={}, export=True))
+    exported = _masked(displayed(may, settings={}, export=True))
     assert (exported["metrics"]["active_positions"], exported["metrics"]["possible_positions"]) == (2, 1)
     rows = _csv_rows(_analysis_csv(exported))
     assert ["metrics", "active_positions", "2"] in rows and ["metrics", "possible_positions", "1"] in rows
@@ -162,7 +163,7 @@ def test_the_statement_downloads_carry_both_figures():
     from tests.test_lender_payment_changes_package import _account
 
     del _account(older)["detection"]["lender_payment_changes"]
-    rows = _csv_rows(_analysis_csv(_masked(_displayed(older, settings={}, export=True))))
+    rows = _csv_rows(_analysis_csv(_masked(displayed(older, settings={}, export=True))))
     assert ["metrics", "active_positions", ""] in rows and ["metrics", "possible_positions", ""] in rows
 
 

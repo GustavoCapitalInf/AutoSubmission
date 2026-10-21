@@ -316,11 +316,11 @@ def test_a_package_row_of_a_multi_account_statement_names_its_account(two_accoun
 
 def _established(analysis, status="done"):
     from tests.test_l1s3_surfaces import _Job
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     member = _Job("job-1", analysis)
     member.status = status
-    return [row["verified_revenue_established"] for row in _package_analysis([member])["documents"]]
+    return [row["verified_revenue_established"] for row in package_analysis([member])["documents"]]
 
 
 def _account_payload(rows=ROWS):

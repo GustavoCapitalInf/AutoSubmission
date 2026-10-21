@@ -79,8 +79,8 @@ def _tier_words(text):
 
 
 def _served(payload, zelle=True):
-    from webapp.app import _displayed
-    return _displayed(payload, settings={"zelle_true_revenue": zelle})
+    from analysis.served_view import displayed
+    return displayed(payload, settings={"zelle_true_revenue": zelle})
 
 
 def _open(job_id, payload):
@@ -732,9 +732,10 @@ def test_an_older_statement_download_names_each_credit_in_the_page_words():
     deposits to review (the page's review view and badge) are `review_required_count`, `_total` and `_evidence`, beside
     `revenue_evidence` and `non_revenue_evidence`."""
     from tests.test_webapp_true_revenue import _untiered
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+    from webapp.app import _analysis_csv, _analysis_xlsx
+    from analysis.served_view import displayed
 
-    served = _displayed(_untiered(_payload(ROWS)), settings={}, export=True)
+    served = displayed(_untiered(_payload(ROWS)), settings={}, export=True)
     assert served["metrics"]["unverified_deposit_count"] == 4 and served["metrics"]["true_revenue_evidence"] is None
     for name, table in (("csv", _csv(_analysis_csv(served))), ("xlsx", _sheet_rows(_analysis_xlsx(served)))):
         assert _hidden_cells(table) == [], name
@@ -913,14 +914,15 @@ def test_a_record_s_reason_is_kept_where_it_names_no_hidden_tier(record, written
 
 
 def test_a_download_on_the_verified_basis_names_it_without_the_word():
-    from webapp.app import _analysis_csv, _displayed
+    from webapp.app import _analysis_csv
+    from analysis.served_view import displayed
 
     from analysis.revenue import rebuild_serialized_revenue_views
 
     payload = _payload(ROWS)
     payload["metrics"]["withholding_denominator_mode"] = "verified_revenue"
     rebuild_serialized_revenue_views(payload)
-    served = _displayed(payload, settings={}, export=True)
+    served = displayed(payload, settings={}, export=True)
     rows = _csv(_analysis_csv(served))
     assert _hidden_cells(rows) == []
     cells = {(row[0], row[1]): row[2] for row in rows if len(row) == 3}
@@ -940,7 +942,7 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     assert served["metrics"]["withholding_denominator_mode"] == "verified_revenue"
     assert "verified_revenue" in served["metrics"]["withholding_denominator_options"]
     # A statement on any other basis lists no narrower basis: nothing on screen offers it.
-    true_basis = {(row[0], row[1]): row[2] for row in _csv(_analysis_csv(_displayed(_payload(ROWS), settings={},
+    true_basis = {(row[0], row[1]): row[2] for row in _csv(_analysis_csv(displayed(_payload(ROWS), settings={},
                                                                                      export=True))) if len(row) == 3}
     assert modes(true_basis[("metrics", "withholding_denominator_options")]) == [
         "legacy_eligible_deposits", "true_revenue"]
@@ -949,7 +951,7 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     unpaid["metrics"]["withholding_denominator_mode"] = "verified_revenue"
     rebuild_serialized_revenue_views(unpaid)
     assert "withholding rate is unavailable because Verified revenue is zero or missing" in unpaid["metrics"]["notes"]
-    unpaid_rows = _csv(_analysis_csv(_displayed(unpaid, settings={}, export=True)))
+    unpaid_rows = _csv(_analysis_csv(displayed(unpaid, settings={}, export=True)))
     notes = json.loads({(row[0], row[1]): row[2] for row in unpaid_rows if len(row) == 3}[("metrics", "notes")])
     assert "withholding rate is unavailable because the narrower revenue basis is zero or missing" in notes
     assert not any("Verified" in note or "Narrower" in note for note in notes)

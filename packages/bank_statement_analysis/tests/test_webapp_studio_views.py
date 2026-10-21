@@ -290,7 +290,8 @@ console.log(JSON.stringify({legacy: nsfSourceLabel('classified_line_items'), pri
 
 
 def test_a_package_that_mixes_nsf_bases_names_each_rows_basis(tmp_path, monkeypatch):
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the settings file of a scratch folder
@@ -301,7 +302,7 @@ def test_a_package_that_mixes_nsf_bases_names_each_rows_basis(tmp_path, monkeypa
             payload["metrics"]["nsf_source"] = "classified_line_items"
         jobs.append(Job(id=f"m{month}", filename=f"fabricated-{month}.pdf", status="done", analysis=payload,
                         content_sha256=f"m{month}"))
-    package = _package_analysis(jobs)
+    package = package_analysis(jobs)
     assert package["totals"]["nsf_source"] == "mixed"
     result = run_dashboard(f"""
 currentJobIds = ['m1', 'm2']; renderPackageAnalysis({json.dumps(package)});
@@ -313,13 +314,17 @@ console.log(JSON.stringify({{rows: els.monthlyTable.innerHTML}}));
 
 
 def _package(analyses, tmp_path, monkeypatch):
-    """The real package payload for fabricated statements (job id -> analysis)."""
-    from webapp.app import _package_analysis, store
+    """The real package payload for fabricated statements (job id -> analysis), under the settings saved in a
+    scratch folder, read as the package route reads them."""
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
+    from webapp.settings import load_settings
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the NSF setting of a scratch folder
-    return _package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status="done", analysis=analysis,
-                                  content_sha256=job_id) for job_id, analysis in analyses.items()])
+    return package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status="done", analysis=analysis,
+                                 content_sha256=job_id) for job_id, analysis in analyses.items()],
+                            settings=load_settings(store.storage.data_dir))
 
 
 CELLS = r"""

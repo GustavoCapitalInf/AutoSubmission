@@ -426,12 +426,12 @@ def t4_payload(**kwargs):
 
 
 def _package(*payloads):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
-    return _package_analysis([Job(id=f"job-{n}", filename=f"statement-{n}.pdf", status="done", analysis=payload,
-                                  content_sha256=f"job-{n}") for n, payload in enumerate(payloads, start=1)],
-                             settings={})
+    return package_analysis([Job(id=f"job-{n}", filename=f"statement-{n}.pdf", status="done", analysis=payload,
+                                 content_sha256=f"job-{n}") for n, payload in enumerate(payloads, start=1)],
+                            settings={})
 
 
 def _account(payload):
@@ -546,9 +546,9 @@ def test_a_mixed_currency_package_refuses_the_returned_money_and_keeps_its_count
 
 def test_the_served_copy_and_the_review_writer_keep_the_fields():
     from analysis.revenue import rebuild_serialized_revenue_views, record_serialized_revenue_review
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    payload = json.loads(json.dumps(_displayed(t1_payload(), settings={})))
+    payload = json.loads(json.dumps(displayed(t1_payload(), settings={})))
     rebuild_serialized_revenue_views(payload)
     account = _account(payload)
     assert account["metrics"]["withholding_numerator"] == 2550.0

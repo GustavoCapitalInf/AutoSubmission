@@ -1244,7 +1244,7 @@ def test_unvalidated_ledger_with_no_printed_average_is_withheld():
 def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
     # A 31-day statement at 100 and a 28-day statement at 200 must weight by
     # days, not average the two averages.
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     class _Job:
         def __init__(self, jid, days, adb):
@@ -1268,7 +1268,7 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
                 "detection": {"known_funders": []},
             }
 
-    pkg = _package_analysis([_Job("a", 31, 100.0), _Job("b", 28, 200.0)])
+    pkg = package_analysis([_Job("a", 31, 100.0), _Job("b", 28, 200.0)])
     expected = round((100.0 * 31 + 200.0 * 28) / 59, 2)
     assert pkg["totals"]["average_daily_balance"] == expected
     assert [d["adb_calendar_days"] for d in pkg["documents"]] == [31, 28]

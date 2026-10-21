@@ -50,7 +50,7 @@ never detects a stream of its own:
   another in one account.
 * **N/A, never 0**, where the lender reading is not available: an account whose detection carries no
   `lender_payment_changes` (analysed before the check) or whose statement holds no rows list (`account_active_positions`);
-  the package's members never analysed are N/A by webapp/app.py.
+  the package's members never analysed are N/A by `analysis.package`.
 """
 from __future__ import annotations
 
@@ -423,7 +423,7 @@ def statement_active_positions(rows: Sequence[object], *, period_start: str | da
 
 
 def _month_label(month: int) -> str:
-    """`year * 12 + month - 1` (webapp/app.py `_statement_month`) as 'YYYY-MM'."""
+    """`year * 12 + month - 1` (analysis/package/calendar.py `statement_month`) as 'YYYY-MM'."""
     return f"{month // 12:04d}-{month % 12 + 1:02d}"
 
 

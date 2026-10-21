@@ -66,8 +66,9 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # the $1 floor (true_revenue.PREMIUM_TRUST_REASON); the end of the held group.
     "premium_trust_account": ("excluded_pending_review", "Deposit into a premium trust account"),
     # Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16: within a package, a counted deposit that prints no payer,
-    # matched to an exact-cents transfer out of another of the business's accounts 0 to 2 days earlier (webapp/app.py
-    # `_package_matches`, pass 2; package-only, never on a statement viewed alone); the end of the held group.
+    # matched to an exact-cents transfer out of another of the business's accounts 0 to 2 days earlier
+    # (analysis/package/passes.py `package_matches`, pass 2; package-only, never on a statement viewed alone); the end
+    # of the held group.
     "own_account_transfer_matched": (
         "excluded_pending_review", "Matches a transfer out of another account in this package",
     ),

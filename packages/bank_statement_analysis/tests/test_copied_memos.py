@@ -74,8 +74,8 @@ def _bakery(wire=None, *, month=3, opening=5000.0, dropped=False):
 
 
 def _served(payload):
-    from webapp.app import _displayed
-    return _displayed(payload, settings={})
+    from analysis.served_view import displayed
+    return displayed(payload, settings={})
 
 
 def _job(job_id, payload):
@@ -84,8 +84,8 @@ def _job(job_id, payload):
 
 
 def _package(*members):
-    from webapp.app import _package_analysis
-    return _package_analysis([_job(job_id, payload) for job_id, payload in members], settings={})
+    from analysis.package import package_analysis
+    return package_analysis([_job(job_id, payload) for job_id, payload in members], settings={})
 
 
 def _statement_memo(served, extra=""):

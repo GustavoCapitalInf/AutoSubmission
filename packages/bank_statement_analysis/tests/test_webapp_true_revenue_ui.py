@@ -31,8 +31,8 @@ const cells = (html) => [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)]
 
 def _served(payload, zelle=True):
     """The served copy, on an explicit settings snapshot: every default, the Zelle choice `zelle` (R2-OW17)."""
-    from webapp.app import _displayed
-    return _displayed(payload, settings={"zelle_true_revenue": zelle})
+    from analysis.served_view import displayed
+    return displayed(payload, settings={"zelle_true_revenue": zelle})
 
 
 def _zelle_package(analyses, tmp_path, monkeypatch, zelle):
@@ -1064,7 +1064,7 @@ def test_the_monthly_table_names_each_row_s_unit_as_the_chart_does_in_a_refused_
 
 @needs_node
 def test_the_monthly_table_of_a_real_package_names_the_cad_row_beside_an_undeclared_member(tmp_path, monkeypatch):
-    """R51 through the real _package_analysis: a CAD statement beside one whose statement declares no currency (an
+    """R51 through the real package_analysis: a CAD statement beside one whose statement declares no currency (an
     older stored payload) is refused; the table's CAD row names CAD as its chart bar does, the other row stays bare."""
     cad = _payload(month=4)
     cad["statement"]["currency"] = "CAD"
@@ -1091,11 +1091,12 @@ console.log(JSON.stringify(unitsCard({json.dumps(package)})));
 def test_a_repeated_statement_is_named_once_and_left_out_of_the_months(tmp_path, monkeypatch):
     """I06: the server leaves a repeat out of every figure; the page says which, and the Monthly Statements, the
     chart, the title and the counts never show it as a month."""
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="mar", filename="mar.pdf", status="done", analysis=_payload(), content_sha256="h1"),
         Job(id="copy", filename="mar-copy.pdf", status="done", analysis=_payload(), content_sha256="h1"),
         Job(id="redl", filename="mar-download.pdf", status="done", analysis=_payload(), content_sha256="h2"),
@@ -1229,11 +1230,12 @@ process.stdout.write(JSON.stringify(out) + "\\n", () => process.exit(0));
 def test_the_queue_names_the_copy_the_package_left_out(tmp_path, monkeypatch):
     """R16: once the batch's package arrives, the queue says 'left out of the package figures' only of the row the
     package marks `is_duplicate`: a failed first copy, not the completed copy kept in its place."""
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="f", filename="contoso-mar.pdf", status="error", error="fabricated failure", content_sha256="H1"),
         Job(id="a", filename="contoso-mar-copy.pdf", status="done", analysis=_payload(), content_sha256="H1"),
     ])
@@ -1262,14 +1264,15 @@ def test_the_notice_says_why_the_kept_copy_was_kept(tmp_path, monkeypatch):
     rules or its review decisions; copies alike keep the 'repeats' sentence."""
     from tests.test_webapp_app import _decided
     from tests.test_webapp_true_revenue import _untiered
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
 
     def notice(jobs):
         return run_dashboard(f"""
-renderPackageAnalysis({json.dumps(_package_analysis(jobs))});
+renderPackageAnalysis({json.dumps(package_analysis(jobs))});
 console.log(JSON.stringify(els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")));
 """)
 
@@ -1292,16 +1295,17 @@ def test_the_notice_names_an_interim_left_out_and_an_overlap_sharing_credits(tmp
     """R14: a shorter printout of days another statement covers is named with its words; a pair of overlapping
     statements that share credits is named with the count and dollars they share, counted in both."""
     from tests.test_webapp_app import _APRIL, _ACCOUNT, _april, _document_with, _listed, _march, _period
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
     mtd = _period("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
     interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
                       "2031-04-15", "2031-05-10", opening=30000.0)
     document = _document_with(_ACCOUNT, _APRIL[:2], start="2031-04-01", end="2031-04-20", opening=21000.0)
-    packages = [_package_analysis([_march(), _april(), mtd]), _package_analysis([_april(), interim]),
-                _package_analysis([_april(), _listed("doc", document, content="doc")]),
-                _package_analysis([_march(), _april()])]
+    packages = [package_analysis([_march(), _april(), mtd]), package_analysis([_april(), interim]),
+                package_analysis([_april(), _listed("doc", document, content="doc")]),
+                package_analysis([_march(), _april()])]
     result = run_dashboard("const shown = [];\n" + "".join(f"""
 renderPackageAnalysis({json.dumps(package)});
 shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")]);
@@ -1322,7 +1326,8 @@ def test_the_notice_names_a_longer_printout_left_out_and_an_overlap_in_its_own_c
     gives its shared credits in the pair's own currency."""
     from tests.test_webapp_app import (_ACCOUNT, _APRIL, _FEB, _JAN, _MAR_Q1, _document_with, _first_quarter,
                                        _listed, _period, _printed)
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
     quarter = _period("q1", _JAN + _FEB + _MAR_Q1, "2031-01-01", "2031-03-31")
@@ -1338,12 +1343,12 @@ def test_the_notice_names_a_longer_printout_left_out_and_an_overlap_in_its_own_c
     interim = _listed("int", cad(_printed(_ACCOUNT, [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1",
                                                                   6000.0)],
                                           start="2031-04-15", end="2031-05-10", opening=30000.0)), content="int")
-    overlap = _package_analysis([april, interim, _listed("usd", _printed("000000002020"), content="usd")])
+    overlap = package_analysis([april, interim, _listed("usd", _printed("000000002020"), content="usd")])
     # The pair names its own currency: the notice reads it even where a member's row does not say one.
     for document_row in overlap["documents"]:
         document_row.pop("currency", None)
-    packages = [_package_analysis([*_first_quarter(), quarter]),
-                _package_analysis([january, february, _listed("doc", document, content="doc")]), overlap]
+    packages = [package_analysis([*_first_quarter(), quarter]),
+                package_analysis([january, february, _listed("doc", document, content="doc")]), overlap]
     result = run_dashboard("const shown = [];\n" + "".join(f"""
 renderPackageAnalysis({json.dumps(package)});
 shown.push(els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, ""));
@@ -1363,14 +1368,15 @@ def test_the_notice_names_a_pair_of_one_account_sharing_no_credit_by_its_days(tm
     period inside the other, or more than three common days) reads the days the two cover; the header names pairs of
     one account unless every pair shares a credit."""
     from tests.test_webapp_app import _APRIL, _april, _period
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
     other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
                     number="XXXX1010")
     interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
                       "2031-04-15", "2031-05-10", opening=30000.0)
-    packages = [_package_analysis([_april(), other]), _package_analysis([_april(), other, interim])]
+    packages = [package_analysis([_april(), other]), package_analysis([_april(), other, interim])]
     result = run_dashboard("const shown = [];\n" + "".join(f"""
 renderPackageAnalysis({json.dumps(package)});
 shown.push([els.duplicateNotice.hidden, els.duplicateNoticeText.innerHTML.replace(/<[^>]+>/g, "")]);
@@ -1486,14 +1492,15 @@ def test_an_account_left_out_of_the_package_is_named_and_the_true_line_says_what
     """R15: the notice names each account left out (not a repeat) and why, the package needs review, and the True line
     says how many statements it covers; a package that counted none reads N/A and never Balanced (R54)."""
     from tests.test_webapp_app import _r15_document, _r15_month
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
-    withheld = _package_analysis([_r15_month(1), _r15_document(2, main="held"), _r15_month(3)])
-    ambiguous = _package_analysis([_r15_month(1), _r15_document(2, notes=("ambiguous_internal_transfer",))])
-    alone = _package_analysis([_r15_document(3, main="held")])
-    idle = _package_analysis([_r15_month(1), _r15_document(2, main="idle")])
-    clean = _package_analysis([_r15_month(1), _r15_month(2), _r15_month(3)])
+    withheld = package_analysis([_r15_month(1), _r15_document(2, main="held"), _r15_month(3)])
+    ambiguous = package_analysis([_r15_month(1), _r15_document(2, notes=("ambiguous_internal_transfer",))])
+    alone = package_analysis([_r15_document(3, main="held")])
+    idle = package_analysis([_r15_month(1), _r15_document(2, main="idle")])
+    clean = package_analysis([_r15_month(1), _r15_month(2), _r15_month(3)])
     withheld_view, ambiguous_view, alone_view, idle_view, clean_view = _views(withheld, ambiguous, alone, idle, clean)
     assert withheld_view["excluded"] == [False, "1 account left out of every figure. The package needs review. "
                                                 "doc2.pdf (main account not verified)."]
@@ -1520,14 +1527,15 @@ def test_an_account_left_out_of_the_package_is_named_and_the_true_line_says_what
 def test_the_other_exclusion_labels(tmp_path, monkeypatch):
     from tests.test_webapp_app import _r15_document
 
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
     unratified = [{"label": "CONTOSO SECTION B", "reason": "absence_of_parsed_rows", "posting_count": 0}]
-    omitted = _package_analysis([_r15_document(2, omitted=unratified)])
+    omitted = package_analysis([_r15_document(2, omitted=unratified)])
     unvalidated_doc = _r15_document(3)
     unvalidated_doc.analysis["accounts"][1]["quality"]["corporate_use"] = "manual_review"
-    unvalidated = _package_analysis([unvalidated_doc])
+    unvalidated = package_analysis([unvalidated_doc])
     omitted_view, unvalidated_view = _views(omitted, unvalidated)
     assert omitted_view["excluded"][1].endswith("doc2.pdf, account 2 of 2 (a section left out without proof).")
     assert unvalidated_view["excluded"][1] == ("1 account left out of every figure. The package needs review. "
@@ -1539,12 +1547,13 @@ def test_a_package_with_nothing_analysed_reads_n_a_and_names_what_is_still_proce
     """R54: no Balanced, no $0.00 and no invented "1 statement · 1 month" where nothing was analysed; a queued or
     processing job reads Processing, never Failed."""
     from tests.test_webapp_app import _listed, _r15_month
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
-    failed = _package_analysis([_listed("sample", status="error", filename="sample.pdf")])
-    queued = _package_analysis([_listed("sample", status="queued", filename="sample.pdf")])
-    mixed = _package_analysis([_r15_month(1), _listed("sample", status="error", content="s", filename="s.pdf")])
+    failed = package_analysis([_listed("sample", status="error", filename="sample.pdf")])
+    queued = package_analysis([_listed("sample", status="queued", filename="sample.pdf")])
+    mixed = package_analysis([_r15_month(1), _listed("sample", status="error", content="s", filename="s.pdf")])
     failed_view, queued_view, mixed_view = _views(failed, queued, mixed)
     for page in (failed_view, queued_view):
         assert "Revenue · Balanced" not in page["chips"]
@@ -1566,20 +1575,21 @@ def test_the_package_counts_name_statements_and_accounts_apart(tmp_path, monkeyp
     """R50: a repeat is no statement of the package on any surface, and a document of two accounts is one statement
     and two accounts, never "2 statements" or "2 of 1"."""
     from tests.test_webapp_app import _listed, _r15_document
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
 
     def contoso(job_id):
         return _listed(job_id, _payload(), content="contoso-march", filename="march.pdf")
 
-    twice = _package_analysis([contoso("a"), contoso("b")])
-    thrice = _package_analysis([contoso("a"), contoso("b"), contoso("c")])
-    fabrikam = _package_analysis([_r15_document(3, job_id="fabrikam")])
-    with_april = _package_analysis([_r15_document(3, job_id="fabrikam"),
-                                    _listed("april", _payload(month=4), content="april", filename="april.pdf")])
-    with_queued = _package_analysis([_r15_document(3, job_id="fabrikam"),
-                                     _listed("later", status="queued", content="later", filename="later.pdf")])
+    twice = package_analysis([contoso("a"), contoso("b")])
+    thrice = package_analysis([contoso("a"), contoso("b"), contoso("c")])
+    fabrikam = package_analysis([_r15_document(3, job_id="fabrikam")])
+    with_april = package_analysis([_r15_document(3, job_id="fabrikam"),
+                                   _listed("april", _payload(month=4), content="april", filename="april.pdf")])
+    with_queued = package_analysis([_r15_document(3, job_id="fabrikam"),
+                                    _listed("later", status="queued", content="later", filename="later.pdf")])
     twice_view, thrice_view, fabrikam_view, april_view, queued_view = _views(
         twice, thrice, fabrikam, with_april, with_queued)
     assert twice_view["card"]["Statements"] == "1 completed of 1"
@@ -1621,13 +1631,14 @@ console.log(JSON.stringify([
 def test_two_single_statements_read_as_before(tmp_path, monkeypatch):
     """R50 controls: a package of single-account statements keeps every count string (two done; one failed of two)."""
     from tests.test_webapp_app import _listed
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
-    singles = _package_analysis([_listed("mar", _payload(), content="mar", filename="march.pdf"),
-                                 _listed("apr", _payload(month=4), content="apr", filename="april.pdf")])
-    one_failed = _package_analysis([_listed("mar", _payload(), content="mar", filename="march.pdf"),
-                                    _listed("apr", status="error", content="apr", filename="april.pdf")])
+    singles = package_analysis([_listed("mar", _payload(), content="mar", filename="march.pdf"),
+                                _listed("apr", _payload(month=4), content="apr", filename="april.pdf")])
+    one_failed = package_analysis([_listed("mar", _payload(), content="mar", filename="march.pdf"),
+                                   _listed("apr", status="error", content="apr", filename="april.pdf")])
     singles_view, failed_view = _views(singles, one_failed)
     assert singles_view["kicker"].startswith("Package · 2 statements")
     assert singles_view["status"]["Statements completed"] == "2 / 2"

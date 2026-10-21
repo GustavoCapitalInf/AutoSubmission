@@ -77,8 +77,8 @@ def _stored(monkeypatch, mode="true_revenue", extra=(), **kwargs):
 
 
 def _served(payload):
-    from webapp.app import _displayed
-    return _displayed(payload, settings={})
+    from analysis.served_view import displayed
+    return displayed(payload, settings={})
 
 
 def _withholding_notes(metrics):

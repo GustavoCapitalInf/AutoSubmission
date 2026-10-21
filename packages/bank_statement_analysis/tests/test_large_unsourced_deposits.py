@@ -74,8 +74,8 @@ def _payload(rows, **kwargs):
 
 
 def _served(payload, zelle=True):
-    from webapp.app import _displayed
-    return _displayed(payload, settings={"zelle_true_revenue": zelle})
+    from analysis.served_view import displayed
+    return displayed(payload, settings={"zelle_true_revenue": zelle})
 
 
 def _job(job_id, payload):
@@ -84,9 +84,9 @@ def _job(job_id, payload):
 
 
 def _package(*members, zelle=True):
-    from webapp.app import _package_analysis
-    return _package_analysis([_job(job_id, payload) for job_id, payload in members],
-                             settings={"zelle_true_revenue": zelle})
+    from analysis.package import package_analysis
+    return package_analysis([_job(job_id, payload) for job_id, payload in members],
+                            settings={"zelle_true_revenue": zelle})
 
 
 def _squares(days=SQUARE_DAYS, amount=2500.0):
@@ -115,11 +115,11 @@ def _without_flag(node):
 
 def _reader_finds_nothing(monkeypatch):
     """The flag's reader finding nothing, from here on in the test: what every surface computed before the batch."""
+    import analysis.package
     from analysis import revenue_view
-    from webapp import app as appmod
 
     monkeypatch.setattr(revenue_view, "large_unsourced_deposits", lambda transactions, true_total: [])
-    monkeypatch.setattr(appmod, "large_unsourced_deposits", lambda transactions, true_total: [])
+    monkeypatch.setattr(analysis.package, "large_unsourced_deposits", lambda transactions, true_total: [])
 
 
 # ---------------------------------------------------------------- the reader and its constants
@@ -262,7 +262,8 @@ def test_l4_a_statement_whose_revenue_is_not_established_carries_no_flag():
 
 
 def test_l5_a_statement_with_no_flag_is_served_and_downloaded_as_before():
-    from webapp.app import _analysis_csv, _displayed, _masked
+    from webapp.app import _analysis_csv, _masked
+    from analysis.served_view import displayed
 
     payload = _payload([*_squares(), (6, DEPOSIT, 4000.0)])
     served = _served(payload)
@@ -270,7 +271,7 @@ def test_l5_a_statement_with_no_flag_is_served_and_downloaded_as_before():
     # since the owner's request of 2026-10-10 (active positions by month), its two active position counts.
     assert set(served["metrics"]) - set(payload["metrics"]) == {"verified_revenue_established", "revenue_established",
                                                                 "nsf_days", "active_positions", "possible_positions"}
-    exported = _analysis_csv(_masked(_displayed(payload, settings={}, export=True)))
+    exported = _analysis_csv(_masked(displayed(payload, settings={}, export=True)))
     assert "large_unsourced" not in exported
 
 
@@ -389,9 +390,10 @@ def test_l7_a_document_s_account_names_its_account():
 
 def _statement_downloads(payload):
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed, _masked
+    from webapp.app import _analysis_csv, _analysis_xlsx, _masked
+    from analysis.served_view import displayed
 
-    exported = _masked(_displayed(payload, settings={}, export=True))
+    exported = _masked(displayed(payload, settings={}, export=True))
     return list(csv.reader(io.StringIO(_analysis_csv(exported)))), _sheet_rows(_analysis_xlsx(exported)), exported
 
 

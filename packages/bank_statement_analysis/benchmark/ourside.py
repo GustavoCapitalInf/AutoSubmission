@@ -6,7 +6,7 @@ Source text is resolved exactly the way the corpus gate does:
 no live OCR, no Gemini, no network).  Analysis uses
 ``analysis.pipeline.analyze_document(..., parse_mode="deterministic")`` and the
 production ``document_report_to_dict`` contract.  Package aggregation reuses the same
-code path the webapp serves (``webapp.app._package_analysis``) with in-memory
+code path the webapp serves (``analysis.package.package_analysis``) with in-memory
 jobs, so package semantics match production.  None of those modules are
 modified by this package.
 """
@@ -21,7 +21,9 @@ from analysis.payload_shape import refuse_document_payload
 from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
 from webapp.jobs import Job
-from webapp.app import _package_analysis
+from webapp.settings import load_settings
+from webapp.storage import default_data_dir
+from analysis.package import package_analysis
 
 from .manifest import BenchmarkSet
 
@@ -128,5 +130,5 @@ def run_set(
             Job(id=f"bench-{len(jobs)}", filename=path.name, status="done", analysis=payload)
         )
     if benchmark_set.package:
-        result.package = _package_analysis(jobs)
+        result.package = package_analysis(jobs, settings=load_settings(default_data_dir()))
     return result

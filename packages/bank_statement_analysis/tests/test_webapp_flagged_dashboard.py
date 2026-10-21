@@ -876,20 +876,19 @@ def test_a_served_fabricated_statement_fills_the_panel_and_follows_its_switches(
     from analysis import transaction_classifier
     from analysis.serialization import document_report_to_dict
     from tests.test_webapp_studio_views import _report
-    from webapp.app import _displayed, store
-    from webapp.settings import save_settings
+    from analysis.served_view import displayed
+    from webapp.settings import load_settings, save_settings
 
     # A fabricated premium financier, routed into the insurance rule as S2's own tests route one
     # (tests/flag_group_fixtures.py, fake_premium_finance).
     monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES",
                         {"Fabricated Premium Finance": ("FABRICATED PFC",)})
-    monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the settings file of a scratch folder
     stored = document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, SERVED_ROWS))
-    shown = _displayed(stored)
+    shown = displayed(stored)
     save_settings(tmp_path, {"flag_premium_financing": False})
-    premium_off = _displayed(stored)
+    premium_off = displayed(stored, settings=load_settings(tmp_path))
     save_settings(tmp_path, {"flag_mortgages": False})
-    hidden = _displayed(stored)
+    hidden = displayed(stored, settings=load_settings(tmp_path))
     result = run_dashboard(CELLS + ROWS + PAYEE_CLICK + _serve(shown=shown, premium_off=premium_off, hidden=hidden)
                            + """
 const insurer = (html) => rowsOf(html)

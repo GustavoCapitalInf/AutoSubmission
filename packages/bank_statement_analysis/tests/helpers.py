@@ -112,7 +112,7 @@ def _row(**kwargs) -> DocumentRow:
 
 
 def _package(*members):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
-    return _package_analysis([Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload,
-                                  content_sha256=job_id) for job_id, payload in members], settings={})
+    return package_analysis([Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload,
+                                 content_sha256=job_id) for job_id, payload in members], settings={})

@@ -128,12 +128,12 @@ def _pair_document(verified_amount, pair_amount, *, pair_tier=None, mode=None):
 def _package(*payloads, zelle: bool = True):
     """The package of `payloads`, built on an explicit settings snapshot (every default; `zelle` the owner's "Mark Zelle
     Payments as True Revenue", R2-OW17), never the data directory's settings.json."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
     from webapp.settings import DEFAULTS
-    return _package_analysis([Job(id=f"job-{index}", filename=f"statement-{index}.pdf", status="done", analysis=payload)
-                              for index, payload in enumerate(payloads, start=1)],
-                             settings={**DEFAULTS, "zelle_true_revenue": zelle})
+    return package_analysis([Job(id=f"job-{index}", filename=f"statement-{index}.pdf", status="done", analysis=payload)
+                             for index, payload in enumerate(payloads, start=1)],
+                            settings={**DEFAULTS, "zelle_true_revenue": zelle})
 
 
 def test_a_package_member_carries_its_true_revenue_and_parts():
@@ -183,7 +183,7 @@ def _summary_only(month):
 
 def test_a_package_names_each_member_analysed_with_older_rules():
     # §12: the package note names an outdated member ("Re-analyze to compute true revenue"). Each document row carries
-    # its statement's analysis_rules_outdated, read off the copy the package reads (_displayed), and the package
+    # its statement's analysis_rules_outdated, read off the copy the package reads (displayed), and the package
     # carries it when any member does. A summary-only member is not established, and not outdated.
     package = _package(_payload(), _untiered(_payload(month=4)), _summary_only(5))
     assert [row["analysis_rules_outdated"] for row in package["documents"]] == [False, True, False]
@@ -223,8 +223,8 @@ def test_the_verified_aliases_are_n_a_with_the_verified_total():
 
 
 def test_the_served_copy_of_an_older_payload_nulls_true_revenue():
-    from webapp.app import _displayed
-    served = _displayed(_untiered(_payload()), settings={})
+    from analysis.served_view import displayed
+    served = displayed(_untiered(_payload()), settings={})
     assert served["metrics"]["revenue_established"] is False
     assert served["metrics"]["verified_revenue_established"] is True
     assert served["metrics"]["true_revenue"] is None and served["metrics"]["true_revenue_total"] is None
@@ -232,7 +232,7 @@ def test_the_served_copy_of_an_older_payload_nulls_true_revenue():
     assert all("contributes_to_true_revenue" not in transaction["classification"]
                for transaction in served["statement"]["transactions"] if transaction["amount"] > 0)
     assert served["metrics"]["verified_revenue_total"] == 700.0
-    fresh = _displayed(_payload(), settings={})
+    fresh = displayed(_payload(), settings={})
     assert fresh["metrics"]["revenue_established"] is True
 
 
@@ -339,7 +339,8 @@ def test_an_older_payload_carries_no_true_revenue_flag_anywhere_it_is_served():
     # T10, §12: an older payload stores contributes_to_true_revenue, with its OLD verified meaning, on every copy of a
     # record, not only on the statement rows. None of them may reach a reader: not the served copy, not the package
     # built from it, not the API or the downloads. The stored job stays byte-identical.
-    from webapp.app import _displayed, app, store
+    from webapp.app import app, store
+    from analysis.served_view import displayed
 
     old = _untiered(_payload(DETECTED_ROWS))
     stored = json.dumps(old, sort_keys=True)
@@ -360,7 +361,7 @@ def test_an_older_payload_carries_no_true_revenue_flag_anywhere_it_is_served():
     assert old["detection"]["verified_revenue_evidence"][0][_OLD_FLAG] is True
     assert old["classifications"][0][_OLD_FLAG] is True
 
-    assert set(_flag_sections(_displayed(old, settings={}))) == set()
+    assert set(_flag_sections(displayed(old, settings={}))) == set()
     package = _package(old)
     assert set(_flag_sections(package)) == set()
     assert package["funders"] and package["insurance_providers"] and package["potential_lenders"]
@@ -381,8 +382,8 @@ def test_an_older_payload_carries_no_true_revenue_flag_anywhere_it_is_served():
 
 def test_a_5_6_payload_keeps_the_repointed_flag_on_every_copy():
     # T9: from 5.6 on the flag means True revenue, and the served copy keeps it wherever the payload stored it.
-    from webapp.app import _displayed
-    served = _displayed(_payload(DETECTED_ROWS), settings={})
+    from analysis.served_view import displayed
+    served = displayed(_payload(DETECTED_ROWS), settings={})
     assert {"statement.transactions.classification", "classifications", "metrics.true_revenue_evidence",
             "detection.counted_flagged_evidence", "detection.known_funders.evidence"} <= set(_flag_sections(served))
     counted = served["statement"]["transactions"][1]["classification"]
@@ -531,7 +532,7 @@ def test_the_default_basis_is_true_revenue_and_a_stored_payload_without_a_mode_k
     """Owner ruling 2026-10-02 (the underwriter's Q7, audit I34), R2-OW14: an analysis made today divides by True
     revenue (U1); a payload stored before the default moved carries no mode and keeps the legacy basis it was analysed
     under, in the served copy (revenue.py) and in the package (app.py) (U3)."""
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     monkeypatch.delenv("WITHHOLDING_DENOMINATOR_MODE", raising=False)
     today = _payload()
@@ -552,7 +553,7 @@ def test_the_default_basis_is_true_revenue_and_a_stored_payload_without_a_mode_k
     # the revenue rebuild (a review decision) reads it as legacy and keeps the stored denominator.
     from analysis.revenue import rebuild_serialized_revenue_views
 
-    served = _displayed(copy.deepcopy(stored), settings={})
+    served = displayed(copy.deepcopy(stored), settings={})
     assert "withholding_denominator_mode" not in served["metrics"]
     assert served["metrics"]["withholding_denominator"] == served["metrics"]["eligible_deposits"] == 2000.0
     rebuilt = rebuild_serialized_revenue_views(copy.deepcopy(stored))
@@ -602,13 +603,13 @@ def test_a_duplicated_middle_month_leaves_the_averages_unchanged():
 
 
 def test_a_statement_period_spanning_two_months_counts_in_the_month_holding_most_of_its_days():
-    from webapp.app import _statement_month
+    from analysis.package.calendar import statement_month
 
-    assert _statement_month("2031-03-02", "2031-04-01") == 2031 * 12 + 2
-    assert _statement_month("2030-12-01", "2031-01-02") == 2030 * 12 + 11
-    assert _statement_month("2031-02-15", "2031-03-14") == 2031 * 12 + 1  # 14 days each: the earlier month
-    assert _statement_month(None, "2031-05-31") == 2031 * 12 + 4
-    assert _statement_month("2031-02-30", None) is None and _statement_month(None, None) is None
+    assert statement_month("2031-03-02", "2031-04-01") == 2031 * 12 + 2
+    assert statement_month("2030-12-01", "2031-01-02") == 2030 * 12 + 11
+    assert statement_month("2031-02-15", "2031-03-14") == 2031 * 12 + 1  # 14 days each: the earlier month
+    assert statement_month(None, "2031-05-31") == 2031 * 12 + 4
+    assert statement_month("2031-02-30", None) is None and statement_month(None, None) is None
 
 
 def test_the_per_month_true_revenue_is_n_a_where_true_revenue_is():
@@ -791,11 +792,12 @@ def _csv_cells(text):
 def test_a_statement_download_leaves_unestablished_revenue_empty():
     """I51: a short capture's True, Counted and Held, and every alias, are empty in the downloads (the dashboard reads
     them as N/A); Non-revenue stays, captured rows only; its Verified figure, not established either, is empty too."""
-    from webapp.app import _analysis_csv, _displayed
+    from webapp.app import _analysis_csv
+    from analysis.served_view import displayed
 
     short = _summary_only(3)
-    served = _displayed(short, settings={})
-    exported = _displayed(short, settings={}, export=True)
+    served = displayed(short, settings={})
+    exported = displayed(short, settings={}, export=True)
     assert served["metrics"]["revenue_established"] is False and served["metrics"]["true_revenue_total"] == 1000.0
     cells = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(exported)) if len(row) == 3}
     for key in ("true_revenue", "true_revenue_total", "true_revenue_count", "excluded_pending_review_total",
@@ -811,8 +813,8 @@ def test_a_statement_download_leaves_unestablished_revenue_empty():
     assert cells[("metrics", "revenue_established")] == "False"
     assert not any(row[0] == "revenue_tier" for row in _csv_cells(_analysis_csv(exported)))
     # An established statement's download keeps every figure.
-    fresh = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(_displayed(_payload(), settings={},
-                                                                                     export=True)))
+    fresh = {(row[0], row[1]): row[2] for row in _csv_cells(_analysis_csv(displayed(_payload(), settings={},
+                                                                                    export=True)))
              if len(row) == 3}
     assert (fresh[("metrics", "true_revenue_total")], fresh[("metrics", "maximum_revenue")]) == ("1000.0", "1900.0")
 
@@ -839,14 +841,15 @@ def test_the_xlsx_writes_money_as_numbers_and_flags_as_booleans():
     """I52: SUM and a pivot add the money; NaN, inf and every numeric-looking string stay text."""
     openpyxl = pytest.importorskip("openpyxl")
     import io
-    from webapp.app import _analysis_xlsx, _displayed, _package_xlsx, _xlsx_cell
+    from webapp.app import _analysis_xlsx, _package_xlsx, _xlsx_cell
+    from analysis.served_view import displayed
 
     def sheet(blob):
         workbook = openpyxl.load_workbook(io.BytesIO(blob))
         return {(row[0].value, row[1].value): row[2] for row in workbook.active.iter_rows(min_row=2)
                 if len(row) >= 3}
 
-    cells = sheet(_analysis_xlsx(_displayed(_payload(), settings={}, export=True)))
+    cells = sheet(_analysis_xlsx(displayed(_payload(), settings={}, export=True)))
     true_cell = cells[("metrics", "true_revenue_total")]
     assert (true_cell.data_type, true_cell.value) == ("n", 1000)
     assert cells[("metrics", "true_revenue_count")].data_type == "n"
@@ -867,9 +870,10 @@ def test_the_statement_downloads_list_every_posted_credit_on_its_own_row():
     True can be checked deposit by deposit. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): a credit
     in True revenue reads `true_revenue` with no reason, verified or counted alike, and no `state` column (the 5.4
     state) is written."""
-    from webapp.app import _analysis_csv, _displayed
+    from webapp.app import _analysis_csv
+    from analysis.served_view import displayed
 
-    rows = [row for row in _csv_cells(_analysis_csv(_displayed(_payload(), settings={}, export=True)))
+    rows = [row for row in _csv_cells(_analysis_csv(displayed(_payload(), settings={}, export=True)))
             if row[0] == "posted_credit"]
     assert rows[0] == ["posted_credit", "columns", "date", "description", "amount", "currency", "tier", "reason",
                        "review_status"]
@@ -960,9 +964,10 @@ def test_the_statement_xlsx_keeps_every_cell_under_the_limit_and_the_csv_keeps_t
     """R53: no XLSX cell holds more than Excel's 32,767 characters; the ledger cell, over it, says what it held and
     points to the JSON download (never a cut JSON). The CSV, which has no such limit, keeps the whole ledger, as the
     downloads read it (the owner's request of 2026-10-11: `_downloads_view`, no Verified or Counted tier)."""
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed, _downloads_view
+    from webapp.app import _analysis_csv, _analysis_xlsx, _downloads_view
+    from analysis.served_view import displayed
 
-    served = _displayed(_forty_payload(), settings={}, export=True)
+    served = displayed(_forty_payload(), settings={}, export=True)
     ledger = json.dumps(_downloads_view(served)["statement"]["transactions"])
     assert _utf16(ledger) > _XLSX_CELL_LIMIT
     rows = _sheet_rows(_analysis_xlsx(served))
@@ -977,9 +982,10 @@ def test_the_statement_downloads_list_every_posted_debit_on_its_own_row():
     """R53: one row per posted debit after the credit table, with its date, description, signed amount (a number in the
     XLSX), currency, classification, flag group (only where Settings shows the group), entity and review flag; no
     unposted row and no credit; statement text formula-escaped."""
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+    from webapp.app import _analysis_csv, _analysis_xlsx
+    from analysis.served_view import displayed
 
-    served = _displayed(_forty_payload(), settings={}, export=True)
+    served = displayed(_forty_payload(), settings={}, export=True)
     csv_rows = _csv_cells(_analysis_csv(served))
     sections = [row[0] for row in csv_rows]
     assert sections.index("posted_debit") > max(index for index, section in enumerate(sections)
@@ -1001,11 +1007,11 @@ def test_the_statement_downloads_list_every_posted_debit_on_its_own_row():
                         "confirmed_lender", "", "FABRIKAM CAPITAL", False, ""]
     assert sheet[3][3] == "'=SAMPLE STORE PURCHASE"
     # An unticked group leaves the flag column blank (its rows lose their flag on the served copy).
-    unticked = _displayed(_forty_payload(), settings={"flag_credit_cards": False}, export=True)
+    unticked = displayed(_forty_payload(), settings={"flag_credit_cards": False}, export=True)
     amex = [row for row in _csv_cells(_analysis_csv(unticked)) if row[0] == "posted_debit"][4]
     assert (amex[3], amex[6], amex[7]) == ("AMERICAN EXPRESS ACH PMT", "credit_card_payment", "")
     # A document of two accounts writes a block for each, under its section prefix.
-    document_rows = _csv_cells(_analysis_csv(_displayed(_two_accounts_with_debits(), settings={}, export=True)))
+    document_rows = _csv_cells(_analysis_csv(displayed(_two_accounts_with_debits(), settings={}, export=True)))
     blocks = [row for row in document_rows if row[0].endswith("posted_debit")]
     assert [(row[0], row[3]) for row in blocks if row[1] != "columns"] == [
         ("account_1.posted_debit", "NORTHWIND NSF FEE"), ("account_2.posted_debit", "AMERICAN EXPRESS ACH PMT")]
@@ -1014,11 +1020,12 @@ def test_the_statement_downloads_list_every_posted_debit_on_its_own_row():
 def test_a_funder_payment_returned_unpaid_names_the_credit_that_returned_it():
     """R53 with R2-OW13's column (the underwriter's Q5): a confirmed funder's payment the bank returned unpaid names the
     returning credit's location; the funder's other payment, and the returning credit (no debit), do not."""
-    from webapp.app import _analysis_csv, _displayed
+    from webapp.app import _analysis_csv
+    from analysis.served_view import displayed
 
     payload = _payload([(1, "FABRIKAM SUPPLY INC DES:PAYMENT ID:1", 10000.0), (2, "KAPITUS DES:PAYMENT ID:1", -850.0),
                         (3, "KAPITUS RETURNED ACH ITEM 0001", 850.0), (5, "KAPITUS DES:PAYMENT ID:2", -850.0)])
-    debits = [row for row in _csv_cells(_analysis_csv(_displayed(payload, settings={}, export=True)))
+    debits = [row for row in _csv_cells(_analysis_csv(displayed(payload, settings={}, export=True)))
               if row[0] == "posted_debit" and row[1] != "columns"]
     assert [(row[2], row[6], row[10]) for row in debits] == [("2031-03-02", "confirmed_lender", "transaction:3"),
                                                               ("2031-03-05", "confirmed_lender", "")]
@@ -1045,15 +1052,16 @@ def test_the_xlsx_cell_limit_counts_utf16_units_and_never_cuts():
 def test_a_short_statement_xlsx_changes_only_by_the_debit_block_and_a_package_xlsx_not_at_all():
     """R53 controls: below the limit every cell is written as before, so a short statement's XLSX is the flat rows and
     the credit table, unchanged, then the debit table; a package's XLSX is its rows, unchanged."""
-    from webapp.app import (_analysis_rows, _analysis_xlsx, _displayed, _escaped_rows, _package_rows,
-                            _package_transaction_table, _package_xlsx, _posted_credit_table, _posted_debit_table)
+    from webapp.app import (_analysis_rows, _analysis_xlsx, _escaped_rows, _package_rows, _package_transaction_table,
+                            _package_xlsx, _posted_credit_table, _posted_debit_table)
+    from analysis.served_view import displayed
 
     def as_read(rows):
         # A cell as the sheet holds it: a bool, a number or a string (any other value is written as its text).
         return [[value if isinstance(value, (bool, int, float, str)) else str(value) for value in row]
                 for row in _escaped_rows(rows)]
 
-    served = _displayed(_payload(), settings={}, export=True)
+    served = displayed(_payload(), settings={}, export=True)
     before = as_read(_analysis_rows(served) + _posted_credit_table(served))
     block = as_read(_posted_debit_table(served))
     assert [row[3] for row in block] == ["description", "CARD PURCHASE FABRIKAM SUPPLY"]
@@ -1253,10 +1261,10 @@ def test_twelve_calendar_months_read_twelve():
 def test_the_month_labels_and_the_tiers_are_unchanged():
     """R13 changes the divisor only: each statement keeps the month holding most of its days (January, March, March:
     the Monthly Statements' Month/Year labels, owner request 7ea2559), and each credit its tier."""
-    from webapp.app import _statement_month
+    from analysis.package.calendar import statement_month
 
     package = _periods_package(_SIXTEENTH_CYCLE)
-    assert [_statement_month(row["period_start"], row["period_end"]) % 12 for row in package["monthly"]] == [0, 2, 2]
+    assert [statement_month(row["period_start"], row["period_end"]) % 12 for row in package["monthly"]] == [0, 2, 2]
     alone = [_periods_package([period]) for period in _SIXTEENTH_CYCLE]
     assert [row["true_revenue_total"] for row in package["documents"]] == [
         single["documents"][0]["true_revenue_total"] for single in alone]
@@ -1269,13 +1277,13 @@ def test_the_month_labels_and_the_tiers_are_unchanged():
 def test_the_covered_days_of_a_period():
     from datetime import date
 
-    from webapp.app import _covered_days
+    from analysis.package.calendar import covered_days
 
-    assert len(_covered_days("2031-01-16", "2031-02-15")) == 31
-    assert _covered_days("2031-03-01", "2031-03-01") == {date(2031, 3, 1)}
-    assert _covered_days("2031-03-02", "2031-03-01") == set()  # an end before the start reads no day
-    assert _covered_days(None, "2031-03-01") == set() and _covered_days("2031-03-01", "2031-02-30") == set()
-    assert len(_covered_days("2030-01-01", "2032-12-31")) == 400  # capped as _statement_month is
+    assert len(covered_days("2031-01-16", "2031-02-15")) == 31
+    assert covered_days("2031-03-01", "2031-03-01") == {date(2031, 3, 1)}
+    assert covered_days("2031-03-02", "2031-03-01") == set()  # an end before the start reads no day
+    assert covered_days(None, "2031-03-01") == set() and covered_days("2031-03-01", "2031-02-30") == set()
+    assert len(covered_days("2030-01-01", "2032-12-31")) == 400  # capped as statement_month is
 
 
 # Audit round 3, R3-B18 (R3-02): a statement that prints no bank or fewer than four account digits joins its account's
@@ -1321,7 +1329,7 @@ def test_two_unkeyed_accounts_of_one_bank_each_chained_read_three_months():
 def test_the_months_link_never_joins_two_accounts_of_one_document_or_two_keyed_accounts():
     from datetime import date
 
-    from webapp.app import _months_linked
+    from analysis.package.model import months_linked
 
     def member(job_id, bank, digits, start, end, opening, closing, name="contoso bakery llc"):
         return {"job_id": job_id, "bank": bank, "digits": digits, "name": name, "start": start, "end": end,
@@ -1329,17 +1337,17 @@ def test_the_months_link_never_joins_two_accounts_of_one_document_or_two_keyed_a
 
     january = member("a", "contoso bank", "", date(2031, 1, 16), date(2031, 2, 15), 1500.0, 11500.0)
     february = member("b", "contoso bank", "", date(2031, 2, 16), date(2031, 3, 15), 11500.0, 21500.0)
-    assert _months_linked(january, february) and _months_linked(february, january)
-    assert not _months_linked(january, {**february, "job_id": "a"})  # one document's two accounts
-    assert not _months_linked(january, {**february, "bank": "fabrikam bank"})
-    assert _months_linked(january, {**february, "bank": ""})  # a bankless statement reads its chain
-    assert not _months_linked(january, {**february, "name": "fabrikam tools llc"})
-    assert _months_linked(january, {**february, "name": ""})
-    assert not _months_linked(january, {**february, "opening": 11500.01})
+    assert months_linked(january, february) and months_linked(february, january)
+    assert not months_linked(january, {**february, "job_id": "a"})  # one document's two accounts
+    assert not months_linked(january, {**february, "bank": "fabrikam bank"})
+    assert months_linked(january, {**february, "bank": ""})  # a bankless statement reads its chain
+    assert not months_linked(january, {**february, "name": "fabrikam tools llc"})
+    assert months_linked(january, {**february, "name": ""})
+    assert not months_linked(january, {**february, "opening": 11500.01})
     # Two keyed statements: the bank and the last four, chained or not, as R2-B15's key reads them.
     keyed = {**january, "digits": "000000001010"}
-    assert _months_linked(keyed, {**february, "digits": "1010", "opening": 1.0})
-    assert not _months_linked(keyed, {**february, "digits": "000000002020"})
+    assert months_linked(keyed, {**february, "digits": "1010", "opening": 1.0})
+    assert not months_linked(keyed, {**february, "digits": "000000002020"})
 
 
 # ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW03: the non-revenue
@@ -1396,10 +1404,10 @@ def test_a_member_whose_revenue_is_not_established_still_shows_its_non_revenue()
 def test_a_package_with_no_statement_analysed_keeps_an_empty_breakdown():
     """Audit round 2, R2-B15 (R54): with no completed member True, Verified, Counted and Held are None; the
     non-revenue breakdown is not nulled with them (it is empty: no member counted a row)."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
-    totals = _package_analysis([Job(id="sample", filename="sample.pdf", status="error", analysis=None,
-                                    error="fabricated failure")])["totals"]
+    totals = package_analysis([Job(id="sample", filename="sample.pdf", status="error", analysis=None,
+                                   error="fabricated failure")])["totals"]
     assert totals["completed"] == 0 and totals["true_revenue_total"] is None
     assert totals["non_revenue_by_reason"] == {}
 
@@ -1583,17 +1591,19 @@ def test_no_a_member_without_the_figures_contributes_its_excluded_zelle():
 # Exports (spec §10.8): the readable rows, the row tag and the `zelle` column.
 
 def _download(job_payload, fmt, *, zelle):
-    from webapp.app import _analysis_csv, _displayed
+    from webapp.app import _analysis_csv
+    from analysis.served_view import displayed
     from webapp.settings import DEFAULTS
-    served = _displayed(job_payload, settings={**DEFAULTS, "zelle_true_revenue": zelle}, export=True)
+    served = displayed(job_payload, settings={**DEFAULTS, "zelle_true_revenue": zelle}, export=True)
     return served if fmt == "json" else _analysis_csv(served)
 
 
 def test_a_yes_download_of_z1_prints_the_readable_rows_and_the_zelle_column():
     from tests import zelle_setting_fixtures as fx
-    from webapp.app import _analysis_rows, _displayed, _posted_credit_table
+    from webapp.app import _analysis_rows, _posted_credit_table
+    from analysis.served_view import displayed
     from webapp.settings import DEFAULTS
-    served = _displayed(fx.case("Z1"), settings={**DEFAULTS, "zelle_true_revenue": True}, export=True)
+    served = displayed(fx.case("Z1"), settings={**DEFAULTS, "zelle_true_revenue": True}, export=True)
     rows = _analysis_rows(served)
     assert ("revenue_tier", "zelle_deposits.setting", "Yes") in rows
     assert ("revenue_tier", "zelle_deposits.count", 4) in rows and ("revenue_tier", "zelle_deposits.total", 7734.56) in rows

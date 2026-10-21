@@ -6,7 +6,7 @@ group stay out; one funder paying on two schedules is 2 positions, a small fee s
 in a month when a payment cleared that month (bounced attempts alone never count).
 
 The pure reading (analysis/active_positions.py over analysis/lender_payment_changes.py's positions) on fabricated
-classification records, and the package's per-statement and per-month counts through webapp.app._package_analysis on
+classification records, and the package's per-statement and per-month counts through `package_analysis` on
 fabricated statements analysed by the real pipeline. Computed when served: nothing stored moves, and the payment
 changes stay byte-identical.
 
@@ -260,9 +260,9 @@ def test_a_package_of_three_months_of_one_account_counts_each_month():
     # The Monthly Statements rows carry the same figures (`monthly` lists the same member rows).
     assert {doc["id"]: doc["active_positions"] for doc in built["monthly"]} == {"march": 1, "april": 2, "may": 2}
     # Each statement viewed alone reads its own rows.
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    served = [_displayed(payload, settings={})["metrics"] for payload in (march, april, may)]
+    served = [displayed(payload, settings={})["metrics"] for payload in (march, april, may)]
     assert [(metrics["active_positions"], metrics["possible_positions"]) for metrics in served] == [
         (1, 0), (2, 0), (2, 1)]
 
@@ -316,9 +316,9 @@ def test_a_member_analysed_before_the_check_reads_n_a_and_so_does_its_month():
     built = pkg.package(pkg.job("march", march), pkg.job("april", older))
     assert _rows_of(built) == {"march": (1, 0), "april": (None, None)}
     assert _months(built) == [("2054-03", 1, 0), ("2054-04", None, None)]
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    metrics = _displayed(older, settings={})["metrics"]
+    metrics = displayed(older, settings={})["metrics"]
     assert (metrics["active_positions"], metrics["possible_positions"]) == (None, None)
 
 
@@ -426,9 +426,9 @@ def test_a_monthly_potential_lender_in_a_package_reads_as_each_statement_alone()
                                   + pkg.debits(every(pkg.A(1), pkg.A(29)), 1000), month=4, opening=pkg.closing(march))
     may = pkg.statement_payload(pkg.debits([pkg.Y(15)], 300, DAILY_FUNDING)
                                 + pkg.debits(every(pkg.Y(6), pkg.Y(27)), 1000), month=5, opening=pkg.closing(april))
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    served = [_displayed(payload, settings={})["metrics"] for payload in (march, april, may)]
+    served = [displayed(payload, settings={})["metrics"] for payload in (march, april, may)]
     assert [(metrics["active_positions"], metrics["possible_positions"]) for metrics in served] == [
         (1, 1), (1, 1), (1, 1)]
     built = pkg.package(pkg.job("march", march), pkg.job("april", april), pkg.job("may", may))
@@ -444,9 +444,9 @@ def test_a_package_member_whose_statement_holds_no_rows_list_reads_n_a_and_so_do
     built = pkg.package(pkg.job("march", march), pkg.job("april", rowless))
     assert _rows_of(built) == {"march": (1, 0), "april": (None, None)}
     assert _months(built) == [("2054-03", 1, 0), ("2054-04", None, None)]
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    metrics = _displayed(rowless, settings={})["metrics"]
+    metrics = displayed(rowless, settings={})["metrics"]
     assert (metrics["active_positions"], metrics["possible_positions"]) == (None, None)
 
 

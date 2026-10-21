@@ -313,7 +313,7 @@ def test_the_sentinel_appears_nowhere_in_the_durable_store(monkeypatch, store):
 def test_no_package_export_carries_the_exception_text(monkeypatch):
     """THE SINK THE CARD DID NOT NAME.
 
-    `_package_analysis` copies BOTH columns into every member's `doc_row`
+    `package_analysis` copies BOTH columns into every member's `doc_row`
     (`webapp/app.py:880-881`) and `_package_rows` then walks EVERY key of that
     dict into the CSV and the XLSX. `_masked` does not touch them —
     `_ACCOUNT_KEYS` is `{account, account_number}` — so the leak was not merely
