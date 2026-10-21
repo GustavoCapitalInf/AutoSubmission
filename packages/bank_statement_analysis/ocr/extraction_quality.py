@@ -16,8 +16,8 @@ box; and which way the words read. From those figures, an E-CLASS —
 What this module is NOT, by construction
 ----------------------------------------
 **Nothing here is a trigger, a verdict, or a router input.** `ocr/escalation.py`
-does not import this module and its `ADMITTED_TRIGGERS` are unchanged
-(`tests/test_extraction_quality_admission.py` pins both, by AST and by blob).
+does not import this module (`tests/test_extraction_quality_admission.py` pins
+it by AST).
 The only consumer of these figures in this phase is the REPORT: thirteen
 `eq_*` columns on `rows.csv` (the census instrument,
 `tools/extraction_quality_census.py`, was removed with the PaddleOCR rung in
@@ -159,11 +159,10 @@ E5_TRUNCATION = "E5"
 E_CLASSES: tuple[str, ...] = ("", E0_NO_EVIDENCE, E1_COVERAGE_GAP, E2_RECOGNITION,
                               E3_FRAME_ORIENTATION, E5_TRUNCATION)
 
-#: When more than one class is true, which one `e_class` REPORTS — the same
-#: separation `ocr/escalation.py::TRIGGER_REPORT_PRIORITY` draws between a
-#: vocabulary's order and a reporting preference. Most upstream first: a page
-#: with no evidence at all is not also a recognition-quality finding. Every
-#: class that fired is kept in `PageQuality.classes`, so the precedence
+#: When more than one class is true, which one `e_class` REPORTS: a reporting
+#: preference, kept separate from the vocabulary's order. Most upstream first:
+#: a page with no evidence at all is not also a recognition-quality finding.
+#: Every class that fired is kept in `PageQuality.classes`, so the precedence
 #: reports, it never discards.
 E_CLASS_PRIORITY: tuple[str, ...] = (E0_NO_EVIDENCE, E1_COVERAGE_GAP, E2_RECOGNITION,
                                      E3_FRAME_ORIENTATION, E5_TRUNCATION)

@@ -403,18 +403,15 @@ def test_an_unknown_deferral_reason_is_refused():
         assert classify_outcome(None, deferred=reason) == ("deferred", reason)
 
 
-def test_p20_router_failure_class_and_trigger_vocabularies_mirror_ocr_escalation():
-    """P20-ROUTER item 6: `telemetry.record.FAILURE_CLASSES` /
-    `EXTRACTION_TRIGGERS` are held equal to `ocr.escalation`'s own
-    vocabularies, mirrored by VALUE rather than imported (`ocr/escalation.py`
-    imports nothing from `telemetry`; a one-way mirror the other direction
-    would put a telemetry-layer dependency on the OCR router for two string
-    tuples — see `telemetry/record.py`'s comment beside them)."""
-    from ocr.escalation import ALL_TRIGGERS, FAILURE_CLASSES as ESCALATION_FAILURE_CLASSES
+def test_p20_router_failure_class_vocabulary_mirrors_ocr_escalation():
+    """P20-ROUTER item 6: `telemetry.record.FAILURE_CLASSES` is held equal to
+    `ocr.escalation`'s own vocabulary, mirrored by VALUE rather than imported
+    (`ocr/escalation.py` imports nothing from `telemetry`; see
+    `telemetry/record.py`'s comment beside it)."""
+    from ocr.escalation import FAILURE_CLASSES as ESCALATION_FAILURE_CLASSES
     from telemetry.record import EXTRACTION_TRIGGERS, FAILURE_CLASSES
 
     assert FAILURE_CLASSES == ESCALATION_FAILURE_CLASSES == ("A", "B", "C", "")
-    assert EXTRACTION_TRIGGERS == ALL_TRIGGERS
     assert len(EXTRACTION_TRIGGERS) == len(set(EXTRACTION_TRIGGERS)), "no duplicate trigger names"
 
 

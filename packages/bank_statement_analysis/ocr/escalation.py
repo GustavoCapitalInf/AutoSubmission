@@ -1,63 +1,23 @@
-"""Phase 3.1 amendment: the webapp alone may supply the explicit pair triggers
-for a forced visual read or configured deterministic fallback. Earlier Phase 2
-invariants below still apply to discovery and the legacy OCR rungs.
+"""The failure-class vocabulary and the extraction-quality gate.
 
-Phase 2.0 (P20-ROUTER): the closed failure-class vocabulary, the
-independent `EscalationRouter`, and the `ExtractionQualityGate`.
+Phase 2.0 (P20-ROUTER) built this module around an escalation router that
+chose a second extractor for a document the offline ladder read badly. The
+router lost its last call site when the model rungs were removed, and was
+deleted with them. What stays:
 
-**The invariant this module exists to make structural.** Validator success may
-STOP escalation. Validator failure may NEVER START escalation. Only
-pre-financial evidence — a document profile computed before any parser runs,
-or the measured quality of an extractor's own output — may start an
-extractor. There is no B (structural) -> OCR edge and no C (financial
-validation) -> OCR edge, because neither B nor C produces any member of
-`ADMITTED_TRIGGERS`: a structural "unclaimed" verdict and a failed financial
-oracle are never inputs this module can see, let alone act on.
+* `FAILURE_CLASSES`, the closed A/B/C vocabulary a discovery row names its
+  failure with (mirrored in `telemetry.record.FAILURE_CLASSES`);
+* `OPERATOR_FORCED_PADDLE`, the retired research trigger that
+  `discovery/runner.py::RESEARCH_TRIGGERS` keeps for the report's historical
+  research table;
+* `ExtractionQualityGate` and `EvidenceQuality`, which decide Class A from the
+  produced text alone, before any parser or validator runs.
 
-**Import boundary (structural, pinned by
-`tests/test_escalation_tripwires.py`).** This module imports nothing from
-`analysis`, `discovery`, `webapp` or `telemetry`. It has no notion of a
-parser, a `Dispatch`, a `Statement`, a reconciliation, an ADB or a
-`validated`/`review`/`withheld`/`failed` outcome. `RouterInputs` is a frozen
-dataclass whose five fields are exactly `profile`, `evidence`, `triggers`,
-`attempted` and `stop` — there is no field for a payload, a report, a
-dispatch outcome, a reason, a parser id or any financial fact, so a caller
-cannot smuggle a validator's verdict into the router even by accident: the
-type has nowhere to put it. `RouterInputs.__subclasses__() == []` is pinned
-by test — a subclass that ADDS a field would still satisfy the field-name
-check on the base class alone, which is why the pin also refuses subclassing.
-
-`classify_failure` (A/B/C/"" from evidence + claimed + validated) lives in
-`discovery/runner.py`, deliberately NOT here — it is the one function in this
-story that is allowed to know what "claimed" and "validated" mean, and moving
-it into this module would give the router a way to see the fact the whole
-design keeps it blind to.
-
-**Endpoint policy is enforced in exactly ONE place, and it is not here**
-(P20-ROUTER review, MAJOR-1, ruled 2026-09-01). `ocr_client._build_client`
-(cell B2) fails closed before any client object exists, so a refused or
-unreachable endpoint surfaces as the visual rung's own transport failure
-(`extractor_failed` at the vocabulary level; `ocr_failed`/`VISUAL_FAILED` on
-the row) — never as a router refusal. `EscalationRouter.decide` picks an
-extractor among the ones this module's OWN closed order already permits; it
-does not itself judge whether a network endpoint is reachable, local, or
-opted-in, because doing so would require it to know about `Settings`,
-`base_url`s and `$0` policy — none of which belong in a module whose entire
-job is staying blind to everything but a profile, a trigger set and an
-evidence verdict. A prior revision of this module DID consult a guessed
-`ocr.endpoint_policy` API here; it was fail-open on any contract mismatch
-(an `ImportError` from importing the wrong name silently returned "allowed"),
-and it was provably inert against cell B2's REAL, documented contract
-(`docs/agent-handoffs/P20-SEAM.md`'s `check_endpoint`/`classify_endpoint`).
-Removed rather than patched: the router has no way to know which contract B2
-will ship, and a seam that can silently do nothing is worse than no seam.
-
-Phase 2.0 exclusions (still true; do not implement here): no page-level
-routing, no Trigger T routing (`TRUNCATION_FLAGGED` is defined and refused —
-OQ4), no network call, no statement-specific hardcode of any kind. Phase 2.1
-(P21-ROUTING, D4) fills the PaddleOCR slot in `EXTRACTOR_ORDER` and adds
-`RouterInputs.enabled` so a run's MODE — never a per-document fact — decides
-which of the allowed extractors this call site may actually pick from.
+**Import boundary (pinned by `tests/test_escalation_tripwires.py`).** This
+module imports nothing from `analysis`, `discovery`, `webapp` or `telemetry`:
+it has no notion of a parser, a `Dispatch`, a reconciliation or a validator
+outcome. `classify_failure` (A/B/C/"" from evidence + claimed + validated)
+lives in `discovery/runner.py` for that reason.
 """
 from __future__ import annotations
 
@@ -95,148 +55,12 @@ NO_FAILURE = ""
 FAILURE_CLASSES: tuple[str, ...] = (A_EXTRACTION, B_STRUCTURE, C_VALIDATION, NO_FAILURE)
 
 
-# ---------------------------------------------------------------------------
-# ExtractionTrigger: the closed LEGAL start vocabulary.
-# ---------------------------------------------------------------------------
-
-#: The profile alone already says there is no text to read natively: either
-#: the document classifies `scanned`, or it has zero native text characters
-#: on any page. This is the trigger that justifies attempting OCR AT ALL
-#: (recorded on the recovery path); it is never used to justify a SECOND OCR
-#: read after the first one already produced text — see
-#: `EXTRACTOR_OUTPUT_UNUSABLE` for that.
-IMAGE_ONLY_DOCUMENT = "image_only_document"
-#: The profile classifies `mixed`: some pages carry native text, some do not.
-#: Recorded for measurement; in Phase 2.0 it is consumed only through the
-#: document-level triggers above and below it, never as an independent
-#: admission for a second read of already-produced text (page-level routing
-#: is Phase 2.4, not this card).
-MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT = "mixed_document_pages_without_native_text"
-#: R: the offline ladder (native, then local Tesseract) produced no text at
-#: all for this document. The recovery path's trigger.
-OFFLINE_RUNGS_PRODUCED_NO_TEXT = "offline_rungs_produced_no_text"
-#: U-extract: an extractor DID produce a read, but `ExtractionQualityGate`
-#: refused it as unusable under one of its ADMITTED (parameter-free)
-#: criteria: no text at all, below the character floor, or every page empty.
-#: The upgrade path's ONLY trigger — deliberately never
-#: `dispatch.outcome != "claimed"`, which is Class B wearing Class A's
-#: clothes (the defect this card exists to close), and never the
-#: alphanumeric-density SIGNAL (P20-ROUTER review, MAJOR-2 — see
-#: `ALNUM_DENSITY_FLOOR` below; that signal is surfaced, never admitted).
-EXTRACTOR_OUTPUT_UNUSABLE = "extractor_output_unusable"
-#: An extractor raised or otherwise failed transport (endpoint down, raster
-#: failure) while the page remains unread. Defined for the closed vocabulary;
-#: no Phase-2.0 call site names it as a TRIGGER — a transport failure is
-#: reported as the rung's own terminal failure (`VISUAL_FAILED`/`ocr_failed`),
-#: not as a reason to try a different extractor, because there is only one
-#: OCR extractor rung after Tesseract today.
-EXTRACTOR_FAILED = "extractor_failed"
-#: An explicit, deliberate, per-document operator instruction (the webapp's
-#: `force_ocr` flag) that predates and is independent of any specific
-#: analysis failure. It is the SOLE trigger at exactly one call site
-#: (`webapp/worker.py`'s deterministic force_ocr fallback), where the `stop`
-#: rule below still refuses it the moment a parser has already claimed —
-#: `stop` is checked BEFORE any trigger, so a claimed-but-financially-failed
-#: document (Class C) can never reach this trigger regardless of the
-#: operator's flag. It is also recorded (redundantly, alongside
-#: `OFFLINE_RUNGS_PRODUCED_NO_TEXT`) on the discovery runner's RECOVERY path,
-#: where `--scanned-visual` is itself the operator's mode choice. It is
-#: deliberately NOT added to the discovery runner's UPGRADE trigger set: a
-#: Tesseract-sourced document whose text is already USABLE (Class B) must
-#: never escalate, and every one of the run of record's 123 unclaimed
-#: Tesseract reads profiles `scanned` or `mixed`
-#: — admitting a profile- or mode-level trigger on the upgrade path would
-#: re-open exactly the edge this card closes. See the module docstring's
-#: import-boundary note and the P20-ROUTER report for this reading of the
-#: card (the independent review's own reproduction, N1, confirms it: CASE 1
-#: still kills the literal reading).
-OPERATOR_FORCED_VISUAL = "operator_forced_visual"
-# Phase 3.1 handoff supersedes the older no-validation-to-OCR rule only for
-# the webapp visual pair. Legacy discovery routing remains unchanged.
-OPERATOR_FORCED_VISUAL_PAIR = "operator_forced_visual_pair"
-DETERMINISTIC_PARSE_UNVALIDATED = "deterministic_parse_unvalidated"
-#: P22-TRUTHTABLE (Phase 2.2, D8): the RESEARCH run mode's trigger. A
-#: pre-financial fact by construction — a RUN-MODE fact exactly like
-#: `OPERATOR_FORCED_VISUAL`, known before any document is read — that the
-#: discovery runner supplied ONLY in `--research-paddle` mode, for every
-#: document of the operator's named population, regardless of profile: that
-#: was the research admission Gustavo authorized (R1; PHASE2_RULINGS 2026-09-03,
-#: "research is broad, production is evidence-derived, validation is
-#: unchanged"). It travelled in the existing `RouterInputs.triggers` field —
-#: `RouterInputs` is unchanged — and the router chose ONLY among the
-#: extractors the mode enabled (`enabled == {"paddle"}`, a MODE constant, D4);
-#: the research artifacts were written under a research partition the run of
-#: record can never select (D7). HISTORICAL since slice S5 of the model-code
-#: removal: the research mode, its two `decide(` sites and the PaddleOCR rung
-#: are gone, so nothing supplies it. The name stays in the vocabulary
-#: (telemetry mirrors it; the runner's `RESEARCH_TRIGGERS` keeps it for the
-#: report's historical research table), and `tests/test_escalation_tripwires.py`
-#: pins by AST that no `decide(` site remains anywhere and that no production
-#: module outside this one names it but those two. Auto mode never had a path
-#: to it.
+#: The retired research run mode's trigger (P22-TRUTHTABLE, Phase 2.2, D8).
+#: Nothing supplies it since slice S5 of the model-code removal;
+#: `discovery/runner.py::RESEARCH_TRIGGERS` keeps it by name so the report can
+#: still count historical research rows, and telemetry's
+#: `EXTRACTION_TRIGGERS` keeps it so those rows stay classifiable.
 OPERATOR_FORCED_PADDLE = "operator_forced_paddle"
-#: T: a known-truncated page. DEFINED here and REFUSED by the router
-#: (`ADMITTED_TRIGGERS` excludes it) — its population is measured,
-#: never routed, per OQ4. Potential
-#: admission is Phase 2.4, not this card.
-TRUNCATION_FLAGGED = "truncation_flagged"
-
-#: The complete ExtractionTrigger vocabulary, mirrored (and held equal by
-#: test) in `telemetry.record.EXTRACTION_TRIGGERS`. This is the vocabulary's
-#: DECLARATION order — stable, documentation-facing — and is deliberately NOT
-#: the order `EscalationRouter.decide` uses to pick which admitted trigger to
-#: REPORT (see `TRIGGER_REPORT_PRIORITY`): a vocabulary's canonical order and
-#: a reporting preference are different questions, and conflating them is
-#: what made a recovery escalation report `image_only_document` instead of
-#: `offline_rungs_produced_no_text` (P20-ROUTER review, MINOR-8).
-ALL_TRIGGERS: tuple[str, ...] = (
-    IMAGE_ONLY_DOCUMENT,
-    MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
-    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
-    EXTRACTOR_OUTPUT_UNUSABLE,
-    EXTRACTOR_FAILED,
-    OPERATOR_FORCED_VISUAL,
-    OPERATOR_FORCED_VISUAL_PAIR,
-    DETERMINISTIC_PARSE_UNVALIDATED,
-    OPERATOR_FORCED_PADDLE,
-    TRUNCATION_FLAGGED,
-)
-
-#: The subset of `ALL_TRIGGERS` the router will act on. `TRUNCATION_FLAGGED`
-#: is the one member defined-but-refused (OQ4): it is a legal vocabulary
-#: member so its population can be measured and recorded, but it is never a
-#: legal START signal in Phase 2.0.
-ADMITTED_TRIGGERS: frozenset[str] = frozenset(ALL_TRIGGERS) - {TRUNCATION_FLAGGED}
-
-#: When more than one admitted trigger is present, which one `decide` REPORTS
-#: on the row (never which one is ADMITTED — that already happened). Ordered
-#: most-specific-evidence first: a fact an EXTRACTOR observed about ITS OWN
-#: output outranks a fact the PROFILE observed before any extractor ran,
-#: which outranks the operator's blanket mode/flag permission. This is what
-#: makes a recovery (evidence: nothing was produced at all) report
-#: `offline_rungs_produced_no_text` rather than the co-occurring
-#: `image_only_document` (P20-ROUTER review, MINOR-8).
-TRIGGER_REPORT_PRIORITY: tuple[str, ...] = (
-    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
-    EXTRACTOR_OUTPUT_UNUSABLE,
-    EXTRACTOR_FAILED,
-    IMAGE_ONLY_DOCUMENT,
-    MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
-    OPERATOR_FORCED_VISUAL,
-    OPERATOR_FORCED_VISUAL_PAIR,
-    DETERMINISTIC_PARSE_UNVALIDATED,
-    OPERATOR_FORCED_PADDLE,
-    TRUNCATION_FLAGGED,
-)
-
-#: The fixed preference order among ALLOWED extractors — never a retry loop
-#: driven by validation, a preference among extractors the router has
-#: already admitted. Phase 2.1 (OQ5, D4) fills the PaddleOCR slot between
-#: "local_tesseract" and "visual"; a future "unlimited_ocr" member is still a
-#: slot, not implemented here. Which of these a given run may actually use is
-#: `RouterInputs.enabled` (D4) — a MODE constant, never a per-document fact —
-#: not this tuple, which stays the fixed PREFERENCE among whatever is enabled.
-EXTRACTOR_ORDER: tuple[str, ...] = ("local_tesseract", "paddle", "visual", "visual_pair")
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +141,7 @@ class EvidenceQuality:
     criteria named in `reasons` (no text produced, below the character
     floor, every page empty). `signals` carries advisory-only observations —
     today, only `BELOW_ALNUM_DENSITY_FLOOR` — that are measured and recorded
-    but never move `usable` and never admit a router trigger (P20-ROUTER
-    review, MAJOR-2).
+    but never move `usable` (P20-ROUTER review, MAJOR-2).
     """
 
     usable: bool
@@ -361,9 +184,8 @@ class ExtractionQualityGate:
         """`document` is the produced read (an object with a `.pages` list of
         page strings — a `StatementMarkdown` in production) or `None` when
         the offline ladder produced nothing at all (the recovery shape).
-        `profile` is accepted for interface symmetry with the router's other
-        inputs; today's criteria read only the produced text, so it is
-        otherwise unused here."""
+        `profile` is accepted for future criteria; today's read only the
+        produced text."""
         del profile  # unused today; kept for interface symmetry / future criteria
         if document is None:
             return EvidenceQuality(
@@ -392,123 +214,3 @@ class ExtractionQualityGate:
             usable=not reasons, reasons=tuple(reasons), signals=tuple(signals),
             chars_total=chars_total, pages_empty=pages_empty, pages_total=pages_total,
         )
-
-
-# ---------------------------------------------------------------------------
-# RouterInputs / Escalation / EscalationRouter
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class RouterInputs:
-    """Everything the router is allowed to see. Nothing else.
-
-    The field set is pinned by name in `tests/test_escalation_tripwires.py`:
-    a new field (a `payload`, a `dispatch_outcome`, a `validated` bool) fails
-    that pin. This is the type that makes "the validator whispers to the
-    router" a compile-shape impossible, not merely a discipline nobody
-    breaks. `RouterInputs.__subclasses__() == []` is pinned alongside the
-    field set (P20-ROUTER review, MINOR-6): a subclass that ADDS a field and
-    is accepted by `EscalationRouter.decide` (which only reads the six base
-    attributes) would defeat the field pin without ever tripping it, since
-    `__dataclass_fields__` on the SUBCLASS would include the base's six
-    names plus its own — the base-class pin alone cannot see that shape.
-
-    `enabled` (Phase 2.1, D4) is the sixth field: the frozenset of extractor
-    ids THIS RUN may use at all — a MODE constant known before any document
-    is read (`--scanned-visual` -> `{"visual"}`, `--scanned-paddle` ->
-    `{"paddle"}`, the webapp's deterministic force_ocr fallback ->
-    `{"visual"}`, every other mode/call site -> `frozenset()`), never a
-    per-document expression. `tests/test_escalation_tripwires.py` pins, by
-    AST, that every `enabled=` argument at a `decide(` call site is an
-    attribute reference on `self` (an instance field set once from the mode
-    in `__init__`) or a module-level constant — never a call, a
-    comprehension, a subscript or a conditional, which is what would let a
-    per-document fact ride in through a field that is supposed to be a pure
-    run/mode fact.
-    """
-
-    profile: object
-    evidence: EvidenceQuality
-    triggers: frozenset[str]
-    attempted: tuple[str, ...]
-    stop: bool
-    enabled: frozenset[str]
-
-
-def router_inputs(
-    *, profile, evidence: EvidenceQuality, triggers: frozenset[str],
-    attempted: tuple[str, ...], stop: bool, enabled: frozenset[str],
-) -> RouterInputs:
-    """The ONE constructor every `decide()` call site must use.
-
-    `tests/test_escalation_tripwires.py` finds every `decide(` call site in
-    the ENTIRE repository (excluding this module and `tests/`) by AST and
-    asserts each one's `RouterInputs` argument was built by a call to this
-    function, that the set of call sites is exactly the three known ones, and
-    that no `RouterInputs(` construction exists anywhere outside this module
-    and the test tree — so a call site cannot hand-roll a `RouterInputs(...)`
-    with a smuggled seventh positional value (the dataclass has none, but a
-    hand-rolled call is also not the one reviewed, pinned constructor), and a
-    new escalation call site anywhere in the codebase cannot go unnoticed
-    (P20-ROUTER review, MINOR-6). Keyword-only, names pinned by this
-    signature.
-    """
-    return RouterInputs(
-        profile=profile, evidence=evidence, triggers=frozenset(triggers),
-        attempted=tuple(attempted), stop=bool(stop), enabled=frozenset(enabled),
-    )
-
-
-@dataclass(frozen=True)
-class Escalation:
-    """The router's verdict: which extractor (if any) may run next."""
-
-    extractor: str | None
-    trigger: str | None
-    refused: tuple[str, ...]
-
-
-class EscalationRouter:
-    """The one authority that may name an extractor. Never a retry loop.
-
-    Chooses AMONG extractors this module's own closed `EXTRACTOR_ORDER`
-    already permits; it does not judge network endpoints, opt-in policy, or
-    $0 status — that enforcement lives entirely in `ocr_client._build_client`
-    (cell B2), which fails closed before any client object is constructed
-    (see the module docstring's "Endpoint policy" section). A refused or
-    unreachable endpoint therefore never reaches this class at all; it
-    surfaces as the visual rung's own transport failure on the row.
-    """
-
-    @staticmethod
-    def decide(inputs: RouterInputs) -> Escalation:
-        if inputs.stop:
-            return Escalation(extractor=None, trigger=None, refused=("stopped_by_validated",))
-
-        admitted = inputs.triggers & ADMITTED_TRIGGERS
-        if not admitted:
-            return Escalation(extractor=None, trigger=None, refused=("no_admitted_trigger",))
-
-        # D4: the first extractor in the fixed preference order that this
-        # RUN'S MODE allows at all (`enabled`) and that has not already been
-        # attempted. `enabled` narrows; it never adds an extractor the order
-        # does not already name, and an admission decision above already
-        # happened — this only picks WHICH allowed extractor runs next.
-        remaining = [
-            e for e in EXTRACTOR_ORDER if e in inputs.enabled and e not in inputs.attempted
-        ]
-        if not remaining:
-            return Escalation(
-                extractor=None, trigger=None, refused=("no_allowed_extractor_remains",),
-            )
-
-        extractor = remaining[0]
-
-        # Deterministic trigger selection when more than one is admitted:
-        # the most SPECIFIC one, per `TRIGGER_REPORT_PRIORITY` (evidence the
-        # extractor itself produced, before a profile-level fact, before the
-        # operator's blanket permission). A REPORTING choice (which named
-        # cause goes on the row), not an admission decision — admission
-        # already happened above.
-        trigger = next((t for t in TRIGGER_REPORT_PRIORITY if t in admitted), None)
-        return Escalation(extractor=extractor, trigger=trigger, refused=())
