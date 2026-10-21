@@ -3,7 +3,7 @@
 - **Date:** 2026-09-24
 - **Branch:** `lender-detection`, from `text-first-v1` at `31f86b7`
 - **Owner:** Gustavo
-- **Status:** design approved in conversation 2026-09-24; this spec awaits the owner's read
+- **Status:** implemented as classification 5.0 to 5.4 and 5.9. Amendments are marked in place, and `docs/transaction-classification.md` states the rules as built.
 - **Comes before:** the text-first reader (`2026-09-24-text-first-reader-design.md`)
 
 ## 1. Why

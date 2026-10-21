@@ -7,7 +7,7 @@ grep check against the code's own constants, no statement data:
   mode's denominator is what `eligible_deposits` carries;
 - the contract lists the statement passes in the order `classify_statement_transactions` runs them;
 - the contract and the README name the current classification version, and the contract states the withholding
-  formula the metrics publish;
+  and potential exposure formulas the metrics publish;
 - a builder's draw and an auction's seller payout read as the reason table says (fabricated rows: CONTOSO, NORTHWIND
   and SAMPLE)."""
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from analysis import transaction_classifier, true_revenue
-from analysis.metrics import WITHHOLDING_FORMULA
+from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue import REVENUE_TIER_REASONS, REVENUE_TIERS, WITHHOLDING_DENOMINATOR_MODES
 from analysis.schema import Statement, Transaction
 from tests.workflows import project_workflows
@@ -221,5 +221,6 @@ def test_the_contract_and_the_readme_name_the_current_classification_version():
     assert re.search(rf"\bclassification version {version}\b", _flat(README)), version
 
 
-def test_the_contract_states_the_withholding_formula_the_metrics_publish():
+def test_the_contract_states_the_withholding_formulas_the_metrics_publish():
     assert f"`withholding_rate = {WITHHOLDING_FORMULA}`" in _flat(CONTRACT)
+    assert f"`potential_withholding_exposure = {POTENTIAL_WITHHOLDING_FORMULA}`" in _flat(CONTRACT)
