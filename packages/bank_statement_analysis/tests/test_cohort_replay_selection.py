@@ -311,4 +311,3 @@ def test_case9_mutant_visual_first_picks_the_visual_decoy(tmp_path):
     finally:
         conn2.close()
     assert ocr_partition_for_row(ROW_OFFLINE, partitions) == KEY_OFFLINE_NOLOCAL
-
