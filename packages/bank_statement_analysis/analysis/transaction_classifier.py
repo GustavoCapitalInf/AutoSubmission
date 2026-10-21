@@ -2080,8 +2080,8 @@ def _without_reference_before_payer(row: str) -> str:
 def _ach_payer_region(text: str) -> str:
     """§5.2: an ACH or EFT payer: the row before its receiver fields, template prefixes removed, originator labels
     removed, cut at the first ACH field, up to the first reference token after a name word. PNC's payer after its
-    entry and reference (pnc_corporate_ach); no reference printed before the payer's name (I26's reader,
-    _without_reference_before_payer); an empty ORIG CO label removed and CO ENTRY DESCR read as the entry field it
+    entry and reference (pnc_corporate_ach); no reference printed before the payer's name
+    (_without_reference_before_payer); an empty ORIG CO label removed and CO ENTRY DESCR read as the entry field it
     starts. RBC's and Scotiabank's accounts-payable label before a numbered company's number removed
     (_AP_LABEL_BEFORE_NUMBERED), so the region keeps the number."""
     row = _before_receiver(text)
@@ -2106,7 +2106,7 @@ def payer_label_layout(text: str) -> bool:
     """The row prints a layout whose payer the payer region reads past a bank's label, entry, reference or code, or
     where only an empty label prints: Chase's contra-bank field (_CONTRA_BANK_FIELD), PNC's CORPORATE ACH entry and
     reference (pnc_corporate_ach), an empty ORIG CO label or a row that starts with CO ENTRY DESCR, a reference
-    before the payer or Navy Federal's or Symitar's digit block (I26's reader: _without_reference_before_payer) and
+    before the payer or Navy Federal's or Symitar's digit block (_without_reference_before_payer) and
     American Express's incoming-ACH template (_amex_ach_credit)."""
     row = _before_receiver(text)
     return bool(
@@ -7096,7 +7096,7 @@ class CounterDebitReading:
     """How passes 6 and 7 compare a payer with a posted debit. `legacy` is the 5.6 first distinctive word
     (_payer_first_distinctive_word, _debit_word_reading); a transfer, wire, person-to-person or lender debit still
     matches on it. `keys` are the B4 forms: the first distinctive word read without _COUNTER_DEBIT_GENERIC_WORDS, a
-    three-letter payroll provider allowed, and that word glued to the next one or two (I38: 'CONTOSO RIDGE' matches
+    three-letter payroll provider allowed, and that word glued to the next one or two ('CONTOSO RIDGE' matches
     'CONTOSORIDGE'), read on the text as printed and with its glued digit runs split off. `heads` are each first word
     with the words after it, which payer_debited_as_lender's prefix comparison reads. §5.2, §8.1: `number`, a numbered
     company's number (Quebec's NNNN NNNN joined), read only where the numbered-company form prints

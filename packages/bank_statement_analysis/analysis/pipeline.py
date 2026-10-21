@@ -3,7 +3,7 @@
 Every statement comes from a deterministic parser (or, behind its own opt-in,
 the generic structurer); nothing here calls a model. No statement is ever
 re-extracted because it failed reconciliation: the validator is a verifier,
-never an optimizer (ruling R9). Auto and deterministic parse modes read alike
+never an optimizer. Auto and deterministic parse modes read alike
 (`tests/test_pipeline_escalation_fence.py`)."""
 from __future__ import annotations
 import math
@@ -124,10 +124,10 @@ def apply_statement_repairs(
     # These two used to be gated on substrings of the document — `"REGIONS" in
     # markdown.upper()`, `"BANK OF AMERICA" ... "ACCOUNT SUMMARY"`. A bank's
     # name in a document is as often a fact about a COUNTERPARTY as about the
-    # issuer, which is R4-3 (a marker that reads another bank's ledger row)
-    # applied to a REPAIR instead of to a detection marker — and a repair is
+    # issuer (the same hazard as a detection marker that reads another bank's
+    # ledger row), applied to a REPAIR instead of to a detection marker — and a repair is
     # the more dangerous place for it, because detection competes and a repair
-    # simply overwrites. HUNT-CELL H6.1 measured it: five statements of another
+    # simply overwrites. Measured: five statements of another
     # issuer that merely pay a bill to the bank one of these repairs belongs
     # to — and print a `Service Charge Summary` — had `beginning_balance`,
     # `ending_balance` and every stated total rewritten from their OWN issuer's
@@ -614,7 +614,7 @@ def assess_document_integrity(
     # review cause with a named class, in the same family as `parser_exception`
     # above. `repair_failure` is a CLASS NAME (the seam that produced it keeps
     # nothing else), so interpolating it here cannot carry a fragment of the
-    # document into the payload. (W3 §REPAIR-GUARD / §PIPE5.)
+    # document into the payload.
     #
     # THE NOTE NAMES THE STAGE, NOT ONE REPAIR, and the precision is the point.
     # `apply_statement_repairs` is FIVE steps and only ONE is a bank-summary
@@ -670,12 +670,11 @@ def assess_document_integrity(
         present = {current for current, total in declared_pages if total == declared_total}
         missing = sorted(set(range(1, declared_total + 1)) - present)
         # A missing LABEL is only evidence of a missing PAGE when every sheet
-        # the PDF carries prints one, and plenty do not. HUNT-CELL H6.2 measured
-        # three Burke & Herbert statements whose Nth declared page is an
+        # the PDF carries prints one, and plenty do not. Measured: three Burke &
+        # Herbert statements whose Nth declared page is an
         # unlabelled deposit-image sheet — and whose rows reproduce the
         # published ledger exactly, so the "missing" page corroborates the parse
-        # it was impeaching. UNID-PACK-B §UB4.3 measured the same defect in a
-        # second shape: a core-processor platform whose footers run `1 of 8`
+        # it was impeaching. The same defect has a second shape: a core-processor platform whose footers run `1 of 8`
         # … `6 of 8` and which appends the GLBA privacy notice as two sheets
         # with no footer at all. (No issuer or platform is named here — this
         # file is scanned for registered bank labels; §UB4.3 holds the four
@@ -699,9 +698,8 @@ def assess_document_integrity(
         # one entry per physical sheet, passed down by the caller that ran the
         # intake ladder. It is deliberately NOT recovered by re-splitting
         # `markdown` on the `--- Page N ---` separators `to_markdown` writes
-        # between those same pages. That was this hunk's first form and it was
-        # wrong in the way FILENAME-BOUNDARY is about, one layer further down:
-        # the separator is an unescaped text convention and page content is OCR
+        # between those same pages. That would be wrong one layer below the
+        # filename boundary: the separator is an unescaped text convention and page content is OCR
         # output, so a statement printing the literal line `--- Page 9 ---`
         # manufactures a sheet that does not exist. Appended inside the last
         # page it even leaves the 1..K sequence intact, so validating the
@@ -725,7 +723,7 @@ def assess_document_integrity(
         # This does NOT blunt the check: the pinned Columbia statement declares
         # 5 pages, supplies 4 sheets and labels all four, so nothing can stand
         # in for page 5 and its flag stands byte-identical — as does the
-        # synthetic Wells fixture behind the FILENAME-BOUNDARY suppression test.
+        # synthetic Wells fixture behind the filename-boundary suppression test.
         printed_sheets = [sheet for sheet in (sheets or ()) if sheet.strip()]
         unlabelled_sheets = sum(
             1 for sheet in printed_sheets if not _PAGE_DECLARATION_RE.search(sheet)
@@ -917,7 +915,7 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     repair_failure: str | None = None
     if deterministic_stmt is not None:
         normalized = normalize_statement(deterministic_stmt)
-        # THE REPAIR SEAM (W3 §MG-C2 D1 / §REPAIR-GUARD / §PIPE5).
+        # THE REPAIR SEAM.
         #
         # `parser_registry` states the law for the deterministic branch: "no
         # code path from `resolve` through `parse` raises". Every `detect` and
@@ -930,11 +928,11 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # `analyze_markdown` as a bare exception, and through batch 5
         # `webapp/worker.py` did `store.set_error(job_id, str(exc))` — putting
         # the quoted cell in the durable job store and in front of a user.
-        # (WORKER-PRIVACY, batch 6, closed that boundary too: the job store now
-        # receives the stage and the exception's class name, never its message.
-        # The two closures are independent; neither is the other's excuse.)
+        # (The job store receives the stage and the exception's class name,
+        # never its message. The two guards are independent; neither is the
+        # other's excuse.)
         #
-        # MG-C closed the leak at its loudest SOURCE (`money.read_money` names
+        # The money grammar closes the leak at its loudest SOURCE (`money.read_money` names
         # the reader and the refusal class, never the token). This closes the
         # SEAM, which is the part that generalises: an `int()` on a mangled
         # cell or a `KeyError` on a mis-shaped grid quotes the document too.
@@ -960,8 +958,7 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
             repair_failure = type(exc).__name__
         # MODEL-LABEL (W3 §PIPE5). `(stmt.bank or "bank")` published the single
         # label `bank-deterministic` for every document whose parser publishes
-        # no issuer — the honest-unknown-issuer registrations (UNKNOWN-ISSUER)
-        # and the issuer-agnostic core-processor templates, which claim on a
+        # no issuer — the honest-unknown-issuer registrations and the issuer-agnostic core-processor templates, which claim on a
         # PLATFORM's paper and so cannot name the bank without inventing one.
         # Collapsing them into one bucket makes the aggregation dishonest in
         # the one direction that matters: it reads as a single parser having

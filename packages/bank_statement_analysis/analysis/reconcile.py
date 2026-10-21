@@ -60,7 +60,7 @@ class ReconResult:
     # than left implicit because the alternative is a payload reading
     # `stated_debit_count 12 / captured_debit_count 13 / matches true`, which
     # is only not a contradiction if the reader knows the table — one field
-    # with two meanings, the defect BOFA-COUNTS was spent removing.
+    # with two meanings.
     expected_credit_count: int | None = None
     expected_debit_count: int | None = None
 
