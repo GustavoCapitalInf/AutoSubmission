@@ -302,14 +302,15 @@ Where each rule is defined:
 - True revenue: [`docs/superpowers/specs/2026-09-28-true-revenue-design.md`](docs/superpowers/specs/2026-09-28-true-revenue-design.md) (tiers in §5.1 to §5.3)
 - Lender scope and flag groups: [`docs/superpowers/specs/2026-09-24-lender-detection-design.md`](docs/superpowers/specs/2026-09-24-lender-detection-design.md) (§2)
 - ADB doctrine (calendar days of the printed period, one published figure): the docstring of [`analysis/adb.py`](analysis/adb.py)
-- NSF (R18 and R18 amended):
-  [`docs/moneythumb-replacement/PHASE2_RULINGS.md`](docs/moneythumb-replacement/PHASE2_RULINGS.md)
+- NSF (R18 and its amendment of 2026-09-22, printed days by default): the docstring of [`analysis/nsf_days.py`](analysis/nsf_days.py)
 - Currency (native currency, no FX): [`docs/moneythumb-replacement/CURRENCY_DOCTRINE.md`](docs/moneythumb-replacement/CURRENCY_DOCTRINE.md)
 
 ## Privacy and licensing
 
 - Statements are customer data. No statement value, name, account number or copied page text goes into code,
-  tests, fixtures, docs or commit messages; tests use fabricated rows. Guards:
+  tests, fixtures, docs or commit messages; tests use fabricated rows. The exceptions are the corpus truth set in
+  `docs/` (the two audit CSVs, their reports and `docs/adb-withheld-second-pass.md`) and the committed OCR
+  artifacts in `tests/corpus_cache/`, which hold printed figures by design. Guards:
   `tests/test_no_statement_hardcodes.py` and `tools/privacy_scan_branch.py` (scans a branch's added lines for
   the documents' printed tokens). No statement is tracked: they live in `BANK_STATEMENTS_DIR`, and
   every `Bank Statements/` folder is ignored. The data directory is enforced outside the checkout.
@@ -340,14 +341,8 @@ The deterministic reader is the product: 84 parsers, classification version 5.9,
 not built: [`docs/superpowers/specs/2026-09-24-text-first-reader-design.md`](docs/superpowers/specs/2026-09-24-text-first-reader-design.md)
 (written before the owner's ruling of 2026-10-13, so the model code it mentions has since been removed).
 
-**Read first:** the rule documents under [Product rules](#product-rules), in that order, then the docstring of
-`corpus_gate.py` and [`docs/agent-handoffs/TRUE-REVENUE-HANDOFF.md`](docs/agent-handoffs/TRUE-REVENUE-HANDOFF.md),
-the latest handoff. Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and
-`docs/lender-registry-evidence.md`.
-Historical, read for background only: the rest of `docs/moneythumb-replacement/`, the cell briefs in
-`docs/agent-handoffs/`, `PHASE2_HANDOFF.md`, and the September plans under `docs/superpowers/plans/`, which are
-finished implementation records. They stay because code comments or the documents above cite them. These records
-still describe the model paths (visual OCR, the visual model pair, PaddleOCR, hosted extraction) that the owner's
-ruling of 2026-10-13 removed; git history holds that code. The other program records (the July specs and plans,
-cell briefs, reviews and logs that nothing cites) were removed on 2026-10-19; a link to one of them resolves at
-commit `1a04764d`.
+**Read first.** [`AGENTS.md`](../../AGENTS.md) at the repository root names the current contracts. Then read the
+rule documents under [Product rules](#product-rules), in that order, and the docstring of `corpus_gate.py`.
+Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md`.
+A Markdown file in `docs/` or at the top of this folder that AGENTS.md does not name is a proposal or the record of
+a finished phase. It is not an instruction.
