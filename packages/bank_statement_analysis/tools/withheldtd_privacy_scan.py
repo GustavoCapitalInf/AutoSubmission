@@ -38,10 +38,11 @@ import argparse
 import itertools
 import json
 import re
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+
+from tools.git_layout import diff as layout_diff, working_tree
 
 PARSERS = ("td_canada_native", "td_canada_french", "td_us")
 
@@ -130,8 +131,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", required=True, help="the commit the branch started at")
     args = parser.parse_args(argv)
 
-    diff = subprocess.run(["git", "diff", args.base],
-                          capture_output=True, text=True, check=True).stdout
+    here = Path.cwd()
+    diff = layout_diff(args.base, working_tree(here), repo=here)
     added = "\n".join(line[1:] for line in diff.splitlines()
                       if line.startswith("+") and not line.startswith("+++"))
     print(f"branch diff {len(diff)} chars; added lines {len(added)} chars")

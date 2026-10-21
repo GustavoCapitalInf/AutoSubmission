@@ -80,7 +80,7 @@ def _tracked_text(ref: str) -> str:
     spends minutes in process creation alone.
     """
     listing = subprocess.run(
-        ["git", "ls-tree", "-r", ref],
+        ["git", "ls-tree", "-r", "--full-tree", ref],
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout
     blobs = []
@@ -108,10 +108,9 @@ def _tracked_text(ref: str) -> str:
 
 
 def _added_lines(base: str) -> str:
-    diff = subprocess.run(
-        ["git", "diff", f"{base}...HEAD", "--unified=0"],
-        cwd=ROOT, capture_output=True, text=True, check=True,
-    ).stdout
+    from tools.git_layout import diff as layout_diff, merge_base
+
+    diff = layout_diff(merge_base(base, "HEAD"), "HEAD", "--unified=0")
     added = [
         line[1:]
         for line in diff.splitlines()

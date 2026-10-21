@@ -66,6 +66,7 @@ from analysis import core_processor_activity_summary as activity_summary  # noqa
 from analysis import core_processor_signed_counts as signed_counts  # noqa: E402
 from ocr.document import StatementMarkdown  # noqa: E402
 from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key  # noqa: E402
+from tools.git_layout import diff as layout_diff, merge_base  # noqa: E402
 
 CENSUS = ROOT / "docs" / "moneythumb-replacement" / "CENSUS_BATCH8_DIGITAL.md"
 
@@ -253,10 +254,7 @@ def run_privacy(artifacts: Path, diff_from: str) -> int:
         else:
             accounts += 1
 
-    diff = subprocess.run(
-        ["git", "diff", f"{diff_from}...HEAD", "--unified=0"],
-        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
-    ).stdout
+    diff = layout_diff(merge_base(diff_from, "HEAD"), "HEAD", "--unified=0")
     added = [
         line[1:] for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
@@ -272,7 +270,7 @@ def run_privacy(artifacts: Path, diff_from: str) -> int:
     # nothing. What survives is the archive's own vocabulary — a merchant, a
     # holder, a descriptor keyword — and none of it may appear in the diff.
     tracked = subprocess.run(
-        ["git", "ls-tree", "-r", "--name-only", diff_from],
+        ["git", "ls-tree", "-r", "--full-tree", "--name-only", diff_from],
         cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
     ).stdout.split()
     known: set[str] = set()

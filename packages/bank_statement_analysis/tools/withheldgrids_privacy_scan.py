@@ -49,6 +49,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tools.git_layout import changed_files, diff as layout_diff
+
 CONTROL_BYTES = set(range(0x00, 0x09)) | {0x0B, 0x0C} | set(range(0x0E, 0x20))
 
 HARVEST = (
@@ -75,7 +77,7 @@ def _git(repo: Path, *args: str) -> str:
 
 def _in_base(repo: Path, base_rev: str, literal: str) -> bool:
     proc = subprocess.run(
-        ["git", "grep", "-F", "-q", "-e", literal, base_rev],
+        ["git", "grep", "-F", "-q", "-e", literal, base_rev, "--", ":/"],
         cwd=repo, capture_output=True, text=True,
     )
     return proc.returncode == 0
@@ -138,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
                         literals.add(token)
         resolved += 1 if found_one else 0
 
-    diff = _git(repo, "diff", f"{args.base_rev}..HEAD")
+    diff = layout_diff(args.base_rev, "HEAD", repo=repo)
     added = [
         line[1:] for line in diff.splitlines()
         if line.startswith("+") and not line.startswith("+++")
@@ -175,10 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     for token in other:
         print(f"    -- {token!r}")
 
-    changed = [
-        name for name in _git(repo, "diff", "--name-only", f"{args.base_rev}..HEAD").split("\n")
-        if name.strip()
-    ]
+    changed = changed_files(args.base_rev, "HEAD", repo=repo)
     offenders = []
     for name in changed:
         path = repo / name

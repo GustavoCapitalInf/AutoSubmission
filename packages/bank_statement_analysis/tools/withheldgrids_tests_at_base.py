@@ -33,6 +33,12 @@ import tarfile
 import tempfile
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.git_layout import project_tree
+
 TEST_FILES = (
     "tests/test_adb.py",
     "tests/test_analysis.py",
@@ -51,7 +57,8 @@ def _git(repo: Path, *args: str, binary: bool = False):
 
 def added_test_names(repo: Path, base_rev: str) -> list[str]:
     """The `def test_...` names this branch ADDS to the four files."""
-    diff = _git(repo, "diff", f"{base_rev}..HEAD", "--", *TEST_FILES)
+    diff = _git(repo, "diff", "--no-relative", project_tree(base_rev, repo), project_tree("HEAD", repo),
+                "--", *(f":(top){path}" for path in TEST_FILES))
     return sorted({
         match.group(1)
         for match in re.finditer(r"^\+def (test_\w+)", diff, re.M)
@@ -82,7 +89,8 @@ def main(argv: list[str] | None = None) -> int:
         shutil.rmtree(tree, ignore_errors=True)
     tree.mkdir(parents=True)
     archive = work / "base.tar"
-    archive.write_bytes(_git(repo, "archive", "--format=tar", args.base_rev, binary=True))
+    top = Path(_git(repo, "rev-parse", "--show-toplevel").strip())
+    archive.write_bytes(_git(top, "archive", "--format=tar", project_tree(args.base_rev, repo), binary=True))
     with tarfile.open(archive) as handle:
         handle.extractall(tree, filter="data")
     for relative in TEST_FILES:

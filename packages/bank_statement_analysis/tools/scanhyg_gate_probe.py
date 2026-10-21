@@ -48,6 +48,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from tools.git_layout import project_dir
 from tools.scanhyg_family_replay import canonical, document_text, ocr_partitions, population
 
 REPO = Path(__file__).resolve().parent.parent
@@ -281,7 +282,7 @@ def day_gate_differential(_args) -> dict:
     import analysis.eq_bank_scanned as branch
 
     blob = subprocess.run(
-        ["git", "-C", str(REPO), "show", f"{_args.base}:analysis/eq_bank_scanned.py"],
+        ["git", "-C", str(project_dir(_args.base)), "show", f"{_args.base}:./analysis/eq_bank_scanned.py"],
         capture_output=True, check=True,
     ).stdout.decode("utf-8")
     base = types.ModuleType("analysis._scanhyg_base_eq_bank_scanned")

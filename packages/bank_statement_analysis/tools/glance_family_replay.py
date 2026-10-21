@@ -379,9 +379,11 @@ def printed_evidence(markdown: str) -> dict:
 
 def materialise(base: str, into: Path) -> Path:
     """`<into>/analysis` as `base` recorded it. Nothing is checked out."""
+    from tools.git_layout import project_dir
+
     archive = subprocess.run(
         ["git", "archive", "--format=tar", base, "analysis"],
-        check=True, stdout=subprocess.PIPE,
+        cwd=project_dir(base), check=True, stdout=subprocess.PIPE,
     ).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
         bundle.extractall(into)

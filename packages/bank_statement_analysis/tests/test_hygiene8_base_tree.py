@@ -16,7 +16,7 @@ import warnings
 import pytest
 
 from tools import hygiene8_base_tree as base_tree
-from tools.git_layout import PACKAGE_DIR
+from tools.git_layout import PACKAGE_DIR, PACKAGE_PREFIX
 
 REVISION = "0" * 40
 
@@ -57,7 +57,7 @@ def test_the_archive_is_unpacked_with_the_data_filter(tmp_path, monkeypatch):
     monkeypatch.setattr(tarfile.TarFile, "extractall", recording)
     calls = _fake_git(monkeypatch, _archive(FABRICATED_TREE))
     base_tree._extract(REVISION, tmp_path / "out")
-    assert calls == [["git", "cat-file", "-e", f"{REVISION}:./"],
+    assert calls == [["git", "cat-file", "-e", f"{REVISION}:{PACKAGE_PREFIX}"],
                      ["git", "-C", str(PACKAGE_DIR), "archive", REVISION, "analysis"]]
     assert filters == ["data"]
     assert (tmp_path / "out" / "analysis" / "money.py").read_bytes() == b"ROUNDING = 2\n"

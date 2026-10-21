@@ -159,8 +159,10 @@ def base_module(commit: str = "10cc722"):
     import subprocess
     import tempfile
 
-    blob = subprocess.run(["git", "show", f"{commit}:ocr/native_text.py"],
-                          capture_output=True, check=True)
+    from tools.git_layout import project_dir
+
+    blob = subprocess.run(["git", "show", f"{commit}:./ocr/native_text.py"],
+                          cwd=project_dir(commit), capture_output=True, check=True)
     handle = tempfile.NamedTemporaryFile("wb", suffix="_base_native_text.py",
                                          delete=False)
     with handle:

@@ -61,11 +61,11 @@ import collections
 import itertools
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 from ocr.document import StatementMarkdown
+from tools.git_layout import changed_files, diff, working_tree
 from tools.lili_family_replay import DEFAULT_CENSUS, DEFAULT_FAMILY, family_shas
 from webapp.artifact_cache import STAGE_OCR, cache_key, ocr_settings_key
 
@@ -150,24 +150,15 @@ def family_tokens(texts: list[str], rare_max: int) -> dict[str, set[str]]:
 
 def haystacks(base: str) -> tuple[str, str]:
     """`(authored, inherited)`: the branch's added lines, and everything else."""
-    diff = subprocess.run(
-        ["git", "diff", base], cwd=REPO,
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
-    if diff.returncode != 0:
-        raise SystemExit(f"git diff failed: {diff.stderr.strip()}")
+    tree = working_tree()
     authored = "\n".join(
-        line[1:] for line in diff.stdout.split("\n")
+        line[1:] for line in diff(base, tree).split("\n")
         if line.startswith("+") and not line.startswith("+++")
     )
-    names = subprocess.run(
-        ["git", "diff", "--name-only", base], cwd=REPO,
-        capture_output=True, text=True, encoding="utf-8", errors="replace",
-    )
     whole = []
-    for name in names.stdout.split("\n"):
-        path = REPO / name.strip()
-        if name.strip() and path.is_file():
+    for name in changed_files(base, tree):
+        path = REPO / name
+        if path.is_file():
             whole.append(path.read_text(encoding="utf-8", errors="replace"))
     inherited_text = "\n".join(whole)
     return authored, inherited_text
