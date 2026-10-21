@@ -169,7 +169,6 @@ $env:BANK_STATEMENTS_DIR = "D:\statements\Bank Statements"
   `tools/train/coldrun.sh` (unless `CORPUS_ROOT` is set), and the `tools` modules `adjudicate queue`,
   `agree_native_census` and `measure_structurer`. When it is unset
   and you pass no folder, each of them stops with an error that names it.
-- `tools/batch9_census.py` also defaults to it, but skips its optional magic-byte check when it is unset.
 - `tools/record_parser_expectations.py` also defaults to it, but crashes before it reads a statement, on `main` as well.
 - `tools/train/control_b7.sh` runs the gate inside the old worktree you pass it, and that gate reads the worktree's
   own tracked statements.

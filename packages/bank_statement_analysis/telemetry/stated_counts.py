@@ -842,8 +842,7 @@ class _ArtifactJoin:
     as F-9's prior art — but its own OCR-side selection was a declared,
     ORDERED `_ocr_keys` preference list that put the visual partition LAST, an
     unratified extractor ranking (Risk 7 / OQ10). It now resolves through
-    `telemetry/run_of_record.py`'s ONE selection policy, the same one
-    `tools/cohort_replay.py` adopts: the `run_dir` this instance is built
+    `telemetry/run_of_record.py`'s ONE selection policy: the `run_dir` this instance is built
     against supplies `RunPartitions` (recorded, or reconstructed and verified
     against THIS `data_dir`'s own cache index), `payload_for` resolves each
     document's OCR partition from ITS OWN row (`source_path` / `visual_rung`

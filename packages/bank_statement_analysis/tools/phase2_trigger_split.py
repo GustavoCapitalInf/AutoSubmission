@@ -74,8 +74,7 @@ def _checkout_ancestor(*relative: str) -> Path | None:
 
     A git worktree does not carry the gitignored recovery cache or the
     discovery reports; the checkout it was created from does (BATCH9-RULES'
-    host note). Searching upwards is what lets this tool run from either —
-    the same pattern `tests/test_l1s2_protected_carriers.py` uses.
+    host note). Searching upwards is what lets this tool run from either.
     """
     root = Path(__file__).resolve().parents[1]
     for base in (root, *root.parents):

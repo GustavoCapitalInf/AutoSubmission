@@ -1,8 +1,8 @@
 """telemetry/run_of_record.py — the ONE artifact-selection policy (P20-ARTIFACTS,
 Phase 2.0; OQ8/OQ10; F-9/MAJOR-3/MINOR-4).
 
-Proves, independently of either reader that adopts it
-(``tools/cohort_replay.py``, ``telemetry/stated_counts.py::_ArtifactJoin``):
+Proves, independently of the reader that adopts it
+(``telemetry/stated_counts.py::_ArtifactJoin``):
 
 * a run's partitions are RECORDED when its ``provenance.json`` says so, and a
   malformed recorded block RAISES rather than silently falling back to
@@ -234,8 +234,7 @@ def test_no_run_of_record_block_means_reconstruction_not_an_error(tmp_path):
 
 #: A git worktree carries neither the gitignored recovery cache nor the
 #: discovery reports; the checkout it was created from does. Walking upwards
-#: is the same idiom `tests/test_rbc_variants.py` and
-#: `tests/test_l1s2_protected_carriers.py` use for the OCR store — run from
+#: is the same idiom `tests/test_rbc_variants.py` uses for the OCR store — run from
 #: the repo tree or a worktree beneath `.claude/worktrees/`.
 def _checkout_ancestor(*relative: str) -> Path | None:
     for base in (ROOT, *ROOT.parents):
@@ -950,8 +949,8 @@ def test_provenance_probe_without_its_marker_is_an_error_not_a_guess(tmp_path, m
 # ---------------------------------------------------------------------------
 # P22-IDENTITY (Phase 2.2, cell K; D7; case 17): research partitions are
 # never a run of record — refused by name before any key is read; the
-# production key is unchanged when the field is empty; cohort_replay and
-# provenance honour it.
+# production key is unchanged when the field is empty; provenance
+# honours it.
 # ---------------------------------------------------------------------------
 
 
@@ -1021,34 +1020,6 @@ def test_a_research_run_is_refused_even_when_its_keys_exist_in_the_cache(tmp_pat
             partitions_for_run(run_dir, conn=conn)
     finally:
         conn.close()
-
-
-def test_cohort_replay_exits_5_on_a_research_run_without_any_change_of_its_own(tmp_path, monkeypatch):
-    """CASE 17: `tools/cohort_replay.py` needs no change — its existing
-    `RunOfRecordError` boundary turns the refusal into exit 5 and never
-    selects an artifact of the research run."""
-    import tools.cohort_replay as cohort_replay
-
-    data_dir = tmp_path / "data"
-    data_dir.mkdir()
-    _make_cache_db(data_dir, [
-        ("ocr", "A" * 64, "RESEARCH-OFFLINE", "artifacts/ocr/aa/x.json"),
-        ("analysis", "A" * 64, "RESEARCH-ANALYSIS", "artifacts/analysis/aa/y.json"),
-    ])
-    run_dir = tmp_path / "run"
-    _write_recorded_run_with_partition(run_dir, "p23-wave-a", offline_key="RESEARCH-OFFLINE",
-                                       analysis_key="RESEARCH-ANALYSIS")
-    _write_rows_csv(run_dir, [{"content_sha256": "A" * 64, "source_path": "native",
-                               "outcome_class": "validated", "outcome_reason": "", "parser_id": "x",
-                               "folder_label": "f", "visual_rung": "not_attempted"}])
-    shas = tmp_path / "shas.txt"
-    shas.write_text("A" * 64 + "\n", encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-    exit_code = cohort_replay.main([
-        "--run", str(run_dir), "--data-dir", str(data_dir), "--shas", str(shas),
-        "--census", str(tmp_path / "absent-census.csv"), "--expect-identical",
-    ])
-    assert exit_code == 5
 
 
 def test_provenance_validates_the_research_partition_before_any_probe(tmp_path, monkeypatch):

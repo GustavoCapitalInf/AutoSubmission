@@ -178,8 +178,8 @@ _EXTEND = (
     "(BATCH9_TRANSITION §8.7) says it may NOT demote the 15 protected carriers "
     "that surface a sibling omission. Wire it into "
     "tests/test_l1s2_document_outcome.py::document_outcome so that "
-    "tests/test_l1s2_protected_carriers.py and tests/test_l1s2_omission_ruling.py "
-    "assert its verdict on all fifteen."
+    "tests/test_l1s2_omission_ruling.py "
+    "asserts its verdict on all fifteen."
 )
 
 

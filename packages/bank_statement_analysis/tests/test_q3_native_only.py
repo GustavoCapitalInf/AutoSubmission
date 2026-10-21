@@ -40,14 +40,14 @@ VERDICT BLOCK both times, closed in full both times):
 The real `guardian_cu` archive documents are not re-run here (Phase 2.0
 excludes any Q3 remeasurement on OCR input, and no PDFs live in the cache —
 see `OCR_LEGACY_AUDIT.md` §5.8 clause 2). What proves those 8 specific
-documents untouched: `cohort_replay --parser community_section --parser
-dakota_west --parser mission_valley --parser member_statement_rollup --parser
-symitar --parser zions` (NOT `--folder guardian_cu`, which selects 0 rows on
-this run of record and exits 4 — MINOR-7, corrected in W3 after MAJOR-3 found
+documents untouched: a cohort replay over the parsers `community_section`,
+`dakota_west`, `mission_valley`, `member_statement_rollup`, `symitar` and
+`zions` (NOT the `guardian_cu` folder, which selects 0 rows on
+this run of record — MINOR-7, corrected in W3 after MAJOR-3 found
 it) for the account-seam no-movement proof, and
 a document-seam replay over the 8 named shas for the DOCUMENT-seam
 proof that actually exercises the seam production reads
-(`analyze_document`) — MAJOR-1: `cohort_replay` never opens the omission
+(`analyze_document`) — MAJOR-1: the cohort replay never opens the omission
 collector at all, so it cannot observe this gate either way.
 """
 from __future__ import annotations

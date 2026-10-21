@@ -1036,9 +1036,9 @@ def analysis_input_sha(
     resolved to the same key). The material carries an ``"evidence"`` field
     ONLY when a sha is given: a text-only call hashes exactly the two-field
     composition every run of record before this cell wrote, so
-    ``tools/cohort_replay.py`` and the telemetry observer's artifact join —
-    which look historical analysis artifacts up by THIS function with no
-    version parameter — keep resolving them (the card's literal
+    the telemetry observer's artifact join —
+    which looks historical analysis artifacts up by THIS function with no
+    version parameter — keeps resolving them (the card's literal
     ``"no-geometry"`` is deliberately not hashed for that reason; see the
     cell's W3 section). A
     stage-17 text-only artifact and a stage-18 one still never collide: the

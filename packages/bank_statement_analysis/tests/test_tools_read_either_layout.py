@@ -45,16 +45,6 @@ def git_config(request, monkeypatch):
         monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
 
 
-def test_batch9_census_reads_either_layout():
-    from tools.batch9_census import git_show, parse_b8_census
-
-    path = "docs/moneythumb-replacement/CENSUS_BATCH8_DIGITAL.md"
-    before = parse_b8_census(git_show(PRE_MOVE, path))
-    after = parse_b8_census(git_show(POST_MOVE, path))
-    assert before
-    assert after == before
-
-
 def test_privacy_diff_has_the_same_sites_and_exclusions():
     from tools.privacy_scan_branch import added_lines, excluded_by
 

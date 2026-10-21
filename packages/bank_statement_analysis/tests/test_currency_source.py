@@ -542,11 +542,6 @@ def test_the_published_payload_carries_the_field_beside_the_currency():
 #: certify itself, and the gate that pins the surface. Nothing else — no metric,
 #: no ADB, no reconciliation, no package total, no export, no UI.
 PROVENANCE_MODULES = {
-    # Not a reader: batch 9's census instrument reads the run of record's cached
-    # analysis payloads and carries `currency_source` as a per-sha COLUMN NAME
-    # (the provenance value a reader already published, copied into
-    # census_batch9/per_sha.csv). It reads no document and publishes nothing.
-    "tools/batch9_census.py",
     # Not a reader: L1-S3's surface census names `corpus_gate.check_currency_source`
     # as one of the payload readers it holds to a disposition. Naming a reader is
     # not consulting the label — the census runs `ast.parse` over this

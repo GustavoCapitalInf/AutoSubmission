@@ -1,12 +1,12 @@
 """telemetry/run_of_record.py — ONE artifact-selection policy for a discovery
-run, shared by ``tools/cohort_replay.py`` and
+run, used by
 ``telemetry/stated_counts.py::_ArtifactJoin`` (P20-ARTIFACTS, Phase 2.0;
 OQ8 = adopt the existing selection machinery, OQ10 = follow the run of record).
 
 Why this exists (F-9 / MAJOR-3 / MINOR-4, ``OCR_LEGACY_AUDIT.md``)
 --------------------------------------------------------------------
 Two readers walk the same D-3 artifact-cache index and both used to guess:
-``cohort_replay.ColdCache._payload`` took ``rows[0]`` with no ``ORDER BY`` and
+the batch-9 cohort replay's cold cache took ``rows[0]`` with no ``ORDER BY`` and
 no settings-key filter on EITHER stage, and ``stated_counts._ArtifactJoin``
 (there called ``CachedArtifacts`` in the audit and its review) walked a
 declared, ordered ``_ocr_keys`` preference list that put the visual partition
@@ -130,7 +130,7 @@ class RunOfRecordError(RuntimeError):
     * :func:`select_artifact` finds more than one row for one
       ``(stage, input_sha256, settings_key)`` triple (a corrupt index).
 
-    CLI callers (``tools.cohort_replay``) turn this into exit 5. Never a
+    CLI callers turn this into exit 5. Never a
     guess, never a silent fallback.
     """
 
@@ -141,9 +141,9 @@ class ResearchPartitionRefused(RunOfRecordError):
     run: its artifacts were written under a research partition (Phase 2.3's
     broad Paddle wave, or any later research mode) and can never become
     historical truth. This module refuses to select any artifact of such a
-    run — the refusal names the partition — so neither ``tools.cohort_replay``
-    nor ``telemetry.stated_counts._ArtifactJoin`` (both of which go through
-    :func:`partitions_for_run`) can ever replay, compare or count against it.
+    run — the refusal names the partition — so
+    ``telemetry.stated_counts._ArtifactJoin`` (which goes through
+    :func:`partitions_for_run`) can never replay, compare or count against it.
     A ``RunOfRecordError`` subclass, so every existing exit-5 boundary
     honours it unchanged."""
 
@@ -490,10 +490,10 @@ _CORRESPONDENCE_SAMPLE_SIZE = 50
 def _sample_offline_rows(run_dir: Path, limit: int) -> list[dict[str, Any]]:
     """The first ``limit`` rows of ``run_dir/rows.csv`` whose own provenance
     says offline text was read (``source_path`` ``native``/``local_tesseract``).
-    ``rows.csv`` is read directly (not via ``tools.cohort_replay`` or
+    ``rows.csv`` is read directly (not via
     ``telemetry.stated_counts.load_run_rows``) to keep this module's only
     dependency on the run directory's on-disk shape, with no import of
-    either reader it serves."""
+    a reader it serves."""
     import csv
 
     path = run_dir / "rows.csv"

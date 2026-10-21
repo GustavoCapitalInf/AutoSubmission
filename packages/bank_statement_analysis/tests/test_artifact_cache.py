@@ -2096,7 +2096,7 @@ def test_analysis_input_sha_without_evidence_is_byte_identical_to_the_phase_2_1_
     """The deliberate deviation from the card's literal, pinned: a TEXT-ONLY
     call hashes exactly the two-field composition every run of record before
     this cell wrote (reproduced here from the legacy formula), so
-    `tools/cohort_replay.py` and the telemetry observer keep resolving
+    the telemetry observer keeps resolving
     historical analysis artifacts by this function with no version
     parameter. The evidence field exists ONLY when a sha is supplied."""
     from analysis.parser_registry import admissible_text
