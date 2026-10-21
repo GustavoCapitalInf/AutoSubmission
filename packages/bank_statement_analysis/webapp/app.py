@@ -2780,7 +2780,7 @@ def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
 def _ratified_omissions(analysis: object) -> list[dict]:
     """The RATIFIED sibling omissions this document published, if it is one.
 
-    Q10 (Gustavo, 2026-08-30 — BATCH9_TRANSITION §8.7): *surface the omission,
+    Q10 (Gustavo, 2026-08-30): *surface the omission,
     do not demote.* A section admitted as omitted on PRINTED evidence beside an
     account that validated independently leaves the document `validated`; what
     it must never do is disappear. So the package — which is where a person
@@ -5725,7 +5725,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             ),
             "documents_with_several_members": len(documents_with_several_members),
         } if refuse_cross_account_averages else {}),
-        # Q10 (BATCH9_TRANSITION §8.7): surfaced, never demoted, and published
+        # Q10: surfaced, never demoted, and published
         # ONLY when there is something to surface. A `False` / `"complete"`
         # default would put two new fields on every package this platform has
         # ever produced, which is movement — and this stage moves nothing. Their
@@ -5994,7 +5994,7 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
     profile and rejects password-protected PDFs before any parsing —
     processing one could only ever fail later with a worse message.
 
-    MINOR-8 (PHASE2_P20SEAM_REVIEW.md): a multipart filename carrying a raw
+    MINOR-8: a multipart filename carrying a raw
     CR/LF is refused HERE, first, with a class-name-only message — never the
     raw filename echoed back (unlike every other branch below, which is safe
     to echo because ordinary filenames carry no attack shape). Before this,

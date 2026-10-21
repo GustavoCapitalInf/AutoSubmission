@@ -1,5 +1,5 @@
 """tests/layout_fixtures/kinds.py — one synthetic generator per document kind
-(Phase 2.2 cell C, `P22-CLASSIFY.md` §6; umbrella cases 1–4).
+(Phase 2.2 cell C; umbrella cases 1–4).
 
 Every fixture states, for BOTH input modes, the verdict the classifier owes
 it: `expect_evidence` (words with boxes) and `expect_text` (DEGRADED mode:
@@ -1143,7 +1143,7 @@ def statement_stacked_range_with_page_marker() -> LayoutFixture:
 
 
 # ---------------------------------------------------------------------------
-# the adversarial review's findings (PHASE2_P22CLASSIFY_REVIEW.md)
+# the adversarial review's findings
 # ---------------------------------------------------------------------------
 
 def card_statement_with_deposit_word() -> LayoutFixture:

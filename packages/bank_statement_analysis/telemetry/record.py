@@ -199,7 +199,7 @@ def new_run_id() -> str:
 #: way (`source_path_unrecognized_model`), never silently normalised.
 #:
 #: Placed immediately above `source_path_for`, the function it belongs to
-#: (MINOR-4, PHASE2_P20SEAM_REVIEW.md) — cell A's `FAILURE_CLASSES` /
+#: (MINOR-4) — cell A's `FAILURE_CLASSES` /
 #: `EXTRACTION_TRIGGERS` insert immediately after `SOURCE_PATHS` above,
 #: which is a different anchor, so the two cells no longer collide on the
 #: same line range at compose time.
@@ -468,7 +468,7 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     counts. Prompt tokens are not captured anywhere in the platform today;
     they are `None`, never estimated from character counts (H3_SCHEMA §9).
 
-    OQ3 provenance (MAJOR-2, PHASE2_P20SEAM_REVIEW.md): every OCR-stage call
+    OQ3 provenance (MAJOR-2): every OCR-stage call
     entry also carries `endpoint_class` and `remote_opt_in`. They used to be
     read from the visual OCR settings (`ocr.config.load_settings()`) at record
     time; since slice S2 of the model-code removal they are the fixed
@@ -796,8 +796,8 @@ def build_record(
         # the per-account union on a document one, so a record never carries
         # one account's diagnosis under the document's name.
         #
-        # `source_path_unrecognized_model` (F-7 / MAJOR-3,
-        # PHASE2_P20SEAM_REVIEW.md) is added alongside `diagnose_document`'s
+        # `source_path_unrecognized_model` (F-7 / MAJOR-3)
+        # is added alongside `diagnose_document`'s
         # own closed taxonomy, not INTO it: it is read straight off `source`
         # (the already-built `source_section(doc)` dict this function
         # receives, `source["model"]` being `doc.model` verbatim) rather than

@@ -95,8 +95,8 @@ INPUTS: tuple[str, ...] = (
     # Spellings `Decimal` and `float` accept that no statement prints as an
     # amount: the non-finite values, exponent notation (which also slipped
     # past the digit bound, because the bound counts characters) and PEP 515
-    # underscores. The non-finite part was a carried latent
-    # (W3_TRACKA_LOG item 11); the rest was not recorded.
+    # underscores. The non-finite part was a carried latent; the rest was not
+    # recorded.
     "NaN", "nan", "Infinity", "inf", "-inf", "sNaN", "1e30", "1E9", "1_000.00",
     # --- an unbalanced bracket, and a comma-cents tail after a grouping comma -
     "(5.00", "5.00)", "(1,234.56", "(1 066,25", "1,234,56",

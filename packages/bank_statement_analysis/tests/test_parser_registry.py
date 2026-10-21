@@ -542,7 +542,7 @@ def test_superseding_parser_that_does_not_claim_leaves_the_broad_one_alone():
 
 
 def test_a_claimant_that_declines_to_parse_yields_unclaimed_and_is_recorded():
-    """The fallthrough case the or-chain made invisible (R3_RFC §4.3)."""
+    """The fallthrough case the or-chain made invisible."""
     make("bank_a", pr.required("a", contains("AAA")), parses=False)
     dispatch = pr.resolve("AAA")
     assert dispatch.outcome == "unclaimed"

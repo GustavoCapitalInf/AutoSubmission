@@ -5,7 +5,7 @@ one disposition:
 
 - ``compared``           - the path feeds one or more comparison rows;
 - ``skipped_by_verdict`` - deliberately not compared, citing the
-  FIELD_MAPPING.md verdict (IGNORE / ADOPT / DERIVE / HAVE-partial) that
+  field-mapping verdict (IGNORE / ADOPT / DERIVE / HAVE-partial) that
   covers it;
 - ``capability``         - recorded as a capability finding rather than a
   field comparison (multi-account emission, OCR-webhook stub, ...).
@@ -14,8 +14,7 @@ Any path matching no rule is reported as UNMAPPED, which fails the rollup's
 completeness check - that is the "no silent omissions" guarantee.
 
 Resolution is longest-matching-prefix, so specific paths always beat general
-buckets.  Verdict citations refer to
-``docs/moneythumb-replacement/FIELD_MAPPING.md`` sections.
+buckets.
 """
 from __future__ import annotations
 
@@ -27,12 +26,12 @@ from typing import Iterable
 class CoverageRule:
     prefix: str
     disposition: str          # compared | skipped_by_verdict | capability
-    verdict: str              # FIELD_MAPPING verdict (or "-" for compared)
+    verdict: str              # field-mapping verdict (or "-" for compared)
     note: str
 
 
 BASE_RULES: tuple[CoverageRule, ...] = (
-    # ---------------- appinfo (FIELD_MAPPING section 1) ----------------
+    # ---------------- appinfo ----------------
     CoverageRule("appinfo.webSearch", "skipped_by_verdict", "IGNORE",
                  "webSearch.* never populated in benchmark; separate product decision (s1)."),
     CoverageRule("appinfo.accountlist", "capability", "ADOPT",

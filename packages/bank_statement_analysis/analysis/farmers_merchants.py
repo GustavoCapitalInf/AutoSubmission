@@ -123,7 +123,7 @@ DETECTION_MARKERS = (
     # back - which is also why it is described here rather than quoted). This
     # statement carries no issuer identification whatsoever - no bank name, no
     # domain, no FDIC footer - so the branch is now the layout's own product
-    # and section headings. See R4_CONFORMANCE_FINDINGS.md.
+    # and section headings.
     required("bank_name", lambda t: ("FARMERS" in t and "MERCHANTS BANK" in t)
         or ("BUSINESS/COMMERCIAL" in t and "CHECKS/DEBITS" in t)),
     required("credits_section", lambda t: "DEPOSITS AND CREDITS" in t),

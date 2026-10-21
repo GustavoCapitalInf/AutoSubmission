@@ -1,6 +1,6 @@
 """Enumerate the corpus root and partition it by the pinned manifest.
 
-The archive is FROZEN (WAVE2_EXECUTION_LOG, 2026-08-06): two enumerations
+The archive is FROZEN (2026-08-06): two enumerations
 twelve minutes apart agreed byte-for-byte. That inventory is the discovery
 corpus of record, so every run re-verifies it before doing any work — a moved,
 added, or resynced file means the thing being measured is not the thing that

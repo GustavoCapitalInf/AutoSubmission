@@ -5,7 +5,7 @@ the generic structurer); nothing here calls a model. No statement is ever
 re-extracted because it failed reconciliation. The reconciliation-based
 selection between two hosted extractions that used to sit between `reconcile`
 and `metrics` was REMOVED under ruling R9
-(`docs/moneythumb-replacement/PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE):
+(2026-09-03; card P22-FENCE):
 the validator is a verifier, never an optimizer. The one hosted extraction R9
 left, behind an operator opt-in, was removed with `analysis/extract.py` under
 the owner's ruling of 2026-10-13 that the product uses no model (model-code
@@ -318,7 +318,7 @@ class InternalTransfer:
 #: counterparts, so which sibling row it moved to is not established. No pairing
 #: is recorded, both printed legs stay in their ledgers untouched, and the
 #: PACKAGE refuses to aggregate this document rather than aggregating it wrongly
-#: (design §3.3; Gustavo's Q2 ruling, BATCH9_TRANSITION §8.14). The account's own
+#: (design §3.3; Gustavo's Q2 ruling). The account's own
 #: validation, its ledger and its ADB history are not affected.
 AMBIGUOUS_INTERNAL_TRANSFER = "ambiguous_internal_transfer"
 
@@ -1035,7 +1035,7 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # same refusals with a `hosted_extraction` attribute attached. The
         # extractor is gone, so there is nothing left to fall through to.
         #
-        # BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`) stays first, and stays a
+        # BLOCK-2 stays first, and stays a
         # check of its own although the `parser_exception` refusal below now
         # raises the same thing: Q3's native-only gate
         # (`sibling_omission.publish_omissions`, raises `Q3ProvenanceRefused`)
@@ -1043,8 +1043,8 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # refused for OCR provenance was routed to a HOSTED MODEL CALL in auto
         # mode, publishing one account with the omitted sibling silently
         # dropped — the exact L-1 defect `analysis/sibling_omission.py` exists
-        # to prevent. A policy refusal must never start any other reading
-        # (`PHASE2-0-SAFETY.md` §Objective), so this checks the recorded
+        # to prevent. A policy refusal must never start any other reading,
+        # so this checks the recorded
         # exception's CLASS NAME ONLY — never a message, exactly as
         # `analysis.parser_registry.ParserFailure` already stores it.
         if dispatch.outcome == "parser_exception" and any(
@@ -1066,7 +1066,7 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     claiming = claiming_parser_id(dispatch)
     recon = reconcile(stmt, parser_id=claiming)
 
-    # R9 (`PHASE2_RULINGS.md`, 2026-09-03; card P22-FENCE): PINNED FALSE.
+    # R9 (2026-09-03; card P22-FENCE): PINNED FALSE.
     #
     # Until this cell the block that stood here ran a SECOND hosted extraction
     # with `settings.escalation_model` whenever `recon` failed, reconciled the

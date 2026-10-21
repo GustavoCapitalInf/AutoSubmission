@@ -583,7 +583,7 @@ def test_the_memoised_page_text_cannot_be_mutated_by_one_caller_for_another():
 # engine refuses them because it requires every transaction to fall inside the
 # period. `initialization_postings` is the EVIDENCE half of the narrow
 # exception — it proves the interpretation from the document's own print and
-# publishes nothing. See §WFINIT in `W3_TRACKA_LOG.md`.
+# publishes nothing.
 
 OPENING_PERIOD = "Statement Period: January 24  - January 31, 2054"
 

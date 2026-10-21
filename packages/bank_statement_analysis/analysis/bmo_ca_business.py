@@ -7,7 +7,7 @@ a one-row grid headed `Summary of account`, and its ledger columns are
 `Amounts debited from your account ($)` and `Amounts credited to your
 account ($)`. The two marker sets are disjoint on every document either has been
 measured against, so neither registration can claim the other's documents and no
-`supersedes` edge is needed (W3_TRACKA_LOG §BMO-LAYOUTS).
+`supersedes` edge is needed.
 
 The French-language edition of the same printed statement is the same grid with
 the same four summary columns, French headings and FR-CA money (`7 227,65`). It

@@ -280,8 +280,7 @@ def test_a_readable_document_has_no_refusal_reason(monkeypatch):
 # Ocean closure 2) to prove the refusal REASON reached "the row a triage
 # actually reads." `deterministic_coverage_audit.py` was retired with this
 # commit (P20-SEAM / OQ7, `git rm`) — it was a pre-deterministic-shift dev CLI,
-# a duplicate of what `discovery/runner.py` already measures
-# (OCR_LEGACY_AUDIT.md #34), and never the sole production reader of
+# a duplicate of what `discovery/runner.py` already measures, and never the sole production reader of
 # `text_layer_refusal`'s reason (`discovery/runner.py` does not call it; no
 # production caller does). Removed with the script rather than repointed:
 # `text_layer_refusal` itself stays fully covered directly, above

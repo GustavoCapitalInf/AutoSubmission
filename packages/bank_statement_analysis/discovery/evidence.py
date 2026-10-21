@@ -16,9 +16,8 @@ human-facing artifact and DOES carry relative paths, the extracted bank label
 and a masked account fragment; this module reads exactly three of its columns
 - `content_sha256`, `folder_label`, `dedup_status` - and nothing here ever
 returns a path, a filename, an extracted bank label or an account fragment.
-Folder labels are analyst-assigned bank names, already published in
-`DISCOVERY_COMBINED_REPORT.md`; paths are not, because customer names live in
-them.
+Folder labels are analyst-assigned bank names and safe to report; paths are
+not, because customer names live in them.
 
 **The cache-hit hole, and why the join exists.** H3_SCHEMA §5.4 declared it:
 on a D-3 analysis cache hit `analyze_markdown` never runs, so the record

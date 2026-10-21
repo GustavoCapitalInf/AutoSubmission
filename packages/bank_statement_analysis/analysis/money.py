@@ -1,4 +1,4 @@
-"""Shared money parsing for every statement parser (R-2 / MASTER_PLAN P1-1a).
+"""Shared money parsing for every statement parser (R-2).
 
 Before this module each bank parser carried its own private `_money` /
 `_parse_money` clone — 28 near-identical implementations across
@@ -265,7 +265,7 @@ def _within_digit_bound(text: str) -> bool:
 #: ``NaN``, ``Infinity``, ``sNaN``, exponent notation (``1e30``) and PEP 515
 #: underscores (``1_000.00``) — and the raising family below converted
 #: whatever they accepted (audit 2026-10-13 PARSERS-4; the non-finite part was
-#: already a carried latent, W3_TRACKA_LOG item 11). Exponent notation also
+#: already a carried latent). Exponent notation also
 #: defeated `MAX_INTEGER_DIGITS`, whose `_within_digit_bound` counts
 #: CHARACTERS: ``1e30`` is four of them, and the ``Decimal("1E+30")`` it
 #: became is exactly the value the ADB engine's cents quantize cannot hold.

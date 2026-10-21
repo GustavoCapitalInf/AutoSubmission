@@ -433,7 +433,7 @@ def main() -> None:
                       collector, timer, seen_hashes, document=analysed)
             except Exception as e:  # keep going; record the failure in its row
                 traceback.print_exc()
-                # MINOR-8 (PHASE2_P20SEAM_REVIEW.md): the CSV cell carries the
+                # MINOR-8: the CSV cell carries the
                 # exception CLASS NAME only, never `str(e)` — this branch gained
                 # a new raise path in this card (`ocr.config.ProvenanceTokenError`
                 # on a hostile filename), and that exception's message quotes the

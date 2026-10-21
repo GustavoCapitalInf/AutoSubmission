@@ -23,7 +23,7 @@ Where a parser's evidence is a disjunction, the fixture uses one branch and
 No customer names, account numbers, dates or amounts appear here. Two parsers
 declare such evidence in production (`farmers_merchants` matches a customer
 name, `altana` and `texas_bank` embed digit runs); those are pre-existing R-1
-residuals, reported in R3_DETECTION_FINDING.md §7 and deliberately not
+residuals, deliberately not
 exercised by these fixtures.
 """
 from __future__ import annotations

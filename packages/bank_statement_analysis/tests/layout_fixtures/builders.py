@@ -1,5 +1,5 @@
 """tests/layout_fixtures/builders.py — page-building primitives for the
-synthetic document-kind fixtures (Phase 2.2 cell C, `P22-CLASSIFY.md` §6).
+synthetic document-kind fixtures (Phase 2.2 cell C).
 
 Every fixture in this package is built from LITERAL strings placed at KNOWN
 positions, in the exact idiom of `tests/paddle_synthetic.py` (whose rendering

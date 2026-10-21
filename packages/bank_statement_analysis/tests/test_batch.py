@@ -1,6 +1,6 @@
 """batch.py: the CSV error cell carries the exception CLASS NAME only.
 
-MINOR-8 (PHASE2_P20SEAM_REVIEW.md): `batch.py:312` used to write
+MINOR-8: `batch.py:312` used to write
 `f"{type(e).__name__}: {e}"` into the CSV `error` cell — the same pattern
 `coverage_audit.py` and `deterministic_coverage_audit.py` used before their
 retirement (P20-SEAM / OQ7). This card's own new raise path

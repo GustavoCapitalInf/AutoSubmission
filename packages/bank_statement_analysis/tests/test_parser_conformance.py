@@ -23,7 +23,6 @@ The four checks per registration:
 
 Check 4 found two real defects. They are recorded here as a pinned set, not
 patched: R-4 reports parser defects to Ocean, it does not silently fix them.
-See `docs/moneythumb-replacement/R4_CONFORMANCE_FINDINGS.md`.
 """
 from __future__ import annotations
 
@@ -52,7 +51,7 @@ NEUTRAL_HOST = (
 #: Findings R4-1, R4-2 and R4-3 are fixed (R-4b). Both sets are empty and
 #: asserted empty: a parser that starts detecting on a bare bank name, or on
 #: the filename echo, fails the pins below rather than being rediscovered by a
-#: wrong parse. See R4_CONFORMANCE_FINDINGS.md.
+#: wrong parse.
 COUNTERPARTY_VULNERABLE: set[str] = set()
 FILENAME_DEPENDENT_PARSERS: set[str] = set()
 
@@ -218,7 +217,7 @@ def test_the_set_of_counterparty_vulnerable_parsers_is_exactly_the_recorded_find
     }
     assert vulnerable == COUNTERPARTY_VULNERABLE, (
         "counterparty-vulnerable parsers changed; update "
-        "docs/moneythumb-replacement/R4_CONFORMANCE_FINDINGS.md with the diff"
+        "COUNTERPARTY_VULNERABLE with the diff"
     )
 
 

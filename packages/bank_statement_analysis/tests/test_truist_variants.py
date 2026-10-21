@@ -11,8 +11,7 @@ Truist emits its currency symbol as its own cell, so `Total checks` arrives
 either as `= $662.35` or as `= $ 662.35`. The section pattern required the tight
 spelling, so on the 20 cell documents the Checks table was never found and every
 cheque in it was silently dropped from the ledger — while the stated totals,
-which come from the Account summary, still counted them. See
-`docs/moneythumb-replacement/W3_TRACKA_LOG.md` section TRIO.
+which come from the Account summary, still counted them.
 """
 from __future__ import annotations
 

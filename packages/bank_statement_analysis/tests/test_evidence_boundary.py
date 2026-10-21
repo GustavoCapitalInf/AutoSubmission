@@ -1,6 +1,5 @@
 """The `evidence/` boundary tripwire, amended precisely for the ONE native
-reader (Phase 2.2 cell K, `docs/agent-handoffs/P22-IDENTITY.md` item 4; D3;
-case 16).
+reader (Phase 2.2 cell K; D3; case 16).
 
 `evidence/` is a NEUTRAL package: it imports nothing from any repository
 package — never `ocr`, `analysis`, `discovery`, `webapp`, `telemetry`,

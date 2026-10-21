@@ -108,8 +108,8 @@ def folder_agreement(row) -> str:
 #: P22-TRUTHTABLE. The two labels that are DERIVED rather than carried: R is
 #: "the offline ladder (Tesseract included) produced no text at all", and U is
 #: a Tesseract read no reader claimed. Both are the definitions the Phase-2
-#: baseline was measured with (`PHASE2-RULES.md` §"Baseline triggers"),
-#: restated here so the report and that baseline cannot drift apart.
+#: baseline was measured with, restated here so the report and that baseline
+#: cannot drift apart.
 #:
 #: R has two spellings (plan D19). Until slice S5 of the model-code removal
 #: the runner recorded it as the deferral `deferred_visual_ocr`; since S5 it

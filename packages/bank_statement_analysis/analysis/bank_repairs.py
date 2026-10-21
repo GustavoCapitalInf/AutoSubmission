@@ -1,7 +1,7 @@
 """analysis/bank_repairs.py — the post-parse repairs, each keyed on the bank
 label its own guard compares.
 
-R10 (`PHASE2_RULINGS.md`) put the six bank-keyed rewrites through a hygiene
+R10 put the six bank-keyed rewrites through a hygiene
 ceremony at the Phase 2.3 milestone: inventory, independent reproduction over
 the run of record, comparison with the repair doctrine, classification, and a
 consequence. The ceremony repairs below DECLARE their classification on a

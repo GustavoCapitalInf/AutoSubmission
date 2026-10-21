@@ -1,5 +1,5 @@
 """The deterministic document classifier (Phase 2.2 cell C; umbrella cases
-1–5 and 24; `P22-CLASSIFY.md` §5–§6).
+1–5 and 24).
 
 Every synthetic kind fixture in `tests/layout_fixtures` is classified in
 BOTH input modes — words with boxes (`evidence`) and page strings only
@@ -600,7 +600,7 @@ def test_the_period_forms_of_the_precision_pass(fixtures):
 
 
 # ---------------------------------------------------------------------------
-# the adversarial review's findings (PHASE2_P22CLASSIFY_REVIEW.md), each closed
+# the adversarial review's findings, each closed
 # with a fixture in both modes and a named mutant
 # ---------------------------------------------------------------------------
 

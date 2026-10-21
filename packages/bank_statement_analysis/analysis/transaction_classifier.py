@@ -1224,8 +1224,8 @@ def prints_internal_transfer_designation(description: str) -> bool:
     originator designates no own account for R-d, the conservative direction.
 
     **`_TRANSFER_PATTERNS` is REFUSED as evidence for this question, and the
-    refusal is a ruling rather than a preference** (Gustavo, 2026-08-30,
-    BATCH9_TRANSITION §8.14). That tuple carries `ZELLE`, `VENMO`, `CASH APP`,
+    refusal is a ruling rather than a preference** (Gustavo, 2026-08-30). That
+    tuple carries `ZELLE`, `VENMO`, `CASH APP`,
     `E TRANSFER`, `ETRANSFER` and `XFER`, and its one production use builds a
     `strong_non_lender_exclusion` whose own reason string says the descriptor
     identifies "an account, online, or person-to-person transfer" — so it

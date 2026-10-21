@@ -2,8 +2,7 @@
 
 Every document below is synthetic: the amounts, dates, account numbers and
 counterparties are invented, and each fixture exists to pin one *structural*
-rule of the printed grid. See `docs/moneythumb-replacement/W3_TRACKA_LOG.md`
-section WELLS for the family table these names come from.
+rule of the printed grid.
 
 Two kinds of fixture, and the difference matters:
 
@@ -280,8 +279,8 @@ class TestF6MultiAccountStatement:
     """A Wells statement can carry more than one account.
 
     Each account owns a section that opens with its own number line, and one
-    of them is marked `(primary account)`. `Statement` is single-account
-    (MASTER_PLAN L-1), so the published ledger is the primary account's — the
+    of them is marked `(primary account)`. `Statement` is single-account,
+    so the published ledger is the primary account's — the
     union of both against one account's summary is arithmetic over two
     different ledgers.
     """

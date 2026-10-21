@@ -1,7 +1,7 @@
 """A FOURTH core processor's template: the enclosures / average-ledger block.
 
 The batch-8 census ranked this the largest unclaimed printed identity in the
-archive (`CENSUS_BATCH8_DIGITAL.md` rank 1, 58 documents), and it is the next
+archive (rank 1, 58 documents), and it is the next
 grammar of the core-processor complex after §LCPERIOD (`core_processor_daily`),
 §GRAM4 (`core_processor_counted`) and §JHA/§SCANB (`core_processor_sectioned`).
 Like all of those it is registered on the TEMPLATE's own furniture, because the

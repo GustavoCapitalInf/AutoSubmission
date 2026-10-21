@@ -24,8 +24,7 @@ Comparing the second and third classes by equality does not find defects; it
 manufactures them. Measured before any of this was wired up: treating the
 four banks in that position as comparable would have moved 14 pinned-PASS
 corpus documents into the flagged population, at least 5 of them because the
-check was misreading the document
-(`docs/moneythumb-replacement/COUNTS_P1_MEASUREMENT.md` §7.2).
+check was misreading the document.
 
 The third class is not incomparable — it is UNMAPPED (W3 §COUNTSMAP)
 ------------------------------------------------------------------
@@ -72,8 +71,8 @@ completeness auditable rather than assumed. It is asserted directly by
 Provenance
 ----------
 Every entry carries the argument that put it there, with its `file:line`
-evidence, taken from the phase-1 measurement
-(`COUNTS_P1_MEASUREMENT.md` §3) which Gustavo signed off on 2026-08-13.
+evidence, taken from the phase-1 measurement, which Gustavo signed off on
+2026-08-13.
 The three promotions to comparable (chase debit, us_bank both directions,
 wilson_muir both directions) were re-proven against the current archive
 before they were written here; each entry records the counterfactual that
@@ -1322,10 +1321,10 @@ UNSURVEYED = CountSemantics(
 #: `Statement` schema has no field for, so it is not expressible in this
 #: check's schema at all. Recorded here so the disclosure is data rather than
 #: a paragraph someone must remember to write: PNC prints an item count per
-#: section (`W3_TRACKA_LOG.md` §3.3, §3.7 item 3) and is the witness that
+#: section and is the witness that
 #: caught the swallowed-section defect, but a PER-DIRECTION check would not
 #: have caught the `Fee Refunds` case because the direction totals were right.
-#: Wells prints a per-account `Totals` line nothing reads (§W7.4). Neither
+#: Wells prints a per-account `Totals` line nothing reads. Neither
 #: parser assigns a per-direction count, so both are silent here — which is
 #: TRUE of the schema and FALSE of the document, and that distinction is the
 #: disclosure.

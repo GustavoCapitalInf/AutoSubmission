@@ -109,7 +109,7 @@ def test_layers_are_l0_to_l6_in_order_and_every_layer_is_closed_with_unmapped():
 
 
 def test_the_vocabulary_carries_the_plan_d4_codes():
-    """PHASE2_REMAINDER_PLAN §D.4, verbatim members."""
+    """The plan's §D.4 members, verbatim."""
     assert set(L0_CODES) == {"FILE_INVALID", "FILE_ENCRYPTED"}
     assert set(L1_KINDS) == {"NOT_A_STATEMENT", "ACTIVITY_EXPORT", "STATEMENT_PARTIAL",
                              "STATEMENT_ILLEGIBLE", "KIND_UNCERTAIN"}

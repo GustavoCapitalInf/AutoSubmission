@@ -1,8 +1,8 @@
 """The dashboard's flagged positions (webapp/static/app.js, webapp/templates/index.html), driven end to end in node on
 a fake page (tests/webapp_js_harness.py): the tags of the new classification states, the Flagged chip and ledger
 filter, the Flagged positions panel on a statement, a package and the statement window, the Settings switches, and the
-notice on a statement analysed with older lender rules. The payloads follow the service contract
-(docs/superpowers/plans/2026-09-24-lender-detection.md, C5, C6 and C8); every descriptor, payee and amount is
+notice on a statement analysed with older lender rules. The payloads follow the service contract;
+every descriptor, payee and amount is
 fabricated, and every amount is whole dollars."""
 import json
 import re

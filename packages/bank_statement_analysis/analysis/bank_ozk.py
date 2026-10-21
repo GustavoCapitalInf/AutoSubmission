@@ -150,7 +150,7 @@ _BANNER_RE = re.compile(r"([A-Z][A-Z /]*[A-Z])\*\s+ACCOUNT\s+-\s+(\d{4,})")
 #: The account number the header block prints on its own label. Read as well as
 #: the banner's so the two can be required to agree: a file carrying two
 #: different account numbers holds more than one account and the `Statement`
-#: schema holds one (MASTER_PLAN L-1).
+#: schema holds one.
 #:
 #: `[ \t]` and not `\s`: the last sheet prints the label with its value on the
 #: NEXT line, and a run of digits on the next line is a cheque serial rather
@@ -537,7 +537,7 @@ def parse_bank_ozk_statement(markdown: str) -> Statement | None:
 
     # The account, from the two places the document prints it. Both must be
     # present and both must agree: a second account number is a second account,
-    # and this schema publishes one (MASTER_PLAN L-1).
+    # and this schema publishes one.
     banner = unique_match(markdown, _BANNER_RE)
     if banner is None:
         return None

@@ -43,7 +43,7 @@ class ProvenanceTokenError(ValueError):
 #: `$`, `,`, quotes and backslash — which is also why a valid token cannot
 #: contain `-->`, a `<|det|>`-style region tag, or a `<!-- source:` fragment.
 #:
-#: BLOCK-1 (PHASE2_P20SEAM_REVIEW.md): anchored with `\A` / `\Z`, NOT `^` / `$`.
+#: BLOCK-1: anchored with `\A` / `\Z`, NOT `^` / `$`.
 #: In Python, `$` matches at the end of the string OR immediately before a
 #: trailing `\n` — `re.match(r"^...$", "evilmodel\n")` succeeds, so the
 #: previous pattern accepted a token whose only hostile character was a

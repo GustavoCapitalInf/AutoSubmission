@@ -555,7 +555,7 @@ def _record(payload, parser_id="chase") -> dict:
 
 
 def test_the_record_carries_the_diagnostics_section():
-    """MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): `build_record` adds
+    """MAJOR-3: `build_record` adds
     `source_path_unrecognized_model` ALONGSIDE `diagnose_document`'s own
     closed taxonomy (never a member OF it — it is read off `source`, not the
     payload, and carries no `DIAGNOSTICS_VERSION`), so the record's

@@ -1,6 +1,6 @@
 """The five issuer-furniture markers, positive and negative (R-3.4).
 
-Background: `docs/moneythumb-replacement/R3_DETECTION_FINDING.md`. Five parsers
+Five parsers
 identified their bank by a bare name substring, which also matched when that
 bank appeared as a *counterparty* in someone else's statement — a Capital One
 card payment, a BMO wire, a Regions ACH originator. Chain order hid it; the

@@ -21,10 +21,6 @@ every parser fills and facing the same gates.
 What the caller sees is one function, `structure_unclaimed`, returning a
 `Statement` or None. Everything else — refusal reasons, ungrounded candidates,
 column hypotheses — stays in here.
-
-Design record: `docs/moneythumb-replacement/W3_3A_INVESTIGATION.md` (the
-measured spike this was built from) and the W3-3b rulings in
-`WAVE2_EXECUTION_LOG.md`.
 """
 from __future__ import annotations
 

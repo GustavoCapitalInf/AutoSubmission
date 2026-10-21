@@ -1,5 +1,5 @@
 """Extraction quality v2 — MEASURED, VERSIONED, admitted as NOTHING
-(Phase 2.3 cell E, `docs/agent-handoffs/P23-EGATE.md`; plan §H.4; Ruling B).
+(Phase 2.3 cell E; Ruling B).
 
 What this module is
 -------------------

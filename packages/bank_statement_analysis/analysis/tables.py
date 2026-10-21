@@ -188,8 +188,8 @@ def group_rows(
     its amount and which is its running balance. That question has three
     different printed answers in the three layouts (Chase prints no balance
     column at all; RBC prints ``amount balance`` adjacent; TD Canada prints the
-    Date column between them), so it is answered against the printed grid — see
-    W3_TRACKA_LOG §GROUPER. `read_grid_rows` below answers it for the ONE of
+    Date column between them), so it is answered against the printed grid.
+    `read_grid_rows` below answers it for the ONE of
     those three that a second issuer turned out to share, and takes the money
     pattern and the row labels as arguments so the bank knowledge still stays
     with the bank.

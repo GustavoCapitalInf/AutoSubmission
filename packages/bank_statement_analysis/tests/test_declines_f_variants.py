@@ -13,7 +13,7 @@ Ledger Balance`) in a position that varies, so cells the bank printed can
 arrive ABOVE it. Four archive documents of one account print their control row,
 their day count and/or their beginning balance there; before `_summary_block`
 the reader looked only forwards, found an incomplete block and refused a
-control record that was complete (W3_TRACKA_LOG §DECLINESF).
+control record that was complete.
 """
 from __future__ import annotations
 

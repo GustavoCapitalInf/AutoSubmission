@@ -1,5 +1,5 @@
 """tests/paddle_synthetic.py — the synthetic "statement-like" fixture set
-(Phase 2.1 cell P, `docs/agent-handoffs/P21-PADDLE.md` §6, D8).
+(Phase 2.1 cell P, D8).
 
 NOT a real statement, and never derived from one: a header line, a DATE /
 DESCRIPTION / AMOUNT / BALANCE column-header row, and N ledger rows of
@@ -23,7 +23,7 @@ with it (`tests/layout_fixtures/builders.py`, `tests/test_agreement.py`,
 `tests/test_two_denominators.py`); it imports only `ocr.rasterize`. It never
 reads `Bank Statements/`, `tests/corpus_cache/` or any real document.
 
-Phase 2.3 cell E (`docs/agent-handoffs/P23-EGATE.md` item 4) APPENDS the
+Phase 2.3 cell E APPENDS the
 DEFECT pages: one page per extraction-quality metric, each built from the
 same literal ground truth by transforming `build_ledger_page`'s output, so
 the defect is the ONLY difference between the page and a clean one. Every

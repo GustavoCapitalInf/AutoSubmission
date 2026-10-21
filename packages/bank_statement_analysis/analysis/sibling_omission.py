@@ -94,7 +94,7 @@ YIELD_ONLY_ARITHMETIC = "yield_only_arithmetic_with_summary_equality"
 #: ledger row, no counts or totals and no daily-balance table — AND the
 #: document's own enumerating table independently reproduces that closing.
 #:
-#: GRANTED WITH CORROBORATION (Gustavo, 2026-08-30, BATCH9_TRANSITION §8.8).
+#: GRANTED WITH CORROBORATION (Gustavo, 2026-08-30).
 #: Six printed conditions and a seventh that the section does not control: the
 #: roll-up witness. The class exists to bound the hazard where an extractor
 #: loses a section's ledger rows while its two captions survive and happen to
@@ -113,14 +113,12 @@ EVIDENCE_CLASSES: frozenset[str] = frozenset({
     PRINTED_PAIR_COINCIDES_AND_NO_ROW_PRINTED,
 })
 
-#: Q3's native-only gate (Gustavo, BATCH9_TRANSITION §8.8/§8.13; carried
-#: forward at Phase 2.0 opening, `PHASE2_ARCHITECTURE_PLAN.md` §6 last
-#: paragraph: the Q3 idle-sibling class stays native-only until
-#: the corroboration is re-measured on OCR'd guardian_cu;
-#: `OCR_LEGACY_AUDIT.md` §5.8 step 6). `PRINTED_PAIR_COINCIDES_AND_NO_ROW_
+#: Q3's native-only gate (Gustavo; carried forward at Phase 2.0 opening: the Q3
+#: idle-sibling class stays native-only until the corroboration is re-measured
+#: on OCR'd guardian_cu). `PRINTED_PAIR_COINCIDES_AND_NO_ROW_
 #: PRINTED` was corroborated 6/6 on `native-pdf-text` documents only, to bound
 #: an OCR row-loss hazard that has never been measured on OCR'd input. Until
-#: the re-measurement in §5.8 exists, the class is admitted only on
+#: that re-measurement exists, the class is admitted only on
 #: `native-pdf-text*` provenance; every other token, `""`, or the absence of a
 #: header refuses it, fail-closed, exactly as L1-C17 refuses an unratified
 #: reason (`SiblingOmission.__post_init__` below) — both are raised where the
@@ -134,13 +132,13 @@ Q3_CLASS_REQUIRES_NATIVE_PROVENANCE = "q3_class_requires_native_provenance"
 
 #: The provenance token Q3 requires — checked at `publish_omissions` as
 #: `model == _Q3_REQUIRED_MODEL_PREFIX or model.startswith(_Q3_REQUIRED_MODEL_
-#: PREFIX + "+")`, NOT a bare `startswith` (MINOR-1,
-#: `PHASE2_P20SURFACES_REVIEW.md`: `startswith("native-pdf-text")` alone also
+#: PREFIX + "+")`, NOT a bare `startswith` (MINOR-1:
+#: `startswith("native-pdf-text")` alone also
 #: admits `native-pdf-textXYZ`, a shape no writer in this tree produces).
 #: A native read may carry a layout suffix of its own
 #: (`native-pdf-text+guardian`) and stays admitted — the ruling's own wording
 #: is "the document's extractor model is `native-pdf-text*`"
-#: (`OCR_LEGACY_AUDIT.md` §5.8 step 6), and `ocr/native_text.py` writes only
+#: and `ocr/native_text.py` writes only
 #: the bare token or a `+suffix` form, never a bare concatenation.
 _Q3_REQUIRED_MODEL_PREFIX = "native-pdf-text"
 
@@ -515,8 +513,8 @@ class Q3ProvenanceRefused(ValueError):
     (`analysis/parser_registry.py:822-836`'s own privacy discipline). A
     dedicated subclass exists so a class name alone can tell "our own code
     broke" (`ParserCrashError`'s own docstring reserves that meaning) apart
-    from "the provenance policy refused this document" — MAJOR-2,
-    `PHASE2_P20SURFACES_REVIEW.md`: a bare `ValueError` left the refusal
+    from "the provenance policy refused this document" — MAJOR-2:
+    a bare `ValueError` left the refusal
     recorded nowhere a reader could distinguish it from an actual crash.
     `analysis/pipeline.py` reads this class's `__name__` off
     `dispatch.exceptions` to refuse the document in every `parse_mode`
@@ -537,7 +535,7 @@ def publish_omissions(omissions: Sequence[SiblingOmission]) -> None:
     `printed_pair_coincides_and_no_row_printed` is admitted only when the
     document's extractor-model token (`analysis.provenance.extractor_model`,
     read off `_MARKDOWN`) is EXACTLY `native-pdf-text` or starts with
-    `native-pdf-text+` (MINOR-1, `PHASE2_P20SURFACES_REVIEW.md`: a bare
+    `native-pdf-text+` (MINOR-1: a bare
     `startswith("native-pdf-text")` also admits `native-pdf-textXYZ`, a token
     no writer in this tree ever produces — `ocr/native_text.py` writes only
     the bare token or a `+suffix` form); any other token, `""`, or no header

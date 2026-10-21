@@ -135,7 +135,7 @@ DETECTION_MARKERS = (
     # "BMO" is three characters and matches inside opaque reference ids
     # ("BMOZ000RIJ8B" in a Chase Zelle row) and wire beneficiaries in Wells
     # Fargo, RBC and Citizens statements. Require BMO's own summary heading
-    # too (R3_DETECTION_FINDING.md).
+    # too.
     required("summary_section", lambda t: "ACCOUNT SUMMARY TOTALS" in t),
 )
 

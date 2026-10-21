@@ -109,7 +109,7 @@ class StatementMarkdown:
         `StatementMarkdown` at all, so `to_markdown()` never needs to defend
         itself — the ONE existing guard downstream keeps doing its one job.
 
-        Writer-side belt (PHASE2_P20SEAM_REVIEW.md §3): `source_file` also
+        Writer-side belt: `source_file` also
         refuses `-->` — NOT because it can escape `SOURCE_COMMENT_RE` (it
         cannot; the guard's lazy `.*?` backtracks to the LAST `-->` on the
         line, so the comment still strips whole) but because an unbounded

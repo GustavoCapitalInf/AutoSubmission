@@ -12,8 +12,7 @@ exactly as `corpus_gate.py` resolves them.
 Closed finding: five parsers used to detect their bank by a bare name
 substring that also matched the bank as a *counterparty* in another bank's
 statement, leaving 45 documents with two or more claimants. Each now requires
-issuer furniture as well — see `docs/moneythumb-replacement/R3_DETECTION_FINDING.md`
-and `tests/test_parser_detection_markers.py`. Every assertion below passes.
+issuer furniture as well — see `tests/test_parser_detection_markers.py`. Every assertion below passes.
 """
 from __future__ import annotations
 

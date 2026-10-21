@@ -16,16 +16,14 @@ Deliberately separate from `ocr/`: the intake ladder produces the markdown
 every other path consumes, and this is an additional read of the same bytes
 for one consumer. Nothing here changes what any parser sees.
 
-Phase 2.1 (`docs/agent-handoffs/P21-GEOMETRY.md`) adds a second extraction
+Phase 2.1 adds a second extraction
 source — PaddleOCR word boxes, in raster pixels — through the extractor-
-neutral `evidence/` package (`docs/agent-handoffs/PHASE2-1-PADDLE.md`
-§"Evidence contract", D1). This module is now the ONE consumer of that
+neutral `evidence/` package (D1). This module is now the ONE consumer of that
 package for the structurer:
 
 * `native_evidence_from_pdf` reads a native PDF into canonical evidence
   (`ExtractionEvidence`) — the same representation Paddle's adapter produces,
-  in `pdf_point` space. Since Phase 2.2 (`docs/agent-handoffs/P22-IDENTITY.md`
-  item 2, D3) it is a RE-EXPORT of the ONE native reader,
+  in `pdf_point` space. Since Phase 2.2 (D3) it is a RE-EXPORT of the ONE native reader,
   `evidence/native.py::native_evidence_from_pdf`: the intake ladder must
   attach the same evidence to the artifact it returns and cannot import
   `analysis`, so the reader moved to the neutral package (whose boundary

@@ -1,6 +1,6 @@
 """Canonical extraction evidence — the ONE representation of words, boxes and
 lines that every extractor produces and every geometry consumer reads
-(Phase 2.1, `docs/agent-handoffs/PHASE2-1-PADDLE.md` §"Evidence contract", D1).
+(Phase 2.1, D1).
 
 Why a neutral package
 ---------------------

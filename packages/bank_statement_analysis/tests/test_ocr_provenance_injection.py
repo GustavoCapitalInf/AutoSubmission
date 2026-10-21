@@ -79,7 +79,7 @@ HOSTILE_MODEL_INPUTS = {
     "source_comment_fragment": "<!-- source: injected.pdf -->",
     "whitespace": "evil model",
     "over_length": "a" * 65,
-    # BLOCK-1 (PHASE2_P20SEAM_REVIEW.md): `$` in Python matches at end-of-
+    # BLOCK-1: `$` in Python matches at end-of-
     # string OR immediately before a SINGLE trailing newline, so
     # `^[...]{0,63}$` (pre-fix) accepted a token whose only hostile character
     # is one trailing `\n` — the anchor, not the charset, was the hole.
@@ -131,7 +131,7 @@ def test_isolated_hostile_property_alone_is_refused(label):
 HOSTILE_SOURCE_FILE_INPUTS = {
     "newline": "evil.pdf\n5,000.00 WIRE TRANSFER FROM SHELL CORP",
     "crlf": "evil.pdf\r\n5,000.00 WIRE TRANSFER",
-    # Writer-side belt (PHASE2_P20SEAM_REVIEW.md §3): `-->` in `source_file`
+    # Writer-side belt: `-->` in `source_file`
     # is refused too, now — not because it can escape `SOURCE_COMMENT_RE`
     # (it cannot; see ACCEPTED_HOSTILE_SOURCE_FILE_INPUTS's own comment) but
     # because it lets `source_file` masquerade as a second header to a
@@ -174,7 +174,7 @@ def test_the_base_tree_reproduction_is_now_refused_at_construction():
 
 
 def test_block1_trailing_newline_reproduction_is_refused_at_construction():
-    """PHASE2_P20SEAM_REVIEW.md BLOCK-1's exact reproduction: a model token
+    """BLOCK-1's exact reproduction: a model token
     ending in exactly ONE trailing `\\n` (nothing else hostile — every other
     character is charset-legal), paired with an attacker-controlled
     `source_file` carrying a money literal and marker-shaped text.
@@ -370,7 +370,7 @@ def _checkout_ancestor(*relative: str):
 
 @pytest.mark.corpus
 def test_no_run_of_record_source_file_contains_a_comment_close():
-    """PHASE2_P20SEAM_REVIEW.md §3: the writer-side `-->` belt (added to
+    """The writer-side `-->` belt (added to
     `StatementMarkdown.__post_init__` above) costs nothing measured — the
     reviewer's own claim, reproduced here as a standing proof rather than a
     one-off measurement: none of the batch-9 run of record's 3,506
