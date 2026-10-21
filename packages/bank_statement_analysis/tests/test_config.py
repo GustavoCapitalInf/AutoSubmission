@@ -18,6 +18,20 @@ def test_the_visual_ocr_settings_are_gone():
     assert not hasattr(ocr_config, "load_settings")
 
 
+def test_the_module_imports_no_endpoint_paddle_or_pair_configuration():
+    tree = ast.parse(inspect.getsource(ocr_config))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            imported.add((node.level, node.module or ""))
+        elif isinstance(node, ast.Import):
+            imported.update((0, alias.name) for alias in node.names)
+    names = {module for _, module in imported}
+    assert not names & {"endpoint_policy", "paddle_config", "visual_pair_config", "ocr.endpoint_policy",
+                        "ocr.paddle_config", "ocr.visual_pair_config"}, names
+    assert "dotenv" in names
+
+
 def test_the_import_time_dotenv_load_stays():
     tree = ast.parse(inspect.getsource(ocr_config))
     module_level_calls = [
