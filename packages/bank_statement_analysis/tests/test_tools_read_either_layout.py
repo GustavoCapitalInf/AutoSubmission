@@ -277,18 +277,20 @@ def test_privacy_tree_keeps_path_classification(tmp_path, monkeypatch, capsys, f
         assert all(hit["excluded_by"] is None for hit in hits)
 
 
-def test_scanhyg_rename_installs_no_changed_modules(analysis_modules):
+def test_scanhyg_rename_installs_no_changed_modules(analysis_modules, checkout_at):
     from tools.scanhyg_family_replay import install_modules
 
-    assert install_modules(PACKAGE_DIR, POST_MOVE, PRE_MOVE) == []
+    assert install_modules(checkout_at(POST_MOVE), POST_MOVE, PRE_MOVE) == []
 
 
 @pytest.mark.usefixtures("git_config")
-def test_scanhyg_installs_the_same_historical_modules(analysis_modules):
+def test_scanhyg_installs_the_same_historical_modules(analysis_modules, checkout_at):
     from tools.scanhyg_family_replay import install_modules
 
-    before = install_modules(PACKAGE_DIR, PRE_MOVE, SCHEMA_BASE)
-    after = install_modules(PACKAGE_DIR, POST_MOVE, SCHEMA_BASE)
+    package = checkout_at(POST_MOVE) / PACKAGE_PREFIX
+    package.mkdir(parents=True)
+    before = install_modules(package, PRE_MOVE, SCHEMA_BASE)
+    after = install_modules(package, POST_MOVE, SCHEMA_BASE)
     assert before == ["schema"]
     assert after == before
 
