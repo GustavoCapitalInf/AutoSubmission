@@ -31,6 +31,17 @@ names and "read this first" lines. The contracts win over all of them.
   `CLASSIFICATION_VERSION`, and a changed `webapp/static/app.js` bumps its `?v=` in `webapp/templates/index.html`.
   Tests pin each value. Stored cache keys use the FROZEN literals in `webapp/artifact_cache.py`, so leave them.
 
+## Comments
+- Keep a comment only for a current fact the code cannot show: a reason, a format, a unit, an invariant or a hazard.
+- Put no provenance in code: no audit, review or ticket ids, review rounds, ruling dates, phase labels or names.
+  Cite a maintained spec section instead (`true revenue spec §8.1`).
+- History goes in `git log` and the pull request. Delete a comment with its code. Never narrate what code used to do.
+- A version constant gets one line that says what a bump invalidates.
+- Name symbols, not file:line positions. Name only files, symbols and tests that exist.
+- Write "must" or "never" only when a test enforces it, and name that test.
+- Put no plans in comments: no planned callers, future phases or reserved values.
+- Keep a docstring to the contract: inputs, output and refusals. Examples use placeholders such as CONTOSO.
+
 ## Run the tests, and the corpus gate before a merge
 ```bash
 python -m pytest tests/test_classification_contract_doc.py   # one file; the whole suite takes 5 to 10 minutes
