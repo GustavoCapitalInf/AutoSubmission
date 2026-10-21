@@ -1,5 +1,5 @@
 {
-  "note": "Recorded from the pre-R-3 or-chain in analysis/pipeline.py. Regenerating this file is a deliberate, reviewed act - see tools/record_parser_expectations.py.",
+  "note": "Recorded from the pre-R-3 or-chain in analysis/pipeline.py. Regenerating this file is a deliberate, reviewed act.",
   "expected_rows": 109,
   "documents": [
     {

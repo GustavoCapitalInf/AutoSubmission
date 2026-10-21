@@ -7,18 +7,17 @@ import subprocess
 
 import pytest
 
-from tools.git_layout import PACKAGE_DIR, PACKAGE_PREFIX
+from tools.git_layout import PACKAGE_DIR
 
 PRE_MOVE = "8ccd1d46"
 POST_MOVE = "ded21ce2"
 DEFAULT_BASE = "10cc722"
-SCHEMA_BASE = "223e21d0"
 APPS_ADDED = "04c926de"
 
 
 @pytest.fixture(autouse=True, scope="module")
 def history():
-    for ref in (PRE_MOVE, POST_MOVE, DEFAULT_BASE, SCHEMA_BASE, APPS_ADDED):
+    for ref in (PRE_MOVE, POST_MOVE, DEFAULT_BASE, APPS_ADDED):
         proc = subprocess.run(
             ["git", "cat-file", "-e", f"{ref}^{{commit}}"],
             cwd=PACKAGE_DIR, capture_output=True,
@@ -107,55 +106,3 @@ def test_privacy_tree_keeps_path_classification(tmp_path, monkeypatch, capsys, f
                 and hit["class"] == "MONEY" and hit["token"] == round_money]
         assert hits
         assert all(hit["excluded_by"] is None for hit in hits)
-
-
-@pytest.mark.usefixtures("git_config")
-def test_train_stops_on_a_conflict_outside_the_package(monkeypatch, capsys):
-    from tools import train_merge_one as train
-
-    real_run = train.run
-
-    def fabricated_merge(*args, check=True):
-        if args[1] == "diff":
-            historical = [arg.replace("--diff-filter=U", "--diff-filter=AMR") for arg in args]
-            return real_run(*historical, DEFAULT_BASE, APPS_ADDED, "--",
-                            f":(top){PACKAGE_PREFIX}{train.W3}", ":(top)apps")
-        if args[1] == "merge-base":
-            return subprocess.CompletedProcess(args, 0, PRE_MOVE.encode(), b"")
-        assert args[1] == "merge"
-        return subprocess.CompletedProcess(args, 1, b"", b"")
-
-    monkeypatch.setattr(train, "run", fabricated_merge)
-    assert train.main(["train_merge_one", APPS_ADDED, "fabricated"]) == 3
-    output = capsys.readouterr().out
-    assert "apps/auto_submission/README.md" in output
-    assert "NON-W3 CONFLICT" in output
-
-
-def test_train_reads_either_layout():
-    from tools.train_merge_one import blob
-
-    before = blob(PRE_MOVE)
-    assert before
-    assert blob(POST_MOVE) == before
-
-
-def test_train_recognises_a_project_conflict(monkeypatch, capsys):
-    from tools import train_merge_one as train
-
-    real_run = train.run
-
-    def fabricated_merge(*args, check=True):
-        if args[1] == "diff":
-            historical = [arg.replace("--diff-filter=U", "--diff-filter=AMR") for arg in args]
-            return real_run(*historical, DEFAULT_BASE, POST_MOVE, "--", train.W3)
-        if args[1] == "merge-base":
-            return subprocess.CompletedProcess(args, 0, PRE_MOVE.encode(), b"")
-        assert args[1] == "merge"
-        return subprocess.CompletedProcess(args, 1, b"", b"")
-
-    monkeypatch.setattr(train, "run", fabricated_merge)
-    monkeypatch.setattr(train, "blob", lambda rev: {PRE_MOVE: b"base", "HEAD": b"ours",
-                                                  POST_MOVE: b"changed"}[rev])
-    assert train.main(["train_merge_one", POST_MOVE, "fabricated"]) == 4
-    assert "W3 SHAPE VIOLATION" in capsys.readouterr().out

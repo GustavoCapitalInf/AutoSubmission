@@ -144,7 +144,7 @@ EXTRACTOR_FAILED = "extractor_failed"
 #: deliberately NOT added to the discovery runner's UPGRADE trigger set: a
 #: Tesseract-sourced document whose text is already USABLE (Class B) must
 #: never escalate, and every one of the run of record's 123 unclaimed
-#: Tesseract reads profiles `scanned` or `mixed` (`tools/phase2_trigger_split.py`)
+#: Tesseract reads profiles `scanned` or `mixed`
 #: — admitting a profile- or mode-level trigger on the upgrade path would
 #: re-open exactly the edge this card closes. See the module docstring's
 #: import-boundary note and the P20-ROUTER report for this reading of the
@@ -176,8 +176,8 @@ DETERMINISTIC_PARSE_UNVALIDATED = "deterministic_parse_unvalidated"
 #: to it.
 OPERATOR_FORCED_PADDLE = "operator_forced_paddle"
 #: T: a known-truncated page. DEFINED here and REFUSED by the router
-#: (`ADMITTED_TRIGGERS` excludes it) — its population is measured
-#: (`tools/phase2_trigger_split.py`), never routed, per OQ4. Potential
+#: (`ADMITTED_TRIGGERS` excludes it) — its population is measured,
+#: never routed, per OQ4. Potential
 #: admission is Phase 2.4, not this card.
 TRUNCATION_FLAGGED = "truncation_flagged"
 
@@ -253,8 +253,8 @@ CHAR_FLOOR = 200
 #: ruled 2026-09-01: "the alphanumeric-density criterion becomes
 #: SURFACE-ONLY, exactly like Trigger T"). Measured 2026-09-01 over the
 #: batch-9 run of record's 56 CLAIMED Tesseract reads (36 validated + 15
-#: withheld + 5 review): `tools/phase2_trigger_split.py --densities` reports
-#: the minimum alphanumeric-character density among them as 0.7075
+#: withheld + 5 review): the minimum alphanumeric-character density among
+#: them is 0.7075
 #: (min among the 36 validated alone: 0.7433).
 #:
 #: **Honest characterisation, not "never tuned."** This is a CORPUS-FITTED
