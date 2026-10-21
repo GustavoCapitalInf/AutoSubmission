@@ -1,6 +1,6 @@
 """Measure the W3-3c structurer against the platform's own gates.
 
-Graduated from `experiments/w3_3a/evaluate.py`, whose design came from the
+Graduated from the W3-3a spike, whose design came from the
 archived prototype's `eval_unknown_banks.py` (f14282e): **one question per
 document — did the generic path reach a value the platform would publish, or
 did it fail closed, and exactly where did it stop?**

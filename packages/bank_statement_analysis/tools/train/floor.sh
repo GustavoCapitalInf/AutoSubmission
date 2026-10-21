@@ -17,10 +17,10 @@ echo "TREE=$(git rev-parse --short HEAD) START=$(date)" >> "$LOG"
 echo "=== 1. full default suite ===" >> "$LOG"
 python -m pytest -q -p no:cacheprovider >> "$LOG" 2>&1; echo "SUITE_EXIT=$?" >> "$LOG"
 
-echo "=== 2. canonical guards (5 files) ===" >> "$LOG"
+echo "=== 2. canonical guards (4 files) ===" >> "$LOG"
 python -m pytest -q -p no:cacheprovider \
   tests/test_no_statement_hardcodes.py tests/test_no_parser_helper_clones.py \
-  tests/test_r1_hardcodes.py tests/test_experiments_are_not_wired.py \
+  tests/test_r1_hardcodes.py \
   tests/test_filename_boundary.py >> "$LOG" 2>&1; echo "GUARDS_EXIT=$?" >> "$LOG"
 
 echo "=== 3. canonical conformance (7 files) ===" >> "$LOG"
