@@ -307,4 +307,3 @@ def test_primitives_are_deterministic_and_ordered_by_position():
     assert [t.start for t in find_dates(text)] == sorted(t.start for t in find_dates(text))
     hits = find_lexicon(text, "closing_balance") + find_lexicon(text, "opening_balance")
     assert hits == find_lexicon(text, "closing_balance") + find_lexicon(text, "opening_balance")
-
