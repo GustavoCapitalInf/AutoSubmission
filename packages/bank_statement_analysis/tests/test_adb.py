@@ -865,10 +865,6 @@ def test_a_total_opening_description_above_a_lone_date_is_the_known_falsifier():
 #   the rule must not take - and a REGRESSION pin passes on base because it
 #   restores base behaviour a withdrawn rule had broken. Neither is a coverage
 #   hole, and both say so in their own docstring.
-#
-# `python -m tools.withheldgrids_tests_at_base` is the instrument: it extracts
-# `10cc722`, overlays only these four test files, and reports which side of the
-# line each added test falls on.
 
 def test_an_interest_rate_row_is_not_a_posting_date():
     """`Interest Rate Changes` prints the period's first day beside a rate.
@@ -1163,7 +1159,7 @@ def test_a_dot_leadered_heading_does_not_open_a_grid_section():
     as well opens a daily-balance section on two more archive documents and
     swallows a printed posting day each of their own ledgers posts, while
     opening nothing the caption does not already open
-    (`tools/withheldgrids_srcdates_audit.py`, the review's MAJOR-1).
+    (the review's MAJOR-1).
     """
     from analysis.dates import source_posting_dates
 

@@ -267,8 +267,7 @@ _WRAPPED_TOTAL_LABEL = re.compile(r"^totals?\b", re.I)
 #   2,558 archive documents the run of record resolves: identical on all of
 #   them;
 # * left as it was, it removed a printed posting day that the document's own
-#   LEDGER posts on 16 of those documents
-#   (`tools/withheldgrids_srcdates_audit.py`), which is the evidence loss the
+#   LEDGER posts on 16 of those documents, which is the evidence loss the
 #   removal-only argument is supposed to make impossible.
 #
 # What it bought was one document whose masthead date is the printed period
@@ -312,7 +311,7 @@ _DAILY_BALANCE_SECTION_START = re.compile(
 #: ordinary words: consulted on a bare line, the caption opens a daily-balance
 #: section on four archive documents that print them as ordinary text, and
 #: swallows a printed posting day each of those documents' own ledgers posts
-#: (measured by `tools/withheldgrids_srcdates_audit.py`; the review's MAJOR-1).
+#: (the review's MAJOR-1).
 #: Gated on the leaders it opens the section on the grid it was written for and
 #: on nothing else.
 _DAILY_BALANCE_GRID_CAPTION = re.compile(r"^\s*date\s+balance\s*$", re.I)
@@ -343,8 +342,7 @@ def _opens_a_daily_balance_section(line: str) -> bool:
     before the heading match as well opens a daily-balance section on two more
     archive documents and swallows a printed posting day each of their own
     ledgers posts; it opens nothing that the caption does not already open, so
-    it lifts nothing and costs two days (`tools/withheldgrids_srcdates_audit.py`,
-    W3 §WITHHELDGRIDS WG12).
+    it lifts nothing and costs two days (W3 §WITHHELDGRIDS WG12).
     """
     if _DAILY_BALANCE_SECTION_START.match(line):
         return True
@@ -384,7 +382,7 @@ def source_posting_dates(markdown: str, period_start: date, period_end: date) ->
     a document where it could no longer fail. So each rule below is measured on
     both axes — the false dates it removes AND the real posting days it costs —
     over every document the run of record resolves to cached text
-    (`tools/withheldgrids_srcdates_audit.py`, W3 §WITHHELDGRIDS WG12). Two
+    (W3 §WITHHELDGRIDS WG12). Two
     rules were withdrawn by that measurement rather than by argument, and a
     third was narrowed.
 

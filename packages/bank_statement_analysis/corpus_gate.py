@@ -949,7 +949,7 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only family replay over a named population; publishes no "
         "verdict, and already supplies the reconstructed page partition"
     ),
-    # Five batch-8 instruments the cells' closure sessions committed after their
+    # Three batch-8 instruments the cells' closure sessions committed after their
     # branch-level proofs (this guard runs only in the full suite, which is the
     # train's). Each is excused on the same two grounds as the entries above:
     # it publishes no verdict — outcome classes, counts, leaf paths, movement
@@ -968,14 +968,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
     "tools/scanhyg_pinned_replay.py": (
         "read-only pinned replay base vs branch (W3 sec SCANHYG); publishes no "
         "verdict, and already supplies the reconstructed page partition"
-    ),
-    "tools/withheldgrids_leaf_diff.py": (
-        "read-only leaf-diff (W3 sec WITHHELDGRIDS); publishes no verdict, and "
-        "already supplies the reconstructed page partition"
-    ),
-    "tools/withheldgrids_srcdates_audit.py": (
-        "read-only source posting-date audit (W3 sec WITHHELDGRIDS); publishes "
-        "no verdict, and already supplies the reconstructed page partition"
     ),
     # W3 §HYGIENE8's two base-vs-branch replays, excused on the same two
     # grounds as §REGFP's sweep: each publishes no verdict — counts, movement

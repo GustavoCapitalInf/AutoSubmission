@@ -420,8 +420,8 @@ def _check_rows(block: str, *, year: int) -> list[Transaction]:
 #: things that are not grid cells at all: a check row prints its number, its
 #: date and its amount adjacent, which is exactly the shape of a grid cell.
 #:
-#: Measured over the 106 documents of this family the run of record resolves
-#: (`tools/withheldgrids_grid_repeats.py`), the wide region produces 129 cells
+#: Measured over the 106 documents of this family the run of record resolves,
+#: the wide region produces 129 cells
 #: that give one day a DIFFERENT balance than another cell for the same day -
 #: resolved last-wins, silently, on 10 documents including all four of the
 #: grid-lift movers. Anchored on the column header, that count is 0 and the

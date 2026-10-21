@@ -375,14 +375,6 @@ def test_coreiss2_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch, c
     assert "FOUND: figures/dates/accounts=0 " in capsys.readouterr().out
 
 
-def test_withheldtd_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch, capsys):
-    from tools import withheldtd_privacy_scan as scan
-
-    monkeypatch.setattr(scan, "texts", lambda rows, data_dir: iter([("A" * 64, INHERITED_AMOUNT)]))
-    scan.main(["--base", DEFAULT_BASE, "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path)])
-    assert "A. DISTINCTIVE TOKENS IN THE DIFF: 0" in capsys.readouterr().out
-
-
 def test_coreenc_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
     from tools.coreenc_archive_census import _literals
 
@@ -394,24 +386,6 @@ def test_coreenc_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
         out=out, show_residual=False,
     )) == 0
     assert json.loads(out.read_text())["summary"]["added_lines_literals"] == 0
-
-
-def test_withheldgrids_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
-    from tools.withheldgrids_privacy_scan import main
-
-    shas = tmp_path / "shas.txt"
-    shas.write_text("")
-    main([
-        "--shas", str(shas), "--data-dir", str(tmp_path), "--repo", str(checkout_at(PRE_MOVE)),
-        "--baseline-settings-key", "fabricated", "--base-rev", PRE_MOVE,
-    ])
-    assert re.search(r"files changed by the branch\s+= 0\n", capsys.readouterr().out)
-
-
-def test_withheldgrids_selects_tests_from_the_repo_it_is_given(checkout_at):
-    from tools.withheldgrids_tests_at_base import added_test_names
-
-    assert added_test_names(checkout_at(DEFAULT_BASE), DEFAULT_BASE) == []
 
 
 def test_scanhyg_reads_the_repo_it_is_given(analysis_modules, checkout_at):
@@ -443,37 +417,6 @@ def test_scanhyg_reads_sources_at_a_ref_of_the_repo_it_is_given(analysis_modules
     assert shown == [expected]
 
 
-def test_withheldgrids_dates_reads_the_repo_it_is_given(checkout_at):
-    from tools.withheldgrids_srcdates_audit import _base_source
-
-    expected = subprocess.run(["git", "show", f"{DEFAULT_BASE}:analysis/dates.py"], cwd=PACKAGE_DIR,
-                              capture_output=True, text=True, check=True).stdout
-    assert _base_source("HEAD", checkout_at(DEFAULT_BASE)) == expected
-
-
-def test_withheldgrids_materialises_the_base_of_the_repo_it_is_given(tmp_path, monkeypatch, capsys, checkout_at):
-    from tools import withheldgrids_tests_at_base as tool
-
-    monkeypatch.setattr(tool, "added_test_names", lambda *a: ["test_fabricated"])
-    real_run = subprocess.run
-
-    def fabricated_pytest(args, **kwargs):
-        if args[0] == sys.executable:
-            return subprocess.CompletedProcess(args, 0, "PASSED tests/x.py::test_fabricated\n", "")
-        return real_run(args, **kwargs)
-
-    monkeypatch.setattr(subprocess, "run", fabricated_pytest)
-    repo = checkout_at(DEFAULT_BASE)
-    for path in tool.TEST_FILES:
-        (repo / path).parent.mkdir(parents=True, exist_ok=True)
-        (repo / path).write_text("")
-    work = tmp_path / "work"
-    assert tool.main(["--repo", str(repo), "--base-rev", "HEAD", "--work", str(work), "--keep"]) == 0
-    expected = real_run(["git", "show", f"{DEFAULT_BASE}:analysis/dates.py"], cwd=PACKAGE_DIR,
-                        capture_output=True, check=True).stdout
-    assert (work / "base_tree" / "analysis" / "dates.py").read_bytes() == expected
-
-
 @pytest.mark.parametrize("index", ["intent_to_add_index", "absent_index"])
 def test_lili_scans_the_working_tree_whatever_the_index(request, index):
     from tools.lili_privacy_scan import haystacks
@@ -483,16 +426,6 @@ def test_lili_scans_the_working_tree_whatever_the_index(request, index):
     assert isinstance(authored, str)
 
 
-@pytest.mark.parametrize("index", ["intent_to_add_index", "absent_index"])
-def test_withheldtd_scans_the_working_tree_whatever_the_index(request, index, tmp_path, monkeypatch, capsys):
-    from tools import withheldtd_privacy_scan as scan
-
-    request.getfixturevalue(index)
-    monkeypatch.setattr(scan, "texts", lambda rows, data_dir: iter([("A" * 64, "fabricated")]))
-    scan.main(["--base", "HEAD", "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path)])
-    assert "documents read 1 of 1" in capsys.readouterr().out
-
-
 def test_welch_reads_the_same_tracked_text():
     from tools.welch_privacy_scan import _tracked_text
 
@@ -500,95 +433,3 @@ def test_welch_reads_the_same_tracked_text():
     after = _tracked_text(POST_MOVE)
     assert "STATEMENT" in before
     assert Counter(after.splitlines()) == Counter(before.splitlines())
-
-
-@pytest.mark.parametrize("base", [PRE_MOVE, DEFAULT_BASE])
-def test_withheldgrids_recognises_inherited_literals(base):
-    from tools.withheldgrids_privacy_scan import _in_base
-
-    assert _in_base(PACKAGE_DIR, base, "Statement")
-    assert _in_base(PACKAGE_DIR, POST_MOVE, "Statement")
-
-
-@pytest.mark.usefixtures("git_config")
-@pytest.mark.parametrize("name", ["analysis/dates.py", "../../README.md", "../../apps/auto_submission/README.md"],
-                         ids=["package", "root", "apps"])
-def test_withheldgrids_checks_control_bytes_in_changed_files(tmp_path, monkeypatch, capsys, name):
-    from tools.withheldgrids_privacy_scan import main
-
-    shas = tmp_path / "shas.txt"
-    shas.write_text("")
-    original = Path.read_bytes
-    target = (PACKAGE_DIR / name).resolve()
-    monkeypatch.setattr(Path, "read_bytes", lambda path: b"\x01" if path.resolve() == target else original(path))
-    assert main([
-        "--shas", str(shas), "--data-dir", str(tmp_path), "--repo", str(PACKAGE_DIR),
-        "--baseline-settings-key", "fabricated",
-    ]) == 2
-    assert f"control bytes in {name}" in capsys.readouterr().out
-
-
-def test_withheldgrids_skips_files_the_move_only_renamed(tmp_path, capsys):
-    from tools.withheldgrids_privacy_scan import main
-
-    shas = tmp_path / "shas.txt"
-    shas.write_text("")
-    main([
-        "--shas", str(shas), "--data-dir", str(tmp_path), "--repo", str(PACKAGE_DIR),
-        "--baseline-settings-key", "fabricated", "--base-rev", PRE_MOVE,
-    ])
-    assert "pdfFolderIcon" not in capsys.readouterr().out
-
-
-def test_withheldgrids_recognises_literals_outside_the_package():
-    from tools.withheldgrids_privacy_scan import _in_base
-
-    assert _in_base(PACKAGE_DIR, APPS_ADDED, "Auto-Submission platform")
-
-
-def test_withheldgrids_dates_reads_either_layout():
-    from tools.withheldgrids_srcdates_audit import _base_source
-
-    before = _base_source(PRE_MOVE, PACKAGE_DIR)
-    assert before
-    assert _base_source(POST_MOVE, PACKAGE_DIR) == before
-
-
-def test_withheldgrids_selects_the_same_added_tests():
-    from tools.withheldgrids_tests_at_base import added_test_names
-
-    assert added_test_names(PACKAGE_DIR, PRE_MOVE) == added_test_names(PACKAGE_DIR, POST_MOVE)
-
-
-@pytest.mark.usefixtures("git_config")
-def test_withheldgrids_default_leaves_out_tests_the_base_had():
-    from tools.withheldgrids_tests_at_base import TEST_FILES, added_test_names, parse_args
-
-    defined = {name for path in TEST_FILES
-               for name in re.findall(r"^def (test_\w+)", (PACKAGE_DIR / path).read_text(), re.M)}
-    selected = set(added_test_names(PACKAGE_DIR, parse_args([]).base_rev))
-    assert selected
-    assert selected < defined
-
-
-def test_withheldgrids_materialises_the_same_base(tmp_path, monkeypatch, capsys):
-    from tools import withheldgrids_tests_at_base as tool
-
-    monkeypatch.setattr(tool, "added_test_names", lambda *a: ["test_fabricated"])
-    real_run = subprocess.run
-
-    def fabricated_pytest(args, **kwargs):
-        if args[0] == sys.executable:
-            return subprocess.CompletedProcess(args, 0, "PASSED tests/x.py::test_fabricated\n", "")
-        return real_run(args, **kwargs)
-
-    monkeypatch.setattr(subprocess, "run", fabricated_pytest)
-    sources = []
-    for ref in (PRE_MOVE, POST_MOVE):
-        work = tmp_path / ref
-        assert tool.main([
-            "--repo", str(PACKAGE_DIR), "--base-rev", ref, "--work", str(work), "--keep",
-        ]) == 0
-        sources.append((work / "base_tree" / "analysis" / "dates.py").read_bytes())
-        capsys.readouterr()
-    assert sources[0] == sources[1]
