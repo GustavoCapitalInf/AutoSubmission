@@ -12,9 +12,10 @@ Mutant M12 (a third-party import anywhere under `layout/`) dies here.
 """
 from __future__ import annotations
 
-import ast
 import sys
 from pathlib import Path
+
+from tests.helpers import _imports
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "layout"
@@ -26,20 +27,6 @@ ALLOWED_REPOSITORY_PACKAGES = ("evidence", "layout")
 #: `classify_document` replayable from its inputs alone (umbrella case 5).
 FORBIDDEN_STDLIB = ("random", "secrets", "uuid", "time", "datetime", "os", "sys", "io", "pathlib",
                     "subprocess", "socket", "urllib", "http", "threading", "multiprocessing", "tempfile")
-
-
-def _imports(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            if node.level:  # relative import: inside the package by construction
-                continue
-            if node.module:
-                names.add(node.module)
-    return names
 
 
 def _is_stdlib(name: str) -> bool:

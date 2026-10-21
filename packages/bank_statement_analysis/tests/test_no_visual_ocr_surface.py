@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers import _image_only_pdf
+
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = (ROOT / "webapp/templates/index.html").read_text(encoding="utf-8")
 APP_JS = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
@@ -159,17 +161,6 @@ def worker_store(tmp_path):
     from webapp.storage import Storage
 
     return JobStore(Storage(tmp_path / "data"))
-
-
-def _image_only_pdf() -> bytes:
-    import fitz
-
-    with fitz.open() as document:
-        page = document.new_page()
-        pixmap = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 64, 64), 0)
-        pixmap.clear_with(255)
-        page.insert_image(page.rect, pixmap=pixmap)
-        return document.tobytes()
 
 
 def _run(store, pdf: bytes):

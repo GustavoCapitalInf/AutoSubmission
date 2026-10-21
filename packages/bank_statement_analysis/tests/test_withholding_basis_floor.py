@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from tests.webapp_js_harness import NODE, run_dashboard
+from tests.helpers import _package
 
 ROOT = Path(__file__).resolve().parents[1]
 needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
@@ -78,13 +79,6 @@ def _stored(monkeypatch, mode="true_revenue", extra=(), **kwargs):
 def _served(payload):
     from webapp.app import _displayed
     return _displayed(payload, settings={})
-
-
-def _package(*members):
-    from webapp.app import _package_analysis
-    from webapp.jobs import Job
-    return _package_analysis([Job(id=job_id, filename=f"{job_id}.pdf", status="done", analysis=payload,
-                                  content_sha256=job_id) for job_id, payload in members], settings={})
 
 
 def _withholding_notes(metrics):

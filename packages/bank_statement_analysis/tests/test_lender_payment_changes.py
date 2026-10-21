@@ -20,6 +20,7 @@ import pytest
 
 from analysis import lender_payment_changes as lpc
 from analysis.transaction_classifier import TransactionClassification
+from tests.helpers import every
 
 UNNAMED = "Unidentified lender obligation"
 
@@ -51,14 +52,6 @@ def bdays(first, last, calendar="US"):
         if day.weekday() < 5 and day not in lpc._holidays(calendar, day.year):
             days.append(day)
         day += timedelta(days=1)
-    return days
-
-
-def every(first, last, step=7):
-    days, day = [], first
-    while day <= last:
-        days.append(day)
-        day += timedelta(days=step)
     return days
 
 

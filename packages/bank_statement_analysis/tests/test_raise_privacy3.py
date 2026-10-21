@@ -53,6 +53,7 @@ from tests.test_privacy3_boundaries import (                              # noqa
     CANARY, CHAIN_GUARDED, DIGITS, POISONED_DATE_TOKENS, _chain_offenders,
     assert_private,
 )
+from tests.helpers import _strptime_calls
 
 #: Money cells that cannot be read, one per refusal branch of the money
 #: grammar plus three that carry no canary at all — a proof that only looked
@@ -158,16 +159,6 @@ def test_the_refusals_stay_ValueError_because_four_handlers_catch_them():
 # ---------------------------------------------------------------------------
 # 2. Sites 4-5 — the strptime class, closed by there being no call left
 # ---------------------------------------------------------------------------
-
-def _strptime_calls(path: Path) -> list[int]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "strptime"
-    ]
 
 
 @pytest.mark.parametrize("module", ["columbia_bank", "scotia"])

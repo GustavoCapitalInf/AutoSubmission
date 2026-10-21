@@ -56,6 +56,7 @@ import pytest
 from analysis.parser_registry import admissible_text
 from ocr.config import RESERVED_MODEL_PREFIXES, ProvenanceTokenError, validate_model_token
 from ocr.document import StatementMarkdown
+from tests.helpers import _checkout_ancestor
 
 # ---------------------------------------------------------------------------
 # Hostile inputs (the card's list, verbatim)
@@ -349,23 +350,6 @@ _RUN_OF_RECORD_ROWS = (
     "discovery_reports", "TRAIN9-7b25d70",
     "2026-08-31T185527.271012-0000-91f5179a", "rows.csv",
 )
-
-
-def _checkout_ancestor(*relative: str):
-    """The nearest enclosing directory that holds `relative`, or None.
-
-    A git worktree does not carry the gitignored discovery reports; the
-    checkout it was created from does. Searching upwards is what lets this
-    proof run from either (the same pattern `tests/test_l1s2_protected_
-    carriers.py::_checkout_ancestor` uses for the cold cache)."""
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1]
-    for base in (root, *root.parents):
-        candidate = base.joinpath(*relative)
-        if candidate.exists():
-            return candidate
-    return None
 
 
 @pytest.mark.corpus

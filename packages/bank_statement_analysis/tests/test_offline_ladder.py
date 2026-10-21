@@ -25,8 +25,8 @@ from discovery.runner import (
     MODE_SCANNED_VISUAL,
     DiscoveryRunner,
 )
-from ocr.document import StatementMarkdown
 from tests.statements import statements_dir
+from tests.helpers import _tesseract
 
 ROOT = Path(__file__).resolve().parents[1]
 #: An image-only corpus statement whose committed OCR artifact a registration both claims AND publishes (see the
@@ -53,17 +53,6 @@ def scan_tree(tmp_path: Path) -> Path:
     (tmp_path / "BankZ").mkdir()
     (tmp_path / "BankZ" / "scan.pdf").write_bytes(_scan_bytes())
     return tmp_path
-
-
-def _tesseract(monkeypatch, text: str | None):
-    """Pin the local-Tesseract rung's answer (never runs the real binary). `text=None` is the rung finding nothing —
-    the shape `--scanned` refuses as `insufficient_evidence` (it was `deferred_visual_ocr` until slice S5)."""
-    def fake(pdf_bytes, source_file="", **kwargs):
-        if text is None:
-            return None
-        return StatementMarkdown(source_file=source_file, model="local-tesseract-ocr", pages=[text])
-
-    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", fake)
 
 
 @pytest.fixture

@@ -24,7 +24,6 @@ from discovery.runner import (
     classify_failure,
 )
 from discovery.inventory import DedupIndex
-from ocr.document import StatementMarkdown
 from ocr.escalation import (
     ALNUM_DENSITY_FLOOR,
     A_EXTRACTION,
@@ -39,6 +38,7 @@ from ocr.escalation import (
 )
 from telemetry.record import EXTRACTION_TRIGGERS
 from tests.statements import statements_dir
+from tests.helpers import _tesseract
 
 ROOT = Path(__file__).resolve().parents[1]
 SCANNED = "Misc/First Farmers 2026 01-document.pdf"
@@ -77,15 +77,6 @@ PADDED_TABULAR = (
     )
     + "\n"
 )
-
-
-def _tesseract(monkeypatch, text: str | None):
-    def fake(pdf_bytes, source_file="", **kwargs):
-        if text is None:
-            return None
-        return StatementMarkdown(source_file=source_file, model="local-tesseract-ocr", pages=[text])
-
-    monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", fake)
 
 
 def _forbid_visual(monkeypatch):

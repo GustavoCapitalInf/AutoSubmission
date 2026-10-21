@@ -37,20 +37,9 @@ from discovery.runner import (
     DiscoveryRunner,
     DocumentRow,
 )
+from tests.helpers import _image_only_pdf, _row
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def _image_only_pdf() -> bytes:
-    """A fabricated one-page PDF holding a blank image and no text layer."""
-    import fitz
-
-    with fitz.open() as document:
-        page = document.new_page()
-        pixmap = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 64, 64), 0)
-        pixmap.clear_with(255)
-        page.insert_image(page.rect, pixmap=pixmap)
-        return document.tobytes()
 
 
 @pytest.fixture
@@ -158,12 +147,6 @@ def test_a_scanned_run_summarizes_the_refusal_and_keeps_every_summary_key(image_
 
 
 # --- R keeps its meaning across the two spellings ----------------------------------------------------------------
-
-
-def _row(**kwargs) -> DocumentRow:
-    base = dict(relative_path="F/a.pdf", folder_label="F", content_sha256="A" * 64, byte_size=1)
-    base.update(kwargs)
-    return DocumentRow(**base)
 
 
 def test_r_counts_both_spellings_of_the_offline_ladder_reading_nothing():
