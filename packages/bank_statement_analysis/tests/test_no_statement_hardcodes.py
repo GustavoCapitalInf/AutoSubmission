@@ -1311,40 +1311,21 @@ P22_TRUTHTABLE_MODULES = [
 #: rather than assuming it — an allowlist whose members are covered by
 #: accident is one rename away from covering nothing.
 
-#: P23-AGREE (Phase 2.3 cell X, card item 6): this card's instruments join the
-#: same scans. A roots APPEND only, no new detection logic, in the style of the
-#: blocks above. `layout/agreement.py` needs no entry — the whole of
-#: `layout/*.py` is already globbed below, so it is covered from birth. (The
-#: third instrument, `tools/agreement_census.py`, left with the Paddle research
-#: partition it measured, slice S5.)
-P23_AGREE_MODULES = [
-    Path(__file__).resolve().parent.parent / "tools" / "agree_native_census.py",
-    Path(__file__).resolve().parent.parent / "tools" / "agree_mutation_table.py",
-]
-
-
 def _paddle_phase21_modules() -> list[Path]:
     """`evidence/*.py` — CASE 15's scope, which also held `tools/paddle_vast.py`
-    until slice S5 removed it — plus `layout/*.py` (Phase 2.2 case 24), cell T's
-    two new modules and cell X's instruments (Phase 2.3). The name is kept (it
+    until slice S5 removed it — plus `layout/*.py` (Phase 2.2 case 24) and cell
+    T's two new modules. The name is kept (it
     is imported by `tests/test_layout_signals.py`)."""
     modules = sorted(EVIDENCE_DIR.glob("*.py"))
     modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
     modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
-    modules.extend(path for path in P23_AGREE_MODULES if path.exists())
     return modules
 
 
-def test_the_p23_agree_modules_and_the_agreement_module_are_actually_scanned():
-    """The same guard cell T wrote for its own roots: a named file that does
-    not exist scans nothing and passes. `layout/agreement.py` is asserted
-    here too, because it is covered by a GLOB rather than by name and a glob
-    that stopped matching would be just as silent."""
-    missing = [path.name for path in P23_AGREE_MODULES if not path.exists()]
-    assert not missing, f"named in the scan roots but absent: {missing}"
-    scanned = {path.name for path in _paddle_phase21_modules()}
-    assert {path.name for path in P23_AGREE_MODULES} <= scanned
-    assert "agreement.py" in scanned
+def test_the_agreement_module_is_actually_scanned():
+    """`layout/agreement.py` is covered by a GLOB rather than by name, and a
+    glob that stopped matching would scan nothing and pass."""
+    assert "agreement.py" in {path.name for path in _paddle_phase21_modules()}
 
 
 def test_the_p22_truthtable_modules_are_actually_scanned():

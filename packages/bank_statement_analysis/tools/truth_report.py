@@ -69,7 +69,7 @@ SOURCE_PROPOSED = "classifier_proposed"
 
 def _refuse_tracked_out(out: Path) -> None:
     """The per-document file names documents; it may live only under a
-    git-ignored path. Same rule, same reason, as `tools/classify_census.py`."""
+    git-ignored path."""
     try:
         result = subprocess.run(
             ["git", "check-ignore", "-q", str(out)], capture_output=True, text=True)

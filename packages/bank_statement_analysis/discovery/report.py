@@ -153,8 +153,7 @@ def _sha_index(rows: list) -> tuple[list[str], dict[str, list]]:
     The archive's denominator is DOCUMENTS, not rows: one document that
     appears twice under two paths is one sha and one document, and counting
     its rows would inflate every denominator this module prints. The first row
-    of a sha (run order) is the one whose recorded facts are reported, which
-    is the same rule `tools/classify_census.py` uses.
+    of a sha (run order) is the one whose recorded facts are reported.
     """
     order: list[str] = []
     groups: dict[str, list] = {}
@@ -389,7 +388,7 @@ def summarize(rows: list, *, mode: str, run_id: str, inventory=None,
     #: is either a classifier defect or a finding, and either way it must be
     #: NAMED. Counted by KIND here — a summary a report reader shares must not
     #: carry document identities; the per-sha list is the private census
-    #: (`tools/classify_census.py --out`) and the closure record.
+    #: and the closure record.
     exception_kinds = Counter(
         groups[sha][0].document_class for sha in validated_shas
         if groups[sha][0].document_class != "STATEMENT_COMPLETE"
