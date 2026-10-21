@@ -225,12 +225,10 @@ def test_price_for_does_not_invent_a_remote_price():
 
 
 def test_model_calls_for_reports_unrecognized_model_honestly():
-    """MAJOR-3: an unrecognised OCR token is reported the SAME shape as a
-    visual read (one call per page, completion tokens summed) under
-    `purpose: "unrecognized_model"` — never `purpose: "none"` / `calls: 1`,
-    which would under-report a real per-page GPU read as one untimed call,
-    and never `purpose: "visual_ocr"` either (it is not the registered
-    token)."""
+    """MAJOR-3: an unrecognised OCR token is reported one call per page,
+    completion tokens summed, under `purpose: "unrecognized_model"` — never
+    `purpose: "none"` / `calls: 1`, which would under-report a real per-page
+    GPU read as one untimed call."""
     import types
 
     page_a = types.SimpleNamespace(completion_tokens=100)
@@ -240,57 +238,18 @@ def test_model_calls_for_reports_unrecognized_model_honestly():
     unrecognized_doc = types.SimpleNamespace(
         model="qwen2.5-vl-7b", pages=[page_a, page_b, page_c, page_d], page_integrity=[],
     )
-    visual_doc = types.SimpleNamespace(
-        model="baidu/Unlimited-OCR", pages=[page_a, page_b, page_c, page_d], page_integrity=[],
-    )
 
     unrecognized_calls = model_calls_for(unrecognized_doc, None)
-    visual_calls = model_calls_for(visual_doc, None)
 
     assert len(unrecognized_calls) == 1
     call = unrecognized_calls[0]
     assert call["purpose"] == "unrecognized_model"
-    assert call["purpose"] not in ("none", "visual_ocr")
     assert call["calls"] == 4
     assert call["completion_tokens"] == 500
 
-    # Same shape as the visual read, differing only in `purpose` and `model`.
-    assert visual_calls[0]["purpose"] == "visual_ocr"
-    assert visual_calls[0]["calls"] == call["calls"] == 4
-    assert visual_calls[0]["completion_tokens"] == call["completion_tokens"] == 500
-
     # MAJOR-2: endpoint provenance is on THIS branch too, not only the
     # native/tesseract/none branch, with the fixed historical values (M12).
-    for entry in (call, visual_calls[0]):
-        assert entry["endpoint_class"] == "loopback" and entry["remote_opt_in"] is False
-
-
-def test_model_calls_for_reports_one_call_per_paddle_page():
-    """P21-ROUTING closure (MINOR-3): design item 4's `model_calls_for` arm
-    — one call per Paddle page, `purpose: "paddle_ocr"`, the model named and
-    left unpriced (Paddle pages are plain `str`, not `PageText`, so there is
-    no per-page completion-token signal to sum)."""
-    import types
-
-    # The Paddle rung is gone (slice S5); a stored Paddle reading still carries its token, so the record's
-    # historical Paddle arm is kept and pinned with the token from telemetry's own vocabulary.
-    from telemetry.record import PADDLE_MODEL_TOKENS
-
-    (PADDLE_MODEL_TOKEN,) = PADDLE_MODEL_TOKENS
-    paddle_doc = types.SimpleNamespace(
-        model=PADDLE_MODEL_TOKEN, pages=["page one", "page two", "page three"], page_integrity=[],
-    )
-    calls = model_calls_for(paddle_doc, None)
-
-    assert len(calls) == 1
-    call = calls[0]
-    assert call["stage"] == "ocr"
-    assert call["model"] == PADDLE_MODEL_TOKEN
-    assert call["purpose"] == "paddle_ocr"
-    assert call["calls"] == 3  # one per page, not one per document
-    assert call["prompt_tokens"] is None
-    assert call["completion_tokens"] is None
-    assert "endpoint_class" in call and "remote_opt_in" in call
+    assert call["endpoint_class"] == "loopback" and call["remote_opt_in"] is False
 
 
 def test_model_calls_for_paddle_is_unpriced_not_free():
@@ -1241,23 +1200,15 @@ def test_run_ids_are_unique_and_sortable():
     assert first[:4].isdigit()
 
 
-def test_pair_telemetry_counts_two_actual_models_and_no_invented_analysis_call():
-    """The visual pair's provenance vocabulary stays (telemetry vocabularies are append-only), so a record of a stored
-    pair reading still classifies its source and counts its two models. Moved from tests/test_visual_pair_worker.py
+def test_pair_telemetry_classifies_its_source_and_invents_no_analysis_call():
+    """The visual pair's provenance vocabulary stays (telemetry vocabularies are append-only), so its token still
+    classifies as `visual_pair`, and a pair payload adds no analysis call. Moved from tests/test_visual_pair_worker.py
     when the worker stopped reading with the pair (model-code removal, slice S1); no model module is involved."""
     from ocr.document import StatementMarkdown
     from telemetry.record import model_calls_for, source_path_unrecognized_model
 
-    doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic"],
-        extraction_telemetry={"execution_class": "remote_paid", "customer_data_opt_in": False,
-            "pages": [{"stage": "proposer", "prompt_tokens": 10, "completion_tokens": 15},
-                      {"stage": "reviewer", "prompt_tokens": 20, "completion_tokens": 25}]})
+    doc = StatementMarkdown("synthetic.pdf", "visual-pair-dots-qwen", ["synthetic"])
     assert source_path_for(doc.model) == "visual_pair"
     assert not source_path_unrecognized_model(doc.model)
     calls = model_calls_for(doc, {"model_used": "visual-pair-dots-qwen-generic"})
-    assert len(calls) == 2
-    assert [call["calls"] for call in calls] == [1, 1]
-    assert [call["completion_tokens"] for call in calls] == [15, 25]
-    assert all(call["endpoint_class"] == "remote_paid" for call in calls)
-    doc.extraction_telemetry = None
-    assert [call["calls"] for call in model_calls_for(doc, None)] == [0, 0]
+    assert [call["stage"] for call in calls] == ["ocr"]

@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from analysis.flag_groups import FLAG_GROUP_BY_STATE
-from analysis.lenders import find_lender_match, has_false_lender_keyword
 from analysis.transaction_classifier import classify_transaction
 from tests.flag_group_fixtures import FAKE_PAYEES, fake_payees  # noqa: F401  (fixture)
 
@@ -201,14 +200,6 @@ def test_bare_platform_names_are_never_a_flagged_payee(description):
     record = classify_transaction(description, -100.0)
     assert record.flagged_group is None
     assert record.classification not in ("confirmed_lender", "alternative_position")
-
-
-def test_the_lenders_compatibility_helpers_follow_the_new_groups():
-    """analysis/lenders.py reads the lender table through its C2 compatibility name."""
-    assert find_lender_match("NMEF FUNDING payment")[0] == "NMEF"
-    assert find_lender_match("BDC loan payment") is None
-    assert has_false_lender_keyword("BDC loan payment")
-    assert not has_false_lender_keyword("Canacap payment")
 
 
 @pytest.mark.parametrize(

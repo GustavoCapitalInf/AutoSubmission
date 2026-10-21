@@ -4025,12 +4025,6 @@ def _q7_refused_by_a_hold(text: str, words: str, region: str) -> bool:
     return False
 
 
-def dealer_funding(text: str) -> str | None:
-    """§6.1 step 4 (Q7): the arm of dealer_funding_reading ('listed' or 'credit_union'), or None."""
-    reading = dealer_funding_reading(text)
-    return reading.arm if reading is not None else None
-
-
 def dealer_funding_reading(text: str) -> DealerFunding | None:
     """§6.1 step 4 (Q7), read on a credit's revenue text: arm 'listed' when a listed auto lender pays dealer-funding
     words, 'credit_union' when a credit union prints the VHCL PURCH entry (the statement pass decides it), each with
@@ -8117,7 +8111,7 @@ def guard_facts(record: TransactionClassification, text: str, *, zelle_true_reve
     row = classifier._before_receiver(text)
     words = classifier._without_receiver_value(text)
     known = match_known_payee(words, credit=True)
-    # G12 (§8.7): Q7's payer and veto words, read as dealer_funding reads them (the holder's name never names a lender).
+    # G12 (§8.7): Q7's payer and veto words, read as dealer_funding_reading reads them (the holder's name never names a lender).
     listed = _dealer_funding_payer(words) is not None
     union = bool(_CREDIT_UNION_PAYER.search(region))
     # Audit B7 (I47): the pay and benefit words are read as the holds read them, without the holder's own name runs

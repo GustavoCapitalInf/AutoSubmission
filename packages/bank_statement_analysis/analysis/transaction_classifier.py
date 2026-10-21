@@ -337,17 +337,6 @@ class TransactionClassification:
 _ACH_TOKEN = re.compile(r"(?<![A-Z0-9])ACH(?![A-Z0-9])")
 
 
-def match_verified_lender_alias(description: str) -> tuple[str, str] | None:
-    return registry_match(
-        normalize_transaction_description(description),
-        PAYEE_GROUP_REGISTRIES["confirmed_lender"],
-    )
-
-
-def match_insurance_provider(description: str) -> tuple[str, str] | None:
-    return registry_match(normalize_transaction_description(description), INSURANCE_PROVIDER_ALIASES)
-
-
 #: The flag group of an insurance row whose insurer is a premium-finance payee
 #: (C1: the one flag group that is not a classification state).
 _PREMIUM_FINANCING_GROUP = "premium_financing"
