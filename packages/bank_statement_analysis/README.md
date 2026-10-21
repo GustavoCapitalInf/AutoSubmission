@@ -167,8 +167,8 @@ $env:BANK_STATEMENTS_DIR = "D:\statements\Bank Statements"
 - These programs default to it: the corpus gate, both forensic audits, `build_corpus_cache.py`,
   `python -m discovery`, the benchmark, `telemetry/stated_counts.py --corpus-audit`,
   `tools/train/coldrun.sh` (unless `CORPUS_ROOT` is set), and the `tools` modules `adjudicate queue`,
-  `agree_native_census`, `hygiene8_pinned_replay`, `l1_census`, `l1_structure_census --pinned`, `measure_structurer`
-  and `scanhyg_pinned_replay`. When it is unset and you pass no folder, each of them stops with an error that names it.
+  `agree_native_census`, `l1_census`, `l1_structure_census --pinned` and `measure_structurer`. When it is unset
+  and you pass no folder, each of them stops with an error that names it.
 - `tools/batch9_census.py` also defaults to it, but skips its optional magic-byte check when it is unset.
 - `tools/record_parser_expectations.py` also defaults to it, but crashes before it reads a statement, on `main` as well.
 - `tools/train/control_b7.sh` runs the gate inside the old worktree you pass it, and that gate reads the worktree's

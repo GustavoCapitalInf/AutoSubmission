@@ -925,38 +925,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only geometry oracle; publishes no verdict, and already supplies "
         "the reconstructed page partition"
     ),
-    # Two batch-8 instruments the cells' closure sessions committed after their
-    # branch-level proofs (this guard runs only in the full suite, which is the
-    # train's). Each is excused on the same two grounds as the entries above:
-    # it publishes no verdict — outcome classes, counts, leaf paths, movement
-    # classes and content_sha256s, never a figure, a name or a date — and it
-    # already supplies the reconstructed page partition, because a replay that
-    # fed the analysis a different partition from the one the run fed it would
-    # measure a difference it had itself created. Composed at train8.
-    "tools/scanhyg_family_replay.py": (
-        "read-only family replay (W3 sec SCANHYG); publishes no verdict, and "
-        "already supplies the reconstructed page partition"
-    ),
-    "tools/scanhyg_pinned_replay.py": (
-        "read-only pinned replay base vs branch (W3 sec SCANHYG); publishes no "
-        "verdict, and already supplies the reconstructed page partition"
-    ),
-    # W3 §HYGIENE8's two base-vs-branch replays, excused on the same two
-    # grounds as §REGFP's sweep: each publishes no verdict — counts, movement
-    # classes, exception CLASS names, leaf PATHS and a content_sha256, never a
-    # value — and each already supplies the reconstructed page partition as
-    # `sheets`, because a replay that fed the analysis a different partition
-    # from the one the run fed it would measure a difference it had itself
-    # created. Added by the review-closure round (H14): the branch shipped
-    # both instruments without this entry and the sweep above was red for it.
-    "tools/hygiene8_family_replay.py": (
-        "read-only base-vs-branch replay of the dispatched population; publishes "
-        "no verdict, and already supplies the reconstructed page partition"
-    ),
-    "tools/hygiene8_pinned_replay.py": (
-        "read-only base-vs-branch replay of the pinned 109; publishes no verdict, "
-        "and already supplies the intake page list it computes once for both trees"
-    ),
     # W3 §ROWCAP's three measurements — the row-capture signature probe, the
     # ceiling and the sheet-strip check. Excused on the same two grounds as
     # §REGFP's sweep above. None publishes a verdict: between them they print
