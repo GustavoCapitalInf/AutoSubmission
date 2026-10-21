@@ -235,28 +235,6 @@ def test_extractor_is_visual_only_for_the_forced_escalation_shape():
     assert _ocr_extractor(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False) == "offline"
 
 
-def test_extractor_is_paddle_only_for_the_forced_paddle_shape():
-    """P21-ROUTING (M9): the Paddle counterpart of the truth table above.
-    `"paddle"` ONLY for `force_ocr=True AND allow_paddle_ocr=True` — never
-    for `allow_paddle_ocr=True` alone, and never mistaken for `"visual"`."""
-    from webapp.artifact_cache import _ocr_extractor
-
-    assert _ocr_extractor(
-        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True
-    ) == "paddle"
-    assert _ocr_extractor(
-        force_ocr=False, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True
-    ) == "offline"
-    assert _ocr_extractor(
-        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=False
-    ) == "offline"
-    # A hand-built, contract-violating call (both true) still resolves to a
-    # DEFINED answer rather than an unspecified one — never "visual".
-    assert _ocr_extractor(
-        force_ocr=True, allow_local_ocr=False, allow_visual_ocr=True, allow_paddle_ocr=True
-    ) == "paddle"
-
-
 def test_postprocess_state_partitions_the_key_and_pins_the_quarantined_default():
     """`postprocess_state` / `postprocess_admitted` are the frozen pins
     "quarantined" / () for EVERY extractor label (model-code removal, slice
@@ -324,51 +302,20 @@ RESULT["client_module"] = importlib.util.find_spec("ocr.ocr_client") is not None
 
 
 # ---------------------------------------------------------------------------
-# Model-code removal, slice S4: the visual pair's OCR partition is retired.
-# Its key used to hash `ocr/visual_pair_config.py`'s settings (the pair tests
-# that pinned it left with `tests/test_visual_pair_document_scope.py`). Asking
-# for it now refuses with a fixed literal, before any read; every other key is
-# unchanged (`allow_visual_pair=False` never entered the material). A stored
-# reading that carries visual-pair evidence still restores, hash-checked.
+# Model-code removal, slice S4: the visual pair's OCR partition is retired, and
+# the cache functions take no option for it. A stored reading that carries
+# visual-pair evidence still restores, hash-checked.
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("stage_version", [None, 4, 5])
-def test_the_visual_pair_partition_refuses_with_a_fixed_literal(stage_version):
-    from webapp.artifact_cache import VISUAL_PAIR_RETIRED
-
-    assert VISUAL_PAIR_RETIRED == "the visual pair was removed: no OCR key has a visual-pair partition any more"
-    with pytest.raises(ValueError) as refused:
-        ocr_settings_key(allow_visual_pair=True, stage_version=stage_version)
-    assert str(refused.value) == VISUAL_PAIR_RETIRED
-    with pytest.raises(ValueError, match="visual pair was removed"):
-        ocr_settings_key(force_ocr=True, allow_visual_ocr=False, allow_visual_pair=True,
-                         visual_pair_settings=object(), stage_version=stage_version)
-
-
-@pytest.mark.parametrize("with_cache", [True, False])
-def test_a_cached_read_of_the_visual_pair_partition_refuses_before_any_read(cache, with_cache):
-    reads = []
-    with pytest.raises(ValueError, match="visual pair was removed"):
-        cached_ocr(PDF, compute=lambda: reads.append(1) or _doc(), cache=cache if with_cache else None,
-                   source_file="s.pdf", force_ocr=True, allow_visual_ocr=False, allow_visual_pair=True)
-    assert reads == []
-    assert cache.get_ocr(content_sha256(PDF), ocr_settings_key()) == (False, None)
-
-
-def test_the_retired_partition_leaves_every_other_key_and_its_defaults_alone():
+def test_the_cache_functions_take_no_paddle_or_visual_pair_option():
     import inspect
 
     from webapp import artifact_cache as module
 
     for function in (module.ocr_settings_key, module.cached_ocr):
-        parameters = inspect.signature(function).parameters
-        assert parameters["allow_visual_pair"].default is False
-        assert parameters["visual_pair_settings"].default is None
-    assert ocr_settings_key(allow_visual_pair=False) == ocr_settings_key()
-    assert ocr_settings_key(visual_pair_settings=object()) == ocr_settings_key()
-    assert ocr_settings_key(allow_local_ocr=True, allow_visual_ocr=False, visual_pair_settings=object()) == \
-        ocr_settings_key(allow_local_ocr=True, allow_visual_ocr=False)
+        parameters = set(inspect.signature(function).parameters)
+        assert not parameters & {"allow_paddle_ocr", "allow_visual_pair", "visual_pair_settings"}
 
 
 def _pair_reading(evidence: dict) -> StatementMarkdown:
@@ -595,38 +542,18 @@ def test_extraction_schema_version_partitions_the_key():
     assert base != changed
 
 
-def test_the_paddle_partition_is_refused_and_false_stays_key_material():
-    """Model-code removal, slice S5: the PaddleOCR rung and its settings were removed, so a key (or a cached read)
-    that asks for its partition (`allow_paddle_ocr=True`) is refused with the fixed literal before any material is
-    built, whatever the other flags say. `allow_paddle_ocr=False` stays in the v5+ material (it always entered it),
-    so every deterministic key equals the frozen old shape (`_FROZEN_KEY_SHAPES` above). Replaces the Paddle
-    partition's own tests: it partitioned the key, carried `paddle_settings_key_material(load_paddle_settings())`,
-    refused when Paddle settings could not load, and read them only on its own branch."""
+def test_the_retired_paddle_flag_stays_false_key_material():
+    """Model-code removal, slice S5: the PaddleOCR rung and its settings were removed. `"allow_paddle_ocr": False`
+    stays in the v5+ material (it always entered it), so every deterministic key equals the frozen old shape
+    (`_FROZEN_KEY_SHAPES` above), and no Paddle settings block is read."""
     import inspect
 
     import webapp.artifact_cache as module
 
-    for flags in (dict(force_ocr=True, allow_visual_ocr=False), dict(force_ocr=False, allow_visual_ocr=False),
-                  dict(force_ocr=False, allow_local_ocr=True, allow_visual_ocr=False), dict()):
-        with pytest.raises(ValueError) as refused:
-            ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=True, **flags)
-        assert str(refused.value) == module.PADDLE_OCR_RETIRED
-    assert inspect.signature(ocr_settings_key).parameters["allow_paddle_ocr"].default is False
-    assert ocr_settings_key(ocr_settings=_OcrSettings(), allow_paddle_ocr=False) == ocr_settings_key(
-        ocr_settings=_OcrSettings())
     source = inspect.getsource(module.ocr_settings_key)
+    assert '"allow_paddle_ocr": False' in source
     assert "load_paddle_settings" not in source and "paddle_settings_key_material" not in source
     assert 'settings["paddle"] =' not in source
-
-
-def test_a_cached_read_of_the_paddle_partition_is_refused_before_any_read(tmp_path):
-    def compute():
-        raise AssertionError("nothing may be computed")
-
-    for cache in (None, open_cache(tmp_path / "data")):
-        with pytest.raises(ValueError, match="PaddleOCR rung was removed"):
-            cached_ocr(PDF, compute=compute, cache=cache, force_ocr=True, allow_visual_ocr=False,
-                       allow_paddle_ocr=True)
 
 
 def test_extraction_schema_version_is_pinned_at_3():
