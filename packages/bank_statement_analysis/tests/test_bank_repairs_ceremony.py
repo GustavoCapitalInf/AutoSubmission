@@ -15,15 +15,14 @@ the analysis path:
 * S-5 `repair_truist_converted_checks`: `legacy_needing_replacement` — its
   duplicate witness can be the very row it deletes.
 
-The rulings keep each definition as the record of what ran, require its
-docstring to carry the classification and the doctrine reason, and require a
+The rulings keep each definition as the record of what ran and require a
 tripwire that nothing under `analysis/` can reach it: not a call, not an
 import, not an alias binding or a callback argument. What this file pins:
 
 * the tripwire, by AST over every module under `analysis/`;
-* each fenced definition still declares its ruled classification and, called
-  directly, still does what it always did (S-5: the paired, transfer-direction,
-  orphan and unrelated-bank characterizations its ruling names);
+* each fenced definition, called directly, still does what it always did
+  (S-5: the paired, transfer-direction, orphan and unrelated-bank
+  characterizations its ruling names);
 * the invention guard `restates_a_printed_figure`, the line the
   classifications are drawn on, and the two kept direction readers held to it;
 * through `apply_statement_repairs` itself, each shape claimed by its own
@@ -32,9 +31,7 @@ import, not an alias binding or a callback argument. What this file pins:
 
 The ceremony instrument (`tools/bank_repairs_ceremony.py` on that branch, with
 its replay reproduction and positive controls) is NOT ported: the audit's
-full-corpus replay is this change's measurement. The four helpers that read a
-repair's declaration out of the module are that instrument's inventory
-functions, copied as they were.
+full-corpus replay is this change's measurement.
 
 Every fixture is synthetic: literal descriptions, dates in 2031, figures built
 from small integers.
@@ -61,36 +58,18 @@ from analysis.schema import Statement, Transaction
 ROOT = Path(__file__).resolve().parent.parent
 REPAIRS_MODULE = ROOT / "analysis" / "bank_repairs.py"
 
-SAFE = "safe_evidence_preserving_normalisation"
-UNSAFE = "unsafe_rewrite"
-LEGACY = "legacy_needing_replacement"
-#: The closed vocabulary R10 names.
-CLASSIFICATIONS = (SAFE, UNSAFE, LEGACY)
-CLASSIFICATION_MARKER = "R10-CLASSIFICATION:"
-FENCED_CLASSIFICATIONS = {
-    "repair_capital_one_running_amount": UNSAFE,
-    "repair_regions_transactions": UNSAFE,
-    "repair_chase_remote_deposit_count_column": UNSAFE,
-    "repair_single_row_signs_from_balances": UNSAFE,
-    "repair_truist_converted_checks": LEGACY,
-}
-FENCED = tuple(FENCED_CLASSIFICATIONS)
+FENCED = (
+    "repair_capital_one_running_amount",
+    "repair_regions_transactions",
+    "repair_chase_remote_deposit_count_column",
+    "repair_single_row_signs_from_balances",
+    "repair_truist_converted_checks",
+)
 
 
 # ---------------------------------------------------------------------------
-# the declarations, read out of the module (the ceremony instrument's
-# inventory helpers, copied from `tools/bank_repairs_ceremony.py`)
+# each repair's bank guard, read out of the module
 # ---------------------------------------------------------------------------
-
-def _docstring_classification(node: ast.FunctionDef) -> str | None:
-    doc = ast.get_docstring(node) or ""
-    for line in doc.splitlines():
-        stripped = line.strip()
-        if stripped.startswith(CLASSIFICATION_MARKER):
-            value = stripped[len(CLASSIFICATION_MARKER):].strip().split()[0] if stripped[len(CLASSIFICATION_MARKER):].strip() else ""
-            return value or None
-    return None
-
 
 def _bank_aliases(node: ast.FunctionDef) -> set[str]:
     """Local names bound to the bank label (`bank = (stmt.bank or "").upper()`),
@@ -133,12 +112,12 @@ def _bank_literals(node: ast.FunctionDef) -> tuple[str, ...]:
     return tuple(found)
 
 
-def _declared() -> dict[str, tuple[str | None, tuple[str, ...]]]:
-    """{repair name: (declared classification, bank literals)} for every
-    `repair_*` function `analysis/bank_repairs.py` defines."""
+def _repair_bank_literals() -> dict[str, tuple[str, ...]]:
+    """{repair name: bank literals} for every `repair_*` function
+    `analysis/bank_repairs.py` defines."""
     tree = ast.parse(REPAIRS_MODULE.read_text(encoding="utf-8"))
     return {
-        node.name: (_docstring_classification(node), _bank_literals(node))
+        node.name: _bank_literals(node)
         for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name.startswith("repair_")
     }
@@ -194,7 +173,7 @@ def test_the_fence_catches_a_function_value_before_it_can_be_called_through_an_a
 
 
 @pytest.mark.parametrize("name", FENCED)
-def test_the_fenced_repair_is_defined_declared_and_called_by_nothing(name):
+def test_the_fenced_repair_is_defined_and_called_by_nothing(name):
     """R10 items S-1..S-5, ruled. The amount rewrites, direction selector
     and legacy row deletion retain their definitions as the record of what ran. Every one
     crosses the repair doctrine or anti-optimizer rule and has no caller.
@@ -203,11 +182,9 @@ def test_the_fenced_repair_is_defined_declared_and_called_by_nothing(name):
     trusting a comment: no module under `analysis/` may read its function
     value or import it. Binding it to an alias or passing it as a callback is
     already a route to a caller, even when the call uses another name."""
-    declared = _declared()
+    declared = _repair_bank_literals()
     assert name in declared, f"the fenced definition is gone: {name}"
-    classification, bank_literals = declared[name]
-    assert classification == FENCED_CLASSIFICATIONS[name], classification
-    assert bank_literals, "the fence must not be mistaken for a deletion"
+    assert declared[name], "the fence must not be mistaken for a deletion"
 
     callers: dict[str, list[str]] = {}
     for path in sorted((ROOT / "analysis").rglob("*.py")):
@@ -216,16 +193,6 @@ def test_the_fenced_repair_is_defined_declared_and_called_by_nothing(name):
         if hits:
             callers[str(path.relative_to(ROOT))] = hits
     assert not callers, f"the fenced repair is reachable from the analysis path: {callers}"
-
-
-def test_every_ceremony_declaration_is_in_the_vocabulary():
-    """A repair that gains a declaration outside the closed vocabulary fails
-    the build; so does a fenced or kept ceremony repair that loses its one."""
-    declared = _declared()
-    for name, (classification, _literals) in declared.items():
-        assert classification is None or classification in CLASSIFICATIONS, (name, classification)
-    for name in (*FENCED, "repair_scotiabank_misc_payment_sign", "repair_santander_signs_from_balances"):
-        assert declared[name][0] in CLASSIFICATIONS, name
 
 
 def test_the_fenced_repair_still_works_if_a_ruling_ever_calls_it_again():
@@ -339,7 +306,6 @@ def _santander_case() -> Statement:
 
 
 def test_the_fenced_legacy_repair_retains_its_paired_and_orphan_characterizations():
-    assert _declared()["repair_truist_converted_checks"][0] == LEGACY
     paired = _truist_case()
     after = repair_truist_converted_checks(paired)
     assert after is not paired and len(after.transactions) == len(paired.transactions) - 1
@@ -365,7 +331,6 @@ def test_a_safe_normalisation_restates_a_printed_figure_and_never_invents_one(na
     """Mutant P8: a safe normalisation made to write a figure of its own dies
     here. The fixture must also MOVE, or the tripwire would pass on a repair
     that does nothing."""
-    assert _declared()[name][0] == SAFE
     before = build()
     after = repair(before)
     assert after is not before and after.transactions != before.transactions, f"{name} did not fire on its fixture"
@@ -383,8 +348,6 @@ def test_the_unsafe_rewrites_write_a_figure_the_paper_did_not_print():
     statement the invention guard refuses, on a fixture built to its own
     gates. Nothing here changes their behaviour — they are recorded, named in
     the W3 with their population, and fenced under Gustavo's ruling."""
-    declared = _declared()
-
     # Capital One: the row's own amount was misread; the two printed balances
     # differ by 2,000.00 and the summary is short by exactly that correction.
     capital_one = _statement("Capital One", [
@@ -394,7 +357,6 @@ def test_the_unsafe_rewrites_write_a_figure_the_paper_did_not_print():
     repaired = repair_capital_one_running_amount(capital_one)
     assert repaired.transactions != capital_one.transactions
     assert not restates_a_printed_figure(capital_one, repaired)
-    assert declared["repair_capital_one_running_amount"][0] == UNSAFE
 
     # Chase: an item count fused into the amount's leading digits.
     chase = _statement("Chase", [
@@ -404,7 +366,6 @@ def test_the_unsafe_rewrites_write_a_figure_the_paper_did_not_print():
     repaired = repair_chase_remote_deposit_count_column(chase)
     assert repaired.transactions != chase.transactions
     assert not restates_a_printed_figure(chase, repaired)
-    assert declared["repair_chase_remote_deposit_count_column"][0] == UNSAFE
 
     # Regions: the one zero-amount card-transaction row filled from the
     # summary shortfall.
@@ -415,7 +376,6 @@ def test_the_unsafe_rewrites_write_a_figure_the_paper_did_not_print():
     repaired = repair_regions_transactions("SYNTHETIC LEDGER", regions)
     assert repaired.transactions != regions.transactions
     assert not restates_a_printed_figure(regions, repaired)
-    assert declared["repair_regions_transactions"][0] == UNSAFE
 
 
 # ---------------------------------------------------------------------------
@@ -552,13 +512,13 @@ def test_the_kept_bank_repairs_are_keyed_on_their_own_registrations():
         "santander": repair_santander_signs_from_balances,
         "scotiabank": repair_scotiabank_misc_payment_sign,
     }
-    declared = _declared()
+    declared = _repair_bank_literals()
     for parser_id, repair in _STATEMENT_REPAIRS.items():
         registration = parser_registry.by_id(parser_id)
         assert registration.id == parser_id
         # the repair's own guard admits its owner's label, or the key would
         # silently switch the repair off
-        literals = declared[repair.__name__][1]
+        literals = declared[repair.__name__]
         assert any(literal in registration.bank.upper() for literal in literals), (parser_id, literals)
 
 

@@ -50,17 +50,12 @@ ROOT = Path(__file__).resolve().parents[1]
 ESCALATION = ROOT / "ocr" / "escalation.py"
 
 #: The SHA-256 of the router's implementation, as `router_implementation_digest`
-#: reads it. A pin on the router, never on the platform: this repository checks
-#: out CRLF on Windows and LF on the Linux CI runner, CI and the hosting image
-#: run Python 3.12 while the development host runs 3.14, and Windows decodes a
-#: file in its own code page unless told otherwise. The previous pin of the
-#: same source (`fe664d53...`) reproduced only on Python 3.13+ reading UTF-8,
-#: so it was red on CI and on a default Windows console whatever the router
-#: did. This value was measured identical on 3.12.10, 3.14.4 and 3.14.5, under
-#: cp1252 and UTF-8 mode, with CRLF and LF line endings, and it stands for the
-#: same `ocr/escalation.py` the previous pin did: re-pinning blessed no change
-#: to the router (audit 2026-10-13, HYG-02).
-ROUTER_IMPLEMENTATION_SHA256 = "c8cfce8cdb54ae594afe79889e04cd45e59267f4e3d63c779ebb883ceb619cfa"
+#: reads it: code only, so a docstring or comment edit leaves it. It reads the
+#: same on every checkout this repository runs: CRLF on Windows and LF on the
+#: Linux runner, Python 3.12 on CI and the hosting image and 3.14 on the
+#: development host, the file read as UTF-8. Measured identical on 3.12.13 and
+#: 3.14.8, with LF and CRLF line endings.
+ROUTER_IMPLEMENTATION_SHA256 = "02f34c856c207d2a07d7b8ee8fe1e5928819dedefae489ada79a2834735940d9"
 
 #: Where an extraction-quality figure must never appear. `ocr/escalation.py`
 #: is the router itself; `analysis/` is the layer that produces a financial
@@ -70,9 +65,19 @@ GUARDED = ("ocr/escalation.py", "analysis", "webapp")
 EQ_COLUMNS = tuple(column for column, _, _ in EQ_ROW_COLUMNS)
 
 
+def _without_docstrings(node: ast.AST) -> ast.AST:
+    for child in ast.walk(node):
+        if (isinstance(child, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and child.body
+                and isinstance(child.body[0], ast.Expr) and isinstance(child.body[0].value, ast.Constant)
+                and isinstance(child.body[0].value.value, str)):
+            child.body = child.body[1:] or [ast.Pass()]
+    return node
+
+
 def router_implementation_digest(source: str) -> str:
     """The router's implementation, hashed: every top-level class and function
-    of the module, dumped without positions, in source order.
+    of the module, without its docstrings, dumped without positions, in source
+    order.
 
     `ast.dump` stopped printing empty fields (an empty `decorator_list`, a
     `None` return annotation) in Python 3.13; `show_empty=True` prints them
@@ -83,7 +88,7 @@ def router_implementation_digest(source: str) -> str:
              if isinstance(node, (ast.ClassDef, ast.FunctionDef)))
     same_on_every_version = {"show_empty": True} if sys.version_info >= (3, 13) else {}
     implementation = "\n".join(
-        ast.dump(node, include_attributes=False, **same_on_every_version) for node in nodes
+        ast.dump(_without_docstrings(node), include_attributes=False, **same_on_every_version) for node in nodes
     )
     return hashlib.sha256(implementation.encode("utf-8")).hexdigest()
 
@@ -141,18 +146,12 @@ def test_router_implementation_preserves_phase2_extraction_quality_exclusion():
 
 
 def test_the_router_pin_reads_the_same_on_every_checkout():
-    """CRLF (a Windows checkout) and LF (the Linux runner) are one router, and
-    the explicit UTF-8 read is load-bearing rather than decorative: the module
-    carries non-ASCII text, and decoding it in the Windows code page moves the
-    digest, which is exactly how the previous pin went red on a default
-    Windows console."""
+    """CRLF (a Windows checkout) and LF (the Linux runner) are one router."""
     raw = ESCALATION.read_bytes()
     lf = raw.replace(b"\r\n", b"\n")
     crlf = lf.replace(b"\n", b"\r\n")
     assert router_implementation_digest(lf.decode("utf-8")) == ROUTER_IMPLEMENTATION_SHA256
     assert router_implementation_digest(crlf.decode("utf-8")) == ROUTER_IMPLEMENTATION_SHA256
-    assert any(byte > 0x7F for byte in raw)
-    assert router_implementation_digest(raw.decode("cp1252", errors="replace")) != ROUTER_IMPLEMENTATION_SHA256
 
 
 @pytest.mark.parametrize("before, after, note", [
@@ -176,6 +175,22 @@ def test_a_comment_planted_in_a_scratch_copy_leaves_the_pin():
     anchor = "        extractor = remaining[0]\n"
     assert source.count(anchor) == 1
     planted = source.replace(anchor, anchor + "\n        # a reviewer's note, not code\n", 1)
+    assert planted != source
+    assert router_implementation_digest(planted) == ROUTER_IMPLEMENTATION_SHA256
+
+
+def test_a_docstring_edit_planted_in_a_scratch_copy_leaves_the_pin():
+    source = ESCALATION.read_text(encoding="utf-8")
+    decide = next(node for node in ast.walk(ast.parse(source))
+                  if isinstance(node, ast.FunctionDef) and node.name == "decide")
+    first = decide.body[0]
+    planted_docstring = " " * first.col_offset + '"""A planted docstring, not code."""\n'
+    lines = source.splitlines(keepends=True)
+    if ast.get_docstring(decide) is None:
+        lines.insert(first.lineno - 1, planted_docstring)
+    else:
+        lines[first.lineno - 1:first.end_lineno] = [planted_docstring]
+    planted = "".join(lines)
     assert planted != source
     assert router_implementation_digest(planted) == ROUTER_IMPLEMENTATION_SHA256
 

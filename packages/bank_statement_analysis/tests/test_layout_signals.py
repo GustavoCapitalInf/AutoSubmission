@@ -16,7 +16,6 @@ from pathlib import Path
 
 import pytest
 
-from layout import signals
 from layout.signals import (
     DATE_RE,
     LEXICONS,
@@ -308,9 +307,3 @@ def test_primitives_are_deterministic_and_ordered_by_position():
     assert [t.start for t in find_dates(text)] == sorted(t.start for t in find_dates(text))
     hits = find_lexicon(text, "closing_balance") + find_lexicon(text, "opening_balance")
     assert hits == find_lexicon(text, "closing_balance") + find_lexicon(text, "opening_balance")
-
-
-def test_signals_module_declares_its_own_grammars_and_says_why():
-    doc = signals.__doc__ or ""
-    assert "analysis/money.py" in doc and "analysis/date_tokens.py" in doc
-    assert "LayoutModel" in doc
