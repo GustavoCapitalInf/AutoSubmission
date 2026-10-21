@@ -39,7 +39,7 @@ def test_the_page_s_table_header_names_the_column_before_withholding_rate_and_as
     # Verified revenue and "Counted, not verified" to -14; -12 was this request's release. The code audit of
     # 2026-10-13 (its dashboard fixes) moved it to -15. The model-code removal (owner ruling 2026-10-13: no Force visual
     # OCR control, the advice texts rewritten) to -16.
-    assert '<script src="/static/app.js?v=true-revenue-16"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-17"></script>' in html
     assert "true-revenue-11" not in html and "true-revenue-12" not in html
 
 

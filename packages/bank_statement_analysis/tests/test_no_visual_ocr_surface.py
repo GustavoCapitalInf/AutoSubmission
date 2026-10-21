@@ -1,7 +1,7 @@
 """No route, page control or worker branch offers visual OCR any more (owner ruling, 2026-10-13: the product uses no
-model; model-code removal, slice S1). Auto reads and analyses exactly as Deterministic only, a scanned page with no
-usable text ends in the fixed no-text refusal without one outbound connection, and an upload that still asks for
-Force visual OCR is refused before anything is stored. Fabricated PDFs only."""
+model; model-code removal, slice S1). A scanned page with no usable text ends in the fixed no-text refusal without
+one outbound connection, and an upload that still asks for Force visual OCR is refused before anything is stored.
+Fabricated PDFs only."""
 from __future__ import annotations
 
 import ast
@@ -36,9 +36,9 @@ def test_the_upload_page_offers_no_visual_ocr():
     assert "forceOcrToggle" not in INDEX_HTML
     assert 'name="force_ocr"' not in INDEX_HTML and "force_ocr" not in INDEX_HTML
     assert not re.search(r"visual\s+OCR", INDEX_HTML, re.IGNORECASE)
-    # The hint names the readers that remain, and the Parsing-mode control stays.
+    # The hint names the readers that remain, and there is no parsing-mode choice.
     assert "scanned pages are read with local OCR on this machine" in INDEX_HTML
-    assert 'name="parseMode" value="auto"' in INDEX_HTML and 'name="parseMode" value="deterministic"' in INDEX_HTML
+    assert "parseMode" not in INDEX_HTML and 'form.append("parse_mode"' not in APP_JS
 
 
 def test_the_dashboard_sends_no_force_ocr_field_and_gives_none_of_the_retired_advice():
@@ -172,34 +172,32 @@ def _image_only_pdf() -> bytes:
         return document.tobytes()
 
 
-def _run(store, pdf: bytes, mode: str):
+def _run(store, pdf: bytes):
     from webapp.worker import run_job
 
-    job = store.create("fabricated.pdf", pdf_bytes=pdf, parse_mode=mode)
-    run_job(job.id, pdf, "fabricated.pdf", store, False, mode)
+    job = store.create("fabricated.pdf", pdf_bytes=pdf)
+    run_job(job.id, pdf, "fabricated.pdf", store)
     return store.get(job.id)
 
 
 NO_TEXT = "native PDF text unavailable or too sparse, and local Tesseract OCR did not produce usable statement text"
 
 
-@pytest.mark.parametrize("mode", ["auto", "deterministic"])
 def test_an_image_only_page_ends_in_the_no_text_refusal_with_no_outbound_connection(
-        monkeypatch, worker_store, no_outbound, mode):
+        monkeypatch, worker_store, no_outbound):
     """N5 with the Tesseract rung stubbed to read nothing (the real rung is the next test): the native rung finds no
-    text, nothing else is tried, and the job ends in the fixed refusal in either mode."""
+    text, nothing else is tried, and the job ends in the fixed refusal."""
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", lambda *a, **k: None)
-    job = _run(worker_store, _image_only_pdf(), mode)
+    job = _run(worker_store, _image_only_pdf())
     assert (job.status, job.analysis, job.analysis_error, job.parse_model) == (
         "done", None, NO_TEXT, "deterministic-native-preflight")
     assert no_outbound == []
 
 
 @pytest.mark.skipif(shutil.which("tesseract") is None, reason="local Tesseract not installed")
-@pytest.mark.parametrize("mode", ["auto", "deterministic"])
 def test_local_tesseract_reads_an_image_only_page_on_the_machine_with_no_outbound_connection(
-        worker_store, no_outbound, mode):
-    job = _run(worker_store, _image_only_pdf(), mode)
+        worker_store, no_outbound):
+    job = _run(worker_store, _image_only_pdf())
     assert (job.status, job.analysis_error) == ("done", NO_TEXT)
     assert no_outbound == []
 
@@ -235,25 +233,17 @@ def _text_pdf(lines, gap) -> bytes:
         return document.tobytes()
 
 
-def test_auto_equals_deterministic_on_a_claimed_native_statement(worker_store, no_outbound):
-    """The two modes publish the same reading and the same analysis, apart from the parse_mode stamp."""
-    pdf = _text_pdf(_CLAIMED_LINES, 28.0)
-    auto, deterministic = _run(worker_store, pdf, "auto"), _run(worker_store, pdf, "deterministic")
-    assert auto.analysis is not None and auto.analysis_error is None
-    assert (auto.analysis["parse_mode"], deterministic.analysis["parse_mode"]) == ("auto", "deterministic")
-    strip = lambda analysis: {k: v for k, v in analysis.items() if k != "parse_mode"}  # noqa: E731
-    assert strip(auto.analysis) == strip(deterministic.analysis)
-    assert (auto.markdown, auto.html, auto.parse_model, auto.status) == (
-        deterministic.markdown, deterministic.html, deterministic.parse_model, deterministic.status)
+def test_a_claimed_native_statement_is_analysed_with_no_outbound_connection(worker_store, no_outbound):
+    job = _run(worker_store, _text_pdf(_CLAIMED_LINES, 28.0))
+    assert (job.status, job.analysis_error) == ("done", None)
+    assert job.analysis["parse_mode"] == "auto"
     assert no_outbound == []
 
 
-def test_auto_equals_deterministic_on_an_unclaimed_native_document(worker_store, no_outbound):
+def test_an_unclaimed_native_document_is_refused_with_no_outbound_connection(worker_store, no_outbound):
     lines = ["FABRICATED HOLDINGS LIMITED", "A fabricated memorandum, not a bank statement."] + [
         f"Fabricated filler sentence number {n} for the text volume gate." for n in range(40)]
-    pdf = _text_pdf(lines, 12.0)
-    auto, deterministic = _run(worker_store, pdf, "auto"), _run(worker_store, pdf, "deterministic")
-    assert (auto.analysis, deterministic.analysis) == (None, None)
-    assert auto.analysis_error == deterministic.analysis_error == "no deterministic parser matched this statement"
-    assert (auto.markdown, auto.parse_model) == (deterministic.markdown, deterministic.parse_model)
+    job = _run(worker_store, _text_pdf(lines, 12.0))
+    assert job.analysis is None
+    assert job.analysis_error == "no deterministic parser matched this statement"
     assert no_outbound == []

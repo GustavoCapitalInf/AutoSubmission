@@ -2,12 +2,10 @@
 
 ``JobStore`` keeps the public surface the routes and worker already use, but
 every terminal state and every served artifact now comes from
-``webapp.storage.Storage`` (SQLite + on-disk PDF store). Only in-flight
-working state stays purely in memory:
-
-* per-page live OCR buffers (``pages_live`` — streaming scratch space), and
-* ``pdf_bytes`` while a job is queued/processing (released on completion;
-  afterwards the bytes are served from the disk store by content hash).
+``webapp.storage.Storage`` (SQLite + on-disk PDF store). Only ``pdf_bytes``
+stays purely in memory, while a job is queued/processing (released on
+completion; afterwards the bytes are served from the disk store by content
+hash).
 
 Single-writer discipline: this facade is used by exactly one worker thread
 plus request threads in one process — see ``webapp/storage.py`` for the full
@@ -22,7 +20,7 @@ import json
 import threading
 import uuid
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from analysis import zelle_view
 from analysis.payload_shape import is_document_payload, payload_accounts
@@ -53,17 +51,6 @@ class Job:
     # known, None included: see `Storage.record_upload`.
     duplicate_of: str | None = None
     duplicate_of_known: bool = False
-    # Per-page live OCR buffers, keyed by 0-based page index. Pages are OCR'd
-    # concurrently, so buffers fill out of order; `live_text` renders them back
-    # in page order with the "--- Page N ---" markers the viewer keys boxes on.
-    pages_live: dict[int, str] = field(default_factory=dict)
-
-    @property
-    def live_text(self) -> str:
-        return "".join(
-            f"\n\n--- Page {p + 1} ---\n\n{self.pages_live[p]}"
-            for p in sorted(self.pages_live)
-        )
 
 
 def _classification_for(
@@ -154,7 +141,6 @@ class JobStore:
         *,
         page_count: int = 0,
         force_ocr: bool = False,
-        parse_mode: str = "auto",
         pdf_bytes: bytes | None = None,
     ) -> Job:
         job = Job(
@@ -162,7 +148,6 @@ class JobStore:
             filename=filename,
             page_count=page_count,
             force_ocr=force_ocr,
-            parse_mode=parse_mode,
         )
         if pdf_bytes is not None:
             job.content_sha256 = content_sha256(pdf_bytes)
@@ -176,7 +161,6 @@ class JobStore:
             content_sha256=job.content_sha256,
             byte_size=len(pdf_bytes) if pdf_bytes is not None else 0,
             force_ocr=force_ocr,
-            parse_mode=parse_mode,
             page_count=page_count,
         )
         job.duplicate_of_known = True
@@ -260,32 +244,6 @@ class JobStore:
         self._storage.set_job_stage(job_id, stage, parse_model)
 
     # ------------------------------------------------------------------
-    # live OCR buffers (in-flight working state — memory only by design)
-    # ------------------------------------------------------------------
-
-    def append_page_live(self, job_id: str, page: int, chunk: str) -> None:
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is not None:
-                job.pages_live[page] = job.pages_live.get(page, "") + chunk
-
-    def set_page_live(self, job_id: str, page: int, text: str) -> None:
-        """Replace a page's live buffer wholesale — used when a fallback/recovery
-        re-OCR (off-stream) supersedes the originally streamed read."""
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is not None:
-                job.pages_live[page] = text
-
-    def pages_live_ordered(self, job_id: str) -> list[str]:
-        """Snapshot the per-page live buffers in page order (thread-safe)."""
-        with self._lock:
-            job = self._jobs.get(job_id)
-            if job is None:
-                return []
-            return [job.pages_live[p] for p in sorted(job.pages_live)]
-
-    # ------------------------------------------------------------------
     # results / errors (persisted; terminal states release pdf_bytes)
     # ------------------------------------------------------------------
 
@@ -329,15 +287,6 @@ class JobStore:
     # ------------------------------------------------------------------
     # analysis mutation / analyst review
     # ------------------------------------------------------------------
-
-    def replace_analysis(self, job_id: str, analysis: dict) -> dict | None:
-        job = self.get(job_id)
-        if job is None or job.analysis is None:
-            return None
-        with self._lock:
-            job.analysis = deepcopy(analysis)
-        self._storage.set_job_analysis(job_id, json.dumps(analysis))
-        return deepcopy(analysis)
 
     def apply_reanalysis(
         self,

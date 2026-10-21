@@ -1094,23 +1094,19 @@ def _document(page: str):
 
 
 @pytest.mark.parametrize("outcome", list(OUTCOMES))
-def test_webapp_auto_mode_equals_deterministic_mode_through_the_worker_seam(outcome, monkeypatch):
-    """Card item 5, through `webapp.worker._analyze_doc` — the seam `run_job`
-    calls in both modes: the SAME (markdown, html, analysis, analysis_error) in
-    `auto` as in `deterministic` for each outcome, no payload, and for the
-    unclaimed synthetic the declared refusal `webapp/worker.py` allow-lists
-    (the one analysis error a user can act on). The old opt-in literal in the
-    environment changes nothing."""
+def test_the_webapp_worker_seam_publishes_no_payload_for_each_outcome(outcome, monkeypatch):
+    """Card item 5, through `webapp.worker._analyze_doc`, the seam `run_job`
+    calls: no payload for each outcome, and for the unclaimed synthetic the
+    declared refusal `webapp/worker.py` allow-lists (the one analysis error a
+    user can act on). The old opt-in literal in the environment changes
+    nothing."""
     from webapp import worker
 
     _markdown, registrations, _expected, page = OUTCOMES[outcome]
     monkeypatch.setenv(RETIRED_OPT_IN_ENV, RETIRED_OPT_IN_LITERAL)
     with registrations():
-        auto = worker._analyze_doc(_document(page), "s.pdf", "auto")
-        deterministic = worker._analyze_doc(_document(page), "s.pdf", "deterministic")
+        _md, _html, analysis, analysis_error = worker._analyze_doc(_document(page), "s.pdf")
 
-    assert auto == deterministic
-    _md, _html, analysis, analysis_error = auto
     assert analysis is None
     assert analysis_error
     if outcome == "unclaimed":

@@ -99,7 +99,6 @@ const els = {
   bulkSelectAll: document.getElementById("bulkSelectAll"),
   transactionsTitle: document.getElementById("transactionsTitle"),
   accountSummary: document.getElementById("accountSummary"),
-  copyTextBtn: document.getElementById("copyTextBtn"),
   openTextBtn: document.getElementById("openTextBtn"),
   downloadJson: document.getElementById("downloadJson"),
   downloadCsv: document.getElementById("downloadCsv"),
@@ -180,14 +179,6 @@ let queueEntries = [];
 let queuePackageDuplicates = null;
 let previewJobId = null;
 let previewPage = 0;
-
-function selectedParseMode() {
-  return document.querySelector('input[name="parseMode"]:checked')?.value || "auto";
-}
-
-function parseModeLabel(value) {
-  return value === "deterministic" ? "Deterministic only" : "Auto";
-}
 
 // 5.6 (true revenue spec §10.5): the note under each revenue figure. The owner's request of 2026-10-11 (§2.2, §10):
 // the page shows no Verified revenue and no "Counted, not verified" (the tiers `verified` and `counted_flagged`, kept in
@@ -1284,8 +1275,7 @@ function packageFunderSummaryLine(funder, currency = "USD", returnedPayments = [
 }
 
 // The owner's request of 2026-10-06 (lender payment changes; R2-OW18): why a package member's lender payments were not
-// compared across statements, in the dashboard's plain words (the exports keep webapp/app.py
-// LENDER_PAYMENT_UNCHECKED_WORDS).
+// compared across statements, in the dashboard's plain words.
 const LENDER_PAYMENT_UNCHECKED_WORDS = {
   not_ready: "not analysed yet",
   analysed_before_check: "analysed before the check; re-analyze it to include it",
@@ -3118,7 +3108,6 @@ function setInitialState() {
     ["OCR completed", "No"],
     ["Pages processed", "--"],
     ["Processing time", "--"],
-    ["Parsing mode", parseModeLabel(selectedParseMode())],
     ["Validation", "--"],
     ["Text blocks detected", "--"],
     ["File size", "--"],
@@ -3159,7 +3148,7 @@ function setActions(jobId, ready, textReady = ready) {
       link.setAttribute("aria-disabled", "true");
     }
   });
-  [[els.copyDataBtn, ready], [els.summaryBtn, ready], [els.copyTextBtn, textReady]].forEach(([button, enabled]) => {
+  [[els.copyDataBtn, ready], [els.summaryBtn, ready]].forEach(([button, enabled]) => {
     if (!button) return;
     button.disabled = !enabled;
     button.classList.toggle("disabled", !enabled);
@@ -3189,10 +3178,6 @@ function setPackageActions(jobIds) {
     button.disabled = false;
     button.classList.remove("disabled");
   });
-  if (els.copyTextBtn) {
-    els.copyTextBtn.disabled = true;
-    els.copyTextBtn.classList.add("disabled");
-  }
 }
 
 // Legacy metric codes -> [monochrome glyph, plain-language label]
@@ -3657,11 +3642,6 @@ function tierReasonEntries(source = {}, tier = "excluded_pending_review") {
   return Object.entries(byReason)
     .map(([reason, figures]) => ({ reason, count: figures && figures.count, total: numberOrNull(figures && figures.total) }))
     .sort((a, b) => (b.total ?? 0) - (a.total ?? 0) || a.reason.localeCompare(b.reason));
-}
-
-// The held credits by reason: the Held for Review view.
-function heldReasonEntries(source = {}) {
-  return tierReasonEntries(source, "excluded_pending_review");
 }
 
 // The words naming one middle tier's reason rows in the evidence table. R2-OW03: and the non-revenue breakdown's,
@@ -4645,7 +4625,6 @@ function renderAccount(report) {
     ["OCR completed", "Yes"],
     ["Pages processed", formatNumber(statement.page_count || report.page_count || "--")],
     ["Processing time", elapsed],
-    ["Parsing mode", parseModeLabel(report.parse_mode || selectedParseMode())],
     ["Parser used", report.model_used || "N/A"],
     ["Document integrity", integrityLabel(integrity)],
     ["Revenue reconciliation", revenueBalanced ? "Balanced" : "Review required"],
@@ -4932,7 +4911,6 @@ function showSelectedFile(file) {
     ["OCR completed", "No"],
     ["Pages processed", "Queued"],
     ["Processing time", "Running"],
-    ["Parsing mode", parseModeLabel(selectedParseMode())],
     ["Validation", "--"],
     ["Text blocks detected", "--"],
     ["File size", formatBytes(file.size)],
@@ -4974,7 +4952,6 @@ function uploadFiles(fileList) {
 
   const form = new FormData();
   files.forEach((item) => form.append("files", item));
-  form.append("parse_mode", selectedParseMode());
 
   fetch("/upload", { method: "POST", body: form })
     .then((response) => {
@@ -5078,7 +5055,6 @@ function pollPackage(jobIds, failures = 0) {
         ["Statements completed", `${finished} / ${statuses.length}`],
         ["Pages queued", formatNumber(totalPages)],
         ["Processing time", startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Running"],
-        ["Parsing mode", parseModeLabel(selectedParseMode())],
         ["Processing errors", formatNumber(errors)],
         ["File size", `${currentFiles.length} files`],
       ]);
@@ -5115,7 +5091,6 @@ function pollJob(jobId, failures = 0) {
         ["OCR completed", "No"],
         ["Pages processed", formatNumber(status.page_count || "--")],
         ["Processing time", startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Running"],
-        ["Parsing mode", parseModeLabel(status.parse_mode || selectedParseMode())],
         ["Validation", "--"],
         ["Text blocks detected", stage],
         ["File size", formatBytes(currentFile && currentFile.size)],
@@ -7072,7 +7047,6 @@ function clearDropzoneParallax() {
   });
 });
 
-if (els.copyTextBtn) els.copyTextBtn.addEventListener("click", () => copyText(currentMarkdown));
 // A statement whose main account was not verified has no account on screen: its data is the whole statement, and
 // its summary is the explanation its view wrote (generateSummary leaves it).
 els.copyDataBtn.addEventListener("click", () => copyText(JSON.stringify(currentAnalysis || currentDocument || {}, null, 2)));

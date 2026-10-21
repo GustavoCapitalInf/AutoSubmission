@@ -50,22 +50,3 @@ def test_set_error_marks_error(store):
     fetched = store.get(job.id)
     assert fetched.status == "error"
     assert fetched.error == "boom"
-
-
-def test_set_page_live_replaces_buffer(store):
-    job = store.create("x.pdf")
-    store.append_page_live(job.id, 0, "truncated first attempt")
-    store.set_page_live(job.id, 0, "recovered full read")  # fallback overwrites
-    assert store.get(job.id).pages_live[0] == "recovered full read"
-
-
-def test_append_page_live_renders_in_page_order(store):
-    job = store.create("x.pdf")
-    # Pages OCR concurrently, so buffers may arrive out of order...
-    store.append_page_live(job.id, 1, "second")
-    store.append_page_live(job.id, 0, "first")
-    store.append_page_live(job.id, 1, " page")
-    text = store.get(job.id).live_text
-    # ...but live_text renders them in page order with markers.
-    assert text == "\n\n--- Page 1 ---\n\nfirst\n\n--- Page 2 ---\n\nsecond page"
-    assert text.index("Page 1") < text.index("Page 2")

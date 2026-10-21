@@ -41,7 +41,6 @@ def _notify_stage(on_stage, rung: str) -> None:
 
 
 def parse_statement(pdf_bytes: bytes, source_file: str = "", *,
-                    on_page_replace=None,
                     force_ocr: bool = False,
                     allow_local_ocr: bool = False,
                     allow_visual_ocr: bool = False,
@@ -57,8 +56,6 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", *,
     an OCR stage it never had. When the offline rungs read nothing the return
     value is None. `on_stage(rung)` reports "native" / "local_ocr" as each
     rung starts, so callers can surface progress without owning routing.
-    `on_page_replace(page_index, text)` receives every page of the offline
-    read the ladder returns.
 
     The model rungs are gone (owner ruling, 2026-10-13: the product uses no
     model): the visual OCR rung (slice S2) and the PaddleOCR rung (slice S5).
@@ -136,7 +133,4 @@ def parse_statement(pdf_bytes: bytes, source_file: str = "", *,
     # `to_markdown()`'s header already carries — so every page of THIS read
     # shares it.
     native.page_extractor = [native.model] * len(native.pages)
-    if on_page_replace is not None:
-        for i, page in enumerate(native.pages):
-            on_page_replace(i, page)
     return native

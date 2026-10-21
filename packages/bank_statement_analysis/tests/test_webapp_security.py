@@ -723,10 +723,10 @@ def test_a_crafted_text_layer_reaches_the_review_page_as_text_end_to_end(monkeyp
     pdf = doc.tobytes()
     doc.close()
 
-    monkeypatch.setattr(webapp_app, "_enqueue_job", lambda job_id, pdf_bytes, filename, force_ocr, parse_mode:
-                        webapp_app.run_job(job_id, pdf_bytes, filename, webapp_app.store, force_ocr, parse_mode))
+    monkeypatch.setattr(webapp_app, "_enqueue_job", lambda job_id, pdf_bytes, filename, force_ocr:
+                        webapp_app.run_job(job_id, pdf_bytes, filename, webapp_app.store, force_ocr))
     client = app.test_client()
-    resp = client.post("/upload", data={"files": (io.BytesIO(pdf), "crafted.pdf"), "parse_mode": "deterministic"},
+    resp = client.post("/upload", data={"files": (io.BytesIO(pdf), "crafted.pdf")},
                        content_type="multipart/form-data")
     assert resp.status_code == 200, resp.get_json()
     job_id = resp.get_json()["jobs"][0]["id"]

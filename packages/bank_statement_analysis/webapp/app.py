@@ -32,7 +32,7 @@ from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthoriz
 
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
-from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META, rendered_skeleton, render_boxed
+from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META
 from analysis.payload_shape import (
     DOCUMENT_KEY as _DOCUMENT_KEY,
     account_content_digest,
@@ -106,8 +106,8 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_UPLOAD_FILES = 25
 MAX_UPLOAD_PAGES = 500
 
-# waitress worker threads. The dashboard polls /status, /live and /render for
-# every in-flight job at once, so the stock four would head-of-line block.
+# waitress worker threads. The dashboard polls /status for every in-flight job
+# at once, so the stock four would head-of-line block.
 SERVER_THREADS = 16
 
 #: The free space the data volume keeps (audit 2026-10-13, BE-1). Nothing ever deletes a job, document, PDF or
@@ -309,9 +309,9 @@ def _process_job_queue() -> None:
             if not _job_queue:
                 _job_worker_active = False
                 return
-            job_id, pdf_bytes, filename, force_ocr, parse_mode = _job_queue.popleft()
+            job_id, pdf_bytes, filename, force_ocr = _job_queue.popleft()
         try:
-            run_job(job_id, pdf_bytes, filename, store, force_ocr, parse_mode)
+            run_job(job_id, pdf_bytes, filename, store, force_ocr)
         except BaseException:
             # The handler is on the SUPERVISOR and not on `run_job`'s arm, which
             # is the whole shape §PRIVACY3 P8.1 argued for: the arm must keep
@@ -325,10 +325,10 @@ def _process_job_queue() -> None:
             raise
 
 
-def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool, parse_mode: str) -> None:
+def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool) -> None:
     global _job_worker_active
     with _job_queue_lock:
-        _job_queue.append((job_id, pdf_bytes, filename, force_ocr, parse_mode))
+        _job_queue.append((job_id, pdf_bytes, filename, force_ocr))
         should_start = not _job_worker_active
         if should_start:
             _job_worker_active = True
@@ -3852,15 +3852,6 @@ _PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
 #: the statement before it when it starts at most this many days before that statement ends (an overlap), or up to
 #: PACKAGE_CONSECUTIVE_DAYS after.
 LENDER_CHAIN_OVERLAP_DAYS = 5
-#: R2-OW18 (F2): why a member's lender payments were not checked across statements, and the words the package's
-#: neutral line and its downloads give each reason.
-LENDER_PAYMENT_UNCHECKED_WORDS = {
-    "not_ready": "not analysed yet",
-    "analysed_before_check": "analysed before the check: re-analyze",
-    "no_currency": "no currency declared: checked alone",
-    "no_period": "no statement period: checked alone",
-    "no_account_number": "fewer than 4 account digits and no balance chain: checked alone",
-}
 
 
 def _package_lender_payment_changes(members: list[tuple], overlays: dict | None = None, *,
@@ -6094,9 +6085,6 @@ def upload():
         return jsonify({"error": FORCE_OCR_REMOVED}), 400
     # Every job is read the same way (native PDF text, then local OCR); the field stays in the job row and the answer.
     force_ocr = False
-    parse_mode = request.form.get("parse_mode") or "auto"
-    if parse_mode not in {"auto", "deterministic"}:
-        return jsonify({"error": "invalid parse_mode"}), 400
 
     # Validate the whole batch before creating any job. A half-accepted upload
     # would leave the dashboard aggregating an incomplete package with nothing
@@ -6128,7 +6116,6 @@ def upload():
                 filename,
                 page_count=page_count,
                 force_ocr=force_ocr,
-                parse_mode=parse_mode,
                 pdf_bytes=pdf_bytes,
             )
             created.append(job)
@@ -6144,13 +6131,13 @@ def upload():
 
     jobs = []
     for job, (filename, pdf_bytes, page_count, profile) in zip(created, accepted):
-        _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
+        _enqueue_job(job.id, pdf_bytes, filename, force_ocr)
         jobs.append({
             "id": job.id,
             "filename": job.filename,
             "page_count": job.page_count,
             "force_ocr": force_ocr,
-            "parse_mode": parse_mode,
+            "parse_mode": job.parse_mode,
             "content_sha256": job.content_sha256,
             # A re-upload of identical bytes names the earliest prior job holding
             # them, read in the transaction that created the job (audit BE-2).
@@ -6180,45 +6167,6 @@ def status(job_id):
         "content_sha256": job.content_sha256,
         "duplicate_of": store.duplicate_of(job_id) if job.content_sha256 else None,
     })
-
-
-@app.route("/live/<job_id>")
-def live(job_id):
-    job = store.get(job_id)
-    if job is None:
-        abort(404)
-    return jsonify({"status": job.status, "live_text": job.live_text, "error": job.error})
-
-
-@app.route("/rendered_skeleton")
-def rendered_skeleton_route():
-    # Static styled shell loaded once into the viewer iframe for live rendering.
-    return Response(rendered_skeleton(), mimetype="text/html; charset=utf-8")
-
-
-@app.route("/render/<job_id>")
-def render(job_id):
-    """Render the current (possibly partial) OCR output to an HTML body fragment
-    where each detected region is wrapped in a colored, labeled box — mirroring
-    the demo's rendered-with-boxes view — so the Rendered panel fills in live as
-    pages stream. When the job is done, page images are rasterized so picture
-    regions (e.g. check scans) embed their crop; during live they show a box."""
-    job = store.get(job_id)
-    if job is None:
-        abort(404)
-    pages = store.pages_live_ordered(job_id)
-    page_images = None
-    if job.status == "done":
-        # Disk-backed after completion: pdf_bytes is released from RAM when a
-        # job finishes, so completed jobs rasterize from the PDF store.
-        pdf_bytes = store.pdf_bytes(job_id)
-        if pdf_bytes is not None:
-            try:
-                page_images = [rasterize_page(pdf_bytes, i, dpi=200)
-                               for i in range(len(pages))]
-            except Exception:
-                page_images = None  # degrade to boxes-without-crops rather than 500
-    return jsonify({"status": job.status, "fragment": render_boxed(pages, page_images)})
 
 
 @app.route("/markdown/<job_id>")
@@ -6735,8 +6683,8 @@ def download(job_id, fmt):
 #: export audit row (served without it, the audit trail would lose them). A route added later is refused until it is
 #: named here. `healthz` is the hosting line's probe.
 _READ_ONLY_ENDPOINTS = frozenset({
-    "index", "static", "healthz", "get_settings", "status", "live", "rendered_skeleton_route", "render", "markdown",
-    "analysis", "package_analysis", "page", "result",
+    "index", "static", "healthz", "get_settings", "status", "markdown", "analysis", "package_analysis", "page",
+    "result",
 })
 #: What a start-up whose store cannot be read at all still serves: the page and the probe.
 _UNAVAILABLE_ENDPOINTS = frozenset({"index", "static", "healthz"})

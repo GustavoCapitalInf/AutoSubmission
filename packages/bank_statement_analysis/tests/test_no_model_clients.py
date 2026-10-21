@@ -1073,8 +1073,8 @@ with fitz.open() as document:
     pdf = document.tobytes(no_new_id=True)
 scratch = Path({str(tmp_path)!r})
 store = JobStore(Storage(scratch / "jobs"))
-job = store.create("fabricated.pdf", pdf_bytes=pdf, parse_mode="auto")
-run_job(job.id, pdf, "fabricated.pdf", store, False, "auto")
+job = store.create("fabricated.pdf", pdf_bytes=pdf)
+run_job(job.id, pdf, "fabricated.pdf", store)
 done = store.get(job.id)
 RESULT["job"] = [done.status, done.parse_model, done.analysis is not None, done.analysis_error]
 (scratch / "corpus" / "BankX").mkdir(parents=True)

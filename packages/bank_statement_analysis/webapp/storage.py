@@ -521,7 +521,6 @@ class Storage:
         content_sha256: str | None,
         byte_size: int = 0,
         force_ocr: bool = False,
-        parse_mode: str = "auto",
         page_count: int = 0,
     ) -> str | None:
         """Record one upload in ONE transaction: its document row (when it has bytes), its job row and its `upload`
@@ -547,8 +546,8 @@ class Storage:
                 document_id = int(cursor.lastrowid)
             conn.execute(
                 "INSERT INTO jobs (id, document_id, filename, status, stage, force_ocr,"
-                " parse_mode, page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?, ?)",
-                (job_id, document_id, filename, int(force_ocr), parse_mode, page_count, utc_now_iso()),
+                " page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?)",
+                (job_id, document_id, filename, int(force_ocr), page_count, utc_now_iso()),
             )
             self._insert_audit(
                 conn, "upload", job_id=job_id, detail={"filename": filename, "content_sha256": content_sha256},
@@ -615,14 +614,13 @@ class Storage:
         filename: str,
         document_id: int | None = None,
         force_ocr: bool = False,
-        parse_mode: str = "auto",
         page_count: int = 0,
     ) -> None:
         with closing(self._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO jobs (id, document_id, filename, status, stage, force_ocr,"
-                " parse_mode, page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?, ?)",
-                (job_id, document_id, filename, int(force_ocr), parse_mode, page_count, utc_now_iso()),
+                " page_count, created_at) VALUES (?, ?, ?, 'queued', 'queued', ?, ?, ?)",
+                (job_id, document_id, filename, int(force_ocr), page_count, utc_now_iso()),
             )
 
     def load_job(self, job_id: str) -> dict | None:
@@ -696,10 +694,6 @@ class Storage:
             )
             if cursor.rowcount:
                 self._insert_audit(conn, "status_change", job_id=job_id, detail={"status": "error"})
-
-    def set_job_analysis(self, job_id: str, analysis_json: str) -> None:
-        with closing(self._connect()) as conn, conn:
-            conn.execute("UPDATE jobs SET analysis_json = ? WHERE id = ?", (analysis_json, job_id))
 
     def record_reanalysis(self, job_id: str, *, analysis_json: str, detail: dict) -> bool:
         """Replace a job's analysis with a re-analysis of its statement (spec §8.6), in ONE transaction: the audit

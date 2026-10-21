@@ -6,7 +6,7 @@ The PaddleOCR rung (`ocr/paddle_adapter.py`, `paddle_client.py`, `paddle_config.
 and research tools and the Paddle fixtures were deleted. Nothing may import them again, in any spelling: absolute,
 from-package, relative (resolved against the importing file's package), or a dynamic import by name; a planted import
 of each form is caught. No module passes `allow_paddle_ocr=True` or names a Paddle data scope, the ladder takes no
-Paddle knob and refuses `force_ocr=True`, and the cache refuses the Paddle partition. Local Tesseract stays.
+Paddle knob and refuses `force_ocr=True`, and the cache takes no Paddle option. Local Tesseract stays.
 """
 from __future__ import annotations
 
@@ -159,8 +159,7 @@ def test_a_fresh_process_importing_the_entry_points_holds_no_removed_module(tmp_
 
 
 def _calls_naming(source: str, keyword: str) -> list[int]:
-    """Calls passing `keyword=` anything but the literal False or the caller's own same-named parameter (the
-    cache's `cached_ocr` forwards its `allow_paddle_ocr` to `ocr_settings_key`, after refusing True itself)."""
+    """Calls passing `keyword=` anything but the literal False or the caller's own same-named parameter."""
     lines = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Call):
@@ -207,19 +206,11 @@ def test_the_ladder_takes_no_paddle_knob_and_refuses_forcing(monkeypatch):
         assert str(refused.value) == FORCED_OCR_REMOVED
 
 
-def test_the_cache_refuses_the_paddle_partition_before_any_read(tmp_path):
-    from webapp.artifact_cache import PADDLE_OCR_RETIRED, cached_ocr, ocr_settings_key, open_cache
+def test_the_cache_takes_no_paddle_knob():
+    from webapp.artifact_cache import cached_ocr, ocr_settings_key
 
-    with pytest.raises(ValueError) as refused:
-        ocr_settings_key(force_ocr=True, allow_local_ocr=False, allow_visual_ocr=False, allow_paddle_ocr=True)
-    assert str(refused.value) == PADDLE_OCR_RETIRED
-    for cache in (None, open_cache(tmp_path / "data")):
-        with pytest.raises(ValueError) as refused:
-            cached_ocr(b"%PDF-1.4", compute=lambda: pytest.fail("nothing may be computed"), cache=cache,
-                       force_ocr=True, allow_visual_ocr=False, allow_paddle_ocr=True)
-        assert str(refused.value) == PADDLE_OCR_RETIRED
-    assert inspect.signature(ocr_settings_key).parameters["allow_paddle_ocr"].default is False
-    assert inspect.signature(cached_ocr).parameters["allow_paddle_ocr"].default is False
+    for function in (ocr_settings_key, cached_ocr):
+        assert "allow_paddle_ocr" not in inspect.signature(function).parameters
 
 
 def test_the_parse_cli_has_no_dpi_flag(tmp_path, capsys):

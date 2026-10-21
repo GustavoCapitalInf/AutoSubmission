@@ -32,9 +32,8 @@ The retired escalation modes
 named population read by Paddle into a research partition) each added a model
 read on top of `--scanned`, reached two ways: RECOVERY (the offline rungs
 produced nothing) and UPGRADE (an unclaimed Tesseract read was re-read). All
-three are gone with their rungs, and with them every `EscalationRouter.decide`
-call site in this module (2 -> 0, declared in
-`tests/test_escalation_tripwires.py`). Their mode names stay as retired
+three are gone with their rungs, and with them the escalation router's call
+sites in this module and then the router itself. Their mode names stay as retired
 vocabulary (in `LOCAL_OCR_MODES`, so the mode vocabulary is append-only and
 historical rows and provenance records keep their meaning), and
 `DiscoveryRunner` refuses to be constructed with any of them. Every row column
@@ -1361,7 +1360,7 @@ class DiscoveryRunner:
         exit, after the analysis has already finished, and writes to the ROW
         and to nothing else. Nothing above reads an `eq_*` value; nothing can,
         because `ocr/escalation.py` does not import the module that computes
-        them and `RouterInputs` has nowhere to put one.
+        them.
 
         The ink columns are empty in production by construction: a page's
         pixels are not retained outside a research partition (`raster_sha256`

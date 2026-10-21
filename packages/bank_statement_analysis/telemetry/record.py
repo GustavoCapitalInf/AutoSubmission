@@ -100,18 +100,17 @@ REFUSED_REASONS = (
     "not_a_statement", "file_invalid", "insufficient_evidence", "contradictory", "incomplete", "unreadable",
 )
 #: P21-ROUTING (Phase 2.1) adds `"paddle"`, between `"local_tesseract"` and
-#: `"visual"` — the same slot PaddleOCR takes in `ocr.escalation.
-#: EXTRACTOR_ORDER`.
+#: `"visual"`.
 SOURCE_PATHS = ("native", "local_tesseract", "paddle", "visual", "visual_pair", "none")
 
-#: P20-ROUTER (Phase 2.0). Mirrored, by value, from `ocr.escalation` — held
-#: equal to it by `tests/test_escalation_tripwires.py` so the two never drift.
-#: Not imported from there directly: `ocr/escalation.py` must import nothing
-#: from `telemetry` (see its module docstring), and a one-way mirror the
-#: OTHER direction (this module importing `ocr.escalation`) would put a
-#: telemetry-layer dependency on the OCR router for two string tuples. A row
-#: or record token from outside either vocabulary is refused by the
-#: `discovery.runner` row projection.
+#: P20-ROUTER (Phase 2.0). `FAILURE_CLASSES` is mirrored, by value, from
+#: `ocr.escalation` and held equal to it by `tests/test_telemetry.py`; it is
+#: not imported because `ocr/escalation.py` must import nothing from
+#: `telemetry`, and the reverse import would tie this layer to the OCR package
+#: for one tuple. `EXTRACTION_TRIGGERS` is the vocabulary the retired
+#: escalation router named its triggers in; it stays so historical rows remain
+#: classifiable. A row or record token from outside either vocabulary is
+#: refused by the `discovery.runner` row projection.
 FAILURE_CLASSES = ("A", "B", "C", "")
 EXTRACTION_TRIGGERS = (
     "image_only_document",

@@ -1,23 +1,11 @@
-"""P20-ROUTER: `ocr.escalation` unit proof and the CASE 1-4 behavioural proof.
+"""P20-ROUTER: `ocr.escalation`'s failure-class vocabulary and extraction-quality
+gate, and the CASE 1-4 behavioural proof through `DiscoveryRunner`.
 
-Nothing here reaches a server. Cases 1-4 are proved twice: once as a pure
-unit test of `EscalationRouter.decide` (fast, exact), and once as an
-integration test through `DiscoveryRunner` for the cases that matter most
-operationally (Class B and Class C never scheduling an escalation read).
-
-Model-code removal, slice S2: the integration tests ran in the retired
-`--scanned-visual` mode with the visual OCR client faked; they moved to
-`--scanned-paddle`, and the three whose subject was the visual client itself
-(a visual recovery read, a visual upgrade read, the client's endpoint refusal)
-were deleted with it. Slice S5: the Paddle and research modes, and with them
-the runner's last `decide(` sites, were removed. The integration tests now run
-in `--scanned` (no escalation exists to schedule) and pin what they always
-pinned about the ROW: the deterministic projection (`evidence_quality`,
-`failure_class`, both rungs `not_attempted`, no trigger and no router refusal
-recorded). The tests whose subject was the escalation itself (the MINOR-9
-refusal comparability, the escalation budget and its CLI computation) were
-deleted with it. The router's own unit tests stay: `ocr/escalation.py` is kept
-(pinned) for its vocabulary and its gate.
+Nothing here reaches a server. The escalation router these cases were first
+written against was removed with the model rungs; the integration tests run in
+`--scanned` and pin what they always pinned about the ROW: the deterministic
+projection (`evidence_quality`, `failure_class`, both rungs `not_attempted`,
+no trigger and no router refusal recorded).
 """
 from __future__ import annotations
 
@@ -38,32 +26,18 @@ from discovery.runner import (
 from discovery.inventory import DedupIndex
 from ocr.document import StatementMarkdown
 from ocr.escalation import (
-    ADMITTED_TRIGGERS,
-    ALL_TRIGGERS,
     ALNUM_DENSITY_FLOOR,
     A_EXTRACTION,
     BELOW_ALNUM_DENSITY_FLOOR,
     B_STRUCTURE,
     C_VALIDATION,
     CHAR_FLOOR,
-    EXTRACTOR_FAILED,
-    EXTRACTOR_ORDER,
-    EXTRACTOR_OUTPUT_UNUSABLE,
-    IMAGE_ONLY_DOCUMENT,
-    MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
     NO_FAILURE,
-    OFFLINE_RUNGS_PRODUCED_NO_TEXT,
-    OPERATOR_FORCED_VISUAL,
-    TRIGGER_REPORT_PRIORITY,
-    TRUNCATION_FLAGGED,
-    Escalation,
-    EscalationRouter,
     EvidenceQuality,
     ExtractionQualityGate,
     FAILURE_CLASSES,
-    RouterInputs,
-    router_inputs,
 )
+from telemetry.record import EXTRACTION_TRIGGERS
 from tests.statements import statements_dir
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -174,9 +148,8 @@ def test_below_the_alnum_density_floor_is_surfaced_but_still_usable():
     """P20-ROUTER review, MAJOR-2 (ruled): the density criterion is
     SURFACE-ONLY, exactly like Trigger T. It is recorded in `.signals` — an
     advisory, never-routed observation — and NEVER moves `.usable` or
-    appears in `.reasons`. `ADMITTED_TRIGGERS`' `EXTRACTOR_OUTPUT_UNUSABLE`
-    can therefore never fire on density alone; only the parameter-free triad
-    (no text / below char floor / all pages empty) may.
+    appears in `.reasons`: only the parameter-free triad (no text / below
+    char floor / all pages empty) makes a read unusable.
     """
     # 300 characters, almost entirely punctuation/noise: clears CHAR_FLOOR but
     # falls below ALNUM_DENSITY_FLOOR.
@@ -271,252 +244,6 @@ def test_tesseract_and_visual_sources_are_really_gate_assessed():
 
 
 # ---------------------------------------------------------------------------
-# RouterInputs / router_inputs — the field pin and the ONE constructor
-# ---------------------------------------------------------------------------
-
-def test_router_inputs_field_set_is_pinned():
-    assert set(RouterInputs.__dataclass_fields__) == {
-        "profile", "evidence", "triggers", "attempted", "stop", "enabled",
-    }
-
-
-def test_router_inputs_constructor_normalises_and_is_keyword_only():
-    evidence = ExtractionQualityGate.assess(None, None)
-    inputs = router_inputs(
-        profile=None, evidence=evidence, triggers={OFFLINE_RUNGS_PRODUCED_NO_TEXT},
-        attempted=["local_tesseract"], stop=0, enabled=["visual"],
-    )
-    assert isinstance(inputs, RouterInputs)
-    assert inputs.triggers == frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT})
-    assert inputs.attempted == ("local_tesseract",)
-    assert inputs.stop is False
-    assert inputs.enabled == frozenset({"visual"})
-    with pytest.raises(TypeError):
-        router_inputs(None, evidence, frozenset(), (), False, frozenset())  # positional: refused
-
-
-# ---------------------------------------------------------------------------
-# EscalationRouter.decide — the closed vocabulary and the four rules in order
-# ---------------------------------------------------------------------------
-
-def _inputs(**overrides) -> RouterInputs:
-    # Unit-level default: every extractor "enabled", so these pure tests of
-    # `decide`'s ORDER / ATTEMPTED logic are unaffected by D4's mode
-    # narrowing unless a test deliberately overrides `enabled` to exercise
-    # it. Production callers never do this (each mode enables at most one
-    # extractor) — see the D4-specific tests below and the CASE 1-4 tests,
-    # which go through the real `DiscoveryRunner` and therefore a real,
-    # narrow `enabled` set.
-    base = dict(
-        profile=None,
-        evidence=ExtractionQualityGate.assess(None, None),
-        triggers=frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT}),
-        attempted=(),
-        stop=False,
-        enabled=frozenset(EXTRACTOR_ORDER),
-    )
-    base.update(overrides)
-    return router_inputs(**base)
-
-
-def test_stop_refuses_regardless_of_any_trigger():
-    """CASE 4 (stop): a validated document cannot be re-escalated by ANY
-    trigger, including the operator's own flag."""
-    decision = EscalationRouter.decide(_inputs(
-        stop=True, triggers=frozenset({OFFLINE_RUNGS_PRODUCED_NO_TEXT, OPERATOR_FORCED_VISUAL}),
-    ))
-    assert decision == Escalation(extractor=None, trigger=None, refused=("stopped_by_validated",))
-
-
-def test_no_admitted_trigger_refuses():
-    decision = EscalationRouter.decide(_inputs(triggers=frozenset()))
-    assert decision.extractor is None
-    assert decision.refused == ("no_admitted_trigger",)
-
-
-def test_truncation_flagged_alone_is_refused_oq4():
-    """T is DEFINED, and REFUSED: its population is measured, never routed."""
-    assert TRUNCATION_FLAGGED not in ADMITTED_TRIGGERS
-    decision = EscalationRouter.decide(_inputs(triggers=frozenset({TRUNCATION_FLAGGED})))
-    assert decision.extractor is None
-    assert decision.refused == ("no_admitted_trigger",)
-
-
-def test_extractor_output_unusable_admits_the_first_unattempted_extractor():
-    """CASE 3: a read below the floor -> A, the router names the first
-    allowed extractor not yet attempted."""
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
-    ))
-    assert decision.extractor == EXTRACTOR_ORDER[0] == "local_tesseract"
-    assert decision.trigger == EXTRACTOR_OUTPUT_UNUSABLE
-    assert decision.refused == ()
-
-
-def test_every_extractor_already_attempted_refuses_case_3b():
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=tuple(EXTRACTOR_ORDER),
-    ))
-    assert decision.extractor is None
-    assert decision.refused == ("no_allowed_extractor_remains",)
-
-
-def test_a_partially_attempted_ladder_names_the_next_extractor():
-    """Phase 2.1 (D4): with every extractor enabled, the next one after
-    `local_tesseract` in `EXTRACTOR_ORDER` is `paddle` — it now sits between
-    `local_tesseract` and `visual`."""
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=("local_tesseract",),
-    ))
-    assert decision.extractor == "paddle"
-
-
-def test_a_partially_attempted_ladder_names_the_next_after_paddle_too():
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}),
-        attempted=("local_tesseract", "paddle"),
-    ))
-    assert decision.extractor == "visual"
-
-
-# ---------------------------------------------------------------------------
-# D4: `enabled` narrows which allowed extractor `decide` may pick — the
-# fixture every real mode actually uses (exactly one member, or none).
-# ---------------------------------------------------------------------------
-
-def test_enabled_narrows_to_paddle_only():
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
-        enabled=frozenset({"paddle"}),
-    ))
-    assert decision.extractor == "paddle"
-
-
-def test_enabled_narrows_to_visual_only():
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
-        enabled=frozenset({"visual"}),
-    ))
-    assert decision.extractor == "visual"
-
-
-def test_an_admitted_trigger_with_nothing_enabled_refuses():
-    """M2's own negative control at the unit level: an admitted trigger with
-    `enabled=frozenset()` (no mode has authorised any extractor at all) must
-    refuse — never silently pick the fixed order's first member regardless
-    of what the mode allows."""
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
-        enabled=frozenset(),
-    ))
-    assert decision.extractor is None
-    assert decision.refused == ("no_allowed_extractor_remains",)
-
-
-def test_enabled_does_not_add_an_extractor_the_order_does_not_already_name():
-    """`enabled` only ever NARROWS `EXTRACTOR_ORDER`; naming an unknown
-    extractor id in `enabled` grants it nothing."""
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
-        enabled=frozenset({"unlimited_ocr"}),
-    ))
-    assert decision.extractor is None
-    assert decision.refused == ("no_allowed_extractor_remains",)
-
-
-def test_the_most_specific_admitted_trigger_is_reported_not_the_declaration_order():
-    """P20-ROUTER review, MINOR-8: when a recovery admits BOTH
-    `offline_rungs_produced_no_text` (evidence-level) and
-    `image_only_document` (profile-level) at once, the row must report the
-    evidence-level fact — the one the whole R population is named after —
-    not whichever trigger happens to be declared first in `ALL_TRIGGERS`."""
-    decision = EscalationRouter.decide(_inputs(
-        triggers=frozenset({IMAGE_ONLY_DOCUMENT, OFFLINE_RUNGS_PRODUCED_NO_TEXT, OPERATOR_FORCED_VISUAL}),
-    ))
-    assert decision.trigger == OFFLINE_RUNGS_PRODUCED_NO_TEXT
-    # `ALL_TRIGGERS`' declaration order would have picked IMAGE_ONLY_DOCUMENT
-    # (declared first) — proving the two orders really are different.
-    assert ALL_TRIGGERS.index(IMAGE_ONLY_DOCUMENT) < ALL_TRIGGERS.index(OFFLINE_RUNGS_PRODUCED_NO_TEXT)
-    assert (
-        TRIGGER_REPORT_PRIORITY.index(OFFLINE_RUNGS_PRODUCED_NO_TEXT)
-        < TRIGGER_REPORT_PRIORITY.index(IMAGE_ONLY_DOCUMENT)
-    )
-
-
-# `test_recovery_through_the_real_runner_reports_offline_rungs_produced_no_text`
-# drove a visual recovery read; it was deleted with the visual OCR client
-# (slice S2). The same end-to-end trigger report on a recovery is pinned for the
-# Paddle rung by `tests/test_paddle_routing.py::test_case1_recovery_names_paddle_and_local_free_recovers`,
-# and the reporting priority itself by the unit test above.
-
-
-def test_the_paddle_slot_is_filled_between_tesseract_and_visual():
-    """Phase 2.1 (D4, OQ5): PaddleOCR takes the SLOT Phase 2.0 left named but
-    empty, in the documented position."""
-    assert EXTRACTOR_ORDER == ("local_tesseract", "paddle", "visual", "visual_pair")
-
-
-def test_no_page_level_or_remote_extractor_id_is_ever_produced():
-    for extractor in EXTRACTOR_ORDER:
-        decision = EscalationRouter.decide(_inputs(
-            triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}), attempted=(),
-        ))
-        assert decision.extractor in (None, *EXTRACTOR_ORDER)
-
-
-def test_the_router_has_no_endpoint_policy_seam_at_all(monkeypatch):
-    """P20-ROUTER review, MAJOR-1 (ruled): the router does not consult, nor
-    import, any endpoint-policy module — that enforcement lives entirely in
-    `ocr_client._build_client` (cell B2), which fails closed before any
-    client object exists. `EscalationRouter.decide` picks among its own
-    closed `EXTRACTOR_ORDER`, full stop; a real endpoint-refusing module
-    installed in `sys.modules` changes nothing about its answer."""
-    import sys
-    import types
-
-    fake_module = types.ModuleType("ocr.endpoint_policy")
-    fake_module.check_endpoint = lambda base_url, *, opt_in: (_ for _ in ()).throw(
-        AssertionError("the router must never call an endpoint-policy module")
-    )
-    # (`ocr.endpoint_policy` itself was removed in slice S5 of the model-code
-    # removal; the fake below still proves the router consults no such seam.)
-    # Composition (Ocean, train10): the REAL `ocr.endpoint_policy` (cell B2)
-    # is imported by `ocr_client._build_client` and pinned by class identity
-    # in tests/test_ocr_endpoint_policy.py. A bare `del sys.modules[...]`
-    # here evicted the real module when it was already loaded, so every later
-    # `from ocr.endpoint_policy import EndpointRefused` produced a SECOND class
-    # object and `pytest.raises(EndpointRefused)` stopped matching — 4
-    # order-dependent failures at the composed tree. `monkeypatch.setitem`
-    # restores whatever was there before, real module included.
-    monkeypatch.setitem(sys.modules, "ocr.endpoint_policy", fake_module)
-    decision = EscalationRouter.decide(_inputs(triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE})))
-    assert decision.extractor == "local_tesseract"
-
-
-def test_ocr_escalation_does_not_import_endpoint_policy():
-    import ocr.escalation as escalation_module
-
-    assert "endpoint_policy" not in dir(escalation_module)
-    assert not hasattr(escalation_module, "_endpoint_policy_allows")
-
-
-def test_decide_is_pure_same_inputs_same_answer():
-    """P20-ROUTER item 2c, at the router's own level: the decision computed
-    from a `RouterInputs` never changes because something else happened in
-    between two calls (there is nothing in `RouterInputs` an analysis stage
-    could mutate — it is frozen)."""
-    inputs = _inputs(triggers=frozenset({EXTRACTOR_OUTPUT_UNUSABLE}))
-    first = EscalationRouter.decide(inputs)
-
-    def pretend_analysis_ran():
-        return object()
-
-    pretend_analysis_ran()
-    second = EscalationRouter.decide(inputs)
-    assert first == second
-
-
-# ---------------------------------------------------------------------------
 # The closed vocabularies
 # ---------------------------------------------------------------------------
 
@@ -525,28 +252,10 @@ def test_failure_classes_are_exactly_four():
     assert FAILURE_CLASSES == ("A", "B", "C", "")
 
 
-def test_all_triggers_and_admitted_triggers():
-    # P22-TRUTHTABLE (D8) appends ONE member, `OPERATOR_FORCED_PADDLE`: the
-    # research run mode's trigger, a run-mode fact exactly like
-    # `OPERATOR_FORCED_VISUAL` beside it. Its mode-only reachability is
-    # `tests/test_research_mode.py`'s subject, not this pin's — this line is
-    # the closed-vocabulary pin and nothing else.
-    from ocr.escalation import (OPERATOR_FORCED_PADDLE, OPERATOR_FORCED_VISUAL_PAIR, DETERMINISTIC_PARSE_UNVALIDATED)
-
-    assert ALL_TRIGGERS == (
-        IMAGE_ONLY_DOCUMENT, MIXED_DOCUMENT_PAGES_WITHOUT_NATIVE_TEXT,
-        OFFLINE_RUNGS_PRODUCED_NO_TEXT, EXTRACTOR_OUTPUT_UNUSABLE, EXTRACTOR_FAILED,
-        OPERATOR_FORCED_VISUAL, OPERATOR_FORCED_VISUAL_PAIR,
-        DETERMINISTIC_PARSE_UNVALIDATED, OPERATOR_FORCED_PADDLE, TRUNCATION_FLAGGED,
-    )
-    assert ADMITTED_TRIGGERS == frozenset(ALL_TRIGGERS) - {TRUNCATION_FLAGGED}
-
-
 def test_the_mirrored_telemetry_vocabulary_matches_exactly():
-    from telemetry.record import EXTRACTION_TRIGGERS, FAILURE_CLASSES as TELEMETRY_FAILURE_CLASSES
+    from telemetry.record import FAILURE_CLASSES as TELEMETRY_FAILURE_CLASSES
 
     assert TELEMETRY_FAILURE_CLASSES == FAILURE_CLASSES
-    assert EXTRACTION_TRIGGERS == ALL_TRIGGERS
 
 
 def test_both_vocabularies_are_exported_from_the_telemetry_package():
@@ -555,7 +264,7 @@ def test_both_vocabularies_are_exported_from_the_telemetry_package():
     import telemetry
 
     assert telemetry.FAILURE_CLASSES == FAILURE_CLASSES
-    assert telemetry.EXTRACTION_TRIGGERS == ALL_TRIGGERS
+    assert telemetry.EXTRACTION_TRIGGERS == EXTRACTION_TRIGGERS
     assert "FAILURE_CLASSES" in telemetry.__all__
     assert "EXTRACTION_TRIGGERS" in telemetry.__all__
 
@@ -584,7 +293,7 @@ def test_as_dict_refuses_an_escalation_trigger_outside_the_vocabulary():
 def test_as_dict_accepts_every_member_of_both_vocabularies():
     for failure_class in FAILURE_CLASSES:
         _row(failure_class=failure_class).as_dict()
-    for trigger in ("",) + ALL_TRIGGERS:
+    for trigger in ("",) + EXTRACTION_TRIGGERS:
         _row(escalation_trigger=trigger).as_dict()
 
 
@@ -748,6 +457,5 @@ def test_case4_stop_a_validated_document_is_never_re_escalated(scan_tree, monkey
 # (slice S5). The summary keeps `escalation_budget` None and `escalations_used`
 # 0 (`tests/test_discovery_no_models.py`). webapp/worker.py's
 # `_force_ocr_decision` left in slice S1: a forced job is refused before
-# preflight (tests/test_webapp_worker.py). The router's own vocabulary is
-# unchanged.
+# preflight (tests/test_webapp_worker.py).
 # ---------------------------------------------------------------------------

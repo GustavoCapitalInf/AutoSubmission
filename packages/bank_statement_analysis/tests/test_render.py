@@ -1,86 +1,6 @@
 import pytest
-from PIL import Image
 
-from ocr.render import (
-    markdown_to_html, promote_headers, render_fragment, rendered_skeleton,
-    render_boxed, REGION_COLORS,
-)
-
-
-def test_render_boxed_wraps_regions_with_colored_labels():
-    raw = ("<|det|>title [10,10,90,40]<|/det|>ROYAL BANK OF CANADA"
-           "<|det|>text [10,50,90,80]<|/det|>P.O. BOX 4047")
-    out = render_boxed([raw])
-    assert out.count('class="region"') == 2
-    # region type label + its color both present
-    assert '>title<' in out and '>text<' in out
-    assert f"border-color:{REGION_COLORS['title']}" in out
-    assert f"border-color:{REGION_COLORS['text']}" in out
-    assert "ROYAL BANK OF CANADA" in out
-    assert "P.O. BOX 4047" in out
-    # det tags themselves are gone from the rendered output
-    assert "<|det|>" not in out
-
-
-def test_render_boxed_page_separator_and_plain_start():
-    # No complete region tag yet -> still renders the partial text (no crash).
-    out = render_boxed(["Just some text so far"])
-    assert "Page 1" in out
-    assert "Just some text so far" in out
-
-
-def test_render_boxed_never_calls_the_quarantined_postprocess_chain():
-    # OQ1 = C: the display path (ocr/render.py:179,192) must render raw
-    # content — `postprocess` (and every one of its nine members) stays
-    # unwired here exactly as it is on the analysis path. A degenerate money
-    # run inside a region would be collapsed to one token if `postprocess`
-    # ran; it must survive intact.
-    raw = ("<|det|>text [0,0,50,10]<|/det|>"
-           "$50.00 $50.00 $50.00 $75.00 $60.00")
-    out = render_boxed([raw])
-    assert "$75.00" in out and "$60.00" in out
-    assert out.count("$50.00") == 3
-
-    # Same for the no-complete-region-tag fallback branch.
-    out2 = render_boxed(["$50.00 $50.00 $50.00 $75.00 $60.00"])
-    assert "$75.00" in out2 and "$60.00" in out2
-
-
-def test_render_boxed_embeds_picture_region_when_image_given():
-    img = Image.new("RGB", (1000, 1000), (200, 50, 50))
-    raw = "<|det|>image [100,100,400,400]<|/det|>"
-    out = render_boxed([raw], page_images=[img])
-    assert '<img class="doc-image" src="data:image/png;base64,' in out
-
-
-def test_the_picture_crop_lives_in_render_and_imports_no_ocr_client():
-    """Model-code removal, slice S2: the 4-line `_crop_data_uri` moved here from
-    the retired visual OCR client unchanged, so a stored legacy visual read's
-    picture regions still render (the /render identity is measured in the S2
-    report). The crop is the box of the page image, as a PNG data URI."""
-    import ast
-    import base64
-    import inspect
-    import io
-
-    import ocr.render as render_module
-
-    tree = ast.parse(inspect.getsource(render_module))
-    imported = {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
-    assert not imported & {"ocr_client", "ocr.ocr_client"}, imported
-    img = Image.new("RGB", (100, 100), (10, 20, 30))
-    uri = render_module._crop_data_uri(img, (10, 10, 60, 40))
-    prefix = "data:image/png;base64,"
-    assert uri.startswith(prefix)
-    crop = Image.open(io.BytesIO(base64.b64decode(uri[len(prefix):])))
-    assert crop.format == "PNG" and crop.size == (50, 30)
-    assert crop.convert("RGB").getpixel((0, 0)) == (10, 20, 30)
-
-
-def test_rendered_skeleton_supports_region_toggle():
-    skel = rendered_skeleton()
-    assert "body.hide-regions .region" in skel
-    assert ".region-tag" in skel
+from ocr.render import markdown_to_html, promote_headers, render_fragment
 
 
 def test_render_fragment_has_no_page_wrapper():
@@ -88,13 +8,6 @@ def test_render_fragment_has_no_page_wrapper():
     assert "<h1>Hello</h1>" in frag
     assert "<!DOCTYPE html>" not in frag
     assert "<html" not in frag.lower()
-
-
-def test_rendered_skeleton_has_styled_live_root():
-    skel = rendered_skeleton()
-    assert '<div id="live-root"></div>' in skel
-    assert "<style>" in skel
-    assert "<!DOCTYPE html>" in skel
 
 
 def test_markdown_to_html_wraps_in_page_with_title():
@@ -295,15 +208,3 @@ def test_the_report_page_carries_its_content_security_policy():
     assert head.count(REPORT_CSP_META) == 1
     assert head.index('<meta charset="utf-8">') < head.index(REPORT_CSP_META)
     assert "sandbox" not in REPORT_CSP_META  # a meta tag cannot carry sandbox
-    assert REPORT_CSP_META not in rendered_skeleton()
-
-
-def test_boxed_regions_show_markup_as_text_and_still_embed_crops():
-    img = Image.new("RGB", (1000, 1000), (200, 50, 50))
-    raw = ("<|det|>text [10,10,90,40]<|/det|>SAMPLE <img src=x onerror=alert(1)>"
-           "<|det|>table [10,50,90,80]<|/det|><table><tr><td>03/02</td><td>10.00</td></tr></table>"
-           "<|det|>image [100,100,400,400]<|/det|>")
-    out = render_boxed([raw], page_images=[img])
-    assert "<img src=x" not in out and "&lt;img src=x" in out
-    assert "<table><tr><td>03/02</td><td>10.00</td></tr></table>" in out
-    assert out.count('<img class="doc-image" src="data:image/png;base64,') == 1

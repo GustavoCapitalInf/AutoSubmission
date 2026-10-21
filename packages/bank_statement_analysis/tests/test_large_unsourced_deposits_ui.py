@@ -334,7 +334,7 @@ def test_the_words_live_in_one_place():
     assert 'const LARGE_DEPOSIT_FILTER = "largeDeposit";' in script
     assert script.count('"Large deposits to source"') == 1
     # The badge, the Held view and the decisions never read the served keys.
-    for function in ("function reviewBadgeValue(", "function accountDecision(", "function heldReasonEntries("):
+    for function in ("function reviewBadgeValue(", "function accountDecision("):
         start = script.index(function)
         body = script[start:script.index("\n}\n", start)]
         assert "large_unsourced" not in body and "LARGE_DEPOSIT" not in body, function

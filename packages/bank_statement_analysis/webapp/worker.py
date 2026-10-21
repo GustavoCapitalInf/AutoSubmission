@@ -40,13 +40,10 @@ def document_to_json(document: DocumentReport) -> dict:
 # O-1: the worker owns NO routing decisions. The single intake ladder
 # (native PDF text -> local Tesseract) lives in ocr.pipeline.parse_statement,
 # driven by the preflight DocumentProfile; this module only does job-store
-# bookkeeping. Auto and Deterministic only read and analyse the same way: the
-# product uses no model (owner ruling, 2026-10-13), so no read and no analysis
-# reaches a model service in either mode, and `parse_mode` only reaches the
-# analysis and its cache key. The ladder reports each rung through on_stage,
-# mapped here to the dashboard's historical stage labels. The ladder has no
-# visual rung any more (slice S2), so `reading_visual_ocr` is only a stored
-# historical stage value now; the dashboard still labels it.
+# bookkeeping. The ladder reports each rung through on_stage, mapped here to
+# the dashboard's historical stage labels. The ladder has no visual rung any
+# more (slice S2), so `reading_visual_ocr` is only a stored historical stage
+# value now; the dashboard still labels it.
 _STAGE_NAMES = {
     "native": "reading",
     "local_ocr": "reading_local_ocr",
@@ -180,7 +177,6 @@ def _analysis_failure(exc: BaseException) -> str:
 def _analyze_doc(
     doc: StatementMarkdown,
     filename: str,
-    parse_mode: str,
     cache: ArtifactCache | None = None,
     job_id: str | None = None,
     store: JobStore | None = None,
@@ -208,22 +204,18 @@ def _analyze_doc(
             analyzed = cached_analysis(
                 markdown,
                 compute=lambda: document_to_json(
-                    analyze_document(
-                        markdown, parse_mode=parse_mode, on_dispatch=collector,
-                        sheets=doc.pages,
-                    )
+                    analyze_document(markdown, on_dispatch=collector, sheets=doc.pages)
                 ),
                 cache=cache,
-                parse_mode=parse_mode,
                 sheets=doc.pages,
             )
         _note_cache(store, job_id, analyzed, timer)
         # Copy before stamping: on a cache hit the payload came straight out
-        # of the artifact store, and `parse_mode` is a serving-time annotation
-        # rather than part of the cached analysis (it already partitions the
-        # analysis cache key).
+        # of the artifact store. The stamp is the constant "auto" now that the
+        # upload has no parsing-mode choice; it stays so the published payload
+        # keeps its shape.
         analysis = dict(analyzed.value)
-        analysis["parse_mode"] = parse_mode
+        analysis["parse_mode"] = "auto"
         return markdown, html, analysis, None
     except Exception as e:
         # #WORKERPRIV site 1. This return value becomes the job's DURABLE
@@ -330,7 +322,6 @@ def _read_document(
     allow_local_ocr: bool,
     allow_visual_ocr: bool,
     on_stage,
-    on_replace,
     timer: StageTimer | None = None,
 ) -> StatementMarkdown | None:
     """One intake-ladder run, served from the D-3 artifact cache when these
@@ -338,9 +329,7 @@ def _read_document(
 
     The capability flags are passed identically to ``parse_statement`` and to
     the cache key — they decide which rung produces the text, so they must
-    partition the cache. A cached read replays its pages into the live buffer
-    (the ladder's own ``on_page_replace`` contract) so the viewer still fills
-    in even though nothing was OCR'd.
+    partition the cache.
     """
     result = _cached_ocr_timed(
         timer,
@@ -353,7 +342,6 @@ def _read_document(
             allow_local_ocr=allow_local_ocr,
             allow_visual_ocr=allow_visual_ocr,
             on_stage=on_stage,
-            on_page_replace=on_replace,
         ),
         cache=cache,
         source_file=filename,
@@ -363,9 +351,6 @@ def _read_document(
         allow_visual_ocr=allow_visual_ocr,
     )
     _note_cache(store, job_id, result, timer)
-    if result.cached and result.value is not None:
-        for index, page in enumerate(result.value.pages):
-            on_replace(index, page)
     return result.value
 
 
@@ -375,13 +360,12 @@ def run_job(
     filename: str,
     store: JobStore,
     force_ocr: bool = False,
-    parse_mode: str = "auto",
 ) -> None:
     # Persistence (D-1): every set_status/set_stage transition and the final
     # set_result/set_error below write through the JobStore facade into the
     # durable store (webapp/storage.py). Reaching a terminal state also
-    # releases the job's in-memory pdf_bytes; afterwards /page and /render
-    # serve the PDF from the on-disk content-hash store.
+    # releases the job's in-memory pdf_bytes; afterwards /page serves the PDF
+    # from the on-disk content-hash store.
     #
     # Cache (D-3): every expensive stage below goes through the content-hash
     # artifact cache bound to the same data directory, so re-processing
@@ -419,15 +403,12 @@ def run_job(
         def on_stage(rung: str) -> None:
             store.set_stage(job_id, _STAGE_NAMES[rung])
 
-        def on_replace(page: int, text: str) -> None:
-            store.set_page_live(job_id, page, text)
-
         def read(**flags) -> StatementMarkdown | None:
             nonlocal phase
             phase = _PHASE_READING
             return _read_document(
                 job_id, store, cache, pdf_bytes, filename, profile,
-                on_stage=on_stage, on_replace=on_replace,
+                on_stage=on_stage,
                 timer=timer, **flags,
             )
 
@@ -435,7 +416,7 @@ def run_job(
             nonlocal phase
             phase = _PHASE_ANALYSIS
             return _analyze_doc(
-                doc, filename, parse_mode, cache, job_id, store,
+                doc, filename, cache, job_id, store,
                 collector=collector, timer=timer,
             )
 

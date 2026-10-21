@@ -110,11 +110,9 @@ nothing else (surveyed from ``webapp/worker.py`` and the functions it calls,
     ladder still gets first refusal inside a single :func:`ocr.pipeline.parse_statement`
     call — is ``"offline"``. This is a LABEL on the settings partition, not a
     certified claim about which rung actually produced a given artifact (the
-    artifact's own ``model`` field is that record). The third label,
-    ``"paddle"`` (the forced PaddleOCR call shape, P21-ROUTING), is computed by
-    :func:`_ocr_extractor` for historical reconstruction only: since slice S5
-    of the model-code removal :func:`ocr_settings_key` refuses
-    ``allow_paddle_ocr=True`` before any material is built.
+    artifact's own ``model`` field is that record). The retired PaddleOCR
+    rung's ``"paddle"`` label can no longer be produced: no key has a Paddle
+    partition, and ``"allow_paddle_ocr": False`` stays in the material.
     ``postprocess_state`` / ``postprocess_admitted`` — the legacy OCR
     postprocess chain's quarantine state: the pinned ``"quarantined"`` /
     ``()`` for every extractor label (frozen key material since slice S2; the
@@ -201,7 +199,7 @@ Deliberately EXCLUDED from the keys, with reasons:
   change output (never key material).
 * ``timeout``, ``retries``, ``api_key`` — the retired visual rung's transport
   and secrets. Secrets must never be hashed into a key that is written to disk.
-* callbacks (``on_stage``, ``on_page_replace``) and the preflight ``profile``
+* the ``on_stage`` callback and the preflight ``profile``
   — the profile is derived from the bytes already in the key.
 
 Over-partitioning is safe, under-partitioning is not: the frozen visual-OCR
@@ -1130,20 +1128,6 @@ FROZEN_ANALYSIS_MODEL = "gemini-3.5-flash-lite"
 FROZEN_ANALYSIS_ESCALATION_MODEL = "gemini-3.5-flash"
 FROZEN_HOSTED_EXTRACTION_OPT_IN = False
 
-#: Model-code removal, slice S4: the fixed refusal of a key or cached read that
-#: asks for the retired visual pair's partition (`allow_visual_pair=True`). The
-#: pair and its settings (`ocr/visual_pair_config.py`) are gone, so that
-#: partition's key cannot be computed; its stored readings are left orphaned.
-VISUAL_PAIR_RETIRED = "the visual pair was removed: no OCR key has a visual-pair partition any more"
-
-#: Model-code removal, slice S5: the fixed refusal of a key or cached read that
-#: asks for the retired PaddleOCR rung's partition (`allow_paddle_ocr=True`).
-#: The rung and its settings (`ocr/paddle_config.py`) are gone, so that
-#: partition's key cannot be computed; its stored readings are left orphaned.
-#: `allow_paddle_ocr=False` stays key material (it always entered the v5+
-#: material), so no deterministic key moves.
-PADDLE_OCR_RETIRED = "the PaddleOCR rung was removed: no OCR key has a Paddle partition any more"
-
 #: A pinned duplicate of ``ocr.rasterize.RASTER_VERSION`` (review MINOR-1).
 #: ``ocr/rasterize.py`` imports ``pdf2image`` + ``PIL`` at module level, so an
 #: unguarded ``from ocr.rasterize import RASTER_VERSION`` would let a missing
@@ -1180,16 +1164,10 @@ def _validate_research_partition(value: object) -> str:
     return value
 
 
-def _ocr_extractor(
-    *, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool,
-    allow_paddle_ocr: bool = False,
-) -> str:
+def _ocr_extractor(*, force_ocr: bool, allow_local_ocr: bool, allow_visual_ocr: bool) -> str:
     """The extractor stack a call names — ONE function, pinned (F-6/§10).
 
-    ``"paddle"`` for the forced-Paddle call shape (``force_ocr=True`` AND
-    ``allow_paddle_ocr=True`` — discovery's Paddle rung,
-    `discovery/runner.py::_read_paddle`, P21-ROUTING); ``"visual"`` for the
-    forced-escalation call shape (``force_ocr=True`` AND
+    ``"visual"`` for the forced-escalation call shape (``force_ocr=True`` AND
     ``allow_visual_ocr=True`` — discovery's retired visual rung, deleted in
     slice S2 of the model-code removal; the label stays so historical
     reconstructions still compute that partition's key). Every other shape,
@@ -1200,21 +1178,14 @@ def _ocr_extractor(
     "offline" label and one settings key, exactly as they always have).
 
     **This field cannot partition the key on its own, and no test should
-    claim it does (review BLOCK-1).** It is a TOTAL function of ``force_ocr``,
-    ``allow_visual_ocr`` and ``allow_paddle_ocr``, all of which are ALREADY
-    key material -- any input that changes ``extractor`` necessarily changes
-    one of those fields too, so ``extractor`` is a LEGIBILITY / extensibility
-    slot (a human- and log-readable label), not additional partitioning
-    power. What IS pinned, and is the honest proof for this function, is the
-    truth table ``test_extractor_is_visual_only_for_the_forced_escalation_shape``
-    (and its Paddle counterpart) exercise directly. ``parse_statement`` itself
-    refuses ``allow_paddle_ocr and allow_visual_ocr`` together, so the two
-    forced branches here are mutually exclusive in every call this codebase
-    actually makes; ``"paddle"`` is checked first only so a hand-built,
-    contract-violating call resolves to a defined answer rather than an
-    unspecified one."""
-    if force_ocr and allow_paddle_ocr:
-        return "paddle"
+    claim it does (review BLOCK-1).** It is a TOTAL function of ``force_ocr``
+    and ``allow_visual_ocr``, both of which are ALREADY key material -- any
+    input that changes ``extractor`` necessarily changes one of those fields
+    too, so ``extractor`` is a LEGIBILITY / extensibility slot (a human- and
+    log-readable label), not additional partitioning power. What IS pinned,
+    and is the honest proof for this function, is the truth table
+    ``test_extractor_is_visual_only_for_the_forced_escalation_shape``
+    exercises directly."""
     return "visual" if (force_ocr and allow_visual_ocr) else "offline"
 
 
@@ -1301,9 +1272,6 @@ def ocr_settings_key(
     force_ocr: bool = False,
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
-    allow_paddle_ocr: bool = False,
-    allow_visual_pair: bool = False,
-    visual_pair_settings: Any | None = None,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -1338,27 +1306,10 @@ def ocr_settings_key(
     own OCR key (batch 8, batch 9) rather than recompute today's shape under
     yesterday's version number — the two are not the same key.
 
-    ``allow_visual_pair=True`` RAISES ``ValueError`` (model-code removal,
-    slice S4): the visual pair was removed, so no key names its partition any
-    more and its stored readings are orphaned, never re-keyed into a
-    deterministic partition. The parameter and its ``False`` default stay
-    (``False`` never entered the material, so every other key is unchanged);
-    ``visual_pair_settings`` was read only on that branch and is ignored. A
-    stored reading that carries ``visual_pair`` evidence still restores
-    through :func:`cached_ocr`, which re-verifies its hash.
-
-    ``allow_paddle_ocr=True`` RAISES ``ValueError`` the same way (slice S5:
-    the PaddleOCR rung was removed, and its settings with it). The parameter
-    and its ``False`` default stay, and ``"allow_paddle_ocr": False`` stays in
-    the v5+ material, so every deterministic key is unchanged; the Paddle
-    partition's stored readings are orphaned. A stored reading that carries
-    extractor ``evidence`` still restores through :func:`cached_ocr`, which
-    re-verifies it."""
-    if allow_visual_pair:
-        raise ValueError(VISUAL_PAIR_RETIRED)
-    if allow_paddle_ocr:
-        raise ValueError(PADDLE_OCR_RETIRED)
-    del visual_pair_settings  # read only by the retired visual-pair branch
+    The retired visual pair (model-code removal, slice S4) and PaddleOCR rung
+    (slice S5) have no partition any more, so their stored readings are
+    orphaned. ``"allow_paddle_ocr": False`` stays in the v5+ material, so every
+    deterministic key is unchanged."""
     if ocr_settings is None:
         # Frozen key material (plan D3): never read from the environment.
         ocr_settings = FROZEN_OCR_SETTINGS
@@ -1386,8 +1337,7 @@ def ocr_settings_key(
     }
     if version >= 5:
         extractor = _ocr_extractor(
-            force_ocr=force_ocr, allow_local_ocr=allow_local_ocr,
-            allow_visual_ocr=allow_visual_ocr, allow_paddle_ocr=allow_paddle_ocr,
+            force_ocr=force_ocr, allow_local_ocr=allow_local_ocr, allow_visual_ocr=allow_visual_ocr,
         )
         postprocess_state, postprocess_admitted = _ocr_postprocess_readout(extractor)
         try:
@@ -1399,12 +1349,10 @@ def ocr_settings_key(
         settings.update(
             {
                 "extractor": extractor,
-                # P21-ROUTING: a boolean partition field, like the other
-                # three capability flags above — always present at v5+
-                # (never only under `extractor == "paddle"`), so the offline
-                # and visual partitions partition on it too (accepted; see
-                # EXTRACTION_SCHEMA_VERSION's docstring).
-                "allow_paddle_ocr": bool(allow_paddle_ocr),
+                # Frozen key material: the retired Paddle rung's partition
+                # flag, always False (see EXTRACTION_SCHEMA_VERSION's
+                # docstring).
+                "allow_paddle_ocr": False,
                 "postprocess_state": postprocess_state,
                 "postprocess_admitted": list(postprocess_admitted),
                 "raster_version": int(_raster_version),
@@ -1419,10 +1367,6 @@ def ocr_settings_key(
             # D7: present ONLY when non-empty — see the docstring. Every
             # extractor label gets its own research partition.
             settings["research_partition"] = partition
-        # The Paddle settings block (`settings["paddle"]`, read from
-        # `ocr.paddle_config` for a paddle-labelled key only) was removed with
-        # the rung (slice S5): `allow_paddle_ocr=True` is refused above, so no
-        # key reaches that label any more.
     return _fingerprint(settings)
 
 
@@ -1778,9 +1722,6 @@ def cached_ocr(
     force_ocr: bool = False,
     allow_local_ocr: bool = False,
     allow_visual_ocr: bool = True,
-    allow_paddle_ocr: bool = False,
-    allow_visual_pair: bool = False,
-    visual_pair_settings: Any | None = None,
     dpi: int = 300,
     fallback_dpi: int | None = 250,
     ocr_settings: Any | None = None,
@@ -1839,15 +1780,7 @@ def cached_ocr(
     overwritten on that path (nothing was computed to overwrite it with): it
     is found — and reported — again on the next call, never lost and never
     served. An exception with no drift behind it carries no attribute.
-
-    ``allow_visual_pair=True`` (model-code removal, slice S4) and
-    ``allow_paddle_ocr=True`` (slice S5) raise ``ValueError`` before
-    ``compute`` runs, with or without a cache (see :func:`ocr_settings_key`).
     """
-    if allow_visual_pair:
-        raise ValueError(VISUAL_PAIR_RETIRED)
-    if allow_paddle_ocr:
-        raise ValueError(PADDLE_OCR_RETIRED)
     if cache is None:
         return CacheResult(compute(), False, STAGE_OCR, None)
     input_sha = content_hash or content_sha256(pdf_bytes)
@@ -1855,9 +1788,6 @@ def cached_ocr(
         force_ocr=force_ocr,
         allow_local_ocr=allow_local_ocr,
         allow_visual_ocr=allow_visual_ocr,
-        allow_paddle_ocr=allow_paddle_ocr,
-        allow_visual_pair=allow_visual_pair,
-        visual_pair_settings=visual_pair_settings,
         dpi=dpi,
         fallback_dpi=fallback_dpi,
         ocr_settings=ocr_settings,

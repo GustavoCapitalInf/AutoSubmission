@@ -5,6 +5,7 @@ replaces to the audit log, and replays the analyst's revenue decisions where the
 statements only, whole-dollar amounts; the storage and job-store tests use opaque stand-in payloads."""
 import copy
 import json
+import sqlite3
 import threading
 
 import pytest
@@ -456,13 +457,13 @@ class _Pipeline:
             raise self.analysis_failure
         return object()
 
-    def upload(self, payload, filename="fabricated.pdf", *, force_ocr=False, parse_mode="auto"):
-        """One upload through the real worker, with the job's own read flag and parse mode; returns the job id."""
+    def upload(self, payload, filename="fabricated.pdf", *, force_ocr=False):
+        """One upload through the real worker, with the job's own read flag; returns the job id."""
         from webapp.worker import run_job
 
         self.payload = payload
-        job = self.store.create(filename, pdf_bytes=PDF, force_ocr=force_ocr, parse_mode=parse_mode)
-        run_job(job.id, PDF, filename, self.store, force_ocr=force_ocr, parse_mode=parse_mode)
+        job = self.store.create(filename, pdf_bytes=PDF, force_ocr=force_ocr)
+        run_job(job.id, PDF, filename, self.store, force_ocr=force_ocr)
         assert self.store.get(job.id).status == "done"
         return job.id
 
@@ -524,9 +525,9 @@ def no_model_imports(monkeypatch):
     monkeypatch.setattr(sys, "meta_path", [_RefuseModelImports(), *sys.meta_path])
 
 
-def _stamped(payload, parse_mode="auto"):
-    """A payload as the worker saves it: stamped with the parse mode it ran under (webapp/worker.py:392-393)."""
-    return {**payload, "parse_mode": parse_mode}
+def _stamped(payload):
+    """A payload as the worker saves it: stamped with the constant parse mode (webapp/worker.py `_analyze_doc`)."""
+    return {**payload, "parse_mode": "auto"}
 
 
 def _json(value):
@@ -575,7 +576,7 @@ def _stored_analysis(kind):
 
 
 def _stored_job(store, kind, pdf=PDF):
-    job = store.create("fabricated.pdf", pdf_bytes=pdf, force_ocr=kind == "forced", parse_mode="auto")
+    job = store.create("fabricated.pdf", pdf_bytes=pdf, force_ocr=kind == "forced")
     store.set_result(job.id, _STORED_MARKDOWN[kind], _STORED_HTML[kind], _stored_analysis(kind), None,
                      _STORED_PARSE_MODEL[kind])
     return job.id
@@ -661,16 +662,22 @@ def test_a_rerun_reads_the_statement_from_the_ocr_cache_and_leaves_the_saved_job
     assert len(private_store.storage.telemetry_records()) == telemetry
 
 
-def test_a_rerun_keeps_the_job_s_own_parse_mode(pipeline, private_store):
-    """A job uploaded in deterministic mode is re-run in deterministic mode: in auto mode the analysis stage may make
-    the hosted call the operator did not choose for this job."""
+def test_a_job_stored_in_the_retired_deterministic_mode_reruns_like_any_other(pipeline, private_store, monkeypatch):
+    """The upload page lost its parsing-mode choice; a job stored with `deterministic` keeps that value in its row and
+    /status, and its re-run is analysed and stamped like every new job."""
+    from webapp import app as webapp_app
     from webapp.reanalysis import rerun_analysis
 
-    job_id = pipeline.upload(_payload(), parse_mode="deterministic")
+    job_id = pipeline.upload(_payload())
+    with sqlite3.connect(private_store.storage.db_path) as conn:
+        conn.execute("UPDATE jobs SET parse_mode = 'deterministic' WHERE id = ?", (job_id,))
+    reopened = JobStore(private_store.storage)
+    monkeypatch.setattr(webapp_app, "store", reopened)
+    assert webapp_app.app.test_client().get(f"/status/{job_id}").get_json()["parse_mode"] == "deterministic"
     new = _payload(SHIFTED_ROWS)
     pipeline.new_rules(new)
-    rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
-    assert (rerun.reason, rerun.analysis) == (None, _stamped(new, "deterministic"))
+    rerun = rerun_analysis(reopened, reopened.get(job_id), reopened.pdf_bytes(job_id))
+    assert (rerun.reason, rerun.analysis) == (None, _stamped(new))
 
 
 def test_a_statement_analysed_at_stage_19_is_analysed_again_from_its_cached_reading(
@@ -797,13 +804,6 @@ def test_a_cached_reading_that_fails_its_own_checks_is_not_read_again(pipeline, 
     rerun = rerun_analysis(private_store, private_store.get(job_id), private_store.pdf_bytes(job_id))
     assert (rerun.analysis, rerun.reason) == (None, READING_NOT_CACHED)
     assert pipeline.reads == 1  # stopped where the ladder named its rung, before the rung read
-
-
-# `test_a_reading_that_streams_before_it_names_a_stage_is_stopped` was deleted with its subject in slice S2: the
-# streaming read was the visual rung's `on_page_delta` live stream, and the worker passes no stream callback any more.
-# `webapp/reanalysis.py`'s `_CacheOnly.append_page_live` guard is left as it is (the re-analysis rules are not
-# edited); nothing in the worker can reach it now. A reader that names no stage is still pinned by
-# `test_a_reading_answered_again_by_a_reader_that_names_no_stage_is_not_written_back` above.
 
 
 def test_a_forced_job_is_refused_before_any_cache_lookup(pipeline, private_store, monkeypatch):
