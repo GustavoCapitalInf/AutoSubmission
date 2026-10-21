@@ -1,6 +1,6 @@
 """CASE 9 (P20-ARTIFACTS, Phase 2.0) — multi-partition artifact-selection
-determinism, proven against BOTH readers that adopt `telemetry/run_of_record.py`:
-`tools.cohort_replay.ColdCache` and `telemetry.stated_counts._ArtifactJoin`.
+determinism, proven against the reader that adopts `telemetry/run_of_record.py`:
+`telemetry.stated_counts._ArtifactJoin`.
 
 Scenario: ONE input (one PDF, one `content_sha256`) with THREE cached OCR
 artifacts (offline-local, offline-nolocal, visual) and, off the offline-nolocal
@@ -14,7 +14,7 @@ the SAME content_sha256 with DIFFERENT provenance (`source_path` /
 `visual_rung`), proving resolution is a property of each ROW, not something
 memoized per document.
 
-Both readers must, deterministically and identically:
+The reader must, deterministically:
 * resolve the row naming the offline partition to the OFFLINE-NOLOCAL text
   and the run's declared analysis payload — never the offline-local or
   visual decoys, never the other analysis partition;
@@ -139,29 +139,14 @@ _TWENTY_ORDERS = random.Random(20260901).sample(_ALL_PERMUTATIONS, 20)
 
 
 @pytest.mark.parametrize("order", _TWENTY_ORDERS, ids=[f"order{i}" for i in range(20)])
-def test_case9_both_readers_resolve_deterministically_regardless_of_insertion_order(tmp_path, order):
+def test_case9_the_reader_resolves_deterministically_regardless_of_insertion_order(tmp_path, order):
     from telemetry.stated_counts import _ArtifactJoin
-    from tools.cohort_replay import ColdCache
 
     data_dir = tmp_path / "data"
     run_dir = tmp_path / "run"
     _write_artifacts(data_dir, list(order))
     _write_run_dir(run_dir)
 
-    # --- reader 1: tools.cohort_replay.ColdCache ---------------------------
-    cold = ColdCache(data_dir, run_dir)
-    markdown, pages = cold.text(SHA_X, ROW_OFFLINE)
-    assert markdown is not None and "OFFLINE-NOLOCAL PAGE" in markdown
-    assert "OFFLINE-LOCAL PAGE" not in markdown and "VISUAL PAGE" not in markdown
-    baseline = cold.baseline_payload(markdown, pages)
-    assert baseline == ANALYSIS_PAYLOAD_NEW
-
-    # The visual-outcome row: no visual partition in this run -> None, never
-    # a fallback to the offline text.
-    markdown_absent, _ = cold.text(SHA_X, ROW_VISUAL_ABSENT)
-    assert markdown_absent is None
-
-    # --- reader 2: telemetry.stated_counts._ArtifactJoin -------------------
     join = _ArtifactJoin(data_dir, run_dir)
     resolved = join.payload_for(SHA_X, "case9.pdf", ROW_OFFLINE)
     assert resolved == ANALYSIS_PAYLOAD_NEW
@@ -173,22 +158,18 @@ def test_case9_the_decoy_partitions_are_never_returned_for_any_row(tmp_path):
     in a real run, the two decoys (offline-local text, the old analysis
     payload) never surface."""
     from telemetry.stated_counts import _ArtifactJoin
-    from tools.cohort_replay import ColdCache
 
     data_dir = tmp_path / "data"
     run_dir = tmp_path / "run"
     _write_artifacts(data_dir, _ALL_ARTIFACT_NAMES)
     _write_run_dir(run_dir)
 
-    cold = ColdCache(data_dir, run_dir)
     join = _ArtifactJoin(data_dir, run_dir)
     for row in (
         ROW_OFFLINE,
         {"content_sha256": SHA_X, "source_path": "local_tesseract", "visual_rung": "not_attempted"},
         {"content_sha256": SHA_X, "source_path": "local_tesseract", "visual_rung": "no_upgrade"},
     ):
-        markdown, _ = cold.text(SHA_X, row)
-        assert markdown is not None and "OFFLINE-LOCAL PAGE" not in markdown and "VISUAL PAGE" not in markdown
         payload = join.payload_for(SHA_X, "case9.pdf", row)
         assert payload != ANALYSIS_PAYLOAD_OLD
 
@@ -200,8 +181,8 @@ def test_case9_the_decoy_partitions_are_never_returned_for_any_row(tmp_path):
 
 def test_case9_mutant_rows0_disagrees_with_the_correct_resolution(tmp_path):
     """Review MINOR-4: the PRIMARY killer of the `rows[0]` mutant is
-    `test_case9_both_readers_resolve_deterministically_regardless_of_insertion_order`
-    (20 shuffled insertion orders, both readers, asserted correct every
+    `test_case9_the_reader_resolves_deterministically_regardless_of_insertion_order`
+    (20 shuffled insertion orders, asserted correct every
     time) — this test's job is narrower and additional: show the mutant
     ITSELF actually resolving the WRONG artifact under at least one
     insertion order, not merely that three rows exist for one input (the
@@ -331,101 +312,3 @@ def test_case9_mutant_visual_first_picks_the_visual_decoy(tmp_path):
         conn2.close()
     assert ocr_partition_for_row(ROW_OFFLINE, partitions) == KEY_OFFLINE_NOLOCAL
 
-
-# ---------------------------------------------------------------------------
-# review MAJOR-1(c) — --expect-identical refuses a vacuous zero-resolution
-# on the CALLER's selected cohort, distinct from verify_reconstruction's own
-# bounded correspondence sample (which only ever samples the run's FIRST
-# rows, never a caller's --shas/--folder/--group selection)
-# ---------------------------------------------------------------------------
-
-
-def test_expect_identical_refuses_a_vacuous_zero_resolution_on_the_selected_cohort(tmp_path, capsys):
-    """The run's declared offline key can pass BOTH verify_reconstruction's
-    existence check and its bounded-sample correspondence check (an early
-    row in rows.csv resolves) while the SPECIFIC cohort a caller selects via
-    --shas resolves NONE of it. That is a distinct failure mode from the
-    review's original MAJOR-1(a) reproduction (a run whose partitions
-    describe NOTHING in the data directory) and from MAJOR-1(b)
-    (correspondence) — this is the guard `tools/cohort_replay.py::main`
-    itself must carry, because no bounded sample inside
-    `telemetry/run_of_record.py` can see a caller's selection in advance."""
-    import subprocess
-    import sys
-
-    from webapp.artifact_cache import ArtifactCache, cached_analysis
-    from webapp.storage import Storage
-
-    data_dir = tmp_path / "data"
-    run_dir = tmp_path / "run"
-
-    offline_key = KEY_OFFLINE_NOLOCAL
-    cache = ArtifactCache(Storage(data_dir))
-
-    # Review MINOR-7: verify_reconstruction's bounded correspondence check
-    # now requires a 90% SUPERMAJORITY of the sample to resolve, not just
-    # "at least one" -- so this fixture needs enough correspondence-sample
-    # documents that DO resolve to clear that bound on its own, while the
-    # one document the caller actually selects (via --shas) still never
-    # resolves at all, to isolate the SEPARATE guard this test proves
-    # (tools/cohort_replay.py::main refusing a cohort-level vacuous
-    # resolution the run-level correspondence check cannot see in advance).
-    rows_csv_lines = [
-        "content_sha256,folder_label,outcome_class,outcome_reason,parser_id,source_path,visual_rung"
-    ]
-    for i in range(20):
-        corr_pdf = f"%PDF-1.7\ncorrespondence-sample document {i}, never selected for replay".encode()
-        corr_sha = content_sha256(corr_pdf)
-        corr_doc = StatementMarkdown(source_file="corr.pdf", model="native-pdf-text", pages=[f"CORR PAGE {i}"])
-        cache.put_ocr(corr_sha, offline_key, corr_doc)
-        result = cached_analysis(
-            corr_doc.to_markdown(), compute=lambda i=i: {"marker": f"CORR{i}"}, cache=cache,
-            parse_mode="deterministic", sheets=corr_doc.pages,
-        )
-        assert not result.cached
-        rows_csv_lines.append(f"{corr_sha},Correspondence,validated,,some_parser,native,not_attempted")
-
-    # The document the caller actually asks to replay: never cached at all.
-    target_pdf = b"%PDF-1.7\nthe replay target, no cached artifact anywhere"
-    target_sha = content_sha256(target_pdf)
-    rows_csv_lines.append(f"{target_sha},Target,failed,no_parser_matched,,native,not_attempted")
-
-    from webapp.artifact_cache import analysis_settings_key
-
-    _write_run_dir_with_partitions(
-        run_dir, offline_key=offline_key, analysis_key=analysis_settings_key(parse_mode="deterministic"),
-        mode="digital",
-    )
-    (run_dir / "rows.csv").write_text("\n".join(rows_csv_lines) + "\n", encoding="utf-8")
-    shas_file = tmp_path / "shas.txt"
-    shas_file.write_text(target_sha + "\n", encoding="utf-8")
-
-    result = subprocess.run(
-        [
-            sys.executable, "-m", "tools.cohort_replay",
-            "--run", str(run_dir), "--data-dir", str(data_dir),
-            "--shas", str(shas_file), "--expect-identical",
-        ],
-        capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]),
-    )
-    assert result.returncode == 3, result.stdout + result.stderr
-    assert "0 of 1 shas resolved any cached text" in result.stdout
-
-
-def _write_run_dir_with_partitions(run_dir: Path, *, offline_key: str, analysis_key: str, mode: str) -> None:
-    run_dir.mkdir(parents=True, exist_ok=True)
-    run_dir.joinpath("provenance.json").write_text(
-        json.dumps(
-            {
-                "tree": {},
-                "run_of_record": {
-                    "partitions": {
-                        "offline_ocr_key": offline_key,
-                        "analysis_key": analysis_key,
-                        "mode": mode,
-                    }
-                },
-            }
-        ),
-        encoding="utf-8",
-    )

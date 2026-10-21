@@ -802,28 +802,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # measures (audit #34, "duplicate"). `git rm`, this commit.
     # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.
     "corpus_gate.py": "the harness itself; tracks the call sites by declaration",
-    # W3 §REGFP's differential (read-only, offline). Excused on the question
-    # this list actually asks — it publishes no verdict: it prints aggregate
-    # counts and, for a mover, a content_sha256 and the differing FIELD NAMES.
-    # Nothing it computes reaches a user, a job record or a discovery row.
-    # Note it is not excused for the usual reason either: it DOES supply the
-    # page list, because it reconstructs the intake partition out of the OCR
-    # artifact and passes it as `sheets` — a sweep that fed the analysis a
-    # different partition from the one the run fed it would measure a
-    # difference it had itself created.
-    "tools/regfp_zero_movement_sweep.py": (
-        "read-only archive differential; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    # Batch 9's shared targeted-cohort proof (BATCH9-RULES). Same class as the
-    # instrument above: read-only over the run of record's cache,
-    # publishes no verdict — it prints outcomes, reasons, reader ids, counts and
-    # leaf PATHS for a named cohort — and it DOES supply the reconstructed page
-    # partition as `sheets`, for the same reason the sweep does.
-    "tools/cohort_replay.py": (
-        "read-only cohort replay; publishes no verdict, and supplies the "
-        "reconstructed page partition"
-    ),
     # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
     # stood here until slice S3 of the model-code removal deleted it with the
     # hosted extractor whose unreachability it probed.)

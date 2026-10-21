@@ -665,7 +665,7 @@ def self_check() -> None:
 #: bump made permanently vacuous against the frozen batch-8/9 cold caches
 #: (their artifacts are v4-keyed; the live enumeration is v5). It now
 #: resolves through `telemetry.run_of_record`, the same policy
-#: `tools/cohort_replay.py` and `telemetry/stated_counts.py::_ArtifactJoin`
+#: `telemetry/stated_counts.py::_ArtifactJoin`
 #: adopted, keyed on each sha's OWN row in `--run`'s `rows.csv`.
 DEFAULT_RUN_POINTER = Path("discovery_reports/train9-logs/train9_run_dir.txt")
 
