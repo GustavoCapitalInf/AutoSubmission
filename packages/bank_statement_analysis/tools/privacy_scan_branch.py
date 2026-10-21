@@ -240,7 +240,7 @@ TEXT_SUFFIXES = frozenset(
 #: stay residue, the exit code still follows them) and buys the one thing the
 #: record has asked for three times: a number to put in front of the decision.
 #:
-#: `benchmark_truth_csv` — the two per-statement audited expectation files
+#: `benchmark_truth_csv` — the three per-statement audited expectation files
 #: read as DATA by `benchmark/expectations.py`. They carry real balances,
 #: account masks and periods, one row per pinned document, and a class band is
 #: not a float, so redacting them breaks the benchmark. One of them also holds
@@ -250,6 +250,7 @@ NAMED_RESIDUE: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("benchmark_truth_csv", (
         "docs/adb-audit-results.csv",
         "docs/balance-metrics-audit-results.csv",
+        "docs/new-statement-audit-results.csv",
     )),
 )
 
