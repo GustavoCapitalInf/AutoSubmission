@@ -330,10 +330,9 @@ Where each rule is defined:
 - Discovery and benchmark reports mask account numbers to the last four digits; discovery reports name relative
   paths and folder labels, so they stay local (gitignored).
 - The server makes no outbound calls: statements are read on this machine, scanned pages by local Tesseract, and
-  nothing is sent out. `tests/test_no_model_clients.py` fails if a tracked Python file imports a model package, or
-  a production module imports a network client, reads a model setting or starts a remote program (`ssh`, `scp`,
-  `curl` and the like) in a command its source fixes. The dashboard page loads its web fonts
-  from Google Fonts in the browser; that request carries no statement data.
+  nothing is sent out. The product calls no model. `tests/test_no_model_clients.py` fails if a model package enters
+  a requirements file, the shipped entry points load a model module, or first-party code imports a removed module.
+  The dashboard page loads its web fonts from Google Fonts in the browser; that request carries no statement data.
 - Licensing: native text uses PyMuPDF (AGPL-3.0 or a paid licence) and page counts and previews use poppler
   (GPL). The owner's licensing rule excludes both for a licensed product; moving to pypdfium2 is step L0 of the
   commercial roadmap draft, which is not approved
