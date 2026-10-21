@@ -5,8 +5,7 @@ the family: the period is a month of a calendar year no member of the family
 contains, every figure carries cents no member prints, the authorization codes
 are a `7000000n` series, and the descriptions are made up. None of the tampered
 members' out-of-period blocks is reproduced — the out-of-period rows below are
-invented too. `tools/lili_privacy_scan.py` is the measurement behind that
-paragraph rather than the paragraph being the assurance.
+invented too.
 
 INVENTED IS NOT THE SAME AS DISTINCT, and this file is where batch 9 measured
 the difference. The original figures were invented against this family's 20

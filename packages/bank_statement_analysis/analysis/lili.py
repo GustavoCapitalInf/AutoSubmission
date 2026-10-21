@@ -402,8 +402,8 @@ def parse_lili_statement(markdown: str) -> Statement | None:
     account, start, end = header
 
     # §INTEGRITY, before the shape is read. Both readings answer with the NAME
-    # of what they found; the name is what `tools/lili_family_replay.py`
-    # attributes a refusal to. Gate ORDER is not observable at this boundary —
+    # of what they found; the name is what
+    # a refusal is attributed to. Gate ORDER is not observable at this boundary —
     # every gate here answers by declining — so the order buys attribution,
     # not behaviour, and W3 §LILI says so rather than implying otherwise.
     if _ledger_dates_are_sound(markdown, start, end) is not None:

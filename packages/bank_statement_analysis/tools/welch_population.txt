@@ -4,7 +4,7 @@
 # family (docs/moneythumb-replacement/CENSUS_BATCH8_DIGITAL.md, rank 3); the
 # seventeenth is 8CCAE7DD…, which that census filed under rank 1 as a misfile
 # and which the whole-archive marker probe puts here. Derived by measurement,
-# not by folder label: `python -m tools.welch_detection_probe` over every
+# not by folder label: the marker probe over every
 # distinct content_sha256 in the run of record returns exactly this set.
 #
 # A content hash is not document content. No figure, name, account number or

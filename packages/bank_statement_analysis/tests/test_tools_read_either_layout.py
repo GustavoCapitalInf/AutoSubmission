@@ -7,7 +7,6 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
-from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -68,32 +67,6 @@ def checkout_at(tmp_path):
 
 
 @pytest.fixture
-def absent_index(tmp_path, monkeypatch):
-    objects = subprocess.run(["git", "rev-parse", "--git-path", "objects"], cwd=PACKAGE_DIR,
-                             capture_output=True, text=True, check=True).stdout.strip()
-    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "index"))
-    monkeypatch.setenv("GIT_OBJECT_DIRECTORY", str(tmp_path / "objects"))
-    monkeypatch.setenv("GIT_ALTERNATE_OBJECT_DIRECTORIES", str((PACKAGE_DIR / objects).resolve()))
-    (tmp_path / "objects").mkdir()
-
-
-@pytest.fixture
-def intent_to_add_index(absent_index):
-    for args in (["read-tree", "HEAD"], ["update-index", "--force-remove", "--", "README.md"],
-                 ["add", "--intent-to-add", "--", "README.md"]):
-        subprocess.run(["git", *args], cwd=PACKAGE_DIR, capture_output=True, check=True)
-
-
-@pytest.fixture
-def inherited_line():
-    source = subprocess.run(
-        ["git", "show", f"{DEFAULT_BASE}:tests/test_no_statement_hardcodes.py"],
-        cwd=PACKAGE_DIR, capture_output=True, text=True, check=True,
-    ).stdout
-    return next(line.strip() for line in source.splitlines() if INHERITED_AMOUNT in line and "docstring" in line)
-
-
-@pytest.fixture
 def analysis_modules():
     import analysis
 
@@ -135,27 +108,6 @@ def test_desccols_loads_either_layout(tmp_path, monkeypatch):
     assert Path(after.__file__).read_bytes() == Path(before.__file__).read_bytes()
 
 
-@pytest.mark.parametrize("default", [False, True], ids=["rename", "default"])
-def test_glance_materialises_analysis(tmp_path, default):
-    from tools.glance_family_replay import materialise, parse_args
-
-    args = parse_args([
-        "--rows", str(tmp_path / "rows.csv"), "--data-dir", str(tmp_path),
-        "--baseline-settings-key", "fabricated",
-    ])
-    ref = args.base if default else PRE_MOVE
-    before = materialise(ref, tmp_path / "before")
-    if default:
-        assert (before / "analysis" / "pipeline.py").is_file()
-    else:
-        after = materialise(POST_MOVE, tmp_path / "after")
-        files = {path.relative_to(before): path.read_bytes()
-                 for path in (before / "analysis").rglob("*.py")}
-        assert files
-        assert files == {path.relative_to(after): path.read_bytes()
-                         for path in (after / "analysis").rglob("*.py")}
-
-
 def test_coreenc_keeps_baseline_vocabulary(tmp_path, capsys):
     from tools.coreenc_archive_census import _literals
 
@@ -186,31 +138,6 @@ def test_coreiss2_recognises_inherited_words(tmp_path, monkeypatch, capsys):
         match = re.search(r"archive words NOVEL .*: (\d+)", output)
         assert match is not None
         assert int(match[1]) == 0
-
-
-def test_lili_inherited_content_includes_project_files():
-    from tools.lili_privacy_scan import haystacks
-
-    _, inherited = haystacks(DEFAULT_BASE)
-    source = (PACKAGE_DIR / "analysis" / "eq_bank_scanned.py").read_text()
-    included = source in inherited
-    assert included, "the inherited haystack omitted a changed analysis module"
-
-
-def test_lili_does_not_author_lines_the_base_had(inherited_line):
-    from tools.lili_privacy_scan import haystacks
-
-    authored, _ = haystacks(DEFAULT_BASE)
-    assert authored
-    assert inherited_line not in authored
-
-
-@pytest.mark.usefixtures("git_config")
-def test_lili_inherited_content_includes_files_outside_the_package():
-    from tools.lili_privacy_scan import haystacks
-
-    _, inherited = haystacks(PRE_MOVE)
-    assert (REPO_DIR / "apps" / "auto_submission" / "README.md").read_text() in inherited
 
 
 def test_privacy_diff_has_the_same_sites_and_exclusions():
@@ -358,14 +285,6 @@ def test_train_recognises_a_project_conflict(monkeypatch, capsys):
     assert "W3 SHAPE VIOLATION" in capsys.readouterr().out
 
 
-def test_welch_does_not_add_lines_the_base_had(inherited_line):
-    from tools.welch_privacy_scan import _added_lines
-
-    added = _added_lines(DEFAULT_BASE)
-    assert added
-    assert inherited_line.upper() not in added
-
-
 def test_coreiss2_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch, capsys):
     from tools import coreiss2_probe as probe
 
@@ -415,21 +334,3 @@ def test_scanhyg_reads_sources_at_a_ref_of_the_repo_it_is_given(analysis_modules
     monkeypatch.setattr(replay.subprocess, "run", recording)
     assert replay.install_modules(checkout_at(PRE_MOVE), f"HEAD~{back}", SCHEMA_BASE) == ["schema"]
     assert shown == [expected]
-
-
-@pytest.mark.parametrize("index", ["intent_to_add_index", "absent_index"])
-def test_lili_scans_the_working_tree_whatever_the_index(request, index):
-    from tools.lili_privacy_scan import haystacks
-
-    request.getfixturevalue(index)
-    authored, _ = haystacks("HEAD")
-    assert isinstance(authored, str)
-
-
-def test_welch_reads_the_same_tracked_text():
-    from tools.welch_privacy_scan import _tracked_text
-
-    before = _tracked_text(PRE_MOVE)
-    after = _tracked_text(POST_MOVE)
-    assert "STATEMENT" in before
-    assert Counter(after.splitlines()) == Counter(before.splitlines())

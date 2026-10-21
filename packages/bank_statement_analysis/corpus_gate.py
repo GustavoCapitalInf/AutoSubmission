@@ -873,16 +873,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
     # stood here until slice S3 of the model-code removal deleted it with the
     # hosted extractor whose unreachability it probed.)
-    # W3 §WELCH's family replay, excused on the same two grounds as §REGFP's
-    # sweep: it publishes no verdict — it prints an outcome CLASS and reason
-    # per content_sha256, row counts, and the distribution of caller-named
-    # fields, never a value from a statement — and it already supplies the
-    # page partition it reconstructed from the OCR artifact, so a declared
-    # call site would assert nothing this does not already do.
-    "tools/welch_family_replay.py": (
-        "read-only family replay; publishes no verdict, and already supplies "
-        "the reconstructed page partition"
-    ),
     # W3 sec COREENC's coverage instrument, excused on the same two grounds as
     # the sweep above: it publishes no verdict — it prints a content_sha256, an
     # outcome CLASS and three counts, never a figure, a name or a date — and it
@@ -935,21 +925,7 @@ EXCLUDED_ANALYSIS_CALLERS = {
         "read-only geometry oracle; publishes no verdict, and already supplies "
         "the reconstructed page partition"
     ),
-    # W3 §LILI's family replay. It runs the analysis over ONE named
-    # 20-document population so that the card's coverage number is a
-    # measurement rather than an inference from a successful parse — claimed
-    # is not validated, and a parse that succeeds can still be withheld or
-    # sent to review downstream. It prints that class to a console and nothing
-    # else: no user, job record or discovery row ever sees it. Excused on the
-    # same second ground as the sweeps above — it already supplies the
-    # reconstructed page partition, because a replay that fed the analysis a
-    # different partition from the one a run would feed it would measure a
-    # difference it had itself created.
-    "tools/lili_family_replay.py": (
-        "read-only family replay over a named population; publishes no "
-        "verdict, and already supplies the reconstructed page partition"
-    ),
-    # Three batch-8 instruments the cells' closure sessions committed after their
+    # Two batch-8 instruments the cells' closure sessions committed after their
     # branch-level proofs (this guard runs only in the full suite, which is the
     # train's). Each is excused on the same two grounds as the entries above:
     # it publishes no verdict — outcome classes, counts, leaf paths, movement
@@ -957,10 +933,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # already supplies the reconstructed page partition, because a replay that
     # fed the analysis a different partition from the one the run fed it would
     # measure a difference it had itself created. Composed at train8.
-    "tools/glance_family_replay.py": (
-        "read-only family replay (W3 sec GLANCE); publishes no verdict, and "
-        "already supplies the reconstructed page partition"
-    ),
     "tools/scanhyg_family_replay.py": (
         "read-only family replay (W3 sec SCANHYG); publishes no verdict, and "
         "already supplies the reconstructed page partition"
