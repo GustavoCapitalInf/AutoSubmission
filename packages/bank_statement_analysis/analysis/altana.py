@@ -16,10 +16,10 @@ def _money(value: str) -> float:
     return parse_trailing_minus_dropped(value)
 
 
-def _summary(markdown: str) -> tuple[str, str, int, float, int, float, float, float] | None:
+def _summary(markdown: str) -> tuple[str, str, str, int, float, int, float, float, float] | None:
     m = re.search(
         r"Date Range:\s*(\d{2})/(\d{2})/(\d{4})\s+-\s+(\d{2})/(\d{2})/(\d{4}).*?"
-        r"FREE BUSINESS CHECKING ID 0050 Beginning Balance\s+\$?([\d,]+\.\d{2})-\s+"
+        r"FREE BUSINESS CHECKING ID (\d+) Beginning Balance\s+\$?([\d,]+\.\d{2})-\s+"
         r"(\d+)\s+Total Deposits for\s+([\d,]+\.\d{2})-\s+"
         r"(\d+)\s+Total Withdrawals for\s+([\d,]+\.\d{2})-\s+"
         r"Ending Balance\s+\$?([\d,]+\.\d{2})-",
@@ -28,12 +28,13 @@ def _summary(markdown: str) -> tuple[str, str, int, float, int, float, float, fl
     )
     if not m:
         return None
-    sm, sd, sy, em, ed, ey, beginning, dep_count, dep_total, wd_count, wd_total, ending = m.groups()
+    sm, sd, sy, em, ed, ey, account, beginning, dep_count, dep_total, wd_count, wd_total, ending = m.groups()
     start = date(int(sy), int(sm), int(sd)).isoformat()
     end = date(int(ey), int(em), int(ed)).isoformat()
     return (
         start,
         end,
+        account,
         int(dep_count),
         _money(dep_total),
         int(wd_count),
@@ -43,8 +44,8 @@ def _summary(markdown: str) -> tuple[str, str, int, float, int, float, float, fl
     )
 
 
-def _business_checking_block(markdown: str) -> str:
-    marker = "FREE BUSINESS CHECKING ID 0050 Beginning Balance"
+def _business_checking_block(markdown: str, account: str) -> str:
+    marker = f"FREE BUSINESS CHECKING ID {account} Beginning Balance"
     start = markdown.find(marker)
     if start < 0:
         return ""
@@ -138,7 +139,7 @@ def _parse_transactions(
 
 DETECTION_MARKERS = (
     required("domain", lambda t: "altanafcu.org" in t),
-    required("product", lambda t: "FREE BUSINESS CHECKING ID 0050" in t),
+    required("product", lambda t: "FREE BUSINESS CHECKING ID" in t),
 )
 
 detect = make_detector(DETECTION_MARKERS)
@@ -150,8 +151,8 @@ def parse_altana_statement(markdown: str) -> Statement | None:
     summary = _summary(markdown)
     if summary is None:
         return None
-    start, end, deposit_count, deposit_total, withdrawal_count, withdrawal_total, beginning, ending = summary
-    block = _business_checking_block(markdown)
+    start, end, account, deposit_count, deposit_total, withdrawal_count, withdrawal_total, beginning, ending = summary
+    block = _business_checking_block(markdown, account)
     if not block:
         return None
 
@@ -171,7 +172,6 @@ def parse_altana_statement(markdown: str) -> Statement | None:
     label_deposits = 0
     label_withdrawals = 0
     label_deposit_total = 0.0
-    label_withdrawal_total = 0.0
     row_labels = _row_starts(block, start_date.month)
     for idx, label in enumerate(row_labels):
         row = _clean_row(block[label.start():row_labels[idx + 1].start() if idx + 1 < len(row_labels) else len(block)])
@@ -182,7 +182,6 @@ def parse_altana_statement(markdown: str) -> Statement | None:
             label_deposit_total += raw_amount
         else:
             label_withdrawals += 1
-            label_withdrawal_total += raw_amount
 
     if label_deposits != deposit_count or abs(round(label_deposit_total, 2) - deposit_total) > 0.01:
         return None
@@ -192,7 +191,7 @@ def parse_altana_statement(markdown: str) -> Statement | None:
     stmt = Statement(
         bank="Altana Federal Credit Union",
         account_name="Free Business Checking",
-        account_number="0050",
+        account_number=account,
         period_start=start,
         period_end=end,
         days_in_period=(end_date - start_date).days + 1,
