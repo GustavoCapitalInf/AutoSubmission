@@ -1661,9 +1661,10 @@ def test_the_finally_arm_is_a_no_op_on_the_success_path(job_store, monkeypatch):
 
 def test_the_non_terminal_vocabulary_matches_the_stores_own():
     """A frozenset of status strings is only correct while it matches the
-    store's. `webapp/jobs.py` documents the five."""
-    documented = (PROJECT_ROOT / "webapp" / "jobs.py").read_text(encoding="utf-8")
-    assert '"queued" | "processing" | "done" | "error" | "interrupted"' in documented
+    store's: a new job starts in one of them."""
+    from webapp.jobs import Job
+
+    assert Job(id="job", filename="statement.pdf").status in _NON_TERMINAL_STATUSES
     assert _NON_TERMINAL_STATUSES == frozenset({"queued", "processing"})
 
 
