@@ -867,6 +867,27 @@ _ORDER_DAYS = {
 }
 
 
+#: Arabic-Indic decimal digits. `re`'s `\d` matches Unicode category Nd and
+#: `int()` accepts every Nd character, so a TD period printed with them reads.
+_ND_DIGITS = {"ten": "١٠", "thirty-one": "٣١"}
+
+
+def test_a_period_printed_in_arabic_indic_digits_is_read():
+    from analysis import td_can
+
+    line = f"JAN {_ND_DIGITS['ten']}/{_ND_DIGITS['thirty-one']} - MAR 28/31"
+    assert td_can._parse_period(line) == ("2031-01-10", "2031-03-28")
+
+
+def test_an_unreadable_month_beside_arabic_indic_digits_reaches_the_lookup_refusal():
+    from analysis import td_can
+
+    line = f"{CANARY[:3]} {_ND_DIGITS['ten']}/{_ND_DIGITS['thirty-one']} - MAR 28/31"
+    with pytest.raises(KeyError) as raised:
+        td_can._parse_period(line)
+    assert "reader=td_can._parse_period" in str(raised.value)
+
+
 def test_the_second_reorder_drive_actually_reaches_the_conversion():
     """The vacuity check for the drive above, and the whole point of the
     Arabic-Indic cell: a non-ASCII decimal day is really READ, so the cell
