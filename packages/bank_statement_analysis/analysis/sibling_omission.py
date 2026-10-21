@@ -115,8 +115,8 @@ EVIDENCE_CLASSES: frozenset[str] = frozenset({
 
 #: Q3's native-only gate (Gustavo, BATCH9_TRANSITION §8.8/§8.13; carried
 #: forward at Phase 2.0 opening, `PHASE2_ARCHITECTURE_PLAN.md` §6 last
-#: paragraph: "Q3 idle-sibling class stays native-only until
-#: tools/q3_corroboration_probe.py is re-run on OCR'd guardian_cu";
+#: paragraph: the Q3 idle-sibling class stays native-only until
+#: the corroboration is re-measured on OCR'd guardian_cu;
 #: `OCR_LEGACY_AUDIT.md` §5.8 step 6). `PRINTED_PAIR_COINCIDES_AND_NO_ROW_
 #: PRINTED` was corroborated 6/6 on `native-pdf-text` documents only, to bound
 #: an OCR row-loss hazard that has never been measured on OCR'd input. Until
@@ -293,7 +293,7 @@ def prints_pair_coinciding_with_no_row_printed(
     with identifiable column roles* — is applied the way the bounded probe
     applied it and reported it: a document that prints no such table FAILS
     condition 7 rather than passing it vacuously
-    (`tools/q3_corroboration_probe.py::_decide_witness`, refusal classes
+    (refusal classes
     `no_rollup_or_enumerating_table_printed_by_the_document` and
     `rollup_prints_the_closing_under_a_column_whose_role_is_not_identifiable`).
     That is the reading S4 must implement, because it is the one the six

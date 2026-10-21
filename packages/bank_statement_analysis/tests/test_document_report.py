@@ -17,7 +17,7 @@ publishes it WHATEVER document-level fact it carries, that the integrity block
 keeps every flag it publishes today IN PUBLISHED ORDER, and the three things a
 document object refuses to do even though nothing in production can ask it to
 yet. The archive-scale proof of
-RULE S is a byte comparison over the run of record (`tools/l1s1_seam_probe.py`);
+RULE S is a byte comparison over the run of record;
 what cannot be measured there is the behaviour of shapes production never
 builds, and that is what is constructed here.
 

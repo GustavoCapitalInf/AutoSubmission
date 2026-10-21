@@ -18,8 +18,8 @@ price).
 
 WHY A SHARED PREDICATE RATHER THAN A CHECK PER READER
 -----------------------------------------------------
-Measured, before any of this existed (`tools/l1_design_reader_probe.py`, and
-§1.4 of the design): of the ten payload readers in the tree, **nine ANSWERED**
+Measured, before any of this existed (§1.4 of the
+design): of the ten payload readers in the tree, **nine ANSWERED**
 a document-shaped payload and one raised — and the one that raised did so only
 because it indexed ``payload["statement"]`` where the others ``.get()`` it.
 The loudness was an accident of punctuation, not a guard. Each of the nine

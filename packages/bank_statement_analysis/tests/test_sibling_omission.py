@@ -160,7 +160,7 @@ def test_the_vocabulary_is_exactly_the_designs_four_ratified_members():
 
     Three at L1-S2, and a FOURTH at L1-S4: `printed_pair_coincides_and_no_row_printed`,
     granted with corroboration by Gustavo on 2026-08-30 (BATCH9_TRANSITION §8.8)
-    and measured section by section by `tools/q3_corroboration_probe.py` before
+    and measured section by section before
     S4 relied on it. `telemetry/record.py::RATIFIED_OMISSION_REASONS` declares
     the same four for the outcome fold, and the test below holds the two equal.
     """

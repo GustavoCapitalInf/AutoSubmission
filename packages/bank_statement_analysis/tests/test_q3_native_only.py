@@ -4,7 +4,7 @@
 `native-pdf-text` `guardian_cu` documents only, to bound an OCR row-loss hazard
 that has never been measured on OCR'd input (`OCR_LEGACY_AUDIT.md` F-8/§5.8;
 `PHASE2_ARCHITECTURE_PLAN.md` §6 last paragraph; `PHASE2_RULINGS.md` §Q3). Until
-`tools/q3_corroboration_probe.py` is re-run on OCR'd `guardian_cu`, the class is
+the corroboration is re-measured on OCR'd `guardian_cu`, the class is
 admitted only when the document's own header names an extractor model that IS
 `native-pdf-text` or starts with `native-pdf-text+` (equality-or-plus-prefix,
 not a bare `startswith` — MINOR-1, `PHASE2_P20SURFACES_REVIEW.md`: a bare
@@ -45,7 +45,7 @@ dakota_west --parser mission_valley --parser member_statement_rollup --parser
 symitar --parser zions` (NOT `--folder guardian_cu`, which selects 0 rows on
 this run of record and exits 4 — MINOR-7, corrected in W3 after MAJOR-3 found
 it) for the account-seam no-movement proof, and
-`tools/l1s4_document_replay.py` over the 8 named shas for the DOCUMENT-seam
+a document-seam replay over the 8 named shas for the DOCUMENT-seam
 proof that actually exercises the seam production reads
 (`analyze_document`) — MAJOR-1: `cohort_replay` never opens the omission
 collector at all, so it cannot observe this gate either way.

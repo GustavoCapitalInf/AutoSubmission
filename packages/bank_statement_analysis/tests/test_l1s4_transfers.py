@@ -1,8 +1,8 @@
 """L1-S4: R-d, its four clauses, and what the package does with the answer.
 
-The archive half of this is `tools/l1s4_transfer_killers.py`, which runs the
+The archive half of this ran the
 production rule over the design's own measured population — 7 documents, 47
-candidate pairs, 43 flagged, 4 refused — and reproduces the split exactly. What
+candidate pairs, 43 flagged, 4 refused — and reproduced the split exactly. What
 the archive cannot exercise is the AMBIGUITY branch (it prints none: 0 postings
 with two or more admissible counterparts), so that killer is constructed here
 and named as constructed, which is what design §4 requires of this card.
