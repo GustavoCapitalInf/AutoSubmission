@@ -463,13 +463,12 @@ def dispatch_section(
 def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     """Model calls we can actually count, with tokens only where reported.
 
-    Countable today: visual-OCR pages sent, and extraction calls (1, or 2 when
-    the report escalated). Token counts exist only for the visual rung on a
-    LIVE read — `PageText` carries `completion_tokens`, and the artifact cache
-    normalises pages back to plain `str`, so a cache hit reports `None` rather
-    than a stale number. Prompt tokens are not captured anywhere in the
-    platform today; they are `None`, never estimated from character counts
-    (H3_SCHEMA §9).
+    Records are built only for new reads, and every reading rung that remains
+    (native text, local Tesseract, the preflight) is one OCR-stage entry. The
+    visual, visual-pair and Paddle arms left with those rungs: no read the
+    product can make or restore carries their tokens. Prompt tokens are not
+    captured anywhere in the platform today; they are `None`, never estimated
+    from character counts (H3_SCHEMA §9).
 
     OQ3 provenance (MAJOR-2, PHASE2_P20SEAM_REVIEW.md): every OCR-stage call
     entry also carries `endpoint_class` and `remote_opt_in`. They used to be
@@ -478,16 +477,14 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     historical constants `"loopback"` and `False` (M12): the values that
     settings object held on every default environment, naming an endpoint
     (the retired local visual OCR server) that no longer exists. The record
-    shape is unchanged. The visual-pair entry below still reads its own
-    measured fields.
+    shape is unchanged.
 
     F-7 (MAJOR-3): an unrecognised model token (`source_path_unrecognized_
-    model`) is reported the SAME shape as a visual read — one call per page,
-    completion tokens summed where reported — never silently downgraded to
-    `purpose: "none"` / `calls: 1`, which would under-report a real per-page
-    GPU read as a single untimed call. Its `purpose` is `"unrecognized_
-    model"`, distinct from both `"visual_ocr"` and every `source_path_for`
-    value, so a rollup can tell the three apart.
+    model`) is reported one call per page, completion tokens summed where
+    reported — never silently downgraded to `purpose: "none"` / `calls: 1`,
+    which would under-report a real per-page GPU read as a single untimed
+    call. Its `purpose` is `"unrecognized_model"`, distinct from every
+    `source_path_for` value, so a rollup can tell them apart.
 
     NEW-6 (re-review, closure 1cc759e) is closed by construction since S2:
     nothing here reads the environment any more, so a hostile `OCR_MODEL`
@@ -506,51 +503,16 @@ def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
         # opt-in on every default environment. The endpoint it described no
         # longer exists; kept so the record's shape and values are unchanged.
         remote_opt_in = False
-        if path == "visual" or unrecognized:
+        if unrecognized:
             reported = [getattr(page, "completion_tokens", None) for page in doc.pages]
             known = [value for value in reported if value is not None]
             calls.append({
                 "stage": "ocr",
                 "model": doc.model,
-                "purpose": "visual_ocr" if path == "visual" else "unrecognized_model",
+                "purpose": "unrecognized_model",
                 "calls": len(doc.pages),
                 "prompt_tokens": None,
                 "completion_tokens": sum(known) if known else None,
-                "endpoint_class": endpoint_class,
-                "remote_opt_in": remote_opt_in,
-            })
-        elif path == "visual_pair":
-            # Transient receipt figures describe actual calls only. Both cache
-            # layers restore no call telemetry, so a hit reports zero calls.
-            measurements = getattr(doc, "extraction_telemetry", None) or {}
-            measured = measurements.get("pages") or []
-            for stage, model in (("proposer", "dotsmocr"), ("reviewer", "qwen3.8-27b-nvfp4")):
-                rows = [item for item in measured if item.get("stage") == stage]
-                def token_total(field):
-                    values = [item.get(field) for item in rows]
-                    return sum(values) if values and all(isinstance(v, int) for v in values) else None
-                calls.append({
-                    "stage": "ocr", "model": model, "purpose": "visual_pair_" + stage,
-                    "calls": len(rows), "prompt_tokens": token_total("prompt_tokens"),
-                    "completion_tokens": token_total("completion_tokens"),
-                    "endpoint_class": measurements.get("execution_class"),
-                    "remote_opt_in": measurements.get("customer_data_opt_in"),
-                })
-        elif path == "paddle":
-            # P21-ROUTING: one call per Paddle page. Paddle pages are plain
-            # `str` (D9's derived text), not the visual rung's `PageText`, so
-            # there is no completion-token signal to sum here — the model is
-            # named and priced (or not) exactly like any other model; it is
-            # deliberately NOT in `telemetry.prices.FREE_MODELS` (remote_paid
-            # is not free), so `estimate()` reports it `unpriced` and the
-            # actual cost is measured operationally, never invented.
-            calls.append({
-                "stage": "ocr",
-                "model": doc.model,
-                "purpose": "paddle_ocr",
-                "calls": len(doc.pages),
-                "prompt_tokens": None,
-                "completion_tokens": None,
                 "endpoint_class": endpoint_class,
                 "remote_opt_in": remote_opt_in,
             })
