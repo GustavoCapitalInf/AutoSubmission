@@ -48,8 +48,8 @@ own docstring) and the same direction S4 already reads ambiguity in
 (Q2: "ambiguity refuses the aggregation, never the account"). A hostile
 filename that also happens to sit on a genuinely native document is REFUSED
 here, not rescued — `tests/test_q3_native_only.py::
-test_a_hostile_source_file_still_reports_the_true_model_when_it_is_native`
-is the pinned proof of that direction, by name.
+test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescued`
+pins that direction.
 
 **WHY THIS IS STILL "READ THE HEADER, NOT THE PAGE" IN SUBSTANCE.** A genuine
 document — one whose `source_file` and page text were never crafted to plant
@@ -62,10 +62,10 @@ or nearest an anchor, a second run anywhere is proof the document is not
 trustworthy on this question, and the reader says so by refusing rather than
 guessing.
 
-The `model` field is bounded to a closed charset — `[A-Za-z0-9._/+-]`, the
-same one `ocr/config.py`'s token validation uses (P20-SEAM) — so no run of
-`|`, `<`, `>` or whitespace inside a forged field can be mistaken for part of
-the model token even if it somehow survived to sit in that position.
+The `model` field is bounded to a closed charset — `[A-Za-z0-9._/+-]`, the same
+one `ocr/config.py`'s token validation uses — so no run of `|`, `<`, `>` or
+whitespace inside a forged field can be mistaken for part of the model token
+even if it somehow survived to sit in that position.
 
 Used by `analysis/sibling_omission.py::publish_omissions` to gate the
 `printed_pair_coincides_and_no_row_printed` omission class to native-pdf-text
@@ -79,8 +79,8 @@ import re
 
 #: The closed charset a model token may be built from — no `|`, `<`, `>`, no
 #: whitespace of any kind. Matches the token grammar `ocr/config.py`'s
-#: validation uses for the same field (P20-SEAM), so a token this reader
-#: accepts is a token that writer would also accept.
+#: validation uses for the same field, so a token this reader accepts is a token
+#: that writer would also accept.
 _MODEL_CHARSET = r"[A-Za-z0-9._/+-]"
 
 #: One well-formed field run, found ANYWHERE in the document — deliberately

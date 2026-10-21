@@ -2,15 +2,9 @@
 
 Every statement comes from a deterministic parser (or, behind its own opt-in,
 the generic structurer); nothing here calls a model. No statement is ever
-re-extracted because it failed reconciliation. The reconciliation-based
-selection between two hosted extractions that used to sit between `reconcile`
-and `metrics` was REMOVED under ruling R9
-(2026-09-03; card P22-FENCE):
-the validator is a verifier, never an optimizer. The one hosted extraction R9
-left, behind an operator opt-in, was removed with `analysis/extract.py` under
-the owner's ruling of 2026-10-13 that the product uses no model (model-code
-removal, slice S3). `tests/test_pipeline_escalation_fence.py` pins the absence
-of both."""
+re-extracted because it failed reconciliation: the validator is a verifier,
+never an optimizer (ruling R9). Auto and deterministic parse modes read alike
+(`tests/test_pipeline_escalation_fence.py`)."""
 from __future__ import annotations
 import math
 import re
@@ -111,12 +105,12 @@ _SUMMARY_REPAIRS: dict[str, Callable[[str, Statement], Statement]] = {
 }
 
 #: The three kept bank repairs of `analysis/bank_repairs.py`, keyed the same
-#: way (audit 2026-10-13, PARSERS-1). Each used to run on every statement and
-#: was gated only on a SUBSTRING of `stmt.bank`, so a reader of another family
-#: that published a label carrying the substring, or a hosted extraction that
-#: named the bank loosely, got a repair written for another bank's paper. Each
-#: keeps that guard, so the key can only stop a repair firing, never start one.
-#: The same test holds these ids to the registry.
+#: way. Each used to run on every statement and was gated only on a SUBSTRING of
+#: `stmt.bank`, so a reader of another family that published a label carrying
+#: the substring got a
+#: repair written for another bank's paper. Each keeps that guard, so the key
+#: can only stop a repair firing, never start one. The same test holds these ids
+#: to the registry.
 _STATEMENT_REPAIRS: dict[str, Callable[[Statement], Statement]] = {
     "b1": repair_b1_beginning_balance,
     "santander": repair_santander_signs_from_balances,
@@ -140,8 +134,8 @@ def apply_statement_repairs(
     # labels; three further documents in the archive are having `ending_balance`
     # rewritten the same way today. §PIPEFIX P2.4 names all eight.
     #
-    # The gate is now the CLAIMING registration, and for an LLM extraction that
-    # claimed nothing, the registration whose bank label it named — exactly the
+    # The gate is the CLAIMING registration, and for a statement no parser
+    # claimed, the registration whose bank label it names — exactly the
     # `_registration_for` resolution (the R-3 ruling) that `assess_quality` and
     # `assess_document_integrity` already use, so a repair reaches precisely the
     # documents whose parser knowledge the rest of the pipeline is applying.
@@ -159,7 +153,7 @@ def apply_statement_repairs(
     statement_repair = _STATEMENT_REPAIRS.get(owner.id) if owner is not None else None
     if statement_repair is not None:
         stmt = statement_repair(stmt)
-    # R10 items S-1..S-3 are fenced under Gustavo's ruling: the three legacy
+    # R10 items S-1..S-3 are fenced by the owner's ruling: the three legacy
     # amount rewrites remain defined in bank_repairs.py,
     # with their doctrine reasons, but nothing under analysis/ calls them.
     # The ceremony tripwire covers these and the S-4 direction rewrite below.
@@ -179,12 +173,12 @@ def apply_statement_repairs(
     # record, which is why the union replay across this fence is identical.
     #
     # The five fences were reviewed on `wave23-precision` and never composed
-    # into the shipped line; the audit of 2026-10-13 (PARSERS-1) ported them.
-    # A statement that only one of these rewrites made reconcile is now
-    # refused or routed to review on the figures the paper printed.
-    # Statement periods that cross a year boundary: parsers stamp one year on
-    # every MM/DD row, so re-derive the year from the period before anything
-    # chronological (ADB, daily ledger) is built on these dates.
+    # into the shipped line; the audit ported them. A statement that only one of
+    # these rewrites made reconcile is now refused or routed to review on the
+    # figures the paper printed. Statement periods that cross a year boundary:
+    # parsers stamp one year on every MM/DD row, so re-derive the year from the
+    # period before anything chronological (ADB, daily ledger) is built on these
+    # dates.
     stmt = assign_transaction_years(stmt)
     return normalize_statement(stmt)
 
@@ -218,10 +212,10 @@ class Report:
     model_used: str
     escalated: bool
     classifications: list[TransactionClassification] = field(default_factory=list)
-    #: The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §8.4, §9.1; R2-OW17): the same
-    #: account in the counted (Yes) Zelle reading, or None when the statement has no Zelle credit (one reading). The
-    #: Report itself is the stored (No) reading; serialization publishes the counted one as the edits that turn the
-    #: stored payload into it (analysis/zelle_view.py). Object only: never serialized as itself.
+    #: True revenue spec §8.4, §9.1: the same account in the counted (Yes) Zelle reading, or None when the statement
+    #: has no Zelle credit (one reading). The Report itself is the stored (No) reading; serialization publishes the
+    #: counted one as the edits that turn the stored payload into it (analysis/zelle_view.py). Object only: never
+    #: serialized as itself.
     zelle_counted: "Report | None" = None
 #:
 #: Every other flag `assess_document_integrity` raises is a statement about one
@@ -309,7 +303,7 @@ class InternalTransfer:
 
 
 #: `assess_document_integrity` produces ONE ACCOUNT's block, so a note about the
-#: DOCUMENT has nowhere to go inside it (W3 §L1S2 carried this forward). These
+#: DOCUMENT has nowhere to go inside it. These
 #: are the document-scope notes, and the vocabulary is closed for the same
 #: reason L1-C17's is: a note that decides whether a package aggregates is a
 #: token, not prose.
@@ -318,7 +312,7 @@ class InternalTransfer:
 #: counterparts, so which sibling row it moved to is not established. No pairing
 #: is recorded, both printed legs stay in their ledgers untouched, and the
 #: PACKAGE refuses to aggregate this document rather than aggregating it wrongly
-#: (design §3.3; Gustavo's Q2 ruling). The account's own
+#: (design §3.3; the owner's Q2 ruling). The account's own
 #: validation, its ledger and its ADB history are not affected.
 AMBIGUOUS_INTERNAL_TRANSFER = "ambiguous_internal_transfer"
 
@@ -326,8 +320,7 @@ DOCUMENT_INTEGRITY_NOTES: frozenset[str] = frozenset({AMBIGUOUS_INTERNAL_TRANSFE
 
 #: How an account a document prints stands in its payload, from a reader that judged the document account by account:
 #: `published` (its own Report is in `accounts`), `idle` (its section prints an unchanged balance and no activity),
-#: `held` (not verified; its reasons say why). Its first producer, the visual pair's per-account judgement, was
-#: removed with the pair (model-code removal, slice S4); the text-first reader is the planned producer. The roster's
+#: `held` (not verified; its reasons say why). No current reader produces a roster. Its
 #: serialization (`analysis/serialization.py`), the web app's package exclusion of an unverified or idle main account
 #: and the dashboard's roster display stay, and stored payloads that carry a roster still load and display.
 ACCOUNT_ROSTER_STATUSES: frozenset[str] = frozenset({"published", "idle", "held"})
@@ -414,11 +407,8 @@ def _registration_for(stmt: Statement, dispatch: Dispatch | None) -> Registratio
     """The parser whose knowledge applies to this statement.
 
     The claiming registration when one exists. Otherwise the registration whose
-    bank label matches - an LLM extraction that named a bank we do have a
-    parser for still gets that parser's document knowledge, which is what the
-    pre-R-3 `stmt.bank == ...` literals gave it. (The hosted LLM extraction was
-    removed in slice S3 of the model-code removal; a statement handed to
-    `analyze_statement` without a dispatch still resolves this way.)
+    bank label matches, so a statement handed to `analyze_statement` without a
+    dispatch still gets that parser's document knowledge.
     """
     if dispatch is not None and dispatch.registration is not None:
         return dispatch.registration
@@ -537,14 +527,14 @@ def assess_document_integrity(
     if recon.summary_ok is False:
         flags.append("summary_math_inconsistent")
         notes.append("bank-stated summary totals do not reconcile to beginning and ending balances")
-    # The sum check's own threshold (audit 2026-10-13 REC-4). It used to be a
-    # dollar, so a reconciliation that failed by 0.02-1.00 published integrity
-    # "clear" with no flag; every other reconcile issue already carried a flag
-    # at reconcile's own threshold. A sum check that could not run (no
-    # beginning or ending balance to hold the rows to) is flagged too: it is
-    # a check whose finding is unknown, and an unknown finding is routed to
-    # review rather than reported as clear. `not recon.ok` keeps a caller's own
-    # passing ReconResult from being flagged for a field it never filled.
+    # The sum check's own threshold. It used to be a dollar, so a reconciliation
+    # that failed by 0.02-1.00 published integrity "clear" with no flag; every
+    # other reconcile issue already carried a flag at reconcile's own threshold.
+    # A sum check that could not run (no beginning or ending balance to hold the
+    # rows to) is flagged too: it is a check whose finding is unknown, and an
+    # unknown finding is routed to review rather than reported as clear. `not
+    # recon.ok` keeps a caller's own passing ReconResult from being flagged for
+    # a field it never filled.
     if recon.sum_check_failed:
         flags.append("ledger_sum_mismatch")
         notes.append("transaction sum does not reconcile to the printed ending balance")
@@ -592,11 +582,11 @@ def assess_document_integrity(
     #                     the check.
     #
     # Keyed on the CLAIMING parser only: `_registration_for` also resolves by
-    # bank label for LLM extractions, and a semantics entry is evidence about
+    # bank label for unclaimed statements, and a semantics entry is evidence about
     # what one parser's reader produced, not about the bank's paper. The key is
     # derived by `count_semantics.claiming_parser_id` rather than spelled out
     # here because `reconcile` needs the SAME key to apply the same table row's
-    # mapping (W3 §COUNTSMAP), and two copies of one expression can drift.
+    # mapping, and two copies of one expression can drift.
     formal = registration is None or registration.formal_statement
     claiming = claiming_parser_id(dispatch)
     if formal and counts_comparable(claiming, "credit") and recon.stated_credit_count_matches is False:
@@ -630,13 +620,12 @@ def assess_document_integrity(
     # `apply_statement_repairs` is FIVE steps and only ONE is a bank-summary
     # repair; the other four are the First Community repair, the claiming
     # registration's kept bank repair (`_STATEMENT_REPAIRS`),
-    # `assign_transaction_years` and `normalize_statement` (it was twelve
-    # until the five ruled fences, S-1..S-5, took five repairs off the path
-    # and the audit of 2026-10-13 keyed the remaining three on their owner).
-    # Saying "a bank-summary repair raised" would be wrong twice over: it
-    # misnames the four, and on a raise late in the stage the bank-summary
-    # repair had already SUCCEEDED and is being discarded with everything
-    # else.
+    # `assign_transaction_years` and `normalize_statement` (it was twelve until
+    # the five ruled fences, S-1..S-5, took five repairs off the path and the
+    # audit keyed the remaining three on their owner). Saying "a bank-summary
+    # repair raised" would be wrong twice over: it misnames the four, and on a
+    # raise late in the stage the bank-summary repair had already SUCCEEDED and
+    # is being discarded with everything else.
     #
     # WHAT THE DISCARD COSTS, disclosed rather than implied: because
     # `assign_transaction_years` is inside the stage, a statement whose period
@@ -794,19 +783,6 @@ class _Analysed:
     partition: MultiAccountPartition | None = None
 
 
-#: THE HOSTED-EXTRACTION OPT-IN is gone (model-code removal, slice S3; owner
-#: ruling 2026-10-13: the product uses no model). Until then auto mode could hop
-#: from a dispatch that produced no statement to the hosted extractor
-#: (`analysis/extract.py`), but only behind the exact literal of the
-#: `HOSTED_EXTRACTION_OPT_IN` environment variable (P22-FENCE, Ruling A in
-#: code); without it, auto mode raised the deterministic-mode outcome with a
-#: `hosted_extraction` attribute on the exception. The extractor, the variable's
-#: reader and the attribute went together: auto mode now raises exactly what
-#: deterministic mode raises (same class, same message, nothing attached), and
-#: nothing in this tree reads `HOSTED_EXTRACTION_OPT_IN`. The analysis cache key
-#: keeps `hosted_extraction_opt_in` as the frozen literal False
-#: (`webapp/artifact_cache.py::analysis_settings_key`), the value every entry
-#: written without the opt-in already carries.
 
 
 def analyze_markdown(markdown: str, *, settings: Settings | None = None,
@@ -851,11 +827,10 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     if parse_mode not in {"auto", "deterministic"}:
         raise ValueError(f"unknown parse_mode: {parse_mode}")
 
-    # THE ADMISSIBILITY BOUNDARY (W3 FILENAME-BOUNDARY). Everything below this
-    # line — detection, every parser's `parse`, the repairs, the ADB engine's
-    # source-text check and the integrity checks (and, until slice S3 of the
-    # model-code removal, the LLM extraction prompt) — sees the document with
-    # its source-filename comment removed.
+    # THE ADMISSIBILITY BOUNDARY. Everything below this line (detection, every
+    # parser's `parse`, the repairs, the ADB engine's source-text check and the
+    # integrity checks) sees the document with its source-filename comment
+    # removed.
     #
     # Deliberately a REBIND of the parameter rather than a second local passed
     # to each consumer: one line makes the property total and checkable by
@@ -890,8 +865,7 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
 
     # `model_used` is assigned by each branch below that publishes a statement
     # (the claiming parser's label, or the structurer's); the branch that
-    # publishes none raises. It no longer starts from `settings.model`, the
-    # hosted extractor's name, which only the removed hosted branch published.
+    # publishes none raises.
     # THE ACCOUNT-PUBLICATION SEAM (L1-S4). A reader that establishes a
     # document's several accounts from its printed partition publishes them
     # here while it parses; `resolve` runs every candidate's `parse`, so several
@@ -978,11 +952,7 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         # assignment or the normalization would be exactly the misattribution
         # this seam exists to prevent.
         #
-        # The hosted-extraction branch, which called the repairs unguarded
-        # after its own unguarded extraction, was removed with
-        # `analysis/extract.py` (model-code removal, slice S3); the escalation
-        # extraction after `reconcile` went earlier, under R9 (see the pinned
-        # `escalated` below). This is now the only branch the repairs run in.
+        # This is the only branch the repairs run in.
         try:
             stmt = apply_statement_repairs(markdown, normalized, dispatch=dispatch)
         except Exception as exc:
@@ -1028,25 +998,16 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
         model_used = STRUCTURER_MODEL
     else:
         # THE DISPATCH PRODUCED NO STATEMENT: the deterministic refusal, in
-        # EVERY `parse_mode`. Auto and deterministic raise the same class with
-        # the same message (plan D2 of the model-code removal): until slice S3
-        # auto mode could fall through here to the hosted extractor behind an
-        # operator opt-in (P22-FENCE, Ruling A), and without it raised these
-        # same refusals with a `hosted_extraction` attribute attached. The
-        # extractor is gone, so there is nothing left to fall through to.
+        # every `parse_mode`. Auto and deterministic raise the same class with
+        # the same message.
         #
-        # BLOCK-2 stays first, and stays a
-        # check of its own although the `parser_exception` refusal below now
-        # raises the same thing: Q3's native-only gate
-        # (`sibling_omission.publish_omissions`, raises `Q3ProvenanceRefused`)
-        # was once fail-CLOSED in deterministic mode only, and a document
-        # refused for OCR provenance was routed to a HOSTED MODEL CALL in auto
-        # mode, publishing one account with the omitted sibling silently
-        # dropped — the exact L-1 defect `analysis/sibling_omission.py` exists
-        # to prevent. A policy refusal must never start any other reading,
-        # so this checks the recorded
-        # exception's CLASS NAME ONLY — never a message, exactly as
-        # `analysis.parser_registry.ParserFailure` already stores it.
+        # Q3's native-only gate (`sibling_omission.publish_omissions`, raises
+        # `Q3ProvenanceRefused`) is checked first and on its own, although the
+        # `parser_exception` refusal below raises the same thing: a policy
+        # refusal must never start any other reading, or one account could
+        # publish with the omitted sibling silently dropped. It checks the
+        # recorded exception's class name only, never a message, as
+        # `analysis.parser_registry.ParserFailure` stores it.
         if dispatch.outcome == "parser_exception" and any(
             failure.exception == Q3ProvenanceRefused.__name__
             for failure in dispatch.exceptions
@@ -1062,28 +1023,13 @@ def _analyse(markdown: str, *, settings: Settings | None = None,
     # One key for both halves of the count check: the mapping `reconcile`
     # applies and the semantics `assess_document_integrity` judges the result
     # under come from the same table row or the check is judging one comparison
-    # by another's rules (W3 §COUNTSMAP).
+    # by another's rules.
     claiming = claiming_parser_id(dispatch)
     recon = reconcile(stmt, parser_id=claiming)
 
-    # R9 (2026-09-03; card P22-FENCE): PINNED FALSE.
-    #
-    # Until this cell the block that stood here ran a SECOND hosted extraction
-    # with `settings.escalation_model` whenever `recon` failed, reconciled the
-    # alternate, and kept whichever extraction reconciled — "falling back to
-    # fewer overall issues" — which is, verbatim, the "multiple extractions ->
-    # compare financial reconciliation -> prefer whichever reconciles" pattern
-    # the anti-optimizer rule forbids. It is REMOVED, not fenced: this module
-    # makes no extraction call at all (the one R9 left, the hosted extraction
-    # behind its opt-in, went with `analysis/extract.py` in slice S3 of the
-    # model-code removal), binds at most one `reconcile` result per scope, and
-    # derives this flag from nothing. The field stays on `Report`, and so in
-    # every payload, for shape stability only.
-    # `tests/test_pipeline_escalation_fence.py` characterised the removed
-    # behaviour at the base tree and pins its absence with AST tripwires. (The
-    # #PRIVACY3 guarantee the removed guard's first clause carried — no hosted
-    # call in deterministic mode — is now structural in every mode: there is
-    # no hosted call left to make.)
+    # Always False: this module makes one extraction and one `reconcile` per
+    # account, and never chooses between readings by which reconciles. The field
+    # stays on `Report`, and so in every payload, for shape stability only.
     escalated = False
 
     published = list(partition.accounts) if partition is not None else []
@@ -1152,8 +1098,8 @@ def _account_report(
 ) -> Report:
     """ONE ACCOUNT's report, from its statement and its own reconciliation.
 
-    Everything `analyze_markdown` did after reconciliation and escalation,
-    unchanged and in the same order, extracted so that the SECOND account of a
+    Everything `analyze_markdown` does after reconciliation, in the same
+    order, extracted so that the SECOND account of a
     member statement is analysed by the same code as the first. That is R-b
     made mechanical: `reconcile`, `compute_metrics`, `assess_quality`,
     `assess_document_integrity` and `detect` are not touched, and what changed
@@ -1174,14 +1120,13 @@ def _account_report(
     On a single-account document the two are the same string and this function
     computes exactly what the body it was lifted from computed.
 
-    The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue
-    spec §8.4, §9.1; R2-OW17): when the statement has a Zelle credit, the
+    True revenue spec §8.4, §9.1: when the statement has a Zelle credit, the
     counted (Yes) reading is analysed beside the stored one, by the same code
     with the same inputs: its metrics from `compute_metrics` with the same
     arguments, the same quality and integrity notes in the same order (the
     quality `assess_quality` returned, never the one the integrity check
-    replaces), and its own detection. Quality, integrity, reconciliation, the
-    model and the escalation are shared: none of them reads a classification.
+    replaces), and its own detection. Quality, integrity, reconciliation and the
+    model label are shared: none of them reads a classification.
     The returned Report is the stored reading, built exactly as before; the
     counted one is its `zelle_counted`.
     """
@@ -1196,7 +1141,7 @@ def _account_report(
         classifications=classifications,
         withholding_denominator_mode=settings.withholding_denominator_mode,
     )
-    # R2-OW17: the counted reading's metrics, from the same arguments.
+    # The counted reading's metrics, from the same arguments.
     counted_metrics = None if counted is None else compute_metrics(
         stmt,
         trust_stated_summary=recon.summary_ok,
@@ -1238,9 +1183,9 @@ def _account_report(
             if note not in reading_metrics.notes:
                 reading_metrics.notes.append(note)
 
-    # Audit round 3, R3-B03 (R3-20; true revenue spec §11): a revenue basis under the withholding basis floor gives each
-    # potential lender's row no basis and no exposure (the final review of round 2's F1 shape), so the dashboard does not
-    # recompute an exposure from it; a basis of $0 or less keeps today's 0.0 and None.
+    # True revenue spec §11: a revenue basis under the withholding basis floor gives each potential lender's row no basis
+    # and no exposure, so the dashboard does not recompute an exposure from it; a basis of $0 or less keeps today's 0.0
+    # and None.
     report = Report(
         statement=stmt,
         reconciliation=recon,
@@ -1287,9 +1232,7 @@ def analyze_statement(
     document account by account calls this once per account and assembles the
     `DocumentReport` itself (`account_roster`, `identify_internal_transfers`).
 
-    No production caller today. The visual-pair adapter (`vlm/pair_adapter.py`)
-    was the only one and was removed with the pair (model-code removal, slice
-    S4); the text-first reader is the planned producer. The contract is pinned
+    No production caller. The contract is pinned
     by `tests/test_analyze_statement_contract.py` and the other tests that call
     this function.
     """
@@ -1381,9 +1324,9 @@ def analyze_document(markdown: str, *, settings: Settings | None = None,
     )
 
 
-#: Audit 2026-10-13 (REC-5): below this magnitude a float's cents are exact enough that two amounts within clause 1's
-#: 0.005 of each other fall in the same or a neighbouring whole-cent bucket (the float error of |amount| x 100 stays
-#: far under half a cent); at or above it a posting is compared with every posting, as before.
+#: Below this magnitude a float's cents are exact enough that two amounts within clause 1's 0.005 of each other fall
+#: in the same or a neighbouring whole-cent bucket (the float error of |amount| x 100 stays far under half a cent);
+#: at or above it a posting is compared with every posting, as before.
 _TRANSFER_BUCKET_LIMIT = 1e12
 
 
@@ -1470,13 +1413,13 @@ def identify_internal_transfers(
             and left[3] * right[3] < 0
         )
 
-    # Audit 2026-10-13 (REC-5, speed only): a posting's candidates come from a (date, whole cents of the magnitude)
-    # index, its own bucket and the two neighbouring cents, which hold every posting clause 1's < 0.005 tolerance can
-    # admit; `admissible()` above stays the authority and tests each candidate verbatim, in posting order, so every
-    # counterpart list is the one the test of every pair built. The index is on date and cents only, never on the
-    # account (clause 1's own test refuses a same-account counterpart). A posting whose amount is not finite, or too
-    # large for its cents to be exact in a float, or whose date cannot be a key, keeps the test of every posting and
-    # is a candidate of every posting.
+    # A posting's candidates come from a (date, whole cents of the magnitude) index, its own bucket and the two
+    # neighbouring cents, which hold every posting clause 1's < 0.005 tolerance can admit; `admissible()` above stays
+    # the authority and tests each candidate verbatim, in posting order, so every counterpart list is the one the
+    # test of every pair built. The index is on date and cents only, never on the account (clause 1's own test
+    # refuses a same-account counterpart). A posting whose amount is not finite, or too large for its cents to be
+    # exact in a float, or whose date cannot be a key, keeps the test of every posting and is a candidate of every
+    # posting.
     buckets: dict[tuple[object, int], list[int]] = {}
     unbucketed: list[int] = []
     for index, posting in enumerate(postings):
