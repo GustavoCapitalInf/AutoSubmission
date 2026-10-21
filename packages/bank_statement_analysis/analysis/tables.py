@@ -413,7 +413,7 @@ def attributed_descriptions(
     case rather than the exotic one.
 
     Measured over the 1,090 described rows of the complex’s 21 validated
-    documents (`tools/descattrib_oracle.py rows`, scored against the PDF word
+    documents (scored against the PDF word
     coordinates the flattened layer threw away): 75 rows attribute their block
     and every one of the 75 publishes exactly what the statement printed for
     that row; 34 rows are indeterminate and publish their bare label, 30 of

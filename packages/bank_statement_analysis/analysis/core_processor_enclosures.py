@@ -70,7 +70,7 @@ does for the same absence.
 
 The printed counts EXCLUDE two rows this ledger nonetheless posts
 -----------------------------------------------------------------
-Measured by `tools/coreenc_count_scope.py` over the 48 members this reader
+Measured over the 48 members this reader
 publishes — the whole MEASURABLE population, because a document that declines
 captures no rows to count: on every document whose captured credit rows
 outnumber the printed credit count, they outnumber it by exactly one and the
@@ -95,7 +95,7 @@ The template names each block and repaints the name on every page, so
 `tables.section_runs` over the banner alternation is the split. The banner is
 also what says which direction the block's rows post in — never the sign of
 the amount, which this platform prints inconsistently: measured over the 48
-published by `tools/coreenc_archive_census.py signs`, the debit blocks print
+published, the debit blocks print
 3,730 rows with a trailing minus and 372 without (the collapsed cheque grids
 print magnitudes), while the credit blocks print 736 without a sign and NONE
 with. A reader keyed on the sign books 372 debits as deposits. Only the date-order issue, which prints

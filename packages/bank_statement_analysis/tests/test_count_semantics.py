@@ -1106,9 +1106,6 @@ def test_the_frost_debit_entry_names_both_excluded_row_classes_and_its_measureme
     assert entry.scope == "named_row_classes_excluded"
     assert "SERVICE CHARGE/FEE" in entry.reason
     assert "zero" in entry.reason.lower()
-    # The excess is recorded per document, so a later reader can check the
-    # claim against the instrument rather than against a summary of it.
-    assert "tools/frostozk_family_replay.py" in entry.reason
 
 
 def test_the_frost_debit_entry_explains_why_it_carries_no_mapping():

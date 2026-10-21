@@ -38,7 +38,7 @@ Each one pins a rule the rung must hold:
 
 A note on what a pin here is worth: a test named after a gate is not a test of
 that gate, so every gate label in this file names the gate whose mutant the
-test kills in `tools/desccols_mutate.py`, and several pins assert their own
+test kills, and several pins assert their own
 premise (this fixture IS welded / IS repaired when the clause is satisfied)
 before they assert a refusal.
 """
@@ -270,7 +270,7 @@ def test_a_multi_column_balance_ladder_is_left_alone():
     figure) pairs side by side means the row's FIRST money is never its last
     printed cell, so the amount-last gate declines it. Measured rather than
     reasoned about — an explicit `at most one money cell` gate was written
-    first and `tools/desccols_mutate.py` proved it changed no answer."""
+    first and proved to change no answer."""
     doc = fitz.open()
     page = doc.new_page()
     y = 100.0

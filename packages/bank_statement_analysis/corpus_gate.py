@@ -811,23 +811,12 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # artifact and passes it as `sheets` — a sweep that fed the analysis a
     # different partition from the one the run fed it would measure a
     # difference it had itself created.
-    # W3 FROSTOZK's family-replay instrument (read-only, offline). Excused on
-    # the question this list asks: it publishes no verdict. It recomputes the
-    # analysis for a named list of content hashes and prints counts and class
-    # names - never an amount, a date or a name - so nothing it computes
-    # reaches a user, a job record or a discovery row. It DOES supply the page
-    # list, reconstructed from the OCR artifact, for the same reason the sweep
-    # below does.
-    "tools/frostozk_family_replay.py": (
-        "read-only family replay; publishes no verdict, and supplies the "
-        "reconstructed page partition"
-    ),
     "tools/regfp_zero_movement_sweep.py": (
         "read-only archive differential; publishes no verdict, and already "
         "supplies the reconstructed page partition"
     ),
     # Batch 9's shared targeted-cohort proof (BATCH9-RULES). Same class as the
-    # two instruments above: read-only over the run of record's cache,
+    # instrument above: read-only over the run of record's cache,
     # publishes no verdict — it prints outcomes, reasons, reader ids, counts and
     # leaf PATHS for a named cohort — and it DOES supply the reconstructed page
     # partition as `sheets`, for the same reason the sweep does.
@@ -873,58 +862,6 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
     # stood here until slice S3 of the model-code removal deleted it with the
     # hosted extractor whose unreachability it probed.)
-    # W3 sec COREENC's coverage instrument, excused on the same two grounds as
-    # the sweep above: it publishes no verdict — it prints a content_sha256, an
-    # outcome CLASS and three counts, never a figure, a name or a date — and it
-    # already supplies the reconstructed page partition as `sheets`, because a
-    # replay that fed the analysis a different partition from the one the run
-    # fed it would measure a difference it had itself created.
-    "tools/coreenc_family_replay.py": (
-        "read-only population replay; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    # W3 §DESCATTRIB's leaf-diff, and excused on the same two grounds as
-    # §REGFP's sweep beside it: it publishes no verdict — it prints leaf PATHS,
-    # movement classes and string LENGTHS, never a value — and it already
-    # supplies the reconstructed page partition, because a differential that
-    # fed the analysis a different partition from the one the run fed it would
-    # measure a difference it had itself created.
-    "tools/descattrib_movement.py": (
-        "read-only description leaf-diff; publishes no verdict, and already "
-        "supplies the reconstructed page partition"
-    ),
-    # W3 §DESCCOLS' reach-and-movement differential, excused on the same two
-    # grounds. It publishes no verdict — counts, classes, leaf PATHS and string
-    # LENGTHS, never a value. And it supplies the page list the analysis must
-    # have: the pages the LADDER produced at this tree, which is the partition
-    # a wired caller would hand it for exactly this text. That is the whole
-    # point of the instrument — it measures the new extraction, so it must
-    # analyse the new extraction's own partition rather than the archive's.
-    "tools/desccols_movement.py": (
-        "read-only extraction differential; publishes no verdict, and supplies "
-        "the ladder's own page partition for the text it is measuring"
-    ),
-    # W3 §DESCCOLS' four remaining measurements — the geometry-oracle score,
-    # the pinned probe, the fail-closed fallback and the publish/refuse
-    # boundary. Excused on the same two grounds as the differential above: no
-    # verdict is published (counts, classes and content_sha256 only — the
-    # pinned probe prints the outcome CLASSES either side of a comparison,
-    # never a figure), and every call supplies the ladder's own page partition
-    # for the text being measured.
-    "tools/desccols_proofs.py": (
-        "read-only measurement pack; publishes no verdict, and supplies the "
-        "ladder's own page partition for the text it is measuring"
-    ),
-    # W3 §DESCATTRIB's geometry oracle. Its `detections` subcommand analyses a
-    # document to ask which classifier detections the attribution rule removes
-    # and whether the text each was matched on was ever printed for the row it
-    # was attributed to. Excused on the same two grounds: it publishes no
-    # verdict — counts, classes and booleans, never a value — and it already
-    # supplies the reconstructed page partition.
-    "tools/descattrib_oracle.py": (
-        "read-only geometry oracle; publishes no verdict, and already supplies "
-        "the reconstructed page partition"
-    ),
     # W3 §ROWCAP's three measurements — the row-capture signature probe, the
     # ceiling and the sheet-strip check. Excused on the same two grounds as
     # §REGFP's sweep above. None publishes a verdict: between them they print
