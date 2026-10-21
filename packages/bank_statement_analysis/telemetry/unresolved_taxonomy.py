@@ -1,5 +1,5 @@
 """telemetry/unresolved_taxonomy.py — the layered unresolved-reason taxonomy
-(Phase 2.2 cell T; the W3-2 idiom of `W3_2_TAXONOMY.md`).
+(the idiom of `W3_2_TAXONOMY.md`).
 
 "755 unresolved" is one number. This module makes it seven, one per LAYER, and
 names exactly one of them the document's PRIMARY reason — so "why does this
@@ -99,27 +99,8 @@ __all__ = [
     "runner_reason_literals",
 ]
 
-#: v1 — P22-TRUTHTABLE, as shipped. Bumped whenever a layer's vocabulary or
-#: the precedence changes, for the reason `DIAGNOSTICS_VERSION` is bumped.
-#:
-#: WHEN THE BUMP RULE STARTS BINDING (review MINOR-8; Ocean's reading, recorded
-#: here because the question is about this constant and nowhere else). The
-#: closure added a code to a layer's set and left this number at 1, which reads
-#: against the rule one line above. It is not: **version 1 has never been
-#: emitted by any run of record.** No artifact anywhere carries the column —
-#: the reviewer checked — and this cell is a single unmerged delivery, so there
-#: is no v1 rollup in existence for a v2 rollup to be incomparable WITH. A
-#: vocabulary change made BEFORE the first run of record at v1 is therefore
-#: part of what v1 turns out to be, not a change to it, and does not bump.
-#:
-#: From the first run of record that RECORDS v1 onward, the rule binds without
-#: exception, exactly as `DIAGNOSTICS_VERSION` is governed: ANY change to a
-#: layer's code set — added, removed or renamed — or to the precedence is a
-#: bump WITH a changelog entry. The reason is the same one that makes
-#: `DIAGNOSTICS_VERSION` non-optional: once two runs exist either side of a
-#: vocabulary change, the version is the ONLY thing that can tell a reader
-#: their class counts are not comparing like with like, and that is most true
-#: when the change fires on zero documents and nothing else looks different.
+#: Bump when a layer's code set (added, removed or renamed) or the precedence changes, for the reason
+#: `DIAGNOSTICS_VERSION` is bumped; see git log for history.
 UNRESOLVED_TAXONOMY_VERSION = 1
 
 #: The one name every layer's closed vocabulary carries, so nothing is ever
@@ -228,7 +209,7 @@ L6_CODES: tuple[str, ...] = (
     #: a finding, never nulled". Distinct from `unmapped`, and the distinction
     #: is the point: `unmapped` means the taxonomy met a code it has never seen,
     #: `unknown` means it met a document every layer had nothing to say about.
-    #: Review MINOR-4 (reproduced on 20 class/reason pairs): without this the
+    #: Without this the
     #: "never nulled" property rested on a coincidence in `telemetry/record.py`
     #: — that every reason mapped to `None` happens to be paired with a
     #: diagnosable class — rather than on this module closing the gap itself.
@@ -604,15 +585,15 @@ def diagnose_unresolved(
 
     primary_layer = next((layer for layer in LAYER_PRECEDENCE if codes[layer]), "")
     if not primary_layer:
-        # Review MINOR-4. An UNRESOLVED document always has a primary reason,
-        # by construction rather than by luck: if no layer spoke, L6 says so in
-        # its own closed word. A row reaching here carries an outcome reason
-        # this module deliberately mapped to no layer (the financial classes,
-        # whose layer comes from the withheld diagnosis) on a class that
-        # carries no diagnosis — so there is genuinely nothing to report, and
-        # "nothing to report" is a finding with a name, never an empty column.
-        # The validated early-return above is the one path that yields no
-        # diagnosis at all, and it yields no diagnosis on purpose.
+        # An UNRESOLVED document always has a primary reason, by construction
+        # rather than by luck: if no layer spoke, L6 says so in its own closed
+        # word. A row reaching here carries an outcome reason this module
+        # deliberately mapped to no layer (the financial classes, whose layer
+        # comes from the withheld diagnosis) on a class that carries no
+        # diagnosis — so there is genuinely nothing to report, and "nothing to
+        # report" is a finding with a name, never an empty column. The validated
+        # early-return above is the one path that yields no diagnosis at all,
+        # and it yields no diagnosis on purpose.
         codes["l6"] = "unknown"
         primary_layer = "l6"
     return UnresolvedDiagnosis(

@@ -1,24 +1,20 @@
-"""COUNTS-P1 — the stated-count integrity observer, PHASE 1: OBSERVE ONLY.
+"""The stated-count observer: a measuring instrument for the count check, observe only.
 
 The platform extracts ``stated_credit_count`` / ``stated_debit_count`` from
-twenty parser modules and **publishes them as its own deposit and withdrawal
-counts** (``analysis/metrics.py:353-356``, ``:368-371``) without ever comparing
-them against the rows it publishes beside them. Gustavo's 2026-08-10 sign-off
-on that comparison made a two-phase rollout MANDATORY and this module is
-phase 1 of it.
+parser modules and publishes them as ``Metrics.effective_num_deposits`` /
+``effective_num_withdrawals`` (``metrics.compute_metrics``). ``reconcile``
+compares them with the rows, and ``assess_document_integrity`` raises
+``credit_count_mismatch`` / ``debit_count_mismatch``. This module measures that
+comparison over already-cached artifacts.
 
-**This module still changes nothing.** Nothing here is imported by
-``analysis/``, ``ocr/``, ``webapp/`` or ``discovery/``; no flag is emitted; no
-outcome class moves; no payload is written. This is a measuring instrument
-pointed at already-cached artifacts, and its whole output is a statistic.
+**This module changes nothing.** Nothing here is imported by ``analysis/``,
+``ocr/``, ``webapp/`` or ``discovery/``; no flag is emitted; no outcome class
+moves; no payload is written. Its whole output is a statistic.
 
-**Phase 2 landed (COUNTS-P2, 2026-08-13) and one thing here changed with it:**
-the per-bank semantics table moved to ``analysis/count_semantics.py``, where
-the shipping integrity check reads it, and this module imports it from there.
-The vocabulary, the evaluation order and every guard below are untouched. What
-that buys is the property the phase-2 card required — the instrument that
-PREDICTS the flag population and the code that EMITS it cannot disagree,
-because there is only one table. See :data:`OBSERVER_VERSION`.
+The per-bank semantics table is imported from ``analysis/count_semantics.py``,
+the table the shipping integrity check reads, so the instrument that predicts
+the flag population and the code that emits it cannot disagree. See
+:data:`OBSERVER_VERSION`.
 
 The closed result vocabulary (binding, from the sign-off)
 --------------------------------------------------------
@@ -60,9 +56,9 @@ the check by handing back its own input. :data:`EXPECTED_FIELDS` and
 ``tests/test_stated_counts.py`` asserts the ``metrics`` section is never
 touched.
 
-**Direction, not sign.** ``analysis/schema.py:18`` makes ``direction`` a
+**Direction, not sign.** ``Transaction.direction`` (``analysis/schema.py``) is a
 required field recording *the column the bank printed the row in*; the sign
-records the money. ``analysis/metrics.py:186-191`` counts ``t.amount >= 0`` as
+records the money. ``metrics.compute_metrics`` counts ``t.amount >= 0`` as
 a deposit, so a **zero-amount row is counted as a deposit whatever column it
 was printed in** — exactly the class RBC §5.5 names (six already-validated
 documents whose per-direction count contradicted the bank's own summary). A
@@ -113,100 +109,8 @@ from analysis.count_semantics import (  # noqa: F401
 )
 from bank_statements import ENV_VAR, bank_statements_dir
 
-#: Bumped when the vocabulary, the evaluation order or the semantics table
-#: changes, so two measurement runs can be told apart. Phase 1 shipped at 1.
-#:
-#: 2 - COUNTS-P2: the semantics table stopped living here and became
-#:     `analysis/count_semantics.py`, the table the SHIPPING check reads, with
-#:     chase:debit, us_bank and wilson_muir promoted to comparable on the
-#:     phase-1 evidence. The vocabulary and the evaluation order are
-#:     unchanged; what changed is that this observer now measures the
-#:     production semantics rather than a copy of them, so a v1 rollup and a
-#:     v2 rollup report different `semantics_incomparable` populations for the
-#:     same archive.
-#:
-#: 3 - COUNTS-P3: four registrations left the UNSURVEYED default and entered
-#:     `analysis/count_semantics.py`, so the same archive partitions
-#:     differently again. `burke_herbert`, `chase_savings` and
-#:     `td_canada_french` became comparable in BOTH directions;
-#:     `first_citizens` split — credit comparable, debit INCOMPARABLE with the
-#:     capital_one-class mapping recorded on it. `capital_one:debit` was
-#:     re-measured and deliberately NOT promoted: the mapping is 22 of 22 but
-#:     the table has no field to express it, and a plain comparable entry was
-#:     measured to move 11 documents `validated` -> `review`, four of them
-#:     pinned. The vocabulary and the evaluation order are untouched; what
-#:     moves between a v2 and a v3 rollup is which directions report
-#:     `semantics_incomparable` versus `match`/`mismatch`: 61 documents across
-#:     the four families leave `unsurveyed_parser` behind, and four
-#:     `td_canada_french` documents start reporting `mismatch` where a v2
-#:     rollup reported them silent.
-#:
-#: 4 - COUNTS-MAP: `CountSemantics` gained a `mapping` — a closed, declarative
-#:     restatement of a printed count that excludes a named row class — and the
-#:     two service-charge-class debit directions left `semantics_incomparable`
-#:     on it: `capital_one:debit` (22 of 22 under the mapping) and
-#:     `first_citizens:debit` (35 of 35). The vocabulary and the evaluation
-#:     order are untouched, and so is every other entry. TWO things move
-#:     between a v3 and a v4 rollup. (1) 57 documents across the two families
-#:     report `match` on the debit direction where v3 reported
-#:     `semantics_incomparable`; none reports `mismatch`. That 57 is the
-#:     population WITH PARSER IDENTITY AVAILABLE (the DISCOVERY-OBS projection,
-#:     merging in the same train, supplies it); this runner reads `parser_id`
-#:     off `rows.csv`, so on a bare pre-projection run it reports 52 — the
-#:     other 5 (4 billed `capital_one`, 1 `first_citizens`) are hidden by the
-#:     documented analysis-cache-hit hole, which leaves the column EMPTY and
-#:     therefore reports them `unsurveyed_parser`. The difference fails
-#:     CLOSED: a document whose parser is unknown is never compared. (2) The
-#:     comparison
-#:     itself now runs through `expected_count`, the same function
-#:     `analysis/reconcile.py` uses, so `stated` and `captured` can legitimately
-#:     differ on a `match` — `expected` is the field that says by how much, and
-#:     it is the number the comparison actually used.
-#:
-#: 5 - GRAM4: one NEW registration entered the table, surveyed by the cell that
-#:     registered it — `core_processor_counted`, comparable in both directions
-#:     as a category sum. The vocabulary, the evaluation order, the mapping
-#:     set and every other entry are untouched. What moves between a v4 and a
-#:     v5 rollup is 8 documents (the whole family, unclaimed before this
-#:     registration existed) reporting `match` in both directions where a v4
-#:     rollup reported them `unsurveyed_parser` — the family publishes no
-#:     count at all today because nothing claims it. Both directions are
-#:     TAUTOLOGICAL and the entries say so: the parser gates each printed
-#:     category count against the rows of the section that category heads, so
-#:     a claimed document agrees by construction and no v5 rollup can report a
-#:     `mismatch` here without the parser having refused the document first.
-#:
-#: 6 - WELCH: one NEW registration entered the table, surveyed by the cell
-#:     that registered it — `welch_state_bank`, comparable in both
-#:     directions as a whole-direction count. The vocabulary, the
-#:     evaluation order, the mapping set and every other entry are
-#:     untouched, so this is the GRAM4 shape one wave on. What moves
-#:     between a v5 and a v6 rollup is 17 documents (the whole family,
-#:     unclaimed before this registration existed) reporting `match` in
-#:     both directions where a v5 rollup reported them
-#:     `unsurveyed_parser`. Both directions are TAUTOLOGICAL and the
-#:     entries say so: the parser refuses any document whose row count
-#:     contradicts either printed figure before it publishes, so a claimed
-#:     document agrees by construction and no v6 rollup can report a
-#:     `mismatch` here without the parser having refused the document
-#:     first. Nothing in production reads this constant — the observer is
-#:     offline (`test_the_observer_is_not_wired_into_any_production_module`)
-#:     — so the bump moves no payload and no cache key.
-#: 6 - FROSTOZK: TWO new registrations entered the table, each surveyed by the
-#:     cell that registered it, and between them they use all three states.
-#:     `bank_ozk` is comparable in both directions and TAUTOLOGICAL in both —
-#:     its reader solves the direction of every row against the printed daily
-#:     balances and consumes these two counts as the constraint that makes the
-#:     solve unique, so a claimed document agrees by construction. `frost`
-#:     SPLITS: its credit direction is comparable and genuinely informative
-#:     (that reader gates on printed totals and on no count), while its debit
-#:     direction is INCOMPARABLE — the printed withdrawal figure excludes two
-#:     named row classes the reader posts, measured exactly on 9 of 9, and
-#:     neither term is expressible as printed evidence. The vocabulary, the
-#:     evaluation order and the mapping set are untouched. What moves between a
-#:     v5 and a v6 rollup is 17 documents, none of which publishes a count
-#:     today because nothing claimed them: 8 report `match` in both directions,
-#:     9 report `match` on credit and `semantics_incomparable` on debit.
+#: Bump when the vocabulary, the evaluation order or the semantics table changes, so two measurement runs can be
+#: told apart; see git log for history.
 OBSERVER_VERSION = 6
 
 # ----------------------------------------------------------------------
@@ -219,7 +123,7 @@ NOT_PRINTED = "not_printed"
 SEMANTICS_INCOMPARABLE = "semantics_incomparable"
 CHECK_UNAVAILABLE = "check_unavailable"
 
-#: Gustavo's closed vocabulary, in the order the sign-off states it. Nothing
+#: The owner's closed vocabulary, in its ruled order. Nothing
 #: outside this tuple may ever be an observation's `result`.
 RESULTS = (MATCH, MISMATCH, NOT_PRINTED, SEMANTICS_INCOMPARABLE, CHECK_UNAVAILABLE)
 
@@ -250,19 +154,19 @@ REASONS = (
 )
 
 #: The ONLY fields the expected side may come from — bank-printed evidence as
-#: the parser extracted it. `analysis/schema.py:45-46`.
+#: the parser extracted it (`Statement.stated_credit_count` / `stated_debit_count`).
 EXPECTED_FIELDS = {
     "credit": ("statement", "stated_credit_count"),
     "debit": ("statement", "stated_debit_count"),
 }
 
 #: The ONLY fields the captured side is recomputed from, here, by us.
-#: `analysis/schema.py:18` — the printed column, not the sign of the money.
+#: `Transaction.direction`: the printed column, not the sign of the money.
 CAPTURED_FIELDS = ("statement", "transactions", "[]", "direction")
 
 #: Never read. Named so the independence rule is checkable rather than
 #: promised: these are where `metrics` COPIES the bank's printed count to
-#: (`analysis/metrics.py:353-356`, `:368-371`), so sourcing the expected side
+#: (`metrics.compute_metrics`), so sourcing the expected side
 #: from any of them would let a parser satisfy the check with its own input.
 FORBIDDEN_EXPECTED_SOURCES = (
     ("metrics", "effective_num_deposits"),
@@ -272,17 +176,17 @@ FORBIDDEN_EXPECTED_SOURCES = (
     ("metrics", "total_posted_credit_count"),
 )
 
-#: `analysis/pipeline.py:140` — one aggregate row stands for many postings by
-#: design, so the count check is structurally guaranteed to disagree and would
-#: say nothing. Matched on the description the pipeline itself writes.
+#: An aggregate row, recognised by this word in its description as `pipeline.assess_quality` and `reconcile` read it:
+#: one row stands for many postings by design, so the count check is structurally guaranteed to disagree and would
+#: say nothing.
 AGGREGATE_MARKER = "UNCAPTURED"
 
 # ----------------------------------------------------------------------
 # the per-bank count semantics table — imported, never copied
 # ----------------------------------------------------------------------
 #
-# COUNTS-P2 moved this table into `analysis/count_semantics.py`, where the
-# SHIPPING integrity check reads it. It is imported at the top of this module
+# The table lives in `analysis/count_semantics.py`, where the SHIPPING
+# integrity check reads it. It is imported at the top of this module
 # rather than restated here: an observer that measures a copy of the rule is
 # measuring the wrong thing the moment the copy drifts, and the value of this
 # instrument is that its answer is the production answer.
@@ -338,8 +242,7 @@ class Observation:
     zero_amount_rows: int = 0
     direction_sign_disagreements: int = 0
     #: Non-vocabulary sub-measurements. NEVER part of a rollup's outcome
-    #: counts: these exist so phase 2 can be decided with numbers on the
-    #: populations phase 1 refuses to compare.
+    #: counts: they measure the populations the comparison refuses to compare.
     advisory: dict[str, Any] = field(default_factory=dict)
 
     def directions(self) -> tuple[DirectionObservation, DirectionObservation]:
@@ -415,7 +318,7 @@ def evaluate(
        direction whose :class:`Semantics` says ``comparable=False``.
     4. the captured side cannot be computed -> ``check_unavailable``.
     5. compare, exactly, no tolerance -> ``match`` / ``mismatch``. A count is
-       an integer the bank printed; the ±2% band `analysis/reconcile.py:67-71`
+       an integer the bank printed; the ±2% band `reconcile._coverage_mismatch`
        uses for money exists because OCR and rounding make money approximate,
        and neither applies to an integer. What is compared is the printed
        figure through this parser's declared mapping
@@ -423,7 +326,7 @@ def evaluate(
        that has none) — the SAME function the shipping check applies, for the
        same reason the table is imported rather than copied.
 
-    Reversals are counted GROSS. `analysis/reconcile.py:165-207` nets
+    Reversals are counted GROSS. `reconcile` nets
     settlement reversals out of the MONEY coverage because banks net them in
     printed totals; a reversal is nonetheless a printed row the bank counted,
     so netting it out of a COUNT would create the mismatch it was meant to
@@ -462,7 +365,7 @@ def evaluate(
         direction = row.get("direction")
         amount = row.get("amount")
         amount = amount if isinstance(amount, (int, float)) and not isinstance(amount, bool) else None
-        # `metrics.py:186-191` reads `t.amount >= 0` as a deposit, so a
+        # `metrics.compute_metrics` reads `t.amount >= 0` as a deposit, so a
         # zero-amount row lands in the credit bucket whatever column printed
         # it. Reproduced here EXACTLY, as the counterfactual, never as the
         # answer.
@@ -577,13 +480,10 @@ def _advisory(
 ) -> dict[str, Any]:
     """Sub-measurements that are NOT the vocabulary and never rolled into it.
 
-    Phase 1's job is to tell Gustavo what phase 2 would do. For the
-    incomparable populations the vocabulary answer is deliberately silent, so
-    the counterfactual is measured here and labelled as a counterfactual: what
-    the comparison WOULD have said, and — for BofA — what it would say under
-    the `+ check_count` mapping the repair path applied UNTIL BOFA-COUNTS
-    removed it (2026-08-13); the counterfactual is kept as the historical
-    record of what that mapping would have manufactured.
+    For the incomparable populations the vocabulary answer is deliberately
+    silent, so the counterfactual is measured here and labelled as one: what
+    the comparison WOULD have said, and, for BofA, what it would say under a
+    `+ check_count` mapping, which no parser applies.
     """
     out: dict[str, Any] = {}
     for direction in DIRECTIONS:
@@ -668,7 +568,7 @@ def rollup(
         if obs.direction_sign_disagreements:
             counter["documents_where_sign_would_differ"] += 1
         # The counterfactual the sign-off asks to be proved: rerun the SAME
-        # comparison keyed on `amount >= 0` (`analysis/metrics.py:186-191`)
+        # comparison keyed on `amount >= 0` (as `metrics.compute_metrics` counts)
         # instead of on `direction`, and count where the answer would flip.
         # `sign_false_mismatch` is the damage a sign-keyed check would do —
         # correct rows called wrong.
@@ -808,46 +708,33 @@ class _ArtifactJoin:
     `compute` is never invoked because we go through the cache's typed getters
     rather than the memoizing wrappers.
 
-    The markdown header carries the source FILENAME (`ocr/document.py:38-41`),
-    and the filename is deliberately NOT load-bearing for the hash: since W3
-    FILENAME-BOUNDARY the analysis stage keys on the admissible text, so a
+    The markdown header carries the source FILENAME (`StatementMarkdown.to_markdown`),
+    and the filename is deliberately NOT load-bearing for the hash: the
+    analysis stage keys on the admissible text, so a
     rename cannot change the answer and must not change the key either. This
     class MUST derive the hash exactly as the cache does, or the join silently
     misses every document and the instrument goes blind — failing safe
     (`REASON_PAYLOAD_ABSENT` on every row) while measuring nothing. That is why
-    it IMPORTS `analysis_input_sha` instead of recomposing it: the private copy
-    that used to live here would have survived W3 §WIRING's key change looking
-    perfectly healthy. `source_file` is still passed in and stamped onto the
+    it IMPORTS `analysis_input_sha` instead of recomposing it. `source_file` is still passed in and stamped onto the
     reconstructed document, because `to_markdown()` requires one and the
     reconstruction must be faithful; it simply cannot reach the hash. It never
     leaves this class: what a caller gets back is a payload and a hash.
 
-    **Expect ZERO resolutions on the first run after W3 §WIRING2 merges, and do
-    not read that as a defect.** Adding the page partition to the analysis input
-    hash re-keyed the stage, so every analysis artifact already in the store was
-    written under the old text-only key and none under the new one: this join
-    resolves nothing and `observe_run` reports `REASON_PAYLOAD_ABSENT` on every
-    row until the next archive run re-analyzes at the bumped stage version. It
-    fails safe — an unresolvable payload is never guessed — and it self-heals at
-    the train's cold run, with no action needed here. Note that the tests below
-    seed their own fixture through `cached_analysis`, so they stay green
-    throughout the blindness and cannot warn about it; only an empty rollup over
+    After any change to the analysis input hash's material, expect ZERO
+    resolutions until the next archive run re-analyzes: every stored artifact
+    sits under the old key, so `observe_run` reports `REASON_PAYLOAD_ABSENT` on
+    every row. It fails safe, and the tests cannot warn about it because they
+    seed their own fixture through `cached_analysis`; only an empty rollup over
     the real archive shows it.
 
-    **Artifact selection (P20-ARTIFACTS, Phase 2.0; OQ8/OQ10; F-9/MAJOR-3).**
-    This class is what the OCR-legacy audit named `CachedArtifacts` and cites
-    as F-9's prior art — but its own OCR-side selection was a declared,
-    ORDERED `_ocr_keys` preference list that put the visual partition LAST, an
-    unratified extractor ranking (Risk 7 / OQ10). It now resolves through
+    **Artifact selection (OQ10).** OCR-side selection resolves through
     `telemetry/run_of_record.py`'s ONE selection policy: the `run_dir` this instance is built
-    against supplies `RunPartitions` (recorded, or reconstructed and verified
-    against THIS `data_dir`'s own cache index), `payload_for` resolves each
-    document's OCR partition from ITS OWN row (`source_path` / `visual_rung`
-    — never a preference walk), and the analysis filter uses the RUN's
-    recorded analysis key rather than recomputing one from the current tree
-    (a historical run's analysis key can differ from what this tree would
-    compute today — the registry fingerprint alone rotates at nearly every
-    wave).
+    against supplies `RunPartitions` (recorded, or reconstructed and verified against THIS
+    `data_dir`'s own cache index), `payload_for` resolves each document's OCR partition from
+    ITS OWN row (`source_path` / `visual_rung` — never a preference walk), and the analysis
+    filter uses the RUN's recorded analysis key rather than recomputing one from the current
+    tree (a historical run's analysis key can differ from what this tree would compute today
+    — the registry fingerprint alone rotates at nearly every wave).
     """
 
     def __init__(self, data_dir: str | Path, run_dir: str | Path):
@@ -859,13 +746,10 @@ class _ArtifactJoin:
         from telemetry.run_of_record import analysis_partition, partitions_for_run
         from webapp.artifact_cache import analysis_input_sha
 
-        # THE analysis input hash, imported rather than recomposed. This class
-        # used to hold its own copy of the derivation (`text_sha256` of
-        # `admissible_text`), which is precisely the second copy the
-        # FILENAME-BOUNDARY lesson warned about: when W3 §WIRING added the sheet
-        # partition to the key material, a private copy would have gone on
-        # hashing the text alone, missed on every document, and reported
-        # `REASON_PAYLOAD_ABSENT` across the archive while looking healthy.
+        # THE analysis input hash, imported rather than recomposed: a private
+        # copy would miss every document as soon as the key material changed,
+        # and report `REASON_PAYLOAD_ABSENT` across the archive while looking
+        # healthy.
         self._analysis_input_sha = analysis_input_sha
         self._root = Path(data_dir) / "artifacts"
         # sqlite3 direct, `mode=ro`, rather than `webapp.storage.Storage`:
@@ -880,7 +764,7 @@ class _ArtifactJoin:
             # Raises `telemetry.run_of_record.RunOfRecordError` on a malformed
             # record or an unverifiable reconstruction — propagated to the CLI
             # boundary (`main`), never guessed past. Closed here on that path
-            # too (review MINOR-3): a `with _ArtifactJoin(...)` never reaches
+            # too: a `with _ArtifactJoin(...)` never reaches
             # `__enter__`/`__exit__` if the constructor itself raises.
             self.partitions = partitions_for_run(run_dir, conn=self._conn)
         except BaseException:
@@ -889,12 +773,12 @@ class _ArtifactJoin:
         self._analysis_key = analysis_partition(self.partitions)
 
     def close(self) -> None:
-        """Review MINOR-3: the old `_rows()` opened and closed a connection
-        PER CALL, in a `finally`; the per-document `select_artifact` design
-        keeps ONE connection open for the instance's lifetime instead, and
-        nothing released it. On Windows an unclosed `mode=ro` handle cannot
-        corrupt the (read-only) cold caches, but it can hold a file handle
-        open past a `tmp_path` fixture's teardown. Idempotent."""
+        """Review the old `_rows()` opened and closed a connection PER CALL, in
+        a `finally`; the per-document `select_artifact` design keeps ONE
+        connection open for the instance's lifetime instead, and nothing
+        released it. On Windows an unclosed `mode=ro` handle cannot corrupt the
+        (read-only) cold caches, but it can hold a file handle open past a
+        `tmp_path` fixture's teardown. Idempotent."""
         self._conn.close()
 
     def __enter__(self) -> "_ArtifactJoin":
@@ -1007,15 +891,15 @@ def observe_run(
     `content_sha256` — the archive contains the same bytes under several paths
     and counting one document twice would inflate every rate in the rollup.
 
-    Raises `telemetry.run_of_record.RunOfRecordError` (P20-ARTIFACTS) if
-    `run_dir`'s partitions cannot be determined or a reconstruction does not
-    verify against `data_dir`'s own cache index — never a guess; `main()`
-    reports this as exit 5.
+    Raises `telemetry.run_of_record.RunOfRecordError` if `run_dir`'s partitions
+    cannot be determined or a reconstruction does not verify against
+    `data_dir`'s own cache index — never a guess; `main()` reports this as exit
+    5.
     """
     corpus_status = corpus_status or {}
     seen: set[str] = set()
     out: list[tuple[dict[str, Any], Observation]] = []
-    with _ArtifactJoin(data_dir, run_dir) as join:  # review MINOR-3: closed on every exit
+    with _ArtifactJoin(data_dir, run_dir) as join:  # review closed on every exit
         for row in load_run_rows(run_dir):
             content_sha256 = row.get("content_sha256") or ""
             if distinct:
@@ -1036,8 +920,8 @@ def observe_run(
             # returns exactly `[evaluate(payload)]` for every payload this tree
             # publishes, so this loop is unchanged today — and it is the only entry
             # point the observer has, so wiring it here is what keeps the
-            # renders-per-account reader reachable rather than written and unused
-            # (L1-S3 review, MINOR-2). Left on `evaluate`, this CLI would RAISE on
+            # renders-per-account reader reachable rather than written and unused.
+            # Left on `evaluate`, this CLI would RAISE on
             # the first multi-account document instead of observing its accounts.
             for observation in evaluate_accounts(payload, parser_id=parser_id):
                 out.append((context, observation))

@@ -123,9 +123,9 @@ def score_vector(
     identical for every registration that has it, and is reconstructible as
     "every registration not listed" from `registration_count`.
 
-    **`collector` is the first sweep's preparation, offered to the second
-    (W3 #PREPHAND).** Purity is what makes the re-sweep admissible; it does
-    not make it free. `PreparedDocument` (DETECT-BUDGET) reduced ONE sweep
+    **`collector` is the first sweep's preparation, offered to the second.**
+    Purity is what makes the re-sweep admissible; it does not make it free.
+    `PreparedDocument` reduced ONE sweep
     from 104 text preparations to 33, and the discovery run pays for two
     sweeps per document — `analyze_markdown`'s and this one — so the second
     was paying 33 preparations to recompute, character for character, texts
@@ -134,17 +134,17 @@ def score_vector(
 
     **Say plainly what "nothing" means.** Reusing the preparation reuses its
     MARKER MEMO too, so the second sweep is not a cheaper sweep — it is a
-    replay: measured on the largest pinned document, `Marker.test` is called
-    190 times in the first sweep and **0 times** in the second, and every
+    replay: measured on the largest pinned document, `Marker.test` is called 190
+    times in the first sweep and **0 times** in the second, and every
     `Detection` here is assembled from values the first sweep computed. The
-    paragraph above says re-running `detect` reproduces the run of record;
-    with a collector, the record is reproduced by not re-running it, which is
-    the same value for the same reason (`Marker.test` and the normalizers are
-    pure by contract) and is worth stating rather than implying. What is NOT
-    replayed is a crash: a marker that raises is never memoized, so the
-    `_guarded` seam is entered on this sweep exactly as on the first — proven
-    by deliberate injection over the whole archive, 2 raises per crashing
-    registration per document (#PREPHAND PH5.1).
+    paragraph above says re-running `detect` reproduces the run of record; with
+    a collector, the record is reproduced by not re-running it, which is the
+    same value for the same reason (`Marker.test` and the normalizers are pure
+    by contract) and is worth stating rather than implying. What is NOT replayed
+    is a crash: a marker that raises is never memoized, so the `_guarded` seam
+    is entered on this sweep exactly as on the first — proven by deliberate
+    injection over the whole archive, 2 raises per crashing registration per
+    document.
 
     The reuse is **guarded on the type and then on the text, not on the
     caller's word**: it is taken only from a real `PreparedDocument` whose
@@ -288,19 +288,19 @@ def reconstructed_claim(scores, payload: dict | None) -> tuple[str, float] | Non
        string here.
     3. **Not a sweep that names anything other than exactly one survivor.**
        Zero or many, while a payload exists, means the invariant above was
-       broken by a stale artifact (the REGFP window: a registry composition
-       changed under a warm cache without a stage bump). That is a finding, and
+       broken by a stale artifact (a registry composition changed under a warm
+       cache without a stage bump). That is a finding, and
        the answer is to name nobody rather than to pick.
 
-    WHAT IT DOES NOT CATCH, stated plainly. Inside that same REGFP window a
+    WHAT IT DOES NOT CATCH, stated plainly. Under such a stale artifact a
     cached payload may have been authored by a parser that TODAY loses a
     `supersedes` contest; today's sweep then names one survivor, the new
     winner, confidently and wrongly. One survivor is not a symptom, so no guard
     here fires. That is a stale-cache corruption this reconstruction INHERITS,
     not one it creates — before it, the same warm run served the same payload
     and published the same outcome with no parser named at all — and the
-    structural fix is the REGFP card (the registry fingerprint in the analysis
-    cache key), not a guess here.
+    structural fix is the registry fingerprint in the analysis cache key, not a
+    guess here.
 
     NEVER reconstructed: `attempted` (proven empty by the argument above) and
     `exceptions` (a detect-stage crash in some other registration scores 0.0
@@ -309,10 +309,10 @@ def reconstructed_claim(scores, payload: dict | None) -> tuple[str, float] | Non
     """
     from analysis.structurer import STRUCTURER_MODEL
 
-    # Guarded on the type, not on the caller's word — `score_vector`'s rule,
-    # for the same reason: this runs inside emit paths that swallow their own
-    # exceptions (I4), so a caller that hands over something that is not a
-    # serialized payload must reconstruct nothing rather than cost a record.
+    # Guarded on the type, not on the caller's word — `score_vector`'s rule, for
+    # the same reason: this runs inside emit paths that swallow their own
+    # exceptions, so a caller that hands over something that is not a serialized
+    # payload must reconstruct nothing rather than cost a record.
     model_used = payload.get("model_used") if isinstance(payload, dict) else None
     model_used = model_used if isinstance(model_used, str) else ""
     if not model_used.endswith(DETERMINISTIC_MODEL_SUFFIX):

@@ -20,9 +20,8 @@ from flask import Flask, request, jsonify, render_template, Response, abort
 from werkzeug.exceptions import RequestEntityTooLarge
 
 # The .env file is loaded here, first, before any product module below reads the environment (POPPLER_PATH at
-# ocr.rasterize's import, WEBAPP_MIN_FREE_MB below, ...). It used to be loaded only as a side effect of this module's
-# `from ocr.config import ...`, which left with the visual OCR settings it imported; ocr/config.py and
-# analysis/config.py still load it themselves for the command-line tools. The first load wins (override=False), and
+# ocr.rasterize's import, WEBAPP_MIN_FREE_MB below, ...). ocr/config.py and analysis/config.py also load it for the
+# command-line tools. The first load wins (override=False), and
 # every load finds the same file, so the order only decides WHEN the values are there, not which values they are.
 from dotenv import load_dotenv
 
@@ -110,10 +109,10 @@ MAX_UPLOAD_PAGES = 500
 # at once, so the stock four would head-of-line block.
 SERVER_THREADS = 16
 
-#: The free space the data volume keeps (audit 2026-10-13, BE-1). Nothing ever deletes a job, document, PDF or
-#: artifact (retention is an owner decision), and on 2026-10-06 the demo's full volume stopped the server from
-#: starting. An upload, or a Re-analyze, that would leave less than this is refused with 507 before anything is
-#: written. Default 256 MB; `WEBAPP_MIN_FREE_MB` overrides it (0 turns the floor off).
+#: The free space the data volume keeps. Nothing ever deletes a job, document, PDF or artifact (retention is an
+#: owner decision), and a full volume stops the server from starting. An upload, or a
+#: Re-analyze, that would leave less than this is refused with 507 before anything is written. Default 256 MB;
+#: `WEBAPP_MIN_FREE_MB` overrides it (0 turns the floor off).
 DEFAULT_MIN_FREE_MB = 256
 
 
@@ -154,10 +153,10 @@ def _data_volume_nearly_full(incoming_bytes: int = 0) -> bool:
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
-#: How the store opened at start-up (audit 2026-10-13, BE-1): None normally; STORE_READ_ONLY when it could not be
-#: opened or written but can be read (saved statements are served, every write is refused); STORE_UNAVAILABLE when
-#: it cannot be read either (only the page itself is served). Before, a store that could not be written stopped the
-#: import of this module, so the host restarted the server until it gave up and nothing could be served at all.
+#: How the store opened at start-up: None normally; STORE_READ_ONLY when it could not be opened or written but can
+#: be read (saved statements are served, every write is refused); STORE_UNAVAILABLE when it cannot be read either
+#: (only the page itself is served). Stopping the import instead would make the host restart the server until it
+#: gave up, and nothing could be served.
 STORE_READ_ONLY = "read_only"
 STORE_UNAVAILABLE = "unavailable"
 
@@ -202,10 +201,10 @@ def _open_store() -> tuple[JobStore, list[str], str | None]:
     queue holds no durable claim on partially processed OCR state, so a clean,
     explicit interruption the analyst can see beats a half-blind retry.)
 
-    Audit 2026-10-13 (BE-1): only a failure of the data volume itself (`_volume_failure`: `disk I/O error` at the
-    journal-mode PRAGMA, `database or disk is full` while marking interrupted jobs, a read-only or full filesystem)
-    falls back to a read-only store. Anything else (a locked database, a schema the code does not understand, a
-    refused data directory) still stops the start: those are not a full disk, and serving them would be wrong."""
+    Only a failure of the data volume itself (`_volume_failure`: `disk I/O error` at the journal-mode PRAGMA,
+    `database or disk is full` while marking interrupted jobs, a read-only or full filesystem) falls back to a
+    read-only store. Anything else (a locked database, a schema the code does not understand, a refused data
+    directory) still stops the start: those are not a full disk, and serving them would be wrong."""
     try:
         opened = JobStore()
         return opened, opened.mark_interrupted(), None
@@ -231,67 +230,26 @@ _job_queue_lock = threading.Lock()
 _job_worker_active = False
 
 
-#: There is NO shutdown exemption on the re-arm, and the reason is measured
-#: rather than assumed (#HYGIENE8 review MINOR-3). The first version of this
-#: supervisor kept a `(SystemExit, KeyboardInterrupt)` vocabulary on the premise
-#: that either escaping `run_job` meant "the process is going away". In a
-#: worker thread neither does: `threading` hands both to the thread's
-#: excepthook and the interpreter continues. A real Ctrl-C is delivered to the
-#: MAIN thread, and a real `sys.exit` there ends the process — daemon workers
-#: and all — without ever passing through this handler; a signal can reach the
-#: worker thread only by being raised INSIDE it, by `run_job` or something it
-#: called. On that path the process lives on, and a queue left with its work in
-#: it would sit at `queued` with `error=None` until the next upload arrived and
-#: its worker drained it: §PRIVACY3 P8.1's exact symptom on a narrower path. So
-#: a thread-raised signal is a dead worker, not a dying process, and a dead
-#: worker is replaced whatever killed it. `run_job`'s own `BaseException` arm
-#: still re-raises rather than swallowing, so the thread still dies with its
-#: traceback on stderr; nothing here inspects what escaped.
+#: No exception class is exempt from the re-arm. In a worker thread, `SystemExit` and `KeyboardInterrupt` do not
+#: end the process: `threading` hands them to the thread's excepthook and the interpreter continues. A real Ctrl-C
+#: or `sys.exit` happens on the main thread and never passes through here. So a signal raised inside `run_job` is a
+#: dead worker, not a dying process, and queued work would otherwise wait until the next upload.
 
 
 def _release_worker_slot() -> bool:
     """Hand the one worker slot back after a worker thread dies mid-job.
 
-    #HYGIENE8 QUEUE-SUPERVISOR, closing the defect §PRIVACY3 P8.1 measured and
-    carried. `_job_worker_active` is a claim on the single worker slot, and
-    until this function existed the ONLY place that released it was the loop's
-    own `return`. So when `run_job` unwound — which is exactly what its
-    `BaseException` arm makes it do — the thread died holding the slot,
-    `_enqueue_job` never started another worker, and every later upload sat at
-    `queued` with `error=None` for the life of the process.
+    `_job_worker_active` claims the single worker slot. When `run_job` unwinds, the thread would otherwise die
+    holding it, `_enqueue_job` would never start another worker, and later uploads would wait at `queued`.
 
-    Two things happen here and they are separate decisions:
+    The slot is always released. A replacement starts when work is queued, and it claims the slot inside the same
+    critical section that releases it (the claim-before-spawn order `_enqueue_job` keeps), so two workers never
+    drain one queue.
 
-    * **the slot is always released**, because a claim held by a thread that no
-      longer exists is not a claim; and
-    * **a replacement worker is started when there is queued work**, whatever
-      killed the one that died (the note above says why no exception class is
-      exempt). Releasing the flag alone would already un-strand every FUTURE
-      upload; the re-arm is what rescues the documents that were already in the
-      queue when the worker died, in a process where no further upload ever
-      arrives.
+    The re-arm cannot spin: the replacement pops from the same queue under the same lock, and `run_job` marks the
+    popped job `error` before it re-raises, so a failure that repeats drains the queue one document per thread.
 
-    **The replacement claims the slot inside the same critical section that
-    releases it** (#HYGIENE8 review MAJOR-1). The first version of this function
-    set the flag `False` and then spawned the replacement with the flag LEFT
-    `False`, so for the whole life of the replacement the module said no worker
-    existed, the next upload started a second one, and two threads drained one
-    queue — the single worker slot double-booked until both happened to exit.
-    Both jobs still completed exactly once (every pop is under the lock), so
-    the defect was of the SLOT and not of a job; but the slot is what keeps two
-    OCR jobs from running at once on this host. The flag is therefore written
-    ONCE here, to the re-arm decision itself: `True` exactly when a replacement
-    is about to be started and `False` otherwise, under the lock `_enqueue_job`
-    reads it under — the same claim-before-spawn order `_enqueue_job` keeps.
-
-    The re-arm cannot spin: the replacement pops from the same queue under the
-    same lock, and `run_job` marks the popped job `error` before it re-raises,
-    so a failure that repeats for every document drains the queue one document
-    per thread and stops. Nothing recurses — the dying thread starts the next
-    one and then finishes unwinding.
-
-    Returns whether a replacement was started, so a test can assert the
-    decision rather than infer it from a race.
+    Returns whether a replacement was started.
     """
     global _job_worker_active
     with _job_queue_lock:
@@ -314,7 +272,7 @@ def _process_job_queue() -> None:
             run_job(job_id, pdf_bytes, filename, store, force_ocr)
         except BaseException:
             # The handler is on the SUPERVISOR and not on `run_job`'s arm, which
-            # is the whole shape §PRIVACY3 P8.1 argued for: the arm must keep
+            # is the point: the arm must keep
             # re-raising (swallowing a death is worse than a stranded queue),
             # so the slot has to be released by whoever owns it. Nothing is
             # swallowed here either — the `raise` below is bare, so the stderr
@@ -360,8 +318,8 @@ def _is_count(value: object) -> bool:
 
 
 def _zelle_setting(settings: dict | None) -> bool:
-    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): whether the settings snapshot asks for
-    Zelle deposits counted as True revenue (Yes, the default; a missing or malformed value reads as Yes)."""
+    """Whether the settings snapshot asks for Zelle deposits counted as True revenue (Yes, the default; a missing or
+    malformed value reads as Yes)."""
     value = (settings or {}).get("zelle_true_revenue", SETTINGS_DEFAULTS["zelle_true_revenue"])
     return value if isinstance(value, bool) else SETTINGS_DEFAULTS["zelle_true_revenue"]
 
@@ -381,33 +339,32 @@ def _displayed(
     still decides the NSF basis. `export` leaves out what only the dashboard reads (the NSF days its NSFs chip
     lists, `metrics.nsf_days`), so a download carries what it carried before the chip.
 
-    The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue spec §9.2, §10; R2-OW17): FIRST, the
-    Zelle reading the setting "Mark Zelle Payments as True Revenue" asks for (analysis/zelle_view.py), whose stored
-    edits are paths in the stored shape, so it runs before any served key is added."""
+    True revenue spec §9.2, §10: FIRST, the Zelle reading the setting "Mark Zelle Payments as True Revenue" asks
+    for (analysis/zelle_view.py), whose stored edits are paths in the stored shape, so it runs before any served
+    key is added."""
     if settings is None:
         settings = load_settings(store.storage.data_dir)
     if carry_over is None:
         carry_over = settings.get("nsf_carry_over", SETTINGS_DEFAULTS["nsf_carry_over"])
     analysis = apply_zelle_view(analysis, counted=_zelle_setting(settings))
     rebased = apply_nsf_basis_to_payload(analysis, carry_over=carry_over, list_days=not export)
-    # 5.6 (true revenue spec §10.4, §12): each account's revenue flags, and an older payload's True revenue nulled. The
-    # owner's request of 2026-10-10 (active positions by month; §9.1): then each account's active and possible
-    # positions, read from its stored rows (analysis/active_positions.py), computed here and never stored.
+    # True revenue spec §10.4, §12: each account's revenue flags, and an older payload's True revenue nulled. §9.1:
+    # then each account's active and possible positions, read from its stored rows (analysis/active_positions.py),
+    # computed here and never stored.
     served = apply_active_positions_view(apply_revenue_view(apply_flagged_groups_to_payload(rebased, enabled=settings)))
-    # Audit B11 (I51): a download never prints a figure the dashboard reads as N/A.
+    # A download never prints a figure the dashboard reads as N/A.
     return _export_revenue_view(served) if export else served
 
 
-#: Audit B11 (I51, §10.4 for the exports): the figures a download leaves empty when an account's revenue is not
-#: established, and when its Verified figure is not. Audit round 2, R2-B16 (R52): the lists live in
-#: analysis/revenue_view.py, which the CLI reads too.
+#: §10.4: the figures a download leaves empty when an account's revenue is not established, and when its
+#: Verified figure is not. The lists live in analysis/revenue_view.py, which the CLI reads too.
 _UNESTABLISHED_REVENUE_KEYS = UNESTABLISHED_REVENUE_KEYS
 _UNESTABLISHED_VERIFIED_KEYS = UNESTABLISHED_VERIFIED_KEYS
 
 
 def _export_account_revenue(account: object) -> object:
-    """One account's served copy as a download prints it (audit B11, I51): the figures its revenue flags do not
-    establish are None, written as empty cells. A copy; the served payload is untouched."""
+    """One account's served copy as a download prints it: the figures its revenue flags do not establish are
+    None, written as empty cells. A copy; the served payload is untouched."""
     if not isinstance(account, dict) or not isinstance(account.get("metrics"), dict):
         return account
     metrics = account["metrics"]
@@ -416,12 +373,12 @@ def _export_account_revenue(account: object) -> object:
         nulled.update({key: None for key in _UNESTABLISHED_REVENUE_KEYS if key in metrics})
     if metrics.get("verified_revenue_established") is not True:
         nulled.update({key: None for key in _UNESTABLISHED_VERIFIED_KEYS if key in metrics})
-    # The final review of round 2, F1 (§10.4, §11): the withholding basis the served copy marks as not established
-    # (its rate is None already) is an empty cell too, as the dashboard reads it N/A.
+    # §10.4, §11: the withholding basis the served copy marks as not established (its rate is None already) is an
+    # empty cell too, as the dashboard reads it N/A.
     if metrics.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
         nulled.update({key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in metrics})
-    # Audit round 3, R3-B20 (R3-48; §10.4's I51, §10.8): the Zelle figures' parts of True and Held are empty cells too
-    # (`_zelle_deposit_rows`); the captured rows' count, total and non-revenue part stay.
+    # §10.4, §10.8: the Zelle figures' parts of True and Held are empty cells too (`_zelle_deposit_rows`); the
+    # captured rows' count, total and non-revenue part stay.
     if ZELLE_DEPOSITS_KEY in metrics:
         zelle = unestablished_zelle_figures(
             metrics[ZELLE_DEPOSITS_KEY], established=metrics.get("revenue_established") is True,
@@ -456,20 +413,20 @@ def _package_for_export(package: dict) -> dict:
                 ) if isinstance(row, dict) else row
                 for row in rows
             ]
-    # Audit B11 (I51): the package's counted-plus-held figures, and the held count, are partial when a member's
-    # revenue is not established (its True, Counted and Held totals are already None, §10.4), so a download leaves
-    # them empty too. Audit round 3, R3-B23 (R3-49): so does a package that analyses no statement (R54: its True,
-    # Verified, Counted and Held are already None), whose revenue counts are left empty too, never the 0.0 or 0 an
-    # underwriter would read as a measured decline. The served totals keep them: the dashboard's review badge reads
-    # its null True count as N/A, and would read a null held count as a payload analysed before 5.6.
+    # The package's counted-plus-held figures, and the held count, are partial when a member's revenue is not
+    # established (its True, Counted and Held totals are already None, §10.4), so a download leaves them empty too.
+    # So does a package that analyses no statement (R54: its True, Verified, Counted and Held are already None),
+    # whose revenue counts are left empty too, never the 0.0 or 0 an underwriter would read as a measured decline.
+    # The served totals keep them: the dashboard's review badge reads its null True count as N/A, and would read a
+    # null held count as a payload analysed before 5.6.
     totals = package.get("totals")
     no_analysis = isinstance(totals, dict) and totals.get("completed") == 0
     if isinstance(totals, dict) and (totals.get("revenue_unestablished_documents") or no_analysis):
         emptied = (*_PACKAGE_PARTIAL_REVENUE_KEYS, *(_PACKAGE_NO_ANALYSIS_COUNT_KEYS if no_analysis else ()))
         totals = exported["totals"] = {**totals, **{key: None for key in emptied if key in totals}}
-    # The final review of round 2, F1 (§10.4, §11): the withholding basis summed over a member whose basis is not
-    # established (final review M10: no rate on it) is an empty cell, as the dashboard reads it N/A. Audit round 3,
-    # R3-B03 (R3-27): so is the sum of members analysed under different bases, which is no basis at all.
+    # §10.4, §11: the withholding basis summed over a member whose basis is not established is an empty cell, as
+    # the dashboard reads it N/A. So is the sum of members analysed under different bases, which is no basis at
+    # all.
     if isinstance(totals, dict) and (totals.get(WITHHOLDING_BASIS_UNESTABLISHED) is True
                                      or totals.get("withholding_basis_mixed") is True):
         exported["totals"] = {
@@ -478,20 +435,20 @@ def _package_for_export(package: dict) -> dict:
     return exported
 
 
-#: Audit B11 (I51): the package totals built from every member's counted and held credits, and the held count.
+#: The package totals built from every member's counted and held credits, and the held count.
 _PACKAGE_PARTIAL_REVENUE_KEYS = ("maximum_revenue", "potential_revenue_total", "unverified_deposit_total",
                                  "revenue_review_items")
-#: Audit round 3, R3-B23 (R3-49): the package's revenue counts, which a download also leaves empty when the package
-#: analyses no statement (`completed` 0: every job failed, was interrupted, is still on its way or holds no analysis,
-#: or every account was left out), beside R54's empty True, Verified, Counted and Held.
+#: The package's revenue counts, which a download also leaves empty when the package analyses no statement
+#: (`completed` 0: every job failed, was interrupted, is still on its way or holds no analysis, or every account was
+#: left out), beside R54's empty True, Verified, Counted and Held.
 _PACKAGE_NO_ANALYSIS_COUNT_KEYS = ("unverified_deposit_count", "potential_revenue_count", "verified_revenue_count",
                                    "confirmed_true_revenue_count")
 
 
 def _export_document_revenue(row: dict) -> dict:
-    """A member's row as the package downloads print it (audit B11, I51): its Verified figure (and the alias of it)
-    empty unless established, and its counted-plus-held figures empty unless its revenue is. A left-out repeat's row
-    carries no figure and is unchanged."""
+    """A member's row as the package downloads print it: its Verified figure (and the alias of it) empty unless
+    established, and its counted-plus-held figures empty unless its revenue is. A left-out repeat's row carries no
+    figure and is unchanged."""
     if row.get("is_duplicate") is True:
         return row
     nulled = {}
@@ -500,7 +457,7 @@ def _export_document_revenue(row: dict) -> dict:
     if row.get("revenue_established") is False:
         nulled.update({key: None for key in ("unverified_deposit_total", "potential_revenue_total", "maximum_revenue")
                        if key in row})
-    # The final review of round 2, F1 (§10.4, §11): a member whose withholding basis is not established prints no basis.
+    # §10.4, §11: a member whose withholding basis is not established prints no basis.
     if row.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
         nulled.update({key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in row})
     return {**row, **nulled} if nulled else row
@@ -522,8 +479,8 @@ def _masked(payload: object) -> object:
     return payload
 
 
-# The formula-injection rule (R-24) lives in `spreadsheet_safety`, which `batch.py` shares (audit 2026-10-13, EXP-6);
-# these names stay importable from here.
+# The formula-injection rule (R-24) lives in `spreadsheet_safety`, which `batch.py` shares; these names stay
+# importable from here.
 _FORMULA_LEAD = FORMULA_LEAD
 _NUMERIC_CELL = NUMERIC_CELL
 _escape_formula = escape_formula
@@ -552,8 +509,7 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
 
     A validation reads "pass" or "FAIL"; one of `ADB_ADVISORY_VALIDATIONS`,
     which decides nothing, reads "advisory pass" or "advisory FAIL", so its
-    False on a published ADB is not read as a failed required check (the
-    audit's final review, finding 3)."""
+    False on a published ADB is not read as a failed required check."""
     adb = metrics.get("adb")
     if not isinstance(adb, dict):
         return []
@@ -601,13 +557,13 @@ def _adb_rows(metrics: dict) -> list[tuple[str, str, object]]:
 #: identical numbers is authoritative.
 _EXPORT_SUPPRESSED_KEYS = {("statement", "stated_average_balance")}
 
-#: Audit round 3, R3-B23 (R3-62; §10.8, §17.1's default D1): the words that make a printed account title read as a
-#: bank's account designation in the statement CSV/XLSX: analysis/holder_name.py's `_DESIGNATION_WORDS` (copied, not
-#: imported, so the reader stays private; a test pins that every one of them is here), then the account words and the
-#: product words the banks print as a title ('US BUSINESS ACCOUNT', 'CAD CHEQUING ACCOUNT', '(RECEIVABLES)'), then the
-#: Lloyd's market's name, which a bank prints as the designation of an insurance agency's account holding Lloyd's
-#: premiums ('LLOYDS OF LONDON' after the agency's legal form; Lloyd's of London, the public insurance market, requires
-#: its coverholders to keep the premiums they collect in a separate trust account).
+#: §10.8, §17.1: the words that make a printed account title read as a bank's account designation in the statement
+#: CSV/XLSX: analysis/holder_name.py's `_DESIGNATION_WORDS` (copied, not imported, so the reader stays private; a test
+#: pins that every one of them is here), then the account words and the product words the banks print as a title ('US
+#: BUSINESS ACCOUNT', 'CAD CHEQUING ACCOUNT', '(RECEIVABLES)'), then the Lloyd's market's name, which a bank prints as
+#: the designation of an insurance agency's account holding Lloyd's premiums ('LLOYDS OF LONDON' after the agency's
+#: legal form; Lloyd's of London, the public insurance market, requires its coverholders to keep the premiums they
+#: collect in a separate trust account).
 _EXPORT_DESIGNATION_WORDS = frozenset({
     "PREMIUM", "TRUST", "OPERATING", "WIRE", "PRODUCER", "PAYABLE", "ESCROW", "PAYROLL", "CLIENT", "CLIENTS",
     "CUSTOMER", "RESERVE", "TAX", "GENERAL", "SWEEP", "MAIN", "IOLTA", "DEPOSIT", "DISBURSEMENT", "COLLECTION",
@@ -621,10 +577,9 @@ _TITLE_WORD_TRIM = "()[]{}<>.,;:!?'\"-/#*&"
 
 
 def _designation_title(title: object) -> bool:
-    """Audit round 3, R3-B23 (R3-62): whether a printed account title (R2-OW10's `statement.account_title`, the words a
-    holder line prints after the business's name) reads as a bank's account designation: a word of it, read upper
-    case with its dots dropped and its brackets and punctuation trimmed, is in `_EXPORT_DESIGNATION_WORDS`, or it
-    prints the premium-trust words. An owner's name or a legal-form fragment ('LIABILITY', 'BILLS') does not."""
+    """Whether a printed account title reads as a bank's account designation: a word of it, read upper case with its
+    dots dropped and its brackets and punctuation trimmed, is in `_EXPORT_DESIGNATION_WORDS`, or it prints the
+    premium-trust words. An owner's name or a legal-form fragment ('LIABILITY', 'BILLS') does not."""
     if not isinstance(title, str) or not title.strip():
         return False
     text = title.upper()
@@ -646,9 +601,9 @@ def _analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     keyed on `(section, field)`, so two accounts writing `("statement",
     "ending_balance")` would collide and one would silently win.
 
-    The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): the
-    payload is read as the downloads read it (`_downloads_view`), with no
-    Verified revenue and no "Counted, not verified".
+    True revenue spec §2.2, §10.8: the payload is read as the downloads read it
+    (`_downloads_view`), with no Verified revenue and no "Counted, not
+    verified".
     """
     analysis = _downloads_view(analysis)
     if is_document_payload(analysis):
@@ -678,9 +633,9 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
             for key, item in value.items():
                 if (section, key) in _EXPORT_SUPPRESSED_KEYS:
                     continue
-                # Audit round 3, R3-B23 (R3-62): a printed title is written only where it reads as a bank's account
-                # designation; an owner's name or a legal-form fragment read as the title is left out of the flat sheet
-                # (the JSON download and the served payload keep it as read).
+                # A printed title is written only where it reads as a bank's account designation; an owner's name or a
+                # legal-form fragment read as the title is left out of the flat sheet (the JSON download and the served
+                # payload keep it as read).
                 if section == "statement" and key == "account_title" and not _designation_title(item):
                     continue
                 if section == "metrics" and key in ("adb", *_TIER_REASON_KEYS, ZELLE_DEPOSITS_KEY,
@@ -694,8 +649,8 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
         rows.extend(_adb_rows(metrics))
         rows.extend(_tier_reason_rows(metrics))
         rows.extend(_zelle_deposit_rows(metrics.get(ZELLE_DEPOSITS_KEY)))
-        # Audit round 3, R3-B24 (R3-16; §10.8): one section per large unsourced deposit the served copy flags (its count
-        # and total are metric rows above); nothing where none is flagged.
+        # §10.8: one section per large unsourced deposit the served copy flags (its count and total are metric rows
+        # above); nothing where none is flagged.
         rows.extend(_large_unsourced_deposit_rows(metrics.get(LARGE_UNSOURCED_DEPOSITS_KEY)))
     detection = analysis.get("detection")
     if isinstance(detection, dict):
@@ -710,14 +665,12 @@ def _account_analysis_rows(analysis: dict) -> list[tuple[str, str, object]]:
     return rows
 
 
-#: The owner's request of 2026-10-06 (lender payment changes; true revenue spec §10.8; R2-OW18, H1): the fields of a
-#: `lender_payment_change_<n>` section, in order; a field the item does not carry is an empty cell. `schedule_confirmed`
-#: and `via` are the orchestrator's choices of 2026-10-06 (§ Still open 18 and 23); `first_after_kind`,
-#: `resumed_date` (a pause) and `last_step_percent` (a change through unreported levels) are R2-OW18 review round 1's.
-#: Audit round 3, R3-B05: a pause's catch-up (`first_after_amount`, `first_after_multiple`) and its debits of 2x or
-#: more inside the gap (`larger_debits_inside`, "2054-03-16 1300.0; ..."), R3-25; a Caught up item's fields (the
-#: owner's answer of 2026-10-07: `missed_payments` to `catch_up_amount`). Its review round 1: a pause's catch-ups after
-#: the presence that ended it, before payments resumed (`catch_ups_inside`, "2054-03-17 1700.0 2x; ...").
+#: True revenue spec §10.8: the fields of a `lender_payment_change_<n>` section, in order; a field the item does not
+#: carry is an empty cell. `first_after_kind`, `resumed_date` (a pause) and `last_step_percent` (a change through
+#: unreported levels) describe the change; a pause's catch-up (`first_after_amount`, `first_after_multiple`) and its
+#: debits of 2x or more inside the gap (`larger_debits_inside`, "2054-03-16 1300.0;..."); a Caught up item's fields
+#: (`missed_payments` to `catch_up_amount`); a pause's catch-ups after the presence that ended it, before payments
+#: resumed (`catch_ups_inside`, "2054-03-17 1700.0 2x; ...").
 LENDER_PAYMENT_CHANGE_EXPORT_FIELDS = (
     "kind", "lender", "lender_label", "lender_label_after", "lender_state", "position", "positions",
     "cadence", "cadence_before", "cadence_after", "amount_before", "amount_after", "change_percent", "cadence_changed",
@@ -730,8 +683,8 @@ LENDER_PAYMENT_CHANGE_EXPORT_FIELDS = (
     "grace_business_days", "coverage_end", "coverage_end_source", "stop_confirmed",
     "missed_payments", "missed_first_date", "missed_last_date", "multiple", "catch_up_date", "catch_up_amount",
 )
-#: R2-OW18 (H1): the nested notes, flattened with dots. Audit round 3, R3-B05: a stop's `other_debits_after.catch_ups`
-#: and `payoff.earlier` (R3-25), and a pause's or a stop's `same_amount_debits` (R3-84).
+#: The nested notes, flattened with dots. A stop's `other_debits_after.catch_ups` and `payoff.earlier`, and a pause's
+#: or a stop's `same_amount_debits`.
 LENDER_PAYMENT_CHANGE_NOTE_FIELDS = (
     ("after_funding", ("date", "amount")),
     ("other_debits_after", ("count", "last_date", "catch_ups")),
@@ -743,14 +696,14 @@ LENDER_PAYMENT_CHANGE_NOTE_FIELDS = (
     ("other_stream_continues", ("amount", "cadence")),
     ("last_attempt_returned", ("date",)),
 )
-#: R2-OW18 (H2): the package's added fields.
+#: The package's added fields.
 LENDER_PAYMENT_CHANGE_PACKAGE_FIELDS = (
     "source_document", "from_document", "to_document", "cross_statement", "source_currency", "source_period_end",
 )
 
 
 def _lender_payment_change_rows(items: object, *, package: bool = False) -> list[tuple[str, str, object]]:
-    """R2-OW18 (H1, H2): one readable section per lender payment change, `lender_payment_change_<n>`, with
+    """One readable section per lender payment change, `lender_payment_change_<n>`, with
     LENDER_PAYMENT_CHANGE_EXPORT_FIELDS and the dotted notes (a package adds its source fields and the other-account
     note). A label is statement text: these rows reach a file only through `_escaped_rows`."""
     rows: list[tuple[str, str, object]] = []
@@ -760,21 +713,21 @@ def _lender_payment_change_rows(items: object, *, package: bool = False) -> list
         for name in LENDER_PAYMENT_CHANGE_EXPORT_FIELDS:
             value = item.get(name)
             if name in ("alongside", "via") and isinstance(value, list):
-                # A via level carries the step into it (R2-OW18 review round 1): "weekly 950.0 (-5%)".
+                # A via level carries the step into it: "weekly 950.0 (-5%)".
                 value = "; ".join(f"{entry.get('cadence')} {entry.get('amount')}"
                                   + (f" ({entry['change_percent']:+d}%)" if name == "via"
                                      and isinstance(entry.get("change_percent"), int) else "")
                                   for entry in value if isinstance(entry, dict))
             elif name == "larger_debits_inside" and isinstance(value, list):
-                # Audit round 3, R3-25: "2054-03-16 1300.0; ...".
+                # "2054-03-16 1300.0; ...".
                 value = "; ".join(f"{entry.get('date')} {entry.get('amount')}" for entry in value
                                   if isinstance(entry, dict))
             elif name == "catch_ups_inside" and isinstance(value, list):
-                # R3-B05 review round 1: "2054-03-17 1700.0 2x; ...".
+                # "2054-03-17 1700.0 2x; ...".
                 value = "; ".join(f"{entry.get('date')} {entry.get('amount')} {entry.get('multiple')}x"
                                   for entry in value if isinstance(entry, dict))
             rows.append((section, name, "" if value is None else value))
-        # Audit round 3, R3-B06 (R3-83): the package's reappearance note beside the continuation.
+        # The package's reappearance note beside the continuation.
         notes = LENDER_PAYMENT_CHANGE_NOTE_FIELDS + ((
             ("continues_in_other_account", ("source_document", "first_date", "amount")),
             ("reappears_in_other_account", ("source_document", "first_date", "amount", "covered_business_days")),
@@ -791,8 +744,8 @@ def _lender_payment_change_rows(items: object, *, package: bool = False) -> list
     return rows
 
 
-#: 5.6 (true revenue spec §10.8): the by-reason figures of the counted and held tiers, exported as readable rows.
-#: R2-OW03 (owner ruling 2026-10-02): and the non-revenue breakdown (`non_revenue.<code>.count` / `.total`).
+#: True revenue spec §10.8: the by-reason figures of the counted and held tiers, exported as readable rows. And
+#: the non-revenue breakdown (`non_revenue.<code>.count` / `.total`).
 _TIER_REASON_KEYS = ("counted_flagged_by_reason", "excluded_pending_review_by_reason", "non_revenue_by_reason")
 
 
@@ -813,12 +766,12 @@ def _tier_reason_rows(figures: dict, section: str = "revenue_tier") -> list[tupl
 def _zelle_deposit_rows(
     figures: object, section: str = "revenue_tier", *, setting: bool | None = None,
 ) -> list[tuple[str, str, object]]:
-    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §10.8; R2-OW17): the served Zelle figures
-    (`zelle_deposits`, analysis/zelle_view.py) as readable rows of the revenue_tier section, only where the key is
-    present: `zelle_deposits.setting` (Yes or No), `.count`, `.total`, `.<tier>.count`, `.<tier>.total` and
-    `.setting_applied`. A money figure the package refuses is an empty cell. `setting` is the choice the figures were
-    served under; an account's figures say it themselves (Yes exactly when the reading served is the one the setting
-    asked for and counts, or is not and does not: `counted_as_true_revenue` equals `setting_applied`)."""
+    """Spec §10.8: the served Zelle figures (`zelle_deposits`, analysis/zelle_view.py) as readable rows of the
+    revenue_tier section, only where the key is present: `zelle_deposits.setting` (Yes or No), `.count`, `.total`,
+    `.<tier>.count`, `.<tier>.total` and `.setting_applied`. A money figure the package refuses is an empty cell.
+    `setting` is the choice the figures were served under; an account's figures say it themselves (Yes exactly when
+    the reading served is the one the setting asked for and counts, or is not and does not: `counted_as_true_revenue`
+    equals `setting_applied`)."""
     if not isinstance(figures, dict):
         return []
     if setting is None:
@@ -836,11 +789,10 @@ def _zelle_deposit_rows(
     return rows
 
 
-#: Audit round 3, R3-B24 (R3-16; true revenue spec §9.1, §9.2, §10.8): the served list of large unsourced deposits (a
-#: statement's metrics key, a package's top-level key) and the fields of a statement's and a package's
-#: `large_unsourced_deposit_<n>` section: LARGE_UNSOURCED_DEPOSIT_FIELDS, then the member's. The owner's request of
-#: 2026-10-11 (§2.2, §10.8): without `revenue_tier_reason`, the counted tier's reason (such a credit is counted in True
-#: revenue without proof of the sale); the JSON download keeps it.
+#: True revenue spec §9.1, §9.2, §10.8: the served list of large unsourced deposits (a statement's metrics key, a
+#: package's top-level key) and the fields of a statement's and a package's `large_unsourced_deposit_<n>` section:
+#: LARGE_UNSOURCED_DEPOSIT_FIELDS, then the member's. §2.2, §10.8: without `revenue_tier_reason`, the counted tier's
+#: reason (such a credit is counted in True revenue without proof of the sale); the JSON download keeps it.
 LARGE_UNSOURCED_DEPOSITS_KEY = "large_unsourced_deposits"
 _LARGE_UNSOURCED_DEPOSIT_EXPORT_FIELDS = tuple(
     field for field in LARGE_UNSOURCED_DEPOSIT_FIELDS if field != "revenue_tier_reason")
@@ -852,9 +804,9 @@ _PACKAGE_LARGE_UNSOURCED_DEPOSIT_FIELDS = (
 def _large_unsourced_deposit_rows(
     items: object, fields: tuple[str, ...] = _LARGE_UNSOURCED_DEPOSIT_EXPORT_FIELDS,
 ) -> list[tuple[str, str, object]]:
-    """Audit round 3, R3-B24 (R3-16; §10.8): one readable section per flagged credit, `large_unsourced_deposit_<n>`, in
-    served order, its `fields` (an empty cell where the item has none). A description is statement text: these rows
-    reach a file only through `_escaped_rows`."""
+    """§10.8: one readable section per flagged credit, `large_unsourced_deposit_<n>`, in served order, its `fields` (an
+    empty cell where the item has none). A description is statement text: these rows reach a file only through
+    `_escaped_rows`."""
     rows: list[tuple[str, str, object]] = []
     entries = [entry for entry in items if isinstance(entry, dict)] if isinstance(items, list) else []
     for number, item in enumerate(entries, start=1):
@@ -867,8 +819,7 @@ def _large_unsourced_deposit_rows(
 def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
     """An account's flagged positions, one readable section per payee (lender detection §8.4):
     `flagged_<group>_<n>` with the payee, its debit count, the total debited, the credits it paid in and their
-    total (plan contract C5: a factor's payouts, owner ruling 2026-09-26), the cadence, and (5.3) whether the
-    payee is unconfirmed (`review_required`).
+    total, the cadence, and (5.3) whether the payee is unconfirmed (`review_required`).
 
     Served payloads hold only the ticked groups (analysis/flagged_view.py via `_displayed`), so the sheet follows
     Settings. A payee name is statement text: these rows reach a file only through `_escaped_rows`."""
@@ -886,26 +837,26 @@ def _flagged_position_rows(positions: object) -> list[tuple[str, str, object]]:
     return rows
 
 
-#: Audit B11 (I32): the columns of the statement downloads' posted-credit table. The owner's request of 2026-10-11
-#: (true revenue spec §2.2, §10.8): no `state` column (the 5.4 state, `verified_revenue` or `unverified_deposit`).
+#: The columns of the statement downloads' posted-credit table. True revenue spec §2.2, §10.8: no `state` column
+#: (the 5.4 state, `verified_revenue` or `unverified_deposit`).
 _POSTED_CREDIT_COLUMNS = ("date", "description", "amount", "currency", "tier", "reason", "review_status")
 
 
 def _tier_cell(record: dict) -> str:
-    """A ledger row's `tier` cell, from a record as the downloads read it (`_downloads_view`): its tier, or (review
-    round 1 of the owner's request of 2026-10-11) for a credit analysed before 5.6, which has none, its state in the
-    page's words (`revenue`, `review_required` or `non_revenue`, as its tag reads); empty for a row with neither."""
+    """A ledger row's `tier` cell, from a record as the downloads read it (`_downloads_view`): its tier, or for a
+    credit analysed before 5.6, which has none, its state in the page's words (`revenue`, `review_required` or
+    `non_revenue`, as its tag reads); empty for a row with neither."""
     return record.get("revenue_tier") or record.get("revenue_classification") or ""
 
 
 def _posted_credit_table(analysis: dict) -> list[tuple]:
-    """Audit B11 (I32): one row per posted credit, so an underwriter can check, deposit by deposit, which credits make
-    up True (the ledger otherwise sits in one JSON cell, over a spreadsheet's cell limit on most statements): a
-    `columns` row, then `(section, n, date, description, amount, currency, tier, reason, review status)`.
-    The tier and reason are the payload's codes (analysis/revenue.py), as the downloads read them (`_downloads_view`:
-    a credit in True revenue is `true_revenue`, with no reason; `_tier_cell` before 5.6). Every account of a document
-    payload has its own block, under its section prefix. A block written after the flat rows (`_analysis_rows` stays
-    three columns for its readers); its statement text reaches a file only through `_escaped_rows`."""
+    """One row per posted credit, so an underwriter can check, deposit by deposit, which credits make up True (the
+    ledger otherwise sits in one JSON cell, over a spreadsheet's cell limit on most statements): a `columns` row, then
+    `(section, n, date, description, amount, currency, tier, reason, review status)`. The tier and reason are the
+    payload's codes (analysis/revenue.py), as the downloads read them (`_downloads_view`: a credit in True revenue is
+    `true_revenue`, with no reason; `_tier_cell` before 5.6). Every account of a document payload has its own block,
+    under its section prefix. A block written after the flat rows (`_analysis_rows` stays three columns for its
+    readers); its statement text reaches a file only through `_escaped_rows`."""
     analysis = _downloads_view(analysis)
     if is_document_payload(analysis):
         accounts = payload_accounts(analysis, surface="webapp/app.py::_posted_credit_table")
@@ -933,17 +884,16 @@ def _posted_credit_table(analysis: dict) -> list[tuple]:
         tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
     if not rows:
         return []
-    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): a trailing `zelle` column, only in a block
-    # where a row carries the served Zelle tag (Yes), 'Zelle' on those rows; every other block is today's.
+    # A trailing `zelle` column, only in a block where a row carries the served Zelle tag (Yes), 'Zelle' on those rows;
+    # every other block is today's.
     if any(tagged):
         return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS, "zelle"),
                 *((*row, "Zelle" if zelle else "") for row, zelle in zip(rows, tagged))]
     return [("posted_credit", "columns", *_POSTED_CREDIT_COLUMNS), *rows]
 
 
-#: Audit round 2, R2-B16 (R53): the columns of the statement downloads' posted-debit table; the last, a confirmed
-#: funder's payment the bank returned unpaid (the location of the credit that returned it, the record's
-#: `returned_funder_payment_by`; owner ruling 2026-10-02, the underwriter's Q5, R2-OW13's note to this batch).
+#: The columns of the statement downloads' posted-debit table; the last, a confirmed funder's payment the bank
+#: returned unpaid (the location of the credit that returned it, the record's `returned_funder_payment_by`).
 _POSTED_DEBIT_COLUMNS = (
     "date", "description", "amount", "currency", "classification", "flagged_group", "canonical_entity",
     "review_required", "returned_funder_payment",
@@ -951,15 +901,14 @@ _POSTED_DEBIT_COLUMNS = (
 
 
 def _posted_debit_table(analysis: dict) -> list[tuple]:
-    """Audit round 2, R2-B16 (R53): one row per posted debit, the posted-credit table's twin, so the lender payments,
-    the withholding and the NSFs read row by row (the ledger otherwise sits only in one JSON cell, over a spreadsheet's
-    cell limit on most statements): a `columns` row, then `(posted_debit, n, date, description, amount (signed),
-    currency, classification, flagged group, entity, review required, returned funder payment)`. The flag group is
-    written only where Settings shows it (`flag_shown`, analysis/flagged_view.py), so an unticked group never leaks;
-    the other fields are the record's as served (the last, R2-OW13's `returned_funder_payment_by`: where a confirmed
-    funder's payment came back unpaid, the location of the credit that returned it). Every account of a document
-    payload has its own block, under its section prefix. Written after the credit table; its statement text reaches a
-    file only through `_escaped_rows`."""
+    """One row per posted debit, the posted-credit table's twin, so the lender payments, the withholding and the NSFs
+    read row by row (the ledger otherwise sits only in one JSON cell, over a spreadsheet's cell limit on most
+    statements): a `columns` row, then `(posted_debit, n, date, description, amount (signed), currency, classification,
+    flagged group, entity, review required, returned funder payment)`. The flag group is written only where Settings
+    shows it (`flag_shown`, analysis/flagged_view.py), so an unticked group never leaks; the other fields are the
+    record's as served (the last, `returned_funder_payment_by`: where a confirmed funder's payment came back
+    unpaid, the location of the credit that returned it). Every account of a document payload has its own block, under
+    its section prefix. Written after the credit table; its statement text reaches a file only through `_escaped_rows`."""
     if is_document_payload(analysis):
         accounts = payload_accounts(analysis, surface="webapp/app.py::_posted_debit_table")
         return [
@@ -990,13 +939,13 @@ def _posted_debit_table(analysis: dict) -> list[tuple]:
     return [("posted_debit", "columns", *_POSTED_DEBIT_COLUMNS), *rows]
 
 
-#: The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): "Can you get rid of verified revenue from the
-#: fronted end please and "counted, not verified" still keep them in the backend but don't show it", the CSV and Excel
-#: downloads included ("Hide them there too"). These downloads name no Verified revenue and no "Counted, not verified"
-#: (the tiers `verified` and `counted_flagged`) as things of their own: True revenue, their sum, Held for review and
-#: Non-revenue stay, and no figure moves. The served payload, the JSON download, the CLI and every stored analysis keep
-#: both tiers: only the CSV and XLSX row builders (`_analysis_rows`, `_posted_credit_table`, `_package_rows` and
-#: `_package_transaction_table`) read a payload through `_downloads_view`, so every CSV and XLSX download does.
+#: True revenue spec §2.2, §10.8: "Can you get rid of verified revenue from the fronted end please and "counted, not
+#: verified" still keep them in the backend but don't show it", the CSV and Excel downloads included ("Hide them there
+#: too"). These downloads name no Verified revenue and no "Counted, not verified" (the tiers `verified` and
+#: `counted_flagged`) as things of their own: True revenue, their sum, Held for review and Non-revenue stay, and no
+#: figure moves. The served payload, the JSON download, the CLI and every stored analysis keep both tiers: only the CSV
+#: and XLSX row builders (`_analysis_rows`, `_posted_credit_table`, `_package_rows` and `_package_transaction_table`)
+#: read a payload through `_downloads_view`, so every CSV and XLSX download does.
 _HIDDEN_TIERS = frozenset({"verified", "counted_flagged"})
 #: The tier a credit of a hidden tier is written as: True revenue, of which each is a part.
 _TRUE_REVENUE_TIER = "true_revenue"
@@ -1007,17 +956,17 @@ _TRUE_REVENUE_TIER = "true_revenue"
 #: analysed before 5.6 has no tier: its 5.4 lists and its deposits to review are renamed first (`_OLDER_KEY_WORDS`).
 _HIDDEN_TIER_KEY = re.compile(r"verified|counted_flagged|potential_revenue|confirmed_true_revenue")
 #: A classification record's 5.4 state (`verified_revenue`, `unverified_deposit` or `non_revenue`), current and initial.
-#: Review round 1: on a credit with a tier (5.6 on), the tier says what the state says without the verified and
-#: counted split, so the state is left out unless it is `non_revenue`; on a credit analysed before 5.6 (no tier) the
-#: state is its only revenue reading and is written in the page's words (`_OLDER_STATE_WORDS`).
+#: On a credit with a tier (5.6 on), the tier says what the state says without the verified and counted split, so the
+#: state is left out unless it is `non_revenue`; on a credit analysed before 5.6 (no tier) the state is its only revenue
+#: reading and is written in the page's words (`_OLDER_STATE_WORDS`).
 _STATE_KEYS = frozenset({"revenue_classification", "revenue_initial_classification"})
 #: The page's words for a pre-5.6 credit's state, as its tag reads (app.js transactionCategory: "Revenue", "Review
 #: required", "Non-revenue"): never 5.4's `verified_revenue` or `unverified_deposit`.
 _OLDER_STATE_WORDS = {
     "verified_revenue": "revenue", "unverified_deposit": "review_required", "non_revenue": "non_revenue",
 }
-#: Review round 1: a pre-5.6 account's revenue view (`_older_revenue_view`) writes its 5.4 lists under the page's words,
-#: and its deposits to review (what its review view lists and its badge counts) with their count and total. A 5.6 view's
+#: A pre-5.6 account's revenue view (`_older_revenue_view`) writes its 5.4 lists under the page's words, and its
+#: deposits to review (what its review view lists and its badge counts) with their count and total. A 5.6 view's
 #: `unverified_deposit_*` is counted plus held, an alias of a hidden tier, and is left out.
 _OLDER_KEY_WORDS = {
     "verified_revenue_evidence": "revenue_evidence",
@@ -1025,13 +974,13 @@ _OLDER_KEY_WORDS = {
     "unverified_deposit_count": "review_required_count",
     "unverified_deposit_total": "review_required_total",
 }
-#: A record's rule and its sentence (`revenue_matched_rule`, `revenue_reason`): why the rules read it as they did.
-#: Review round 1: a credit in True revenue carries neither (a counted one's says the source is not confirmed); a held
-#: or non-revenue one keeps both, the words naming a hidden tier rewritten (`_SENTENCE_REWRITES`, `_ZELLE_READING`),
-#: and a rule or sentence that still names one after that is left out.
+#: A record's rule and its sentence (`revenue_matched_rule`, `revenue_reason`): why the rules read it as they did. A
+#: credit in True revenue carries neither (a counted one's says the source is not confirmed); a held or non-revenue
+#: one keeps both, the words naming a hidden tier rewritten (`_SENTENCE_REWRITES`, `_ZELLE_READING`), and a rule or
+#: sentence that still names one after that is left out.
 _RULE_KEYS = frozenset({"revenue_matched_rule", "revenue_reason"})
 _HIDDEN_TIER_WORDS = re.compile(r"verified|counted and flagged|counted_flagged|counted, not verified", re.IGNORECASE)
-#: The rewrites of a held or non-revenue sentence, in order: R3-53's hold of a counted re-statement ("never verified,
+#: The rewrites of a held or non-revenue sentence, in order: the hold of a counted re-statement ("never verified,
 #: and held for review (<label>)"), the $1 floor's hold of a verified credit ("is never verified and never counted") and
 #: the holder's own push a rule verified ("never revenue and never verified;").
 _SENTENCE_REWRITES = (
@@ -1047,17 +996,16 @@ _ZELLE_READING = "the rules read it as: "
 #: The counted tier's reason codes (analysis/revenue.py REVENUE_TIER_REASONS), left out wherever a record carries one:
 #: on a credit counted in True revenue, on one a reviewer confirmed and on one a reviewer rejected (which keeps it).
 _COUNTED_REASONS = frozenset(code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "counted_flagged")
-#: Review round 1: the lender classifier's sentence on a row no lender, insurance or category rule read (most credits,
+#: The lender classifier's sentence on a row no lender, insurance or category rule read (most credits,
 #: analysis/transaction_classifier.py), whose "verified" is a lender's, never a revenue tier, written without the word.
 _UNMATCHED_ROW_REASONS = {
     "No verified lender, insurance, or operational-category rule matched.":
         "No lender, insurance, or operational-category rule matched.",
 }
-#: The verified withholding basis (WITHHOLDING_DENOMINATOR_MODE=verified_revenue, R2-OW14; never chosen on screen), as
-#: the page names it (app.js WITHHOLDING_BASIS_LABELS): its mode (`narrower_revenue_basis`, a downloads-only code naming
-#: no tier; the backend's mode stays `verified_revenue`), its label and its definition, and in a note's sentence, in
-#: lower case as the page's rate note names it; the True basis's definition in the page's words. Its figures are
-#: unchanged.
+#: The verified withholding basis (WITHHOLDING_DENOMINATOR_MODE=verified_revenue; never chosen on screen), as the page
+#: names it (app.js WITHHOLDING_BASIS_LABELS): its mode (`narrower_revenue_basis`, a downloads-only code naming no tier;
+#: the backend's mode stays `verified_revenue`), its label and its definition, and in a note's sentence, in lower case
+#: as the page's rate note names it; the True basis's definition in the page's words. Its figures are unchanged.
 _NARROWER_BASIS_MODE = "narrower_revenue_basis"
 _NARROWER_BASIS_LABEL = "Narrower revenue basis"
 _NARROWER_BASIS_IN_A_NOTE = "the narrower revenue basis"
@@ -1084,7 +1032,7 @@ def _true_revenue_slot(slots: list) -> dict | None:
 
 
 def _zelle_by_tier_without_hidden_tiers(by_tier: dict) -> dict:
-    """R2-OW17's `zelle_deposits.by_tier` as the downloads read it: the `verified` and `counted_flagged` slots as one
+    """`zelle_deposits.by_tier` as the downloads read it: the `verified` and `counted_flagged` slots as one
     `true_revenue` slot, first, then the held and non-revenue slots as served."""
     slot = _true_revenue_slot([by_tier.get(tier) for tier in ("verified", "counted_flagged")])
     rest = {tier: value for tier, value in by_tier.items() if tier not in _HIDDEN_TIERS}
@@ -1126,9 +1074,9 @@ def _zelle_prior_tier(signals: object) -> str | None:
 
 
 def _reason_without_hidden_tiers(key: str, value: object, record: dict) -> object:
-    """A held or non-revenue record's rule or sentence as the downloads write it (review round 1): the sentence with the
-    words that name a hidden tier rewritten (`_SENTENCE_REWRITES`; a Zelle deposit's reading in a hidden tier as "True
-    revenue."), and None (left out) where the rule or the rewritten sentence still names one."""
+    """A held or non-revenue record's rule or sentence as the downloads write it: the sentence with the words that name
+    a hidden tier rewritten (`_SENTENCE_REWRITES`; a Zelle deposit's reading in a hidden tier as "True revenue."), and
+    None (left out) where the rule or the rewritten sentence still names one."""
     if not isinstance(value, str):
         return value
     if key == "revenue_reason":
@@ -1141,16 +1089,16 @@ def _reason_without_hidden_tiers(key: str, value: object, record: dict) -> objec
 
 
 def _posted_row_key(job: object, account: object, location: object) -> tuple:
-    """Review round 2 of the owner's request of 2026-10-11: a posted row's key, `(statement job, account, location)`, as
-    app.js `debitFlagKey` keys a large unsourced deposit, a record and a package ledger row. A statement's items and
-    records name neither job nor account (they sit under the account that lists them); a package's name both, its
-    account absent (None) for a one-account member."""
+    """A posted row's key, `(statement job, account, location)`, as app.js `debitFlagKey` keys a large
+    unsourced deposit, a record and a package ledger row. A statement's items and records name neither job nor account
+    (they sit under the account that lists them); a package's name both, its account absent (None) for a one-account
+    member."""
     return (job or None, account, location)
 
 
 def _large_deposit_keys(node: dict) -> frozenset | None:
-    """The keys (`_posted_row_key`) of the large unsourced deposits (R3-B24) that `node` serves: a statement account's,
-    in its `metrics`, or a package's, at its top level beside its combined ledger; None where `node` is neither."""
+    """The keys (`_posted_row_key`) of the large unsourced deposits that `node` serves: a statement account's, in its
+    `metrics`, or a package's, at its top level beside its combined ledger; None where `node` is neither."""
     metrics = node.get("metrics")
     if isinstance(metrics, dict):
         items = metrics.get(LARGE_UNSOURCED_DEPOSITS_KEY)
@@ -1164,19 +1112,19 @@ def _large_deposit_keys(node: dict) -> frozenset | None:
 
 
 def _downloads_view(node: object, *, flagged: frozenset = frozenset(), scope: tuple = (None, None)) -> object:
-    """A served payload (statement, document or package), or any part of it, as the CSV and XLSX downloads write it
-    (the owner's request of 2026-10-11): a copy in which no key names a hidden tier (`_HIDDEN_TIER_KEY`), a
-    classification record's hidden tier reads `true_revenue` (current and initial, and a package pass's `tier_before`),
-    its counted reason is left out, its 5.4 state is left out (a tier says it) or, before 5.6, written in the page's
-    words (`_STATE_KEYS`), its rule and sentence are kept only out of True revenue, and without a hidden tier's words
-    (`_RULE_KEYS`), a counted credit awaits no review unless it is a large deposit to source, a pre-5.6 view's lists are
-    renamed (`_OLDER_KEY_WORDS`), the Zelle figures carry one True revenue slot, and the verified withholding basis reads
-    as the page names it. Every figure is unchanged; the input is never mutated.
+    """A served payload (statement, document or package), or any part of it, as the CSV and XLSX downloads write it: a
+    copy in which no key names a hidden tier (`_HIDDEN_TIER_KEY`), a classification record's hidden tier reads
+    `true_revenue` (current and initial, and a package pass's `tier_before`), its counted reason is left out, its 5.4
+    state is left out (a tier says it) or, before 5.6, written in the page's words (`_STATE_KEYS`), its rule and sentence
+    are kept only out of True revenue, and without a hidden tier's words (`_RULE_KEYS`), a counted credit awaits no
+    review unless it is a large deposit to source, a pre-5.6 view's lists are renamed (`_OLDER_KEY_WORDS`), the Zelle
+    figures carry one True revenue slot, and the verified withholding basis reads as the page names it. Every figure is
+    unchanged; the input is never mutated.
 
-    Review round 2: a counted credit the payload flags as a large deposit to source keeps `pending`, as its row on the
-    page keeps Confirm Revenue. `flagged` holds the flagged credits' keys (`_large_deposit_keys`, read from a statement
-    account or a package as the walk reaches it, or passed in for a part of one) and `scope` the statement job and
-    account the walk is under (a package row or record names its own)."""
+    A counted credit the payload flags as a large deposit to source keeps `pending`, as its row on the page keeps
+    Confirm Revenue. `flagged` holds the flagged credits' keys (`_large_deposit_keys`, read from a statement account or
+    a package as the walk reaches it, or passed in for a part of one) and `scope` the statement job and account the
+    walk is under (a package row or record names its own)."""
     if isinstance(node, (list, tuple)):
         items = [_downloads_view(item, flagged=flagged, scope=scope) for item in node]
         return tuple(items) if isinstance(node, tuple) else items
@@ -1220,8 +1168,8 @@ def _downloads_view(node: object, *, flagged: frozenset = frozenset(), scope: tu
             value = None
         elif (key == "revenue_review_status" and value == "pending" and node.get("revenue_tier") == "counted_flagged"
               and _posted_row_key(*scope, node.get("source_location")) not in flagged):
-            # A counted credit is in True revenue; the page offers it no review a verified one lacks (review round 1),
-            # unless it is a large deposit to source, whose row keeps Confirm Revenue (review round 2).
+            # A counted credit is in True revenue; the page offers it no review a verified one lacks, unless it is a
+            # large deposit to source, whose row keeps Confirm Revenue.
             value = "not_required"
         elif key == "reason" and value in _UNMATCHED_ROW_REASONS:
             value = _UNMATCHED_ROW_REASONS[value]
@@ -1235,7 +1183,7 @@ def _downloads_view(node: object, *, flagged: frozenset = frozenset(), scope: tu
             value = _BASIS_DEFINITIONS[node["withholding_denominator_mode"]]
         elif key == "withholding_denominator_options" and isinstance(value, (list, tuple)):
             # Nothing on screen offers the verified basis, so it is no option, except on a statement analysed on it,
-            # whose options list its own mode as the downloads name it (review round 2).
+            # whose options list its own mode as the downloads name it.
             own = node.get("withholding_denominator_mode") == "verified_revenue"
             modes = [_NARROWER_BASIS_MODE if mode == "verified_revenue" else mode for mode in value
                      if mode != "verified_revenue" or own]
@@ -1264,20 +1212,20 @@ def _analysis_csv(analysis: dict) -> str:
 
 #: A package member's id: a job's id, or `<job id>#account_<n>` for an account of a document (app.js packageMember).
 _PACKAGE_MEMBER_ID = re.compile(r"(.*)#account_\d+")
-#: Audit round 2, R2-B15 (R15): the fields of an `excluded_account_<n>` section of the package downloads, in order.
+#: The fields of an `excluded_account_<n>` section of the package downloads, in order.
 _EXCLUDED_ACCOUNT_FIELDS = ("job_id", "filename", "account_index", "account_count", "outcome", "reason")
-#: Audit round 3, R3-B23 (R3-47): the fields of a `repeated_account_<n>` section of the package downloads, in order,
-#: before its words: an account of a kept document the package leaves out as a repeat (B11's `duplicate_statement`)
-#: or as a superseded printout (R14's `superseded_interim` or `superseded_long_printout`).
+#: The fields of a `repeated_account_<n>` section of the package downloads, in order, before its words: an account
+#: of a kept document the package leaves out as a repeat (B11's `duplicate_statement`) or as a superseded printout
+#: (R14's `superseded_interim` or `superseded_long_printout`).
 _REPEATED_ACCOUNT_FIELDS = ("job_id", "filename", "account_index", "account_count", "outcome", "reason",
                             "duplicate_of")
 
 
 def _repeated_account_words(entry: dict, filenames: dict[str, str]) -> str:
-    """Audit round 3, R3-B23 (R3-47): a repeated account of a document as the dashboard's duplicate notice names it (app.js
-    renderDuplicateNotice): "account <n> of <file> repeats <file>", then the reason's words in parentheses for a
-    superseded printout (none for a B11 repeat). A job is named by its listed row's filename, "an earlier statement"
-    where none is listed (app.js nameOf)."""
+    """A repeated account of a document as the dashboard's duplicate notice names it (app.js renderDuplicateNotice):
+    "account <n> of <file> repeats <file>", then the reason's words in parentheses for a superseded printout (none for a
+    B11 repeat). A job is named by its listed row's filename, "an earlier statement" where none is listed (app.js
+    nameOf)."""
     def name(job_id: object) -> str:
         return (filenames.get(str(job_id)) if job_id is not None else None) or "an earlier statement"
 
@@ -1288,10 +1236,8 @@ def _repeated_account_words(entry: dict, filenames: dict[str, str]) -> str:
     return f"{words} ({SUPERSEDED_REASON_WORDS[reason]})" if reason in SUPERSEDED_REASON_WORDS else words
 
 
-#: Audit round 3, R3-B23 (R3-67): the fields of a `returned_funder_payment_<n>` section of the package downloads, in
-#: order, before its words: the served warning item's (R2-OW13; the final review of round 2's F2(b) adds the return's
-#: statement for a match across statements), then, since R3-B02 (the owner's answer of 2026-10-07 to R3-73, "Count it
-#: once"), the re-debit's of a payment the funder re-debited.
+#: The fields of a `returned_funder_payment_<n>` section of the package downloads, in order, before its words: the
+#: served warning item's, then the re-debit's of a payment the funder re-debited.
 _RETURNED_FUNDER_PAYMENT_FIELDS = (
     "funder", "amount", "debit_date", "debit_location", "credit_date", "credit_location", "credit_description",
     "source_job", "source_document", "source_account", "source_currency", "cross_statement", "credit_job",
@@ -1300,9 +1246,8 @@ _RETURNED_FUNDER_PAYMENT_FIELDS = (
 )
 
 
-#: Audit round 3, R3-MERGE: the readable day and the uploaded file's name as app.js writes them in the lender notes of the
-#: owner's request of 2026-10-07 (readableDate, statementFileName), so the download keeps R3-67's rule that its words
-#: are the dashboard's.
+#: The readable day and the uploaded file's name as app.js writes them in the lender notes of the owner's request
+#: (readableDate, statementFileName), so the download's words are the dashboard's.
 _READABLE_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _STATEMENT_ID_PREFIX = re.compile(
     r"^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32})(?:[_\s-]+|$)", re.IGNORECASE)
@@ -1346,12 +1291,12 @@ def _returned_funder_payment_source(item: dict) -> str:
 
 
 def _returned_funder_payment_words(item: dict) -> str:
-    """Audit round 3, R3-B23 (R3-67): a returned funder payment as the dashboard's warning reads it (app.js
-    returnedFunderPaymentWarning, §10.1), its money as the downloads write money: the amount, then the item's own unit
-    where it names one (the overlapping statements' words; no unit when it is unknown). A payment matched to its return
-    across statements names both documents; a payment the funder re-debited (R3-B02) names the re-debit and is counted
-    once in the withholding rate. Audit round 3, R3-MERGE: in the plain voice of the owner's request of 2026-10-07 that
-    the dashboard now writes (a headline, its sentences, the statements it comes from), so R3-67's rule holds."""
+    """A returned funder payment as the dashboard's warning reads it (app.js returnedFunderPaymentWarning, §10.1), its
+    money as the downloads write money: the amount, then the item's own unit where it names one (the overlapping
+    statements' words; no unit when it is unknown). A payment matched to its return across statements names both
+    documents; a payment the funder re-debited names the re-debit and is counted once in the withholding rate. In the
+    plain voice of the owner's request that the dashboard now writes (a headline, its sentences, the statements it
+    comes from), so the download's words are the dashboard's."""
     amount = item.get("amount")
     money = (f"{abs(float(amount)):,.2f}" + (f" {item['source_currency']}" if item.get("source_currency") else "")
              if _is_money_value(amount) else "N/A")
@@ -1377,10 +1322,9 @@ def _returned_funder_payment_words(item: dict) -> str:
 
 
 def _package_rows(package: dict) -> list[tuple[str, str, object]]:
-    """The package's flat export sheet, read as the downloads read it (the owner's request of 2026-10-11, true revenue
-    spec §2.2, §10.8: `_downloads_view`, no Verified revenue and no "Counted, not verified")."""
+    """The package's flat export sheet, read as the downloads read it."""
     evidence_sections = _package_evidence_sections(package)
-    # Review round 2: the sections are read apart from the package, so they take its large deposits to source.
+    # The sections are read apart from the package, so they take its large deposits to source.
     flagged = _large_deposit_keys(package) or frozenset()
     package = _downloads_view(package)
     rows: list[tuple[str, str, object]] = []
@@ -1392,9 +1336,9 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
             value = json.dumps(value)
         rows.append(("totals", key, "" if value is None else value))
     rows.extend(_tier_reason_rows(totals))
-    # R2-OW17: the package's Zelle figures. Audit round 3, R3-B20 (R3-19): the setting row reads the setting the package
-    # was built under (`setting`; its `counted_as_true_revenue` is the members' reading), or, on a package built before
-    # the key, its `counted_as_true_revenue`, which was the setting.
+    # The package's Zelle figures. The setting row reads the setting the package was built under (`setting`; its
+    # `counted_as_true_revenue` is the members' reading), or, on a package built before the key, its
+    # `counted_as_true_revenue`, which was the setting.
     package_zelle = totals.get(ZELLE_DEPOSITS_KEY)
     package_setting = None
     if isinstance(package_zelle, dict):
@@ -1416,8 +1360,7 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
                 value = json.dumps(value)
             rows.append((f"document_{idx}", key, "" if value is None else value))
         if document.get("duplicate_reason") in SUPERSEDED_REASON_WORDS:
-            # Audit round 2, R2-B14 (R14 and its review round 1): the words the dashboard's notice gives a left-out
-            # shorter printout or printout of more than a month.
+            # The words the dashboard's notice gives a left-out shorter printout or printout of more than a month.
             rows.append((f"document_{idx}", "duplicate_reason_words",
                          SUPERSEDED_REASON_WORDS[document["duplicate_reason"]]))
         rows.extend(_tier_reason_rows(document, f"document_{idx}.revenue_tier"))
@@ -1435,49 +1378,49 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for document in package.get("documents") or []:
         member = _PACKAGE_MEMBER_ID.fullmatch(str(document.get("id") or ""))
         filenames.setdefault(member[1] if member else str(document.get("id") or ""), document.get("filename"))
-    # Audit round 2, R2-B15 (R15): each account left out of every figure for a reason other than a repeat
-    # (`excluded_account_<n>`), so the sheet an underwriter reads names it. Audit round 3, R3-B23 (R3-47): a repeated
-    # account of a document, a B11 repeat or an R14 superseded printout, has its own `repeated_account_<n>` section
-    # below, and a whole repeated job its document row and duplicate group above.
+    # Each account left out of every figure for a reason other than a repeat (`excluded_account_<n>`), so the sheet
+    # an underwriter reads names it. A repeated account of a document, a B11 repeat or an R14 superseded printout,
+    # has its own `repeated_account_<n>` section below, and a whole repeated job its document row and duplicate group
+    # above.
     excluded = [entry for entry in package.get("excluded_accounts") or [] if isinstance(entry, dict)]
     left_out = [entry for entry in excluded if entry.get("is_duplicate") is not True]
     for idx, entry in enumerate(left_out, start=1):
         for key in _EXCLUDED_ACCOUNT_FIELDS:
             value = entry.get(key)
             rows.append((f"excluded_account_{idx}", key, "" if value is None else value))
-    # Audit round 3, R3-B23 (R3-47; R2-B14 step 4, the notice's words in the package rows): each account of a kept
-    # document left out as a repeat, in listed order, its fields and then the dashboard notice's words for it.
+    # Each account of a kept document left out as a repeat, in listed order, its fields and then the dashboard
+    # notice's words for it.
     repeated = [entry for entry in excluded if entry.get("is_duplicate") is True]
     for idx, entry in enumerate(repeated, start=1):
         for key in _REPEATED_ACCOUNT_FIELDS:
             value = entry.get(key)
             rows.append((f"repeated_account_{idx}", key, "" if value is None else value))
         rows.append((f"repeated_account_{idx}", "words", _repeated_account_words(entry, filenames)))
-    # Audit round 2, R2-B14 (R14): each pair of overlapping statements that share credits, and the notice's words for it.
+    # Each pair of overlapping statements that share credits, and the notice's words for it.
     for idx, pair in enumerate(totals.get("overlapping_statements") or [], start=1):
         for key, value in pair.items():
             rows.append((f"overlapping_statement_{idx}", key, "" if value is None else value))
         total = pair.get("shared_credit_total")
-        # R2-B14 review round 1 (CURRENCY DOCTRINE): the shared money is the pair's account's, and its words say so;
-        # a pair whose currency is unknown prints no unit, as the dashboard does.
+        # The shared money is the pair's account's, and its words say so; a pair whose currency is unknown prints no
+        # unit, as the dashboard does.
         money = (f"{float(total):,.2f}" + (f" {pair['currency']}" if pair.get("currency") else "")
                  if _is_money_value(total) else "N/A")
         rows.append((f"overlapping_statement_{idx}", "words", _overlap_words(pair, filenames, money)))
-    # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): each match the package passes made across its statements
-    # (`package_match_<n>`, its credit and debit as JSON) and each debit they flag (`debit_flag_<n>`), the statement's
-    # words written through the escaped-row path like every other cell.
+    # Each match the package passes made across its statements (`package_match_<n>`, its credit and debit as JSON) and
+    # each debit they flag (`debit_flag_<n>`), the statement's words written through the escaped-row path like every
+    # other cell.
     for section, entries in (("package_match", package.get("package_matches")), ("debit_flag", package.get("debit_flags"))):
         for idx, entry in enumerate(entries or [], start=1):
             for key, value in entry.items():
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value)
                 rows.append((f"{section}_{idx}", key, "" if value is None else value))
-    # Audit round 3, R3-B24 (R3-16; §10.8): after the debit flags, each member's large unsourced deposit
-    # (`large_unsourced_deposit_<n>`), its statement, account and unit named, its share its own statement's.
+    # §10.8: after the debit flags, each member's large unsourced deposit (`large_unsourced_deposit_<n>`),
+    # its statement, account and unit named, its share its own statement's.
     rows.extend(_large_unsourced_deposit_rows(package.get(LARGE_UNSOURCED_DEPOSITS_KEY),
                                               _PACKAGE_LARGE_UNSOURCED_DEPOSIT_FIELDS))
-    # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): each lump-sum payoff (in paid to lenders, out of
-    # the withholding rate), `lump_sum_payoff_<n>`, its words the bank's, through the escaped-row path.
+    # Each lump-sum payoff (in paid to lenders, out of the withholding rate), `lump_sum_payoff_<n>`, its words the bank's,
+    # through the escaped-row path.
     for idx, item in enumerate(package.get("lump_sum_payoffs") or [], start=1):
         if isinstance(item, dict):
             for key, value in item.items():
@@ -1485,8 +1428,7 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, funder in enumerate(package.get("funders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"funder_{idx}", key, "" if value is None else value))
-    # Audit round 3, R3-B23 (R3-67; the owner's Q5 of 2026-10-02, "show a 'returned funder payment' warning"; R2-OW13):
-    # each funder payment the bank returned unpaid, as the package serves it, its fields and then the dashboard's
+    # Each funder payment the bank returned unpaid, as the package serves it, its fields and then the dashboard's
     # warning line, each in its own statement's unit (a refused package sums none of them).
     returned = [item for item in package.get("returned_funder_payments") or [] if isinstance(item, dict)]
     for idx, item in enumerate(returned, start=1):
@@ -1497,15 +1439,15 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, funder in enumerate(package.get("potential_lenders") or [], start=1):
         for key, value in funder.items():
             rows.append((f"potential_lender_{idx}", key, "" if value is None else value))
-    # The owner's request of 2026-10-06 (R2-OW18, H2): each lender payment change across the package's statements, and
-    # each member not checked across statements with its reason.
+    # Each lender payment change across the package's statements, and each member not checked across statements with
+    # its reason.
     rows.extend(_lender_payment_change_rows(package.get("lender_payment_changes"), package=True))
     for idx, entry in enumerate(package.get("lender_payment_changes_unchecked") or [], start=1):
         for key in ("source_document", "reason"):
             value = entry.get(key) if isinstance(entry, dict) else None
             rows.append((f"lender_payment_unchecked_{idx}", key, "" if value is None else value))
-    # The owner's request of 2026-10-10 (active positions by month; §10.8): each month's active and possible positions,
-    # the accounts added up, as the copied memo names them (`active_positions_month_<n>`); N/A an empty cell.
+    # §10.8: each month's active and possible positions, the accounts added up, as the copied memo names them
+    # (`active_positions_month_<n>`); N/A an empty cell.
     for idx, entry in enumerate(package.get("active_positions_by_month") or [], start=1):
         for key in ("month", "active_positions", "possible_positions"):
             value = entry.get(key) if isinstance(entry, dict) else None
@@ -1528,8 +1470,8 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
     for idx, evidence in enumerate(package.get("insurance_evidence") or [], start=1):
         for key, value in evidence.items():
             rows.append((f"insurance_evidence_{idx}", key, "" if value is None else value))
-    # Audit B11 (I32): one evidence section per tier, so credits in True and held ones (out of it) no longer share a
-    # section (`_package_evidence_sections`), each record read as the downloads read it.
+    # One evidence section per tier, so credits in True and held ones (out of it) never share a section
+    # (`_package_evidence_sections`), each record read as the downloads read it.
     for section, records in evidence_sections:
         for idx, evidence in enumerate(_downloads_view(records, flagged=flagged), start=1):
             for key, value in evidence.items():
@@ -1538,17 +1480,16 @@ def _package_rows(package: dict) -> list[tuple[str, str, object]]:
 
 
 def _package_evidence_sections(package: dict) -> tuple[tuple[str, list], ...]:
-    """Audit B11 (I32): the package's revenue evidence, one section per tier, from the served lists, every posted credit
-    of every member in exactly one. The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8) and its review
-    round 1: the credits in True revenue are one section, `true_revenue_evidence` (the members' verified credits and
-    their counted ones), where they were a Verified and a Counted section, written even where the package's True is N/A
-    (a member analysed before 5.6), so a 5.6 member's credits are never in no section; then the held credits; a member
-    analysed before 5.6 (no tier) has its credits under its states in the page's words, `revenue_evidence` and
-    `review_required_evidence` (5.4's unverified deposits, its review set); then every member's non-revenue credits.
-    Review round 2: the True section is in the package ledger's order (`transactions`: each member's rows as printed,
-    the members in the package's order), as a statement's True evidence is in its ledger's, where the served lists put
-    every verified credit before every counted one, so that the point where its dates went back marked the counted
-    tier."""
+    """The package's revenue evidence, one section per tier, from the served lists, every posted credit of every member
+    in exactly one. Per true revenue spec §2.2 and §10.8, the credits in True revenue are one
+    section, `true_revenue_evidence` (the members' verified credits and their counted ones), where they were a Verified
+    and a Counted section, written even where the package's True is N/A (a member analysed before 5.6), so a 5.6
+    member's credits are never in no section; then the held credits; a member analysed before 5.6 (no tier) has its
+    credits under its states in the page's words, `revenue_evidence` and `review_required_evidence` (5.4's unverified
+    deposits, its review set); then every member's non-revenue credits. The True section is in the package ledger's
+    order (`transactions`: each member's rows as printed, the members in the package's order), as a statement's True
+    evidence is in its ledger's, where the served lists put every verified credit before every counted one, so that the
+    point where its dates went back marked the counted tier."""
     verified = [record for record in package.get("verified_revenue_evidence") or [] if isinstance(record, dict)]
     unverified = [record for record in package.get("unverified_deposit_evidence") or [] if isinstance(record, dict)]
 
@@ -1581,18 +1522,16 @@ def _package_evidence_sections(package: dict) -> tuple[tuple[str, list], ...]:
     )
 
 
-#: Audit B11 (I32): the columns of the package downloads' ledger table. The owner's request of 2026-10-11 (true revenue
-#: spec §2.2, §10.8): no `state` column (the 5.4 state, `verified_revenue` or `unverified_deposit`); the tier and reason
-#: are read through `_downloads_view`.
+#: The columns of the package downloads' ledger table. True revenue spec §2.2, §10.8: no `state` column (the 5.4 state,
+#: `verified_revenue` or `unverified_deposit`); the tier and reason are read through `_downloads_view`.
 _PACKAGE_TRANSACTION_COLUMNS = ("source_document", "source_account", "source_currency", "date", "description",
                                 "amount", "classification", "tier", "reason", "review_status")
 
 
 def _package_transaction_table(package: dict) -> list[tuple]:
-    """Audit B11 (I32): the package's combined ledger (`transactions`), one row per posting, each naming its statement,
-    account and currency: a `columns` row, then `(package_transaction, n, ...)`, its tier and reason as the downloads
-    read them (`_downloads_view`). Written after the flat rows; its statement text reaches a file only through
-    `_escaped_rows`."""
+    """The package's combined ledger (`transactions`), one row per posting, each naming its statement, account and
+    currency: a `columns` row, then `(package_transaction, n, ...)`, its tier and reason as the downloads read them
+    (`_downloads_view`). Written after the flat rows; its statement text reaches a file only through `_escaped_rows`."""
     package = _downloads_view(package)
     rows: list[tuple] = []
     tagged: list[bool] = []
@@ -1609,7 +1548,7 @@ def _package_transaction_table(package: dict) -> list[tuple]:
         tagged.append(transaction.get(ZELLE_ROW_TAG) is True)
     if not rows:
         return []
-    # R2-OW17: the trailing `zelle` column, only where a row carries the served Zelle tag.
+    # The trailing `zelle` column, only where a row carries the served Zelle tag.
     if any(tagged):
         return [("package_transaction", "columns", *_PACKAGE_TRANSACTION_COLUMNS, "zelle"),
                 *((*row, "Zelle" if zelle else "") for row, zelle in zip(rows, tagged))]
@@ -1625,8 +1564,8 @@ def _package_csv(package: dict) -> str:
 
 
 #: Characters XML 1.0 forbids in a document (C0 controls other than tab, LF and CR; U+FFFE and U+FFFF) and lone
-#: surrogates, which UTF-8 cannot encode. Audit 2026-10-13, EXP-7: one of them in a cell made sheet1.xml ill-formed
-#: (the whole workbook refused to open), and a lone surrogate made the download raise.
+#: surrogates, which UTF-8 cannot encode. One of them in a cell made sheet1.xml ill-formed (the whole workbook
+#: refused to open), and a lone surrogate made the download raise.
 _XML_FORBIDDEN = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f￾￿\ud800-\udfff]")
 
 
@@ -1644,12 +1583,12 @@ def _xml_escape(value: object) -> str:
     )
 
 
-#: Audit round 2, R2-B16 (R53): the most characters a spreadsheet cell holds (Excel's limit, counted in UTF-16 units).
+#: The most characters a spreadsheet cell holds (Excel's limit, counted in UTF-16 units).
 XLSX_CELL_LIMIT = 32767
 
 
 def _xlsx_text(value: object) -> str:
-    """An inline string's text (R53): the value, or, when it holds more than XLSX_CELL_LIMIT UTF-16 units (a character
+    """An inline string's text: the value, or, when it holds more than XLSX_CELL_LIMIT UTF-16 units (a character
     outside the Basic Multilingual Plane counts two, as Excel counts it), a pointer naming its length. Never cut: a
     cell over the limit makes Excel refuse the file at load, and its repair truncates the cell. The CSV and the JSON
     download keep such a value whole."""
@@ -1661,12 +1600,11 @@ def _xlsx_text(value: object) -> str:
 
 
 def _xlsx_cell(ref: str, value: object) -> str:
-    """One cell, typed (audit B11, I52): a bool is a boolean cell (checked first: a bool is an int), a finite int or
-    float a number, so SUM and a pivot add the money; anything else, NaN, inf and every numeric-looking string
-    included (a masked account number, a leading-zero reference), is an inline string. An inline string is never a
-    formula; its text keeps `_escape_formula`'s apostrophe, which a Save As CSV carries on, so the cell stays inert
-    when the sheet is written back out as text. Audit round 2, R2-B16 (R53): a text over the spreadsheet cell limit is
-    replaced whole by a pointer (`_xlsx_text`)."""
+    """One cell, typed: a bool is a boolean cell (checked first: a bool is an int), a finite int or float a number, so
+    SUM and a pivot add the money; anything else, NaN, inf and every numeric-looking string included (a masked account
+    number, a leading-zero reference), is an inline string. An inline string is never a formula; its text keeps
+    `_escape_formula`'s apostrophe, which a Save As CSV carries on, so the cell stays inert when the sheet is written
+    back out as text. A text over the spreadsheet cell limit is replaced whole by a pointer (`_xlsx_text`)."""
     if isinstance(value, bool):
         return f'<c r="{ref}" t="b"><v>{1 if value else 0}</v></c>'
     if isinstance(value, (int, float)) and isfinite(value):
@@ -1689,8 +1627,8 @@ def _xlsx_sheet(rows: list[tuple]) -> str:
 
     sheet_rows = ['<row r="1">' + cell(1, 1, "section") + cell(2, 1, "field") + cell(3, 1, "value") + "</row>"]
     for idx, row in enumerate(rows, start=2):
-        # Audit B11 (I32): a table block (the posted credits, the package ledger) writes one row per item, each value
-        # in its own column.
+        # A table block (the posted credits, the package ledger) writes one row per item, each value in its own
+        # column.
         sheet_rows.append(
             f'<row r="{idx}">' + "".join(cell(col, idx, value) for col, value in enumerate(row, start=1)) + "</row>"
         )
@@ -1771,9 +1709,8 @@ def _add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> 
 
     The payee is the row's canonical entity, or its group's label when the analysis named none (plan contract
     C5). `documents` counts the members a payee appears in, as the funder roll-up does. A debit adds to `count`
-    and `total_debited`; a credit (a factor's payout, owner ruling 2026-09-26) adds to `count_credited` and
-    `total_credited`. The dates of both are kept so the first and last dates, and the cadence, are read across
-    every member rather than per statement."""
+    and `total_debited`; a credit adds to `count_credited` and `total_credited`. The dates of both are kept so
+    the first and last dates, and the cadence, are read across every member rather than per statement."""
     seen: set[tuple[str, str]] = set()
     for row in rows:
         classification = row["classification"]
@@ -1860,14 +1797,14 @@ def _published_flagged_positions(
 #: The published figures whose denominator is a count of MEMBERS. Two accounts
 #: of one document are one period of banking and two members, so every one of
 #: these is wrong by exactly that factor unless the package refuses it
-#: (design §6.5's fourth bullet; the L1-S3 review measured the halving).
+#: (design §6.5's fourth bullet).
 _PER_PERIOD_AVERAGE_KEYS = frozenset({
     "average_daily_balance",
     "avg_monthly_cash_flow",
     "avg_monthly_credits",
     "avg_monthly_debits",
     "monthly_lender_debits",
-    # Audit B11 (I07): the per-month True, Verified and Non-revenue.
+    # The per-month True, Verified and Non-revenue.
     "avg_monthly_true_revenue",
     "avg_monthly_verified_revenue",
     "avg_monthly_non_revenue",
@@ -1878,7 +1815,7 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "avg_monthly_cash_flow",
     "avg_monthly_credits",
     "avg_monthly_debits",
-    # Audit B11 (I07): the per-month True, Verified and Non-revenue.
+    # The per-month True, Verified and Non-revenue.
     "avg_monthly_true_revenue",
     "avg_monthly_verified_revenue",
     "avg_monthly_non_revenue",
@@ -1902,22 +1839,21 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "potential_withholding_exposure",
     "potential_withholding_exposure_raw",
     "potential_withholding_numerator",
-    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the funder payments returned unpaid; their count is
-    # unit-free and stays.
+    # The funder payments returned unpaid; their count is unit-free and stays.
     "returned_funder_payment_total",
-    # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes' money, published only where a pass
-    # found a row (_PACKAGE_MATCH_TOTAL_KEYS); their counts are unit-free and stay.
+    # The package passes' money, published only where a pass found a row (_PACKAGE_MATCH_TOTAL_KEYS); their counts
+    # are unit-free and stay.
     "returned_deposit_cross_statement_total",
     "unmatched_deposit_return_total",
     "processor_chargeback_total",
-    # Owner ruling 2026-10-02 (the underwriter's Q4; R2-OW16): the deposits pass 2 held and the held ones it annotated.
+    # The deposits pass 2 held and the held ones it annotated.
     "own_account_transfer_held_total",
     "own_account_transfer_already_held_total",
-    # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs, published only where a
-    # member has one (_PACKAGE_MATCH_TOTAL_KEYS); their count is unit-free and stays.
+    # The lump-sum payoffs, published only where a member has one (_PACKAGE_MATCH_TOTAL_KEYS); their count is
+    # unit-free and stays.
     "lump_sum_payoff_total",
-    # Audit round 3, R3-B24 (R3-16): the large unsourced deposits flagged, published only where a member has one
-    # (_PACKAGE_MATCH_TOTAL_KEYS); their count is unit-free and stays.
+    # The large unsourced deposits flagged, published only where a member has one (_PACKAGE_MATCH_TOTAL_KEYS);
+    # their count is unit-free and stays.
     "large_unsourced_deposit_total",
     "revenue_classified_total",
     "revenue_reconciliation_delta",
@@ -1925,7 +1861,7 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "total_debits",
     "total_posted_credits",
     "true_revenue",
-    # 5.6 (§9.2): True revenue and its counted and held parts.
+    # §9.2: True revenue and its counted and held parts.
     "true_revenue_total",
     "counted_flagged_total",
     "excluded_pending_review_total",
@@ -1935,24 +1871,22 @@ _CROSS_CURRENCY_TOTAL_KEYS = frozenset({
     "withholding_numerator",
 })
 
-#: Audit round 3, R3-B03 (R3-27; true revenue spec §9.2, §11): each withholding basis's label, as a package names a
-#: member's basis where its members were analysed under different ones (`withholding_basis_by_member`).
+#: True revenue spec §9.2, §11: each withholding basis's label, as a package names a member's basis where its
+#: members were analysed under different ones (`withholding_basis_by_member`).
 _WITHHOLDING_BASIS_LABELS = {
     "legacy_eligible_deposits": "Legacy eligible deposits",
     "verified_revenue": "Verified revenue",
     "true_revenue": "True revenue",
 }
 
-#: Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the totals the package passes publish only where a pass
-#: found a row, so a currency refusal nulls each of them only where it is published (a package without one keeps no
-#: such key).
+#: The totals the package passes publish only where a pass found a row, so a currency refusal nulls each of them
+#: only where it is published (a package without one keeps no such key).
 _PACKAGE_MATCH_TOTAL_KEYS = frozenset({
     "returned_deposit_cross_statement_total", "unmatched_deposit_return_total", "processor_chargeback_total",
-    # R2-OW16 (the underwriter's Q4).
     "own_account_transfer_held_total", "own_account_transfer_already_held_total",
-    # Audit round 3, R3-B03 (R3-79): published the same way, only where a member has a lump-sum payoff.
+    # Published the same way, only where a member has a lump-sum payoff.
     "lump_sum_payoff_total",
-    # Audit round 3, R3-B24 (R3-16): and only where a member has a large unsourced deposit flagged.
+    # And only where a member has a large unsourced deposit flagged.
     "large_unsourced_deposit_total",
 })
 
@@ -1973,8 +1907,7 @@ _CROSS_CURRENCY_ROLLUP_KEYS = (
     "potential_lender_debit_total",
     "eligible_deposit_denominator",
     "potential_withholding_exposure",
-    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): a funder's payments returned unpaid, summed across the
-    # package like its total debited.
+    # A funder's payments returned unpaid, summed across the package like its total debited.
     "returned_payment_total",
 )
 
@@ -2018,14 +1951,14 @@ def _stored_accounts(analysis: object) -> list[dict]:
 
 
 def _account_identities(account: object) -> frozenset[str]:
-    """Audit B11 (I06, MCA standard §4.6(3)): what makes two accounts of two jobs ONE statement.
+    """§4.6: what makes two accounts of two jobs ONE statement.
 
     * its published content (`account_content_digest`), when its ledger prints at least one transaction: a payload
       with no ledger publishes too little to tell two statements apart, and is never matched on it;
     * its statement key, when every part of it is printed: the bank, the account number's last four digits, the
       period's first and last day, and the opening and closing balance. A re-download of the same statement (other
       bytes, so another content hash) prints the same key;
-    * audit round 3, R3-B18 (R3-02): its ledger key (`ledger:`), when it prints both period days, both balances and at
+      * its ledger key (`ledger:`), when it prints both period days, both balances and at
       least one ledger row: the period's days, the two balances and a hash over every ledger row's day and signed
       cents (`_row_day`, `_row_cents`), whatever its classification. It is a parse identity no review decision, rules
       version or setting changes, and it reads no bank and no account number, so another reading of a statement
@@ -2055,16 +1988,16 @@ def _account_identities(account: object) -> frozenset[str]:
     return frozenset(identities)
 
 
-#: Audit round 2, R2-B14 (R46): what `_printed_account_digits` removes from a printed account number before it reads
-#: the digits at its end: blanks and the separators banks print inside a number.
+#: What `_printed_account_digits` removes from a printed account number before it reads the digits at its end:
+#: blanks and the separators banks print inside a number.
 _ACCOUNT_NUMBER_SEPARATORS = re.compile(r"[\s\-./]")
 _TRAILING_DIGITS = re.compile(r"[0-9]+$")
 
 
 def _printed_account_digits(account: object) -> str:
-    """Audit round 2, R2-B14 (R46): the digits an account's statement prints at the END of its account number, its
-    blanks, '-', '.' and '/' removed ('XXXX-1010' gives '1010', '12XXXX3456' '3456', '100000001010' all twelve); ''
-    when the number ends in no digit or is not printed."""
+    """The digits an account's statement prints at the END of its account number, its blanks, '-', '.' and '/'
+    removed ('XXXX-1010' gives '1010', '12XXXX3456' '3456', '100000001010' all twelve); '' when the number ends in
+    no digit or is not printed."""
     statement = account.get("statement") if isinstance(account, dict) else None
     if not isinstance(statement, dict):
         return ""
@@ -2073,29 +2006,28 @@ def _printed_account_digits(account: object) -> str:
 
 
 def _numbers_conflict(digits: str, other: str) -> bool:
-    """Audit round 2, R2-B14 (R46): two printed account numbers are two accounts when both print more than four
-    digits and the shorter's digits are not the end of the longer's. A masked or four-digit print never conflicts."""
+    """Two printed account numbers are two accounts when both print more than four digits and the shorter's digits
+    are not the end of the longer's. A masked or four-digit print never conflicts."""
     if len(digits) <= 4 or len(other) <= 4:
         return False
     common = min(len(digits), len(other))
     return digits[-common:] != other[-common:]
 
 
-#: Audit round 2, R2-B14 (R16): a copy's rank keys, in order, by the name a left-out copy's row gives for the kept one
-#: winning on it (`duplicate_kept_because`); copies alike on all three keep the one listed first (`listed_first`).
+#: A copy's rank keys, in order, by the name a left-out copy's row gives for the kept one winning on it
+#: (`duplicate_kept_because`); copies alike on all three keep the one listed first (`listed_first`).
 _KEPT_BECAUSE = ("has_analysis", "current_rules", "has_review_decisions")
 _REVIEW_DECISIONS = frozenset({"confirmed", "rejected"})
 
 
 def _copy_rank(job) -> tuple[int, int, int]:
-    """Audit round 2, R2-B14 (R16): how good a copy of a repeated statement is, lower first: 0 when the job is done
-    and publishes an account (else 1); 0 when its analysis is current, 1 when an account of its served copy
-    (`apply_revenue_view`) has `revenue_established` False or a record lacks or predates `CLASSIFICATION_VERSION`
-    (the `analysis_rules_outdated` rule of analysis/flagged_view.py; a job with no account is never current); 0 when a
-    posted credit of it carries the analyst's decision (`revenue_review_status` confirmed or rejected). The owner's
-    amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): a decision in EITHER Zelle reading counts (the stored
-    records and the counted reading's, analysis/zelle_view.py): a Yes-mode reject on a Zelle row lives only in the
-    counted reading's edits, the stored reading having gone back to its analysis state."""
+    """How good a copy of a repeated statement is, lower first: 0 when the job is done and publishes an account (else
+    1); 0 when its analysis is current, 1 when an account of its served copy (`apply_revenue_view`) has
+    `revenue_established` False or a record lacks or predates `CLASSIFICATION_VERSION` (the `analysis_rules_outdated`
+    rule of analysis/flagged_view.py; a job with no account is never current); 0 when a posted credit of it carries
+    the analyst's decision (`revenue_review_status` confirmed or rejected). A decision in EITHER Zelle reading counts
+    (the stored records and the counted reading's, analysis/zelle_view.py): a Yes-mode reject on a Zelle row lives
+    only in the counted reading's edits, the stored reading having gone back to its analysis state."""
     analysis = getattr(job, "analysis", None)
     accounts = _stored_accounts(analysis)
     has_analysis = getattr(job, "status", None) == "done" and bool(accounts)
@@ -2120,14 +2052,13 @@ def _copy_rank(job) -> tuple[int, int, int]:
 
 
 def _kept_because(kept_rank: tuple, dropped_rank: tuple) -> str:
-    """Audit round 2, R2-B14 (R16): the first rank key on which the kept copy beats the left-out one, else
-    `listed_first`."""
+    """The first rank key on which the kept copy beats the left-out one, else `listed_first`."""
     return next((name for name, kept, dropped in zip(_KEPT_BECAUSE, kept_rank, dropped_rank) if kept < dropped),
                 "listed_first")
 
 
 def _package_duplicates(jobs) -> tuple[list, list[dict], dict[str, dict[int, str]], list[dict]]:
-    """Audit B11 (I06): the package's jobs with every repeated statement left out, before any member is expanded.
+    """The package's jobs with every repeated statement left out, before any member is expanded.
 
     D-3 surfaced a repeated content hash and nothing acted on it, so one statement listed twice doubled True,
     Verified, Counted, Held, Non-revenue and the month count, and the package stayed Approved. MCA practice removes a
@@ -2140,21 +2071,21 @@ def _package_duplicates(jobs) -> tuple[list, list[dict], dict[str, dict[int, str
     carries the job's hash, and two of them publishing one content is the publisher's refusal
     (`document_publishes_duplicate_account`).
 
-    Audit round 2, R2-B14 (R16): which copy is kept. The jobs claim their ids, hashes and identities in the order of
-    their rank (`_copy_rank`: a completed analysis, then the current rules, then the analyst's review decisions, then
-    the listed place), so a failed, queued, processing or interrupted copy, a copy analysed under older rules or a
-    copy without the decisions recorded on another never takes a better copy's place; copies alike keep the one
-    listed first. Each left-out entry says why its kept copy was kept (`kept_because`).
+    Which copy is kept. The jobs claim their ids, hashes and identities in the order of their rank (`_copy_rank`: a
+    completed analysis, then the current rules, then the analyst's review decisions, then the listed place), so a
+    failed, queued, processing or interrupted copy, a copy analysed under older rules or a copy without the decisions
+    recorded on another never takes a better copy's place; copies alike keep the one listed first. Each left-out
+    entry says why its kept copy was kept (`kept_because`).
 
-    Audit round 2, R2-B14 (R46): a statement key (`statement:`, which reads only the account number's last four
-    digits) never joins two accounts whose printed full numbers conflict (`_printed_account_digits`,
-    `_numbers_conflict`): each key holds every kept job that claimed it, in claim order, and an account matches the
-    first of them whose number does not conflict with its own, in the same-statement test, in the choice of the job
-    it repeats and in `repeated_accounts` alike. A content digest (`digest:`, which covers the whole payload, the
-    number included) matches as before, and so does a masked or a four-digit print. Audit round 3, R3-B18 (R3-02): a
-    ledger key (`ledger:`, the period, the balances and every ledger row's day and signed cents, no bank and no
-    number) is read as a statement key is, so another reading of a statement whose bank or number was not read is the
-    same statement (`same_statement`, the copy kept by `_copy_rank`), never between conflicting printed numbers.
+    A statement key (`statement:`, which reads only the account number's last four digits) never joins two accounts
+    whose printed full numbers conflict (`_printed_account_digits`, `_numbers_conflict`): each key holds every kept
+    job that claimed it, in claim order, and an account matches the first of them whose number does not conflict with
+    its own, in the same-statement test, in the choice of the job it repeats and in `repeated_accounts` alike. A
+    content digest (`digest:`, which covers the whole payload, the number included) matches as before, and so does a
+    masked or a four-digit print. A ledger key (`ledger:`, the period, the balances and every ledger row's day and
+    signed cents, no bank and no number) is read as a statement key is, so another reading of a statement whose bank
+    or number was not read is the same statement (`same_statement`, the copy kept by `_copy_rank`), never between
+    conflicting printed numbers.
 
     Returns ``(kept jobs, dropped, repeated_accounts, groups)`` in LISTED order: `dropped` lists ``{"job",
     "duplicate_of", "reason", "kept_because", "position"}`` (`position`: the job's place in the list); each group lists
@@ -2244,9 +2175,9 @@ def _package_duplicates(jobs) -> tuple[list, list[dict], dict[str, dict[int, str
 
 
 def _duplicate_row(entry: dict) -> dict:
-    """A left-out job's row in `documents` (audit B11, I06): what identifies it and the job it repeats, and no figure,
-    because none of its money enters the package. Audit round 2, R2-B14: why the job kept in its place was kept
-    (`duplicate_kept_because`, R16; None for a printout the account's other statements print, R14)."""
+    """A left-out job's row in `documents`: what identifies it and the job it repeats, and no figure, because none of
+    its money enters the package. Why the job kept in its place was kept (`duplicate_kept_because`; None for a
+    printout the account's other statements print)."""
     job = entry["job"]
     accounts = _stored_accounts(job.analysis)
     statement = (accounts[0].get("statement") or {}) if accounts else {}
@@ -2305,14 +2236,14 @@ def _statement_month(period_start: object, period_end: object) -> int | None:
     return max(days.items(), key=lambda item: (item[1], -item[0]))[0]
 
 
-#: Audit round 2, R2-B15 (R13): the days of an average calendar month (365.25 / 12), the unit the days an account's
-#: statements cover are read in.
+#: The days of an average calendar month (365.25 / 12), the unit the days an account's statements cover are read
+#: in.
 _AVERAGE_MONTH_DAYS = Decimal("30.4375")
 
 
 def _covered_days(period_start: object, period_end: object) -> set:
-    """Audit round 2, R2-B15 (R13): the days a statement's printed period covers, its first and last included; empty
-    unless both days read and the end is not before the start; at most 400 days, as `_statement_month` reads."""
+    """The days a statement's printed period covers, its first and last included; empty unless both days read and
+    the end is not before the start; at most 400 days, as `_statement_month` reads."""
     from datetime import timedelta
 
     start, end = _iso_day(period_start), _iso_day(period_end)
@@ -2326,16 +2257,15 @@ def _covered_days(period_start: object, period_end: object) -> set:
 
 
 def _months_covered(days: int) -> int:
-    """Audit round 2, R2-B15 (R13): a count of days as whole calendar months, half up (90 days are 3, 59 are 2, 45 are
-    1)."""
+    """A count of days as whole calendar months, half up (90 days are 3, 59 are 2, 45 are 1)."""
     return int((Decimal(days) / _AVERAGE_MONTH_DAYS).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
-#: Audit round 2, R2-B14 (R14): the words a left-out shorter printout reads in the package downloads, as the dashboard's
-#: duplicate notice reads them (app.js DUPLICATE_REASON_WORDS).
+#: The words a left-out shorter printout reads in the package downloads, as the dashboard's duplicate notice reads them
+#: (app.js DUPLICATE_REASON_WORDS).
 SUPERSEDED_INTERIM_WORDS = "a shorter printout of days another statement covers"
-#: Audit round 2, R2-B14 review round 1: the words a left-out printout of more than a month reads (app.js
-#: DUPLICATE_REASON_WORDS), whose rows the account's other statements print.
+#: The words a left-out printout of more than a month reads (app.js DUPLICATE_REASON_WORDS), whose rows
+#: the account's other statements print.
 SUPERSEDED_LONG_PRINTOUT_WORDS = "a printout of more than a month whose every row other statements of the account print"
 #: Each reason `_package_superseded` leaves a statement out for, and its words.
 SUPERSEDED_REASON_WORDS = {
@@ -2344,21 +2274,21 @@ SUPERSEDED_REASON_WORDS = {
 }
 #: A statement period of more days than this is more than a month (`_package_superseded` tests it first).
 _MONTH_DAYS = 31
-#: Audit round 3, R3-B18 (R3-04): the most days two statements of one account may share and still be named only when
-#: they share a credit (a boundary day or a cycle that closes on the day the next opens; every one of the corpus's
-#: overlapping distinct-period pairs shares exactly one day).
+#: The most days two statements of one account may share and still be named only when they share a credit (a
+#: boundary day or a cycle that closes on the day the next opens; every one of the corpus's overlapping
+#: distinct-period pairs shares exactly one day).
 _OVERLAP_BOUNDARY_DAYS = 3
-#: Audit round 3, R3-B18 (R3-04): the most days apart two statements of one account may print one credit (equal cents)
-#: and still share it (`_shared_credits`): a transaction or value date, a pending item posted a day later.
+#: The most days apart two statements of one account may print one credit (equal cents) and still share it
+#: (`_shared_credits`): a transaction or value date, a pending item posted a day later.
 _OVERLAP_SHIFT_DAYS = 3
-#: Audit round 3, R3-B18 (R3-05): the fewest days of a month-length statement, the only kind a printout of more than a
-#: month is left out in favour of in `_package_superseded`'s first phase (7,096 of the corpus's 7,241 printed periods
-#: run 28 to 35 days; a shorter one is a partial month or a printout).
+#: The fewest days of a month-length statement, the only kind a printout of more than a month is left out in favour of
+#: in `_package_superseded`'s first phase (7,096 of the corpus's 7,241 printed periods run 28 to 35 days; a shorter
+#: one is a partial month or a printout).
 _FULL_STATEMENT_DAYS = 28
-#: Audit round 3, R3-B18 review round 1: the most days of a monthly cycle (every printed period of the corpus's 7,241
-#: that runs more than a month runs 32 to 35 days; none runs 36 or more), so a statement of more days is a printout (a
-#: 60- or 90-day activity printout, a multi-month export), never a month its partial printouts are cut from: the first
-#: phase of `_package_superseded` tests it against all its account's statements, not only the month-length ones.
+#: The most days of a monthly cycle (every printed period of the corpus's 7,241 that runs more than a month runs 32 to
+#: 35 days; none runs 36 or more), so a statement of more days is a printout (a 60- or 90-day activity printout, a
+#: multi-month export), never a month its partial printouts are cut from: the first phase of `_package_superseded`
+#: tests it against all its account's statements, not only the month-length ones.
 _LONGEST_CYCLE_DAYS = 35
 
 
@@ -2414,60 +2344,57 @@ def _span_covered(span, others) -> bool:
 
 def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | None = None,
                         members: set[tuple[str, int | None]] | None = None):
-    """Audit round 2, R2-B14 (R14, MCA standard §4.6(3): overlapping interim statements of one account are removed):
-    the statements of one account that a shorter printout repeats, after the exact repeats are left out
+    """§4.6: the statements of one account that a shorter printout repeats, after the exact repeats are left out
     (`_package_duplicates`).
 
     The kept jobs' accounts (a done job's, never one `repeated_accounts` already leaves out and, when `members` is
     given, only the ``(job id, account index or None)`` members `_package_members` admits, so a statement whose money
     the package does not count never covers another or is covered) are compared when they are one account's
-    (`_pair_kind`; audit round 3, R3-B18, R3-02: every account with a period, whatever its bank and digits): a
-    "printed" pair prints one bank (`_package_bank`: casefolded, an informal printout's label read as its bank) and
-    one last four (`_printed_account_digits`) with no conflict between full numbers (`_numbers_conflict`); a statement
-    that prints no bank or fewer than four digits makes a "possible" pair with one whose bank, account name and
-    declared currency do not differ from its own where both print one. A statement's period is its printed one, or
-    else its first and last posted row's day. Two accounts of one document are never compared. A statement is left
-    out when its period lies inside the union of the periods of the other kept statements it is one account with, it
-    prints a posted row, and every posted row of it, credit or debit, is a posted row of those statements, as a
-    multiset on the day and the signed cents (never a fuzzy match). The statements of more than a month
-    (`_MONTH_DAYS`) are tested first, the longest first, so a quarterly printout or a multi-month export whose rows the
-    account's other statements print is left out (`superseded_long_printout`) and those statements stay; audit round
-    3, R3-B18 (R3-05): in that first phase a statement is left out only in favour of month-length statements
-    (`_FULL_STATEMENT_DAYS` days or more) that alone cover its period and print its rows, no two of which sharing its
-    days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days or share a credit in the days both cover (no
-    double count between them); otherwise it waits. Review round 1: the month-length rule reads a statement of a
-    monthly cycle's length (`_LONGEST_CYCLE_DAYS` days or fewer) only; a printout of more days is proved by all its
-    account's statements (a month-to-date, a short first or closing month included), and the double-count test reads
-    only the statements the second phase would keep side by side (`settled`: a month-to-date beside its month, or a
-    printout two neighbouring months print, is left out there first, and before them another printout of more than
-    `_LONGEST_CYCLE_DAYS` days that the others print, as this phase leaves it out). Review round 2: and a printout of
-    32 to `_LONGEST_CYCLE_DAYS` days that the month-length statements alone print and that count nothing twice between
-    them, as this phase leaves it out; the double count is read only between two statements that are one account's,
-    each printing a posted row (`double_counted`: a printed pair, or a possible pair the overlap pass names or whose
-    two statements print only rows of the printout tested), so a second account of the holder at the bank whose number
-    is not read, a 34-day export the monthly statements print or a printout with no posted row no longer keeps the
-    long printout in the package. A printout of 32 to 35 days that only a shorter statement proves with the
-    month-length ones waits too: the second phase may leave that shorter statement, or a month-length one inside the
-    printout, out in its favour, and the days the printout shares with a statement it does not print whole count
-    twice, the pair named (the recorded residual); beside it a longer printout waits as well, read as its double count
-    (the residual's reach, recorded by review round 2).
-    Then every statement left, long ones included, the shortest first, so an interim or month-to-date printout beside
-    the full statement, a second month-to-date printout of one open month, or a short custom range of days the full
-    statements print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never
-    left out for partial printouts of it that print nothing it does not (of two periods alike, the one listed later is
-    tested first; R2-B14 review round 1). It repeats the statement left in the package that shares the most of its
-    days (of two alike, the one listed first).
+    (`_pair_kind`; every account with a period, whatever its bank and digits): a "printed" pair prints one bank
+    (`_package_bank`: casefolded, an informal printout's label read as its bank) and one last four
+    (`_printed_account_digits`) with no conflict between full numbers (`_numbers_conflict`); a statement that prints no
+    bank or fewer than four digits makes a "possible" pair with one whose bank, account name and declared currency do
+    not differ from its own where both print one. A statement's period is its printed one, or else its first and last
+    posted row's day. Two accounts of one document are never compared. A statement is left out when its period lies
+    inside the union of the periods of the other kept statements it is one account with, it prints a posted row, and
+    every posted row of it, credit or debit, is a posted row of those statements, as a multiset on the day and the
+    signed cents (never a fuzzy match). The statements of more than a month (`_MONTH_DAYS`) are tested first, the
+    longest first, so a quarterly printout or a multi-month export whose rows the account's other statements print is
+    left out (`superseded_long_printout`) and those statements stay; in that first phase a statement is left out only
+    in favour of month-length statements (`_FULL_STATEMENT_DAYS` days or more) that alone cover its period and print
+    its rows, no two of which sharing its days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` days or share a
+    credit in the days both cover (no double count between them); otherwise it waits. The month-length rule reads a
+    statement of a monthly cycle's length (`_LONGEST_CYCLE_DAYS` days or fewer) only; a printout of more days is proved
+    by all its account's statements (a month-to-date, a short first or closing month included), and the double-count
+    test reads only the statements the second phase would keep side by side (`settled`: a month-to-date beside its
+    month, or a printout two neighbouring months print, is left out there first, and before them another printout of
+    more than `_LONGEST_CYCLE_DAYS` days that the others print, as this phase leaves it out). And a printout of 32 to
+    `_LONGEST_CYCLE_DAYS` days that the month-length statements alone print and that count nothing twice between them,
+    as this phase leaves it out; the double count is read only between two statements that are one account's, each
+    printing a posted row (`double_counted`: a printed pair, or a possible pair the overlap pass names or whose two
+    statements print only rows of the printout tested), so a second account of the holder at the bank whose number is
+    not read, a 34-day export the monthly statements print or a printout with no posted row no longer keeps the long
+    printout in the package. A printout of 32 to 35 days that only a shorter statement proves with the month-length
+    ones waits too: the second phase may leave that shorter statement, or a month-length one inside the printout, out
+    in its favour, and the days the printout shares with a statement it does not print whole count twice, the pair
+    named (the recorded residual); beside it a longer printout waits as well, read as its double count. Then every
+    statement left, long ones included, the shortest first, so an interim or month-to-date printout beside the full
+    statement, a second month-to-date printout of one open month, or a short custom range of days the full statements
+    print is left out (`superseded_interim`) and a full month, a 32-35-day monthly cycle included, is never left out
+    for partial printouts of it that print nothing it does not (of two periods alike, the one listed later is tested
+    first). It repeats the statement left in the package that shares the most of its days (of two alike, the one listed
+    first).
 
-    Any other overlap of two statements of one account is never netted. Audit round 3, R3-B18 (R3-04): the credits
-    the two share in the days both cover are matched one to one on the cents within `_OVERLAP_SHIFT_DAYS` days,
-    whatever their wording (`_shared_credits`). A printed pair is named when it shares a credit, shares more than
-    `_OVERLAP_BOUNDARY_DAYS` days, or one period lies inside the other; a possible pair when it shares more than
-    `_OVERLAP_BOUNDARY_DAYS` days and either shares at least half the credits the fewer-credited side prints in those
-    days, or the two print one period and the same opening and closing balances. A named pair is listed in
-    `overlapping`, ``{"job", "other", "shared_credit_count", "shared_credit_total", "currency", "days_shared"}`` (`job`
-    the statement listed later; `currency` the account's, None when the two declare different ones; `days_shared` the
-    days both cover; with `account` and `other_account` for an account of a document), and sends the package to
-    review; the figures keep the double count.
+    Any other overlap of two statements of one account is never netted. The credits the two share in the days both
+    cover are matched one to one on the cents within `_OVERLAP_SHIFT_DAYS` days, whatever their wording
+    (`_shared_credits`). A printed pair is named when it shares a credit, shares more than `_OVERLAP_BOUNDARY_DAYS`
+    days, or one period lies inside the other; a possible pair when it shares more than `_OVERLAP_BOUNDARY_DAYS` days
+    and either shares at least half the credits the fewer-credited side prints in those days, or the two print one
+    period and the same opening and closing balances. A named pair is listed in `overlapping`, ``{"job", "other",
+    "shared_credit_count", "shared_credit_total", "currency", "days_shared"}`` (`job` the statement listed later;
+    `currency` the account's, None when the two declare different ones; `days_shared` the days both cover; with
+    `account` and `other_account` for an account of a document), and sends the package to review; the figures keep the
+    double count.
 
     Returns ``(kept jobs, dropped, superseded_accounts, overlapping)``: a job whose every account is left out is
     dropped as a duplicate is (``{"job", "duplicate_of", "reason"}``, in listed order); an account of a document whose
@@ -2494,7 +2421,7 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
             days = (span[1] - span[0]).days + 1
             statements.append({
                 "job": job, "order": order, "index": index if document else None, "accounts": len(accounts),
-                # Audit round 3, R3-B18 (R3-02, R3-04): what `_pair_kind` reads the account by, whatever is printed.
+                # What `_pair_kind` reads the account by, whatever is printed.
                 "bank": _package_bank(statement), "digits": _printed_account_digits(account),
                 "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
                 "currency": _statement_currency(account),
@@ -2529,8 +2456,8 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
     alive = list(statements)
     left_out: list[tuple[dict, dict]] = []
     def only_rows_of(statement: dict, printout: dict) -> bool:
-        """Audit round 3, R3-B18 review round 2: whether `statement` prints a posted row in `printout`'s days and every
-        posted row it prints there is one of `printout`'s (a multiset on the day and the signed cents)."""
+        """Whether `statement` prints a posted row in `printout`'s days and every posted row it prints there is one of
+        `printout`'s (a multiset on the day and the signed cents)."""
         start, end = printout["span"]
         within = Counter({key: count for key, count in statement["rows"].items()
                           if (day := _iso_day(key[0])) is not None and start <= day <= end})
@@ -2538,12 +2465,12 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
 
     def double_counted(one: dict, two: dict, printout: dict) -> bool:
         """Two statements that overlap each other by more than a boundary's days, or share a credit in the days both
-        cover (`_shared_credits`): kept side by side, they count money twice. Audit round 3, R3-B18 review round 2:
-        only two statements that are one account's, each printing a posted row (a statement printing none counts no
-        money): a printed pair (`_pair_kind`), or a possible pair that the overlap pass names (`_possible_pair_named`)
-        or whose two statements each print only rows of the `printout` being tested in its days (`only_rows_of`), so a
-        second account of the holder at the bank whose number is not read, a possible peer of every statement of the
-        first that prints rows of its own, never reads as a double count beside the first."""
+        cover (`_shared_credits`): kept side by side, they count money twice. Only two statements that are one
+        account's, each printing a posted row (a statement printing none counts no money): a printed pair
+        (`_pair_kind`), or a possible pair that the overlap pass names (`_possible_pair_named`) or whose two
+        statements each print only rows of the `printout` being tested in its days (`only_rows_of`), so a second
+        account of the holder at the bank whose number is not read, a possible peer of every statement of the first
+        that prints rows of its own, never reads as a double count beside the first."""
         if not one["rows"] or not two["rows"]:
             return False
         kind = _pair_kind(one, two)
@@ -2572,14 +2499,14 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                    for two in sharing[place + 1:])
 
     def settled(group: list[dict]) -> list[dict]:
-        """Audit round 3, R3-B18 review round 1: the statements of `group` the second phase would keep side by side
-        (`interim`: a month-to-date beside its month, a printout two neighbouring months print, left out), so a double
-        count that phase resolves keeps no long printout in the package. Before that pass, the longest first, a
-        printout of more than `_LONGEST_CYCLE_DAYS` days that the others print is left out, as the first phase leaves it
-        out. Review round 2: so is a printout of 32 to `_LONGEST_CYCLE_DAYS` days that the month-length statements of
-        `group` alone print (`_FULL_STATEMENT_DAYS`) and that count nothing twice between them, read on the second
-        phase's own pass over them (`interim`), as the first phase leaves it out, so a 34-day export the monthly
-        statements print is no double count beside the month it straddles."""
+        """The statements of `group` the second phase would keep side by side (`interim`: a month-to-date beside its
+        month, a printout two neighbouring months print, left out), so a double count that phase resolves keeps no long
+        printout in the package. Before that pass, the longest first, a printout of more than `_LONGEST_CYCLE_DAYS` days
+        that the others print is left out, as the first phase leaves it out. So is a printout of 32 to
+        `_LONGEST_CYCLE_DAYS` days that the month-length statements of `group` alone print (`_FULL_STATEMENT_DAYS`) and
+        that count nothing twice between them, read on the second phase's own pass over them (`interim`), as the first
+        phase leaves it out, so a 34-day export the monthly statements print is no double count beside the month it
+        straddles."""
         left = list(group)
         for statement in sorted((item for item in group if item["days"] > _MONTH_DAYS),
                                 key=lambda item: (-item["days"], -item["order"])):
@@ -2592,17 +2519,16 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                 left.remove(statement)
         return interim(left)
 
-    # Phase 1 (R2-B14 review round 1): a printout of more than a month, the longest first (of two alike, the later
-    # listed first). Audit round 3, R3-B18 (R3-05): it is left out only in favour of month-length statements
-    # (`_FULL_STATEMENT_DAYS` or more) that alone prove it and no two of which sharing its days overlap each other by
-    # more than `_OVERLAP_BOUNDARY_DAYS` or share a credit (no double count between them), so a 32-35-day monthly
-    # cycle is never left out for partial printouts of it. Review round 1: the month-length rule reads a statement of a
-    # monthly cycle's length only (`_LONGEST_CYCLE_DAYS`); one of more days is a printout, proved by all its account's
-    # statements (a month-to-date, a short first or closing month), and the double-count test reads only the
-    # statements the second phase would keep side by side (`settled`), another printout of more than
-    # `_LONGEST_CYCLE_DAYS` days the others print left out before them. Review round 2: and a 32-35-day printout the
-    # month-length statements alone print without a double count; the double count is read only between two statements
-    # that are one account's, each printing a posted row (`double_counted`, against the printout tested).
+    # Phase 1: a printout of more than a month, the longest first (of two alike, the later listed first). It is left
+    # out only in favour of month-length statements (`_FULL_STATEMENT_DAYS` or more) that alone prove it and no two of
+    # which sharing its days overlap each other by more than `_OVERLAP_BOUNDARY_DAYS` or share a credit (no double
+    # count between them), so a 32-35-day monthly cycle is never left out for partial printouts of it. The month-length
+    # rule reads a statement of a monthly cycle's length only (`_LONGEST_CYCLE_DAYS`); one of more days is a printout,
+    # proved by all its account's statements (a month-to-date, a short first or closing month), and the double-count
+    # test reads only the statements the second phase would keep side by side (`settled`), another printout of more
+    # than `_LONGEST_CYCLE_DAYS` days the others print left out before them. And a 32-35-day printout the month-length
+    # statements alone print without a double count; the double count is read only between two statements that are one
+    # account's, each printing a posted row (`double_counted`, against the printout tested).
     for statement in sorted((item for item in statements if item["days"] > _MONTH_DAYS),
                             key=lambda item: (-item["days"], -item["order"])):
         full = [other for other in peers(statement, alive)
@@ -2639,13 +2565,13 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
             days_shared = (last - first).days + 1
             count, cents = _shared_credits(earlier, later, first, last)
             if kind == "printed":
-                # R3-04: a printed pair sharing a credit, more than a boundary's days, or a period inside the other.
+                # A printed pair sharing a credit, more than a boundary's days, or a period inside the other.
                 inside = any(one["span"][0] >= two["span"][0] and one["span"][1] <= two["span"][1]
                              for one, two in ((earlier, later), (later, earlier)))
                 named = count >= 1 or days_shared > _OVERLAP_BOUNDARY_DAYS or inside
             else:
-                # R3-02: a possible pair only where more than a boundary's days are shared and the shared credits, or
-                # one period printed with both balances, show the two are one account's.
+                # A possible pair only where more than a boundary's days are shared and the shared credits, or one
+                # period printed with both balances, show the two are one account's.
                 named = _possible_pair_named(earlier, later, first, last, count)
             if not named:
                 continue
@@ -2654,10 +2580,10 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
                 "other": earlier["job"].id,
                 "shared_credit_count": count,
                 "shared_credit_total": round(cents / 100, 2),
-                # R2-B14 review round 1 (CURRENCY DOCTRINE): the unit of the shared money, the account's; unknown
-                # when the two statements declare different ones.
+                # The unit of the shared money, the account's; unknown when the two statements declare different
+                # ones.
                 "currency": later["currency"] if later["currency"] == earlier["currency"] else None,
-                # Audit round 3, R3-B18 (R3-04): the days both cover.
+                # The days both cover.
                 "days_shared": days_shared,
             }
             if later["index"] is not None:
@@ -2687,14 +2613,13 @@ def _package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | Non
 
 
 def _pair_kind(statement: dict, other: dict) -> str | None:
-    """Audit round 3, R3-B18 (R3-02, R3-04): whether two of `_package_superseded`'s statements are one account's, and
-    on what. None for two accounts of one document (never compared). "printed" when both print a bank and four digits
-    or more, the banks (`_package_bank`) and the last fours are equal and the full numbers do not conflict
-    (`_numbers_conflict`): R2-B14's account, with no name or currency test, so a holder's name read two ways never
-    splits it. None when both print four digits or more and the last fours differ or the numbers conflict. Otherwise
-    (a statement printing no bank or fewer than four digits) "possible" when the banks agree where both print one, the
-    account names do not differ where both print one and the declared currencies (`_statement_currency`) are equal
-    where both declare one; else None."""
+    """Whether two of `_package_superseded`'s statements are one account's, and on what. None for two accounts of one
+    document (never compared). "printed" when both print a bank and four digits or more, the banks (`_package_bank`)
+    and the last fours are equal and the full numbers do not conflict (`_numbers_conflict`): one account, with no
+    name or currency test, so a holder's name read two ways never splits it. None when both print four digits or more
+    and the last fours differ or the numbers conflict. Otherwise (a statement printing no bank or fewer than four
+    digits) "possible" when the banks agree where both print one, the account names do not differ where both print one
+    and the declared currencies (`_statement_currency`) are equal where both declare one; else None."""
     if statement["job"] is other["job"]:
         return None
     digits, other_digits = statement["digits"], other["digits"]
@@ -2713,13 +2638,13 @@ def _pair_kind(statement: dict, other: dict) -> str | None:
 
 
 def _possible_pair_named(earlier: dict, later: dict, first, last, count: int) -> bool:
-    """Audit round 3, R3-B18 (R3-02, R3-04): whether `_package_superseded`'s overlap pass names a "possible" pair
-    (`_pair_kind`) whose common days run from `first` to `last` and which shares `count` credits there
-    (`_shared_credits`): more than `_OVERLAP_BOUNDARY_DAYS` days shared and either at least half the credits the
-    fewer-credited side prints in those days shared, or one period printed by both with the same opening and closing
-    balances. Review round 2: the long-printout phase reads a possible pair as a double count on this evidence, or
-    where both statements print only rows of the printout it tests, so a second account of the holder at the bank whose
-    number is not read, printing rows of its own, never reads as one beside the first."""
+    """Whether `_package_superseded`'s overlap pass names a "possible" pair (`_pair_kind`) whose common days run from
+    `first` to `last` and which shares `count` credits there (`_shared_credits`): more than `_OVERLAP_BOUNDARY_DAYS`
+    days shared and either at least half the credits the fewer-credited side prints in those days shared, or one period
+    printed by both with the same opening and closing balances. The long-printout phase reads a possible pair as a
+    double count on this evidence, or where both statements print only rows of the printout it tests, so a second
+    account of the holder at the bank whose number is not read, printing rows of its own, never reads as one beside the
+    first."""
     fewer = min(len(_dated_credits(earlier, first, last)), len(_dated_credits(later, first, last)))
     one_period = (
         earlier["start_printed"] is not None and earlier["end_printed"] is not None
@@ -2740,13 +2665,12 @@ def _dated_credits(statement: dict, first, last) -> list[tuple]:
 
 
 def _shared_credits(earlier: dict, later: dict, first, last) -> tuple[int, int]:
-    """Audit round 3, R3-B18 (R3-04; MCA standard §4.6(3): match on account, date, amount and text): the credits two
-    statements of one account share in the days both cover (`first` to `last`), as ``(count, cents)``. A one-to-one
-    match: only the posted, dated credits of each side inside those days are read (so a recurring amount printed just
-    outside them is never shared); the later statement's credits, in (day, cents, place) order, each take the untaken
-    credit of the earlier with equal cents whose day is at most `_OVERLAP_SHIFT_DAYS` away (the smallest gap, then the
-    earlier day, then the place). The description is not read: a transaction or value date, a pending item or another
-    reference is still one credit."""
+    """§4.6: the credits two statements of one account share in the days both cover (`first` to `last`), as ``(count,
+    cents)``. A one-to-one match: only the posted, dated credits of each side inside those days are read (so a
+    recurring amount printed just outside them is never shared); the later statement's credits, in (day, cents, place)
+    order, each take the untaken credit of the earlier with equal cents whose day is at most `_OVERLAP_SHIFT_DAYS`
+    away (the smallest gap, then the earlier day, then the place). The description is not read: a transaction or value
+    date, a pending item or another reference is still one credit."""
     pool = _dated_credits(earlier, first, last)
     taken: set[int] = set()
     count = cents = 0
@@ -2765,9 +2689,9 @@ def _shared_credits(earlier: dict, later: dict, first, last) -> tuple[int, int]:
 
 
 def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
-    """Audit round 2, R2-B14 (R14): a pair of overlapping statements as the package names it (app.js
-    overlappingStatementWords reads the same words). Audit round 3, R3-B18 (R3-04): a pair named although it shares
-    no credit (a period inside the other, or more than three common days) reads the days the two cover."""
+    """A pair of overlapping statements as the package names it (app.js overlappingStatementWords reads the same
+    words). A pair named although it shares no credit (a period inside the other, or more than three common days)
+    reads the days the two cover."""
     count = pair.get("shared_credit_count") or 0
     names = (f"{filenames.get(pair.get('job'), pair.get('job'))} and "
              f"{filenames.get(pair.get('other'), pair.get('other'))}")
@@ -2780,7 +2704,7 @@ def _overlap_words(pair: dict, filenames: dict[str, str], money: str) -> str:
 def _ratified_omissions(analysis: object) -> list[dict]:
     """The RATIFIED sibling omissions this document published, if it is one.
 
-    Q10 (Gustavo, 2026-08-30): *surface the omission,
+    Q10: *surface the omission,
     do not demote.* A section admitted as omitted on PRINTED evidence beside an
     account that validated independently leaves the document `validated`; what
     it must never do is disappear. So the package — which is where a person
@@ -2794,11 +2718,8 @@ def _ratified_omissions(analysis: object) -> list[dict]:
     """
     from telemetry.record import RATIFIED_OMISSION_REASONS
 
-    # BOTH shapes. Since L1-S4 a SINGLE-account document that surfaced an
-    # omission publishes a `document` block beside today's payload, and the
-    # fifteen protected carriers of W3 §L1S2 are exactly that shape — so
-    # gating this on `accounts` would have kept Q10's surface dark on every
-    # document the ruling was made about.
+    # Both shapes: a single-account document that surfaced an omission publishes a `document` block beside its
+    # accounts, so gating on `accounts` alone would hide Q10's surface.
     if not isinstance(analysis, dict):
         return []
     block = analysis.get(_DOCUMENT_KEY)
@@ -2819,11 +2740,8 @@ def _unratified_omissions(analysis: object) -> list[dict]:
     """
     from telemetry.record import RATIFIED_OMISSION_REASONS
 
-    # BOTH shapes. Since L1-S4 a SINGLE-account document that surfaced an
-    # omission publishes a `document` block beside today's payload, and the
-    # fifteen protected carriers of W3 §L1S2 are exactly that shape — so
-    # gating this on `accounts` would have kept Q10's surface dark on every
-    # document the ruling was made about.
+    # Both shapes: a single-account document that surfaced an omission publishes a `document` block beside its
+    # accounts, so gating on `accounts` alone would hide Q10's surface.
     if not isinstance(analysis, dict):
         return []
     block = analysis.get(_DOCUMENT_KEY)
@@ -2919,9 +2837,9 @@ def _unverified_main_account(roster: list[dict]) -> dict | None:
 
 
 def _idle_main_account(roster: list[dict]) -> dict | None:
-    """The statement's main account when it printed no activity this period (owner ruling, 2026-09-23: it needs
-    review; the dashboard keeps showing the active account, app.js idleMainAccount): the idle account of the best rank
-    (main_account_rank), when no account of that rank was verified or held. None otherwise."""
+    """The statement's main account when it printed no activity this period (the dashboard keeps showing the active
+    account, app.js idleMainAccount): the idle account of the best rank (main_account_rank), when no account of that
+    rank was verified or held. None otherwise."""
     if not roster:
         return None
     ranks = [main_account_rank(entry.get("kind"), entry.get("title")) for entry in roster]
@@ -2969,9 +2887,9 @@ def _package_members(
       arithmetic happens, because a payload can reach a package from a store
       that was written before the publisher learned to refuse it.
 
-    Audit B11 (I06): an account `repeated_accounts` names (one an earlier job of
-    the package already published, `_package_duplicates`) is excluded as a
-    duplicate, never summed twice; its document's other accounts stay members.
+    An account `repeated_accounts` names (one an earlier job of the package
+    already published, `_package_duplicates`) is excluded as a duplicate, never
+    summed twice; its document's other accounts stay members.
     """
     from telemetry.record import classify_outcome
 
@@ -3077,36 +2995,31 @@ def _package_members(
     return members, excluded
 
 
-#: Owner ruling 2026-10-02 (the underwriter's Q6, "2": "match a bounced deposit to its original deposit across
-#: consecutive months of the same account"; audit I42; true revenue spec §6.2's package passes; R2-OW15): two statements
-#: of one account are consecutive when the later one starts 0 to this many days after the earlier one ends. The
-#: corpus's gaps are 0 to 3 days, or over 20 (a month missing), so any bound from 3 to 20 reads the same; 7 also spans a
-#: holiday and a 28th-to-1st cycle.
+#: True revenue spec §6.2's package passes: two statements of one account are consecutive when the later one starts 0 to
+#: this many days after the earlier one ends. The corpus's gaps are 0 to 3 days, or over 20 (a month missing), so any
+#: bound from 3 to 20 reads the same; 7 also spans a holiday and a 28th-to-1st cycle.
 PACKAGE_CONSECUTIVE_DAYS = 7
 
-#: Owner ruling 2026-10-02 (the underwriter's Q4, "Let's go with option 2 and I'll review it anyways": "Within one deal
-#: (a package), match a deposit to an exact-cents transfer OUT of another of the business's accounts 0-2 days
-#: earlier"; audit I30; true revenue spec §6.2's package passes; R2-OW16): the most days a matched deposit posts after
-#: the transfer out.
+#: True revenue spec §6.2's package passes: the most days a matched deposit posts after the transfer out.
 PACKAGE_TRANSFER_DAYS = 2
-#: R2-OW16: the classes a transfer out never has (a lender's, a financing's, a card payment's, an insurer's, a tax's, a
+#: The classes a transfer out never has (a lender's, a financing's, a card payment's, an insurer's, a tax's, a
 #: payroll's or a fee's debit is no transfer between the business's accounts, whatever wording it prints).
 _TRANSFER_OUT_REFUSED_CLASSES = frozenset({
     "confirmed_lender", "potential_lender", "alternative_position", "line_of_credit", "vehicle_financing", "bank_loan",
     "mortgage", "lease_or_rental", "personal_loan", "floor_plan_financing", "factoring", "debt_relief",
     "lease_or_equipment_financing", "credit_card_payment", "insurance", "tax", "payroll", "fee",
 })
-#: R2-OW16: the contributions a transfer out never makes (a lender, potential-lender, withholding or flagged row).
+#: The contributions a transfer out never makes (a lender, potential-lender, withholding or flagged row).
 _TRANSFER_OUT_REFUSED_CONTRIBUTIONS = (
     "contributes_to_withholding_rate", "contributes_to_lender_count", "contributes_to_potential_lender_count",
     "contributes_to_flagged_totals",
 )
-#: R2-OW16, the destination veto: a transfer out that prints the account it goes to ('TO CHK 2020', 'TO 9999': the
+#: The destination veto: a transfer out that prints the account it goes to ('TO CHK 2020', 'TO 9999': the
 #: normaliser has already dropped '*', '.' and '#' masks; an X mask may stand before the digits) never pairs with a
 #: deposit into an account whose last four differ.
 _TRANSFER_DESTINATION = re.compile(r"\bTO (?:CHK|CHECKING|SAV|SAVINGS|ACCT|ACCOUNT|SHARE|DDA)?\s*(?:X+\s*)?(\d{4,})\b")
-#: R2-OW16: the held reasons of a deposit that names no third party (a transfer, the holder's own name, a wire with no
-#: sender): such a deposit that pairs with a transfer out is annotated, display only; nothing about it moves.
+#: The held reasons of a deposit that names no third party (a transfer, the holder's own name, a wire with no sender):
+#: such a deposit that pairs with a transfer out is annotated, display only; nothing about it moves.
 _OWN_MONEY_HELD_REASONS = frozenset({
     "transfer_no_counterparty", "transfer_account_designation", "holder_name", "wire_no_sender",
 })
@@ -3114,25 +3027,23 @@ _OWN_MONEY_HELD_REASONS = frozenset({
 
 def _bank_key(statement: object) -> str:
     """The bank a statement prints, casefolded and its blanks collapsed ('' when none): the bank an account is read
-    under by R2-OW15's and R2-OW16's package passes (audit round 2, R2-B15's months read `_package_bank` since audit
-    round 3, R3-B18)."""
+    under by the package passes."""
     bank = statement.get("bank") if isinstance(statement, dict) else None
     return " ".join(str(bank or "").split()).casefold()
 
 
-#: Audit round 3, R3-B18 (R3-04): an informal printout's label, read as the bank whose account it prints
-#: (`_package_bank`). Chase's online transaction export publishes the label "Chase Transaction Export"
-#: (analysis/chase.py:240, `bank="Chase Transaction Export"`) where its statements publish "Chase"
-#: (analysis/chase.py:867, `bank="Chase"`); the export is no formal statement (analysis/parser_registry_entries.py:363,
-#: `chase_export`'s `formal_statement: False`). Found's month-to-date view already prints its statement's label
-#: "Lead Bank (Found)" (analysis/found_lead.py:360) and needs none.
+#: An informal printout's label, read as the bank whose account it prints (`_package_bank`). Chase's online transaction
+#: export publishes the label "Chase Transaction Export" (`analysis/chase.py`) where its statements publish "Chase";
+#: the export is no formal statement (`chase_export`'s `formal_statement: False` in
+#: `analysis/parser_registry_entries.py`). Found's month-to-date view already prints its statement's label
+#: "Lead Bank (Found)" (`analysis/found_lead.py`) and needs none.
 _PACKAGE_BANK_ALIASES = {"chase transaction export": "chase"}
 
 
 def _package_bank(statement: object) -> str:
-    """Audit round 3, R3-B18 (R3-02, R3-04): the bank one account's statements are compared under by the package's
-    shorter-printout and overlap pass (R14, `_package_superseded`) and its months (R13): `_bank_key`, an informal
-    printout's label read as its bank (`_PACKAGE_BANK_ALIASES`)."""
+    """The bank one account's statements are compared under by the package's shorter-printout and overlap pass
+    (`_package_superseded`) and its months: `_bank_key`, an informal printout's label read as its bank
+    (`_PACKAGE_BANK_ALIASES`)."""
     bank = _bank_key(statement)
     return _PACKAGE_BANK_ALIASES.get(bank, bank)
 
@@ -3152,9 +3063,9 @@ def _revenue_rows_authoritative(rows: list[dict]) -> bool:
 
 
 def _member_tiered(rows: list[dict]) -> bool:
-    """R2-OW15: whether a member's rows are tiered (§9.2, §10.4): its revenue rows are authoritative and every posted
-    credit carries a 5.6 tier. The package passes (`_package_matches`) and the member loop read this one helper, so a
-    member the passes overlay is never one the loop publishes without its tier figures."""
+    """Whether a member's rows are tiered (§9.2, §10.4): its revenue rows are authoritative and every posted credit
+    carries a 5.6 tier. The package passes (`_package_matches`) and the member loop read this one helper, so a member
+    the passes overlay is never one the loop publishes without its tier figures."""
     if not _revenue_rows_authoritative(rows):
         return False
     return all(
@@ -3166,15 +3077,15 @@ def _member_tiered(rows: list[dict]) -> bool:
 
 
 def _consecutive(earlier: dict, later: dict) -> bool:
-    """R2-OW15: `later` is the statement that follows `earlier`: both period days read, and `later` starts 0 to
-    PACKAGE_CONSECUTIVE_DAYS days after `earlier` ends. Two overlapping statements (R2-B14's R14) never are."""
+    """`later` is the statement that follows `earlier`: both period days read, and `later` starts 0 to
+    PACKAGE_CONSECUTIVE_DAYS days after `earlier` ends. Two overlapping statements never are."""
     if earlier["end"] is None or later["start"] is None:
         return False
     return 0 <= (later["start"] - earlier["end"]).days <= PACKAGE_CONSECUTIVE_DAYS
 
 
 def _chained(earlier: dict, later: dict) -> bool:
-    """R2-OW15: `later` follows `earlier` (_consecutive) and opens on its closing balance, to the cent."""
+    """`later` follows `earlier` (_consecutive) and opens on its closing balance, to the cent."""
     return (
         _consecutive(earlier, later) and _is_money_value(earlier["closing"]) and _is_money_value(later["opening"])
         and round(float(earlier["closing"]) * 100) == round(float(later["opening"]) * 100)
@@ -3182,11 +3093,10 @@ def _chained(earlier: dict, later: dict) -> bool:
 
 
 def _same_account(first: dict, second: dict) -> bool:
-    """R2-OW15 (Q6's identity): two package members are statements of ONE account: two jobs, one declared currency
-    and one printed bank (`_bank_key`), and either both print four digits or more, with an equal last four and no
-    conflict (R2-B14's `_numbers_conflict`), or one prints fewer: then the account names do not differ where both
-    print one, and the balance chains (one follows the other and opens on its closing balance, `_chained`). A member
-    with no declared currency is never one."""
+    """Two package members are statements of ONE account: two jobs, one declared currency and one printed bank
+    (`_bank_key`), and either both print four digits or more, with an equal last four and no conflict, or one prints
+    fewer: then the account names do not differ where both print one, and the balance chains (one follows the other
+    and opens on its closing balance, `_chained`). A member with no declared currency is never one."""
     if first["job_id"] == second["job_id"] or not first["currency"] or first["currency"] != second["currency"]:
         return False
     if not first["bank"] or first["bank"] != second["bank"]:
@@ -3200,13 +3110,10 @@ def _same_account(first: dict, second: dict) -> bool:
 
 
 def _months_linked(first: dict, second: dict) -> bool:
-    """Audit round 3, R3-B18 (R3-02; the owner's Q6 identity of 2026-10-02, "consecutive months of the same account"):
-    two counted members are statements of one account for the months' floor (R13). Never two accounts of one document
+    """Two counted members are statements of one account for the months' floor. Never two accounts of one document
     (one job). Two keyed members (each a bank, `_package_bank`, and four digits or more) are one account when the bank
-    and the last four are equal, chained or not (audit round 2, R2-B15's key, kept exactly). Otherwise the banks agree
-    where both print one, the account names do not differ where both print one, and the balance chains (R2-OW15's
-    `_chained`, unchanged: one starts 0 to PACKAGE_CONSECUTIVE_DAYS days after the other ends and opens on its closing
-    balance, to the cent). A member linked to none is its own account."""
+    and the last four are equal, chained or not. Otherwise the banks agree where both print one, the account names do
+    not differ where both print one, and the balance chains. A member linked to none is its own account."""
     if first["job_id"] == second["job_id"]:
         return False
     if first["bank"] and second["bank"] and len(first["digits"]) >= 4 and len(second["digits"]) >= 4:
@@ -3219,11 +3126,10 @@ def _months_linked(first: dict, second: dict) -> bool:
 
 
 def _different_accounts(first: dict, second: dict) -> bool:
-    """R2-OW16 (Q4's identity): two package members are two of the business's accounts: two members (two jobs, or one
-    document's two accounts), one declared currency, both print four digits or more, and the last fours differ or the
-    full numbers conflict (R2-B14's `_numbers_conflict`). There is no bank-name arm: one account read under two bank
-    spellings is never two accounts, and a member that prints fewer than four digits is never paired (it is marked
-    `no_account_number`)."""
+    """Two package members are two of the business's accounts: two members (two jobs, or one document's two
+    accounts), one declared currency, both print four digits or more, and the last fours differ or the full numbers
+    conflict. There is no bank-name arm: one account read under two bank spellings is never two accounts, and a
+    member that prints fewer than four digits is never paired (it is marked `no_account_number`)."""
     if first["key"] == second["key"] or not first["currency"] or first["currency"] != second["currency"]:
         return False
     if len(first["digits"]) < 4 or len(second["digits"]) < 4:
@@ -3232,7 +3138,7 @@ def _different_accounts(first: dict, second: dict) -> bool:
 
 
 def _match_side(entry: dict, position: int, row: dict) -> dict:
-    """R2-OW15: one leg of a package match as its row note and the package's `package_matches` name it. The account is
+    """One leg of a package match as its row note and the package's `package_matches` name it. The account is
     `account_index` (1-based, None for a statement of one account), never `account`: the served payload masks every
     key named `account` as a printed account number (`_masked`)."""
     record = row["classification"]
@@ -3246,21 +3152,18 @@ def _match_side(entry: dict, position: int, row: dict) -> dict:
 
 
 def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) -> dict:
-    """Owner ruling 2026-10-02 (the underwriter's Q6, "2": "Match a bounced deposit to its original deposit across
-    consecutive months of the same account (within a package, and within one statement as today), and count a
-    redeposited check once. Flag, but do not deduct, returns that cannot be matched and processor chargebacks"; audit
-    I42; true revenue spec §6.2's package passes, §9.2, §11; R2-OW15): the package passes over the members
-    `_package_members` admitted, recomputed on every call from their displayed copies and never written back (no job,
-    stored analysis, review row or package record changes; a statement viewed alone keeps its own figures).
+    """True revenue spec §6.2's package passes, §9.2, §11: the package passes over the members `_package_members`
+    admitted, recomputed on every call from their displayed copies and never written back (no job, stored analysis,
+    review row or package record changes; a statement viewed alone keeps its own figures).
 
     `rd_positions` holds each member's R-d internal-transfer positions (`_internal_transfer_positions`), which no pass
     reads. A member enters the passes when its job is done, its rows are tiered (`_member_tiered`, the member loop's
     test) and it declares a currency; in a package of two members or more, a member that does not is marked
     (`unchecked`: 'no_currency', else 'older_rules'), unless it prints no row (nothing to match), and a member that
-    enters but prints fewer than four account digits is marked 'no_account_number' (R2-OW16: pass 2 never pairs it;
-    pass 1 still reaches it through the balance chain). A row enters when it is posted and no proven duplicate.
+    enters but prints fewer than four account digits is marked 'no_account_number' (pass 1 still reaches it through
+    the balance chain). A row enters when it is posted and no proven duplicate.
 
-    Pass 1, returned deposits across statements: a debit that undoes a deposit (`_deposit_return_debit`, R2-B08's
+    Pass 1, returned deposits across statements: a debit that undoes a deposit (`_deposit_return_debit`, its French
     wordings included) that no credit of its statement pairs (pass 4's `matched_reversal_pair` naming its location)
     and that is no correction naming an equal credit of its own statement (pass 4's `_undo_debit_names_a_credit`, run
     unchanged over the member's rows; such a debit stays flagged, never netted across) is matched to its original
@@ -3274,23 +3177,22 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
     initial state, review status and pass-4 link are kept, so Confirm Revenue still overrides the match. A redeposit
     after the return stays counted. Inside one statement nothing changes (pass 4 keeps its 14 days).
 
-    Pass 2, own-account transfers (owner ruling 2026-10-02, the underwriter's Q4, "Let's go with option 2 and I'll
-    review it anyways"; audit I30; R2-OW16): a counted deposit that prints no payer (tier `counted_flagged`, reason
-    exactly `no_payer_printed`; never a rail, a round sum (`is_round_sum`), a check or cash-device deposit
+    Pass 2, own-account transfers: a counted deposit that prints no payer (tier `counted_flagged`, reason exactly
+    `no_payer_printed`; never a rail, a round sum (`is_round_sum`), a check or cash-device deposit
     (`paper_or_cash_deposit`), a decided credit or one pass 1 took) is matched to an exact-cents transfer out of
     ANOTHER of the business's accounts (`_different_accounts`: another uploaded statement, or another account of the
     same document after R-d) dated 0 to PACKAGE_TRANSFER_DAYS days before it. A transfer out is a posted, dated debit
     printing transfer wording (`_TRANSFER_WORDING`), no rail, no lender, potential-lender, withholding or flagged
     contribution, none of the financing, card-payment, insurance, tax, payroll or fee classes, and no pass-1 note; one
     that prints the account it goes to (`_TRANSFER_DESTINATION`) never pairs with a deposit into an account whose last
-    four differ. One to one: the credits in (date, member, position) order, each taking the nearest untaken debit
-    (the smallest gap, then the member and the position). The deposit is held (`overlays`: tier
-    `excluded_pending_review`, reason `own_account_transfer_matched`, `package_match` naming the transfer, its state
-    `unverified_deposit` and its pending status kept, so Confirm Revenue releases it into True and marks it Verified);
-    the debit gains a display note. Then each held deposit that names no third party (`_OWN_MONEY_HELD_REASONS`) and
-    passes the same deposit tests is tried against the debits still untaken by the same rule, one to one: it gains a
-    display note only (`moved` false), its tier, reason, flags, totals and gate unchanged. Pass 2 never sets an
-    internal-transfer mark and never removes a row from gross deposits.
+    four differ. One to one: the credits in (date, member, position) order, each taking the nearest untaken debit (the
+    smallest gap, then the member and the position). The deposit is held (`overlays`: tier `excluded_pending_review`,
+    reason `own_account_transfer_matched`, `package_match` naming the transfer, its state `unverified_deposit` and its
+    pending status kept, so Confirm Revenue releases it into True and marks it Verified); the debit gains a display
+    note. Then each held deposit that names no third party (`_OWN_MONEY_HELD_REASONS`) and passes the same deposit
+    tests is tried against the debits still untaken by the same rule, one to one: it gains a display note only
+    (`moved` false), its tier, reason, flags, totals and gate unchanged. Pass 2 never sets an internal-transfer mark
+    and never removes a row from gross deposits.
 
     Pass 3, the debit flags (`debit_side_flags`, never deducted, never a gate term): every ready member's returns that
     neither its statement nor pass 1 matched (`unmatched_deposit_return`, with `candidate_decided` when the nearest
@@ -3335,7 +3237,7 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
             elif not entry["tiered"]:
                 unchecked[entry["key"]] = "older_rules"
             elif len(entry["digits"]) < 4:
-                unchecked[entry["key"]] = "no_account_number"  # R2-OW16: pass 2 never pairs it
+                unchecked[entry["key"]] = "no_account_number"  # Pass 2 never pairs it
     matchable = [entry for entry in entries if entry["currency"] is not None and entry["tiered"]]
 
     def text_of(row: dict) -> str:
@@ -3454,7 +3356,7 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
             "gap_days": gap,
         })
 
-    # Pass 2 (R2-OW16, the underwriter's Q4): own-account transfers, then the held deposits' display notes.
+    # Pass 2: own-account transfers, then the held deposits' display notes.
     noted = {(key, position) for key, rows in overlays.items() for position in rows}  # pass 1's rows
 
     def rails(text: str) -> bool:
@@ -3491,9 +3393,8 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
                 else:
                     eligible = (record.get("revenue_tier") == "counted_flagged"
                                 and record.get("revenue_tier_reason") == "no_payer_printed")
-                # The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): nor a Zelle deposit, which the
-                # counted reading may hold as the holder's own name: PNC's 'ZEL FROM' escapes the consumer rail, and Q4
-                # (2026-10-02) never matches P2P (true_revenue.zelle_deposit).
+                # Nor a Zelle deposit, which the counted reading may hold as the holder's own name: PNC's 'ZEL FROM'
+                # escapes the consumer rail, and Q4 never matches P2P (true_revenue.zelle_deposit).
                 if (not eligible or _num(row.get("amount")) <= 0 or day is None
                         or (entry["key"], position) in taken or (entry["key"], position) in noted
                         or record.get("revenue_review_status") in _REVIEW_DECISIONS
@@ -3572,32 +3473,28 @@ def _package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) 
                 "date": flag["date"], "amount": flag["amount"], "description": flag["description"],
             })
 
-    # Pass 4 (the final review of round 2, F2(b); the owner's ruling of 2026-10-02 on the underwriter's Q5 across
-    # statements): a bounce-worded return whose funder payment sits in the same account's preceding statement.
+    # Pass 4: a bounce-worded return whose funder payment sits in the same account's preceding statement.
     _returned_funder_payments_across(matchable, overlays, matches, location_of, text_of)
-    # Pass 4's re-debits (the owner's answer of 2026-10-07 to audit round 3's R3-73, "Count it once"; R3-B02): a
-    # returned payment the same funder re-debits in the account's next statement leaves the package's numerator.
+    # Pass 4's re-debits: a returned payment the same funder re-debits in the account's next statement leaves
+    # the package's numerator.
     represented = _represented_funder_payments_across(matchable, overlays, location_of)
     return {"overlays": overlays, "matches": matches, "debit_flags": debit_flags, "unchecked": unchecked,
             "moved": moved, "represented": represented}
 
 
 def _represented_funder_payments_across(matchable: list[dict], overlays: dict, location_of) -> dict:
-    """The owner's answer of 2026-10-07 to audit round 3's R3-73 ("Count it once (Recommended)"; true revenue spec §6.2's
-    package passes, §9.2, §11; R3-B02): R2-OW13's rule across a member boundary. A returned funder payment still in the
-    withholding numerator (a member's own, rule D's or the named pair's, or one pass 4 matched to a return in the next
-    statement) whose same funder re-debits it in ANOTHER member, the statement of its return or the one immediately
-    after it in the same account (`_same_account`, `_consecutive`), leaves the package's numerator, by the classifier's
-    rule (analysis.represented_payments.re_debits: the same cents off its cycle, or an exact 2x catch-up, dated on or
-    after the return and within one cadence gap after it; the series read over those members, the re-debits a statement
-    already took left out, and its recurring-phase guard reading every dated return of those members, a re-debited one
-    included: review round 2 of R3-B02). The payment's package copy gains `contributes_to_withholding_rate` false and
-    `represented_by` (the re-debit's location in its statement); paid to lenders, the lender count, the funder rollups
-    and revenue never move, and each statement viewed alone keeps its own figures. Returns {(member key, the payment's
-    location): the warning item's represented fields (`represented_date`, `_location`, `_kind`, `_job`, `_document`, and
-    `_account` for a statement of several accounts)}. Audit round 3, final review (R3-FF), F3: as in pass 7c, a paid
-    debit the rate leaves out (`out_of_rate_payment`: R3-79's worded lump-sum payoff, as its package copy reads after
-    pass 4) is never the re-debit; it stays in the series."""
+    """True revenue spec §6.2's package passes, §9.2, §11: the returned-payment rule across a member boundary. A
+    returned funder payment still in the withholding numerator (a member's own, rule D's or the named pair's, or one
+    pass 4 matched to a return in the next statement) whose same funder re-debits it in ANOTHER member, the statement of
+    its return or the one immediately after it in the same account (`_same_account`, `_consecutive`), leaves the
+    package's numerator, by the classifier's rule (analysis.represented_payments.re_debits: the same cents off its
+    cycle, or an exact 2x catch-up, dated on or after the return and within one cadence gap after it). The payment's
+    package copy gains `contributes_to_withholding_rate` false and `represented_by` (the re-debit's location in its
+    statement); paid to lenders, the lender count, the funder rollups and revenue never move, and each statement viewed
+    alone keeps its own figures. Returns {(member key, the payment's location): the warning item's represented fields
+    (`represented_date`, `_location`, `_kind`, `_job`, `_document`, and `_account` for a statement of several
+    accounts)}. As in pass 7c, a paid debit the rate leaves out (`out_of_rate_payment`: a worded lump-sum payoff, as its
+    package copy reads after pass 4) is never the re-debit; it stays in the series."""
     from analysis.lender_payment_changes import calendar_for
     from analysis.represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
 
@@ -3631,7 +3528,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
             by_member.setdefault(entry["key"], []).append(attempt)
             if out_of_rate_payment(record.get("returned_funder_payment_by"),
                                    record.get("contributes_to_withholding_rate")):
-                out_of_rate.add(attempt.key)  # R3-FF F3: never the re-debit
+                out_of_rate.add(attempt.key)  # Never the re-debit
             taken = rows_at.get(record.get("represented_by") or "")
             if taken is not None:
                 used.add((entry["key"], taken[0]))  # a re-debit its own statement already took
@@ -3649,7 +3546,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
                 credit_day = _iso_day(found[1].get("date")) if found is not None else None
             if credit_day is None:
                 continue
-            # Every dated return, a re-debited one included, for the rule's recurring-phase guard (review round 2).
+            # Every dated return, a re-debited one included, for the rule's recurring-phase guard.
             known.setdefault(entry["key"], []).append(Returned(attempt, credit_day))
             if (credit_entry is not None and not record.get("represented_by")
                     and record.get("contributes_to_withholding_rate") is True):
@@ -3688,8 +3585,8 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
 
 
 def _paid_funder_payment(record: dict) -> bool:
-    """F2(b) (final review of round 2): a served row's record is a confirmed funder's posted payment counted as paid to
-    lenders that no pair reversed and no return took (rule D's funder debits, `_is_paid_funder_debit`, on a dict)."""
+    """F2(b): a served row's record is a confirmed funder's posted payment counted as paid to lenders that no pair
+    reversed and no return took (rule D's funder debits, `_is_paid_funder_debit`, on a dict)."""
     return (
         record.get("classification") == "confirmed_lender"
         and record.get("contributes_to_lender_totals") is True
@@ -3700,10 +3597,8 @@ def _paid_funder_payment(record: dict) -> bool:
 
 
 def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matches: list, location_of, text_of) -> None:
-    """The final review of round 2, F2(b) (true revenue spec §6.2's package passes, §9.2, §11; the owner's ruling of
-    2026-10-02 on the underwriter's Q5, "Match the return to the funder payment it reverses"; R2-OW13's rule D across
-    statements): the package's pass 4, over the members pass 1 reads (`matchable`), after passes 1 to 3, adding to their
-    `overlays` and `matches` in place.
+    """True revenue spec §6.2's package passes, §9.2, §11: the package's pass 4, over the members pass 1 reads
+    (`matchable`), after passes 1 to 3, adding to their `overlays` and `matches` in place.
 
     A return is a member's posted, non-duplicate credit that rule D could read (a bounce form, `_returned_payment_credit`;
     out of True, `_RETURN_CREDIT_TIERS`; no lender credit, except one that names the confirmed funder whose payment it
@@ -3712,7 +3607,7 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
     no pair's `reversed_by` naming it, no earlier pass's note) and that is dated; a credit the revenue side paired with a
     debit of its own statement dated on or before it is left alone (rule D's partner guard: the statement's own pair
     stands), while a partner dated after it cannot be the payment it returns (F2(a)) and holds nothing back. Two of
-    these are departures from rule D, which the fix run's review round 1 named for ratification (spec §20): rule D
+    these are departures from rule D (spec §20): rule D
     never reads a lender credit, and it leaves alone any credit the revenue side paired that is not its own payment's
     partner, whatever the partner's date. Its payment
     is sought in the SAME account's IMMEDIATELY PRECEDING statement (`_same_account` and `_consecutive`): a confirmed
@@ -3727,7 +3622,7 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
     The payment's copy leaves the package's paid to lenders (`contributes_to_lender_totals` and, as rule D does,
     `contributes_to_flagged_totals` false; `returned_funder_payment_by` the return's location), keeping its withholding
     and its lender count; both legs carry `package_match` `{kind: "returned_funder_payment", ...}` (the payment's names
-    the return, the return's the payment and its funder), and `matches` gains the pair. R2-OW18's package payment
+    the return, the return's the payment and its funder), and `matches` gains the pair. The package payment
     changes read the payment's copy as a returned attempt (`_package_lender_payment_changes`). Revenue never moves;
     each statement viewed alone keeps its own figures."""
     noted = {(key, position) for key, rows in overlays.items() for position in rows}
@@ -3799,8 +3694,8 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
             "contributes_to_flagged_totals": False,
             "returned_funder_payment_by": credit_side["source_location"],
             "package_match": {"kind": "returned_funder_payment", "credit": credit_side},
-            # Audit round 3, R3-B03 (R3-79): a returned payoff attempt rejoins the rate and is no lump sum, as Q5 rules
-            # inside a statement (`_returned_payoff_in_rate`).
+            # A returned payoff attempt rejoins the rate and is no lump sum, as Q5 rules inside a statement
+            # (`_returned_payoff_in_rate`).
             **({"contributes_to_withholding_rate": True, "lump_sum_payoff": None}
                if record.get("lump_sum_payoff") else {}),
         }
@@ -3816,8 +3711,8 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
 
 
 def _package_match_totals(matched: dict) -> dict:
-    """R2-OW15 (§9.2): the package passes' totals, each count and total only where a pass found a row:
-    `returned_deposit_cross_statement_count` / `_total` (the deposits pass 1 took out of True), R2-OW16's
+    """§9.2: the package passes' totals, each count and total only where a pass found a row:
+    `returned_deposit_cross_statement_count` / `_total` (the deposits pass 1 took out of True), 
     `own_account_transfer_held_count` / `_total` (the deposits pass 2 held) and
     `own_account_transfer_already_held_count` / `_total` (the held deposits it annotated), the debit flags'
     `<kind>_count` / `<kind>_total` (their magnitude) and `package_match_unchecked_count`."""
@@ -3827,7 +3722,7 @@ def _package_match_totals(matched: dict) -> dict:
         totals["returned_deposit_cross_statement_count"] = len(returned)
         totals["returned_deposit_cross_statement_total"] = round(
             sum(abs(_num(match["credit"]["amount"])) for match in returned), 2)
-    # R2-OW16 (the underwriter's Q4): the deposits pass 2 held, and the already-held deposits it only annotated.
+    # The deposits pass 2 held, and the already-held deposits it only annotated.
     for key, moved in (("own_account_transfer_held", True), ("own_account_transfer_already_held", False)):
         transfers = [match for match in matched["matches"]
                      if match["kind"] == "own_account_transfer" and match["moved"] is moved]
@@ -3844,45 +3739,42 @@ def _package_match_totals(matched: dict) -> dict:
     return totals
 
 
-#: Audit round 2, R2-B15 (R54): the job statuses a package counts as pending, not failed (an error, an interrupted run or
-#: a job done without an analysis stays failed).
+#: The job statuses a package counts as pending, not failed (an error, an interrupted run or a job done without an
+#: analysis stays failed).
 _PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
 
-#: The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.2; R2-OW18, F3): a member chains to
-#: the statement before it when it starts at most this many days before that statement ends (an overlap), or up to
-#: PACKAGE_CONSECUTIVE_DAYS after.
+#: True revenue spec §9.2: a member chains to the statement before it when it starts at most this many days before
+#: that statement ends (an overlap), or up to PACKAGE_CONSECUTIVE_DAYS after.
 LENDER_CHAIN_OVERLAP_DAYS = 5
 
 
 def _package_lender_payment_changes(members: list[tuple], overlays: dict | None = None, *,
                                     reading: dict | None = None) -> tuple[list[dict] | None, list[dict]]:
-    """The owner's request of 2026-10-06 (lender payment changes; "can we also detect when a payment to lender has
-    decreased? That would be a really important metric to track."; true revenue spec §9.2; R2-OW18, part F): each
-    lender payment series read across the package's consecutive statements of ONE account, recomputed on every call
-    from the kept members' displayed copies (with the package passes' overlay: passes 1 to 3 change no debit's lender
-    fields; the final review of round 2's pass 4 (F2(b)) marks a payment it matched as returned
-    (`returned_funder_payment_by`, `contributes_to_lender_totals` false), so a series reads it as a returned attempt,
-    not a payment, as R2-OW13's restore does inside one statement) and never written back. Information only: no total,
-    rollup, gate or revenue figure reads it.
+    """True revenue spec §9.2: each lender payment series read across the package's consecutive statements of ONE
+    account, recomputed on every call from the kept members' displayed copies (with the package passes' overlay:
+    passes 1 to 3 change no debit's lender fields; pass 4 marks a payment it
+    matched as returned (`returned_funder_payment_by`, `contributes_to_lender_totals` false), so a series reads it as
+    a returned attempt, not a payment, as the restore does inside one statement) and never written back.
+    Information only: no total, rollup, gate or revenue figure reads it.
 
-    A member enters when it is analysed and its served detection carries `lender_payment_changes` (it was analysed
-    with the check); otherwise it is listed and left out (`not_ready`, `analysed_before_check`). Members are visited in
+    A member enters when it is analysed and its served detection carries `lender_payment_changes` (it was analysed with
+    the check); otherwise it is listed and left out (`not_ready`, `analysed_before_check`). Members are visited in
     canonical order (period start, job, account) and each joins the first chain whose last member is the same account
-    (R2-OW15's `_same_account`) and ends between LENDER_CHAIN_OVERLAP_DAYS days after and PACKAGE_CONSECUTIVE_DAYS
-    days before it starts; otherwise it starts a chain. A member with no declared currency, no period, or fewer than
-    four account digits and no balance chain is checked alone and listed (in a package of two members or more).
+    and ends between LENDER_CHAIN_OVERLAP_DAYS days after and PACKAGE_CONSECUTIVE_DAYS days before it starts; otherwise
+    it starts a chain. A member with no declared currency, no period, or fewer than four account digits and no balance
+    chain is checked alone and listed (in a package of two members or more).
     `analysis.lender_payment_changes.payment_changes` runs per chain (its own overlap de-duplication included); each
     item gains its statement's source fields, a change item the statements of its last old payment (`from_*`) and of
     its new regime's second payment (`to_*`) and `cross_statement`; a stop whose series pays or is attempted after it
-    in a chain of another account of the package gains `continues_in_other_account` and is never confirmed. Audit round
-    3, R3-83: only when that first payment or attempt comes within the stop's grace window, counted in the business
-    days the two chains' statements cover (`covered_business_days`); a later one gains `reappears_in_other_account`
-    (with `covered_business_days`) and leaves the stop as its own chain reads it.
+    in a chain of another account of the package gains `continues_in_other_account` and is never confirmed. Only when
+    that first payment or attempt comes within the stop's grace window, counted in the business days the two chains'
+    statements cover (`covered_business_days`); a later one gains `reappears_in_other_account` (with
+    `covered_business_days`) and leaves the stop as its own chain reads it.
 
-    Returns (items, unchecked): items is None when no member was assessed. The owner's request of 2026-10-10 (active
-    positions by month; §9.2): `reading`, when given, receives the chains (`chains`, each a list of member entries in
-    period order) and each stop's continuation in another account (`links`, analysis/active_positions.py
-    `PositionLink`s), which `_package_active_positions` reads; the items are the same with or without it."""
+    Returns (items, unchecked): items is None when no member was assessed. §9.2: `reading`, when given, receives the
+    chains (`chains`, each a list of member entries in period order) and each stop's continuation in another account
+    (`links`, analysis/active_positions.py `PositionLink`s), which `_package_active_positions` reads; the items are
+    the same with or without it."""
     entries: list[dict] = []
     unchecked: list[dict] = []
     links: list = []
@@ -3919,8 +3811,8 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
             "start": _iso_day(statement.get("period_start")), "end": _iso_day(statement.get("period_end")),
             "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
             "order": (str(statement.get("period_start") or ""), str(job.id), account_index or 0),
-            # The owner's request of 2026-10-10 (active positions; review round 1): a statement holding no rows list is
-            # read here as empty, as before, and is N/A to `_package_active_positions`, never 0.
+            # A statement holding no rows list is read here as empty, as before, and is N/A to
+            # `_package_active_positions`, never 0.
             "has_rows": isinstance(statement.get("transactions"), list),
             "rows": payment_changes_module.StatementRows(rows, statement.get("period_start"),
                                                           statement.get("period_end"), _statement_currency(analysis)),
@@ -3975,9 +3867,9 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                     target["job_id"], target.get("source_account"))
             if item["kind"] == "stop":
                 # F5: the series continues from another account of the deal (a chain of no member of this account).
-                # Audit round 3, R3-83: only when its first payment or attempt there comes within the stop's grace
-                # window, counted in the business days the two chains' statements cover (a third account's never
-                # count); a later one leaves the stop as its own chain reads it and is named apart.
+                # Only when its first payment or attempt there comes within the stop's grace window, counted in the
+                # business days the two chains' statements cover (a third account's never count); a later one
+                # leaves the stop as its own chain reads it and is named apart.
                 found = None
                 reappears = None
                 calendar = payment_changes_module.calendar_for(chain[0]["currency"])
@@ -4003,7 +3895,7 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
                         **statement_source(other, activity["statement"]),
                         "first_date": activity["date"], "amount": activity["amount"]}
                     published["stop_confirmed"] = False
-                    # The owner's request of 2026-10-10 (active positions): the position continued there counts once.
+                    # The position continued there counts once.
                     links.append(active_positions_module.PositionLink(
                         chain_index, tuple(item["_series_key"]), item["position"], found[0][1],
                         parse_date(activity["date"]), activity["amount"]))
@@ -4018,17 +3910,16 @@ def _package_lender_payment_changes(members: list[tuple], overlays: dict | None 
 
 
 def _package_active_positions(rows: list[dict], reading: dict) -> list[dict]:
-    """The owner's request of 2026-10-10 (active positions by month; "it should be included in the monthly statement
-    chart before witholding"; true revenue spec §9.2, §10): each member row gains `active_positions` and
-    `possible_positions` (set in place) and the package's months are returned.
+    """True revenue spec §9.2, §10: each member row gains `active_positions` and `possible_positions` (set in place)
+    and the package's months are returned.
 
     Each chain `_package_lender_payment_changes` read (one account's consecutive statements, the package passes'
     overlay applied) is read once by analysis/active_positions.py, over each member's printed period, so a stream that
     runs across months is one position in each. A member no chain holds (never analysed, or analysed before the check)
-    or whose statement holds no rows list (review round 1) reads N/A, never 0, and so does the calendar month it stands
-    for (`_statement_month`, the Monthly Statements table's rule). A month adds its accounts up; a position the payment
-    changes continue in another account (R3-83's "continues from another account") counts once where it is handed
-    over. Information only: nothing stored or summed reads it."""
+    or whose statement holds no rows list reads N/A, never 0, and so does the calendar month it stands for
+    (`_statement_month`, the Monthly Statements table's rule). A month adds its accounts up; a position the payment
+    changes continue in another account counts once where it is handed over. Information only: nothing stored or summed
+    reads it."""
     chains = reading.get("chains") or []
 
     def member_id(entry: dict) -> str:
@@ -4056,18 +3947,17 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     if settings is None:
         settings = load_settings(store.storage.data_dir)
     shown_groups = enabled_group_keys(settings)
-    # Audit B11 (I06): a repeated statement is left out before any member is expanded, listed and never summed.
+    # A repeated statement is left out before any member is expanded, listed and never summed.
     listed_jobs = list(jobs)
     jobs, dropped_duplicates, repeated_accounts, duplicate_groups = _package_duplicates(listed_jobs)
-    #: 5.6 (§12): job id -> whether it was analysed with older classification rules, from its displayed copy.
+    #: §12: job id -> whether it was analysed with older classification rules, from its displayed copy.
     outdated_jobs: dict[str, bool] = {}
     members, excluded_accounts = _package_members(jobs, settings=settings, outdated=outdated_jobs,
                                                   repeated_accounts=repeated_accounts)
-    # Audit round 2, R2-B14 (R14): after the exact repeats, a shorter printout of days another statement of its account
-    # covers (or, its review round 1, a printout of more than a month whose rows the account's other statements print)
-    # is left out the way a repeat is, and any other overlap that shares credits is named, never netted. Only the
-    # statements the package counts (its members) are compared; when one is left out, the members are read again
-    # without it, so every figure below is computed without it.
+    # After the exact repeats, a shorter printout of days another statement of its account covers is left out the way a
+    # repeat is, and any other overlap that shares credits is named, never netted. Only the statements the package
+    # counts (its members) are compared; when one is left out, the members are read again without it, so every figure
+    # below is computed without it.
     kept_jobs, superseded_jobs, superseded_accounts, overlapping_statements = _package_superseded(
         jobs, repeated_accounts, members={(member[0].id, member[2]) for member in members})
     if superseded_jobs or superseded_accounts:
@@ -4090,9 +3980,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             if entry.get("is_duplicate") is True and superseded is not None:
                 entry["reason"] = superseded[1]
     duplicate_accounts = sum(len(accounts) for accounts in repeated_accounts.values())
-    # Owner ruling 2026-10-02 (the underwriter's Q6; §6.2's package passes; R2-OW15): the package passes over the final
-    # members, after the repeats and the shorter printouts are left out and before the member loop, which reads their
-    # overlay on its copies of the members' rows. R-d's positions are never matched.
+    # §6.2: the package passes over the final members, after the repeats and the shorter printouts are left out and
+    # before the member loop, which reads their overlay on its copies of the members' rows. R-d's positions are never
+    # matched.
     package_matched = _package_matches(members, {
         (member_job.id, member_index): _internal_transfer_positions(member_job.analysis, member_index)
         for member_job, _member_analysis, member_index, _member_count in members
@@ -4108,31 +3998,30 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     ]
     documents = []
     monthly = []
-    #: `(job, period start, period end)` for every member that contributed —
-    #: the honest count of statement PERIODS, beside `months`'s count of
-    #: members. See the note at `statement_periods` below (MINOR-10).
+    #: `(job, period start, period end)` for every member that contributed — the
+    #: honest count of statement PERIODS, beside `months`'s count of members.
+    #: See the note at `statement_periods` below.
     period_keys: set[tuple] = set()
-    #: Audit B11 (I07, I33): the calendar month each counted statement stands for (`_statement_month`), and how many
-    #: counted statements print no period, each its own month.
+    #: The calendar month each counted statement stands for (`_statement_month`), and how many counted statements
+    #: print no period, each its own month.
     month_keys: set[int] = set()
     months_unplaced = 0
-    #: Audit round 2, R2-B15 (R13): each counted member's account reading and the days its statement covers, joined
-    #: into accounts after the loop (audit round 3, R3-B18, R3-02: `_months_linked`, the bank and the last four where
-    #: both print them, else the balance chain within the bank; a member linked to none is its own account).
+    #: Each counted member's account reading and the days its statement covers, joined into accounts after the loop
+    #: (a member linked to none is its own account).
     months_members: list[dict] = []
-    #: Audit B11 (I31, I05, I13): the members whose own rows do not reconcile to the bank's figures, and the members
-    #: whose True rests on rows the holds could not screen or whose payer no parser read.
+    #: The members whose own rows do not reconcile to the bank's figures, and the members whose True rests on rows
+    #: the holds could not screen or whose payer no parser read.
     unreconciled_members: list[str] = []
     holder_unscreened_members: list[str] = []
     payer_text_unread_members: list[str] = []
-    #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members that are premium trust accounts.
+    #: The members that are premium trust accounts.
     premium_trust_members: list[str] = []
     adb_weighted_sum = Decimal("0")
     adb_weight = 0
     totals = {
         # Every job the package lists, its repeats included.
         "documents": len(listed_jobs),
-        # D-3, audit B11 (I06): the repeated statements, left out of every figure below.
+        # D-3, the repeated statements, left out of every figure below.
         "duplicate_documents": len(dropped_duplicates),
         "distinct_documents": len(listed_jobs) - len(dropped_duplicates),
         "has_duplicate_documents": bool(dropped_duplicates) or bool(duplicate_accounts),
@@ -4152,7 +4041,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "unverified_deposit_count": 0,
         "non_revenue_total": 0.0,
         "non_revenue_count": 0,
-        # 5.6 (§9.2): True revenue, verified plus counted, and the held credits. None when a completed member's
+        # §9.2: True revenue, verified plus counted, and the held credits. None when a completed member's
         # revenue is not established (below).
         "true_revenue_total": 0.0,
         "true_revenue_count": 0,
@@ -4161,7 +4050,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "excluded_pending_review_total": 0.0,
         "excluded_pending_review_count": 0,
         "revenue_review_items": 0,
-        # Deprecated aliases for version 3.0 API consumers. 5.6 (T9): true_revenue is True revenue.
+        # Deprecated aliases for version 3.0 API consumers. True_revenue is True revenue.
         "true_revenue": 0.0,
         "confirmed_true_revenue": 0.0,
         "confirmed_true_revenue_total": 0.0,
@@ -4174,8 +4063,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # Paid to lenders: the members' confirmed lender debits counted as paid.
         "lender_debits": 0.0,
         "lender_debit_count": 0,
-        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the members' funder payments returned unpaid, out of
-        # lender_debits and in withholding_numerator.
+        # The members' funder payments returned unpaid, out of lender_debits and in withholding_numerator.
         "returned_funder_payment_total": 0.0,
         "returned_funder_payment_count": 0,
         "lenders_detected": 0,
@@ -4183,13 +4071,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "potential_lender_debit_count": 0,
         "potential_lender_debit_total": 0.0,
         "potential_lender_debits": 0.0,
-        # Audit round 2, R2-B15 (R55): per calendar month: lender_debits / months (set with the other per-month figures
-        # below; it was the package's total under a monthly name). Its place here keeps the downloads' row order.
+        # Per calendar month: lender_debits / months (set with the other per-month figures below; it was the package's
+        # total under a monthly name). Its place here keeps the downloads' row order.
         "monthly_lender_debits": 0.0,
         "insurance_count": 0,
         "insurance_total": 0.0,
         # Lender detection §8.3: the ticked flag groups' counted debits and their total, and apart from them the
-        # counted credits (a factor's payouts, owner ruling 2026-09-26) and theirs. Never lender math (D7).
+        # counted credits and theirs. Never lender math (D7).
         "flagged_position_count": 0,
         "flagged_position_total": 0.0,
         "flagged_position_count_credited": 0,
@@ -4209,51 +4097,50 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     package_potential_matches: list[dict] = []
     package_insurance_matches: list[dict] = []
     package_lender_evidence: list[dict] = []
-    # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments, each naming
-    # its statement and its unit.
+    # The kept members' returned funder payments, each naming its statement and its unit.
     package_returned_funder_payments: list[dict] = []
-    # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): the kept members'
-    # lump-sum payoffs (each naming its statement and its unit) and their sum, published only where there is one.
+    # The kept members' lump-sum payoffs (each naming its statement and its unit) and their sum, published only where
+    # there is one.
     package_lump_sum_payoffs: list[dict] = []
     package_lump_sum = {"count": 0, "total": 0.0}
-    # Audit round 3, R3-B24 (R3-16; §9.2; standard G7, P22): the ready members' large unsourced deposits, each naming its
-    # statement, its account and its unit, its share its own statement's; information only.
+    # §9.2: the ready members' large unsourced deposits, each naming its statement, its account and its unit, its share
+    # its own statement's; information only.
     package_large_unsourced_deposits: list[dict] = []
     package_potential_lender_evidence: list[dict] = []
     package_insurance_evidence: list[dict] = []
     package_revenue_evidence: dict[str, list[dict]] = {
         state: [] for state in REVENUE_STATES
     }
-    # 5.6 (§9.2): the counted and held credits' evidence, and the members whose revenue is not established.
+    # §9.2: the counted and held credits' evidence, and the members whose revenue is not established.
     package_tier_evidence: dict[str, list[dict]] = {"counted_flagged": [], "excluded_pending_review": []}
-    # R2-OW03 (owner ruling 2026-10-02, §9.2): and the non-revenue breakdown, summed over the kept members whatever
-    # their revenue's standing (Non-revenue stays where True is N/A, §10.4).
+    # §9.2: and the non-revenue breakdown, summed over the kept members whatever their revenue's standing
+    # (Non-revenue stays where True is N/A, §10.4).
     package_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {},
                                                      "non_revenue": {}}
-    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (§9.2; R2-OW17): the kept members' Zelle figures, part
-    # by part ((served tier, amount) slots, read from each member's metrics.zelle_deposits), whether a member carried
-    # them, and whether every member's reading is the one the setting asks for.
+    # §9.2: the kept members' Zelle figures, part by part ((served tier, amount) slots, read from each member's
+    # metrics.zelle_deposits), whether a member carried them, and whether every member's reading is the one the setting
+    # asks for.
     zelle_counted = _zelle_setting(settings)
-    # Audit round 3, R3-B20 (R3-19; §9.2): `counted`, whether every kept member that carries the figures, or contributes
-    # its excluded Zelle deposits, is served with them counted (the package's `counted_as_true_revenue`).
+    # §9.2: `counted`, whether every kept member that carries the figures, or contributes its excluded Zelle deposits,
+    # is served with them counted (the package's `counted_as_true_revenue`).
     package_zelle: dict = {"carried": False, "counted": True, "setting_applied": True, "count": 0, "total": 0.0,
                            "by_tier": {}}
     unestablished_verified: list[str] = []
     unestablished_revenue: list[str] = []
-    # True revenue final review M10 (§11): a member whose True or Verified figure is not established adds a partial
+    # §11: a member whose True or Verified figure is not established adds a partial
     # figure to that mode's denominator, so the package publishes no rate on it.
     partial_revenue_denominator = False
-    # The final review of round 2, F1 (review round 1 of its fix run; §9.2): a member row marked as publishing no rate.
+    # §9.2: a member row marked as publishing no rate.
     any_member_basis_unestablished = False
     any_member_gated = False
-    # Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): the ready tiered members' figures T7 reads, summed
-    # per declared currency (None, a member declaring none, is its own group): currency -> [held, posted, True], cents.
+    # §17.1: the ready tiered members' figures T7 reads, summed per declared currency (None, a member declaring none,
+    # is its own group): currency -> [held, posted, True], cents.
     package_gate_cents: dict[str | None, list[int]] = {}
     #: (group key, payee) -> the running roll-up of the ticked flag groups (lender detection §8.3).
     flagged_rollup: dict[tuple[str, str], dict] = {}
     package_flagged_evidence: list[dict] = []
     denominator_modes: set[str] = set()
-    # Audit round 3, R3-B03 (R3-27): each ready member's withholding basis, published where the package mixes them.
+    # Each ready member's withholding basis, published where the package mixes them.
     withholding_basis_by_member: list[dict] = []
     nsf_sources: set[str] = set()
     #: CURRENCY DOCTRINE §F bookkeeping: how many money-contributing members
@@ -4293,8 +4180,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         if ready:
             totals["completed"] += 1
         elif job.status in _PENDING_JOB_STATUSES:
-            # Audit round 2, R2-B15 (R54): a job still queued or processing has not failed; it is pending, a key the
-            # package publishes only when one is, so a package without one is unchanged.
+            # A job still queued or processing has not failed; it is pending, a key the package publishes only when
+            # one is, so a package without one is unchanged.
             totals["pending"] = totals.get("pending", 0) + 1
         else:
             totals["failed"] += 1
@@ -4330,10 +4217,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # own arithmetic. What is excluded is this member's CONTRIBUTION to a
         # cross-account total.
         raw_transactions = statement.get("transactions") or []
-        # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes' overlay, on NEW copies of the
-        # rows they matched or annotated (the displayed copy and the stored job are never touched), before R-d's
-        # positions are left out, so every reader below sees it: the tiers and their reasons, the revenue rows and
-        # evidence, the member's gate, the ledger and the document row.
+        # The package passes' overlay, on NEW copies of the rows they matched or annotated (the displayed copy and
+        # the stored job are never touched), before R-d's positions are left out, so every reader below sees it: the
+        # tiers and their reasons, the revenue rows and evidence, the member's gate, the ledger and the document
+        # row.
         member_key = (job.id, account_index)
         member_overlay = package_matched["overlays"].get(member_key) or {}
         if member_overlay:
@@ -4401,8 +4288,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             for transaction in statement_transactions
             if isinstance(transaction.get("classification"), dict)
         ]
-        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): paid to lenders reads the lender-total flag; the
-        # withholding numerator reads the withholding flag, which also holds the funder payments returned unpaid.
+        # Paid to lenders reads the lender-total flag; the withholding numerator reads the withholding flag, which
+        # also holds the funder payments returned unpaid.
         lender_rows = [
             transaction
             for transaction in authoritative_rows
@@ -4418,8 +4305,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             for transaction in authoritative_rows
             if transaction["classification"].get("returned_funder_payment_by")
         ]
-        # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): the paid
-        # payoff-worded debits, in paid to lenders and out of the withholding rows above.
+        # The paid payoff-worded debits, in paid to lenders and out of the withholding rows above.
         lump_sum_rows = [
             transaction
             for transaction in authoritative_rows
@@ -4492,9 +4378,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             )
             or (bool(statement) and not positive_statement_rows and credits == 0)
         )
-        # 5.6 (§9.2, §10.4): True revenue is established when the verified figure is and every posted credit carries
-        # a tier; a payload analysed before 5.6 carries none (§12).
-        # R2-OW15: the one helper the package passes read too (`_member_tiered`).
+        # §9.2, §10.4: True revenue is established when the verified figure is and every posted credit carries a
+        # tier; a payload analysed before 5.6 carries none (§12). The one helper the package passes read too
+        # (`_member_tiered`).
         tiered = _member_tiered(statement_transactions)
         revenue_established = verified_revenue_established and (tiered or not posted_credit_rows)
         tier_rows = {
@@ -4510,9 +4396,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 slot = member_by_reason[tier].setdefault(reason, {"count": 0, "total": 0.0})
                 slot["count"] += 1
                 slot["total"] = round(slot["total"] + _num(row.get("amount")), 2)
-        # R2-OW03 (owner ruling 2026-10-02, §9.2): the non-revenue breakdown, the rebuild's rule (a non_revenue row that
-        # carries a code REVENUE_TIER_REASONS files under non_revenue), from the member's rows when it has them (the
-        # rows `non_revenue_total` reads, its internal-transfer pairs left out), else from its stored metrics.
+        # §9.2: the non-revenue breakdown, the rebuild's rule (a non_revenue row that carries a code
+        # REVENUE_TIER_REASONS files under non_revenue), from the member's rows when it has them (the rows
+        # `non_revenue_total` reads, its internal-transfer pairs left out), else from its stored metrics.
         if authoritative_rows:
             for row in posted_credit_rows:
                 record = row["classification"]
@@ -4527,7 +4413,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     member_by_reason["non_revenue"][reason] = {
                         "count": int(_num(figures.get("count"))), "total": round(_num(figures.get("total")), 2)}
         member_by_reason["non_revenue"] = dict(sorted(member_by_reason["non_revenue"].items()))
-        # T7, §10.7 (S4.4/S4.5 review): only an undecided direction conflict gates, as the rebuild counts it
+        # T7, §10.7: only an undecided direction conflict gates, as the rebuild counts it
         # (analysis/revenue.py); a confirmed or rejected one no longer does.
         direction_conflict = any(
             row["classification"].get("revenue_match_method") == "direction_conflict"
@@ -4550,9 +4436,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             insurance_count = len(insurance_rows)
             insurance_total = round(sum(abs(_num(row.get("amount"))) for row in insurance_rows), 2)
         else:
-            # Compatibility for already-completed in-memory jobs created before
-            # classification records were added. New reports always take the path above. R2-OW13: paid to lenders is
-            # the stored lender_debits, and the numerator the stored withholding_numerator, falling back to it.
+            # Compatibility for already-completed in-memory jobs created before classification records were added.
+            # New reports always take the path above. Paid to lenders is the stored lender_debits, and the numerator
+            # the stored withholding_numerator, falling back to it.
             lender_debits = _num(metrics.get("lender_debits"), _num(metrics.get("withholding_numerator")))
             lender_debit_count = int(_num(metrics.get("lender_debit_count"), 0.0))
             withholding_numerator = _num(metrics.get("withholding_numerator"), lender_debits)
@@ -4609,7 +4495,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             posted_credit_count = int(
                 _num(metrics.get("total_posted_credit_count"), metrics.get("effective_num_deposits") or 0)
             )
-            # 5.6 (§9.2): `true_revenue` is True revenue now, never a verified figure. Without either verified key the
+            # §9.2: `true_revenue` is True revenue now, never a verified figure. Without either verified key the
             # member's verified figure is not established: None, shown as N/A, never 0.0. A member that captured no
             # credit and whose Total is zero took in nothing, and is established at zero.
             verified_fallback = _num(
@@ -4641,13 +4527,13 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 ),
                 "non_revenue": int(_num(metrics.get("non_revenue_count"))),
             }
-        # 5.6 (§9.2): without a stored denominator, the legacy eligible deposits (never `true_revenue`).
+        # §9.2: without a stored denominator, the legacy eligible deposits (never `true_revenue`).
         eligible_deposits = _num(
             metrics.get("withholding_denominator"),
             _num(metrics.get("legacy_eligible_deposits"), credits),
         )
-        # Audit round 3, R3-B03 (R3-72): the member's stored basis, before R-d's, the counted-pair and the moved-credit
-        # deductions below; its row's rate and exposure are recomputed only where the basis it prints moved from it.
+        # The member's stored basis, before R-d's, the counted-pair and the moved-credit deductions below; its row's
+        # rate and exposure are recomputed only where the basis it prints moved from it.
         stored_eligible_deposits = eligible_deposits
         denominator_mode = normalize_withholding_denominator_mode(
             metrics.get("withholding_denominator_mode")
@@ -4665,8 +4551,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # would remove money the denominator never held.
             eligible_deposits = round(max(eligible_deposits - excluded_credits, 0.0), 2)
         elif excluded_positions and denominator_mode == "true_revenue":
-            # 5.6 (§11): an R-d pair can hold a credit this member counted (a named transfer between two members), so
-            # the True-revenue denominator loses the pair's credits that it holds: verified or counted, and only those.
+            # §11: an R-d pair can hold a credit this member counted (a named transfer between two members), so the
+            # True-revenue denominator loses the pair's credits that it holds: verified or counted, and only those.
             counted_transfer_credits = round(sum(
                 _num(raw_transactions[position].get("amount"))
                 for position in excluded_positions
@@ -4676,11 +4562,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                      in ("verified", "counted_flagged"))
             ), 2)
             eligible_deposits = round(max(eligible_deposits - counted_transfer_credits, 0.0), 2)
-        # Owner ruling 2026-10-02 (the underwriter's Q6; §11; R2-OW15): a deposit the package passes took out of True
-        # leaves a revenue basis it was in: the True-revenue mode loses the moved credits stored verified or counted,
-        # the Verified mode those stored as verified revenue; the legacy basis and the numerator are untouched. R2-OW16
-        # (the underwriter's Q4): pass 2's held deposits (stored counted) are moved credits too; its annotated held
-        # deposits never are.
+        # §11: a deposit the package passes took out of True leaves a revenue basis it was in: the True-revenue mode
+        # loses the moved credits stored verified or counted, the Verified mode those stored as verified revenue; the
+        # legacy basis and the numerator are untouched. Pass 2's held deposits (stored counted) are moved credits too;
+        # its annotated held deposits never are.
         moved_credits = package_matched["moved"].get(member_key) or []
         if moved_credits and denominator_mode in ("true_revenue", "verified_revenue"):
             moved_total = round(sum(
@@ -4689,8 +4574,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     else item["state"] == "verified_revenue")
             ), 2)
             eligible_deposits = round(max(eligible_deposits - moved_total, 0.0), 2)
-        # Audit round 3, R3-B03 (R3-27): only a member with an analysis contributes a basis, so a failed member no longer
-        # turns a True-revenue package "mixed".
+        # Only a member with an analysis contributes a basis, so a failed member never turns a True-revenue package
+        # "mixed".
         if ready:
             denominator_modes.add(str(denominator_mode))
             withholding_basis_by_member.append({
@@ -4748,23 +4633,23 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             2,
         )
         totals["non_revenue_count"] += revenue_counts["non_revenue"]
-        # R2-OW03: the non-revenue breakdown beside it, never gated on the member's revenue being established.
+        # The non-revenue breakdown beside it, never gated on the member's revenue being established.
         for reason, slot in member_by_reason["non_revenue"].items():
             item = package_by_reason["non_revenue"].setdefault(reason, {"count": 0, "total": 0.0})
             item["count"] += slot["count"]
             item["total"] = round(item["total"] + slot["total"], 2)
-        # R2-OW17: the member's Zelle figures (its served metrics.zelle_deposits). Under No, a member that carries none
+        # The member's Zelle figures (its served metrics.zelle_deposits). Under No, a member that carries none
         # contributes its excluded Zelle deposits as its non-revenue part, so the package figure covers every member.
         member_zelle = metrics.get(ZELLE_DEPOSITS_KEY) if isinstance(metrics.get(ZELLE_DEPOSITS_KEY), dict) else None
         if member_zelle is not None:
             package_zelle["carried"] = True
             package_zelle["setting_applied"] = package_zelle["setting_applied"] and (
                 member_zelle.get("setting_applied") is not False)
-            # Audit round 3, R3-B20 (R3-19): the member's own reading, as its statement serves it.
+            # The member's own reading, as its statement serves it.
             package_zelle["counted"] = package_zelle["counted"] and member_zelle.get("counted_as_true_revenue") is True
             parts = member_zelle.get("by_tier") if isinstance(member_zelle.get("by_tier"), dict) else {}
         elif not zelle_counted and member_by_reason["non_revenue"].get("zelle_excluded"):
-            package_zelle["counted"] = False  # R3-19: its Zelle deposits are excluded
+            package_zelle["counted"] = False  # Its Zelle deposits are excluded
             parts = {"non_revenue": member_by_reason["non_revenue"]["zelle_excluded"]}
         else:
             parts = {}
@@ -4780,9 +4665,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
         if ready and not revenue_established:
             unestablished_revenue.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
-        # The final review of round 2, F1 (§9.2, §11): the member's own basis is not established (its served copy already
-        # says so, or the package's reading of its rows does); its row publishes no rate and its potential lenders no
-        # exposure, as the statement viewed alone (analysis/revenue_view.py).
+        # §9.2, §11: the member's own basis is not established (its served copy already says so, or the package's reading
+        # of its rows does); its row publishes no rate and its potential lenders no exposure, as the statement viewed
+        # alone (analysis/revenue_view.py).
         member_basis_unestablished = metrics.get(WITHHOLDING_BASIS_UNESTABLISHED) is True or (
             ready and withholding_basis_unestablished(denominator_mode, verified_established=verified_revenue_established,
                                                       established=revenue_established))
@@ -4855,7 +4740,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         totals["potential_lender_debit_count"] += potential_lender_debit_count
         totals["insurance_count"] += insurance_count
         totals["insurance_total"] = round(totals["insurance_total"] + insurance_total, 2)
-        # R2-OW13 (the underwriter's Q5): the members' numerators, paid plus returned, never the paid figure alone.
+        # The members' numerators, paid plus returned, never the paid figure alone.
         totals["withholding_numerator"] = round(totals["withholding_numerator"] + withholding_numerator, 2)
         totals["potential_withholding_numerator"] = totals["potential_lender_debit_total"]
         totals["withholding_denominator"] = round(
@@ -4876,7 +4761,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             match_debit_count = int(
                 _num(match.get("debit_count"), len(match.get("transactions") or []))
             )
-            # R2-OW13: a funder whose every payment bounced publishes debit_count 0, and is listed with it.
+            # A funder whose every payment bounced publishes debit_count 0, and is listed with it.
             if match_debit_count or "debit_count" in match:
                 item["debit_count"] = item.get("debit_count", 0) + match_debit_count
             item["total_debited"] = round(item["total_debited"] + _num(match.get("total_debited")), 2)
@@ -4892,23 +4777,21 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "evidence": match.get("evidence") or [],
                 }
             )
-        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the warning's items, each naming its statement, its
-        # account (a statement of several) and its unit, as an evidence record does.
+        # The warning's items, each naming its statement, its account (a statement of several) and its unit, as an
+        # evidence record does.
         for returned_item in detection.get("returned_funder_payments") or []:
             if isinstance(returned_item, dict):
                 package_returned_funder_payments.append({
                     **returned_item, "source_job": job.id, "source_document": job.filename,
                     "source_currency": statement_currency,
                     **({"source_account": account_index} if account_index is not None else {}),
-                    # Audit round 3, R3-B02 (R3-73): a payment the funder re-debited in the next statement.
+                    # A payment the funder re-debited in the next statement.
                     **package_matched["represented"].get((member_key, returned_item.get("debit_location")), {}),
                 })
-        # Audit round 3, R3-B24 (R3-16; §9.2, §17.1's default D1): a ready, tiered member whose revenue is established
-        # lists its large unsourced deposits as the package counts its rows (R-d's pairs left out, the package passes'
-        # holds applied, so a deposit R2-OW16 holds as an own-account transfer is not listed), each share of the
-        # member's True as the package counts it (its row's `true_revenue_total` below; where a package pass holds one
-        # of its credits, below the True its statement shows alone, so the package can flag a deposit its statement
-        # alone does not: R3-B24 review round 1); read by no figure, gate or decision.
+        # §9.2, §17.1: a ready, tiered member whose revenue is established lists its large unsourced deposits as the
+        # package counts its rows (R-d's pairs left out, the package passes' holds applied, so a deposit the package holds
+        # as an own-account transfer is not listed), each share of the member's True as the package counts it (its
+        # row's `true_revenue_total` below); read by no figure, gate or decision.
         if ready and tiered and revenue_established:
             for large_item in large_unsourced_deposits(
                     tier_rows["counted_flagged"], round(tier_totals["verified"] + tier_totals["counted_flagged"], 2)):
@@ -4917,9 +4800,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     **({"source_account": account_index} if account_index is not None else {}),
                     "source_currency": statement_currency,
                 })
-        # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the member's lump-sum payoffs, each naming
-        # its statement, its account (a statement of several) and its unit; a payment the package's pass 4 matched to a
-        # return in the next statement is out of paid there and no lump sum (its overlay row says so).
+        # The member's lump-sum payoffs, each naming its statement, its account (a statement of several) and its unit; a
+        # payment the package's pass 4 matched to a return in the next statement is out of paid there and no lump sum
+        # (its overlay row says so).
         paid_lump_sums = {row["classification"].get("source_location") for row in lump_sum_rows}
         for lump_sum_item in detection.get("lump_sum_payoffs") or []:
             if isinstance(lump_sum_item, dict) and (not authoritative_rows
@@ -4965,8 +4848,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 )
                 match_transactions = match.get("transactions") or []
                 match_evidence = match.get("evidence") or []
-            # Audit round 3, R3-B03 (R3-72, R3-20): published only over a basis the member row publishes a rate on (the
-            # floor's helper in place of `eligible_deposits > 0`), never where F1 refuses the member's basis.
+            # Published only over a basis the member row publishes a rate on (the floor's helper in place of
+            # `eligible_deposits > 0`), never where F1 refuses the member's basis.
             match_exposure = (
                 abs(match_total) / eligible_deposits * 100
                 if withholding_basis_publishable(eligible_deposits, denominator_mode) and not member_basis_unestablished
@@ -4998,8 +4881,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "potential_lender_debit_count": match_count,
                     "total_debited": round(match_total, 2),
                     "potential_lender_debit_total": round(match_total, 2),
-                    # F1 (final review of round 2): no basis where the member's is not established. Audit round 3,
-                    # R3-B03 (R3-20): nor under the withholding basis floor, as the statement's own row reads.
+                    # F1: no basis where the member's is not established. Nor under the withholding basis floor,
+                    # as the statement's own row reads.
                     "eligible_deposit_denominator": (
                         None if member_basis_unestablished
                         or withholding_basis_below_floor(eligible_deposits, denominator_mode)
@@ -5061,9 +4944,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 "source_job": job.id,
                 "source_document": job.filename,
             }
-            # The withholding rows, and (audit round 3, R3-B02: R3-73) a returned funder payment its funder re-debited,
-            # which left the rate but is still a lender row, and (R3-B03: R3-79) a paid lump-sum payoff, in paid to
-            # lenders and out of the rate.
+            # The withholding rows, and a returned funder payment its funder re-debited, which left the rate but is
+            # still a lender row, and a paid lump-sum payoff, in paid to lenders and out of the rate.
             if (classification.get("contributes_to_withholding_rate") is True
                     or classification.get("returned_funder_payment_by")
                     or (classification.get("lump_sum_payoff")
@@ -5080,28 +4962,27 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 )
             revenue_state = classification.get("revenue_classification")
             if revenue_state in REVENUE_STATES and _num(tx.get("amount")) > 0:
-                # Audit B11 (I32): a revenue evidence record names its unit and its account, so a mixed-currency or
-                # multi-account package's evidence can be read without a join (None: one account, no currency).
+                # A revenue evidence record names its unit and its account, so a mixed-currency or multi-account
+                # package's evidence can be read without a join (None: one account, no currency).
                 revenue_evidence = {**evidence, "source_currency": statement_currency, "source_account": account_index}
                 package_revenue_evidence[revenue_state].append(revenue_evidence)
                 if classification.get("revenue_tier") in package_tier_evidence:
                     package_tier_evidence[classification["revenue_tier"]].append(revenue_evidence)
 
-        # 5.6 (§9.2, §10.4): the row's True, Counted and Held figures follow `revenue_established`, as the package's do.
-        # A member with no captured credit and a zero Total is established at zero and holds no tier row.
+        # §9.2, §10.4: the row's True, Counted and Held figures follow `revenue_established`, as the package's do. A
+        # member with no captured credit and a zero Total is established at zero and holds no tier row.
         row_tier_totals = {tier: tier_totals.get(tier, 0.0) for tier in ("verified", "counted_flagged",
                                                                          "excluded_pending_review")}
         row_tier_counts = {tier: len(tier_rows.get(tier, [])) for tier in row_tier_totals}
 
-        # Audit round 3, R3-B03 (R3-72; true revenue spec §9.2): a member row divides by the basis it prints. Where the
-        # package moved the member's basis (R-d's internal-transfer deduction, the 5.6 counted-pair deduction, R2-OW15/16's
-        # moved credits), its rate and potential exposure are its own numerators over that basis; elsewhere they are the
-        # stored figures, as before. Neither is published under R3-20's floor (`withholding_basis_publishable`) or where
-        # F1 refuses the member's basis.
-        # Audit round 3, final review (R3-FF), F2: the package can move the NUMERATOR without the basis too (pass 5's
-        # cross-statement re-debit, R3-73, takes a returned payment out of it; pass 4's returned payoff, R3-79 with Q5,
-        # puts one back), so each figure is its own numerator over the row's basis wherever that numerator or the basis
-        # moved from the stored figures; the N/A rules above are unchanged.
+        # True revenue spec §9.2: a member row divides by the basis it prints. Where the package moved the member's
+        # basis (R-d's internal-transfer deduction, the 5.6 counted-pair deduction, the package passes' moved credits),
+        # its rate and potential exposure are its own numerators over that basis; elsewhere they are the stored figures,
+        # as before. Neither is published under the basis floor (`withholding_basis_publishable`) or where F1 refuses
+        # the member's basis. The package can move the NUMERATOR without the basis too (pass 5's cross-statement
+        # re-debit, takes a returned payment out of it; pass 4's returned payoff, with Q5, puts one back), so each
+        # figure is its own numerator over the row's basis wherever that numerator or the basis moved from the stored
+        # figures; the N/A rules above are unchanged.
         member_rate_published = (
             withholding_basis_publishable(eligible_deposits, denominator_mode) and not member_basis_unestablished)
         basis_moved = round(eligible_deposits, 2) != round(stored_eligible_deposits, 2)
@@ -5129,9 +5010,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "id": job.id if account_index is None else f"{job.id}#account_{account_index}",
             "filename": job.filename,
             "status": job.status,
-            # D-3: the content identity of this member. Audit B11 (I06): a member
-            # never repeats another; a repeated statement is left out and listed
-            # with its own row (`_duplicate_row`).
+            # D-3: the content identity of this member. A member never repeats
+            # another; a repeated statement is left out and listed with its own
+            # row (`_duplicate_row`).
             "content_sha256": getattr(job, "content_sha256", None),
             "is_duplicate": False,
             "duplicate_of": None,
@@ -5161,10 +5042,10 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "verified_revenue_total": revenue_totals["verified_revenue"],
             "verified_revenue_count": revenue_counts["verified_revenue"],
             "verified_revenue_established": verified_revenue_established,
-            # 5.6 (§12): its statement was analysed with older classification rules, so re-analysis computes its true
+            # §12: its statement was analysed with older classification rules, so re-analysis computes its true
             # revenue (a member not established for another reason, a summary-only one, is not outdated).
             "analysis_rules_outdated": outdated_jobs.get(job.id, False),
-            # 5.6 (§9.2): True revenue and its parts; None for a member whose revenue is not established.
+            # §9.2: True revenue and its parts; None for a member whose revenue is not established.
             "revenue_established": revenue_established,
             "true_revenue_total": (
                 round(row_tier_totals["verified"] + row_tier_totals["counted_flagged"], 2)
@@ -5194,22 +5075,22 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "potential_revenue_count": revenue_counts["unverified_deposit"],
             "non_revenue_total": revenue_totals["non_revenue"],
             "non_revenue_count": revenue_counts["non_revenue"],
-            # R2-OW03 (owner ruling 2026-10-02, §9.2): its non-revenue breakdown, kept where its revenue is not
-            # established (its rows are known non-revenue, captured rows only).
+            # §9.2: its non-revenue breakdown, kept where its revenue is not established (its rows are known
+            # non-revenue, captured rows only).
             "non_revenue_by_reason": member_by_reason["non_revenue"],
             "maximum_revenue": round(
                 _num(revenue_totals["verified_revenue"])
                 + revenue_totals["unverified_deposit"],
                 2,
             ),
-            # Audit B11 (I31): the four-tier identity under its own name; `revenue_reconciles` is its deprecated alias.
+            # The four-tier identity under its own name; `revenue_reconciles` is its deprecated alias.
             "revenue_tiers_sum_to_posted": member_reconciles,
             "revenue_reconciles": member_reconciles,
-            # Audit B11 (B9's I13, B10's I05): the statement integrity facts the True card shows.
+            # The statement integrity facts the True card shows.
             "holder_unscreened": metrics.get("holder_unscreened") is True,
             "payer_text_unread": metrics.get("payer_text_unread") is True,
-            # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a premium trust account, whose deposits that
-            # would count are held (a statement fact; no figure reads it).
+            # A premium trust account, whose deposits that would count are held (a statement fact; no figure reads
+            # it).
             "premium_trust_account": metrics.get("premium_trust_account") is True,
             "debits": debits,
             "cash_flow": cash_flow,
@@ -5221,7 +5102,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "nsf_days": nsf_days,
             "lender_debits": lender_debits,
             "lender_debit_count": lender_debit_count,
-            # R2-OW13 (the underwriter's Q5): its funder payments returned unpaid, out of lender_debits.
+            # Its funder payments returned unpaid, out of lender_debits.
             "returned_funder_payment_total": returned_funder_payment_total,
             "returned_funder_payment_count": returned_funder_payment_count,
             "lenders_detected": int(_num(metrics.get("lenders_detected"), len(detection.get("known_funders") or []))),
@@ -5231,17 +5112,17 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "potential_lender_debits": potential_lender_debit_total,
             "insurance_count": insurance_count,
             "insurance_total": insurance_total,
-            # The owner's request of 2026-10-10 (active positions by month; §9.2): set after the loop, from the member's
-            # chain (`_package_active_positions`); None (N/A) where the lender reading is not available.
+            # §9.2: set after the loop, from the member's chain (`_package_active_positions`); None (N/A) where the
+            # lender reading is not available.
             "active_positions": None,
             "possible_positions": None,
             "withholding_rate": member_withholding_rate,
-            # R2-OW13: paid lender debits plus returned funder payments.
+            # Paid lender debits plus returned funder payments.
             "withholding_numerator": withholding_numerator,
             "withholding_denominator": eligible_deposits,
             "withholding_review_required": (
                 bool(metrics.get("withholding_review_required")) or eligible_deposits <= 0 or member_basis_unestablished
-                # Audit round 3, R3-B03 (R3-20): a revenue basis under the floor asks for review, as $0 does.
+                # A revenue basis under the floor asks for review, as $0 does.
                 or not withholding_basis_publishable(eligible_deposits, denominator_mode)
             ),
             "withholding_denominator_mode": denominator_mode,
@@ -5259,25 +5140,23 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # today's payloads carries neither key and is byte-identical.
             doc_row["account_index"] = account_index
             doc_row["account_count"] = account_count
-        # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the member's lump-sum payoffs (in its
-        # `lender_debits`, out of its `withholding_numerator`), only where it has one.
+        # The member's lump-sum payoffs (in its `lender_debits`, out of its `withholding_numerator`), only where it
+        # has one.
         if lump_sum_payoff_count:
             doc_row["lump_sum_payoff_total"] = lump_sum_payoff_total
             doc_row["lump_sum_payoff_count"] = lump_sum_payoff_count
-        # The final review of round 2, F1 (§9.2): the member's withholding basis is not established, only where it is;
-        # the package goes to review (review round 1 of the fix run).
+        # §9.2: the member's withholding basis is not established, only where it is; the package goes to review.
         if member_basis_unestablished:
             doc_row[WITHHOLDING_BASIS_UNESTABLISHED] = True
             any_member_basis_unestablished = True
-        # R2-OW17: the member's Zelle figures, where its served copy carries them (the Monthly cell reads them). Audit
-        # round 3, R3-B20 (R3-48; §10.4's I51): their parts of True and Held are None where the member's revenue is not
-        # established, as the row's tier figures follow its flags; the captured rows' count, total and non-revenue part
-        # stay.
+        # The member's Zelle figures, where its served copy carries them (the Monthly cell reads them). §10.4: their
+        # parts of True and Held are None where the member's revenue is not established, as the row's tier figures
+        # follow its flags; the captured rows' count, total and non-revenue part stay.
         if member_zelle is not None:
             doc_row[ZELLE_DEPOSITS_KEY] = deepcopy(unestablished_zelle_figures(
                 member_zelle, established=revenue_established, verified_established=verified_revenue_established))
-        # Owner ruling 2026-10-02 (the underwriter's Q6; §9.2; R2-OW15): the member's rows the package passes matched
-        # or annotated, and why the passes could not read it ('no_currency', 'older_rules'), each only where there is one.
+        # §9.2: the member's rows the package passes matched or annotated, and why the passes could not read it
+        # ('no_currency', 'older_rules'), each only where there is one.
         if member_overlay:
             doc_row["package_match_count"] = len(member_overlay)
         if member_key in package_matched["unchecked"]:
@@ -5285,21 +5164,21 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
-            # MINOR-10: the same rows counted as PERIODS rather than as
-            # members. Two accounts of one document share a job id and the
-            # document's one printed cycle, so they collapse to one; two
-            # documents never do, whatever period they print.
+            # The same rows counted as PERIODS rather than as members. Two
+            # accounts of one document share a job id and the document's one
+            # printed cycle, so they collapse to one; two documents never do,
+            # whatever period they print.
             period_keys.add((job.id, statement.get("period_start"),
                              statement.get("period_end")))
-            # Audit B11 (I07, I33): the calendar month it stands for. Two accounts of one business for one month,
-            # uploaded as two files, are one month.
+            # The calendar month it stands for. Two accounts of one business for one month, uploaded as two
+            # files, are one month.
             month_key = _statement_month(statement.get("period_start"), statement.get("period_end"))
             if month_key is None:
                 months_unplaced += 1
             else:
                 month_keys.add(month_key)
-            # Audit round 2, R2-B15 (R13): the days it covers, for its account's month floor below; audit round 3,
-            # R3-B18 (R3-02): with what its account is read by (`_months_linked`).
+            # The days it covers, for its account's month floor below; with what its account is read by
+            # (`_months_linked`).
             months_members.append({
                 "job_id": job.id, "account_index": account_index,
                 "bank": _package_bank(statement), "digits": _printed_account_digits(analysis),
@@ -5321,22 +5200,20 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 adb_weighted_sum += adb_value * adb_calendar_days
                 adb_weight += adb_calendar_days
 
-    # The owner's request of 2026-10-06 (lender payment changes; §9.2; R2-OW18): each lender payment series read across
-    # the consecutive statements of one account, from the kept members' displayed copies (information only).
+    # §9.2: each lender payment series read across the consecutive statements of one account, from the kept members'
+    # displayed copies (information only).
     lender_reading: dict = {}
     lender_payment_changes, lender_payment_unchecked = _package_lender_payment_changes(
         members, package_matched["overlays"], reading=lender_reading)
-    # The owner's request of 2026-10-10 (active positions by month; §9.2, §10): each member row's active and possible
-    # positions, read from the same chains, and the package's months.
+    # §9.2, §10: each member row's active and possible positions, read from the same chains, and the package's
+    # months.
     active_positions_by_month = _package_active_positions(documents, lender_reading)
 
     # Design §6.5's fourth bullet, and Q5's direction: **no published average is
-    # computed over two accounts of one document.** The L1-S3 review measured
-    # what its absence does — a package holding one job that publishes two
-    # different validated accounts over ONE statement period published every
-    # per-month average HALVED, because `months` counts MEMBERS and each
-    # account is a member. Two accounts of one document are one period of
-    # banking, not two.
+    # computed over two accounts of one document.** Without that, a package
+    # holding one job that publishes two validated accounts over ONE statement
+    # period publishes every per-month average halved, because `months` counts
+    # members and each account is a member.
     #
     # The duplicate-content-digest refusal in `_package_members` does not catch
     # this and cannot: it fires only when two accounts publish IDENTICAL
@@ -5348,10 +5225,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # documents, distinct months — is a policy about what a package average
     # means, and a stage whose whole claim is zero movement may not choose one.
     # A refused average is published as `None` beside the reason, the way
-    # CURRENCY DOCTRINE §F refuses a cross-currency total, so no consumer has
-    # to read a null as missing data. Audit B11 (I07, I33) chose the
-    # denominator (distinct calendar months, below) and kept this refusal, as
-    # the audit plan says, for the new per-month True and Verified too.
+    # CURRENCY DOCTRINE §F refuses a cross-currency total, so no consumer has to
+    # read a null as missing data. The refusal covers the per-month True and
+    # Verified too (distinct calendar months, below).
     members_by_document: dict[str, int] = {}
     for member_job, _member_analysis, member_index, _member_count in members:
         if member_index is None:
@@ -5363,23 +5239,23 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     )
     refuse_cross_account_averages = bool(documents_with_several_members)
 
-    # Audit B11 (I07, I33): `months` is the number of distinct CALENDAR months the counted statements stand for (the
-    # Monthly Statements table's rule, `_statement_month`), each statement that prints no period its own month. It
-    # used to count members, so K accounts uploaded as K files read K times the months and every monthly average 1/K
-    # of the business's combined figure (MINOR-10, which L1-S3 left to a policy; the audit plan chose the calendar
-    # month, as MCA underwriters combine a business's accounts by month, standard §4.4 and §4.6). Each per-month
-    # average below is the per-calendar-month sum across accounts divided by it.
+    # `months` is the number of distinct CALENDAR months the counted statements stand for (the Monthly Statements
+    # table's rule, `_statement_month`), each statement that prints no period its own month. Counting
+    # members would make K accounts uploaded as K files read K times the months and every monthly average 1/K of the
+    # business's combined figure; MCA underwriters combine a business's accounts by month (standard §4.4 and §4.6). Each
+    # per-month average
+    # below is the per-calendar-month sum across accounts divided by it.
     #
-    # Audit round 2, R2-B15 (R13): floored by the days each account's statements cover, as whole months of 30.4375
-    # days, half up (the largest account's), so consecutive statements of one account never read fewer months than
-    # the days they cover: a 16th-to-15th cycle across February (02-16..03-15 and 03-16..04-15 both stand for March)
-    # or a cycle whose periods share their closing day read 3 months over 3 statements, never 2, and a statement of
-    # 59 days reads 2, never 1. The labels (`_statement_month`) are unchanged; a floor below the calendar count is inert.
+    # Floored by the days each account's statements cover, as whole months of 30.4375 days, half up (the largest
+    # account's), so consecutive statements of one account never read fewer months than the days they cover: a
+    # 16th-to-15th cycle across February (02-16..03-15 and 03-16..04-15 both stand for March) or a cycle whose periods
+    # share their closing day read 3 months over 3 statements, never 2, and a statement of 59 days reads 2, never 1. The
+    # labels (`_statement_month`) are unchanged; a floor below the calendar count is inert.
     #
-    # Audit round 3, R3-B18 (R3-02): an account is the members `_months_linked` joins (a small union-find in member
-    # order): two keyed members by the bank and the last four, as before; a member that prints no bank or fewer than
-    # four digits by the balance chain of the owner's Q6 identity (R2-OW15's `_chained`) within its bank and holder, so
-    # a 16th-to-15th cycle whose number is not read reads its months too. A member linked to none is its own account.
+    # An account is the members `_months_linked` joins (a small union-find in member order): two keyed members by the
+    # bank and the last four, as before; a member that prints no bank or fewer than four digits by the balance chain of
+    # the owner's Q6 identity within its bank and holder, so a 16th-to-15th cycle whose number is not read reads its
+    # months too. A member linked to none is its own account.
     links = list(range(len(months_members)))
 
     def account_of(place: int) -> int:
@@ -5397,8 +5273,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         account_days.setdefault(account_of(place), set()).update(member["days"])
     month_floor = max((_months_covered(len(days)) for days in account_days.values()), default=0)
     months = max(1, len(month_keys) + months_unplaced, month_floor)
-    # MINOR-10: the statement periods (one per document and printed cycle) beside the months, published when the two
-    # differ; the dashboard prints "N statements · M months".
+    # The statement periods (one per document and printed cycle) beside the months, published when the two differ;
+    # the dashboard prints "N statements · M months".
     statement_periods = len(period_keys) or months
     # Days-weighted mean of the per-statement daily-balance averages: summing
     # every statement's daily balances and dividing by every calendar day.
@@ -5412,9 +5288,9 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # days-weighted mean over two accounts of one document is the forbidden
         # figure arrived at by a different route.
         package_average_daily_balance = None
-    # The final review of round 2, F2(b) (the underwriter's Q5 across statements): each payment pass 4 matched to a
-    # return in the next statement is out of its funder's paid rollup and in its returned payments (the member rows
-    # already read the overlay), and R2-OW13's warning lists it, naming both documents.
+    # Each payment pass 4 matched to a return in the next statement is out of its funder's paid rollup and in its
+    # returned payments (the member rows already read the overlay), and the returned-payment warning lists it, naming both
+    # documents.
     for match in package_matched["matches"]:
         if match["kind"] != "returned_funder_payment":
             continue
@@ -5436,7 +5312,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "credit_job": credit.get("job"), "credit_document": credit.get("filename"),
             **({"credit_account": credit["account_index"]} if credit.get("account_index") is not None else {}),
             "cross_statement": True,
-            # Audit round 3, R3-B02 (R3-73): the funder re-debited it (the re-debit's statement named).
+            # The funder re-debited it (the re-debit's statement named).
             **package_matched["represented"].get(((debit.get("job"), debit.get("account_index")),
                                                   debit.get("source_location")), {}),
         })
@@ -5467,28 +5343,27 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         totals["revenue_classified_total"] - totals["total_posted_credits"],
         2,
     )
-    # Audit B11 (I31): the four-tier identity summed over the members, under its own name; `revenue_reconciles` is its
-    # deprecated alias. Neither is a reconciliation against the bank's figures: `unreconciled_documents` lists the
-    # members whose own rows do not reconcile (`reconciliation.ok`), which the dashboard's Revenue chip reads.
+    # The four-tier identity summed over the members, under its own name; `revenue_reconciles` is its deprecated
+    # alias. Neither is a reconciliation against the bank's figures: `unreconciled_documents` lists the members whose
+    # own rows do not reconcile (`reconciliation.ok`), which the dashboard's Revenue chip reads.
     totals["revenue_tiers_sum_to_posted"] = (
         totals["revenue_reconciliation_delta"] == 0.0
         and totals["revenue_classified_count"] == totals["total_posted_credit_count"]
     )
     totals["revenue_reconciles"] = totals["revenue_tiers_sum_to_posted"]
     totals["unreconciled_documents"] = sorted(unreconciled_members)
-    # Audit B11 (B9's I13, B10's I05): the members whose holder's name is unknown, or whose credits' payer no parser
-    # read; the True card names them.
+    # The members whose holder's name is unknown, or whose credits' payer no parser read; the True card names them.
     totals["holder_unscreened_documents"] = sorted(holder_unscreened_members)
     totals["payer_text_unread_documents"] = sorted(payer_text_unread_members)
-    # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the members whose deposits that would count are held for
-    # a premium trust account's title; the True card names how many.
+    # The members whose deposits that would count are held for a premium trust account's title; the True card names how
+    # many.
     totals["premium_trust_documents"] = sorted(premium_trust_members)
-    # 5.6 (T7, §9.2): the gate applied to each member; a package needs revenue review when one of them does.
-    # Audit round 3, R3-B19 (R3-86; owner-decision default, §17.1): T7's shares are also read on the package's sums,
-    # per declared currency, so a package of months each holding under REVENUE_REVIEW_HELD_FLOOR gates as the same
-    # credits printed as one statement would (an advance is sized on the deal's True, standard §4.4). Review only: no
-    # figure moves. The direction-conflict and four-tier terms stay per member; the posted-credit share on the sums adds
-    # nothing (a sum's share reaches 10% only where a member's does), so only the floored True-plus-held share can add.
+    # §9.2: the gate applied to each member; a package needs revenue review when one of them does. §17.1: T7's shares
+    # are also read on the package's sums, per declared currency, so a package of months each holding under
+    # REVENUE_REVIEW_HELD_FLOOR gates as the same credits printed as one statement would (an advance is sized on the
+    # deal's True, standard §4.4). Review only: no figure moves. The direction-conflict and four-tier terms stay per
+    # member; the posted-credit share on the sums adds nothing (a sum's share reaches 10% only where a member's does),
+    # so only the floored True-plus-held share can add.
     package_sums_gated = any(
         revenue_review_gate(direction_conflict=False, held_total=held / 100, posted_total=posted / 100,
                             tiers_sum_to_posted=True, true_total=true / 100)
@@ -5497,13 +5372,12 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     totals["revenue_review_required"] = any_member_gated or package_sums_gated
     totals["counted_flagged_by_reason"] = package_by_reason["counted_flagged"]
     totals["excluded_pending_review_by_reason"] = package_by_reason["excluded_pending_review"]
-    # R2-OW03 (owner ruling 2026-10-02, §9.2): the kept members' non-revenue breakdown. It is left out of the two nulling
-    # blocks below (§10.4's and R2-B15 R54's: Non-revenue stays), and its money is refused with the totals under a
-    # currency refusal, its counts kept.
+    # §9.2: the kept members' non-revenue breakdown. It is left out of the two nulling blocks below (§10.4's and the
+    # no-analysis one: Non-revenue stays), and its money is refused with the totals under a currency refusal, its counts
+    # kept.
     totals["non_revenue_by_reason"] = dict(sorted(package_by_reason["non_revenue"].items()))
-    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (§9.2; R2-OW17): the kept members' Zelle figures, part
-    # by part, present when a kept member carries them; `setting_applied` False when a member's is. Its money is refused
-    # with the totals under a currency refusal, its counts kept. Audit round 3, R3-B20 (R3-19):
+    # §9.2: the kept members' Zelle figures, part by part, present when a kept member carries them; `setting_applied`
+    # False when a member's is. Its money is refused with the totals under a currency refusal, its counts kept.
     # `counted_as_true_revenue` is the members' served reading (true when every kept member carrying the figures, or
     # contributing its excluded Zelle deposits, is served with them counted), as each statement's is; `setting` is the
     # setting the package was served under (packages only), which the download's `zelle_deposits.setting` row reads.
@@ -5530,17 +5404,17 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # T9: confirmed_true_revenue_total and confirmed_true_revenue alias the verified total, so they are N/A with it.
         for key in ("verified_revenue_total", "confirmed_true_revenue_total", "confirmed_true_revenue"):
             totals[key] = None
-    # Audit round 3, R3-B20 (R3-48; §10.4's I51): and so are the Zelle figures' parts of them, the counted and held
-    # slots with True, Counted and Held and the verified slot with Verified; the captured rows' count, total and
-    # non-revenue part stay (the Non-revenue figures stay too).
+    # §10.4: and so are the Zelle figures' parts of them, the counted and held slots with True, Counted and Held
+    # and the verified slot with Verified; the captured rows' count, total and non-revenue part stay (the
+    # Non-revenue figures stay too).
     if ZELLE_DEPOSITS_KEY in totals:
         totals[ZELLE_DEPOSITS_KEY] = unestablished_zelle_figures(
             totals[ZELLE_DEPOSITS_KEY], established=not unestablished_revenue,
             verified_established=not unestablished_verified)
-    # Audit round 2, R2-B15 (R54): a package with no statement analysed (every job failed, was interrupted or is still
-    # queued or processing, or every account was left out) has no revenue figure at all: True, Verified, Counted and
-    # Held are N/A, never a $0.00 an underwriter would read as a measured decline, and nothing reads as reconciled.
-    # With one analysed statement or more, §10.4 holds as before: a failed member's credits are in no total.
+    # A package with no statement analysed (every job failed, was interrupted or is still queued or processing, or
+    # every account was left out) has no revenue figure at all: True, Verified, Counted and Held are N/A, never a
+    # $0.00 an underwriter would read as a measured decline, and nothing reads as reconciled. With one analysed
+    # statement or more, §10.4 holds as before: a failed member's credits are in no total.
     no_statement_analysed = totals["completed"] == 0
     if no_statement_analysed:
         for key in ("true_revenue_total", "true_revenue_count", "counted_flagged_total", "counted_flagged_count",
@@ -5549,16 +5423,16 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "confirmed_true_revenue_total", "confirmed_true_revenue"):
             totals[key] = None
         totals["revenue_tiers_sum_to_posted"] = totals["revenue_reconciles"] = False
-    # Audit round 3, R3-B03 (R3-27; true revenue spec §9.2, §11): the package's one basis. A package with no ready member
-    # keeps today's legacy mode (no rate: it has no basis); one whose members were analysed under different bases is
-    # mixed, and publishes no rate over the blend.
+    # True revenue spec §9.2, §11: the package's one basis. A package with no ready member keeps today's legacy mode (no
+    # rate: it has no basis); one whose members were analysed under different bases is mixed, and publishes no rate over
+    # the blend.
     package_denominator_mode = (
         next(iter(denominator_modes)) if len(denominator_modes) == 1
         else "legacy_eligible_deposits" if not denominator_modes else "mixed"
     )
     mixed_basis = len(denominator_modes) > 1
-    # Audit round 3, R3-B03 (R3-20): a revenue basis under the withholding basis floor publishes no rate, as $0 does; the
-    # legacy basis and a mixed one (refused below) never read the floor. Never a gate.
+    # A revenue basis under the withholding basis floor publishes no rate, as $0 does; the legacy basis and a mixed one
+    # (refused below) never read the floor. Never a gate.
     package_basis_below_floor = not mixed_basis and withholding_basis_below_floor(
         totals["withholding_denominator"], package_denominator_mode)
     package_withholding_raw = (
@@ -5588,20 +5462,20 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         potential_withholding = potential_withholding_raw = None
         withholding_review_required = True
     if mixed_basis:
-        # Audit round 3, R3-B03 (R3-27): members analysed under different withholding bases (a job stored before
-        # R2-OW14, legacy or with no mode, beside a new one) sum legacy deposits and True revenue into one figure that is
-        # neither: no package rate and no potential exposure is published over it, and the package asks for review
-        # (F1/M10's precedent, review round 1 of the final fix run). Each member row keeps its own basis and rate.
+        # Members analysed under different withholding bases (a job stored with a legacy or no mode, beside
+        # a new one) sum legacy deposits and True revenue into one figure that is neither: no package rate and no
+        # potential exposure is published over it, and the package asks for review. Each member row keeps its own basis
+        # and rate.
         package_withholding = package_withholding_raw = None
         potential_withholding = potential_withholding_raw = None
         withholding_review_required = True
-    # A lender row carries no basis where the package publishes no exposure over a basis: a partial one (M10), a mixed
-    # one (R3-27) or one under the floor (R3-20); a basis of $0 or less keeps its 0.0, as before.
+    # A lender row carries no basis where the package publishes no exposure over a basis: a partial one, a mixed one
+    # or one under the floor; a basis of $0 or less keeps its 0.0, as before.
     rollup_basis_refused = partial_revenue_denominator or mixed_basis or package_basis_below_floor
     potential_withholding_review_required = totals["potential_lender_debit_count"] > 0
     for item in potential_lenders.values():
-        # The final review of round 2, F1: no basis on a lender row where the package's is partial (M10), or the
-        # dashboard would compute the exposure the package refuses from it.
+        # No basis on a lender row where the package's is partial, or the dashboard would compute the exposure
+        # the package refuses from it.
         item["eligible_deposit_denominator"] = (
             None if rollup_basis_refused else totals["potential_withholding_denominator"])
         item["potential_withholding_exposure"] = (
@@ -5611,36 +5485,34 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             else None
         )
         item["potential_withholding_formula"] = POTENTIAL_WITHHOLDING_FORMULA
-    # Audit round 2, R2-B15 (R15): the accounts left out of every figure for a reason other than a repeat: a statement
-    # whose main account is held or idle (the 2026-09-23 ruling), an account that did not validate on its own (Q1), and
-    # every account of a document whose transfers could not be paired (Q2) or that left a section out without proof
-    # (L1-C17). Membership and every figure stay as they are; the package says so (completeness partial, the count,
-    # the download section and the dashboard's notice) and needs an analyst, as the same account uploaded alone does.
+    # The accounts left out of every figure for a reason other than a repeat: a statement whose main account is held or
+    # idle, an account that did not validate on its own (Q1), and every account of a document whose transfers could not
+    # be paired (Q2) or that left a section out without proof (L1-C17). Membership and every figure stay as they are;
+    # the package says so (completeness partial, the count, the download section and the dashboard's notice) and needs
+    # an analyst, as the same account uploaded alone does.
     left_out_accounts = [entry for entry in excluded_accounts if entry.get("is_duplicate") is not True]
     decision = "approved"
-    # Audit B11: the four-tier identity is no longer read here (I31): it held by construction on every tiered member,
-    # and a member whose tiers do not sum already gates through `revenue_review_required` (its T7 term, or §12's for an
-    # older member). A repeated statement left out of the figures needs an analyst (I06).
+    # The four-tier identity is not read here: it holds by construction on every tiered member, and a member whose
+    # tiers do not sum already gates through `revenue_review_required` (its T7 term, or §12's for an older member). A
+    # repeated statement left out of the figures needs an analyst.
     if (
         totals["failed"]
         or totals["integrity_high"]
         or totals["manual_review"]
         or potential_withholding_review_required
         or totals["revenue_review_required"]
-        # The final review of round 2, F1 (review round 1 of its fix run; §9.2, §11): a member whose withholding basis
-        # is not established, or the package's own partial basis (M10), publishes no rate, so the package needs an
-        # analyst, as each such statement viewed alone does. The legacy basis sets neither.
+        # §9.2, §11: a member whose withholding basis is not established, or the package's own partial basis,
+        # publishes no rate, so the package needs an analyst, as each such statement viewed alone does. The legacy
+        # basis sets neither.
         or any_member_basis_unestablished
         or partial_revenue_denominator
-        # Audit round 3, R3-B03 (R3-27; F1/M10's precedent, review round 1 of the final fix run): members analysed under
-        # different withholding bases publish no package rate, so the package needs an analyst (re-analyze them on one
-        # basis). R3-20's floor, like a $0 basis, never gates.
+        # Members analysed under different withholding bases publish no package rate, so the package needs an analyst
+        # (re-analyze them on one basis). The basis floor, like a $0 basis, never gates.
         or mixed_basis
         or totals["has_duplicate_documents"]
-        # Audit round 2, R2-B14 (R14): two statements of one account that share credits in the days both cover.
+        # Two statements of one account that share credits in the days both cover.
         or overlapping_statements
-        # Audit round 2, R2-B15: an account left out for another reason than a repeat (R15), and a job still queued or
-        # processing (R54).
+        # An account left out for another reason than a repeat, and a job still queued or processing.
         or left_out_accounts
         or totals.get("pending")
     ):
@@ -5735,37 +5607,37 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "completeness": "partial",
             "omitted_section_count": len(omitted_sections),
         } if omitted_sections else {}),
-        # Audit round 2, R2-B15 (R15; Q1: the package surfaces partial completeness): the accounts left out for another
-        # reason than a repeat, published only when there is one. `sibling_account_omission_detected` stays Q10's.
+        # The accounts left out for another reason than a repeat, published only when there is one.
+        # `sibling_account_omission_detected` stays Q10's.
         **({
             "completeness": "partial",
             "excluded_account_count": len(left_out_accounts),
         } if left_out_accounts else {}),
-        # MINOR-10, published only when it differs from `months` — so a package
+        # Published only when it differs from `months` — so a package
         # of today's payloads carries no new key and is byte-identical.
         **({"statement_periods": statement_periods}
            if statement_periods != months else {}),
-        # Audit B11 (I06): the accounts of kept documents left out because an earlier job published them; only when
-        # there is one, so a package without one carries no new key.
+        # The accounts of kept documents left out because an earlier job published them; only when there is one, so
+        # a package without one carries no new key.
         **({"duplicate_accounts": duplicate_accounts} if duplicate_accounts else {}),
-        # Audit round 2, R2-B14 (R14): the overlapping statements of one account that share credits, each pair named
-        # with what it shares, counted in both (never netted); only when there is one.
+        # The overlapping statements of one account that share credits, each pair named with what it shares, counted
+        # in both (never netted); only when there is one.
         **({"overlapping_statements": overlapping_statements} if overlapping_statements else {}),
-        # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes' counts and totals, each only where
-        # a pass found a row (_package_match_totals), so a package without one carries no new key.
+        # The package passes' counts and totals, each only where a pass found a row (_package_match_totals), so a package
+        # without one carries no new key.
         **_package_match_totals(package_matched),
         "months": months,
-        # Gross: every posted credit, not True revenue (audit B11, I07: the dashboard labels it so).
+        # Gross: every posted credit, not True revenue.
         "avg_monthly_credits": round(totals["total_credits"] / months, 2),
         "avg_monthly_debits": round(totals["total_debits"] / months, 2),
-        # Audit round 2, R2-B15 (R55): the confirmed lender debits per calendar month, beside the package's total
-        # (`lender_debits`); refused with the other per-period figures (_PER_PERIOD_AVERAGE_KEYS, a mixed currency).
+        # The confirmed lender debits per calendar month, beside the package's total (`lender_debits`); refused with
+        # the other per-period figures (_PER_PERIOD_AVERAGE_KEYS, a mixed currency).
         "monthly_lender_debits": round(totals["lender_debits"] / months, 2),
         "avg_monthly_cash_flow": round(totals["cash_flow"] / months, 2),
-        # Audit B11 (I07): what an MCA advance is sized on (standard §4.1, §4.4): the per-calendar-month True and
-        # Verified revenue across the package's accounts, divided by its distinct months. Both None wherever True is
-        # N/A (a member not established, §10.4), and refused as the other per-month averages are (one document's
-        # accounts, a mixed or undeclared currency). Non-revenue's beside them, for the copied summary.
+        # What an MCA advance is sized on (standard §4.1, §4.4): the per-calendar-month True and Verified revenue
+        # across the package's accounts, divided by its distinct months. Both None wherever True is N/A (a member
+        # not established, §10.4), and refused as the other per-month averages are (one document's accounts, a mixed
+        # or undeclared currency). Non-revenue's beside them, for the copied summary.
         "avg_monthly_true_revenue": (
             None if totals["true_revenue_total"] is None else round(totals["true_revenue_total"] / months, 2)
         ),
@@ -5778,22 +5650,22 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "package_withholding_rate": package_withholding,
         "package_withholding_rate_raw": package_withholding_raw,
         "eligible_deposits": totals["withholding_denominator"],
-        # R2-OW13 (the underwriter's Q5): the members' numerators (paid plus returned) over the withholding basis.
+        # The members' numerators (paid plus returned) over the withholding basis.
         "withholding_formula": WITHHOLDING_FORMULA,
         "withholding_review_required": withholding_review_required,
-        # The final review of round 2, F1 (§9.2, §11): the basis M10 refuses the rate on, only where it does.
+        # §9.2, §11: the basis M10 refuses the rate on, only where it does.
         **({WITHHOLDING_BASIS_UNESTABLISHED: True} if partial_revenue_denominator else {}),
-        # Audit round 3, R3-B03 (R3-27): the members' bases, only where they differ (the dashboard names them).
+        # The members' bases, only where they differ (the dashboard names them).
         **({"withholding_basis_mixed": True, "withholding_basis_by_member": withholding_basis_by_member}
            if mixed_basis else {}),
-        # Audit round 3, R3-B03 (R3-20): a revenue basis under the withholding basis floor, only where it is.
+        # A revenue basis under the withholding basis floor, only where it is.
         **({"withholding_basis_below_floor": True} if package_basis_below_floor else {}),
-        # Audit round 3, R3-B03 (R3-79, the owner's answer of 2026-10-07): the lump-sum payoffs in `lender_debits` and
-        # out of `withholding_numerator`, only where a member has one (the total refused across currencies).
+        # The lump-sum payoffs in `lender_debits` and out of `withholding_numerator`, only where a member has one (the
+        # total refused across currencies).
         **({"lump_sum_payoff_total": package_lump_sum["total"], "lump_sum_payoff_count": package_lump_sum["count"]}
            if package_lump_sum["count"] else {}),
-        # Audit round 3, R3-B24 (R3-16; §9.2): the large unsourced deposits flagged, only where a member has one (the
-        # total refused across currencies, the count kept); information only.
+        # §9.2: the large unsourced deposits flagged, only where a member has one (the total refused across
+        # currencies, the count kept); information only.
         **({"large_unsourced_deposit_count": len(package_large_unsourced_deposits),
             "large_unsourced_deposit_total": round(sum(_num(item["amount"])
                                                        for item in package_large_unsourced_deposits), 2)}
@@ -5803,7 +5675,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "potential_withholding_formula": POTENTIAL_WITHHOLDING_FORMULA,
         "potential_withholding_review_required": potential_withholding_review_required,
         "decision": decision,
-        # Audit round 3, R3-B03 (R3-27): read off the ready members only; a package with none keeps the legacy mode.
+        # Read off the ready members only; a package with none keeps the legacy mode.
         "withholding_denominator_mode": package_denominator_mode,
         # The basis the summed NSF count was cut on (analysis/nsf_days.py). "mixed" when members differ, e.g. a
         # member whose count is unavailable, or a legacy payload that could not be re-based.
@@ -5830,16 +5702,16 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
     if refuse_cross_currency:
         for key in _CROSS_CURRENCY_TOTAL_KEYS:
             if key in _PACKAGE_MATCH_TOTAL_KEYS and key not in published_totals:
-                continue  # R2-OW15: published only where a package pass found a row
+                continue  # Published only where a package pass found a row
             published_totals[key] = None
-        # 5.6 (§9.2): the by-reason money is refused with the totals; the counts stay. R2-OW03: the non-revenue
-        # breakdown's too.
+        # §9.2: the by-reason money is refused with the totals; the counts stay. The non-revenue breakdown's
+        # too.
         for key in _TIER_REASON_KEYS:
             if isinstance(published_totals.get(key), dict):
                 published_totals[key] = {
                     reason: {**slot, "total": None} for reason, slot in published_totals[key].items()
                 }
-        # R2-OW17: the Zelle figures' money too, every count kept (a nested count-and-money dict, refused part by part).
+        # The Zelle figures' money too, every count kept (a nested count-and-money dict, refused part by part).
         zelle_totals = published_totals.get(ZELLE_DEPOSITS_KEY)
         if isinstance(zelle_totals, dict):
             published_totals[ZELLE_DEPOSITS_KEY] = {
@@ -5863,7 +5735,7 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         published_totals["withholding_review_required"] = True
         published_totals["decision"] = "review_required"
 
-    # Audit round 2, R2-B15 (R54): no evidence for a True revenue the package has no figure for.
+    # No evidence for a True revenue the package has no figure for.
     true_revenue_evidence = None if unestablished_revenue or no_statement_analysed else [
         evidence for evidence in (*package_revenue_evidence["verified_revenue"], *package_tier_evidence["counted_flagged"])
     ]
@@ -5886,17 +5758,17 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
                 sorted(_CROSS_CURRENCY_TOTAL_KEYS) if refuse_cross_currency else []
             ),
         },
-        # Audit B11 (I06): each repeated statement left out is listed after the members, `is_duplicate` set, with the
-        # job it repeats and why, and no figure (`_duplicate_row`). A job listed twice is the same job: it is listed
-        # once, and only its group below names the repeat.
+        # Each repeated statement left out is listed after the members, `is_duplicate` set, with the job it repeats
+        # and why, and no figure (`_duplicate_row`). A job listed twice is the same job: it is listed once, and only
+        # its group below names the repeat.
         "documents": documents + [
             _duplicate_row(entry) for entry in dropped_duplicates if entry["reason"] != "same_job"
         ],
-        # 5.6 (§12): a member was analysed with older classification rules (its row says which), as a statement's
+        # §12: a member was analysed with older classification rules (its row says which), as a statement's
         # served copy says of itself.
         "analysis_rules_outdated": any(row["analysis_rules_outdated"] for row in documents),
-        # D-3: one entry per statement present more than once (audit B11: by job id, content hash or statement
-        # identity), listing the first job and every job that repeats it.
+        # D-3: one entry per statement present more than once, listing the first job and every job that
+        # repeats it.
         "duplicates": duplicate_groups,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
         "funders": package_funders,
@@ -5906,29 +5778,29 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         "flagged_positions": package_flagged_positions,
         "transactions": package_transactions,
         "lender_evidence": package_lender_evidence,
-        # Owner ruling 2026-10-02 (the underwriter's Q5; R2-OW13): the kept members' returned funder payments.
+        # The kept members' returned funder payments.
         "returned_funder_payments": package_returned_funder_payments,
-        # The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the lump-sum payoffs' lines, each in its
-        # statement's own unit, only where there is one (never summed here, so the currency refusal leaves them).
+        # The lump-sum payoffs' lines, each in its statement's own unit, only where there is one (never summed here,
+        # so the currency refusal leaves them).
         **({"lump_sum_payoffs": package_lump_sum_payoffs} if package_lump_sum_payoffs else {}),
-        # Audit round 3, R3-B24 (R3-16; §9.2): each member's large unsourced deposits, in member order, each in its own
-        # statement's unit and share, only where there is one (never summed here, so the currency refusal leaves them).
+        # §9.2: each member's large unsourced deposits, in member order, each in its own statement's unit and share,
+        # only where there is one (never summed here, so the currency refusal leaves them).
         **({"large_unsourced_deposits": package_large_unsourced_deposits} if package_large_unsourced_deposits else {}),
-        # The owner's request of 2026-10-06 (R2-OW18): the lender payment changes across each account's consecutive
-        # statements, absent only when no member was assessed, and the members not checked across statements (each with
-        # its reason), only where there is one. Never summed, so the currency refusal leaves them as they are.
+        # The lender payment changes across each account's consecutive statements, absent only when no member was
+        # assessed, and the members not checked across statements (each with its reason), only where there is one.
+        # Never summed, so the currency refusal leaves them as they are.
         **({"lender_payment_changes": lender_payment_changes} if lender_payment_changes is not None else {}),
         **({"lender_payment_changes_unchecked": lender_payment_unchecked} if lender_payment_unchecked else {}),
-        # The owner's request of 2026-10-10 (active positions by month; §9.2): one entry per calendar month the members
-        # stand for, the accounts added up (`_package_active_positions`).
+        # §9.2: one entry per calendar month the members stand for, the accounts added up
+        # (`_package_active_positions`).
         "active_positions_by_month": active_positions_by_month,
         "potential_lender_evidence": package_potential_lender_evidence,
         "insurance_evidence": package_insurance_evidence,
         "flagged_evidence": package_flagged_evidence,
         "verified_revenue_evidence": package_revenue_evidence["verified_revenue"],
         "unverified_deposit_evidence": package_revenue_evidence["unverified_deposit"],
-        # 5.6 (§9.2, T9): True revenue's evidence is the members' verified plus counted rows; None when a member's
-        # revenue is not established.
+        # §9.2: True revenue's evidence is the members' verified plus counted rows; None when a member's revenue
+        # is not established.
         "true_revenue_evidence": true_revenue_evidence,
         "counted_flagged_evidence": package_tier_evidence["counted_flagged"],
         "excluded_pending_review_evidence": package_tier_evidence["excluded_pending_review"],
@@ -5963,9 +5835,8 @@ def _package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # WHICH sections were established and not published rather than only
         # that some were. Conditional for the same reason as the totals above.
         **({"omitted_sections": omitted_sections} if omitted_sections else {}),
-        # Owner ruling 2026-10-02 (the underwriter's Q6; §9.2; R2-OW15): each match the package passes made across its
-        # statements, each leg naming its statement, account and unit, and each debit they flag (never deducted); only
-        # where there is one.
+        # §9.2: each match the package passes made across its statements, each leg naming its statement, account and
+        # unit, and each debit they flag (never deducted); only where there is one.
         **({"package_matches": package_matched["matches"]} if package_matched["matches"] else {}),
         **({"debit_flags": package_matched["debit_flags"]} if package_matched["debit_flags"] else {}),
     }
@@ -5994,7 +5865,7 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
     profile and rejects password-protected PDFs before any parsing —
     processing one could only ever fail later with a worse message.
 
-    MINOR-8: a multipart filename carrying a raw
+    A multipart filename carrying a raw
     CR/LF is refused HERE, first, with a class-name-only message — never the
     raw filename echoed back (unlike every other branch below, which is safe
     to echo because ordinary filenames carry no attack shape). Before this,
@@ -6005,13 +5876,12 @@ def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object
     worker.py`) already withholds that message from the job record, so the
     only change here is WHERE the refusal happens, not what it reveals.
 
-    NEW-4 (re-review, closure 1cc759e): the same reasoning extends to `-->`,
-    which `StatementMarkdown.__post_init__` also refuses (the writer-side
-    belt) but this function did not — a filename like `a-->b.pdf` reached
-    the view (a raw `-->` does not corrupt multipart framing the way CR/LF
-    does) and then died as the same opaque per-job failure MINOR-8 fixed for
-    CR/LF. Refused here too, for consistency, with the identical
-    class-name-only shape."""
+    NEW-4: the same reasoning extends to `-->`, which
+    `StatementMarkdown.__post_init__` also refuses (the writer-side belt) but
+    this function did not — a filename like `a-->b.pdf` reached the view (a raw
+    `-->` does not corrupt multipart framing the way CR/LF does) and then died
+    as the same opaque per-job failure as CR/LF. Refused here
+    too, for consistency, with the identical class-name-only shape."""
     if "\r" in filename or "\n" in filename or "-->" in filename:
         return None, None, {"error": "ProvenanceTokenError"}
     if len(pdf_bytes) > MAX_UPLOAD_BYTES:
@@ -6061,14 +5931,14 @@ def update_settings():
     return jsonify({"settings": settings})
 
 
-#: /upload's answer when the batch could not be stored (audit 2026-10-13, BE-4): every job the request created is
-#: marked failed with this text and none is queued. Fixed text, never an exception's.
+#: /upload's answer when the batch could not be stored: every job the request created is marked failed with this
+#: text and none is queued. Fixed text, never an exception's.
 UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
 
 #: /upload's answer (HTTP 400) to a request that still sends `force_ocr=1` (an API caller, or a page cached from before
-#: the change): the product uses no model (owner ruling, 2026-10-13), so there is no visual OCR to force. Refused
-#: before any file is read, stored or queued. The jobs table's force_ocr column and the field in /status stay, so a
-#: job stored with the flag still loads; its re-analysis answers webapp/worker.py's FORCED_OCR_RETIRED.
+#: the change): the product uses no model, so there is no visual OCR to force. Refused before any file is read, stored
+#: or queued. The jobs table's force_ocr column and the field in /status stay, so a job stored with the flag still
+#: loads; its re-analysis answers webapp/worker.py's FORCED_OCR_RETIRED.
 FORCE_OCR_REMOVED = "Force visual OCR was removed: statements are read deterministically and with local OCR only."
 
 
@@ -6097,16 +5967,15 @@ def upload():
             return jsonify(error), 400
         accepted.append((f.filename, pdf_bytes, page_count, profile))
 
-    # The free-space floor (audit 2026-10-13, BE-1): validation answers first, then nothing is written when the
-    # batch would leave the data volume below MIN_FREE_BYTES.
+    # The free-space floor: validation answers first, then nothing is written when the batch would leave the
+    # data volume below MIN_FREE_BYTES.
     if _data_volume_nearly_full(sum(len(pdf_bytes) for _name, pdf_bytes, _pages, _profile in accepted)):
         return jsonify({"error": STORAGE_NEARLY_FULL}), 507
 
-    # Store the whole batch before queueing any of it (audit 2026-10-13, BE-4).
-    # A storage failure on file k used to leave files 1..k-1 queued and
-    # processed under ids the dashboard never received (it got an HTML 500).
-    # Now a failure marks every job this request created failed, queues none
-    # of them, and answers with fixed text: never the exception's own.
+    # Store the whole batch before queueing any of it, so a storage failure on
+    # file k never leaves files 1..k-1 processed under ids the dashboard never
+    # received. A failure marks every job this request created failed, queues
+    # none of them, and answers with fixed text, never the exception's own.
     created = []
     try:
         for filename, pdf_bytes, page_count, profile in accepted:
@@ -6140,7 +6009,7 @@ def upload():
             "parse_mode": job.parse_mode,
             "content_sha256": job.content_sha256,
             # A re-upload of identical bytes names the earliest prior job holding
-            # them, read in the transaction that created the job (audit BE-2).
+            # them, read in the transaction that created the job.
             "duplicate_of": job.duplicate_of,
         })
     return jsonify({"jobs": jobs})
@@ -6183,9 +6052,9 @@ def markdown(job_id):
     return Response(job.markdown, mimetype="text/plain", headers=_REPORT_HEADERS)
 
 
-#: Audit 2026-10-13, EXP-1: the routes that serve statement text as it was read (/result, /markdown, the html and md
-#: downloads) carry a sandboxing Content-Security-Policy (no script, form or external resource; the report needs only
-#: its inline styles and data: crops) and nosniff, so markup a PDF's text layer prints never runs in the app's origin.
+#: The routes that serve statement text as it was read (/result, /markdown, the html and md downloads) carry a
+#: sandboxing Content-Security-Policy (no script, form or external resource; the report needs only its inline styles
+#: and data: crops) and nosniff, so markup a PDF's text layer prints never runs in the app's origin.
 _REPORT_HEADERS = {"Content-Security-Policy": REPORT_CSP_HEADER, "X-Content-Type-Options": "nosniff"}
 
 
@@ -6220,33 +6089,12 @@ def analysis(job_id):
     })
 
 
-#: `analysis/revenue.py`'s DECLARED review refusals (#PRIVACY3, the APP-PRIVACY
-#: half; the pattern is `webapp/worker.py`'s `_DECLARED_ANALYSIS_REFUSALS`).
-#:
-#: `revenue_review` returned `str(exc)` as the HTTP body on both arms, and
-#: `webapp/static/app.js` puts that body straight into a `window.alert`. The
-#: three literals the batch-6 ledger named are real and worth keeping — but the
-#: `except` is BROADER than the raises: any `ValueError` raised deeper inside
-#: `rebuild_serialized_revenue_views` (which `apply_serialized_revenue_review`
-#: calls on its way out) was published verbatim, and the money grammar is
-#: exactly such a raiser. Reduction is now the default.
-#:
-#: FIVE, not three. The batch-6 census (W3 §WORKERPRIV WP6.1) counted only the
-#: raises inside `apply_serialized_revenue_review` itself and missed the two in
-#: `rebuild_serialized_revenue_views`, which its last line calls; both are
-#: reachable through this route and both are fixed literals. Measured, and
-#: `test_every_declared_review_refusal_is_actually_raised` drives each of the
-#: five out of `analysis/revenue.py` so the tuple cannot drift from the raises.
-#:
-#: Matching is EXACT and the value published is the member of this tuple, never
-#: the exception's own string, so what crosses the boundary is provably a
-#: constant in this file. `f"{DECLARED}: {a quoted cell}"` does not match and is
-#: reduced like anything else. Fail-closed: admission is a deliberate edit.
-#:
-#: SEVEN since the review learned to name its account: a location numbers a
-#: posting within its account, so a document of several accounts can hold one
-#: location per account, and `apply_serialized_revenue_review` refuses such a
-#: location unless the review names the account, and a named account it lacks.
+#: `analysis/revenue.py`'s declared review refusals (the pattern is `webapp/worker.py`'s
+#: `_DECLARED_ANALYSIS_REFUSALS`). `webapp/static/app.js` shows the response body in a `window.alert`, and any
+#: `ValueError` from deeper inside `rebuild_serialized_revenue_views` (the money grammar raises some) could carry
+#: statement text. So matching is exact, the value published is the member of this tuple, never the exception's own
+#: string, and anything else is reduced. `test_every_declared_review_refusal_is_actually_raised` drives each member
+#: out of `analysis/revenue.py`, so the tuple cannot drift from the raises.
 _DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
     "transaction source location was not found",
     "decision must be confirm, reject, or reset",
@@ -6255,12 +6103,12 @@ _DECLARED_REVIEW_REFUSALS: tuple[str, ...] = (
     "every posted credit must have a valid revenue classification",
     "account was not found",
     "transaction source location is in more than one account; name the account",
-    # 5.6 (true revenue spec §10.7, §12): a confirm on a rule-verified credit; a record whose state and tier disagree;
-    # a payload whose posted credits carry a tier only in part.
+    # True revenue spec §10.7, §12: a confirm on a rule-verified credit; a record whose state and tier disagree; a
+    # payload whose posted credits carry a tier only in part.
     "a credit a rule verified can only be marked non-revenue",
     "every posted credit's revenue state must agree with its tier",
     "every posted credit carries a revenue tier, or none does",
-    # Audit round 3, R3-B02 (R3-21; spec §10.7): a confirm on a credit that returns a confirmed funder's payment.
+    # Spec §10.7: a confirm on a credit that returns a confirmed funder's payment.
     "a credit that returns a confirmed funder's payment can only be marked non-revenue",
 )
 
@@ -6344,9 +6192,9 @@ def revenue_review(job_id):
         return jsonify({"error": refusal}), 400
     if store.get(job_id) is None:
         abort(404)
-    # The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §10.7; R2-OW17): the decision is validated on
-    # the Zelle reading the reviewer sees, and the latest decision on a posting sets both readings
-    # (analysis/zelle_view.py with_both_readings). The setting is read once for the request.
+    # Spec §10.7: the decision is validated on the Zelle reading the reviewer sees, and the latest decision on a
+    # posting sets both readings (analysis/zelle_view.py with_both_readings). The setting is read once for the
+    # request.
     settings = load_settings(store.storage.data_dir)
     shown = _zelle_setting(settings)
     with _review_lock(job_id):
@@ -6420,8 +6268,8 @@ def revenue_reviews(job_id):
         return jsonify({"error": refusal}), 400
     if store.get(job_id) is None:
         abort(404)
-    # R2-OW17 (spec §10.7): validated on the Zelle reading shown, all or nothing; the other reading follows the latest
-    # decision on each posting (analysis/zelle_view.py with_both_readings). The setting is read once for the request.
+    # Spec §10.7: validated on the Zelle reading shown, all or nothing; the other reading follows the latest decision
+    # on each posting (analysis/zelle_view.py with_both_readings). The setting is read once for the request.
     settings = load_settings(store.storage.data_dir)
     shown = _zelle_setting(settings)
     with _review_lock(job_id):
@@ -6477,8 +6325,8 @@ def reanalyze(job_id):
         pdf_bytes = store.pdf_bytes(job_id)
         if pdf_bytes is None:
             return jsonify({"error": "the original PDF is not stored"}), 409
-        # The free-space floor (audit 2026-10-13, BE-1): a re-analysis appends the whole replaced analysis to the
-        # append-only audit log, so it is refused, writing nothing, when the volume is below the floor.
+        # The free-space floor: a re-analysis appends the whole replaced analysis to the append-only audit log,
+        # so it is refused, writing nothing, when the volume is below the floor.
         if _data_volume_nearly_full():
             return jsonify({"error": REANALYSIS_NOT_SAVED, "reason": STORAGE_NEARLY_FULL_REASON}), 507
         rerun = rerun_analysis(store, job, pdf_bytes)
@@ -6518,7 +6366,7 @@ def _requested_job_ids() -> tuple[list[str] | None, tuple | None]:
         member_ids = store.package_member_ids(package_id)
         if member_ids is None:
             return None, (jsonify({"error": "unknown package id", "missing": [package_id]}), 404)
-        # A package stored before audit B11 can list one job twice.
+        # An older stored package can list one job twice.
         return _unique_ids(member_ids), None
     tokens = [item for item in (request.args.get("ids") or "").split(",") if item]
     if not tokens:
@@ -6536,8 +6384,8 @@ def _requested_job_ids() -> tuple[list[str] | None, tuple | None]:
             ids.extend(member_ids)
     if missing:
         return None, (jsonify({"error": "unknown job ids", "missing": missing}), 404)
-    # Audit B11 (I06): a job listed twice (`?ids=a,a`, or a package id beside one of its own members) is one job,
-    # never two members.
+    # A job listed twice (`?ids=a,a`, or a package id beside one of its own members) is one job, never two
+    # members.
     return _unique_ids(ids), None
 
 
@@ -6575,7 +6423,7 @@ def create_package():
         ids = [item for item in ids.split(",") if item]
     if not isinstance(ids, list) or not ids:
         return jsonify({"error": "no job ids supplied"}), 400
-    # Audit B11 (I06): each job once, so a durable package never lists one twice.
+    # Each job once, so a durable package never lists one twice.
     ids = _unique_ids([str(item) for item in ids])
     missing = [job_id for job_id in ids if store.get(job_id) is None]
     if missing:
@@ -6678,10 +6526,10 @@ def download(job_id, fmt):
     return Response(content, mimetype=mimetype, headers=headers)
 
 
-#: What a read-only start-up still serves (audit 2026-10-13, BE-1): GET routes that read the store and write nothing
-#: to the data volume. Everything else is refused with 503: the POST routes, and the two downloads, which write an
-#: export audit row (served without it, the audit trail would lose them). A route added later is refused until it is
-#: named here. `healthz` is the hosting line's probe.
+#: What a read-only start-up still serves: GET routes that read the store and write nothing to the data volume.
+#: Everything else is refused with 503: the POST routes, and the two downloads, which write an export audit row
+#: (served without it, the audit trail would lose them). A route added later is refused until it is named here.
+#: `healthz` is the hosting line's probe.
 _READ_ONLY_ENDPOINTS = frozenset({
     "index", "static", "healthz", "get_settings", "status", "markdown", "analysis", "package_analysis", "page",
     "result",
@@ -6740,7 +6588,7 @@ def healthz():
 def main() -> None:
     """Serve through waitress. The Werkzeug development server is never used:
     its interactive debugger is arbitrary code execution for anyone who can
-    reach the port, and it was previously enabled here with debug=True."""
+    reach the port."""
     from waitress import serve
 
     host, port = _server_config()

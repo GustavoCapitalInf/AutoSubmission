@@ -1,27 +1,20 @@
-"""telemetry/run_of_record.py — ONE artifact-selection policy for a discovery
-run, used by
-``telemetry/stated_counts.py::_ArtifactJoin`` (P20-ARTIFACTS, Phase 2.0;
-OQ8 = adopt the existing selection machinery, OQ10 = follow the run of record).
+"""One artifact-selection policy for a discovery run, used by
+``telemetry/stated_counts.py::_ArtifactJoin``.
 
-Why this exists (F-9 / MAJOR-3 / MINOR-4)
------------------------------------------
-Two readers walk the same D-3 artifact-cache index and both used to guess:
-the batch-9 cohort replay's cold cache took ``rows[0]`` with no ``ORDER BY`` and
-no settings-key filter on EITHER stage, and ``stated_counts._ArtifactJoin``
-(there called ``CachedArtifacts`` in the audit and its review) walked a
-declared, ordered ``_ocr_keys`` preference list that put the visual partition
-LAST — an unratified extractor ranking. Both were correct only because every
-input in the archive has ever held exactly one artifact per stage. Gustavo
-ruled OQ10: **historical truth follows the artifact the official run actually
-consumed**, never ``rows[0]``, never a preference order, never DB incidental
-order. This module is that one policy.
+Why this exists
+---------------
+Readers of the artifact-cache index must not guess which artifact a run used:
+``rows[0]`` with no ``ORDER BY``, or a preference order over partitions, is
+correct only while every input holds exactly one artifact per stage. The rule
+(ruling OQ10): **historical truth follows the artifact the official run
+actually consumed**, never ``rows[0]``, never a preference order, never
+database order. This module is that one policy.
 
 The three primitives
 ---------------------
 :func:`partitions_for_run`
     ``run_dir -> RunPartitions``: what a run of record actually consumed,
-    either RECORDED (a run written after this cell composes — see item 3 of
-    the card, ``tools/train/provenance.py``) or deterministically
+    either RECORDED (``tools/train/provenance.py``) or deterministically
     RECONSTRUCTED from what an older run recorded about itself
     (``OCR_STAGE_VERSION``, ``ANALYSIS_STAGE_VERSION``,
     ``analysis_settings_key_deterministic``, its env, and its ``mode`` from
@@ -48,7 +41,7 @@ no artifact was ever written under a key nothing else in the run used, or a
 row from a fingerprint the cache never saw) resolves to ``None`` — never to
 another partition. That is the whole point: NEVER a fallback, NEVER a guess.
 
-Research partitions (P22-IDENTITY, Phase 2.2, D7)
+Research partitions
 --------------------------------------------------
 The OCR settings key carries ``research_partition`` (empty for production;
 ``webapp/artifact_cache.py::ocr_settings_key``). A run whose RECORDED
@@ -60,7 +53,7 @@ or absent) is selected exactly as before.
 
 Kept out of this module by design
 ---------------------------------
-No page-level partitions, no ``page_extractor`` (Phase 2.1). No writes: every
+No page-level partitions, no ``page_extractor``. No writes: every
 function here is a pure read over an already-written index. No import of
 ``webapp``, ``ocr``, ``analysis`` or ``discovery`` at MODULE level — every one
 of those is imported LAZILY, inside a function, the same discipline
@@ -108,12 +101,12 @@ ORIGIN_RECONSTRUCTED = "reconstructed"
 #: where its actual policy constant (``LOCAL_OCR_MODES``) is load-bearing.
 _VISUAL_ROW_OUTCOMES = frozenset({"recovered", "upgraded"})
 
-#: P21-ROUTING (Phase 2.1). The SAME shape, for the Paddle rung's own row
-#: column (``discovery/report.py``'s ``paddle_rung``). A row can carry
-#: `recovered`/`upgraded` in AT MOST ONE of ``visual_rung`` / ``paddle_rung``
-#: (a mode enables exactly one escalation extractor — D4), so the two
-#: partitions are mutually exclusive per row by construction, never by a
-#: precedence rule this module would have to enforce.
+#: The SAME shape, for the Paddle rung's own row column
+#: (``discovery/report.py``'s ``paddle_rung``). A row can carry
+#: `recovered`/`upgraded` in AT MOST ONE of ``visual_rung`` / ``paddle_rung`` (a
+#: mode enables exactly one escalation extractor — D4), so the two partitions
+#: are mutually exclusive per row by construction, never by a precedence rule
+#: this module would have to enforce.
 _PADDLE_ROW_OUTCOMES = frozenset({"recovered", "upgraded"})
 
 
@@ -136,7 +129,7 @@ class RunOfRecordError(RuntimeError):
 
 
 class ResearchPartitionRefused(RunOfRecordError):
-    """P22-IDENTITY (Phase 2.2, D7; case 17). A run whose recorded OCR
+    """A run whose recorded OCR
     settings key carries a non-empty ``research_partition`` is a RESEARCH
     run: its artifacts were written under a research partition (Phase 2.3's
     broad Paddle wave, or any later research mode) and can never become
@@ -175,10 +168,10 @@ class RunPartitions:
     analysis_stage_version: int
     mode: str
     origin: str
-    #: P22-IDENTITY (D7): the research partition the run's OCR keys carry.
-    #: Always ``""`` on an object this module builds — a non-empty value is
-    #: refused before construction (:class:`ResearchPartitionRefused`) — and
-    #: recorded here so the fact is on the object, not only in the refusal.
+    #: The research partition the run's OCR keys carry. Always ``""`` on an
+    #: object this module builds — a non-empty value is refused before
+    #: construction (:class:`ResearchPartitionRefused`) — and recorded here so
+    #: the fact is on the object, not only in the refusal.
     research_partition: str = ""
 
 
@@ -198,14 +191,13 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
     PRESENT but malformed (a half-written block is a defect, never a silent
     invitation to reconstruct instead).
 
-    Review MAJOR-1/MAJOR-4: the recorded ``mode`` is cross-checked against
-    the run's OWN ``summary.json:mode`` when the latter exists (it always
-    does for a real run of record — ``tools/train/provenance.py`` is invoked
-    a second time, into the run directory, only after the run itself
-    completed and wrote ``summary.json``). A disagreement means the
-    ``--mode`` an operator passed to ``provenance.py`` does not match what
-    the run actually did — a typo, most likely — and the record is refused
-    rather than silently trusted."""
+    The recorded ``mode`` is cross-checked against the run's OWN
+    ``summary.json:mode`` when the latter exists (it always does for a real run
+    of record — ``tools/train/provenance.py`` is invoked a second time, into the
+    run directory, only after the run itself completed and wrote
+    ``summary.json``). A disagreement means the ``--mode`` an operator passed to
+    ``provenance.py`` does not match what the run actually did — a typo, most
+    likely — and the record is refused rather than silently trusted."""
     block = provenance.get("run_of_record")
     if block is None:
         return None
@@ -226,10 +218,10 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
                 f"{run_dir}/provenance.json: run_of_record.partitions.{name} "
                 "missing or empty"
             )
-    # P22-IDENTITY (D7): the research partition is refused BEFORE any key is
-    # read into a `RunPartitions` — a run recorded before the field existed
-    # (no key at all) and a production run (the empty string) are the same
-    # fact; anything non-empty is a research run and never a run of record.
+    # The research partition is refused BEFORE any key is read into a
+    # `RunPartitions` — a run recorded before the field existed (no key at all)
+    # and a production run (the empty string) are the same fact; anything
+    # non-empty is a research run and never a run of record.
     research_partition = partitions.get("research_partition", "")
     if research_partition is None:
         research_partition = ""
@@ -252,11 +244,11 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
     ocr_keys_by_source = {"native": offline_key, "local_tesseract": offline_key}
     if isinstance(visual_key, str) and visual_key:
         ocr_keys_by_source["visual"] = visual_key
-    # P21-ROUTING: `paddle_ocr_key` is OPTIONAL, like `visual_ocr_key` — a run
-    # recorded before this cell, or one whose Paddle settings did not load at
-    # provenance time, simply has no Paddle partition, and a `paddle_rung`
-    # row on such a run resolves to `None` via `ocr_partition_for_row` (never
-    # a fallback to another partition).
+    # `paddle_ocr_key` is OPTIONAL, like `visual_ocr_key` — a run recorded
+    # before this cell, or one whose Paddle settings did not load at provenance
+    # time, simply has no Paddle partition, and a `paddle_rung` row on such a
+    # run resolves to `None` via `ocr_partition_for_row` (never a fallback to
+    # another partition).
     if isinstance(paddle_key, str) and paddle_key:
         ocr_keys_by_source["paddle"] = paddle_key
     tree = provenance.get("tree") if isinstance(provenance.get("tree"), dict) else {}
@@ -389,7 +381,7 @@ def partitions_for_run(run_dir: str | Path, *, conn: Any | None = None) -> RunPa
 
 
 def verify_reconstruction(partitions: RunPartitions, conn: Any, run_dir: str | Path) -> None:
-    """Review MAJOR-1: verified for EVERY origin, RECORDED included.
+    """Review verified for EVERY origin, RECORDED included.
 
     A RECORDED run's keys come from an operator-supplied ``--mode`` on
     ``tools/train/provenance.py`` and are not otherwise cross-checked (the
@@ -415,7 +407,7 @@ def verify_reconstruction(partitions: RunPartitions, conn: Any, run_dir: str | P
        ``local_tesseract`` (their own provenance already says text was
        read) — must resolve an artifact under the offline key for its own
        ``content_sha256`` on at least :data:`_CORRESPONDENCE_MIN_RESOLVED_FRACTION`
-       (90%) of the sample, or the record is refused (review MINOR-7: a
+       (90%) of the sample, or the record is refused (review a
        weaker "resolves at least one" bound closed the reproduced 0-of-N
        failure but let a 1-of-N accident through unchallenged). This is a
        SUPERMAJORITY, not "resolves all": measured directly against the
@@ -509,11 +501,11 @@ def _sample_offline_rows(run_dir: Path, limit: int) -> list[dict[str, Any]]:
     return sampled
 
 
-#: Review MINOR-7: the SUPERMAJORITY bound `_require_offline_key_resolves_a_sample`
-#: enforces. Measured on the train9 archive (every offline row, not just a
-#: sample): 3,476/3,476 resolve — 100%. 90% is a deliberate safety margin
-#: below that ceiling; see :func:`verify_reconstruction`'s docstring for the
-#: full derivation and the residual this bound does NOT close.
+#: Review the SUPERMAJORITY bound `_require_offline_key_resolves_a_sample`
+#: enforces. Measured on the train9 archive (every offline row, not just a sample):
+#: 3,476/3,476 resolve — 100%. 90% is a deliberate safety margin below that
+#: ceiling; see:func:`verify_reconstruction`'s docstring for the full derivation
+#: and the residual this bound does NOT close.
 _CORRESPONDENCE_MIN_RESOLVED_FRACTION = 0.90
 
 
@@ -553,11 +545,11 @@ def ocr_partition_for_row(row: Mapping[str, Any], partitions: RunPartitions) -> 
     whose partitions carry no visual/paddle key). Never a fallback to another
     partition.
 
-    P21-ROUTING: `paddle_rung` is checked FIRST — a row is never both
-    (`enabled_extractors` holds one extractor per mode, D4), but checking one
-    order rather than "whichever is set" keeps this a total, deterministic
-    function of the row rather than one that could disagree with itself
-    across two reads of the same row."""
+    `paddle_rung` is checked FIRST — a row is never both (`enabled_extractors`
+    holds one extractor per mode, D4), but checking one order rather than
+    "whichever is set" keeps this a total, deterministic function of the row
+    rather than one that could disagree with itself across two reads of the same
+    row."""
     paddle_rung = str(row.get("paddle_rung") or "").strip()
     if paddle_rung in _PADDLE_ROW_OUTCOMES:
         return partitions.ocr_keys_by_source.get("paddle")

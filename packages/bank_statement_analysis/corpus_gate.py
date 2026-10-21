@@ -6,7 +6,7 @@ of its own: it re-runs `adb_forensic_audit` and `balance_forensic_audit`
 unchanged and compares their output, field by field, with
 `docs/adb-audit-results.csv` and `docs/balance-metrics-audit-results.csv`.
 
-Three checks are deliberately NOT oracle-independent, and all three read the
+Four checks are deliberately NOT oracle-independent, and all four read the
 same per-document payloads the product itself publishes.
 
 `check_outcome_classes` reads the product's own per-document verdict — the
@@ -49,7 +49,7 @@ validated set and honest about the rest — see `check_foreign_files`.
 
 Guarantees:
 
-- Offline. No OCR endpoint, no Gemini, no network, no Tesseract binary. The 6
+- Offline. No OCR endpoint, no model, no network, no Tesseract binary. The 6
   image-only statements are served from committed OCR artifacts keyed by the
   SHA-256 of their source PDF (see `corpus_artifacts`).
 - Complete over the pinned manifest. Every pinned path must exist on disk, must
@@ -129,8 +129,7 @@ REFUSED_STATUS = "REFUSED"
 #: the entry, or the document, is the only way to make it green, and that is a
 #: ceremony.
 #:
-#: CEREMONY, executed 2026-08-21 (REPAIR-DOCTRINE, W3 §REPAIRDOC, Gustavo's
-#: ruling of the same day: "Parsers must never rewrite transaction amounts just
+#: CEREMONY (the repair doctrine, the owner's ruling: "Parsers must never rewrite transaction amounts just
 #: to force reconciliation. Replace repair-by-rewrite with discard-and-flag /
 #: fail-closed."). `analysis/columbia_bank.py` held two repairs that REWROTE a
 #: row's amount to bring a section into agreement with its own printed total,
@@ -162,15 +161,14 @@ PINNED_REFUSALS: dict[str, str] = {
 #
 # 1. `validated` and `review` are a FINER partition of the gate's PASS, so a
 #    pinned statement moving review<->validated is invisible to every check
-#    above while all of them stay green. Not hypothetical: at PIPELINE-FIX-2's
-#    first revision (`b8013d5`) two pinned documents made exactly that move and
-#    the gate reported GREEN over it (W3 §PIPEFIX P4b.5).
+#    above while all of them stay green. Not hypothetical: at `b8013d5` two
+#    pinned documents made exactly that move and the gate reported GREEN over it.
 # 2. A pinned statement can change a PUBLISHED integrity flag without changing
 #    class at all — a withheld document that loses a flag is still withheld.
 #    Not hypothetical either: activating the page-declaration check withdrew
 #    `missing_declared_statement_page` from the pinned BMO January statement,
 #    whose class did not move. A check on the outcome CLASS alone would have
-#    seen nothing, and that movement is why WIRING-1 stopped.
+#    seen nothing.
 # 3. `risk_level` and `possible_document_issue` move INDEPENDENTLY of the flag
 #    list, so pinning the class and the flags is still not enough.
 #    `possible_document_issue` keys on `recon.continuity_breaks >= 3`
@@ -199,9 +197,9 @@ PINNED_REFUSALS: dict[str, str] = {
 # holds every document that is NOT plainly published, and every pinned path
 # absent from it must equal `PUBLISHED_OUTCOME`. Measured: all 102 validated
 # documents share exactly one published state, so "absent" is a real
-# expectation and not a gap. Recorded from the tree at WIRING-2, POST-ceremony
-# (102 validated / 4 review / 3 withheld); moving an entry is truth-set
-# movement and needs the same ceremony as an audit CSV.
+# expectation and not a gap (the gate reports 102 validated / 3 review / 3
+# withheld / 1 refused); moving an entry is truth-set movement and needs the
+# same ceremony as an audit CSV.
 
 
 class _Verdict(NamedTuple):
@@ -245,10 +243,8 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
     ),
     # Three of the five page_coverage documents. The other two — Texas Bank and
     # Regions — were carrying `missing_declared_statement_page` FALSELY: their
-    # pages are present as unlabelled sheets, which W3 §PIPEFIX P4b.5 measured
-    # and Gustavo approved as a review->validated ceremony (approved
-    # 2026-08-14, re-scoped to three movements 2026-08-15). WIRING-2 executed
-    # it, so both now publish `PUBLISHED_OUTCOME` and live outside this map.
+    # pages are present as unlabelled sheets, and the owner approved a
+    # review->validated ceremony for them, so both now publish `PUBLISHED_OUTCOME` and live outside this map.
     #
     # Two of the three still keep their flags here, and they are the reason the
     # fix is not blunt: Builder supplies 4 sheets for 5 declared pages and Link
@@ -275,7 +271,7 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="review",
         possible_document_issue=False,
     ),
-    # CEREMONY, executed 2026-08-15 (WIRING-2, Gustavo's OPTION A):
+    # CEREMONY (the owner's option A):
     #
     #   Misc/Texas Bank.pdf   744D6E04AFCB1B0C6F91F6AC4E4B1A4976CBFA8C18D4F4E2950CD50723DA6110
     #   Regions/Regions.pdf   98D069AF2A41CC6F4A6E6B6DD94FA2E8C294E18438D817BBBB05CCE1B55E849F
@@ -289,8 +285,8 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
     # and ADB field is byte-identical — the two forensic oracles above prove
     # that on every gate run, and neither reads a flag.
     #
-    # This is the exact movement the gate could not see before WIRING-1's
-    # verdict check: `validated` and `review` are BOTH inside the audits' PASS
+    # This is the exact movement the gate cannot see without this verdict
+    # check: `validated` and `review` are BOTH inside the audits' PASS
     # class, so at `b8013d5` two pinned documents made this same move with the
     # gate reporting GREEN over it. It is recorded here because the map is the
     # only place that now watches it.
@@ -317,7 +313,7 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
         risk_level="review",
         possible_document_issue=False,
     ),
-    # CEREMONY, executed 2026-08-15 (WIRING-2, Gustavo's OPTION A, movement 3):
+    # CEREMONY (the owner's option A, movement 3):
     # sha256 E86143101E28E198EC5278B065E8BA967DD73E9AB735A1CAC4A0FE7CB46CB83F.
     # WITHHELD before and after — the refusal is a reconciliation one and does
     # not move — while its PUBLISHED EVIDENCE does: flags 7 -> 6 and notes
@@ -327,13 +323,10 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
     # `risk_level` (high) and `possible_document_issue` (True) are unchanged:
     # they are carried by the reconciliation findings, not by this flag.
     #
-    # WIRING-1 STOPPED the activation over exactly this document (W3 §WIRING
-    # W1): §PIPEFIX P4b.5 enumerated the pinned page_coverage documents by
-    # DIAGNOSIS and this one is diagnosed `source_contradiction`, so a sixth
-    # pinned flag-carrier went uncounted and the two-document ceremony would
-    # have moved a third. Withdrawing a false accusation from a withheld
-    # document's published evidence is still truth-set movement, which is why
-    # it waited for Gustavo's re-scope rather than being adjusted here.
+    # This document is diagnosed `source_contradiction`, so a count of the pinned
+    # page_coverage documents by diagnosis misses it. Withdrawing a false
+    # accusation from a withheld document's published evidence is still
+    # truth-set movement, which is why it needed the owner's re-scope.
     "Others/BMO/BMO_Statement_January_2026 Final-1-2 (1).pdf": _Verdict(
         "withheld",
         flags=(
@@ -387,9 +380,9 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
 # `tests/data/parser_expectations.json`. A change that moved the published
 # currency of 151 archive documents (four of them pinned) could therefore land
 # with every pinned artifact byte-identical and every gate check green. That is
-# the blindness class this closes, on Gustavo's ruling of 2026-08-16: "currency
-# must no longer be gate-invisible ... pin the expected currency for all 109
-# trusted statements, not only the four RBC movers".
+# the blindness class this closes, on the owner's ruling: "currency must no longer
+# be gate-invisible ... pin the expected currency for all 109 trusted statements,
+# not only the four RBC movers".
 #
 # WHY A SEPARATE TOTAL MAP rather than a sixth field on `_Verdict`. `_Verdict`
 # is an exception map: a pinned path absent from `PINNED_OUTCOMES` means "this
@@ -524,8 +517,7 @@ PINNED_CURRENCY: dict[str, str] = {
     "PNC/PNC_Statement-2026-05-28.pdf": "USD",
     # Already CAD from the French reader; explicitly NOT part of the ceremony.
     "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf": "CAD",
-    # CEREMONY, approved by Gustavo 2026-08-16 (CURRENCY_DOCTRINE §B).
-    # These four English RBC
+    # CEREMONY, approved by the owner (CURRENCY_DOCTRINE §B). These four English RBC
     # chequing statements move `statement.currency` USD -> CAD and NOTHING
     # else: ADB, opening/ending balances, the transaction ledger, credits and
     # debits, revenue classifications and validation outcomes are all
@@ -727,9 +719,6 @@ PINNED_CURRENCY_SOURCE: dict[str, str] = {
 #: page list yet?
 #:
 #: `assess_document_integrity` accepts `sheets=` and fail-closes without it.
-#: W3 §PIPEFIX card 2 added the parameter with no production caller passing it —
-#: the page-declaration fix shipped inert — and WIRING-2 wired all three callers
-#: and flipped this in the same commit as the approved truth-set ceremony.
 #: `production_verdict` below must reproduce whatever the callers actually do,
 #: because a harness that analyses differently from production pins a verdict
 #: production never publishes, and a harness that stays unwired while production
@@ -748,16 +737,9 @@ PRODUCTION_SUPPLIES_SHEETS = True
 #: (module path, enclosing function). Every one of them must pass `sheets=` when
 #: the wiring card activates.
 #:
-#: W3 §PIPEFIX P4b.5 tabulates three rows; only two are callers (its third is
-#: that module's docstring usage example, and its fourth — the cache key
-#: material — is a separate card). `batch.py` is the third real caller and was
-#: NOT in P4b.5's table: it holds the intake object in scope (`_read_source`
-#: returns it), `webapp/artifact_cache.py`'s own docstring names it a CLI
-#: consumer of the cache, and although its `needs_review` column keys on
-#: quality rather than on integrity, `_emit` serialises the report and passes it
-#: to `build_record`, which runs `classify_outcome` — so batch.py publishes an
-#: outcome class derived from these flags into its telemetry JSONL. It is a
-#: production caller and must be wired at activation.
+#: `batch.py` is a production caller: it holds the intake object in scope (`_read_source` returns it), and `_emit`
+#: passes its report to `build_record`, which runs `classify_outcome`, so it publishes an outcome class derived
+#: from these flags into its telemetry JSONL.
 #:
 #: `analysis/pipeline.py::analyze_document` is the L-1 DOCUMENT entry point.
 #: It is declared rather than excused, and the distinction is load-bearing: it
@@ -767,11 +749,6 @@ PRODUCTION_SUPPLIES_SHEETS = True
 #: take the page-declaration check offline for EVERY caller at once, which is
 #: precisely the drift this declaration exists to make loud.
 #:
-#: The two visual-pair callers (Phase 3.1, `vlm/pair_adapter.py::
-#: analyze_visual_pair` and `vlm/currency.py::resolve_currency`), declared here
-#: by the audit of 2026-10-13 (HYG-03), left this list with their modules in
-#: slice S4 of the model-code removal; the sweep's stale-caller check would
-#: have failed had either entry outlived its module.
 ANALYSIS_CALL_SITES = (
     ("discovery/runner.py", "_analyse"),
     ("webapp/worker.py", "_analyze_doc"),
@@ -794,26 +771,14 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # Operate on already-extracted markdown; no intake object exists.
     "analyze.py": "single-file CLI over an OCR'd .md; no intake object",
     "adb_debug.py": "developer debug utility; prints, publishes nothing",
-    # coverage_audit.py and deterministic_coverage_audit.py were retired
-    # (P20-SEAM / OQ7): both were pre-deterministic-shift dev CLIs that called
-    # `parse_statement` with the default `allow_visual_ocr=True` (an unbounded
-    # egress path), and `deterministic_coverage_
-    # audit.py` measured the same question `discovery/runner.py` already
-    # measures (audit #34, "duplicate"). `git rm`, this commit.
     # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.
     "corpus_gate.py": "the harness itself; tracks the call sites by declaration",
-    # (W3 §EXTRACTPRIV's reachability probe, `tools/extractpriv_reachability.py`,
-    # stood here until slice S3 of the model-code removal deleted it with the
-    # hosted extractor whose unreachability it probed.)
-    # A research instrument that went unclassified when it landed (audit
-    # 2026-10-13, HYG-03), excused on the same two grounds as the replays
-    # above. The revenue census re-analyses cached readings with a checkout's
-    # code and writes per-row decisions, digit-masked, to an output file it
-    # refuses to place inside a repository. It publishes no verdict to a user,
-    # a job record or a discovery row, and hands the analysis the page
-    # partition of the reading it analyses. (The visual-pair oracle,
-    # `tools/phase3_pair/oracle_compare.py`, was excused beside it until it was
-    # removed with the pair in slice S4 of the model-code removal.)
+    # A research instrument, excused on the same two grounds as the oracles
+    # above. The revenue census re-analyses cached readings with a
+    # checkout's code and writes per-row decisions, digit-masked, to an output
+    # file it refuses to place inside a repository. It publishes no verdict to a
+    # user, a job record or a discovery row, and hands the analysis the page
+    # partition of the reading it analyses.
     "tools/revenue_census.py": (
         "read-only research instrument; publishes no verdict to a user, job "
         "record or discovery row, and supplies the reading's page partition"
@@ -1213,7 +1178,7 @@ def _assert_document_verdict_follows(
 ) -> None:
     """Design §6.5's first bullet: the document verdict must FOLLOW from its accounts.
 
-    The L1-S3 review found the per-account verdicts returned and discarded at
+    Without this check the per-account verdicts were returned and discarded at
     the only call site (`verdict, _accounts = document_verdicts(payload)`),
     which made "one verdict per account plus a document verdict" a shape rather
     than a claim. Three ways the fold could stop following, each its own
@@ -1260,8 +1225,8 @@ _ADB_WORDS = ("average_daily_balance", "adb", "daily_balance", "average_balance"
 def _assert_document_facts(payload: dict, accounts: tuple[dict, ...]) -> None:
     """Design §6.5's third, sixth and seventh bullets, at the gate.
 
-    Three properties of a PUBLISHED document, each of which the L1-S3 review
-    recorded as owed and none of which any other check makes:
+    Three properties of a PUBLISHED document, none of which any other check
+    makes:
 
     * **the ADB stamps on EVERY account, and no document-level ADB anywhere.**
       The doctrine's unit is the ACCOUNT — one account, one calendar-day ADB
@@ -1451,9 +1416,9 @@ def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
     The page list is supplied to the analysis exactly when production supplies
     it — see `PRODUCTION_SUPPLIES_SHEETS`, which a test holds to the real call
     sites. It is never recovered by re-splitting the markdown: page content is
-    untrusted and can print a separator line (W3 §PIPEFIX P4b.1). The six
+    untrusted and can print a separator line. The six
     image-only statements resolve to a committed OCR artifact rather than to an
-    intake object, and since WIRING-2 that artifact carries the same intake
+    intake object, and that artifact carries the same intake
     run's page list (`corpus_artifacts.cached_pages`, proven to re-join to the
     committed markdown byte for byte) — which is what makes the approved
     Regions ceremony executable offline at all. An artifact with no committed
@@ -1701,8 +1666,7 @@ def check_currency_source(result: Result, manifest: list[str],
     details: list[str] = []
     # Total over the manifest MINUS the pinned refusals, both ways, exactly as
     # `check_currency` is: a document that publishes no statement has no
-    # provenance to pin (composed at the batch-7 train, where REPAIR-DOCTRINE's
-    # pinned refusal met CURRENCY-SOURCE's 109-entry surface).
+    # provenance to pin.
     denominated = [rel for rel in manifest if rel not in PINNED_REFUSALS]
     for rel in sorted(set(denominated) - set(PINNED_CURRENCY_SOURCE)):
         details.append(

@@ -43,7 +43,7 @@ def load_records(*, jsonl: str | None = None, sqlite: str | None = None,
 #: `classify_outcome` reaches each of them only from a payload, and reaches
 #: `failed` only without one, so this is a derivation from the record rather
 #: than a convention: it holds on every record ever emitted, including those
-#: written before `dispatch.source` could say `cached` (#TELCOV).
+#: written before `dispatch.source` could say `cached`.
 ANALYSED_CLASSES = frozenset({"validated", "review", "withheld"})
 
 
@@ -85,7 +85,8 @@ def coverage(records: list[dict]) -> dict:
       and an outcome was published) and carry no verdict. Every one of them is
       a document the rate cannot see: pre-#TELCOV records, where that is the
       whole cache-served set, and post-#TELCOV records only where the
-      reconstruction fail-closed (a structurer payload, or the REGFP window).
+      reconstruction fail-closed (a structurer payload, or a registry change
+      under a warm cache).
 
     AND THE RATE REFUSES RATHER THAN DEGRADES. With `unattributed` non-zero
     there is no honest single number: excluding those documents from the
@@ -255,13 +256,13 @@ def render(summary: dict, run_id: str | None = None) -> str:
         )
 
     lines.append("outcome")
-    # P22-TRUTHTABLE (R11), review MINOR-2. `refused` is a member of
-    # `OUTCOME_CLASSES` and is COUNTED in `summary["outcome"]`; before this it
-    # was printed nowhere, so a record carrying it was silently absent from the
-    # one block that exists to say what happened to a document. A class that is
-    # counted and not rendered is worse than one that does not exist: the
-    # totals stop adding up and nothing says why. Zero population in 2.2 — the
-    # class is reserved — which is exactly when a rendering hole is invisible.
+    # `refused` is a member of `OUTCOME_CLASSES` and is COUNTED in
+    # `summary["outcome"]`; before this it was printed nowhere, so a record
+    # carrying it was silently absent from the one block that exists to say what
+    # happened to a document. A class that is counted and not rendered is worse
+    # than one that does not exist: the totals stop adding up and nothing says
+    # why. Zero population in 2.2 — the class is reserved — which is exactly
+    # when a rendering hole is invisible.
     for key in ("validated", "review", "withheld", "failed", "deferred", "refused"):
         if key in summary["outcome"]:
             lines.append(_line(key, summary["outcome"][key], total))
@@ -323,7 +324,7 @@ class UnattributedParsers(RuntimeError):
     Narrowed by #TELCOV, not removed. A cache-served record now carries a
     reconstructed `parser_id` (`record.dispatch_section`), so on a run emitted
     since then this fires only where the reconstruction fail-closed - a
-    structurer payload, or the REGFP window - which is a finding worth
+    structurer payload, or a registry change under a warm cache - which is a finding worth
     stopping on. On a run emitted before it, it still fires on the whole
     cache-served set, which is what it was built for.
     """

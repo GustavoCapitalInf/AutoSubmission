@@ -9,11 +9,10 @@ from .truncation import PageIntegrity
 
 def native_evidence_describes(pages: list[str], evidence: ExtractionEvidence) -> bool:
     """THE consistency rule between a `StatementMarkdown`'s page list and a
-    native evidence (P22-IDENTITY, D5): the page COUNTS agree. Deliberately
-    NOT text equality — see `StatementMarkdown.native_evidence`. One
-    function so `__post_init__` (a constructed object refuses a mismatch)
-    and the intake ladder (which attaches only what this rule admits) can
-    never disagree about what "describes" means."""
+    native evidence: the page COUNTS agree. Deliberately NOT text equality — see
+    `StatementMarkdown.native_evidence`. One function so `__post_init__` (a
+    constructed object refuses a mismatch) and the intake ladder (which attaches
+    only what this rule admits) can never disagree about what "describes" means."""
     return len(evidence.pages) == len(pages)
 
 
@@ -33,113 +32,66 @@ class StatementMarkdown:
     # PDF, and DocumentProfile is built without ever calling OCR, so it cannot
     # hold this. This is the OCR result object, so this is where the flag lives.
     page_integrity: list[PageIntegrity] = field(default_factory=list)
-    # P21-ROUTING (Phase 2.1, design item 3). `page_extractor` is one
-    # provenance token per page, in page order — set by the ladder for
-    # WHICHEVER rung produced `pages` (native's own per-page token,
-    # `"local-tesseract-ocr"`, the visual settings' model, or the Paddle
+    # `page_extractor` is one provenance token per page, in page order — set by
+    # the ladder for WHICHEVER rung produced `pages` (native's own per-page
+    # token, `"local-tesseract-ocr"`, the visual settings' model, or the Paddle
     # rung's list); empty means "not populated" (every pre-Phase-2.1 caller,
     # including a cached artifact restored from a schema-1 record). `evidence`
     # is the immutable canonical extraction evidence (`evidence.canonical.
     # ExtractionEvidence`) behind a Paddle (or, later, native-geometry) read;
     # `None` for every rung that does not produce geometry. Importing
     # `evidence.canonical` here widens no pinned boundary — `evidence/` is a
-    # neutral, stdlib-only package owned by neither `ocr` nor `analysis`
-    # (D1) — and this module's own import set is pinned by
+    # neutral, stdlib-only package owned by neither `ocr` nor `analysis` (D1) —
+    # and this module's own import set is pinned by
     # `tests/test_escalation_tripwires.py::
     # test_ocr_document_imports_only_evidence_config_and_truncation`.
     page_extractor: list[str] = field(default_factory=list)
     evidence: ExtractionEvidence | None = None
-    # P22-IDENTITY (Phase 2.2, D5). `native_evidence` is the immutable
-    # canonical evidence of the NATIVE reader (`evidence/native.py`: PyMuPDF
-    # word boxes in the display frame) behind a native-rung read, attached
-    # once per document by the intake ladder and persisted in the OCR record
-    # with its sha (`EXTRACTION_SCHEMA_VERSION` 3). It is a SIBLING of
-    # `evidence`, deliberately, because the D9 invariant that field carries
-    # (`evidence.page_texts() == pages`) does NOT hold for the native rung:
-    # the native page strings come from `ocr/native_text.py::_native_pages`
-    # (PyMuPDF text BLOCKS, plus whatever a bank-specific native reader
-    # appended), not from grouping these words into lines. So this field's
-    # own consistency check is page COUNT only — never text equality — and
-    # that asymmetry is the whole reason it is not `evidence`. `None` for
-    # every rung that is not the native rung, and for a native read whose
-    # PDF yields no placeable word.
+    # `native_evidence` is the immutable canonical evidence of the NATIVE reader
+    # (`evidence/native.py`: PyMuPDF word boxes in the display frame) behind a
+    # native-rung read, attached once per document by the intake ladder and
+    # persisted in the OCR record with its sha (`EXTRACTION_SCHEMA_VERSION` 3).
+    # It is a SIBLING of `evidence`, deliberately, because the D9 invariant that
+    # field carries (`evidence.page_texts() == pages`) does NOT hold for the
+    # native rung: the native page strings come from
+    # `ocr/native_text.py::_native_pages` (PyMuPDF text BLOCKS, plus whatever a
+    # bank-specific native reader appended), not from grouping these words into
+    # lines. So this field's own consistency check is page COUNT only — never
+    # text equality — and that asymmetry is the whole reason it is not
+    # `evidence`. `None` for every rung that is not the native rung, and for a
+    # native read whose PDF yields no placeable word.
     native_evidence: ExtractionEvidence | None = None
-    # P23-WAVE (Phase 2.3, cell T's named STOP). The per-request TECHNICAL
-    # telemetry of the read that produced `pages` — exactly what the retired
-    # `ocr.paddle_rung.PaddleRead.telemetry` carried (the Paddle rung was
-    # removed in slice S5 of the model-code removal, so no rung sets this field
-    # now; it stays so the row projection's shape is unchanged): a `pages` list of
-    # per-page `inference_ms` / `total_ms` / `bytes_sent` / `bytes_received` /
-    # raster size / `cold_load` / `gpu_memory_used_mib`, and a `totals` block.
-    # Figures only: this field never holds a word, a line, a box or anything
-    # else derived from the document's CONTENT, and the row projection that
-    # reads it (`discovery/runner.py::_project_funnel`) writes four numeric
-    # columns and nothing else.
-    #
-    # RULED TRANSIENT. It is deliberately NOT part of the persisted OCR record:
-    # `webapp.artifact_cache.ArtifactCache.put_ocr` stores a named field list
-    # and this is not in it, so a cached read restores with
-    # `extraction_telemetry=None` and the four columns stay EMPTY on a
-    # `cache_paddle = hit` row. That is the honest reading — a hit made no
-    # request, so it measured no request — and it is why this field forces no
-    # `EXTRACTION_SCHEMA_VERSION` bump and cannot move a cache key:
-    # `to_markdown()` does not mention it, `ocr_settings_key` does not mention
-    # it, and `analysis_input_sha` keys on the markdown, the sheets and the
-    # evidence sha, none of which this touches. (`tests/test_paddle_wave.py`
-    # proved the payload and both keys identical with it set and unset; it
-    # left with the rung in slice S5.)
-    #
-    # `None` for every rung that measured nothing (native, Tesseract, visual,
-    # a committed artifact, a restored cache entry).
+    # The per-request technical telemetry of the read that produced `pages`: per-page timings, byte counts, raster
+    # size and GPU memory, and a `totals` block. Figures only, never anything derived from the document's content.
+    # No current rung sets it; `discovery/runner.py::_project_funnel` reads it. It is transient: `put_ocr` does not
+    # store it, so it moves no cache key and needs no `EXTRACTION_SCHEMA_VERSION` bump, and a restored read has
+    # `None`, because a cache hit made no request.
     extraction_telemetry: dict | None = None
-    # Phase 3.1: reviewed source fields, row lineage, gate and receipt binding.
-    # Separate from technical telemetry and canonical OCR geometry. Persisted
-    # only in the isolated visual-pair cache; contains private document content.
-    # No reader sets it since the visual pair was removed (model-code removal,
-    # slice S4); the field stays so a stored pair reading still restores.
+    # The retired visual pair's reading (private document content). No reader sets it; the field stays so a stored
+    # pair reading still restores.
     visual_pair: dict | None = None
 
     def __post_init__(self) -> None:
-        """Close F-4(b) / MAJOR-2 at the point both fields are SET.
+        """Validate `model` and `source_file` at the point both are set.
 
-        `model` and `source_file` both become text in `to_markdown()`'s single
-        header line, stripped whole by `admissible_text` only when the
-        comment stays on one line (`SOURCE_COMMENT_RE` is MULTILINE, not
-        DOTALL). Validating here means a hostile value never becomes a
-        `StatementMarkdown` at all, so `to_markdown()` never needs to defend
-        itself — the ONE existing guard downstream keeps doing its one job.
+        Both become text in `to_markdown()`'s single header line, stripped whole
+        by `admissible_text` only when the comment stays on one line
+        (`SOURCE_COMMENT_RE` is MULTILINE, not DOTALL). Validating here means a
+        hostile value never becomes a `StatementMarkdown`, so `to_markdown()`
+        never needs to defend itself.
 
-        Writer-side belt: `source_file` also
-        refuses `-->` — NOT because it can escape `SOURCE_COMMENT_RE` (it
-        cannot; the guard's lazy `.*?` backtracks to the LAST `-->` on the
-        line, so the comment still strips whole) but because an unbounded
-        `source:` field lets `source_file` masquerade as a SECOND header
-        (`... | pages: N | model: M | empty: 0 -->`) to any reader that
-        parses the header left-to-right without bounding the `model` token
-        to a closed charset — one such reader lands in this same phase
-        (cell D's `analysis/provenance.py`). The reviewer's own measurement:
-        zero cost — none of the 3,506 `source_file` values in the batch-9
-        run of record contains `-->`
-        (`test_no_run_of_record_source_file_contains_a_comment_close`,
-        corpus-marked). This is a belt, not the closure: the closure is the
-        READER bounding its own `model` field, which does not depend on
-        every writer everywhere getting this right first — see this
-        branch's W3 §Risks for the reader-side dependency, named.
-
-        NEW-5 (re-review, closure 1cc759e): the belt above blocks only the
-        EARLY-CLOSE shape (a `source_file` that ends the comment itself).
-        The field-supplying spoof the paragraph above describes — a
-        `source_file` that supplies its OWN `| model: X` text inside the
-        comment, without ever closing it early — needs no `-->` at all and
-        this belt does not touch it; it is closed entirely by cell D's
-        reader bounding its own `model` field, which must not be assumed to
-        depend on this branch.
+        `source_file` also refuses `-->`. It cannot escape `SOURCE_COMMENT_RE`
+        (the lazy `.*?` backtracks to the last `-->`), but an unbounded
+        `source:` field could pose as a second header to a reader that parses
+        the header left to right. That is a belt only: a `source_file` that
+        supplies its own `| model: X` text needs no `-->`, and the real defence
+        is the reader bounding its own `model` field
+        (`analysis/provenance.py`).
         """
         if self.model:
             # Reserved deterministic-rung prefixes ARE allowed here: the
             # native and local-tesseract rungs set these tokens directly on
-            # this class, never through the env-facing `load_settings`
-            # validator that refuses impersonation.
+            # this class.
             validate_model_token(self.model, allow_reserved=True)
         if "\n" in self.source_file or "\r" in self.source_file:
             raise ProvenanceTokenError(
@@ -149,7 +101,7 @@ class StatementMarkdown:
             raise ProvenanceTokenError(
                 "source_file rejected: contains a comment-close sequence ('-->')"
             )
-        # P21-ROUTING design item 3: `page_extractor`, when populated, must
+        # `page_extractor`, when populated, must
         # describe every page — one token each, in order — and every token
         # must itself be a valid provenance token (the native/tesseract/
         # visual/Paddle rungs all set reserved-prefix tokens directly here,
@@ -163,7 +115,7 @@ class StatementMarkdown:
             for token in self.page_extractor:
                 validate_model_token(token, allow_reserved=True)
         # `evidence`, when present, is the SAME object `pages` was derived
-        # from (D9 / D6): the page count and the derived page strings must
+        # from: the page count and the derived page strings must
         # match exactly, or a drift between the two is a defect this
         # construction refuses rather than silently carries.
         if self.evidence is not None:
@@ -181,10 +133,10 @@ class StatementMarkdown:
                     "evidence.page_texts() does not equal pages: the derived "
                     "page strings and the evidence they came from must be one object"
                 )
-        # P22-IDENTITY (D5): `native_evidence` describes the same document
-        # page for page — the ONE rule is `native_evidence_describes`, shared
-        # with the intake ladder, which declines to attach an evidence that
-        # fails it rather than raising in the middle of a read.
+        # `native_evidence` describes the same document page for page — the ONE
+        # rule is `native_evidence_describes`, shared with the intake ladder,
+        # which declines to attach an evidence that fails it rather than raising
+        # in the middle of a read.
         if self.native_evidence is not None:
             if not isinstance(self.native_evidence, ExtractionEvidence):
                 raise ProvenanceTokenError(
@@ -195,11 +147,11 @@ class StatementMarkdown:
                     f"native_evidence carries {len(self.native_evidence.pages)} pages but "
                     f"pages has {len(self.pages)}: they must describe the same document"
                 )
-        # P23-WAVE: a dict of figures, or nothing. The type is checked here for
-        # the same reason every other field's is — a wrong-shaped value must
-        # not become a `StatementMarkdown` and then a malformed row column
-        # three layers away — and NOT its contents, which are the extractor's
-        # own measurements and belong to whoever produced them.
+        # A dict of figures, or nothing. The type is checked here for the same
+        # reason every other field's is — a wrong-shaped value must not become a
+        # `StatementMarkdown` and then a malformed row column three layers away
+        # — and NOT its contents, which are the extractor's own measurements and
+        # belong to whoever produced them.
         if self.extraction_telemetry is not None and not isinstance(self.extraction_telemetry, dict):
             raise ProvenanceTokenError(
                 "extraction_telemetry must be a dict of technical figures or None"

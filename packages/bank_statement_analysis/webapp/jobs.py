@@ -47,8 +47,8 @@ class Job:
     stage: str = "queued"
     content_sha256: str | None = None
     # The earliest prior job holding the same bytes (`Storage.duplicate_of`), once known: set from the creation
-    # transaction for a job created here, read once for a job loaded from storage (audit 2026-10-13, BE-2). Final once
-    # known, None included: see `Storage.record_upload`.
+    # transaction for a job created here, read once for a job loaded from storage. Final once known, None included:
+    # see `Storage.record_upload`.
     duplicate_of: str | None = None
     duplicate_of_known: bool = False
 
@@ -94,9 +94,8 @@ def _classification_for(
 
 
 def _shown_reading(analysis: dict | None, zelle_true_revenue: bool | None) -> dict | None:
-    """The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17): the stored analysis in the Zelle
-    reading a reviewer saw (analysis/zelle_view.py `reading`), or the stored analysis itself when no reading is named.
-    Materialised once per call; it never mutates the stored analysis."""
+    """The stored analysis in the Zelle reading a reviewer saw (analysis/zelle_view.py `reading`), or the stored
+    analysis itself when no reading is named. Materialised once per call; it never mutates the stored analysis."""
     if zelle_true_revenue is None or not isinstance(analysis, dict):
         return analysis
     return zelle_view.reading(analysis, counted=zelle_true_revenue)
@@ -154,7 +153,7 @@ class JobStore:
             job.pdf_bytes = pdf_bytes  # held in RAM only while queued/processing
             self._storage.save_pdf(job.content_sha256, pdf_bytes)
         # One transaction: the document row, the job row and the upload audit row, and the duplicate answer read
-        # inside it (audit 2026-10-13, BE-2).
+        # inside it.
         job.duplicate_of = self._storage.record_upload(
             job.id,
             filename=filename,
@@ -170,10 +169,10 @@ class JobStore:
 
     def duplicate_of(self, job_id: str) -> str | None:
         """The earliest prior job holding the same bytes as this job, or None: `Storage.duplicate_of`, asked at most
-        once per job (audit 2026-10-13, BE-2). The dashboard polls /status every 1.4 s for every job in flight, and
-        each storage call opened a connection and ran two queries while the worker held the interpreter, so a poll
-        took tens to hundreds of milliseconds. The answer is final once the job exists (`Storage.record_upload`
-        says why), so the first one is kept on the job."""
+        once per job. The dashboard polls /status every 1.4 s for every job in flight, and each storage call opened
+        a connection and ran two queries while the worker held the interpreter, so a poll took tens to hundreds of
+        milliseconds. The answer is final once the job exists (`Storage.record_upload` says why), so the first one
+        is kept on the job."""
         job = self.get(job_id)
         if job is None or not job.content_sha256:
             return None
@@ -334,11 +333,10 @@ class JobStore:
     ) -> dict | None:
         """Replace the stored analysis AND record the append-only review
         decision (actor, timestamp, prior state) in one storage transaction.
-        `account` is the 1-based account the reviewer named, if any. The
-        owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17):
-        with `zelle_true_revenue` given, the prior state is read from that
-        Zelle reading (analysis/zelle_view.py `reading`), the one the reviewer
-        saw; the storage schema is unchanged."""
+        `account` is the 1-based account the reviewer named, if any. With
+        `zelle_true_revenue` given, the prior state is read from that Zelle
+        reading (analysis/zelle_view.py `reading`), the one the reviewer saw;
+        the storage schema is unchanged."""
         job = self.get(job_id)
         if job is None or job.analysis is None:
             return None
@@ -370,9 +368,9 @@ class JobStore:
         `(source_location, decision, account)` — each with the prior state it
         changed, in one storage transaction. The caller has already applied every
         decision to `analysis`; a posting appears at most once in a batch, so each
-        prior state is that posting's stored record before the batch. R2-OW17:
-        with `zelle_true_revenue` given, the prior states are read from that
-        Zelle reading, materialised once for the whole batch."""
+        prior state is that posting's stored record before the batch. With
+        `zelle_true_revenue` given, the prior states are read from that Zelle
+        reading, materialised once for the whole batch."""
         job = self.get(job_id)
         if job is None or job.analysis is None:
             return None
@@ -436,10 +434,9 @@ class JobStore:
         when the process died. Nothing is silently lost — the job row stays
         queryable with status 'interrupted' and this explanatory error.
 
-        ``persist=False`` (audit 2026-10-13, BE-1): a read-only start-up cannot
-        write, so this process shows those jobs interrupted with the same note
-        while their rows stay as they were; the next start that can write
-        marks them durably."""
+        ``persist=False``: a read-only start-up cannot write, so this process
+        shows those jobs interrupted with the same note while their rows stay as
+        they were; the next start that can write marks them durably."""
         if not persist:
             ids = self._storage.in_flight_job_ids()
             for job_id in ids:
