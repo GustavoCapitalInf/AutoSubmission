@@ -2,12 +2,8 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import subprocess
-import tempfile
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -18,10 +14,6 @@ POST_MOVE = "ded21ce2"
 DEFAULT_BASE = "10cc722"
 SCHEMA_BASE = "223e21d0"
 APPS_ADDED = "04c926de"
-REPO_DIR = PACKAGE_DIR.parents[1]
-#: An amount on unchanged lines of tests/test_no_statement_hardcodes.py since before DEFAULT_BASE. A plain diff
-#: across the move reports that heavily changed file as wholly added. Built here so this file never adds it.
-INHERITED_AMOUNT = f"{1111.11:,.2f}"
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -53,18 +45,6 @@ def git_config(request, monkeypatch):
         monkeypatch.setenv("GIT_CONFIG_VALUE_0", "true")
 
 
-@pytest.fixture
-def checkout_at(tmp_path):
-    def make(ref):
-        clone = tmp_path / f"checkout-{ref}"
-        subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(REPO_DIR), str(clone)], check=True)
-        sha = subprocess.run(["git", "rev-parse", ref], cwd=PACKAGE_DIR, capture_output=True, text=True,
-                             check=True).stdout.strip()
-        subprocess.run(["git", "update-ref", "--no-deref", "HEAD", sha], cwd=clone, check=True)
-        return clone
-    return make
-
-
 def test_batch9_census_reads_either_layout():
     from tools.batch9_census import git_show, parse_b8_census
 
@@ -73,54 +53,6 @@ def test_batch9_census_reads_either_layout():
     after = parse_b8_census(git_show(POST_MOVE, path))
     assert before
     assert after == before
-
-
-def test_desccols_loads_either_layout(tmp_path, monkeypatch):
-    import fitz
-    from tools.desccols_movement import base_module
-
-    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
-    with fitz.open() as document:
-        page = document.new_page()
-        page.insert_text((72, 72), "An invented page without a statement table")
-        pdf = document.tobytes()
-    before = base_module(PRE_MOVE)
-    after = base_module(POST_MOVE)
-    assert before.native_statement(pdf) is None
-    assert after.native_statement(pdf) is None
-    assert Path(after.__file__).read_bytes() == Path(before.__file__).read_bytes()
-
-
-def test_coreenc_keeps_baseline_vocabulary(tmp_path, capsys):
-    from tools.coreenc_archive_census import _literals
-
-    shas = tmp_path / "shas.txt"
-    shas.write_text("")
-    reports = []
-    for ref in (PRE_MOVE, POST_MOVE):
-        out = tmp_path / f"{ref}.json"
-        assert _literals(SimpleNamespace(
-            data_dir=tmp_path, shas=shas, repo=PACKAGE_DIR, base=ref,
-            out=out, show_residual=False,
-        )) == 0
-        reports.append(json.loads(out.read_text())["summary"])
-        capsys.readouterr()
-    assert reports[0]["base_vocabulary_files"] > 0
-    for key in ("base_vocabulary_files", "base_vocabulary_literals"):
-        assert reports[0][key] == reports[1][key]
-
-
-def test_coreiss2_recognises_inherited_words(tmp_path, monkeypatch, capsys):
-    from tools import coreiss2_probe as probe
-
-    monkeypatch.setattr(probe, "census_family", lambda name: {"A" * 64})
-    monkeypatch.setattr(probe, "document_text", lambda artifacts, sha: "Statement")
-    for ref in (PRE_MOVE, POST_MOVE):
-        probe.run_privacy(tmp_path, ref)
-        output = capsys.readouterr().out
-        match = re.search(r"archive words NOVEL .*: (\d+)", output)
-        assert match is not None
-        assert int(match[1]) == 0
 
 
 def test_privacy_diff_has_the_same_sites_and_exclusions():
@@ -237,25 +169,3 @@ def test_train_recognises_a_project_conflict(monkeypatch, capsys):
                                                   POST_MOVE: b"changed"}[rev])
     assert train.main(["train_merge_one", POST_MOVE, "fabricated"]) == 4
     assert "W3 SHAPE VIOLATION" in capsys.readouterr().out
-
-
-def test_coreiss2_does_not_count_an_amount_the_base_had(tmp_path, monkeypatch, capsys):
-    from tools import coreiss2_probe as probe
-
-    monkeypatch.setattr(probe, "census_family", lambda name: {"A" * 64})
-    monkeypatch.setattr(probe, "document_text", lambda artifacts, sha: INHERITED_AMOUNT)
-    probe.run_privacy(tmp_path, DEFAULT_BASE)
-    assert "FOUND: figures/dates/accounts=0 " in capsys.readouterr().out
-
-
-def test_coreenc_diffs_the_repo_it_is_given(tmp_path, capsys, checkout_at):
-    from tools.coreenc_archive_census import _literals
-
-    shas = tmp_path / "shas.txt"
-    shas.write_text("")
-    out = tmp_path / "report.json"
-    assert _literals(SimpleNamespace(
-        data_dir=tmp_path, shas=shas, repo=checkout_at(PRE_MOVE), base=PRE_MOVE,
-        out=out, show_residual=False,
-    )) == 0
-    assert json.loads(out.read_text())["summary"]["added_lines_literals"] == 0

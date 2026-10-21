@@ -63,13 +63,6 @@ LADDER_BINDINGS = {
     # `deterministic_coverage_audit` was retired (P20-SEAM / OQ7, `git rm`):
     # a pre-deterministic-shift dev CLI, duplicate of what `discovery/
     # runner.py` already measures (OCR_LEGACY_AUDIT.md #34).
-    # An INSTRUMENT, and it binds the ladder for the same reason the five
-    # oracles do: W3 §DESCCOLS measures what the new extraction rung changes,
-    # and a measurement taken through a privately composed ladder would be
-    # measuring something production does not run — GEOM-1's lesson, one
-    # directory over.
-    "tools.desccols_movement": "native_statement",
-    "tools.desccols_proofs": "native_statement",
 }
 
 #: `tests/` calls individual extractors on purpose (a rung is unit-tested by

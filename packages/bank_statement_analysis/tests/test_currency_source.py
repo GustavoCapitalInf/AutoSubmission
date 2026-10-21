@@ -542,12 +542,6 @@ def test_the_published_payload_carries_the_field_beside_the_currency():
 #: certify itself, and the gate that pins the surface. Nothing else — no metric,
 #: no ADB, no reconciliation, no package total, no export, no UI.
 PROVENANCE_MODULES = {
-    # Not a reader: FROST-OZK's committed mutation harness (W3 §FZ12) quotes a
-    # reader's registration line — `currency_source="institution_default"` —
-    # verbatim as a mutant anchor, so the token appears in its source. It reads
-    # no document and publishes nothing; enumerated here for the same reason
-    # `corpus_gate.EXCLUDED_ANALYSIS_CALLERS` names the replay instruments.
-    "tools/frostozk_mutation_table.py",
     # Not a reader: batch 9's census instrument reads the run of record's cached
     # analysis payloads and carries `currency_source` as a per-sha COLUMN NAME
     # (the provenance value a reader already published, copied into
@@ -558,8 +552,7 @@ PROVENANCE_MODULES = {
     # not consulting the label — the census runs `ast.parse` over this
     # repository's own source and never opens a document, a cache or a payload.
     "tools/l1s3_surface_census.py",
-    # Not a reader, and the same class as `tools/frostozk_mutation_table.py`
-    # above: L1-S3's mutation table quotes the gate's own refusal line —
+    # Not a reader: L1-S3's mutation table quotes the gate's own refusal line —
     # `surface="corpus_gate.py::check_currency_source"` — verbatim as a mutant
     # anchor, so the token appears in its source. It reads no document and
     # publishes nothing.

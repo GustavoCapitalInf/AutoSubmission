@@ -1124,8 +1124,8 @@ def _wells_rows(page) -> list[str]:
 # single space. A block is MuPDF's grouping, not a printed row, so where one
 # block's lines are printed on several rows that join welds tokens from
 # different rows into one line — and no reader can find the boundary again,
-# because there is nothing in the text to find. Measured with
-# `tools/desccols_census.py` over the run of record's 3,380 documents: 3,156 of
+# because there is nothing in the text to find. Measured
+# over the run of record's 3,380 documents: 3,156 of
 # the 3,189 that hold native text weld at least one line. The weld is the
 # flattening's default, not a family.
 #
@@ -1174,9 +1174,7 @@ def _wells_rows(page) -> list[str]:
 #       with G7 and is kept for the fast, comprehensible refusal rather than
 #       for correctness: measured, removing it alone changes no answer,
 #       because a half-serialised block either duplicates or drops tokens and
-#       G7 then refuses the page. `tools/desccols_mutate.py` records that as a
-#       surviving mutant on purpose, with the pair mutated together to show
-#       what they hold between them.
+#       G7 then refuses the page.
 #   G7  TOKEN CONSERVATION. The page's whitespace-separated tokens must be the
 #       same multiset before and after. Only line boundaries and within-line
 #       order may move; nothing may be invented, dropped or altered. The check
@@ -1196,8 +1194,8 @@ def _wells_rows(page) -> list[str]:
 #       side by side carries several money cells per row, and a row's FIRST
 #       money can only be its LAST printed cell when it is the only one — so
 #       G8 excludes the whole class. An explicit `at most one money cell per
-#       row` gate was written first and `tools/desccols_mutate.py` proved it
-#       changed no answer; it is deleted, and the equivalence is pinned as a
+#       row` gate was written first and proved to change
+#       no answer; it is deleted, and the equivalence is pinned as a
 #       test over every arrangement of up to five cells.
 #   G9  no line of the region is REPEATED PAGE FURNITURE — text another page
 #       of the same document prints at the same band position. A repaired row
