@@ -163,7 +163,7 @@ def test_upload_with_no_files_returns_400():
 
 
 def test_checked_upload_refuses_a_filename_with_a_line_break():
-    """MINOR-8 (PHASE2_P20SEAM_REVIEW.md): a multipart filename carrying a
+    """MINOR-8: a multipart filename carrying a
     raw CR/LF is refused at `_checked_upload`, with a class-name-only
     message — never the raw filename echoed back (unlike every other
     `_checked_upload` error branch, which safely echoes an ordinary

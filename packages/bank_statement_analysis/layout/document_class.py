@@ -27,8 +27,8 @@ Inputs and modes
 Exactly one of `evidence` / `page_texts` may be given (both is a refusal);
 neither is `KIND_UNCERTAIN`.
 
-Decision order (ruled, `P22-CLASSIFY.md` §5)
--------------------------------------------
+Decision order (ruled)
+----------------------
 1. `FILE_INVALID` — invalid PDF, encrypted, zero pages, or the Java
    object-serialisation magic.
 2. Conflicts → `KIND_UNCERTAIN`: a table signal beside a cheque signal; a

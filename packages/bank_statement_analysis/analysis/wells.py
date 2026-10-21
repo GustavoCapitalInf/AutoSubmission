@@ -9,7 +9,7 @@ any statement's data:
    the bank's ``(primary account)`` marker. Everything printed after that line
    — the account's activity summary, its transaction history, its fee summary —
    belongs to that account until the next such line. The platform's
-   ``Statement`` is single-account (MASTER_PLAN L-1), so what is published is
+   ``Statement`` is single-account, so what is published is
    the primary account's ledger measured against the primary account's summary.
    Reading the union of every account's rows against one account's summary is
    arithmetic on two different ledgers.

@@ -1065,7 +1065,7 @@ def parse_community_section_statement(markdown: str) -> Statement | None:
 
     * the masthead names MORE THAN ONE labelled domain - see below;
     * more than one of its accounts has activity. The `Statement` schema holds
-      ONE account (MASTER_PLAN L-1), and this template is used by credit unions
+      ONE account, and this template is used by credit unions
       that print a membership share, a checking account and a savings account
       side by side. Publishing the busiest one silently would report a subset
       of the customer's money as though it were all of it. Where exactly one

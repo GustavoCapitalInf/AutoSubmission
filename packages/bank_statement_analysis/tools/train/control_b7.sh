@@ -21,8 +21,7 @@
 #
 # Provenance is written before g1 beside the log and after g3 inside the run
 # directory. The control run does NOT rewrite the historical run of record; it
-# is labelled CONTROL-B7-WIN-<tree> and its accepted figures are recorded in
-# BATCH8_TRANSITION.md.
+# is labelled CONTROL-B7-WIN-<tree>.
 set -u
 cd "$(dirname "$0")/../.." || exit 9
 TRAIN=$(pwd)

@@ -3,10 +3,9 @@
 The platform extracts ``stated_credit_count`` / ``stated_debit_count`` from
 twenty parser modules and **publishes them as its own deposit and withdrawal
 counts** (``analysis/metrics.py:353-356``, ``:368-371``) without ever comparing
-them against the rows it publishes beside them. `PROPOSAL_STATED_COUNTS.md`
-proposes that comparison; Gustavo's 2026-08-10 sign-off
-(`WAVE2_EXECUTION_LOG.md`) made a two-phase rollout MANDATORY and this module
-is phase 1 of it.
+them against the rows it publishes beside them. Gustavo's 2026-08-10 sign-off
+on that comparison made a two-phase rollout MANDATORY and this module is
+phase 1 of it.
 
 **This module still changes nothing.** Nothing here is imported by
 ``analysis/``, ``ocr/``, ``webapp/`` or ``discovery/``; no flag is emitted; no
@@ -82,8 +81,6 @@ account number or bank-printed string ever reaches an observation.
     python -m telemetry.stated_counts --run discovery_reports/<run> \\
         --data-dir webapp_data [--corpus-audit docs/adb-audit-results.csv] \\
         [--json]
-
-Mapping rationale, per bank: `docs/moneythumb-replacement/COUNTS_P1_MEASUREMENT.md` §3.
 """
 from __future__ import annotations
 

@@ -5,9 +5,6 @@ population, plus the negative fixtures that constrain each new rule. Every
 document here is synthetic: no archive bytes, no customer, and no amount or
 date copied from a real statement. What is reproduced is the *shape* the bank
 prints — which is the thing the parser is allowed to know.
-
-The families are recorded in `docs/moneythumb-replacement/W3_TRACKA_LOG.md`
-(§BOFA).
 """
 from __future__ import annotations
 

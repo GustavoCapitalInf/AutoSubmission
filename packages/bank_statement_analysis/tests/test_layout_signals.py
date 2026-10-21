@@ -1,6 +1,6 @@
 """`layout/signals.py` — the closed signal vocabulary, the three-language
-lexicons and the minimal token-shape grammars (Phase 2.2 cell C,
-`P22-CLASSIFY.md` §4; umbrella case 24 for the no-hardcode scans).
+lexicons and the minimal token-shape grammars (Phase 2.2 cell C;
+umbrella case 24 for the no-hardcode scans).
 
 Every lexicon entry is exercised here with a positive sample AND a boundary
 negative (the entry glued to a letter must not match), which is what

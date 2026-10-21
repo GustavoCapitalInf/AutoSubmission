@@ -14,9 +14,8 @@ this file stays a table of contents rather than a second place to look for
 detection logic.
 
 Ids follow the naming baseline of the reviewed prototype registry
-(`git show 54a9e8d:analysis/parser_registry.py`, catalogued in
-PROTOTYPE_REVIEW.md). That prototype's first-match dispatch is deliberately
-not reused — see docs/moneythumb-replacement/R3_RFC.md §1.
+(`git show 54a9e8d:analysis/parser_registry.py`). That prototype's
+first-match dispatch is deliberately not reused.
 """
 from __future__ import annotations
 

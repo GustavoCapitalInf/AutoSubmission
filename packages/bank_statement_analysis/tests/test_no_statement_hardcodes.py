@@ -38,7 +38,7 @@ from pathlib import Path
 import pytest
 
 ANALYSIS_DIR = Path(__file__).resolve().parent.parent / "analysis"
-#: OQ2 = YES (docs/moneythumb-replacement/PHASE2_RULINGS.md): the
+#: OQ2 = YES: the
 #: no-statement-hardcodes / value-meaning-hardcodes protection extends into
 #: `ocr/`. See the `# --- OQ2 extension ---` section at the end of this file.
 OCR_DIR = Path(__file__).resolve().parent.parent / "ocr"
@@ -750,9 +750,8 @@ def test_closing_the_docstring_hole_flags_no_module():
 
 
 # ---------------------------------------------------------------------------
-# OQ2 extension (docs/moneythumb-replacement/PHASE2_RULINGS.md, ruled
-# 2026-09-01): the no-statement-hardcodes / value-meaning-hardcodes
-# protection extends into `ocr/`. F-3 (OCR_LEGACY_AUDIT.md) found issuer-
+# OQ2 extension (ruled 2026-09-01): the no-statement-hardcodes / value-meaning-hardcodes
+# protection extends into `ocr/`. F-3 found issuer-
 # specific behaviour (TD page-1 recovery) inside the intake layer, where this
 # guard's scans never reached. Everything below reuses the SAME pattern
 # classes and helper functions already defined above, parameterized over

@@ -1,6 +1,5 @@
 """The ONE native PDF reader: PyMuPDF words -> canonical evidence, in the
-DISPLAY frame (Phase 2.2 cell K, `docs/agent-handoffs/P22-IDENTITY.md`
-items 1-2; umbrella D3/D4).
+DISPLAY frame (Phase 2.2 cell K; umbrella D3/D4).
 
 Why it lives here
 -----------------
@@ -38,9 +37,8 @@ pin on unrotated pages holds by construction rather than by floating-point
 luck. A rotated page carries `ROTATION_APPLIED_NOTE` in its notes and
 `rotation_deg` on its frame; the Phase 2.1 note is retired and never emitted.
 
-Phase 2.3 closes the two latent defects the cell's re-review named
-(`docs/moneythumb-replacement/reviews/PHASE2_P22IDENTITY_REVIEW.md`
-§Re-review; `docs/agent-handoffs/P23-AGREE.md` item 4), both with a
+Phase 2.3 closes the two latent defects the cell's re-review named,
+both with a
 population of 0 in the archive and both reachable by a real PDF:
 
 * **N-1** — the display transform is now taken from the rectangle

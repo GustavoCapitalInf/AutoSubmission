@@ -1,4 +1,4 @@
-"""Phase 2.3 cell E (`docs/agent-handoffs/P23-EGATE.md`): extraction-quality
+"""Phase 2.3 cell E: extraction-quality
 metrics v2 — MEASURED, VERSIONED, and admitted as NOTHING.
 
 What this file proves, in the order the card words it:

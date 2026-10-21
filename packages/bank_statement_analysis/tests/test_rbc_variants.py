@@ -430,7 +430,7 @@ def test_negative_a_third_adjacent_money_cell_does_not_become_a_second_balance()
 #: version of this fixture invented three wordings — a `Date Description
 #: Retraits` header (which is CIBC's, not RBC's) and two `Total des ...`
 #: rows that match no document — and the parser was written to them, so
-#: `rbc_french` claimed nothing corpus-wide. See W3_TRACKA_LOG §RBCCIBC card C.
+#: `rbc_french` claimed nothing corpus-wide.
 FR = """
 BANQUE ROYALE DU CANADA
 Relevé de compte d'entreprise
@@ -597,8 +597,7 @@ def test_r_negative_the_debit_rows_minus_is_its_direction_cell_not_a_sign(printe
 # RBCCIBC-LAYOUTS card D - the money grammar, hardened against the shapes the
 # unclaimed RBC/CIBC families print. Every fixture below fails against
 # `cce8ac1`, and none of the shapes occurs in the 160 documents the registry
-# already claims (the census and the byte-identity sweep are in
-# W3_TRACKA_LOG.md §RBCCIBC).
+# already claims.
 # ---------------------------------------------------------------------------
 
 def test_d_a_summary_balance_printed_minus_space_symbol_is_negative():
@@ -1709,7 +1708,7 @@ def test_curj_the_dollar_symbol_alone_establishes_nothing():
 
 
 #: The nine CURRENCY-1 explicit-evidence corrections (batch 5, `9a0d391`),
-#: named by `content_sha256` exactly as RBC_CURRENCY_MEASUREMENT §7 names them.
+#: named by `content_sha256`.
 #: None of them moves under this card, for two structurally different reasons —
 #: which is what the test below proves, one mechanism each.
 _CURRENCY_1_CORRECTIONS = {

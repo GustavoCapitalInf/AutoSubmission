@@ -63,9 +63,8 @@ The At-A-Glance box arrives in two shapes and the difference is the
 extractor's, not the bank's: most documents emit the box's column heading
 (`Statement Period Days / Average Ledger Balance`) before its cells, and some
 emit part of the cell run ABOVE it. `_summary_block` therefore bounds the block
-on both sides, by the grid's own cell shapes — W3_TRACKA_LOG §DECLINESF, which
-also corrects §FI5: the four `3df19105_*1301` documents DO print a control row,
-and one of them is not dormant.
+on both sides, by the grid's own cell shapes. The four `3df19105_*1301`
+documents DO print a control row, and one of them is not dormant.
 """
 from __future__ import annotations
 

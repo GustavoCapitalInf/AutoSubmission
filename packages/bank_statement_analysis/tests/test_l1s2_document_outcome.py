@@ -1,7 +1,7 @@
 """The Q10 tripwire: one resolver for the DOCUMENT's outcome, and a guard that
 forces S3 to extend the pins the moment a document-level fold exists.
 
-Gustavo's Q10 ruling (2026-08-30, `BATCH9_TRANSITION.md` §8.7) says an explicit
+Gustavo's Q10 ruling (2026-08-30) says an explicit
 sibling omission beside an independently valid account does NOT demote it. The
 first version of L-1 stage 2's pins asserted that on the ACCOUNT leg only, and
 the independent re-review showed what that misses: a `classify_document` added
@@ -175,7 +175,7 @@ def document_outcome(report) -> tuple[str, str]:
 
 _EXTEND = (
     "A DOCUMENT-LEVEL OUTCOME FOLD HAS LANDED, and Gustavo's Q10 ruling "
-    "(BATCH9_TRANSITION §8.7) says it may NOT demote the 15 protected carriers "
+    "says it may NOT demote the 15 protected carriers "
     "that surface a sibling omission. Wire it into "
     "tests/test_l1s2_document_outcome.py::document_outcome so that "
     "tests/test_l1s2_omission_ruling.py "

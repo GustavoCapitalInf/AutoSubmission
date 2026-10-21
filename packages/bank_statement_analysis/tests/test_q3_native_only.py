@@ -2,18 +2,16 @@
 
 `printed_pair_coincides_and_no_row_printed` was corroborated 6/6 on
 `native-pdf-text` `guardian_cu` documents only, to bound an OCR row-loss hazard
-that has never been measured on OCR'd input (`OCR_LEGACY_AUDIT.md` F-8/§5.8;
-`PHASE2_ARCHITECTURE_PLAN.md` §6 last paragraph; `PHASE2_RULINGS.md` §Q3). Until
+that has never been measured on OCR'd input. Until
 the corroboration is re-measured on OCR'd `guardian_cu`, the class is
 admitted only when the document's own header names an extractor model that IS
 `native-pdf-text` or starts with `native-pdf-text+` (equality-or-plus-prefix,
-not a bare `startswith` — MINOR-1, `PHASE2_P20SURFACES_REVIEW.md`: a bare
+not a bare `startswith` — MINOR-1: a bare
 `startswith` also admits `native-pdf-textXYZ`, a shape no writer produces);
 anything else fails closed.
 
 Layers tested here, expanded after TWO rounds of independent adversarial
-review (`docs/moneythumb-replacement/reviews/PHASE2_P20SURFACES_REVIEW.md`,
-VERDICT BLOCK both times, closed in full both times):
+review (VERDICT BLOCK both times, closed in full both times):
 
 * `analysis.provenance.extractor_model` — the provenance READER, in isolation.
   Round 1 (BLOCK-1) closed the vector where a hostile `source_file` (the
@@ -38,8 +36,8 @@ VERDICT BLOCK both times, closed in full both times):
   (MAJOR-2), not only through `analyze_document`'s raised exception.
 
 The real `guardian_cu` archive documents are not re-run here (Phase 2.0
-excludes any Q3 remeasurement on OCR input, and no PDFs live in the cache —
-see `OCR_LEGACY_AUDIT.md` §5.8 clause 2). What proves those 8 specific
+excludes any Q3 remeasurement on OCR input, and no PDFs live in the cache).
+What proves those 8 specific
 documents untouched: a cohort replay over the parsers `community_section`,
 `dakota_west`, `mission_valley`, `member_statement_rollup`, `symitar` and
 `zions` (NOT the `guardian_cu` folder, which selects 0 rows on
@@ -120,7 +118,7 @@ def test_extractor_model_returns_none_for_an_empty_model_field():
 
 
 def test_extractor_model_accepts_a_crlf_document():
-    """MINOR-8 (`PHASE2_P20SURFACES_REVIEW.md` re-review): the mandatory
+    """MINOR-8 (re-review): the mandatory
     blank-line check must accept `\\r\\n\\r\\n`, not only `\\n\\n` -- a CRLF
     document (the shape a Windows-authored `.md` file, one of MAJOR-4's
     production inputs, is likely to carry) must parse exactly as its LF
@@ -140,7 +138,7 @@ def test_extractor_model_refuses_a_crlf_document_with_a_body_run_too():
 
 
 # ---------------------------------------------------------------------------
-# MINOR-10 (`PHASE2_P20SURFACES_REVIEW.md` second re-review): four clauses of
+# MINOR-10 (second re-review): four clauses of
 # "THE PROPERTY, EXACTLY" (the module docstring) were true in the shipped
 # code but unpinned -- mutants S3, S7, S8, S9 each disabled one clause and no
 # existing test noticed, because every shipped test that would notice also
@@ -199,7 +197,7 @@ def test_the_model_charset_excludes_whitespace_and_angle_brackets():
 
 
 # ---------------------------------------------------------------------------
-# BLOCK-1 (`PHASE2_P20SURFACES_REVIEW.md`): `source_file` cannot supply the
+# BLOCK-1: `source_file` cannot supply the
 # model. `source_file` is the uploaded filename -- attacker-supplied,
 # unsanitised (`webapp/app.py` -> `webapp/worker.py` -> `ocr/document.py`) --
 # so a header reader that stops at the FIRST `-->` on the line can be handed a
@@ -273,7 +271,7 @@ def test_a_hostile_source_file_fails_closed_end_to_end(_label, source_file):
 
 
 def test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescued():
-    """BLOCK-1R (`PHASE2_P20SURFACES_REVIEW.md` re-review): this used to assert
+    """BLOCK-1R (re-review): this used to assert
     the OPPOSITE -- that an honest native document survives a hostile
     `source_file` and still admits. The reviewer named that the wrong
     direction for a fail-closed provenance gate: `source_file` carrying the
@@ -296,7 +294,7 @@ def test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescu
 
 
 # ---------------------------------------------------------------------------
-# BLOCK-1R (`PHASE2_P20SURFACES_REVIEW.md` re-review): a field run printed in
+# BLOCK-1R (re-review): a field run printed in
 # the PAGE BODY -- after the genuine header fields -- is a SECOND vector into
 # the same hole BLOCK-1's fix closed only half of. The re-review measured
 # that a right-anchored, `DOTALL`-greedy match has no bound on how far right
@@ -444,7 +442,7 @@ def test_a_native_layout_suffix_is_still_admitted():
 
 
 def test_a_bare_concatenation_with_no_plus_is_refused():
-    """MINOR-1 (`PHASE2_P20SURFACES_REVIEW.md`): `native-pdf-textXYZ` is a
+    """MINOR-1: `native-pdf-textXYZ` is a
     shape no writer in this tree produces (`ocr/native_text.py` writes only
     the bare token or a `+suffix` form). A bare `startswith("native-pdf-
     text")` would have admitted this; the equality-or-`+`-prefix check must
@@ -478,7 +476,7 @@ def test_header_removed_refuses_and_fails_closed():
 
 
 def test_the_headerless_case_above_is_a_live_production_path_not_only_a_fixture_shape():
-    """MAJOR-4 (`PHASE2_P20SURFACES_REVIEW.md`): `analyze.py:186-188`
+    """MAJOR-4: `analyze.py:186-188`
     (`open(args.markdown).read() -> analyze_document(markdown)`, the CLI's own
     help calling its argument "Path to the OCR markdown file") and
     `batch.py:59-75,245-262` (`_read_source` returns `path.read_text()`
@@ -505,7 +503,7 @@ def test_empty_model_token_refuses_and_fails_closed():
 
 
 # ---------------------------------------------------------------------------
-# BLOCK-2 (`PHASE2_P20SURFACES_REVIEW.md`): the refusal must be unconditional
+# BLOCK-2: the refusal must be unconditional
 # in EVERY `parse_mode`, not only `"deterministic"`. Until slice S3 of the
 # model-code removal a sentinel stood in for the hosted extractor here and
 # failed the test if a Q3 refusal ever fell through to it in auto mode; the
@@ -566,7 +564,7 @@ def test_the_refusal_is_the_same_shape_l1_c17_uses_for_an_unratified_reason():
     `tests/test_l1s2_omission_ruling.py::test_the_document_is_refused_rather_
     than_published_short` asserts for the sibling-boundary refusal.
 
-    MAJOR-2 (`PHASE2_P20SURFACES_REVIEW.md`): the CLASS that crosses
+    MAJOR-2: the CLASS that crosses
     `_guarded`'s boundary (`ParserFailure` stores no message, by the same
     privacy discipline the sibling omission machinery already applies
     elsewhere) is now `Q3ProvenanceRefused`, not the generic `ValueError` a

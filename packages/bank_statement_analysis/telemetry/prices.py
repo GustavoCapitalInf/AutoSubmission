@@ -1,7 +1,7 @@
 """Versioned model price estimates. Never invents a price.
 
-The rule, inherited from the prototype's cost-telemetry pattern
-(PROTOTYPE_REVIEW item 3): a model we do not have a price for contributes
+The rule, inherited from the prototype's cost-telemetry pattern:
+a model we do not have a price for contributes
 **nothing** to the estimate and is named in ``unpriced_models``. A guessed
 number in a cost report is worse than no number, because it looks like a
 measurement.

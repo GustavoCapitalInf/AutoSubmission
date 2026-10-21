@@ -141,7 +141,7 @@ def test_paddle_model_tokens_is_a_literal_pin():
 
 
 def test_visual_model_tokens_matching_is_case_sensitive_by_design():
-    """MAJOR-3 (PHASE2_P20SEAM_REVIEW.md): a case variant of the registered
+    """MAJOR-3: a case variant of the registered
     visual token is an UNRECOGNISED token, not a case-insensitive match for
     the real one — the same discipline every other branch of
     `source_path_for` already uses (`"local-tesseract-ocr"`,
@@ -156,7 +156,7 @@ def test_visual_model_tokens_matching_is_case_sensitive_by_design():
 
 
 def test_model_calls_for_records_the_historical_endpoint_constants_on_every_ocr_entry(monkeypatch):
-    """MAJOR-2 (PHASE2_P20SEAM_REVIEW.md): `endpoint_class` / `remote_opt_in`
+    """MAJOR-2: `endpoint_class` / `remote_opt_in`
     land on EVERY OCR-stage call entry — native/tesseract/none included, not
     only visual. Since slice S2 of the model-code removal they are the fixed
     historical constants "loopback" / False (M12), the values every default

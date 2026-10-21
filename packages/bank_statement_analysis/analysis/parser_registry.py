@@ -1,4 +1,4 @@
-"""Parser protocol and registry dispatch (R-3; MASTER_PLAN P1-1b / AD-1).
+"""Parser protocol and registry dispatch (R-3).
 
 Replaces the 43-term `or`-chain that used to be `analysis/pipeline.py`'s
 `_deterministic_statement`. The chain worked, but it had no way to express the
@@ -202,7 +202,7 @@ def admissible_text(markdown: str) -> str:
     Strips the source-filename comment. Applied centrally, before any parser's
     own normalization, so filename text is structurally inadmissible for all
     registrations rather than by each parser's good intentions — R-4 found two
-    that were reading it (R4_CONFORMANCE_FINDINGS.md R4-1, R4-2), one of which
+    that were reading it, one of which
     recognised its own corpus document *only* by its filename.
 
     Parsing is covered too, since W3 FILENAME-BOUNDARY: `analysis.pipeline.

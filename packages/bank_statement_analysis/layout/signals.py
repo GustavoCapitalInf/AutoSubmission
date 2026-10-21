@@ -1,6 +1,6 @@
 """layout/signals.py — the closed signal vocabulary, the three-language
 lexicons and the minimal token-shape grammars the document classifier reads
-(Phase 2.2 cell C, `P22-CLASSIFY.md` §4; plan §J.2; research memo R.3).
+(Phase 2.2 cell C).
 
 What lives here and why
 -----------------------

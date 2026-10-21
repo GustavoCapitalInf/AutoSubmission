@@ -694,7 +694,7 @@ def test_source_posting_dates_ignores_a_printed_section_total_row():
 
     BMO's Canadian business layout closes its ledger with
     `<date> Closing totals <debited> <credited>`; read as a posting it invents
-    an activity day the document never had (W3_TRACKA_LOG §BMO-LAYOUTS §M6.2).
+    an activity day the document never had.
     """
     from analysis.dates import source_posting_dates
 

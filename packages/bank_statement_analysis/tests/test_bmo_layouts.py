@@ -2,8 +2,7 @@
 
 The cell: the BMO documents in the discovery archive that no registration
 claimed — 179 records / 164 distinct documents in run `52b4b2b2`. They are not
-one layout. Three structural families account for 160 of them, and the families
-are recorded in `docs/moneythumb-replacement/W3_TRACKA_LOG.md` (§BMO-LAYOUTS):
+one layout. Three structural families account for 160 of them:
 
 * **A** — BMO Canada `Business Banking statement`: a `Summary of account` row
   and a four-column ledger (`Amounts debited` / `Amounts credited` / `Balance`),

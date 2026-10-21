@@ -1,7 +1,6 @@
 """Gustavo's Q10 ruling, pinned: SURFACE THE OMISSION, DO NOT DEMOTE.
 
-`BATCH9_TRANSITION.md` §8.7 (and `docs/agent-handoffs/BATCH9-RULES.md`). An
-explicit sibling omission beside an independently valid account keeps THAT
+An explicit sibling omission beside an independently valid account keeps THAT
 ACCOUNT `validated`; the omission is surfaced separately, at the document /
 package layer, rather than being paid for by demoting the account that was read
 correctly.

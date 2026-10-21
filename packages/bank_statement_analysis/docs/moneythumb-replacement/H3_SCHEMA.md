@@ -9,6 +9,8 @@ This document is DSC-2's data contract (WAVE2_BRIEF §6 checkpoint 2). It define
 one record shape, where every field comes from, the one pipeline seam it needs,
 how it is stored on both paths, and the tests that keep it honest.
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../HISTORY.md) says how to read them.
+
 ---
 
 ## 1. What H-3 is, and what it must never become

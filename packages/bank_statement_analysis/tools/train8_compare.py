@@ -4,7 +4,7 @@
         --quarantine tools/train/recon_b7_quarantine_nonnative_208.shas \
         [--report <path.md>] [--fail-on-regression]
 
-Why this exists (BATCH8_TRANSITION, "Option B CONFIRMED"): the historical run
+Why this exists: the historical run
 of record is gone; the comparison base is the REGENERATED batch-7 run
 `47be5963` (Tesseract 5.5.3 on this host). Its native side reproduces the
 batch-7 state by every durable record; its scanned side could not be made

@@ -26,8 +26,7 @@ EXPECTED_ROWS = 109
 
 #: Parser id -> the attribute in `analysis.pipeline` that the or-chain calls.
 #: Ids follow the naming baseline of the reviewed prototype registry
-#: (`git show 54a9e8d:analysis/parser_registry.py`, catalogued in
-#: PROTOTYPE_REVIEW.md); its dispatch semantics are deliberately NOT reused.
+#: (`git show 54a9e8d:analysis/parser_registry.py`); its dispatch semantics are deliberately NOT reused.
 PIPELINE_ENTRY_POINTS: dict[str, str] = {
     "columbia_bank": "parse_columbia_bank_statement",
     "first_farmers": "parse_first_farmers_statement",

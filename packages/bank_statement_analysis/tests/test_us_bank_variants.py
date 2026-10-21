@@ -12,7 +12,7 @@ outside the three was dropped from the stated totals AND from the ledger at the
 same time, so the bank's own summary identity failed on OUR reading of it while
 the ledger still agreed with the (incomplete) totals we had assembled — which is
 why all 20 documents diagnosed as `summary_identity` rather than as a coverage
-loss. See `docs/moneythumb-replacement/W3_TRACKA_LOG.md` section TRIO.
+loss.
 
 Every fixture prints BOTH categories the pre-change parser required
 (`Other Deposits` and `Other Withdrawals`), so each one is a document the old

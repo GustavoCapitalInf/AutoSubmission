@@ -1,4 +1,4 @@
-"""Phase 2.1 cell G (`docs/agent-handoffs/P21-GEOMETRY.md`): one `DocumentGeometry`
+"""Phase 2.1 cell G: one `DocumentGeometry`
 from canonical evidence — native PyMuPDF words and (synthetic) Paddle-shaped
 word boxes through the SAME path, explicit and tested coordinate frames.
 

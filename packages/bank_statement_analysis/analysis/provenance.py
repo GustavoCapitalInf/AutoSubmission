@@ -8,7 +8,7 @@ header before any page content:
 That header is the platform's only record of WHICH extractor produced the text
 a parser is about to read.
 
-MINOR-9 (`PHASE2_P20SURFACES_REVIEW.md` re-review, closure `2cb4c0e`): an
+MINOR-9 (closure `2cb4c0e`): an
 earlier version of this docstring claimed "a claim that starts anywhere else —
 including ... a header a PAGE printed as ordinary text — is not found." That
 was false, and BLOCK-1R measured it: a right-anchored, DOTALL match has no
@@ -69,8 +69,7 @@ the model token even if it somehow survived to sit in that position.
 
 Used by `analysis/sibling_omission.py::publish_omissions` to gate the
 `printed_pair_coincides_and_no_row_printed` omission class to native-pdf-text
-provenance (Q3, `PHASE2_ARCHITECTURE_PLAN.md` §6 last paragraph; `OCR_LEGACY_
-AUDIT.md` §5.8 step 6): that class was corroborated only on `native-pdf-text`
+provenance (Q3): that class was corroborated only on `native-pdf-text`
 documents and the OCR row-loss failure mode it exists to bound has never been
 measured on OCR'd input.
 """

@@ -656,7 +656,7 @@ DETECTION_MARKERS = (
     required("summary_section", lambda t: "ACCOUNT SUMMARY" in t),
     # A TD statement paying a Bank of America card carries both of the above.
     # Require the issuer's own domain, the same class of evidence eight other
-    # parsers already detect on (R3_DETECTION_FINDING.md).
+    # parsers already detect on.
     required("issuer_domain", lambda t: "BANKOFAMERICA.COM" in t),
 )
 

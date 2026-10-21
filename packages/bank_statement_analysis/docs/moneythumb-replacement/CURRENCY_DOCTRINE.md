@@ -4,6 +4,8 @@ Ratified alongside the Batch-6 GO. This document is the doctrine of record;
 the WAVE2_EXECUTION_LOG batch entry references it. It governs every cell
 that touches currency, packages, or published financial metrics.
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../HISTORY.md) says how to read them.
+
 ## A. Native currency is canonical
 
 The bank-statement analysis layer preserves the NATIVE currency of the

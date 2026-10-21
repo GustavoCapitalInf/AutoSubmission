@@ -1,5 +1,4 @@
-"""Phase 2.3 cell X (`docs/agent-handoffs/P23-AGREE.md` items 1, 5, 6; umbrella
-case 7): native <-> extractor agreement and the geometry census,
+"""Phase 2.3 cell X (umbrella case 7): native <-> extractor agreement and the geometry census,
 `layout/agreement.py`.
 
 Everything here is SYNTHETIC. The word geometry comes from

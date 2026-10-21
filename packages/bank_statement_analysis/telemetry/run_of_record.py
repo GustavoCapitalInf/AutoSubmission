@@ -3,8 +3,8 @@ run, used by
 ``telemetry/stated_counts.py::_ArtifactJoin`` (P20-ARTIFACTS, Phase 2.0;
 OQ8 = adopt the existing selection machinery, OQ10 = follow the run of record).
 
-Why this exists (F-9 / MAJOR-3 / MINOR-4, ``OCR_LEGACY_AUDIT.md``)
---------------------------------------------------------------------
+Why this exists (F-9 / MAJOR-3 / MINOR-4)
+-----------------------------------------
 Two readers walk the same D-3 artifact-cache index and both used to guess:
 the batch-9 cohort replay's cold cache took ``rows[0]`` with no ``ORDER BY`` and
 no settings-key filter on EITHER stage, and ``stated_counts._ArtifactJoin``
@@ -58,8 +58,8 @@ partition) before any key is read — a research artifact can never become
 historical truth, whichever reader asks. A production run (the field empty
 or absent) is selected exactly as before.
 
-Kept out of this module by design (see ``docs/agent-handoffs/P20-ARTIFACTS.md``)
------------------------------------------------------------------------------
+Kept out of this module by design
+---------------------------------
 No page-level partitions, no ``page_extractor`` (Phase 2.1). No writes: every
 function here is a pure read over an already-written index. No import of
 ``webapp``, ``ocr``, ``analysis`` or ``discovery`` at MODULE level — every one

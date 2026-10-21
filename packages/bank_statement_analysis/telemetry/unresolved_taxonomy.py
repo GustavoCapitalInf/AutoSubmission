@@ -1,6 +1,5 @@
 """telemetry/unresolved_taxonomy.py — the layered unresolved-reason taxonomy
-(Phase 2.2 cell T, card item 1; `PHASE2_REMAINDER_PLAN.md` §D.4; the umbrella's
-§"Taxonomy"; the W3-2 idiom of `W3_2_TAXONOMY.md`).
+(Phase 2.2 cell T; the W3-2 idiom of `W3_2_TAXONOMY.md`).
 
 "755 unresolved" is one number. This module makes it seven, one per LAYER, and
 names exactly one of them the document's PRIMARY reason — so "why does this

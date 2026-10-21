@@ -735,7 +735,7 @@ def _account_number(text: str) -> str | None:
     """The account number, when the document prints ONE.
 
     Two different numbers means the file holds more than one account and the
-    `Statement` schema holds one (MASTER_PLAN L-1), so neither is published.
+    `Statement` schema holds one, so neither is published.
     """
     printed = {match.group(1) for match in _ACCOUNT_RE.finditer(text)}
     return printed.pop() if len(printed) == 1 else None

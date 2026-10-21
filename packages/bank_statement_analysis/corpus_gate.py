@@ -381,8 +381,8 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
 # `currency` is analyst-visible output: `webapp/static/app.js` threads
 # `statement.currency` into `Intl.NumberFormat`, so it decides whether a
 # dashboard reads `$1,234.56` or `CA$1,234.56` for every figure on the page.
-# Until this map existed it was pinned NOWHERE — measured at
-# RBC_CURRENCY_MEASUREMENT §4.6: no currency column in either audit CSV or in
+# Until this map existed it was pinned NOWHERE: no currency column in either
+# audit CSV or in
 # the new-statement audit, zero occurrences of the string in this file, zero in
 # `tests/data/parser_expectations.json`. A change that moved the published
 # currency of 151 archive documents (four of them pinned) could therefore land
@@ -524,8 +524,8 @@ PINNED_CURRENCY: dict[str, str] = {
     "PNC/PNC_Statement-2026-05-28.pdf": "USD",
     # Already CAD from the French reader; explicitly NOT part of the ceremony.
     "RBC French/12 - Relevé Royale Décembre 2025 - Tommy Aspirot.pdf": "CAD",
-    # CEREMONY, approved by Gustavo 2026-08-16 (CURRENCY_DOCTRINE §B; the
-    # eight-proof packet RBC_CURRENCY_MEASUREMENT §9.1). These four English RBC
+    # CEREMONY, approved by Gustavo 2026-08-16 (CURRENCY_DOCTRINE §B).
+    # These four English RBC
     # chequing statements move `statement.currency` USD -> CAD and NOTHING
     # else: ADB, opening/ending balances, the transaction ledger, credits and
     # debits, revenue classifications and validation outcomes are all
@@ -797,7 +797,7 @@ EXCLUDED_ANALYSIS_CALLERS = {
     # coverage_audit.py and deterministic_coverage_audit.py were retired
     # (P20-SEAM / OQ7): both were pre-deterministic-shift dev CLIs that called
     # `parse_statement` with the default `allow_visual_ocr=True` (an unbounded
-    # egress path, OCR_LEGACY_AUDIT.md F-4(a)), and `deterministic_coverage_
+    # egress path), and `deterministic_coverage_
     # audit.py` measured the same question `discovery/runner.py` already
     # measures (audit #34, "duplicate"). `git rm`, this commit.
     # This gate's own harness, governed by PRODUCTION_SUPPLIES_SHEETS above.

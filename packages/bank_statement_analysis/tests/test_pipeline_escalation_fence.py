@@ -10,8 +10,7 @@ commit that removed the edge it characterised:
   escalation block ran a SECOND hosted extraction with
   `settings.escalation_model` whenever the first failed reconciliation,
   reconciled the alternate, and "prefer[red] whichever extraction's summary
-  reconciles, falling back to fewer overall issues" (`REPO_VALIDATOR_MEMO.md`
-  §9 row 8) — Gustavo's R9 verbatim: "multiple extractions -> compare
+  reconciles, falling back to fewer overall issues" — Gustavo's R9 verbatim: "multiple extractions -> compare
   financial reconciliation -> prefer whichever extraction reconciles".
 * **Edge 2 — the Class-B -> hosted hop (FENCED by P22-FENCE, then REMOVED in
   slice S3).** In the webapp's default `parse_mode="auto"`, a dispatch that is

@@ -1,6 +1,5 @@
 """layout/agreement.py — native <-> extractor word agreement and the geometry
-census (Phase 2.3 cell X, `docs/agent-handoffs/P23-AGREE.md` item 1; plan
-§G.2.3 cell X, §H.4).
+census (Phase 2.3 cell X).
 
 What this module is for
 -----------------------

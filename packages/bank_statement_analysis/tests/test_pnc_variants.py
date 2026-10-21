@@ -13,8 +13,7 @@ swallowed by the section printed above it, so its rows take that section's
 direction and its heading and column header are glued onto the last description
 there. PNC publishes its own index of the list — a `Description Items Amount`
 table naming every section it itemizes, with the item count and total of each —
-and that table names two sections the parser did not have. See
-`docs/moneythumb-replacement/W3_TRACKA_LOG.md` section TRIO.
+and that table names two sections the parser did not have.
 """
 from __future__ import annotations
 

@@ -1,5 +1,4 @@
-"""Phase 2.2 cell K (`docs/agent-handoffs/P22-IDENTITY.md` item 1; D3/D4;
-cases 14, 16): the ONE native reader, `evidence/native.py::native_evidence_from_pdf`,
+"""Phase 2.2 cell K (D3/D4; cases 14, 16): the ONE native reader, `evidence/native.py::native_evidence_from_pdf`,
 places every word box in the DISPLAY frame.
 
 Proves, on synthetic PDFs only (invented rows, dates >= 2031, letter pages):

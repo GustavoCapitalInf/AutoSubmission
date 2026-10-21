@@ -23,7 +23,7 @@ from tests.statements import statements_dir
 def coverage_status(report) -> str:
     """Inlined from the retired `coverage_audit.py::_status` (P20-SEAM / OQ7,
     `git rm`, that script was a pre-deterministic-shift dev CLI with the
-    default `allow_visual_ocr=True` egress path — OCR_LEGACY_AUDIT.md F-4(a)).
+    default `allow_visual_ocr=True` egress path).
     This one classification helper was genuinely reusable test logic, salvaged
     here byte-identical rather than dropped with the rest of the script."""
     if report.metrics.revenue_review_required or not report.metrics.revenue_reconciles:

@@ -105,7 +105,7 @@ _US_FUNDS_RE = re.compile(
 #: `RBPDA…` line. Matching only `RBBDA` left the personal layout's product line
 #: UNREAD, so a personal issue that printed a product currency word would have
 #: had its explicit denomination missed — and, once the jurisdiction default
-#: below exists, silently defaulted instead (RBC_CURRENCY_MEASUREMENT §11 R4).
+#: below exists, silently defaulted instead.
 #: The explicit read must keep its precedence on both layouts, so the anchor is
 #: widened in the same commit as the default. Measured on the same superset:
 #: widening moves no document's read today (no personal issue prints either
@@ -514,7 +514,7 @@ def _is_debit(desc: str) -> bool:
     # sign evidence (R-1 item 7: the two memorized counterparty entries were
     # removed; rows not matching a credit type default to debit below, and
     # printed running balances drive the sign solver, so behaviour is
-    # unchanged - see R1_HARDCODE_LOG.md).
+    # unchanged).
     text = desc.upper()
     return any(key in text for key in (
         "MONTHLY FEE",
@@ -901,8 +901,7 @@ def _parse_rbc_french_statement(markdown: str, base: Statement | None = None) ->
     # NOTE (R-1 item 7/11): the previous account-number regex carried a
     # mojibake label and could never match the real text, so no account was
     # ever extracted here. Extraction stays deliberately absent to keep the
-    # audited corpus surface identical; enabling it is proposed in
-    # R1_HARDCODE_LOG.md for an Ocean-approved re-baseline.
+    # audited corpus surface identical.
 
     # The summary block, read off the collapsed line rather than off the whole
     # document, and in BOTH products' wordings. The personal statement writes

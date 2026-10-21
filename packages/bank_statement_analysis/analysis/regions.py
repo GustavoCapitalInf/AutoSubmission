@@ -214,7 +214,7 @@ DETECTION_MARKERS = (
     # Both markers above are generic enough to co-occur in another bank's
     # statement whenever Regions appears as an ACH originator - it does in all
     # three Amex documents. Require the footer Regions prints on its own
-    # statements (R3_DETECTION_FINDING.md).
+    # statements.
     required("issuer_footer", lambda t: ISSUER_FOOTER.upper() in t),
 )
 

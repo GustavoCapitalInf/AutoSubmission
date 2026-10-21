@@ -237,7 +237,7 @@ def test_a_package_of_todays_payloads_carries_no_refusal_key():
 
 
 def test_a_ratified_omission_is_surfaced_by_the_package():
-    """Q10 (BATCH9_TRANSITION §8.7). The document stays `validated` and the
+    """Q10. The document stays `validated` and the
     package says a section was established and not published."""
     from webapp.app import _package_analysis
 

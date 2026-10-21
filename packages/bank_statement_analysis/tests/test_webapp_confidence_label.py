@@ -1,11 +1,10 @@
-"""OQ9 (PHASE2_RULINGS.md): the fabricated "OCR confidence" is gone for good.
+"""OQ9: the fabricated "OCR confidence" is gone for good.
 
 `webapp/static/app.js`'s `confidenceFrom` / `packageConfidence` used to return a
 hard-coded score from four buckets, re-encoding the validator's own `quality`
 verdict under a label that would mislead an operator the day a second
-extractor exists (`OCR_LEGACY_AUDIT.md` §2.7, review MAJOR-4). Gustavo ruled:
-remove the label, do not replace it with another fabricated score
-(`PHASE2_RULINGS.md` OQ9). `analysis/pipeline.py`'s `Quality` dataclass and
+extractor exists (review MAJOR-4). Gustavo ruled: remove the label, do not
+replace it with another fabricated score (OQ9). `analysis/pipeline.py`'s `Quality` dataclass and
 `webapp/app.py`'s package `totals` are the only sources the replacement,
 `validationLabel` / `packageValidationLabel`, may read from.
 
@@ -46,8 +45,7 @@ assert STATIC_JS_FILES and TEMPLATE_HTML_FILES, "the glob found nothing to guard
 #: A 60-99-shaped literal, in every spelling this guard recognises: the bare
 #: two-digit integer every one of `confidenceFrom` / `packageConfidence`'s six
 #: branches used (`94`), its float form (`94.0`), and the 0-1 fraction form a
-#: percentage is sometimes carried in (`0.94`). MINOR-3
-#: (`PHASE2_P20SURFACES_REVIEW.md`) widened this from integers only.
+#: percentage is sometimes carried in (`0.94`). MINOR-3 widened this from integers only.
 _SCORE_LITERAL = r"(?:6[0-9]|7[0-9]|8[0-9]|9[0-9])(?:\.[0-9]+)?|0\.(?:6[0-9]|7[0-9]|8[0-9]|9[0-9])\b"
 
 #: `return <literal>;`, wherever a function body puts it. Not scoped to a
@@ -105,7 +103,7 @@ def test_no_bare_60_99_return_literal_anywhere_in_a_static_js_file(path: Path):
     `return 0.94` even under a renamed function -- the mutation table's own
     example -- because it is not scoped to a function name at all: nothing in
     a guarded file may ever `return` a score-shaped literal, named
-    `confidenceFrom` or otherwise. MINOR-2 (`PHASE2_P20SURFACES_REVIEW.md`):
+    `confidenceFrom` or otherwise. MINOR-2:
     parametrized over every file the card's own words promised
     (`webapp/static/*.js`), not just the module-level `app.js` global -- one
     file today, so no behaviour changes, but a second static file would have
@@ -188,7 +186,7 @@ _LABELIZE_JS = 'function labelize(value) { return String(value || "N/A").replace
      "summary only"),
 ], ids=["approved", "review", "manual-review", "summary-only"])
 def test_validation_label_renders_the_verdict_words_and_never_a_number(report, expected):
-    """MINOR-4 (`PHASE2_P20SURFACES_REVIEW.md`): the word rendered is the
+    """MINOR-4: the word rendered is the
     PAYLOAD's own `quality.corporate_use` token, `labelize`d exactly like
     every other status label in this file (`decisionPill`,
     `packageValidationLabel`) -- never promoted to a stronger invented word

@@ -6,6 +6,8 @@
 - **Status:** implemented as classification 5.0 to 5.4 and 5.9. Amendments are marked in place, and `docs/transaction-classification.md` states the rules as built.
 - **Comes before:** the text-first reader (`2026-09-24-text-first-reader-design.md`)
 
+The program records this document cites (logs, rulings, reviews, plans, handoffs) were removed from the tree. [`docs/HISTORY.md`](../../HISTORY.md) says how to read them.
+
 ## 1. Why
 
 Across many statements, the owner kept catching lenders that detection missed. Two things were investigated:

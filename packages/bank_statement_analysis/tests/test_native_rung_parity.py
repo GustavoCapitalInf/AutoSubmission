@@ -62,7 +62,7 @@ LADDER_BINDINGS = {
     "build_corpus_cache": "native_document",
     # `deterministic_coverage_audit` was retired (P20-SEAM / OQ7, `git rm`):
     # a pre-deterministic-shift dev CLI, duplicate of what `discovery/
-    # runner.py` already measures (OCR_LEGACY_AUDIT.md #34).
+    # runner.py` already measures.
 }
 
 #: `tests/` calls individual extractors on purpose (a rung is unit-tested by

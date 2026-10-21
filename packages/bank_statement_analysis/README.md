@@ -204,10 +204,15 @@ python -m pytest -m corpus                      # the 34 corpus tests, the gate 
 ## Corpus gate (required before merge)
 
 ```bash
-python corpus_gate.py                      # over $BANK_STATEMENTS_DIR: exit 0 green, 1 red (about 17 minutes on Windows)
-python corpus_gate.py --json report.json   # plus a machine-readable report
-python corpus_gate.py --corpus <path>      # the same gate against another checkout's corpus root
+D=$(mktemp -d)
+PYTHON_DOTENV_DISABLED=1 WEBAPP_DATA_DIR="$D" python corpus_gate.py                      # over $BANK_STATEMENTS_DIR: exit 0 green, 1 red (about 17 minutes on Windows)
+PYTHON_DOTENV_DISABLED=1 WEBAPP_DATA_DIR="$D" python corpus_gate.py --json report.json   # plus a machine-readable report
+PYTHON_DOTENV_DISABLED=1 WEBAPP_DATA_DIR="$D" python corpus_gate.py --corpus <path>      # the same gate against another checkout's corpus root
+rm -rf "$D"
 ```
+
+Set both variables on every run. Without `PYTHON_DOTENV_DISABLED=1` the gate reads any `.env` in this folder or a
+folder above it. Without a scratch `WEBAPP_DATA_DIR` it opens the live web app store.
 
 The gate re-runs the two independent forensic oracles (`adb_forensic_audit.py`, `balance_forensic_audit.py`)
 over the 109 pinned corpus PDFs and compares them, field by field, with the committed audits
@@ -325,10 +330,9 @@ Where each rule is defined:
 - Discovery and benchmark reports mask account numbers to the last four digits; discovery reports name relative
   paths and folder labels, so they stay local (gitignored).
 - The server makes no outbound calls: statements are read on this machine, scanned pages by local Tesseract, and
-  nothing is sent out. `tests/test_no_model_clients.py` fails if a tracked Python file imports a model package, or
-  a production module imports a network client, reads a model setting or starts a remote program (`ssh`, `scp`,
-  `curl` and the like) in a command its source fixes. The dashboard page loads its web fonts
-  from Google Fonts in the browser; that request carries no statement data.
+  nothing is sent out. The product calls no model. `tests/test_no_model_clients.py` fails if a model package enters
+  a requirements file, the shipped entry points load a model module, or first-party code imports a removed module.
+  The dashboard page loads its web fonts from Google Fonts in the browser; that request carries no statement data.
 - Licensing: native text uses PyMuPDF (AGPL-3.0 or a paid licence) and page counts and previews use poppler
   (GPL). The owner's licensing rule excludes both for a licensed product; moving to pypdfium2 is step L0 of the
   commercial roadmap draft, which is not approved
@@ -344,5 +348,5 @@ not built: [`docs/superpowers/specs/2026-09-24-text-first-reader-design.md`](doc
 **Read first.** [`AGENTS.md`](../../AGENTS.md) at the repository root names the current contracts. Then read the
 rule documents under [Product rules](#product-rules), in that order, and the docstring of `corpus_gate.py`.
 Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md`.
-A Markdown file in `docs/` or at the top of this folder that AGENTS.md does not name is a proposal or the record of
-a finished phase. It is not an instruction.
+A Markdown file in `docs/` that AGENTS.md does not name is a proposal, not an instruction. The records of finished
+phases were removed; [`docs/HISTORY.md`](docs/HISTORY.md) says which commit still holds them.
