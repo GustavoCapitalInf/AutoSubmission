@@ -1,7 +1,5 @@
 from __future__ import annotations
-import base64
 import html
-import io
 import re
 import markdown
 
@@ -77,6 +75,8 @@ def promote_headers(markdown_text: str) -> str:
     return "\n".join(out)
 
 
+# The .page-sep and .region rules styled the removed live viewer. They stay because the report page embeds this block,
+# so dropping them would change every rendered report and html download.
 _STYLE = """
 :root { --fg:#1f2328; --muted:#57606a; --line:#d0d7de; --accent:#5F4CFE;
         --zebra:#f6f8fa; --head:#eef1f5; }
@@ -184,7 +184,6 @@ def _neutralize_markup(text: str) -> str:
 
 def render_fragment(markdown_text: str) -> str:
     """Render markdown to just the HTML body fragment (no page wrapper/styles).
-    Used for live incremental rendering into an already-styled container.
     Markup in the text is shown as text (EXP-1, above)."""
     promoted = _neutralize_markup(promote_headers(markdown_text))
     return markdown.markdown(promoted, extensions=["tables"]).replace(_LT_PLACEHOLDER, "&lt;")
@@ -193,83 +192,3 @@ def render_fragment(markdown_text: str) -> str:
 def markdown_to_html(markdown_text: str, title: str = "") -> str:
     return _PAGE_TEMPLATE.format(csp_meta=REPORT_CSP_META + "\n", title=html.escape(title), style=_STYLE,
                                  body=render_fragment(markdown_text))
-
-
-def rendered_skeleton() -> str:
-    """A full styled page with an empty '#live-root' container, loaded once into
-    the viewer's iframe so live fragments can be injected without reloading."""
-    return _PAGE_TEMPLATE.format(csp_meta="", title="", style=_STYLE, body='<div id="live-root"></div>')
-
-
-# Per-region colors, matching the document-panel overlay (app.js BOX_COLORS).
-REGION_COLORS = {
-    "title": "#ff5c5c", "header": "#ffb020", "text": "#5c8cff", "table": "#23c4a8",
-    "footer": "#8b8b95", "figure": "#c77dff", "image": "#c77dff", "list": "#9d7bff",
-    "page_number": "#8b8b95", "caption": "#23c4a8",
-}
-_PICTURE_LABELS = {"image", "figure", "picture", "photo", "chart", "diagram",
-                   "logo", "signature"}
-# A region tag with its label and 0-1000 normalized box: <|det|>label [x0,y0,x1,y1]<|/det|>
-_REGION_SPLIT_RE = re.compile(
-    r"<\|det\|>\s*(\w+)\s*\[(\d+),\s*(\d+),\s*(\d+),\s*(\d+)\](?:<\|/det\|>)?"
-)
-
-
-def _crop_data_uri(image, box_px) -> str:
-    # Moved here from the retired visual OCR client (model-code removal, slice S2) unchanged: a stored legacy visual
-    # read's picture regions still render as the same PNG crop of the page image, so /render stays byte-identical.
-    crop = image.convert("RGB").crop(box_px)
-    buf = io.BytesIO()
-    crop.save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
-
-
-def _image_region_html(coords, page_image) -> str:
-    w, h = page_image.size
-    x0 = max(0, round(coords[0] / 1000 * w)); y0 = max(0, round(coords[1] / 1000 * h))
-    x1 = min(w, round(coords[2] / 1000 * w)); y1 = min(h, round(coords[3] / 1000 * h))
-    if x1 <= x0 or y1 <= y0:
-        return ""
-    return f'<img class="doc-image" src="{_crop_data_uri(page_image, (x0, y0, x1, y1))}" alt="image" />'
-
-
-def _region_html(label: str, coords, content: str, page_image) -> str:
-    # OQ1 = C: the display path never post-processed a region (the retired
-    # client's quarantined chain covered analysis AND display alike).
-    # `content` is the stored read's raw region text, rendered as-is.
-    label = label.lower()
-    color = REGION_COLORS.get(label, "#5c8cff")
-    if page_image is not None and label in _PICTURE_LABELS:
-        inner = _image_region_html(coords, page_image)
-    else:
-        inner = render_fragment(content)
-    return (f'<div class="region" style="border-color:{color}">'
-            f'<span class="region-tag" style="background:{color}">{html.escape(label)}</span>'
-            f'{inner}</div>')
-
-
-def _render_boxed_page(raw: str, page_image) -> str:
-    # OQ1 = C: raw content only — no post-processing on the display path.
-    parts = _REGION_SPLIT_RE.split(raw)
-    regions = []
-    for j in range(1, len(parts), 6):
-        label, x0, y0, x1, y1, content = parts[j:j + 6]
-        regions.append(_region_html(label, (int(x0), int(y0), int(x1), int(y1)),
-                                     content, page_image))
-    if not regions:
-        # No complete region tags yet (very start of a page's stream): plain text.
-        return render_fragment(raw)
-    return "".join(regions)
-
-
-def render_boxed(pages: list[str], page_images=None) -> str:
-    """Render per-page raw OCR output into an HTML body fragment where each
-    detected region is wrapped in a colored, labeled box (mirroring the demo's
-    rendered-with-boxes view). `page_images`, when given (final render), lets
-    picture regions embed the cropped image instead of a placeholder box."""
-    out = []
-    for i, raw in enumerate(pages):
-        img = page_images[i] if page_images and i < len(page_images) else None
-        out.append(f'<div class="page-sep">Page {i + 1}</div>')
-        out.append(_render_boxed_page(raw, img))
-    return "\n".join(out)

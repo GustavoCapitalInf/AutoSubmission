@@ -1730,18 +1730,6 @@ def test_changed_analysis_settings_reanalyze_without_reocr(monkeypatch, data_dir
     assert (counter.ocr, counter.analysis) == (1, 2)
 
 
-def test_a_cache_hit_still_fills_the_live_viewer_buffer(monkeypatch, data_dir):
-    counter = _CallCounter()
-    counter.install(monkeypatch, pages=("ledger page",))
-    store = JobStore(Storage(data_dir))
-
-    _run(store)
-    job = _run(store)
-    assert counter.ocr == 1
-    # Nothing was OCR'd, yet the viewer's live panel still has the pages.
-    assert "ledger page" in store.get(job.id).live_text
-
-
 def test_cache_hits_are_audit_logged(monkeypatch, data_dir):
     counter = _CallCounter()
     counter.install(monkeypatch)

@@ -32,7 +32,7 @@ from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthoriz
 
 from ocr.inspect import inspect_pdf
 from ocr.rasterize import pdf_page_count, rasterize_page
-from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META, rendered_skeleton, render_boxed
+from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META
 from analysis.payload_shape import (
     DOCUMENT_KEY as _DOCUMENT_KEY,
     account_content_digest,
@@ -106,8 +106,8 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_UPLOAD_FILES = 25
 MAX_UPLOAD_PAGES = 500
 
-# waitress worker threads. The dashboard polls /status, /live and /render for
-# every in-flight job at once, so the stock four would head-of-line block.
+# waitress worker threads. The dashboard polls /status for every in-flight job
+# at once, so the stock four would head-of-line block.
 SERVER_THREADS = 16
 
 #: The free space the data volume keeps (audit 2026-10-13, BE-1). Nothing ever deletes a job, document, PDF or
@@ -6178,45 +6178,6 @@ def status(job_id):
     })
 
 
-@app.route("/live/<job_id>")
-def live(job_id):
-    job = store.get(job_id)
-    if job is None:
-        abort(404)
-    return jsonify({"status": job.status, "live_text": job.live_text, "error": job.error})
-
-
-@app.route("/rendered_skeleton")
-def rendered_skeleton_route():
-    # Static styled shell loaded once into the viewer iframe for live rendering.
-    return Response(rendered_skeleton(), mimetype="text/html; charset=utf-8")
-
-
-@app.route("/render/<job_id>")
-def render(job_id):
-    """Render the current (possibly partial) OCR output to an HTML body fragment
-    where each detected region is wrapped in a colored, labeled box — mirroring
-    the demo's rendered-with-boxes view — so the Rendered panel fills in live as
-    pages stream. When the job is done, page images are rasterized so picture
-    regions (e.g. check scans) embed their crop; during live they show a box."""
-    job = store.get(job_id)
-    if job is None:
-        abort(404)
-    pages = store.pages_live_ordered(job_id)
-    page_images = None
-    if job.status == "done":
-        # Disk-backed after completion: pdf_bytes is released from RAM when a
-        # job finishes, so completed jobs rasterize from the PDF store.
-        pdf_bytes = store.pdf_bytes(job_id)
-        if pdf_bytes is not None:
-            try:
-                page_images = [rasterize_page(pdf_bytes, i, dpi=200)
-                               for i in range(len(pages))]
-            except Exception:
-                page_images = None  # degrade to boxes-without-crops rather than 500
-    return jsonify({"status": job.status, "fragment": render_boxed(pages, page_images)})
-
-
 @app.route("/markdown/<job_id>")
 def markdown(job_id):
     """RESIDUAL EXPOSURE (accepted, Wave 0): the raw OCR text still carries the
@@ -6731,8 +6692,8 @@ def download(job_id, fmt):
 #: export audit row (served without it, the audit trail would lose them). A route added later is refused until it is
 #: named here. `healthz` is the hosting line's probe.
 _READ_ONLY_ENDPOINTS = frozenset({
-    "index", "static", "healthz", "get_settings", "status", "live", "rendered_skeleton_route", "render", "markdown",
-    "analysis", "package_analysis", "page", "result",
+    "index", "static", "healthz", "get_settings", "status", "markdown", "analysis", "package_analysis", "page",
+    "result",
 })
 #: What a start-up whose store cannot be read at all still serves: the page and the probe.
 _UNAVAILABLE_ENDPOINTS = frozenset({"index", "static", "healthz"})

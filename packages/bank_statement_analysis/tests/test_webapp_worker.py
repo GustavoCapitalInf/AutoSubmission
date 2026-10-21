@@ -50,12 +50,9 @@ def _assert_no_visual_rung():
 def test_run_job_success(monkeypatch, store):
     job = store.create("s.pdf")
 
-    def fake_parse(pdf_bytes, source_file="", on_page_replace=None, **kwargs):
-        # The visual rung's `on_page_delta` stream left with it (slice S2); the
-        # live buffer is filled through the ladder's `on_page_replace`.
+    def fake_parse(pdf_bytes, source_file="", **kwargs):
+        # The visual rung's `on_page_delta` stream left with it (slice S2).
         assert "on_page_delta" not in kwargs
-        if on_page_replace:
-            on_page_replace(0, "replayed page")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
@@ -71,7 +68,6 @@ def test_run_job_success(monkeypatch, store):
     assert fetched.analysis == {"quality": {"level": "transaction_level"}, "parse_mode": "auto"}
     assert fetched.analysis_error is None
     assert fetched.parse_model == "test-model"
-    assert "replayed page" in fetched.live_text  # worker forwarded the ladder's pages
 
 
 def test_run_job_failure(monkeypatch, store):

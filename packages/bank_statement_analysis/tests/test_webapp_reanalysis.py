@@ -806,13 +806,6 @@ def test_a_cached_reading_that_fails_its_own_checks_is_not_read_again(pipeline, 
     assert pipeline.reads == 1  # stopped where the ladder named its rung, before the rung read
 
 
-# `test_a_reading_that_streams_before_it_names_a_stage_is_stopped` was deleted with its subject in slice S2: the
-# streaming read was the visual rung's `on_page_delta` live stream, and the worker passes no stream callback any more.
-# `webapp/reanalysis.py`'s `_CacheOnly.append_page_live` guard is left as it is (the re-analysis rules are not
-# edited); nothing in the worker can reach it now. A reader that names no stage is still pinned by
-# `test_a_reading_answered_again_by_a_reader_that_names_no_stage_is_not_written_back` above.
-
-
 def test_a_forced_job_is_refused_before_any_cache_lookup(pipeline, private_store, monkeypatch):
     """The forced refusal comes before the reading is looked up: a forced job whose reading is not cached is not told
     its reading is missing, it is told the reader it was made with is retired."""

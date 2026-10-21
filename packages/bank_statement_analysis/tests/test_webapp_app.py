@@ -26,13 +26,9 @@ def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
 
     # O-1 delta: the worker feeds the unified ladder capability flags and a
-    # preflight profile, so worker-level fakes take **kwargs. The live buffer
-    # is filled through the ladder's `on_page_replace` (the visual rung's
-    # `on_page_delta` stream left with it in slice S2).
-    def fake_parse(pdf_bytes, source_file="", on_page_replace=None, **kwargs):
+    # preflight profile, so worker-level fakes take **kwargs.
+    def fake_parse(pdf_bytes, source_file="", **kwargs):
         assert "on_page_delta" not in kwargs
-        if on_page_replace:
-            on_page_replace(0, "raw stream")
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
@@ -142,48 +138,6 @@ def test_markdown_before_done_returns_404():
     job = store.create("pending.pdf")
     resp = client.get(f"/markdown/{job.id}")
     assert resp.status_code == 404
-
-
-def test_live_route_returns_streamed_text(monkeypatch):
-    _mock_processing(monkeypatch)
-    client = app.test_client()
-    job_id = _upload_one(client)["jobs"][0]["id"]
-    resp = client.get(f"/live/{job_id}")
-    assert resp.status_code == 200
-    body = resp.get_json()
-    assert body["status"] == "done"
-    assert "raw stream" in body["live_text"]
-
-
-def test_live_unknown_job_returns_404():
-    client = app.test_client()
-    assert app.test_client().get("/live/nope").status_code == 404
-
-
-def test_render_route_returns_live_fragment(monkeypatch):
-    _mock_processing(monkeypatch)
-    monkeypatch.setattr("webapp.app.rasterize_page",
-                        lambda pdf_bytes, n, dpi=200: Image.new("RGB", (8, 8)))
-    client = app.test_client()
-    job_id = _upload_one(client)["jobs"][0]["id"]
-    resp = client.get(f"/render/{job_id}")
-    assert resp.status_code == 200
-    body = resp.get_json()
-    # A body fragment (no full-page wrapper), rendered from the live buffer.
-    assert "raw stream" in body["fragment"]
-    assert "<!DOCTYPE html>" not in body["fragment"]
-
-
-def test_render_unknown_job_returns_404():
-    assert app.test_client().get("/render/nope").status_code == 404
-
-
-def test_rendered_skeleton_has_live_root():
-    resp = app.test_client().get("/rendered_skeleton")
-    assert resp.status_code == 200
-    html = resp.get_data(as_text=True)
-    assert 'id="live-root"' in html
-    assert "<style>" in html
 
 
 def test_page_route_returns_png(monkeypatch):

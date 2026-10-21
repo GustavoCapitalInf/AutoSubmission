@@ -353,14 +353,6 @@ class _CapturedJobStore:
             self.refuse_reading()
         self.job.stage = stage
 
-    def append_page_live(self, job_id: str, page: int, chunk: str) -> None:
-        # Only a live read streams text.
-        self.refuse_reading()
-
-    def set_page_live(self, job_id: str, page: int, text: str) -> None:
-        # A cached reading replays its pages here.
-        return None
-
     def set_result(self, job_id: str, markdown: str, html: str, analysis: dict | None = None,
                    analysis_error: str | None = None, parse_model: str | None = None) -> None:
         self.job.status = "done"

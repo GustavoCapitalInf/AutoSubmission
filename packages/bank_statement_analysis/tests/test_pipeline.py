@@ -44,19 +44,16 @@ def _forbid_reading(monkeypatch):
         monkeypatch.setattr(target, lambda *a, **k: pytest.fail("nothing may be read before the refusal"))
 
 
-def test_ladder_native_rung_wins_and_replays_pages(monkeypatch):
+def test_ladder_native_rung_wins(monkeypatch):
     monkeypatch.setattr("ocr.pipeline._native_statement",
                         lambda pdf_bytes, source_file="": _NativeDoc())
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract",
                         lambda *a, **k: pytest.fail("tesseract rung must not run"))
 
-    replayed = []
     stages = []
-    doc = parse_statement(b"%PDF-fake", allow_local_ocr=True,
-                          on_page_replace=lambda p, t: replayed.append((p, t)),
-                          on_stage=stages.append)
+    doc = parse_statement(b"%PDF-fake", allow_local_ocr=True, on_stage=stages.append)
     assert doc.model == "native-pdf-text"
-    assert replayed == [(0, "native page one"), (1, "native page two")]
+    assert doc.pages == ["native page one", "native page two"]
     assert stages == ["native"]
     # MAJOR-3: the native rung's per-page provenance, design item 3's first arm.
     assert doc.page_extractor == ["native-pdf-text", "native-pdf-text"]

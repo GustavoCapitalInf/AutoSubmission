@@ -201,7 +201,7 @@ Deliberately EXCLUDED from the keys, with reasons:
   change output (never key material).
 * ``timeout``, ``retries``, ``api_key`` — the retired visual rung's transport
   and secrets. Secrets must never be hashed into a key that is written to disk.
-* callbacks (``on_stage``, ``on_page_replace``) and the preflight ``profile``
+* the ``on_stage`` callback and the preflight ``profile``
   — the profile is derived from the bytes already in the key.
 
 Over-partitioning is safe, under-partitioning is not: the frozen visual-OCR
