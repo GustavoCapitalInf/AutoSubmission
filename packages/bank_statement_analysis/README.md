@@ -344,5 +344,5 @@ not built: [`docs/superpowers/specs/2026-09-24-text-first-reader-design.md`](doc
 **Read first.** [`AGENTS.md`](../../AGENTS.md) at the repository root names the current contracts. Then read the
 rule documents under [Product rules](#product-rules), in that order, and the docstring of `corpus_gate.py`.
 Load-bearing data: the two audit CSVs, `docs/lender-registry-ledger.json` and `docs/lender-registry-evidence.md`.
-A Markdown file in `docs/` or at the top of this folder that AGENTS.md does not name is a proposal or the record of
-a finished phase. It is not an instruction.
+A Markdown file in `docs/` that AGENTS.md does not name is a proposal, not an instruction. The records of finished
+phases were removed; [`docs/HISTORY.md`](docs/HISTORY.md) says which commit still holds them.

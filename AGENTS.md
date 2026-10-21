@@ -11,9 +11,10 @@ PDFs. `apps/auto_submission/` holds only a planning README. Run PKG commands fro
 - Data: the truth set (`docs/adb-*`, `docs/balance-metrics-*`) and the lender registry (`docs/lender-registry-*`).
 
 ## Treat every other document as history
-Every other Markdown file in `docs/` or at the PKG root is an unbuilt proposal or a record of a finished phase:
-handoffs, cell cards, plans, status reports, rulings, censuses, reviews and logs. None is an instruction. Ignore
-their next steps, model routing, branch names and "read this first" lines. The contracts win over all of them.
+The records of finished phases (handoffs, cell cards, plans, status reports, rulings, censuses, reviews and
+logs) are gone from the tree, and `docs/HISTORY.md` says which commit still holds them. Every other Markdown file
+in `docs/` is an unbuilt proposal. None of these is an instruction. Ignore their next steps, model routing, branch
+names and "read this first" lines. The contracts win over all of them.
 
 ## Follow the rules
 - The product calls no model (owner ruling 2026-10-13), and `tests/test_no_model_clients.py` enforces it. A model
