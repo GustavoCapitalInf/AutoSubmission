@@ -8,33 +8,25 @@ header before any page content:
 That header is the platform's only record of WHICH extractor produced the text
 a parser is about to read.
 
-MINOR-9 (closure `2cb4c0e`): an
-earlier version of this docstring claimed "a claim that starts anywhere else —
-including ... a header a PAGE printed as ordinary text — is not found." That
-was false, and BLOCK-1R measured it: a right-anchored, DOTALL match has no
-bound on how far right it may look, so a `| pages: N | model: T | empty: N
--->` run printed in the PAGE BODY — after the genuine header fields, where
-`to_markdown()` itself supplies the blank line the run needs
-(`"\\n\\n"` between page blocks) — matched, and WON, because it sat closer to
-the true end of the string than the genuine run. This paragraph states only
-what the CURRENT reader guarantees, measured, not asserted:
+A page can print a `| pages: N | model: T | empty: N -->` run in its body,
+after the genuine header fields (`to_markdown()` supplies the blank line such a
+run needs between page blocks), so a reader that takes the last or the
+right-most run can be fooled. This reader guarantees exactly this:
 
 **THE PROPERTY, EXACTLY.** `extractor_model` returns a token if and only if
 the document (a) begins with `<!-- source:`, (b) has a blank line immediately
 after its first physical line (`\\n\\n`, or `\\r\\n\\r\\n` for a CRLF
-document — MINOR-8; `to_markdown()` always writes one), and (c) contains
+document; `to_markdown()` always writes one), and (c) contains
 EXACTLY ONE well-formed `| pages: N | model: TOKEN | empty: N -->` run
 ANYWHERE in the document, and that one run's `-->` is the thing that
 terminates physical line one. Any other shape — no header, no blank line,
 ZERO such runs, or MORE THAN ONE (wherever the extra one sits — before the
-genuine fields in a hostile filename, as `source_file`-injection findings
-before this one already forced this reader to survive, or after them in the
-page body, as BLOCK-1R forced) — returns `None`.
+genuine fields in a hostile filename, or after them in the page body) —
+returns `None`.
 
-**WHY AMBIGUITY REFUSES RATHER THAN PICKS A WINNER.** BLOCK-1R's own
-adversarial review prototyped and measured the alternative — bound the header
-region on the LEFT instead of the right (`markdown.partition("\\n\\n")[0]`,
-right-anchored) — and found it trades one hole for another: it closes the
+**WHY AMBIGUITY REFUSES RATHER THAN PICKS A WINNER.** The alternative, bounding
+the header region on the LEFT instead of the right
+(`markdown.partition("\\n\\n")[0]`, right-anchored), trades one hole for another: it closes the
 body-run vector, but a `source_file` containing an embedded `\\n\\n` then
 makes physical line one itself a complete, well-formed, ATTACKER-CHOSEN
 header that no reader can distinguish from the genuine one. There is no
@@ -48,8 +40,8 @@ own docstring) and the same direction S4 already reads ambiguity in
 (Q2: "ambiguity refuses the aggregation, never the account"). A hostile
 filename that also happens to sit on a genuinely native document is REFUSED
 here, not rescued — `tests/test_q3_native_only.py::
-test_a_hostile_source_file_still_reports_the_true_model_when_it_is_native`
-is the pinned proof of that direction, by name.
+test_a_hostile_source_file_on_an_honest_native_document_is_refused_not_rescued`
+pins that direction.
 
 **WHY THIS IS STILL "READ THE HEADER, NOT THE PAGE" IN SUBSTANCE.** A genuine
 document — one whose `source_file` and page text were never crafted to plant
@@ -62,10 +54,10 @@ or nearest an anchor, a second run anywhere is proof the document is not
 trustworthy on this question, and the reader says so by refusing rather than
 guessing.
 
-The `model` field is bounded to a closed charset — `[A-Za-z0-9._/+-]`, the
-same one `ocr/config.py`'s token validation uses (P20-SEAM) — so no run of
-`|`, `<`, `>` or whitespace inside a forged field can be mistaken for part of
-the model token even if it somehow survived to sit in that position.
+The `model` field is bounded to a closed charset — `[A-Za-z0-9._/+-]`, the same
+one `ocr/config.py`'s token validation uses — so no run of `|`, `<`, `>` or
+whitespace inside a forged field can be mistaken for part of the model token
+even if it somehow survived to sit in that position.
 
 Used by `analysis/sibling_omission.py::publish_omissions` to gate the
 `printed_pair_coincides_and_no_row_printed` omission class to native-pdf-text
@@ -79,8 +71,8 @@ import re
 
 #: The closed charset a model token may be built from — no `|`, `<`, `>`, no
 #: whitespace of any kind. Matches the token grammar `ocr/config.py`'s
-#: validation uses for the same field (P20-SEAM), so a token this reader
-#: accepts is a token that writer would also accept.
+#: validation uses for the same field, so a token this reader accepts is a token
+#: that writer would also accept.
 _MODEL_CHARSET = r"[A-Za-z0-9._/+-]"
 
 #: One well-formed field run, found ANYWHERE in the document — deliberately
@@ -110,7 +102,7 @@ def extractor_model(markdown: str | None) -> str | None:
     if not newline or not rest.startswith(("\n", "\r\n")):
         return None
     # `first_line` (from a plain `\n` partition) still carries a trailing `\r`
-    # on a CRLF document — MINOR-8 — so the position physical line one's
+    # on a CRLF document, so the position physical line one's
     # CONTENT ends at is one character short of `len(first_line)` there.
     line_end = len(first_line) - 1 if first_line.endswith("\r") else len(first_line)
     runs = list(_FIELD_RUN_RE.finditer(markdown))

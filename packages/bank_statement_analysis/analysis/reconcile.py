@@ -14,11 +14,10 @@ from .schema import Statement
 
 # Money is compared to the cent; allow a hair of float slop.
 _TOL = 0.01
-#: The sum check's tolerance under a public name (audit 2026-10-13 REC-4). The
-#: integrity block's `ledger_sum_mismatch` flag applies it through
-#: `ReconResult.sum_check_failed` (it used to restate the threshold as a
-#: dollar); `analysis/pipeline.py` keeps its one canonical import of this
-#: module, which its re-invocation fence pins.
+#: The sum check's tolerance under a public name. The integrity block's
+#: `ledger_sum_mismatch` flag applies it through `ReconResult.sum_check_failed`
+#: (it used to restate the threshold as a dollar); `analysis/pipeline.py` keeps
+#: its one canonical import of this module, which its re-invocation fence pins.
 SUM_CHECK_TOLERANCE = _TOL
 
 
@@ -61,7 +60,7 @@ class ReconResult:
     # than left implicit because the alternative is a payload reading
     # `stated_debit_count 12 / captured_debit_count 13 / matches true`, which
     # is only not a contradiction if the reader knows the table — one field
-    # with two meanings, the defect BOFA-COUNTS was spent removing.
+    # with two meanings.
     expected_credit_count: int | None = None
     expected_debit_count: int | None = None
 
@@ -71,8 +70,7 @@ class ReconResult:
 
         A PROPERTY, not a field: `asdict` serializes fields only, so the
         published reconciliation block is unchanged. It is how the integrity
-        block applies the sum check's own threshold rather than restating one
-        (audit 2026-10-13 REC-4: it used to flag only above a dollar).
+        block applies the sum check's own threshold rather than restating one.
         """
         return self.sum_delta is not None and abs(self.sum_delta) > SUM_CHECK_TOLERANCE
 
@@ -212,8 +210,8 @@ def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
         or _coverage_mismatch(debits, debit_target)
     )
     if stmt.transactions and needs_reversal_coverage:
-        # Audit 2026-10-13 (F4, speed only): only the reversal pass's two fields and the amounts are read here, final
-        # after pass 4, so the true-revenue pass is not run for them (classify_statement_reversals).
+        # Only the reversal pass's two fields and the amounts are read here, final after pass 4, so the true-revenue
+        # pass is not run for them (classify_statement_reversals).
         from .transaction_classifier import classify_statement_reversals
 
         classifications = classify_statement_reversals(stmt)
@@ -272,8 +270,9 @@ def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
                 f"or incomplete; do not use it for daily-balance reconstruction"
             )
 
-    # Deliberately appends NO issue: `ok` gates the ADB (pipeline.py:399 ->
-    # metrics.py:313), so an issue here would withhold the document. The
+    # Deliberately appends NO issue: `ok` gates the ADB (the pipeline passes it to
+    # `metrics.compute_metrics` as `trust_running_balances`), so an issue here
+    # would withhold the document. The
     # consequence of a count mismatch is decided in
     # pipeline.assess_document_integrity, one layer up, where it can be a flag.
     #
