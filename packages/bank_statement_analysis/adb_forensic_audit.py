@@ -29,6 +29,8 @@ from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import native_statement
 from analysis.package import package_analysis
 from webapp.jobs import Job
+from webapp.settings import load_settings
+from webapp.storage import default_data_dir
 
 
 CENT = Decimal("0.01")
@@ -503,7 +505,8 @@ def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
     backend = report.metrics.average_daily_balance
     api = payload.get("metrics", {}).get("average_daily_balance")
     package = package_analysis(
-        [Job(id="adb-audit", filename=path.name, status="done", analysis=payload)]
+        [Job(id="adb-audit", filename=path.name, status="done", analysis=payload)],
+        settings=load_settings(default_data_dir()),
     )
     dashboard = package.get("totals", {}).get("average_daily_balance")
 

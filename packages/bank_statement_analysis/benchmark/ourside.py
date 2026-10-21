@@ -21,6 +21,8 @@ from analysis.payload_shape import refuse_document_payload
 from analysis.pipeline import analyze_document
 from analysis.serialization import document_report_to_dict
 from webapp.jobs import Job
+from webapp.settings import load_settings
+from webapp.storage import default_data_dir
 from analysis.package import package_analysis
 
 from .manifest import BenchmarkSet
@@ -128,5 +130,5 @@ def run_set(
             Job(id=f"bench-{len(jobs)}", filename=path.name, status="done", analysis=payload)
         )
     if benchmark_set.package:
-        result.package = package_analysis(jobs)
+        result.package = package_analysis(jobs, settings=load_settings(default_data_dir()))
     return result

@@ -36,6 +36,8 @@ from ocr.rasterize import pdf_page_count
 from webapp.app import _analysis_csv, _analysis_xlsx, _package_csv, _package_xlsx
 from analysis.package import package_analysis
 from webapp.jobs import Job
+from webapp.settings import load_settings
+from webapp.storage import default_data_dir
 
 
 CENT = Decimal("0.01")
@@ -667,7 +669,7 @@ def apply_package_results(
     # built, which a filter applied later would not.
     paired = [(row, job) for row, job in zip(rows, jobs) if job.analysis is not None]
     jobs = [job for _, job in paired]
-    package = package_analysis(jobs)
+    package = package_analysis(jobs, settings=load_settings(default_data_dir()))
     documents = {document["id"]: document for document in package["documents"]}
     package_csv = csv_rows(_package_csv(package))
     package_xlsx = xlsx_rows(_package_xlsx(package))
