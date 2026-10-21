@@ -249,7 +249,7 @@ def test_the_published_transfer_is_index_pairs_and_carries_no_printed_value():
 
 
 class _Job:
-    """A package member, with only the attributes `_package_analysis` reads."""
+    """A package member, with only the attributes `package_analysis` reads."""
 
     def __init__(self, ident, analysis, filename="synthetic.pdf"):
         self.id = ident
@@ -271,10 +271,10 @@ def test_the_package_counts_a_transfer_once_by_not_counting_it_at_all():
     one account and a debit in the other, so a package that sums both counts it
     twice — as a deposit AND as a withdrawal — and every derivation built on
     them carries the double."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = _payload_with_a_transfer()
-    package = _package_analysis([_Job("job-1", payload)])
+    package = package_analysis([_Job("job-1", payload)])
     accounts = payload["accounts"]
     gross_credits = sum(
         row["amount"] for account in accounts
@@ -293,9 +293,9 @@ def test_the_package_cash_flow_is_unchanged_by_a_transfer():
     another, so the package's cash flow is unchanged BY CONSTRUCTION — which is
     the property that says the exclusion is removing a double rather than
     money."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", _payload_with_a_transfer())])
+    package = package_analysis([_Job("job-1", _payload_with_a_transfer())])
     totals = package["totals"]
     assert totals["cash_flow"] == pytest.approx(
         round(totals["total_credits"] - totals["total_debits"], 2))
@@ -304,11 +304,11 @@ def test_the_package_cash_flow_is_unchanged_by_a_transfer():
 def test_a_package_of_todays_payloads_is_untouched_by_any_of_this():
     """The single-account path: no `document` block, no transfers, no exclusion,
     and no new key. Every package this platform has produced is in this shape."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = document_report_to_dict(analyze_document(
         document([idle_account(), posting_account()]), parse_mode="deterministic"))
-    package = _package_analysis([_Job("job-1", payload)])
+    package = package_analysis([_Job("job-1", payload)])
     assert "statement_periods" not in package["totals"]
     assert "cross_account_averages_refused" not in package["totals"]
     assert package["totals"]["months"] == 1
@@ -322,17 +322,18 @@ def test_an_ambiguous_document_has_its_accounts_excluded_from_the_package():
     """§3.3 / Q2: the package refuses to AGGREGATE that document. Each account
     keeps its own outcome and its own ledger; what it does not do is contribute
     to a total nobody could defend."""
-    from webapp.app import _package_analysis, _package_members
+    from analysis.package import package_analysis
+    from analysis.package.members import package_members
 
     payload = _payload_with_a_transfer()
     payload["document"]["integrity_notes"] = [AMBIGUOUS_INTERNAL_TRANSFER]
     payload["document"]["internal_transfers"] = []
     job = _Job("job-1", payload)
-    members, excluded = _package_members([job])
+    members, excluded = package_members([job])
     assert members == []
     assert [item["reason"] for item in excluded] == [
         "document_transfer_pairing_ambiguous"] * 2
-    package = _package_analysis([job])
+    package = package_analysis([job])
     assert package["totals"]["total_credits"] == 0
     assert len(package["excluded_accounts"]) == 2
 
@@ -430,7 +431,7 @@ def test_the_gate_answers_a_single_account_payload_exactly_as_it_always_did():
 def test_the_package_reads_the_note_this_pipeline_writes():
     """One refusal, one spelling. The package's constant and the pipeline's are
     held equal here rather than by a comment."""
-    from webapp.app import _AMBIGUOUS_TRANSFER_NOTE
+    from analysis.package.members import _AMBIGUOUS_TRANSFER_NOTE
 
     assert _AMBIGUOUS_TRANSFER_NOTE == AMBIGUOUS_INTERNAL_TRANSFER
 
@@ -440,9 +441,9 @@ def test_two_accounts_of_one_document_are_one_statement_period():
     distinct calendar months the statements stand for, so two accounts of one
     document are one statement period AND one month; `statement_periods` is
     published beside `months` only where the two differ, and here they do not."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", _payload_with_a_transfer())])
+    package = package_analysis([_Job("job-1", _payload_with_a_transfer())])
     assert package["totals"]["months"] == 1
     assert "statement_periods" not in package["totals"]
     # And the per-period averages are refused rather than halved (Q5).

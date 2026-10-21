@@ -5774,8 +5774,9 @@ def paper_or_cash_deposit(text: str) -> bool:
     a check deposit (§8.3's _CHECK_DEPOSIT_FORM), a cash, branch, teller or ATM deposit (§8.2's _CASH_BRANCH_ATM_FORM)
     that prints a cash device's word (_CASH_DEVICE_WORD), or a retail cash load (arm R). A teller's, counter's
     or branch's deposit that prints no such word stays eligible: a branch transfer between two of the business's
-    accounts can print that way on its receiving side. A package pass's reader only (webapp/app.py `_package_matches`,
-    pass 2): no classification, tier, figure or lender reading reads it."""
+    accounts can print that way on its receiving side. A package pass's reader only
+    (analysis/package/passes.py `package_matches`, pass 2): no classification, tier, figure or lender reading reads
+    it."""
     row = _before_receiver(revenue_text(text))
     if _CHECK_DEPOSIT_FORM.search(row) is not None:
         return True

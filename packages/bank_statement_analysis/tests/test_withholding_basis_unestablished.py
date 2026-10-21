@@ -79,8 +79,8 @@ def _stored(monkeypatch, mode, **kwargs):
 
 
 def _served(payload, *, export=False):
-    from webapp.app import _displayed
-    return _displayed(payload, settings={}, export=export)
+    from analysis.served_view import displayed
+    return displayed(payload, settings={}, export=export)
 
 
 def _job(job_id, payload):
@@ -89,8 +89,8 @@ def _job(job_id, payload):
 
 
 def _package(*members):
-    from webapp.app import _package_analysis
-    return _package_analysis([_job(job_id, payload) for job_id, payload in members], settings={})
+    from analysis.package import package_analysis
+    return package_analysis([_job(job_id, payload) for job_id, payload in members], settings={})
 
 
 # ---------------------------------------------------------------- the served statement
@@ -563,20 +563,20 @@ def test_r3_27_both_members_on_true_publish_as_before(monkeypatch):
 
 
 def test_r3_27_a_failed_member_adds_no_basis(monkeypatch):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     may, june = _may_june(monkeypatch, may_mode=None)
     jobs = [Job(id="may", filename="may.pdf", status="error", analysis=None, content_sha256="may"),
             Job(id="jun", filename="jun.pdf", status="done", analysis=june, content_sha256="jun")]
-    totals = _package_analysis(jobs, settings={})["totals"]
+    totals = package_analysis(jobs, settings={})["totals"]
     assert totals["withholding_denominator_mode"] == "true_revenue"  # was "mixed"
     assert totals["withholding_denominator_label"] == "True revenue"
     assert "withholding_basis_mixed" not in totals
     assert totals["package_withholding_rate"] == pytest.approx(20.0)
     assert totals["decision"] == "review_required"  # for the failure, as before
     # A package with no ready member keeps today's mode and label.
-    none_ready = _package_analysis([jobs[0]], settings={})["totals"]
+    none_ready = package_analysis([jobs[0]], settings={})["totals"]
     assert none_ready["withholding_denominator_mode"] == "legacy_eligible_deposits"
     assert none_ready["withholding_denominator_label"] == "Legacy eligible deposits"
 

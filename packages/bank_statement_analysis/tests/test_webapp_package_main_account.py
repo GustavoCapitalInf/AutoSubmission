@@ -18,9 +18,9 @@ def _roster(checking_status):
 
 
 def test_a_statement_whose_business_checking_account_is_held_is_left_out_of_the_package():
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
     payload = {**account_payload(), "document": _roster("held")}
-    members, excluded = _package_members([_Job("job-1", payload)])
+    members, excluded = package_members([_Job("job-1", payload)])
     # Audit round 2, R2-B15 (R15): the entry names its statement's file (None for this job, which carries no filename).
     assert members == [] and excluded == [{"job_id": "job-1", "filename": None, "account_index": None,
                                            "account_count": 2, "outcome": "withheld",
@@ -30,7 +30,7 @@ def test_a_statement_whose_business_checking_account_is_held_is_left_out_of_the_
 def test_a_held_account_whose_title_names_no_kind_or_ranks_first_is_the_main_account():
     # Review 9, finding 4: a product title without a kind word ("... Advantage Account") can be the operating account;
     # among savings and money market, a held one leaves the main account undetermined. Cards and loans never rank.
-    from webapp.app import _package_members, _unverified_main_account
+    from analysis.package.members import _unverified_main_account, package_members
     def roster(*entries):
         return [{"title": title, "kind": kind, "status": status} for title, kind, status in entries]
     assert _unverified_main_account(roster(("FABRICATED ADVANTAGE ACCOUNT", None, "held"),
@@ -53,13 +53,13 @@ def test_a_held_account_whose_title_names_no_kind_or_ranks_first_is_the_main_acc
                                            ("FABRICATED MASTERCARD", "credit_card", "published"))) is None
     payload = {**account_payload(), "document": {"account_roster": roster(
         ("FABRICATED ADVANTAGE ACCOUNT", None, "held"), ("FABRICATED SAVINGS", "savings", "published"))}}
-    members, excluded = _package_members([_Job("job-1", payload)])
+    members, excluded = package_members([_Job("job-1", payload)])
     assert members == [] and excluded[0]["reason"] == "main_account_unverified"
 
 
 def test_an_idle_business_checking_account_needs_review_and_leaves_the_statement_out_of_the_package():
     # Owner ruling, 2026-09-23: an idle main account needs review (the dashboard keeps showing the active account).
-    from webapp.app import _idle_main_account, _package_members
+    from analysis.package.members import _idle_main_account, package_members
     def roster(*entries):
         return [{"title": title, "kind": kind, "status": status} for title, kind, status in entries]
     idle = roster(("FABRICATED BUSINESS CHECKING", "checking", "idle"), ("FABRICATED SAVINGS", "savings", "published"))
@@ -74,14 +74,14 @@ def test_an_idle_business_checking_account_needs_review_and_leaves_the_statement
                    roster(("FABRICATED SAVINGS", "savings", "idle"), ("FABRICATED CHECKING", "checking", "published")),
                    roster(("FABRICATED CARD", "credit_card", "idle"))):
         assert _idle_main_account(active) is None, active
-    members, excluded = _package_members([_Job("job-1", {**account_payload(), "document": {"account_roster": idle}})])
+    members, excluded = package_members([_Job("job-1", {**account_payload(), "document": {"account_roster": idle}})])
     assert members == [] and excluded[0]["reason"] == "main_account_idle"
 
 
 def test_a_statement_whose_business_checking_account_is_verified_or_that_prints_one_account_is_a_member():
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
     verified = {**account_payload(), "document": _roster("published")}
-    members, excluded = _package_members([_Job("job-1", verified), _Job("job-2", account_payload())])
+    members, excluded = package_members([_Job("job-1", verified), _Job("job-2", account_payload())])
     assert [member[0].id for member in members] == ["job-1", "job-2"] and excluded == []
 
 

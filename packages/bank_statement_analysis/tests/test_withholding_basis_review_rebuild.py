@@ -64,8 +64,8 @@ def _stored(monkeypatch, credits, *, mode="true_revenue"):
 
 
 def _served(payload, zelle=True):
-    from webapp.app import _displayed
-    return _displayed(copy.deepcopy(payload), settings={"zelle_true_revenue": zelle})
+    from analysis.served_view import displayed
+    return displayed(copy.deepcopy(payload), settings={"zelle_true_revenue": zelle})
 
 
 def _review(stored, decisions, shown=True):
@@ -90,7 +90,8 @@ def _basis_notes(metrics):
 
 
 def _export_cells(served):
-    from webapp.app import _account_analysis_rows, _displayed
+    from webapp.app import _account_analysis_rows
+    from analysis.served_view import displayed
     rows = {(section, field): value for section, field, value in _account_analysis_rows(served)}
     lenders = json.loads(rows[("detection", "potential_lenders")])
     notes = json.loads(rows[("metrics", "notes")])
@@ -115,8 +116,8 @@ def test_a_a_confirm_moves_each_potential_lender_s_row_with_the_card(monkeypatch
 
 
 def _served_export(payload):
-    from webapp.app import _displayed
-    return _displayed(copy.deepcopy(payload), settings={"zelle_true_revenue": True}, export=True)
+    from analysis.served_view import displayed
+    return displayed(copy.deepcopy(payload), settings={"zelle_true_revenue": True}, export=True)
 
 
 def test_b_a_confirm_lifting_a_zero_basis_publishes_the_row_and_drops_the_notes(monkeypatch):

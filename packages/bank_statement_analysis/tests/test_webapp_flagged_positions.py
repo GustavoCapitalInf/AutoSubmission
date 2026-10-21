@@ -23,7 +23,7 @@ from tests.flagged_payloads import (
 from tests.l1s3_payloads import account_payload
 from webapp.app import app, store
 from webapp.jobs import Job
-from webapp.settings import DEFAULTS, SETTINGS_FILE, save_settings
+from webapp.settings import DEFAULTS, SETTINGS_FILE, load_settings, save_settings
 
 EACH_GROUP = pytest.mark.parametrize("group", FLAG_GROUPS, ids=lambda group: group.key)
 
@@ -92,19 +92,19 @@ def test_a_stored_analysis_whose_records_carry_no_version_is_served_as_outdated(
 
 def test_displayed_takes_one_settings_snapshot_and_carry_over_still_decides_the_nsf_basis(settings_file):
     from tests.test_webapp_settings import _ledger_metrics
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     payload = flagged_account_payload(groups=("mortgages",))
     payload["metrics"].update(_ledger_metrics())
     snapshot = {**DEFAULTS, "flag_mortgages": False}
-    shown = _displayed(payload, settings=snapshot)
+    shown = displayed(payload, settings=snapshot)
     assert shown["metrics"]["effective_nsf_count"] == 1 and shown["metrics"]["flagged_groups"] == {}
-    shown = _displayed(payload, carry_over=True, settings=snapshot)
+    shown = displayed(payload, carry_over=True, settings=snapshot)
     assert shown["metrics"]["effective_nsf_count"] == 2 and shown["metrics"]["flagged_groups"] == {}
-    assert _displayed(payload)["metrics"]["flagged_groups"] == {"mortgages": {
+    assert displayed(payload)["metrics"]["flagged_groups"] == {"mortgages": {
         "count": 1, "total": FLAGGED_DEBIT, "count_credited": 0, "total_credited": 0.0, "payees": 1}}
     save_settings(settings_file.parent, {"flag_mortgages": False})
-    assert _displayed(payload)["metrics"]["flagged_groups"] == {}
+    assert displayed(payload, settings=load_settings(settings_file.parent))["metrics"]["flagged_groups"] == {}
 
 
 def test_a_review_answers_with_the_checkboxes_applied_and_stores_no_tag(settings_file):
@@ -136,33 +136,33 @@ def test_a_review_answers_with_the_checkboxes_applied_and_stores_no_tag(settings
 
 @EACH_GROUP
 def test_package_members_carry_the_displayed_checkboxes(settings_file, done_job, group):
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
-    members, _ = _package_members([done_job])
+    members, _ = package_members([done_job])
     assert group.key in _groups(members[0][1])
     save_settings(settings_file.parent, {group.setting: False})
-    members, _ = _package_members([done_job])
+    members, _ = package_members([done_job], settings=load_settings(settings_file.parent))
     assert group.key not in _groups(members[0][1]) and _flags(members[0][1])[group.key] is False
 
 
 @EACH_GROUP
 def test_every_published_account_of_a_document_member_follows_the_checkbox(settings_file, group):
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
     job = Job(id="doc", filename="doc.pdf", status="done", analysis=flagged_document_payload(), content_sha256="doc")
     save_settings(settings_file.parent, {group.setting: False})
-    members, excluded = _package_members([job])
+    members, excluded = package_members([job], settings=load_settings(settings_file.parent))
     assert [member[2] for member in members] == [1, 2] and excluded == []
     for _job, account, _index, _count in members:
         assert group.key not in _groups(account) and _flags(account)[group.key] is False
 
 
 def test_the_checkboxes_never_change_which_accounts_a_package_leaves_out(settings_file):
-    # The exclusions read the roster off the displayed copy (webapp/app.py::_package_members); the flag step
+    # The exclusions read the roster off the displayed copy (`package_members`); the flag step
     # touches only each account's rows, metrics and detection, so the idle and unverified main-account rules
     # decide the same way whatever is ticked, and the stored records are never rewritten.
     from tests.test_webapp_settings import _roster
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
     def document_job(job_id, roster=None):
         payload = flagged_document_payload()
@@ -175,7 +175,7 @@ def test_the_checkboxes_never_change_which_accounts_a_package_leaves_out(setting
     stored = [copy.deepcopy(job.analysis) for job in jobs]
 
     def decided():
-        members, excluded = _package_members(jobs)
+        members, excluded = package_members(jobs)
         return sorted((member[0].id, member[2]) for member in members), excluded
 
     ticked = decided()
@@ -185,10 +185,11 @@ def test_the_checkboxes_never_change_which_accounts_a_package_leaves_out(setting
     assert [job.analysis for job in jobs] == stored
 
 
-def test_a_package_reads_the_settings_once_and_hands_that_snapshot_to_every_member(settings_file, monkeypatch):
-    # One read per package (spec §8.2, C6). Every member's displayed copy, and the flag roll-up (Task 7), use that
-    # one snapshot, so a checkbox saved mid-request cannot split a package across two sets of ticked groups.
-    from webapp.app import _package_analysis, _package_members
+def test_the_package_route_reads_the_settings_once_and_hands_that_snapshot_to_every_member(settings_file, monkeypatch):
+    # One read per package (spec §8.2, C6), by the route: every member's displayed copy, and the flag roll-up (Task 7),
+    # use that one snapshot, so a checkbox saved mid-request cannot split a package across two sets of ticked groups.
+    from analysis.package import package_analysis
+    from analysis.package.members import package_members
     from webapp.settings import load_settings
 
     reads = []
@@ -198,23 +199,26 @@ def test_a_package_reads_the_settings_once_and_hands_that_snapshot_to_every_memb
         return load_settings(data_dir)
 
     monkeypatch.setattr("webapp.app.load_settings", counting_load)
-    jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
-    _package_analysis(jobs)
+    ids = []
+    for index in (0, 1):
+        job = store.create(f"fabricated-{index}.pdf")
+        store.set_result(job.id, "# fabricated", "<h1>fabricated</h1>", analysis=flagged_account_payload(index))
+        ids.append(job.id)
+    assert app.test_client().get(f"/package_analysis?ids={','.join(ids)}").status_code == 200
     assert len(reads) == 1
-    _package_members(jobs)
-    assert len(reads) == 2
-    # A caller that passes the snapshot reads nothing more.
-    _package_analysis(jobs, settings=dict(DEFAULTS))
-    _package_members(jobs, settings=dict(DEFAULTS))
-    assert len(reads) == 2
+    # The package takes its snapshot from the caller and reads none itself.
+    jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
+    package_analysis(jobs)
+    package_members(jobs)
+    assert len(reads) == 1
 
 
 def test_package_members_follow_the_snapshot_they_are_handed_not_the_file(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     save_settings(settings_file.parent, dict(DEFAULTS))  # the file ticks every group
     jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
-    package = _package_analysis(jobs, settings={**DEFAULTS, "flag_mortgages": False})
+    package = package_analysis(jobs, settings={**DEFAULTS, "flag_mortgages": False})
     records = [row["classification"] for row in package["transactions"] if row["classification"].get("flagged_group")]
     assert len(records) == 2 * len(GROUP_KEYS)
     assert all(record["flag_shown"] is (record["flagged_group"] != "mortgages") for record in records)
@@ -268,10 +272,11 @@ def test_two_payees_of_one_group_are_numbered_in_the_payload_order():
 
 
 def test_a_payee_that_reads_as_a_formula_is_escaped_in_both_sheets():
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+    from webapp.app import _analysis_csv, _analysis_xlsx
+    from analysis.served_view import displayed
 
     payload = with_flagged_rows(account_payload(), [flagged_row("mortgages", payee="=FABRICATED(1)")])
-    shown = _displayed(payload, settings=dict(DEFAULTS))
+    shown = displayed(payload, settings=dict(DEFAULTS))
     assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _analysis_csv(shown)
     sheet = _sheet(_analysis_xlsx(shown))
     assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet
@@ -284,9 +289,9 @@ def _not_flagged(totals):
 
 
 def test_the_package_rolls_up_each_ticked_group_across_members(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([
+    package = package_analysis([
         _member("a", flagged_account_payload(0)),
         _member("b", flagged_account_payload(1, amount=-3.0, date="2054-01-12")),
     ])
@@ -303,19 +308,19 @@ def test_the_package_rolls_up_each_ticked_group_across_members(settings_file):
 
 def test_a_row_without_a_named_payee_rolls_up_under_its_group_label(settings_file):
     from analysis.flag_groups import FLAG_GROUP_BY_KEY
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = with_flagged_rows(account_payload(), [flagged_row("bank_loans", payee="")])
-    [item] = _package_analysis([_member("a", payload)])["flagged_positions"]["bank_loans"]
+    [item] = package_analysis([_member("a", payload)])["flagged_positions"]["bank_loans"]
     assert item["payee"] == FLAG_GROUP_BY_KEY["bank_loans"].label
 
 
 def test_a_row_the_analysis_does_not_count_never_enters_the_roll_up(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = with_flagged_rows(account_payload(), [flagged_row("mortgages"),
                                                     flagged_row("mortgages", contributes=False)])
-    package = _package_analysis([_member("a", payload)])
+    package = package_analysis([_member("a", payload)])
     [item] = package["flagged_positions"]["mortgages"]
     assert (item["count"], item["total_debited"]) == (1, FLAGGED_DEBIT)
     assert len(package["flagged_evidence"]) == 1
@@ -323,12 +328,12 @@ def test_a_row_the_analysis_does_not_count_never_enters_the_roll_up(settings_fil
 
 @EACH_GROUP
 def test_an_unticked_group_leaves_the_package_and_nothing_else_moves(settings_file, group):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
-    ticked = _package_analysis(jobs)
+    ticked = package_analysis(jobs)
     save_settings(settings_file.parent, {group.setting: False})
-    unticked = _package_analysis(jobs)
+    unticked = package_analysis(jobs, settings=load_settings(settings_file.parent))
     assert set(unticked["flagged_positions"]) == set(GROUP_KEYS) - {group.key}
     assert all(evidence["flagged_group"] != group.key for evidence in unticked["flagged_evidence"])
     # D7: the lender totals, the withholding and the decision never read a flag group or its checkbox.
@@ -338,16 +343,16 @@ def test_an_unticked_group_leaves_the_package_and_nothing_else_moves(settings_fi
 
 
 def test_premium_financing_stays_insurance_whether_or_not_it_is_flagged(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     jobs = [_member("a", flagged_account_payload(0, groups=("premium_financing",))),
             _member("b", flagged_account_payload(1, groups=("premium_financing",)))]
-    ticked = _package_analysis(jobs)
+    ticked = package_analysis(jobs)
     [item] = ticked["flagged_positions"]["premium_financing"]
     assert (item["count"], item["total_debited"]) == (2, 2 * FLAGGED_DEBIT)
     assert (ticked["totals"]["insurance_count"], ticked["totals"]["insurance_total"]) == (2, 2 * FLAGGED_DEBIT)
     save_settings(settings_file.parent, {"flag_premium_financing": False})
-    unticked = _package_analysis(jobs)
+    unticked = package_analysis(jobs, settings=load_settings(settings_file.parent))
     assert unticked["flagged_positions"] == {} and unticked["flagged_evidence"] == []
     # The checkbox hides the flag only: the rows are still insurance, counted and evidenced as today.
     assert (unticked["totals"]["insurance_count"], unticked["totals"]["insurance_total"]) == (2, 2 * FLAGGED_DEBIT)
@@ -357,11 +362,11 @@ def test_premium_financing_stays_insurance_whether_or_not_it_is_flagged(settings
 def test_the_roll_up_reads_the_same_snapshot_as_the_member_rows(settings_file):
     # Spec §8.2: the members' tags and the roll-up come from ONE snapshot. The file ticks every group and the
     # snapshot unticks premium financing, so a roll-up that re-read the file would still show it.
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     save_settings(settings_file.parent, dict(DEFAULTS))
     jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
-    package = _package_analysis(jobs, settings={**DEFAULTS, "flag_premium_financing": False})
+    package = package_analysis(jobs, settings={**DEFAULTS, "flag_premium_financing": False})
     assert set(package["flagged_positions"]) == set(GROUP_KEYS) - {"premium_financing"}
     assert {evidence["flagged_group"] for evidence in package["flagged_evidence"]} == set(package["flagged_positions"])
     tagged = {row["classification"]["flagged_group"] for row in package["transactions"]
@@ -372,9 +377,9 @@ def test_the_roll_up_reads_the_same_snapshot_as_the_member_rows(settings_file):
 
 
 def test_flag_evidence_of_a_document_member_names_its_account(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_member("doc", flagged_document_payload(groups=("mortgages",)))])
+    package = package_analysis([_member("doc", flagged_document_payload(groups=("mortgages",)))])
     assert [(evidence["source_job"], evidence["source_account"], evidence["source_location"])
             for evidence in package["flagged_evidence"]] == [("doc", 1, "transaction:2"), ("doc", 2, "transaction:2")]
     [item] = package["flagged_positions"]["mortgages"]
@@ -382,13 +387,13 @@ def test_flag_evidence_of_a_document_member_names_its_account(settings_file):
 
 
 def test_an_internal_transfer_leg_never_enters_the_flag_roll_up(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = flagged_document_payload(groups=("mortgages",))
     # Account 1's ledger holds its revenue credit at position 0 and its flagged debit at position 1; the document
     # pairs that debit with account 2's credit as one movement between its own accounts.
     payload["document"]["internal_transfers"] = [{"a": [0, 1], "b": [1, 0]}]
-    package = _package_analysis([_member("doc", payload)])
+    package = package_analysis([_member("doc", payload)])
     [item] = package["flagged_positions"]["mortgages"]
     assert (item["documents"], item["count"], item["total_debited"]) == (1, 1, 2 * FLAGGED_DEBIT)
     assert [evidence["source_account"] for evidence in package["flagged_evidence"]] == [2]
@@ -396,45 +401,45 @@ def test_an_internal_transfer_leg_never_enters_the_flag_roll_up(settings_file):
 
 def test_a_package_of_payloads_without_flag_groups_rolls_up_nothing(settings_file):
     from tests.test_package_currency import member
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([member("a", "USD"), _member("b", account_payload())])
+    package = package_analysis([member("a", "USD"), _member("b", account_payload())])
     assert package["flagged_positions"] == {} and package["flagged_evidence"] == []
 
 
 @EACH_GROUP
 def test_the_package_totals_count_the_debits_of_ticked_groups_only(settings_file, group):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     # Two members, one debit per group each: every group counts two debits and debits both amounts.
     jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1, amount=-3.0))]
     per_group = FLAGGED_DEBIT + 3.0
-    totals = _package_analysis(jobs)["totals"]
+    totals = package_analysis(jobs)["totals"]
     assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (
         2 * len(GROUP_KEYS), len(GROUP_KEYS) * per_group)
     save_settings(settings_file.parent, {group.setting: False})
-    totals = _package_analysis(jobs)["totals"]
+    totals = package_analysis(jobs, settings=load_settings(settings_file.parent))["totals"]
     assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (
         2 * (len(GROUP_KEYS) - 1), (len(GROUP_KEYS) - 1) * per_group)
 
 
 def test_a_package_without_flag_groups_publishes_zero_flagged_totals(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    totals = _package_analysis([_member("b", account_payload())])["totals"]
+    totals = package_analysis([_member("b", account_payload())])["totals"]
     assert (totals["flagged_position_count"], totals["flagged_position_total"]) == (0, 0.0)
 
 
 def test_a_member_without_analysis_adds_nothing_to_the_flag_roll_up(settings_file):
     # Mirrors the NSF basis test of the same shape (tests/test_webapp_settings.py): a failed member has no analysis.
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     done = _member("a", flagged_account_payload(0, groups=("mortgages",)))
     failed = Job(id="b", filename="b.pdf", status="failed", analysis=None, content_sha256="b")
-    package = _package_analysis([done, failed])
+    package = package_analysis([done, failed])
     [item] = package["flagged_positions"]["mortgages"]
     assert (item["documents"], item["count"], package["totals"]["flagged_position_count"]) == (1, 1, 1)
-    alone = _package_analysis([failed])
+    alone = package_analysis([failed])
     assert alone["flagged_positions"] == {} and alone["totals"]["flagged_position_count"] == 0
 
 
@@ -442,11 +447,12 @@ def test_a_member_without_analysis_adds_nothing_to_the_flag_roll_up(settings_fil
 
 @EACH_GROUP
 def test_the_package_csv_and_xlsx_carry_the_ticked_groups_only(settings_file, group):
-    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+    from webapp.app import _package_csv, _package_xlsx
+    from analysis.package import package_analysis
 
     jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
     section = f"flagged_{group.key}_1"
-    package = _package_analysis(jobs)
+    package = package_analysis(jobs)
     cells = _csv_cells(_package_csv(package))
     assert cells[(section, "payee")] == fabricated_payee(group.key)
     assert (cells[(section, "documents")], cells[(section, "count")]) == ("2", "2")
@@ -454,17 +460,18 @@ def test_the_package_csv_and_xlsx_carry_the_ticked_groups_only(settings_file, gr
     assert cells[("totals", "flagged_position_count")] == str(2 * len(GROUP_KEYS))
     assert f"<t>{section}</t>" in _sheet(_package_xlsx(package))
     save_settings(settings_file.parent, {group.setting: False})
-    package = _package_analysis(jobs)
+    package = package_analysis(jobs, settings=load_settings(settings_file.parent))
     cells = _csv_cells(_package_csv(package))
     assert not [key for key in cells if key[0].startswith(f"flagged_{group.key}_")]
     assert f"<t>{section}</t>" not in _sheet(_package_xlsx(package))
 
 
 def test_a_package_payee_that_reads_as_a_formula_is_escaped(settings_file):
-    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+    from webapp.app import _package_csv, _package_xlsx
+    from analysis.package import package_analysis
 
     payload = with_flagged_rows(account_payload(), [flagged_row("mortgages", payee="=FABRICATED(1)")])
-    package = _package_analysis([_member("a", payload)])
+    package = package_analysis([_member("a", payload)])
     assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _package_csv(package)
     sheet = _sheet(_package_xlsx(package))
     assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet
@@ -500,9 +507,9 @@ def _factored(index=0, *, payee=None, payouts=1, date="2054-01-12"):
 
 
 def test_a_factoring_credit_is_served_flagged_and_follows_its_checkbox(settings_file):
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    shown = _displayed(_factored(), settings=dict(DEFAULTS))
+    shown = displayed(_factored(), settings=dict(DEFAULTS))
     assert shown["metrics"]["flagged_groups"] == {"factoring": {
         "count": 1, "total": FLAGGED_DEBIT, "count_credited": 1, "total_credited": FACTOR_PAYOUT, "payees": 1}}
     [entry] = shown["detection"]["flagged_positions"]
@@ -510,15 +517,16 @@ def test_a_factoring_credit_is_served_flagged_and_follows_its_checkbox(settings_
         1, FLAGGED_DEBIT, 1, FACTOR_PAYOUT)
     rows = [row for row in shown["statement"]["transactions"] if row["classification"].get("flagged_group")]
     assert [(row["amount"] > 0, row["classification"]["flag_shown"]) for row in rows] == [(False, True), (True, True)]
-    hidden = _displayed(_factored(), settings={**DEFAULTS, "flag_factoring": False})
+    hidden = displayed(_factored(), settings={**DEFAULTS, "flag_factoring": False})
     assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []
     assert not [row for row in hidden["statement"]["transactions"] if row["classification"]["flag_shown"]]
 
 
 def test_the_statement_csv_and_xlsx_carry_the_credited_fields(settings_file):
-    from webapp.app import _analysis_csv, _analysis_xlsx, _displayed
+    from webapp.app import _analysis_csv, _analysis_xlsx
+    from analysis.served_view import displayed
 
-    shown = _displayed(_factored(), settings=dict(DEFAULTS))
+    shown = displayed(_factored(), settings=dict(DEFAULTS))
     cells = _csv_cells(_analysis_csv(shown))
     assert (cells[("flagged_factoring_1", "count")], cells[("flagged_factoring_1", "total_debited")]) == (
         "1", str(FLAGGED_DEBIT))
@@ -528,10 +536,10 @@ def test_the_statement_csv_and_xlsx_carry_the_credited_fields(settings_file):
 
 
 def test_the_package_rolls_up_credits_apart_from_debits(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     jobs = [_member("a", _factored(0)), _member("b", _factored(1, date="2054-01-19"))]
-    package = _package_analysis(jobs)
+    package = package_analysis(jobs)
     [item] = package["flagged_positions"]["factoring"]
     assert (item["documents"], item["count"], item["total_debited"]) == (2, 2, 2 * FLAGGED_DEBIT)
     assert (item["count_credited"], item["total_credited"]) == (2, 2 * FACTOR_PAYOUT)
@@ -545,7 +553,7 @@ def test_the_package_rolls_up_credits_apart_from_debits(settings_file):
     assert len(package["flagged_evidence"]) == 4
     # D7: the credits never touch the decision, and unticking the group moves nothing but the flag figures.
     save_settings(settings_file.parent, {"flag_factoring": False})
-    unticked = _package_analysis(jobs)
+    unticked = package_analysis(jobs, settings=load_settings(settings_file.parent))
     assert (unticked["totals"]["flagged_position_count_credited"],
             unticked["totals"]["flagged_position_total_credited"]) == (0, 0.0)
     assert _not_flagged(unticked["totals"]) == _not_flagged(totals)
@@ -553,23 +561,23 @@ def test_the_package_rolls_up_credits_apart_from_debits(settings_file):
 
 
 def test_a_payee_whose_counted_rows_are_all_credits_rolls_up_with_no_debits(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = with_flagged_rows(account_payload(), [flagged_row("factoring", amount=FACTOR_PAYOUT)])
-    [item] = _package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
+    [item] = package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
     assert (item["count"], item["total_debited"], item["count_credited"], item["total_credited"]) == (
         0, 0.0, 1, FACTOR_PAYOUT)
 
 
 def test_package_positions_rank_by_debited_plus_credited(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = with_flagged_rows(account_payload(), [
         flagged_row("factoring", payee="FABRICATED DEBITED FACTOR", amount=-3 * FLAGGED_DEBIT),
         flagged_row("factoring", payee="FABRICATED PAYING FACTOR", amount=-FLAGGED_DEBIT),
         flagged_row("factoring", payee="FABRICATED PAYING FACTOR", amount=FACTOR_PAYOUT),
     ])
-    items = _package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
+    items = package_analysis([_member("a", payload)])["flagged_positions"]["factoring"]
     # 1 debited plus 3 paid in outranks 3 debited alone, and the paid-in money never joins total_debited.
     assert [(item["payee"], item["total_debited"], item["total_credited"]) for item in items] == [
         ("FABRICATED PAYING FACTOR", FLAGGED_DEBIT, FACTOR_PAYOUT),
@@ -578,9 +586,10 @@ def test_package_positions_rank_by_debited_plus_credited(settings_file):
 
 
 def test_the_package_csv_and_xlsx_carry_the_credited_fields(settings_file):
-    from webapp.app import _package_analysis, _package_csv, _package_xlsx
+    from webapp.app import _package_csv, _package_xlsx
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_member("a", _factored(0)), _member("b", _factored(1))])
+    package = package_analysis([_member("a", _factored(0)), _member("b", _factored(1))])
     cells = _csv_cells(_package_csv(package))
     assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
         "2", str(2 * FACTOR_PAYOUT))
@@ -597,9 +606,9 @@ def _member_paying(job_id, index, group_key, dates):
 
 
 def test_the_package_cadence_is_read_across_every_members_dates(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([
+    package = package_analysis([
         _member_paying("a", 0, "vehicle_financing", ("2054-01-05", "2054-01-12")),
         _member_paying("b", 1, "vehicle_financing", ("2054-01-19", "2054-01-26")),
     ])
@@ -609,9 +618,9 @@ def test_the_package_cadence_is_read_across_every_members_dates(settings_file):
 
 
 def test_one_payment_per_monthly_statement_reads_as_monthly(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([
+    package = package_analysis([
         _member_paying("jan", 0, "mortgages", ("2054-01-15",)),
         _member_paying("feb", 1, "mortgages", ("2054-02-15",)),
         _member_paying("mar", 2, "mortgages", ("2054-03-15",)),
@@ -621,16 +630,16 @@ def test_one_payment_per_monthly_statement_reads_as_monthly(settings_file):
 
 
 def test_a_payee_paid_once_in_the_package_has_a_single_cadence(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_member("a", flagged_account_payload(0, groups=("mortgages",)))])
+    package = package_analysis([_member("a", flagged_account_payload(0, groups=("mortgages",)))])
     assert package["flagged_positions"]["mortgages"][0]["cadence"] == "single"
 
 
 def test_every_flag_roll_up_item_carries_the_contract_fields_in_order(settings_file):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_member("a", flagged_account_payload(0))])
+    package = package_analysis([_member("a", flagged_account_payload(0))])
     for items in package["flagged_positions"].values():
         for item in items:
             assert list(item) == ["payee", "documents", "count", "total_debited", "count_credited", "total_credited",
@@ -726,7 +735,7 @@ def test_the_classifiers_premium_financing_row_is_an_insurance_row_with_the_flag
 def test_the_classifiers_factoring_credit_is_revenue_and_rolls_up_as_credited(settings_file):
     """Owner ruling 2026-09-26 (C4-C6): the factor's payout is flagged, counted apart from the debits, never
     financing proceeds, and it matches the fixtures' credit row."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = _analysed_payload()
     [credit] = [row["classification"] for row in payload["statement"]["transactions"]
@@ -739,27 +748,28 @@ def test_the_classifiers_factoring_credit_is_revenue_and_rolls_up_as_credited(se
     assert payload["metrics"]["lender_credits"] == 0.0
     [position] = [entry for entry in payload["detection"]["flagged_positions"] if entry["group"] == "factoring"]
     assert (position["count"], position["count_credited"], position["total_credited"]) == (1, 1, 3 * FLAGGED_DEBIT)
-    package = _package_analysis([_member("fabricated", payload)])
+    package = package_analysis([_member("fabricated", payload)])
     [item] = package["flagged_positions"]["factoring"]
     assert (item["count"], item["count_credited"], item["total_credited"]) == (1, 1, 3 * FLAGGED_DEBIT)
     assert package["totals"]["flagged_position_count_credited"] == 1
 
 
 def test_the_classifiers_payload_is_served_and_packaged_by_the_checkboxes(settings_file):
-    from webapp.app import _displayed, _package_analysis
+    from analysis.package import package_analysis
+    from analysis.served_view import displayed
 
     payload = _analysed_payload()
     none_ticked = {**DEFAULTS, **{key: False for key in FLAG_SETTING_KEYS}}
-    hidden = _displayed(payload, settings=none_ticked)
+    hidden = displayed(payload, settings=none_ticked)
     assert hidden["metrics"]["flagged_groups"] == {} and hidden["detection"]["flagged_positions"] == []
     assert hidden["analysis_rules_outdated"] is False
-    package = _package_analysis([_member("fabricated", payload)])
+    package = package_analysis([_member("fabricated", payload)])
     assert set(package["flagged_positions"]) == {entry["group"] for entry in payload["detection"]["flagged_positions"]}
     # D7: flag groups never make a package need review, and never enter the lender math.
     assert package["totals"]["decision"] == "approved"
     assert package["totals"]["lender_debit_count"] == 0 and package["totals"]["potential_lender_debit_count"] == 0
     # Unticking every group hides every flag; the premium-financing row still counts as insurance.
-    unticked = _package_analysis([_member("fabricated", payload)], settings=none_ticked)
+    unticked = package_analysis([_member("fabricated", payload)], settings=none_ticked)
     assert unticked["flagged_positions"] == {} and unticked["totals"]["flagged_position_count"] == 0
     assert unticked["totals"]["flagged_position_count_credited"] == 0
     assert unticked["totals"]["insurance_count"] == package["totals"]["insurance_count"] == 1
@@ -804,12 +814,13 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
 # --- 5.3 (owner ruling 2026-09-27): an unconfirmed flagged payee --------------------------------------------------
 
 def test_an_unconfirmed_flagged_payee_is_marked_in_the_package_and_its_export(settings_file):
-    from webapp.app import _package_analysis, _package_csv
+    from webapp.app import _package_csv
+    from analysis.package import package_analysis
 
     row = flagged_row("vehicle_financing", payee="FABRICATED REVIEW AUTO")
     row["classification"]["review_required"] = True
     known = flagged_row("vehicle_financing", payee="FABRICATED KNOWN AUTO", date="2054-01-06")
-    package = _package_analysis([_member("a", with_flagged_rows(account_payload(0), [row, known]))])
+    package = package_analysis([_member("a", with_flagged_rows(account_payload(0), [row, known]))])
     items = {item["payee"]: item["review_required"] for item in package["flagged_positions"]["vehicle_financing"]}
     assert items == {"FABRICATED REVIEW AUTO": True, "FABRICATED KNOWN AUTO": False}
     cells = _csv_cells(_package_csv(package))

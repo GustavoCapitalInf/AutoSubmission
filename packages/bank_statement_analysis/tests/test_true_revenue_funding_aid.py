@@ -324,9 +324,9 @@ def funding_aid_payload(rows=None, *, start=START):
 
 
 def _served_json(payload):
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
-    return json.loads(json.dumps(_displayed(payload, settings={})))
+    return json.loads(json.dumps(displayed(payload, settings={})))
 
 
 def test_the_served_payload_carries_the_aid_as_a_list_of_objects():

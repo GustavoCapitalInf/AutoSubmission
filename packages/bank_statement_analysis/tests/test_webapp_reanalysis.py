@@ -1270,12 +1270,12 @@ def test_a_5_6_analysis_is_served_with_the_re_analyze_notice():
     statement analysed at 5.6 is served with the notice; its rows tier as the rules tier them today."""
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
     from webapp import artifact_cache
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == (CURRENT_CLASSIFICATION, CURRENT_STAGE)
     stale = _stale_payload()
     assert _tiers(stale) == STALE_TIERS == _tiers(_payload(STALE_ROWS))
-    assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
+    assert displayed(stale, settings={})["analysis_rules_outdated"] is True
 
 
 @pytest.mark.parametrize("version, outdated",
@@ -1286,7 +1286,7 @@ def test_only_a_record_older_than_5_9_sets_the_notice(version, outdated):
     notice is off, and at 5.10 (compared as numbers, a newer classifier's record); at 5.8 (before the ruling), 5.7 (the
     round-2 rules), 5.6, 4.1, or with no version (a record from before the field) it is on. `_rules_outdated` itself
     is unchanged (D12)."""
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     payload = _payload(STALE_ROWS)
     for row in payload["statement"]["transactions"]:
@@ -1294,7 +1294,7 @@ def test_only_a_record_older_than_5_9_sets_the_notice(version, outdated):
             row["classification"].pop("classification_version")
         else:
             row["classification"]["classification_version"] = version
-    assert _displayed(payload, settings={})["analysis_rules_outdated"] is outdated
+    assert displayed(payload, settings={})["analysis_rules_outdated"] is outdated
 
 
 def test_re_analysing_a_5_6_statement_misses_its_stage_32_entry_and_clears_the_notice(
@@ -1305,7 +1305,9 @@ def test_re_analysing_a_5_6_statement_misses_its_stage_32_entry_and_clears_the_n
     statement's gate (its pill) is the package's member gate. With 5.7 alone the cached 5.6 entry would come back and
     the notice would survive its own button."""
     from webapp import artifact_cache
-    from webapp.app import _displayed, _package_analysis, app
+    from webapp.app import app
+    from analysis.package import package_analysis
+    from analysis.served_view import displayed
 
     assert artifact_cache.ANALYSIS_STAGE_VERSION == CURRENT_STAGE
     monkeypatch.setattr(artifact_cache, "ANALYSIS_STAGE_VERSION", STALE_STAGE)
@@ -1328,8 +1330,8 @@ def test_re_analysing_a_5_6_statement_misses_its_stage_32_entry_and_clears_the_n
         CURRENT_CLASSIFICATION}
     # T5: the three rows tier as before; only the stored gate is today's.
     assert _tiers(saved) == STALE_TIERS
-    served = _displayed(saved, settings={})
-    package = _package_analysis([private_store.get(job_id)], settings={})
+    served = displayed(saved, settings={})
+    package = package_analysis([private_store.get(job_id)], settings={})
     assert served["metrics"]["revenue_review_required"] is True
     assert package["documents"][0]["revenue_review_required"] is served["metrics"]["revenue_review_required"]
 
@@ -1350,7 +1352,7 @@ def test_a_5_7_analysis_is_served_with_the_re_analyze_notice():
     re-analyze notice."""
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
     from webapp import artifact_cache
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     # Audit round 3, R3-MERGE: the hosting line's merge-back moved the stage to 37 (no classification change). The
     # owner's Amerifi Capital ruling (2026-10-11) moved both, to 5.9 and 38; the code audit of 2026-10-13 the stage
@@ -1358,7 +1360,7 @@ def test_a_5_7_analysis_is_served_with_the_re_analyze_notice():
     assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     stale = _round3_stale_payload()
     assert _stamps(stale) == {"5.7"}
-    assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
+    assert displayed(stale, settings={})["analysis_rules_outdated"] is True
 
 
 def test_the_round_3_version_move_tiers_the_stale_rows_as_before():
@@ -1376,7 +1378,9 @@ def test_re_analysing_a_5_7_statement_misses_its_stage_33_entry_and_clears_the_n
     gate (its pill) is the package's member gate. With 5.8 alone the cached 5.7 entry would come back and the notice
     would survive its own button. Since the owner's Amerifi Capital ruling (2026-10-11) the stamp is 5.9."""
     from webapp import artifact_cache
-    from webapp.app import _displayed, _package_analysis, app
+    from webapp.app import app
+    from analysis.package import package_analysis
+    from analysis.served_view import displayed
 
     # Audit round 3, R3-MERGE: 37 since the hosting line's merge-back, which misses the stage-33 entry the same way;
     # 38 and 5.9 since the owner's Amerifi Capital ruling (2026-10-11); 39 since the code audit of 2026-10-13.
@@ -1400,8 +1404,8 @@ def test_re_analysing_a_5_7_statement_misses_its_stage_33_entry_and_clears_the_n
     assert _stamps(saved) == {"5.9"}
     # T5: no rule moves in this batch, so the rows tier as they were stored.
     assert _tiers(saved) == STALE_TIERS
-    served = _displayed(saved, settings={})
-    package = _package_analysis([private_store.get(job_id)], settings={})
+    served = displayed(saved, settings={})
+    package = package_analysis([private_store.get(job_id)], settings={})
     assert package["documents"][0]["revenue_review_required"] is served["metrics"]["revenue_review_required"]
 
 
@@ -1417,14 +1421,14 @@ def test_a_5_8_analysis_is_served_with_the_re_analyze_notice():
     at 5.8 is served with the re-analyze notice. Control: no other rule moves, so its rows tier as before."""
     from analysis.transaction_classifier import CLASSIFICATION_VERSION
     from webapp import artifact_cache
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     # The code audit of 2026-10-13 moved the stage alone, 38 -> 39 (no classification change).
     assert (CLASSIFICATION_VERSION, artifact_cache.ANALYSIS_STAGE_VERSION) == ("5.9", 39)
     stale = _amerifi_stale_payload()
     assert _stamps(stale) == {"5.8"}
     assert _tiers(stale) == STALE_TIERS == _tiers(_payload(STALE_ROWS))
-    assert _displayed(stale, settings={})["analysis_rules_outdated"] is True
+    assert displayed(stale, settings={})["analysis_rules_outdated"] is True
 
 
 def test_re_analysing_a_5_8_statement_misses_its_stage_37_entry_and_clears_the_notice(
@@ -1434,7 +1438,9 @@ def test_re_analysing_a_5_8_statement_misses_its_stage_37_entry_and_clears_the_n
     `get_analysis` through), runs the analysis stage on the cached reading, stamps 5.9 and clears the notice. With 5.9
     alone the cached 5.8 entry would come back and the notice would survive its own button."""
     from webapp import artifact_cache
-    from webapp.app import _displayed, _package_analysis, app
+    from webapp.app import app
+    from analysis.package import package_analysis
+    from analysis.served_view import displayed
 
     # 39 since the code audit of 2026-10-13, which misses the stage-37 entry the same way.
     assert (artifact_cache.ANALYSIS_STAGE_VERSION, CURRENT_CLASSIFICATION) == (CURRENT_STAGE, "5.9") == (39, "5.9")
@@ -1456,8 +1462,8 @@ def test_re_analysing_a_5_8_statement_misses_its_stage_37_entry_and_clears_the_n
     saved = private_store.get(job_id).analysis
     assert _stamps(saved) == {"5.9"}
     assert _tiers(saved) == STALE_TIERS
-    served = _displayed(saved, settings={})
-    package = _package_analysis([private_store.get(job_id)], settings={})
+    served = displayed(saved, settings={})
+    package = package_analysis([private_store.get(job_id)], settings={})
     assert package["documents"][0]["revenue_review_required"] is served["metrics"]["revenue_review_required"]
 
 

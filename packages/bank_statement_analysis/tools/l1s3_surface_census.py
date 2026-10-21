@@ -123,7 +123,7 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "reads a metrics block, never the statement key; reached per account"),
     ("webapp/app.py", "_masked", "agnostic",
      "key-name based and already account-count agnostic"),
-    ("webapp/app.py", "_package_members", "per_account",
+    ("analysis/package/members.py", "package_members", "per_account",
      "package membership: each account on its OWN validation, no duplicate digest"),
     ("webapp/jobs.py", "_classification_for", "per_account",
      "a reviewer's posting belongs to one account; every account is searched"),
@@ -155,11 +155,11 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "the revenue flags and an older payload's nulled True revenue are served per account ledger; every account is "
      "shown, a malformed document passes untouched"),
     # Audit B11 (true revenue §9.2, §10.4, §10.8).
-    ("webapp/app.py", "_stored_accounts", "per_account",
+    ("analysis/package/model.py", "stored_accounts", "per_account",
      "a package job's accounts for its duplicate test (I06): every account of a document, through payload_accounts"),
     ("webapp/app.py", "_posted_credit_table", "per_account",
      "the downloads' posted-credit table (I32): one block per account, under its section prefix"),
-    ("webapp/app.py", "_export_revenue_view", "per_account",
+    ("analysis/served_view.py", "_export_revenue_view", "per_account",
      "the downloads' N/A rule (I51): every account's figures follow its own revenue flags"),
     # Audit round 2, R2-B16 (R53; true revenue §10.8).
     ("webapp/app.py", "_posted_debit_table", "per_account",
@@ -200,17 +200,17 @@ EXCUSED: dict[str, str] = {
     # claim on the record rather than an assumption.
     "analysis/revenue.py::_rebuild_account_revenue_views": "one account's body, reached only through the taught head",
     "benchmark/ourside.py::statement": "one account's view, reached only through the taught `_account`",
-    "webapp/app.py::_statement_currency": "one MEMBER's currency; members come from the taught `_package_members`",
-    "webapp/app.py::_package_analysis": "reads one MEMBER's account payload, supplied by `_package_members`",
+    "analysis/package/model.py::statement_currency": "one MEMBER's currency; members come from the taught `package_members`",
+    "analysis/package/__init__.py::package_analysis": "reads one MEMBER's account payload, supplied by `package_members`",
     # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes read the same members.
-    "webapp/app.py::_package_matches": "reads each MEMBER's account payload, supplied by `_package_members`",
+    "analysis/package/passes.py::package_matches": "reads each MEMBER's account payload, supplied by `package_members`",
     # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the package's chains read the same members.
-    "webapp/app.py::_package_lender_payment_changes": "reads each MEMBER's account payload, supplied by "
-                                                      "`_package_members`",
+    "analysis/package/lender.py::package_lender_payment_changes": "reads each MEMBER's account payload, supplied by "
+                                                                  "`package_members`",
     # Audit B11 (I06): one ACCOUNT's statement identity, and a left-out job's identifying fields from the first
-    # account; each is handed its account by the taught `_stored_accounts`.
-    "webapp/app.py::_account_identities": "one ACCOUNT's identity; `_stored_accounts` hands it each account",
-    "webapp/app.py::_duplicate_row": "a left-out job's identifying fields, from the first account `_stored_accounts` lists",
+    # account; each is handed its account by the taught `stored_accounts`.
+    "analysis/package/duplicates.py::_account_identities": "one ACCOUNT's identity; `stored_accounts` hands it each account",
+    "analysis/package/duplicates.py::duplicate_row": "a left-out job's identifying fields, from the first account `stored_accounts` lists",
     "webapp/reanalysis.py::_records": "one ACCOUNT's records; `replay_reviews` hands it each account from `payload_accounts`",
     "analysis/nsf_days.py::_rebased_account": "one ACCOUNT's ledger and postings; `apply_nsf_basis_to_payload` hands it each account from `payload_accounts`",
     "analysis/revenue_view.py::_served_account": "one ACCOUNT's revenue view; `apply_revenue_view` hands it each account from `payload_accounts`",
@@ -223,12 +223,12 @@ EXCUSED: dict[str, str] = {
     "analysis/zelle_view.py::_posted_credits": "one ACCOUNT's posted credits; `zelle_rows` reads them for each account `apply_zelle_view` hands it from `payload_accounts`",
     "analysis/zelle_view.py::_view_account": "one ACCOUNT's served Zelle view; `apply_zelle_view` hands it each account from `payload_accounts`",
     # Audit round 2, R2-B14 (R16, R46, R14) and R2-OW17: package and copy readers handed one ACCOUNT by the taught
-    # `_stored_accounts`.
-    "webapp/app.py::_copy_rank": "a copy's accounts, read through the taught `_stored_accounts` in both Zelle readings (R2-OW17)",
-    "webapp/app.py::_printed_account_digits": "one ACCOUNT's printed number; its callers hand it accounts `_stored_accounts` lists or members `_package_members` publishes",
-    "webapp/app.py::_statement_span": "one ACCOUNT's period; `_package_superseded` hands it accounts `_stored_accounts` lists",
-    "webapp/app.py::_posted_rows": "one ACCOUNT's posted rows; `_package_superseded` hands it accounts `_stored_accounts` lists",
-    "webapp/app.py::_package_superseded": "reads each kept job's accounts through the taught `_stored_accounts`; its `accounts` key is its own entry's account count, not a payload",
+    # `stored_accounts`.
+    "analysis/package/duplicates.py::_copy_rank": "a copy's accounts, read through the taught `stored_accounts` in both Zelle readings (R2-OW17)",
+    "analysis/package/model.py::printed_account_digits": "one ACCOUNT's printed number; its callers hand it accounts `stored_accounts` lists or members `package_members` publishes",
+    "analysis/package/supersede.py::_statement_span": "one ACCOUNT's period; `package_superseded` hands it accounts `stored_accounts` lists",
+    "analysis/package/supersede.py::_posted_rows": "one ACCOUNT's posted rows; `package_superseded` hands it accounts `stored_accounts` lists",
+    "analysis/package/supersede.py::package_superseded": "reads each kept job's accounts through the taught `stored_accounts`; its `accounts` key is its own entry's account count, not a payload",
     # Audit round 3, final review (R3-FF), F1: R3-B23's title filter (R3-62) compares a section NAME of the flat sheet
     # with "statement" inside one ACCOUNT's rows; the taught `_analysis_rows` hands it each account from
     # `payload_accounts` (a single-account payload is that account).

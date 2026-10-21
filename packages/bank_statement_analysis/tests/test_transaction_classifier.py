@@ -10,7 +10,7 @@ from analysis.schema import Statement, Transaction
 from analysis.serialization import report_to_dict
 from analysis.transaction_classifier import classify_transaction
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
-from webapp.app import _package_analysis
+from analysis.package import package_analysis
 from webapp.jobs import Job
 from tests.statements import statements_dir
 
@@ -390,7 +390,7 @@ def test_atb_november_lender_and_potential_obligation_regression():
     assert serialized["MERCH PAD (probably Merchant Growth)"]["debit_count"] == 21
     assert serialized["MERCH PAD (probably Merchant Growth)"]["total_debited"] == 2606.31
 
-    package = _package_analysis(
+    package = package_analysis(
         [Job(id="atb-nov", filename="ATB Nov 2023.pdf", status="done", analysis=payload)]
     )
     totals = package["totals"]

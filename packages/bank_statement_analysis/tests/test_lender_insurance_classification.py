@@ -17,7 +17,7 @@ from analysis.transaction_classifier import (
     classify_transaction,
 )
 from ocr.native_text import parse_native_td_canada
-from webapp.app import _package_analysis
+from analysis.package import package_analysis
 from webapp.jobs import Job
 from tests.statements import statements_dir
 
@@ -338,7 +338,7 @@ def test_metrics_api_tables_filters_and_withholding_share_exact_evidence():
     }
     assert payload["classifications"] == [row["classification"] for row in transactions]
 
-    package = _package_analysis(
+    package = package_analysis(
         [Job(id="audit", filename="audit.pdf", status="done", analysis=payload)]
     )
     totals = package["totals"]
@@ -393,7 +393,7 @@ def test_potential_funder_serialization_rebuilds_values_from_authoritative_evide
     ):
         stale_candidate.pop(key, None)
     stale_candidate["total_debited"] = 0.0
-    rebuilt_package = _package_analysis(
+    rebuilt_package = package_analysis(
         [Job(id="audit-stale", filename="audit.pdf", status="done", analysis=stale_payload)]
     )
     rebuilt_candidate = rebuilt_package["potential_lenders"][0]
@@ -547,7 +547,7 @@ def test_td_cmca_fixture_counts_cmca_finance_as_a_lender():
     assert payload["detection"]["potential_lenders"] == []
     assert payload["detection"]["potential_lender_evidence"] == []
 
-    package = _package_analysis(
+    package = package_analysis(
         [Job(id="td-cmca", filename=pdf.name, status="done", analysis=payload)]
     )
     totals = package["totals"]

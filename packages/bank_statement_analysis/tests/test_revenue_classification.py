@@ -15,7 +15,8 @@ from analysis.schema import Statement, Transaction
 from analysis.serialization import report_to_dict
 from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
-from webapp.app import _package_analysis, app, store
+from webapp.app import app, store
+from analysis.package import package_analysis
 from webapp.jobs import Job
 from tests.statements import statements_dir
 
@@ -439,7 +440,7 @@ def test_atb_november_true_revenue_regression_from_exact_evidence():
         if transaction["amount"] > 0
     )
 
-    package = _package_analysis(
+    package = package_analysis(
         [Job(id="atb-nov-revenue", filename="ATB Nov 2023.pdf", status="done", analysis=payload)]
     )
     totals = package["totals"]
@@ -656,7 +657,7 @@ def test_atb_december_revenue_regression_from_transaction_evidence():
     assert len(payload["detection"]["unverified_deposit_evidence"]) == 8
     assert len(payload["detection"]["non_revenue_evidence"]) == 2
 
-    package = _package_analysis([
+    package = package_analysis([
         Job(
             id="atb-dec-revenue",
             filename="ATB Dec 2023.pdf",
@@ -726,7 +727,7 @@ def test_package_revenue_reconciliation_fails_closed_on_invalid_credit_state():
         "integrity": {"risk_level": "clear"},
         "detection": {},
     }
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="invalid-revenue", filename="invalid.pdf", status="done", analysis=analysis)
     ])
     assert package["totals"]["total_posted_credits"] == 100.0

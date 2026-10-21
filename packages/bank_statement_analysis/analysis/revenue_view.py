@@ -199,8 +199,8 @@ def debit_side_flags(transactions: object, *, matched_locations: frozenset[str] 
     * `unmatched_deposit_return`: a posted debit, no duplicate, that undoes a deposit (`_deposit_return_debit`, R2-B08's
       wordings included), that no credit of the statement pairs (no posted credit's `revenue_match_method` is
       `matched_reversal_pair` with its `revenue_related_transaction` on the debit's location) and that is not among
-      `matched_locations` (the package's cross-statement matches, `webapp/app.py` `_package_matches`). A correction
-      that names an equal credit of its own statement, which the package never nets across, is flagged here.
+      `matched_locations` (the package's cross-statement matches, `analysis/package/passes.py` `package_matches`). A
+      correction that names an equal credit of its own statement, which the package never nets across, is flagged here.
     * `processor_chargeback`: a posted debit, no duplicate, whose text reads as a processor's chargeback or adjustment
       (`processor_chargeback_debit`: never a fee, never a deposit return), with no lender, potential-lender or
       withholding contribution and a class outside financing, card payments, insurance, tax and payroll. Its

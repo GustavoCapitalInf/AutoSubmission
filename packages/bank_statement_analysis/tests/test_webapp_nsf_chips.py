@@ -1,5 +1,5 @@
 """The dashboard's two NSF chips (owner request 2026-09-27, "Two chips"), driven end to end: fabricated statements
-analysed by the real analysis path, served as the web app serves them (webapp/app.py `_displayed`, which re-bases the
+analysed by the real analysis path, served as the web app serves them (`displayed`, which re-bases the
 NSF count in analysis/nsf_days.py and publishes `metrics.nsf_days`), packaged by the real package code, and rendered by
 the whole webapp/static/app.js in node on a fake page (tests/webapp_js_harness.py).
 
@@ -47,8 +47,8 @@ def _analysis(rows, opening, month=3):
 
 def _served(payload, carry_over=False):
     """The analysis as /analysis/<job> serves it: the owner's Settings applied to a copy."""
-    from webapp.app import _displayed
-    return _displayed(payload, settings=_settings(carry_over))
+    from analysis.served_view import displayed
+    return displayed(payload, settings=_settings(carry_over))
 
 
 def _two_accounts():
@@ -69,13 +69,14 @@ def _two_accounts():
 
 def _package(analyses, tmp_path, monkeypatch, carry_over=False):
     """The real package payload (job id -> stored analysis), built on the given NSF basis."""
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)
-    return _package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status="done", analysis=analysis,
-                                  content_sha256=job_id) for job_id, analysis in analyses.items()],
-                             settings=_settings(carry_over))
+    return package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status="done", analysis=analysis,
+                                 content_sha256=job_id) for job_id, analysis in analyses.items()],
+                            settings=_settings(carry_over))
 
 
 # ---------------------------------------------------------------- the server: package members carry their days

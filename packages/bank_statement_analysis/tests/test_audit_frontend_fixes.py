@@ -324,13 +324,14 @@ def _status(status, **extra):
 
 def _package_payload(tmp_path, monkeypatch, members):
     """The package as /package_analysis serves it, for (job id, status, analysis or None, error or None) members."""
-    from webapp.app import _package_analysis, store
+    from webapp.app import store
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     monkeypatch.setattr(store.storage, "data_dir", tmp_path)  # the NSF setting of a scratch folder
-    return _package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status=status, analysis=analysis,
-                                  error=error, content_sha256=job_id)
-                              for job_id, status, analysis, error in members])
+    return package_analysis([Job(id=job_id, filename=f"fabricated-{job_id}.pdf", status=status, analysis=analysis,
+                                 error=error, content_sha256=job_id)
+                             for job_id, status, analysis, error in members])
 
 
 def test_a_job_the_server_marked_interrupted_ends_the_poll_and_says_so():

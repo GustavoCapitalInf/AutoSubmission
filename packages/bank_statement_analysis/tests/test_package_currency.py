@@ -1,6 +1,6 @@
 """CURRENCY DOCTRINE §F — the package layer never mixes currencies.
 
-`webapp/app.py::_package_analysis` used to sum ADB (weighted), credits, debits,
+`analysis.package.package_analysis` used to sum ADB (weighted), credits, debits,
 revenue, lender and insurance money across a package's jobs with zero currency
 awareness: `30,000 CAD + 20,000 USD` published as `50,000`. These tests pin the
 three buckets and the exact shape of the refusal.
@@ -28,14 +28,10 @@ from pathlib import Path
 
 import pytest
 
-from webapp.app import (
-    _CROSS_CURRENCY_TOTAL_KEYS,
-    _package_analysis,
-    _package_csv,
-    _package_rows,
-    _package_xlsx,
-    _statement_currency,
-)
+from webapp.app import _package_csv, _package_rows, _package_xlsx
+from analysis.package import package_analysis
+from analysis.package.model import statement_currency
+from analysis.package.publish import CROSS_CURRENCY_TOTAL_KEYS
 from analysis.flag_groups import FLAG_GROUPS
 from webapp.jobs import Job
 from tests.flagged_payloads import FLAGGED_DEBIT, flagged_row, with_flagged_rows
@@ -43,7 +39,7 @@ from tests.flagged_payloads import FLAGGED_DEBIT, flagged_row, with_flagged_rows
 ROOT = Path(__file__).resolve().parents[1]
 
 #: Every total the refusal must null. Spelled out here rather than imported so
-#: that widening `_CROSS_CURRENCY_TOTAL_KEYS` without thinking fails a test.
+#: that widening `CROSS_CURRENCY_TOTAL_KEYS` without thinking fails a test.
 EXPECTED_REFUSED_TOTALS = {
     "average_daily_balance",
     "avg_monthly_cash_flow",
@@ -263,13 +259,13 @@ def member(job_id, currency, **kwargs):
     ],
 )
 def test_statement_currency_reads_or_refuses(raw, expected):
-    assert _statement_currency({"statement": {"currency": raw}}) == expected
+    assert statement_currency({"statement": {"currency": raw}}) == expected
 
 
 def test_statement_currency_of_a_payload_with_no_statement_is_unknown():
-    assert _statement_currency({}) is None
-    assert _statement_currency({"statement": None}) is None
-    assert _statement_currency({"statement": {}}) is None
+    assert statement_currency({}) is None
+    assert statement_currency({"statement": None}) is None
+    assert statement_currency({"statement": {}}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -278,7 +274,7 @@ def test_statement_currency_of_a_payload_with_no_statement_is_unknown():
 
 
 def test_same_currency_package_aggregates_and_is_denominated_once():
-    package = _package_analysis([member("a", "CAD"), member("b", "CAD")])
+    package = package_analysis([member("a", "CAD"), member("b", "CAD")])
     totals = package["totals"]
 
     assert totals["total_credits"] == 20_000.0
@@ -301,8 +297,8 @@ def test_same_currency_package_aggregates_and_is_denominated_once():
 
 
 def test_currency_case_does_not_split_a_single_currency_package():
-    lower = _package_analysis([member("a", "usd"), member("b", "USD")])
-    upper = _package_analysis([member("a", "USD"), member("b", "USD")])
+    lower = package_analysis([member("a", "usd"), member("b", "USD")])
+    upper = package_analysis([member("a", "USD"), member("b", "USD")])
     assert lower["totals"] == upper["totals"]
     assert lower["totals"]["currency"] == "USD"
 
@@ -311,7 +307,7 @@ def test_a_member_that_never_analyzed_carries_no_currency_and_no_money():
     """A failed member contributes zero to every money total, so it carries no
     unit and must not be able to refuse an otherwise single-currency package."""
     failed = Job(id="x", filename="x.pdf", status="error", analysis=None, content_sha256="x")
-    package = _package_analysis([member("a", "USD"), failed])
+    package = package_analysis([member("a", "USD"), failed])
     totals = package["totals"]
 
     assert totals["currency"] == "USD"
@@ -326,7 +322,7 @@ def test_a_package_with_no_analyzed_member_refuses_nothing():
         Job(id="x", filename="x.pdf", status="error", analysis=None, content_sha256="x"),
         Job(id="y", filename="y.pdf", status="error", analysis=None, content_sha256="y"),
     ]
-    package = _package_analysis(failed)
+    package = package_analysis(failed)
     totals = package["totals"]
 
     # Every total is a structural zero over an empty set: there is no unit to
@@ -342,7 +338,7 @@ def test_a_package_with_no_analyzed_member_refuses_nothing():
 
 
 def test_mixed_currency_package_refuses_every_cross_currency_total():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     totals = package["totals"]
 
     assert totals["currency"] is None
@@ -366,7 +362,7 @@ def test_mixed_currency_package_refuses_every_cross_currency_total():
 
 
 def test_mixed_currency_refusal_leaves_every_count_intact():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     totals = package["totals"]
     for key in UNIT_FREE_TOTALS - REVENUE_TIER_COUNTS:
         assert totals[key] is not None, f"{key} is unit-free and must survive"
@@ -380,7 +376,7 @@ def test_mixed_currency_refusal_leaves_every_count_intact():
 
 
 def test_mixed_currency_refusal_fails_derived_judgements_closed():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     totals = package["totals"]
     # A judgement read off a refused figure must never read as a pass.
     assert totals["revenue_reconciles"] is False
@@ -389,7 +385,7 @@ def test_mixed_currency_refusal_fails_derived_judgements_closed():
 
 
 def test_mixed_currency_refusal_covers_the_cross_document_rollups():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     assert package["funders"], "the fixture must produce a funder rollup"
     for funder in package["funders"]:
         assert funder["total_debited"] is None
@@ -398,14 +394,14 @@ def test_mixed_currency_refusal_covers_the_cross_document_rollups():
 
 
 def test_the_deprecated_rollup_alias_is_refused_with_its_canonical_key():
-    """BLOCK-1 regression. `_package_analysis` assigns
+    """BLOCK-1 regression. `package_analysis` assigns
     `potential_lender_debit_total = total_debited` on every potential-lender
     rollup, and the dashboard reads
     `potential_lender_debit_total ?? total_debited` — alias FIRST. Refusing only
     the canonical key left the mixed number in the JSON, the CSV, the XLSX and
     the rendered row, defeating the refusal exactly where it was designed to
     bite."""
-    package = _package_analysis(
+    package = package_analysis(
         [member("a", "CAD", amount=10_000.0), member("b", "USD", amount=20_000.0)]
     )
     assert package["potential_lenders"], "the fixture must produce a rollup"
@@ -438,7 +434,7 @@ def test_refused_packages_do_not_rank_rollups_by_a_cross_currency_magnitude():
         {"funder": "AAA MANY DEBITS", "total_debited": 5.0, "debit_count": 40}
     ]
 
-    refused = _package_analysis([small_cad, big_usd])
+    refused = package_analysis([small_cad, big_usd])
     assert refused["totals"]["cross_currency_totals_refused"] is True
     # Count descending, so the 40-debit lender leads — NOT the 900,000 one,
     # whose lead would have been a CAD-vs-USD comparison.
@@ -456,7 +452,7 @@ def test_refused_packages_do_not_rank_rollups_by_a_cross_currency_magnitude():
     same_b.analysis["detection"]["known_funders"] = [
         {"funder": "AAA MANY DEBITS", "total_debited": 5.0, "debit_count": 40}
     ]
-    single = _package_analysis([same_a, same_b])
+    single = package_analysis([same_a, same_b])
     assert single["totals"]["cross_currency_totals_refused"] is False
     assert [f["funder"] for f in single["funders"]] == [
         "ZZZ BIG MONEY",
@@ -468,8 +464,8 @@ def test_potential_lender_order_is_unit_free_in_both_cases():
     """Measured correction to the ruling's premise: `potential_lenders` was
     already sorted by NAME, never by a magnitude, so its order never asserted a
     cross-currency comparison and is deliberately left unchanged."""
-    refused = _package_analysis([member("a", "CAD"), member("b", "USD")])
-    single = _package_analysis([member("a", "CAD"), member("b", "CAD")])
+    refused = package_analysis([member("a", "CAD"), member("b", "USD")])
+    single = package_analysis([member("a", "CAD"), member("b", "CAD")])
     names = [item["funder"] for item in refused["potential_lenders"]]
     assert names == sorted(names)
     assert names == [item["funder"] for item in single["potential_lenders"]]
@@ -481,7 +477,7 @@ def test_mixed_currency_refusal_covers_the_flag_roll_up():
     cad, usd = member("a", "CAD"), member("b", "USD")
     with_flagged_rows(cad.analysis, [flagged_row("credit_cards")])
     with_flagged_rows(usd.analysis, [flagged_row("credit_cards")])
-    package = _package_analysis([cad, usd])
+    package = package_analysis([cad, usd])
     assert package["totals"]["flagged_position_total"] is None
     assert package["totals"]["flagged_position_count"] == 2
     [item] = package["flagged_positions"]["credit_cards"]
@@ -497,7 +493,7 @@ def test_refused_packages_rank_flagged_positions_by_count_then_payee():
                                                      amount=-100 * FLAGGED_DEBIT)])
         many = member("b", second_currency)
         with_flagged_rows(many.analysis, [flagged_row("mortgages", payee="AAA FABRICATED MANY") for _ in range(3)])
-        return _package_analysis([big, many])
+        return package_analysis([big, many])
 
     refused = build("CAD", "USD")
     assert [item["payee"] for item in refused["flagged_positions"]["mortgages"]] == [
@@ -515,7 +511,7 @@ def test_mixed_currency_refusal_covers_the_credited_flag_roll_up():
     cad, usd = member("a", "CAD"), member("b", "USD")
     for job in (cad, usd):
         with_flagged_rows(job.analysis, [flagged_row("factoring"), flagged_row("factoring", amount=3 * FLAGGED_DEBIT)])
-    package = _package_analysis([cad, usd])
+    package = package_analysis([cad, usd])
     totals = package["totals"]
     assert (totals["flagged_position_total"], totals["flagged_position_total_credited"]) == (None, None)
     assert (totals["flagged_position_count"], totals["flagged_position_count_credited"]) == (2, 2)
@@ -533,7 +529,7 @@ def test_refused_packages_rank_flagged_positions_by_debits_plus_credits():
         paying = member("b", second_currency)
         with_flagged_rows(paying.analysis, [flagged_row("factoring", payee="AAA FABRICATED PAYING",
                                                         amount=FLAGGED_DEBIT) for _ in range(3)])
-        return _package_analysis([paid, paying])
+        return package_analysis([paid, paying])
 
     refused = build("CAD", "USD")
     assert [(item["payee"], item["count"], item["count_credited"])
@@ -547,7 +543,7 @@ def test_refused_packages_rank_flagged_positions_by_debits_plus_credits():
 def test_statement_level_results_survive_a_mixed_currency_refusal():
     """Doctrine F preserves statement-level results and presents them per
     currency; only the cross-currency combination is refused."""
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     documents = package["documents"]
 
     assert [doc["currency"] for doc in documents] == ["CAD", "USD"]
@@ -559,7 +555,7 @@ def test_statement_level_results_survive_a_mixed_currency_refusal():
 
 def test_the_corpus_gate_package_surface_survives_a_refusal():
     """`corpus_gate.py` -> `balance_forensic_audit.apply_package_results` reads
-    FOUR per-document balance fields off `_package_analysis`, plus the same four
+    FOUR per-document balance fields off `package_analysis`, plus the same four
     out of the CSV and XLSX at `document_N`. All four are statement-level, so a
     currency refusal must leave every one of them — and the export's key-based
     `(section, field)` addressing — completely intact.
@@ -581,7 +577,7 @@ def test_the_corpus_gate_package_surface_survives_a_refusal():
     usd.analysis["metrics"]["max_balance"] = 1500.0
     usd.analysis["reconciliation"] = {"ok": True}
 
-    package = _package_analysis([cad, usd])
+    package = package_analysis([cad, usd])
     assert package["totals"]["cross_currency_totals_refused"] is True
 
     first, second = package["documents"]
@@ -605,7 +601,7 @@ def test_the_corpus_gate_package_surface_survives_a_refusal():
 def test_no_conversion_is_ever_fabricated():
     """A converted number would be evidence nobody produced. The refusal path
     must not contain a rate, a converted figure, or a normalized total."""
-    package = _package_analysis([member("a", "CAD", amount=30_000.0), member("b", "USD", amount=20_000.0)])
+    package = package_analysis([member("a", "CAD", amount=30_000.0), member("b", "USD", amount=20_000.0)])
     blob = json.dumps(package)
     assert "50000" not in blob and "50,000" not in blob
     assert "exchange_rate" not in blob
@@ -615,7 +611,7 @@ def test_no_conversion_is_ever_fabricated():
 
 
 def test_three_currencies_refuse_and_enumerate_all_three():
-    package = _package_analysis(
+    package = package_analysis(
         [member("a", "CAD"), member("b", "USD"), member("c", "EUR")]
     )
     assert package["currency"]["currencies"] == ["CAD", "EUR", "USD"]
@@ -632,7 +628,7 @@ def test_a_member_without_a_declared_currency_fails_the_package_closed(undeclare
     """Doctrine B: genuinely uncertain evidence fails closed rather than being
     forced into a currency. An unknown must not join a same-currency pool as if
     proven — it could be the CAD that breaks the USD total."""
-    package = _package_analysis([member("a", "USD"), member("b", undeclared)])
+    package = package_analysis([member("a", "USD"), member("b", undeclared)])
     totals = package["totals"]
 
     assert totals["currency"] is None
@@ -647,7 +643,7 @@ def test_a_member_without_a_declared_currency_fails_the_package_closed(undeclare
 
 
 def test_an_undeclared_member_alone_still_fails_closed():
-    package = _package_analysis([member("only", DROP)])
+    package = package_analysis([member("only", DROP)])
     assert package["totals"]["currency_resolution"] == "undetermined"
     assert package["totals"]["average_daily_balance"] is None
 
@@ -660,7 +656,7 @@ def test_the_undetermined_bucket_is_not_reachable_from_a_pipeline_payload():
 
     field = Statement.model_fields["currency"]
     assert field.default == "USD"
-    assert _statement_currency({"statement": Statement().model_dump()}) == "USD"
+    assert statement_currency({"statement": Statement().model_dump()}) == "USD"
 
 
 # ---------------------------------------------------------------------------
@@ -669,13 +665,13 @@ def test_the_undetermined_bucket_is_not_reachable_from_a_pipeline_payload():
 
 
 def test_refused_field_list_matches_the_constant_and_the_payload():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
-    assert set(_CROSS_CURRENCY_TOTAL_KEYS) == EXPECTED_REFUSED_TOTALS
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
+    assert set(CROSS_CURRENCY_TOTAL_KEYS) == EXPECTED_REFUSED_TOTALS
     assert package["currency"]["refused_total_fields"] == sorted(EXPECTED_REFUSED_TOTALS)
 
 
 def test_csv_export_carries_the_refusal_and_never_a_mixed_number():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     text = _package_csv(package)
     rows = list(csv.reader(io.StringIO(text)))
     cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
@@ -694,7 +690,7 @@ def test_csv_export_carries_the_refusal_and_never_a_mixed_number():
 
 
 def test_csv_export_of_a_single_currency_package_states_the_denomination():
-    package = _package_analysis([member("a", "CAD"), member("b", "CAD")])
+    package = package_analysis([member("a", "CAD"), member("b", "CAD")])
     text = _package_csv(package)
     assert "totals,currency,CAD" in text
     assert "currency,resolution,single" in text
@@ -702,7 +698,7 @@ def test_csv_export_of_a_single_currency_package_states_the_denomination():
 
 
 def test_xlsx_export_carries_the_same_refusal():
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     blob = _package_xlsx(package)
     with zipfile.ZipFile(io.BytesIO(blob)) as archive:
         sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
@@ -777,7 +773,7 @@ def test_every_money_row_the_export_emits_is_covered_by_a_declared_currency():
         # credit, whose credited count and total are swept as the debited ones are (C6, owner ruling 2026-09-26).
         with_flagged_rows(job.analysis, [flagged_row("credit_cards"),
                                          flagged_row("factoring", amount=3 * FLAGGED_DEBIT)])
-    package = _package_analysis([cad, usd])
+    package = package_analysis([cad, usd])
     rows = _package_rows(package)
     assert package["totals"]["cross_currency_totals_refused"] is True
 
@@ -818,7 +814,7 @@ def test_the_sweep_reaches_the_package_by_reason_rows():
 
     cad = _payload(month=4)
     cad["statement"]["currency"] = "CAD"
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="usd", filename="usd.pdf", status="done", analysis=_payload()),
         Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
     ])
@@ -848,7 +844,7 @@ def test_the_sweep_reaches_the_package_non_revenue_breakdown():
 
     cad = _payload(_ZELLE_APRIL, month=4)
     cad["statement"]["currency"] = "CAD"
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
         Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
     ], settings={**DEFAULTS, "zelle_true_revenue": False})
@@ -871,7 +867,7 @@ def test_a_mixed_currency_package_refuses_the_zelle_money_and_keeps_every_count(
 
     cad = _payload(_ZELLE_APRIL, month=4)
     cad["statement"]["currency"] = "CAD"
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
         Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
     ], settings={**DEFAULTS, "zelle_true_revenue": True})
@@ -890,7 +886,7 @@ def test_the_sweep_reaches_the_package_zelle_rows():
 
     cad = _payload(_ZELLE_APRIL, month=4)
     cad["statement"]["currency"] = "CAD"
-    package = _package_analysis([
+    package = package_analysis([
         Job(id="usd", filename="usd.pdf", status="done", analysis=_payload(_ZELLE_MARCH)),
         Job(id="cad", filename="cad.pdf", status="done", analysis=cad),
     ], settings={**DEFAULTS, "zelle_true_revenue": True})
@@ -923,7 +919,7 @@ def test_the_sweep_reaches_the_overlapping_statement_rows():
                                                                       "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
                                           start="2031-04-15", end="2031-05-10", opening=30000.0)), content="int")
     usd = _listed("usd", _printed("000000002020"), content="usd")
-    package = _package_analysis([april, interim, usd])
+    package = package_analysis([april, interim, usd])
     rows = _package_rows(package)
     assert package["totals"]["cross_currency_totals_refused"] is True
     assert package["totals"]["overlapping_statements"] == [
@@ -944,7 +940,7 @@ def test_version_3_deprecated_aliases_degrade_with_their_canonical_names():
     """The 3.0 aliases carry the identical number, so they must carry the
     identical refusal — an old consumer must not be the one that still gets a
     mixed total."""
-    package = _package_analysis([member("a", "CAD"), member("b", "USD")])
+    package = package_analysis([member("a", "CAD"), member("b", "USD")])
     totals = package["totals"]
     for alias, canonical in (
         ("true_revenue", "verified_revenue_total"),
@@ -996,9 +992,9 @@ def _lender_month(month, **kwargs):
 
 def _lender_package(*months, currencies=None):
     currencies = currencies or ["USD"] * len(months)
-    return _package_analysis([Job(id=f"m{month}", filename=f"m{month}.pdf", status="done",
-                                  analysis=_lender_month(month, currency=currency), content_sha256=f"m{month}")
-                              for month, currency in zip(months, currencies)])
+    return package_analysis([Job(id=f"m{month}", filename=f"m{month}.pdf", status="done",
+                                 analysis=_lender_month(month, currency=currency), content_sha256=f"m{month}")
+                             for month, currency in zip(months, currencies)])
 
 
 def test_monthly_lender_debits_is_the_lender_debits_per_calendar_month():
@@ -1039,8 +1035,8 @@ def test_monthly_lender_debits_is_refused_with_the_other_per_period_figures():
     document = document_report_to_dict(DocumentReport(accounts=[checking, savings], internal_transfers=transfers,
                                                       integrity_notes=notes, account_roster=roster,
                                                       document_period=("2031-03-01", "2031-03-28")))
-    totals = _package_analysis([Job(id="doc", filename="doc.pdf", status="done", analysis=document,
-                                    content_sha256="doc")])["totals"]
+    totals = package_analysis([Job(id="doc", filename="doc.pdf", status="done", analysis=document,
+                                   content_sha256="doc")])["totals"]
     assert totals["cross_account_averages_refused"] is True
     assert totals["monthly_lender_debits"] is None and totals["lender_debits"] == 1000.0
     # A USD and a CAD statement: refused with the cross-currency totals.
@@ -1058,7 +1054,7 @@ def test_a_refused_package_keeps_its_pending_and_left_out_counts():
     document = document_payload(outcomes=("validated", "review"))
     document["accounts"][0]["statement"]["currency"] = "CAD"
     left_out = Job(id="d", filename="d.pdf", status="done", analysis=document, content_sha256="d")
-    package = _package_analysis([member("a", "USD"), queued, left_out])
+    package = package_analysis([member("a", "USD"), queued, left_out])
     totals = package["totals"]
     assert totals["cross_currency_totals_refused"] is True
     assert (totals["pending"], totals["excluded_account_count"], totals["completeness"]) == (1, 1, "partial")
@@ -1076,7 +1072,7 @@ def test_a_refused_package_publishes_the_package_passes_counts_and_no_mixed_mone
     usd = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 900.0),
                     (3, "HRTLAND PMT SYS CHARGEBACK 123456", -350.0)], month=4, opening=500.0,
                    number="000000002020")
-    package = _package_analysis([_job("mar", march), _job("apr", april), _job("usd", usd)], settings={})
+    package = package_analysis([_job("mar", march), _job("apr", april), _job("usd", usd)], settings={})
     totals = package["totals"]
     assert totals["cross_currency_totals_refused"] is True
     assert (totals["returned_deposit_cross_statement_count"], totals["processor_chargeback_count"]) == (1, 1)
@@ -1103,7 +1099,7 @@ def test_a_refused_package_publishes_the_own_account_transfers_counts_and_no_mix
     b = _account_b(extra=[(4, "TRANSFER CREDIT", 640.33)], currency="CAD")
     usd = _payload([(2, "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 900.0)], month=3, opening=500.0,
                    number="000000003030")
-    package = _package_analysis([_job("a", a), _job("b", b), _job("usd", usd)], settings={})
+    package = package_analysis([_job("a", a), _job("b", b), _job("usd", usd)], settings={})
     totals = package["totals"]
     assert totals["cross_currency_totals_refused"] is True
     assert (totals["own_account_transfer_held_count"], totals["own_account_transfer_already_held_count"]) == (1, 1)
@@ -1125,7 +1121,7 @@ def test_package_ledger_rows_carry_their_own_source_currency():
     usd.analysis["statement"]["transactions"] = [
         {"date": "2054-01-03", "description": "Deposit", "amount": 200.0, "direction": "credit"}
     ]
-    package = _package_analysis([cad, usd])
+    package = package_analysis([cad, usd])
     assert [tx["source_currency"] for tx in package["transactions"]] == ["CAD", "USD"]
 
 

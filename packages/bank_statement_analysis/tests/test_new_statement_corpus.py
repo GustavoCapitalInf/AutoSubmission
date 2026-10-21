@@ -38,15 +38,8 @@ from corpus_artifacts import cached_markdown, manifest_entries, sha256_hex
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import parse_native_pdf_text
 from ocr.rasterize import pdf_page_count
-from webapp.app import (
-    _analysis_csv,
-    _analysis_xlsx,
-    _package_analysis,
-    _package_csv,
-    _package_xlsx,
-    app,
-    store,
-)
+from webapp.app import _analysis_csv, _analysis_xlsx, _package_csv, _package_xlsx, app, store
+from analysis.package import package_analysis
 from webapp.jobs import Job
 from tests.statements import statements_dir
 
@@ -473,7 +466,7 @@ def test_new_statement_api_and_exports_preserve_authoritative_values():
     # analysis at all now (see `REFUSED`), so it contributes no package member.
     # Every figure below moved for that one reason — a package total is a sum
     # over its members and one member left.
-    package = _package_analysis(jobs)
+    package = package_analysis(jobs)
     assert package["totals"]["average_daily_balance"] == 1957.43
     # 5.6 (true revenue spec §9.2, §10.4): navigant's captured credits are not the money its bank total counts (its
     # verified_revenue_established is false, as the Monthly Statements' True deposits already said), so the

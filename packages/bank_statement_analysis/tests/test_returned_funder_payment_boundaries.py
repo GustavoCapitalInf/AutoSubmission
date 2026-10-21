@@ -322,7 +322,7 @@ def test_f2b_r1_the_package_s_payment_changes_read_the_matched_payment_as_an_att
     payment pass 4 matched is a returned attempt there, as R2-OW13's restore makes it inside one statement. KAPITUS is
     paid 850 weekly in March, its last March payment (the 27th) bounces on April 2 (a bare ACH RETURN ITEM NSF), and
     April pays 600 weekly: the decrease's last payment at the old amount is March 20, not the bounced 27th."""
-    import webapp.app as app
+    from analysis.package import passes
     from tests.test_package_matching import _package
 
     april_rows = [(2, BARE_BOUNCE, 850.0), (3, NW_APRIL, 30000.0)] + [
@@ -337,7 +337,7 @@ def test_f2b_r1_the_package_s_payment_changes_read_the_matched_payment_as_an_att
         "from_job": "mar", "to_job": "apr", "cross_statement": True}
     assert item["locations"]["last_before"] == _location(march, 20, -850.0)
     # Without pass 4 (the package before F2(b)) the bounced payment was the last paid one.
-    monkeypatch.setattr(app, "_returned_funder_payments_across", lambda *args, **kwargs: None)
+    monkeypatch.setattr(passes, "_returned_funder_payments_across", lambda *args, **kwargs: None)
     (before,) = _package(("mar", march), ("apr", april))["lender_payment_changes"]
     assert (before["payments_before"], before["last_before_date"]) == (4, "2031-03-27")
     assert before["locations"]["last_before"] == _location(march, 27, -850.0)

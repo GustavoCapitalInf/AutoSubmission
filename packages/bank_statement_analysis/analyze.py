@@ -451,8 +451,8 @@ def _json_safe(document: DocumentReport, zelle_true_revenue: bool = True) -> dic
     """The DOCUMENT's payload. RULE S: one account publishes today's, verbatim. R2-OW17: in the Zelle reading shown
     (analysis/zelle_view.py apply_zelle_view): under No, on a fresh analysis, today's JSON (the edits key gone, no
     display key). Audit round 2, R2-B16 (R52): then the revenue view the dashboard serves (analysis/revenue_view.py
-    apply_revenue_view, after the Zelle reading as webapp/app.py `_displayed` applies them), so each account's metrics
-    carry `revenue_established` and `verified_revenue_established`; every figure is kept."""
+    apply_revenue_view, after the Zelle reading as analysis/served_view.py `displayed` applies them), so each account's
+    metrics carry `revenue_established` and `verified_revenue_established`; every figure is kept."""
     return apply_revenue_view(zelle_view.apply_zelle_view(document_report_to_dict(document),
                                                           counted=zelle_true_revenue))
 

@@ -1,6 +1,6 @@
 """The owner's request of 2026-10-06 (lender payment changes; true revenue spec §9.2, §10.8; R2-OW18, parts F and H):
 each lender payment series read across a package's consecutive statements of ONE account, through
-webapp.app._package_analysis(jobs, settings={}), and the downloads.
+analysis.package.package_analysis(jobs, settings={}), and the downloads.
 
 Fabricated statements only (CONTOSO PLUMBING LLC; FABRIKAM sales; KAPITUS, ONDECK and CanaCap, public funders of the
 registry; Sample Bank; accounts ending 1010 and 2020; 2054 dates; neutral whole amounts), analysed by the real
@@ -84,9 +84,9 @@ def job(name, payload, status="done"):
 
 
 def package(*jobs):
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    return _package_analysis(list(jobs), settings={})
+    return package_analysis(list(jobs), settings={})
 
 
 def items_of(payload):

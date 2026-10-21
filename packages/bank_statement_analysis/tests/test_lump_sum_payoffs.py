@@ -259,11 +259,12 @@ def test_ff_f2_a_member_row_s_rate_counts_the_returned_payoff_it_prints():
 
 
 def test_the_downloads_carry_it():
-    from webapp.app import _account_analysis_rows, _displayed, _package_csv
+    from webapp.app import _account_analysis_rows, _package_csv
+    from analysis.served_view import displayed
 
     march, april = _months()
     rows = {(section, field): value for section, field, value in
-            _account_analysis_rows(_displayed(march, settings={}, export=True))}
+            _account_analysis_rows(displayed(march, settings={}, export=True))}
     assert rows[("metrics", "lump_sum_payoff_total")] == 15000.0
     assert json.loads(rows[("detection", "lump_sum_payoffs")])[0]["words"] == "PAYOFF"
     cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(_package(("mar", march),
@@ -277,10 +278,10 @@ def test_the_downloads_carry_it():
 @needs_node
 def test_the_dashboard_shows_the_line_names_the_amount_and_copies_it():
     from tests.test_webapp_true_revenue_ui import BASIS_ROWS, METRIC_ROWS, _open
-    from webapp.app import _displayed
+    from analysis.served_view import displayed
 
     march, april = _months()
-    served = _displayed(march, settings={})
+    served = displayed(march, settings={})
     package = _package(("mar", march), ("apr", april))
     result = run_dashboard(METRIC_ROWS + BASIS_ROWS + _open("s", served) + f"""
 const table = els.lenderTable.innerHTML;

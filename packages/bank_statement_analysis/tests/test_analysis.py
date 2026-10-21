@@ -110,7 +110,8 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     import zipfile
 
     from analysis.serialization import report_to_dict
-    from webapp.app import _analysis_csv, _analysis_rows, _analysis_xlsx, _package_analysis
+    from webapp.app import _analysis_csv, _analysis_rows, _analysis_xlsx
+    from analysis.package import package_analysis
     from webapp.jobs import Job
 
     payload = report_to_dict(report)
@@ -143,7 +144,7 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     assert "adb_daily_balance" not in sheet
     assert "adb,average_daily_balance" not in sheet
 
-    package = _package_analysis([
+    package = package_analysis([
         Job(id=f"withheld-{filename}", filename=filename, status="done", analysis=payload)
     ])
     assert package["documents"][0]["average_daily_balance"] is None

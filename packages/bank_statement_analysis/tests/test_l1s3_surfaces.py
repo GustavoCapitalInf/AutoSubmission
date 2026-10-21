@@ -81,7 +81,7 @@ def test_the_masked_route_is_account_count_agnostic():
 
 
 class _Job:
-    """A package member, with only the attributes `_package_analysis` reads."""
+    """A package member, with only the attributes `package_analysis` reads."""
 
     def __init__(self, ident, analysis, filename="synthetic.pdf"):
         self.id = ident
@@ -97,10 +97,10 @@ class _Job:
 
 
 def test_package_membership_requires_each_accounts_own_validation():
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
     job = _Job("job-1", document_payload(outcomes=("validated", "withheld")))
-    members, excluded = _package_members([job])
+    members, excluded = package_members([job])
     assert [index for _job, _analysis, index, _count in members] == [1]
     # Audit round 2, R2-B15 (R15): each excluded account names its statement's file, for the package's notice.
     assert excluded == [{
@@ -110,10 +110,10 @@ def test_package_membership_requires_each_accounts_own_validation():
 
 
 def test_an_excluded_account_is_published_not_dropped():
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     job = _Job("job-1", document_payload(outcomes=("validated", "review")))
-    package = _package_analysis([job])
+    package = package_analysis([job])
     assert package["excluded_accounts"][0]["account_index"] == 2
     assert len(package["documents"]) == 1
     assert package["documents"][0]["id"] == "job-1#account_1"
@@ -121,9 +121,9 @@ def test_an_excluded_account_is_published_not_dropped():
 
 
 def test_a_single_account_package_carries_neither_new_key():
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", account_payload())])
+    package = package_analysis([_Job("job-1", account_payload())])
     assert "excluded_accounts" not in package
     assert package["documents"][0]["id"] == "job-1"
     assert "account_index" not in package["documents"][0]
@@ -133,28 +133,29 @@ def test_a_single_account_package_carries_neither_new_key():
 def test_the_package_refuses_two_accounts_of_one_document_with_one_digest():
     """The no-average-over-one-content-digest property, standing where the
     cross-account arithmetic happens."""
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
     payload = document_payload()
     payload["accounts"][1] = copy.deepcopy(payload["accounts"][0])
     with pytest.raises(ValueError, match="document_publishes_duplicate_account"):
-        _package_members([_Job("job-1", payload)])
+        package_members([_Job("job-1", payload)])
 
 
 def test_two_accounts_of_one_document_are_not_package_duplicates():
-    """`_package_duplicates` keys on the PDF's content hash, and two accounts
+    """`package_duplicates` keys on the PDF's content hash, and two accounts
     of one document are one job — so they can never be counted as two."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", document_payload())])
+    package = package_analysis([_Job("job-1", document_payload())])
     assert package["totals"]["duplicate_documents"] == 0
     assert package["duplicates"] == []
 
 
 def test_every_member_is_its_own_row_in_the_package_export():
-    from webapp.app import _package_analysis, _package_rows
+    from webapp.app import _package_rows
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", document_payload())])
+    package = package_analysis([_Job("job-1", document_payload())])
     rows = _package_rows(package)
     sections = {section for section, _field, _value in rows}
     assert {"document_1", "document_2"} <= sections
@@ -164,9 +165,9 @@ def test_every_member_is_its_own_row_in_the_package_export():
 
 
 def test_the_package_never_folds_two_accounts_into_one_member():
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", document_payload())])
+    package = package_analysis([_Job("job-1", document_payload())])
     openings = sorted(row["beginning_balance"] for row in package["documents"])
     assert openings == [1000.0, 1001.0]
 
@@ -184,9 +185,9 @@ def test_a_package_refuses_the_per_period_averages_over_two_accounts_of_one_docu
     package holding one job with two accounts over one statement period
     published every per-month average divided by TWO, because `months` counts
     members and each account is a member."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    totals = _package_analysis([_two_accounts_one_period()])["totals"]
+    totals = package_analysis([_two_accounts_one_period()])["totals"]
     assert totals["cross_account_averages_refused"] is True
     assert totals["documents_with_several_members"] == 1
     for key in ("avg_monthly_credits", "avg_monthly_debits",
@@ -203,9 +204,9 @@ def test_the_duplicate_digest_refusal_does_not_catch_this_and_never_could():
     only when two accounts publish IDENTICAL content. Two DIFFERENT accounts of
     one document pass it — which is why §6.5 asked for a member-set check
     keyed on the document, and this is that check."""
-    from webapp.app import _package_members
+    from analysis.package.members import package_members
 
-    members, excluded = _package_members([_two_accounts_one_period()])
+    members, excluded = package_members([_two_accounts_one_period()])
     assert len(members) == 2 and excluded == []
     shas = {member[0].content_sha256 for member in members}
     assert shas == {"SYNTHETIC-JOB-1"}  # one document identity, two members
@@ -214,9 +215,9 @@ def test_the_duplicate_digest_refusal_does_not_catch_this_and_never_could():
 def test_two_separate_documents_still_publish_their_averages():
     """The refusal is keyed on ONE document with several members, not on member
     count: two separate jobs are two documents and two periods."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    totals = _package_analysis([
+    totals = package_analysis([
         _Job("job-1", account_payload(0)),
         _Job("job-2", account_payload(1)),
     ])["totals"]
@@ -225,9 +226,9 @@ def test_two_separate_documents_still_publish_their_averages():
 
 
 def test_a_package_of_todays_payloads_carries_no_refusal_key():
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    totals = _package_analysis([_Job("job-1", account_payload())])["totals"]
+    totals = package_analysis([_Job("job-1", account_payload())])["totals"]
     assert "cross_account_averages_refused" not in totals
     assert "documents_with_several_members" not in totals
     assert totals["avg_monthly_credits"] is not None
@@ -239,11 +240,11 @@ def test_a_package_of_todays_payloads_carries_no_refusal_key():
 def test_a_ratified_omission_is_surfaced_by_the_package():
     """Q10. The document stays `validated` and the
     package says a section was established and not published."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = document_payload(outcomes=("validated",),
                                omitted_sections=(omission(),))
-    package = _package_analysis([_Job("job-1", payload)])
+    package = package_analysis([_Job("job-1", payload)])
     assert package["totals"]["sibling_account_omission_detected"] is True
     assert package["totals"]["completeness"] == "partial"
     assert package["totals"]["omitted_section_count"] == 1
@@ -255,9 +256,9 @@ def test_a_ratified_omission_is_surfaced_by_the_package():
 
 def test_a_package_of_todays_payloads_carries_none_of_the_q10_keys():
     """The darkness property for Q10: absence IS today's package."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
-    package = _package_analysis([_Job("job-1", account_payload())])
+    package = package_analysis([_Job("job-1", account_payload())])
     assert "sibling_account_omission_detected" not in package["totals"]
     assert "completeness" not in package["totals"]
     assert "omitted_section_count" not in package["totals"]
@@ -267,11 +268,12 @@ def test_a_package_of_todays_payloads_carries_none_of_the_q10_keys():
 def test_the_q10_surface_reaches_the_export_an_underwriter_reads():
     """A refusal that lives only in the JSON is invisible to the person the
     package is for."""
-    from webapp.app import _package_analysis, _package_csv
+    from webapp.app import _package_csv
+    from analysis.package import package_analysis
 
     payload = document_payload(outcomes=("validated",),
                                omitted_sections=(omission(),))
-    text = _package_csv(_package_analysis([_Job("job-1", payload)]))
+    text = _package_csv(package_analysis([_Job("job-1", payload)]))
     assert "sibling_account_omission_detected" in text
     assert "completeness" in text
 
@@ -279,11 +281,11 @@ def test_the_q10_surface_reaches_the_export_an_underwriter_reads():
 def test_an_unratified_omission_is_not_surfaced_as_partial():
     """A defect dressed as a policy is worse than a defect. L1-C17 fails the
     document; the package excludes its accounts rather than calling it partial."""
-    from webapp.app import _package_analysis
+    from analysis.package import package_analysis
 
     payload = document_payload(outcomes=("validated",),
                                omitted_sections=(omission("absence_of_parsed_rows"),))
-    package = _package_analysis([_Job("job-1", payload)])
+    package = package_analysis([_Job("job-1", payload)])
     assert "sibling_account_omission_detected" not in package["totals"]
     assert package["excluded_accounts"][0]["reason"] == "document_omission_unratified"
     assert package["documents"] == []

@@ -143,7 +143,7 @@ def test_a_payload_without_the_new_fields_keeps_every_stored_value():
                                      {"statement": {}, "accounts": []}])
 def test_anything_that_is_not_a_published_shape_is_returned_unchanged(payload):
     # `{}` matters beyond tidiness: the package reads a member whose analysis is empty as carrying no currency,
-    # and a key added here would make it one that declares none (webapp/app.py::_package_analysis).
+    # and a key added here would make it one that declares none (analysis.package.package_analysis).
     assert apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED) is payload
 
 

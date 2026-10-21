@@ -33,13 +33,8 @@ from ocr.local_tesseract import parse_local_tesseract
 # production reads because it calls the same function, not a copy of it.
 from ocr.native_text import native_statement as native_document
 from ocr.rasterize import pdf_page_count
-from webapp.app import (
-    _analysis_csv,
-    _analysis_xlsx,
-    _package_analysis,
-    _package_csv,
-    _package_xlsx,
-)
+from webapp.app import _analysis_csv, _analysis_xlsx, _package_csv, _package_xlsx
+from analysis.package import package_analysis
 from webapp.jobs import Job
 
 
@@ -672,7 +667,7 @@ def apply_package_results(
     # built, which a filter applied later would not.
     paired = [(row, job) for row, job in zip(rows, jobs) if job.analysis is not None]
     jobs = [job for _, job in paired]
-    package = _package_analysis(jobs)
+    package = package_analysis(jobs)
     documents = {document["id"]: document for document in package["documents"]}
     package_csv = csv_rows(_package_csv(package))
     package_xlsx = xlsx_rows(_package_xlsx(package))

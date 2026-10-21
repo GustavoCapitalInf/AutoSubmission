@@ -27,7 +27,7 @@ from ocr.local_tesseract import parse_local_tesseract
 # `ocr/native_text.py::native_statement`. This oracle reads exactly the bytes
 # production reads because it calls the same function, not a copy of it.
 from ocr.native_text import native_statement
-from webapp.app import _package_analysis
+from analysis.package import package_analysis
 from webapp.jobs import Job
 
 
@@ -502,7 +502,7 @@ def audit_one(path: Path, root: Path, markdown: str) -> dict[str, Any]:
     independent = independent_ledger(stmt, markdown)
     backend = report.metrics.average_daily_balance
     api = payload.get("metrics", {}).get("average_daily_balance")
-    package = _package_analysis(
+    package = package_analysis(
         [Job(id="adb-audit", filename=path.name, status="done", analysis=payload)]
     )
     dashboard = package.get("totals", {}).get("average_daily_balance")

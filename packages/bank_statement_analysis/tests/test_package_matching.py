@@ -11,7 +11,7 @@ releases it into True and marks it Verified. An already-held deposit that pairs 
 Fabricated statements only (CONTOSO BAKERY LLC, account A 000000001010 and account B 000000002020 at Sample Bank,
 NORTHWIND and FABRIKAM payers, SAMPLE PERSON the person-to-person sender, neutral amounts), analysed by the real
 analysis path (as tests/test_webapp_studio_views._report does, with a bank, an account number and a currency) and
-packaged by webapp.app._package_analysis(jobs, settings={})."""
+packaged by analysis.package.package_analysis(jobs, settings={})."""
 from __future__ import annotations
 
 import copy
@@ -22,6 +22,8 @@ import re
 from pathlib import Path
 
 import pytest
+from analysis.package import package_analysis
+from analysis.package.passes import package_matches
 
 BANK = "Sample Bank"
 HOLDER = "CONTOSO BAKERY LLC"
@@ -77,13 +79,13 @@ def _job(job_id, payload):
 
 
 def _package(*members):
-    from webapp.app import _package_analysis
-    return _package_analysis([_job(job_id, payload) for job_id, payload in members], settings={})
+    from analysis.package import package_analysis
+    return package_analysis([_job(job_id, payload) for job_id, payload in members], settings={})
 
 
 def _served(payload):
-    from webapp.app import _displayed
-    return _displayed(payload, settings={})
+    from analysis.served_view import displayed
+    return displayed(payload, settings={})
 
 
 def _ledger_row(package, job_id, location):
@@ -385,10 +387,10 @@ def test_s10_the_listing_order_changes_nothing():
 
 def _without_passes(monkeypatch, *members):
     """The package with its passes switched off: what it published before R2-OW15."""
-    from webapp import app
+    import analysis.package
 
     with monkeypatch.context() as patched:
-        patched.setattr(app, "_package_matches", lambda members, rd_positions: {
+        patched.setattr(analysis.package, "package_matches", lambda members, rd_positions: {
             "overlays": {}, "matches": [], "debit_flags": [], "unchecked": {}, "moved": {}})
         return _package(*members)
 
@@ -579,15 +581,13 @@ def test_the_package_downloads_list_each_match_and_each_flag():
 
 
 def test_the_member_loop_reads_the_passes_one_tiering_helper():
-    """The passes and the member loop decide 'tiered' by one helper (`_member_tiered`), so a member the passes read is
+    """The passes and the member loop decide 'tiered' by one helper (`member_tiered`), so a member the passes read is
     never one the loop publishes without its tier figures."""
     import inspect
 
-    from webapp import app
-
-    loop = inspect.getsource(app._package_analysis)
-    assert "tiered = _member_tiered(statement_transactions)" in loop
-    assert "_member_tiered(" in inspect.getsource(app._package_matches)
+    loop = inspect.getsource(package_analysis)
+    assert "tiered = member_tiered(statement_transactions)" in loop
+    assert "member_tiered(" in inspect.getsource(package_matches)
 
 
 def test_the_route_serves_each_match_s_legs_with_their_account_index_never_masked():
@@ -692,19 +692,19 @@ def test_the_reader_reads_a_check_or_cash_device_deposit_never_a_teller_counter_
 
 
 def test_two_members_are_two_accounts_only_on_four_printed_digits_that_differ():
-    from webapp.app import _different_accounts
+    from analysis.package.model import different_accounts
 
     def member(key, digits, currency="USD"):
         return {"key": key, "digits": digits, "currency": currency}
 
-    assert _different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020"))
-    assert _different_accounts(member(("d", 1), "000000001010"), member(("d", 2), "000000002020"))
-    assert _different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000091010"))  # conflict
-    assert not _different_accounts(member(("a", None), "000000001010"), member(("b", None), "1010"))
-    assert not _different_accounts(member(("a", None), "000000001010"), member(("a", None), "000000002020"))
-    assert not _different_accounts(member(("a", None), "000000001010"), member(("b", None), "020"))
-    assert not _different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020", "CAD"))
-    assert not _different_accounts(member(("a", None), "000000001010", None), member(("b", None), "000000002020", None))
+    assert different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020"))
+    assert different_accounts(member(("d", 1), "000000001010"), member(("d", 2), "000000002020"))
+    assert different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000091010"))  # conflict
+    assert not different_accounts(member(("a", None), "000000001010"), member(("b", None), "1010"))
+    assert not different_accounts(member(("a", None), "000000001010"), member(("a", None), "000000002020"))
+    assert not different_accounts(member(("a", None), "000000001010"), member(("b", None), "020"))
+    assert not different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020", "CAD"))
+    assert not different_accounts(member(("a", None), "000000001010", None), member(("b", None), "000000002020", None))
 
 
 def test_t1_the_owner_s_example_holds_the_deposit_the_other_account_sent():
