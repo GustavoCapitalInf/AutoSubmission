@@ -773,18 +773,17 @@ def test_select_artifact_raises_on_a_corrupt_index_with_two_rows_for_one_triple(
 # ---------------------------------------------------------------------------
 
 
-#: Every Paddle configuration variable the probe's `load_paddle_settings`
-#: can read. Hermeticity (P22-IDENTITY closure, Gustavo's direction): the
-#: probe runs in a SUBPROCESS whose `ocr.config` import calls `load_dotenv()`
-#: (override=False), and `find_dotenv` walks up from the worktree to the
-#: checkout's gitignored `.env` — which, on this host, carries the REAL Vast
-#: connection variables. Merely DELETING them from `os.environ` therefore
-#: lets the probe re-inject them; a variable that is PRESENT (even empty) is
-#: left alone by dotenv, and `load_paddle_settings` treats an empty value as
-#: unset. So a hermetic test sets every one of these to a value of its own —
-#: the empty string to be unconfigured, `local`/`local_free` to be configured
-#: — and never depends on what the host's `.env` says. The real configuration
-#: stays on this host untouched.
+#: Every Paddle configuration variable the probe's `load_paddle_settings` can
+#: read. Hermeticity (P22-IDENTITY closure, Gustavo's direction): the probe
+#: runs in a SUBPROCESS whose `ocr.config` import loads the package folder's
+#: gitignored `.env` (override=False) — which, on this host, can carry the
+#: REAL Vast connection variables. Merely DELETING them from `os.environ`
+#: therefore lets the probe re-inject them; a variable that is PRESENT (even
+#: empty) is left alone by dotenv, and `load_paddle_settings` treats an empty
+#: value as unset. So a hermetic test sets every one of these to a value of
+#: its own — the empty string to be unconfigured, `local`/`local_free` to be
+#: configured — and never depends on what the host's `.env` says. The real
+#: configuration stays on this host untouched.
 _PADDLE_ENV_NAMES = (
     "PADDLE_PROVIDER", "PADDLE_EXECUTION_CLASS", "PADDLE_VAST_HOST", "PADDLE_VAST_SSH_PORT",
     "PADDLE_VAST_SSH_USER", "PADDLE_REMOTE_OPT_IN", "PADDLE_REMOTE_CUSTOMER_DATA_OPT_IN",

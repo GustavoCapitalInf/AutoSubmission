@@ -14,16 +14,17 @@ from collections import deque
 from copy import deepcopy
 from datetime import UTC, datetime
 from math import isfinite
+from pathlib import Path
 from flask import Flask, request, jsonify, render_template, Response, abort
 from werkzeug.exceptions import RequestEntityTooLarge
 
 # The .env file is loaded here, first, before any product module below reads the environment (POPPLER_PATH at
 # ocr.rasterize's import, WEBAPP_MIN_FREE_MB below, ...). ocr/config.py and analysis/config.py also load it for the
 # command-line tools. The first load wins (override=False), and
-# every load finds the same file, so the order only decides WHEN the values are there, not which values they are.
+# every load reads the package folder's .env, so the order only decides WHEN the values are there, not which they are.
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthorized
 

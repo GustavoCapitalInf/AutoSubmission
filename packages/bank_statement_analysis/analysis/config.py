@@ -13,10 +13,11 @@ analysis was re-keyed."""
 from __future__ import annotations
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from dotenv import load_dotenv
 from .revenue import DEFAULT_WITHHOLDING_DENOMINATOR_MODE, normalize_withholding_denominator_mode
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 #: P22-IDENTITY (Phase 2.2, D6). The reconstruction mode is the ONE switch
 #: that says whether the generic structurer / reconstruction rung may run on
