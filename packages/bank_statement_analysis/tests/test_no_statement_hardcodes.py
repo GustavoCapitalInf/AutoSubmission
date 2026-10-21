@@ -1049,18 +1049,18 @@ def test_no_raw_mojibake_sequences_in_ocr():
 # the original scope was 3 files "because ocr/native_text.py carries
 # pre-existing constants" -- measured to cost 0 offenders today when widened,
 # so the narrowing bought nothing while leaving 10 of 13 files unguarded).
-# `native_text.py` and `column_grid.py` keep their pre-existing per-issuer
-# structural PDF-parsing constants under a NAMED, COUNTED, shrink-only
-# ratchet (`OCR_ISSUER_STRING_BASELINE`) rather than a blanket file skip --
-# a per-file skip would leave a FUTURE addition to those two files
-# uncaught (review's mutant J), which the count-based ratchet below does not.
+# `native_text.py` keeps its pre-existing per-issuer structural PDF-parsing
+# constants under a NAMED, COUNTED, shrink-only ratchet
+# (`OCR_ISSUER_STRING_BASELINE`) rather than a blanket file skip -- a
+# per-file skip would leave a FUTURE addition to that file uncaught
+# (review's mutant J), which the count-based ratchet below does not.
 # ---------------------------------------------------------------------------
 
 #: A representative set of real institution names/marketing phrases (public
 #: information, the same class already used openly in
 #: `tests/test_parser_detection_markers.py`). Broad enough to catch a
-#: realistic future addition; narrow enough that, outside the two ratcheted
-#: files, it currently matches nothing in `ocr/` except the declared TD
+#: realistic future addition; narrow enough that, outside the ratcheted
+#: file, it currently matches nothing in `ocr/` except the declared TD
 #: markers.
 ISSUER_NAME_LEXICON = (
     "td bank", "td business", "most convenient bank", "td canada trust",
@@ -1080,27 +1080,23 @@ ISSUER_NAME_LEXICON = (
 #: Pre-existing per-issuer structural PDF-parsing constants outside this
 #: card's ownership -- a NAMED ratchet, not a scope exclusion (review
 #: MAJOR-2). Measured by summing, over every `str` `ast.Constant` in the
-#: module, the count of each `ISSUER_NAME_LEXICON` marker found in it
-#: (`_issuer_string_hit_count`, below) -- module/function docstrings included
-#: (they are `ast.Constant` nodes), bare identifiers (function/variable
-#: NAMES, e.g. `parse_native_woodforest`) excluded (a name is not a string
-#: value this scan reads). The count may only shrink: a module growing a NEW
-#: occurrence -- an issuer string added to an already-ratcheted file, exactly
-#: the shape review mutant J tests -- fails
+#: module other than a docstring, the count of each `ISSUER_NAME_LEXICON`
+#: marker found in it (`_issuer_string_hit_count`, below); bare identifiers
+#: (function/variable NAMES, e.g. `parse_native_woodforest`) are excluded (a
+#: name is not a string value this scan reads). The count may only shrink: a
+#: module growing a NEW occurrence -- an issuer string added to an
+#: already-ratcheted file, exactly the shape review mutant J tests -- fails
 #: `test_ocr_issuer_string_baseline_is_not_exceeded`.
 #:   * `native_text.py`: 5 issuers (woodforest, navy federal, first citizens,
-#:     desjardins, wells fargo), 25 occurrences -- `ocr/native_text.py`'s own
+#:     desjardins, wells fargo), 13 occurrences -- `ocr/native_text.py`'s own
 #:     per-issuer native-PDF-text column/layout readers (`parse_native_
 #:     woodforest`, `parse_native_navy_federal`, `parse_native_desjardins`,
 #:     the First Citizens description-column reader, the Wells Fargo summary
 #:     reader), structurally analogous to `analysis/`'s per-bank parsers --
 #:     not owned by this card, not the postprocess/intake-furniture surface
 #:     OQ1/OQ2 govern.
-#:   * `column_grid.py`: 1 issuer (woodforest), 3 occurrences -- geometry
-#:     helpers reused by the Woodforest column reader above.
 OCR_ISSUER_STRING_BASELINE = {
-    "native_text.py": 25,
-    "column_grid.py": 3,
+    "native_text.py": 13,
 }
 
 
@@ -1122,7 +1118,8 @@ def _issuer_owning_name(node: ast.AST, parents: dict) -> str:
 
 def _issuer_string_hits(path: Path):
     """(owning_name, lineno, marker) for every occurrence of an
-    `ISSUER_NAME_LEXICON` marker inside any `str` `ast.Constant` in `path` --
+    `ISSUER_NAME_LEXICON` marker inside any `str` `ast.Constant` in `path`
+    other than a docstring --
     a `re.compile(...)` pattern, a bare `re.search(...)` literal, a tuple of
     marker strings, or any other string value the language can compile.
     Widened past `re.compile` assignments alone (review MAJOR-2 fix #2)."""
@@ -1132,9 +1129,14 @@ def _issuer_string_hits(path: Path):
         for child in ast.iter_child_nodes(node):
             parents[child] = node
 
+    docstrings = {
+        id(node.body[0].value) for node in ast.walk(tree)
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and node.body
+        and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)
+    }
     hits = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
             low = node.value.lower()
             for marker in ISSUER_NAME_LEXICON:
                 count = low.count(marker)
@@ -1162,7 +1164,7 @@ def _unregistered_issuer_markers(path: Path, registered: set[str]) -> list[str]:
 #: outside `OCR_ISSUER_STRING_BASELINE`. It was the retired visual OCR client's
 #: `INTAKE_FURNITURE` (the TD page-furniture markers); the client was deleted in
 #: slice S2 of the model-code removal, so the register is EMPTY and any
-#: issuer-named string outside the two ratcheted files now fails.
+#: issuer-named string outside the ratcheted file now fails.
 REGISTERED_ISSUER_MARKER_OWNERS: frozenset[str] = frozenset()
 
 
