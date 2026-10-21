@@ -61,7 +61,7 @@ _PHASE_ANALYSIS = "analysis"
 #: The job states `run_job` may NOT leave behind. `queued`/`processing` mean "a
 #: worker is still on it"; once `run_job` has returned or unwound, no worker is,
 #: so either one is a job that will never move again. The store's own vocabulary
-#: is queued/processing/done/error/interrupted (`webapp/jobs.py:35`).
+#: is queued/processing/done/error/interrupted (`webapp.jobs.Job.status`).
 _NON_TERMINAL_STATUSES = frozenset({"queued", "processing"})
 
 #: What a job that reached neither `set_result` nor an exception arm is marked
@@ -450,7 +450,7 @@ def run_job(
         _emit(store, job_id, profile, len(pdf_bytes), doc, None, None, None,
               collector, timer, error_type=type(e).__name__)
     except BaseException as e:
-        # #PRIVACY3, closing #WORKERPRIV m-7. The arm above catches `Exception`,
+        # The arm above catches `Exception`,
         # so a `BaseException` — `KeyboardInterrupt`, `SystemExit`, a
         # `MemoryError`'s escalation, a `GeneratorExit` — killed the queue
         # thread with a traceback on stderr and left the job at `processing`

@@ -191,7 +191,7 @@ def _recorded_partitions(run_dir: Path, provenance: dict[str, Any]) -> RunPartit
     PRESENT but malformed (a half-written block is a defect, never a silent
     invitation to reconstruct instead).
 
-    Review MAJOR-1/the recorded ``mode`` is cross-checked against the run's OWN
+    The recorded ``mode`` is cross-checked against the run's OWN
     ``summary.json:mode`` when the latter exists (it always does for a real run
     of record — ``tools/train/provenance.py`` is invoked a second time, into the
     run directory, only after the run itself completed and wrote

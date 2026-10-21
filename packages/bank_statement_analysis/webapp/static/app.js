@@ -2958,7 +2958,7 @@ const SUM_CHECK_TOLERANCE = 0.01;
 // An integrity block for a payload stored without one. The sum check reads as the server's
 // (analysis/pipeline.py::assess_document_integrity): a mismatch above the tolerance, and a
 // failed reconciliation with no sum delta (no beginning or ending balance to hold the rows to) is a check that could
-// not run, flagged rather than shown as clear (the audit's final review, finding 4).
+// not run, flagged rather than shown as clear.
 function derivedIntegrity(report = {}) {
   const integrity = report.integrity || {};
   if (integrity.risk_level) return integrity;

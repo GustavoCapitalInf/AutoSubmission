@@ -3033,10 +3033,10 @@ def _bank_key(statement: object) -> str:
 
 
 #: An informal printout's label, read as the bank whose account it prints (`_package_bank`). Chase's online transaction
-#: export publishes the label "Chase Transaction Export" (analysis/chase.py:240, `bank="Chase Transaction Export"`)
-#: where its statements publish "Chase" (analysis/chase.py:867, `bank="Chase"`); the export is no formal statement
-#: (analysis/parser_registry_entries.py:363, `chase_export`'s `formal_statement: False`). Found's month-to-date view
-#: already prints its statement's label "Lead Bank (Found)" (analysis/found_lead.py:360) and needs none.
+#: export publishes the label "Chase Transaction Export" (`analysis/chase.py`) where its statements publish "Chase";
+#: the export is no formal statement (`chase_export`'s `formal_statement: False` in
+#: `analysis/parser_registry_entries.py`). Found's month-to-date view already prints its statement's label
+#: "Lead Bank (Found)" (`analysis/found_lead.py`) and needs none.
 _PACKAGE_BANK_ALIASES = {"chase transaction export": "chase"}
 
 

@@ -123,9 +123,9 @@ def score_vector(
     identical for every registration that has it, and is reconstructible as
     "every registration not listed" from `registration_count`.
 
-    **`collector` is the first sweep's preparation, offered to the second
-    (W3 #PREPHAND).** Purity is what makes the re-sweep admissible; it does
-    not make it free. `PreparedDocument` (DETECT-BUDGET) reduced ONE sweep
+    **`collector` is the first sweep's preparation, offered to the second.**
+    Purity is what makes the re-sweep admissible; it does not make it free.
+    `PreparedDocument` reduced ONE sweep
     from 104 text preparations to 33, and the discovery run pays for two
     sweeps per document — `analyze_markdown`'s and this one — so the second
     was paying 33 preparations to recompute, character for character, texts
@@ -288,19 +288,19 @@ def reconstructed_claim(scores, payload: dict | None) -> tuple[str, float] | Non
        string here.
     3. **Not a sweep that names anything other than exactly one survivor.**
        Zero or many, while a payload exists, means the invariant above was
-       broken by a stale artifact (the REGFP window: a registry composition
-       changed under a warm cache without a stage bump). That is a finding, and
+       broken by a stale artifact (a registry composition changed under a warm
+       cache without a stage bump). That is a finding, and
        the answer is to name nobody rather than to pick.
 
-    WHAT IT DOES NOT CATCH, stated plainly. Inside that same REGFP window a
+    WHAT IT DOES NOT CATCH, stated plainly. Under such a stale artifact a
     cached payload may have been authored by a parser that TODAY loses a
     `supersedes` contest; today's sweep then names one survivor, the new
     winner, confidently and wrongly. One survivor is not a symptom, so no guard
     here fires. That is a stale-cache corruption this reconstruction INHERITS,
     not one it creates — before it, the same warm run served the same payload
     and published the same outcome with no parser named at all — and the
-    structural fix is the REGFP card (the registry fingerprint in the analysis
-    cache key), not a guess here.
+    structural fix is the registry fingerprint in the analysis cache key, not a
+    guess here.
 
     NEVER reconstructed: `attempted` (proven empty by the argument above) and
     `exceptions` (a detect-stage crash in some other registration scores 0.0

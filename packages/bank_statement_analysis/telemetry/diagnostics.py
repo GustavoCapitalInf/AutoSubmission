@@ -55,10 +55,8 @@ UNATTRIBUTED = "(parser unknown)"
 #: refusal W3-2 exists to explain; `validated` published a number and needs no
 #: autopsy.
 #:
-#: `review` was in the second group until COUNTS-P2 and is now diagnosed, per
-#: the standing Ocean ruling ("DIAGNOSABLE_CLASSES extends to review WHEN phase
-#: 2 lands, not before"). The reason is that phase 2 makes `review` a class this
-#: taxonomy has something to say about: a count mismatch publishes its number
+#: `review` is diagnosed because the count check makes it a class this taxonomy
+#: has something to say about: a count mismatch publishes its number
 #: and lands the document in `review`, so a `withheld`-only scope would have
 #: made the new codes invisible in the only rollup that reads them (W3-2 open
 #: question 2). The acceptance property this changes is named rather than
@@ -91,7 +89,7 @@ ADB_CHECKS: frozenset[str] = frozenset({
     "running_balances_support_daily_ledger",
     "posting_dates_cover_source",
     "agrees_with_bank_stated_average",
-    # Audit 2026-10-13 advisory, see ADVISORY_CODES.
+    # Advisory, see ADVISORY_CODES.
     "bank_daily_balances_agree_with_rows",
 })
 
@@ -104,8 +102,8 @@ ADB_CHECKS: frozenset[str] = frozenset({
 INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "summary_math_inconsistent",
     "ledger_sum_mismatch",
-    # Audit 2026-10-13 the sum check could not run (no beginning or no ending
-    # balance), so its finding is unknown rather than clean.
+    # The sum check could not run (no beginning or no ending balance), so its
+    # finding is unknown rather than clean.
     "ledger_sum_uncheckable",
     "running_balance_breaks",
     "credit_detail_coverage_mismatch",
@@ -121,7 +119,7 @@ INTEGRITY_FLAGS: frozenset[str] = frozenset({
     # no diagnosis to be incomplete). See CLASS_OF and ADVISORY_CODES.
     "parser_exception",
     "integrity_check_exception",
-    # REPAIR-GUARD (W3 §MG-C2 D1 / §PIPE5). The third crash flag, and the one
+    # The third crash flag, and the one
     # that is neither of the other two: a statement-repair STAGE raised and was
     # discarded whole, so the published statement is the UNREPAIRED one. The
     # stage is twelve steps and only one is a bank-summary repair - naming it
@@ -131,7 +129,7 @@ INTEGRITY_FLAGS: frozenset[str] = frozenset({
     "repair_exception",
     "conflicting_statement_summaries",
     "missing_declared_statement_page",
-    # COUNTS-P2. The captured rows did not reproduce the bank's own printed
+    # The captured rows did not reproduce the bank's own printed
     # per-direction COUNT, on a bank whose printed figure is known to denote
     # the same set of rows (`analysis/count_semantics.py`). Classed with the
     # money coverage flags: same cause, same remediation, same owner.
@@ -284,7 +282,7 @@ CLASS_OF: dict[str, str] = {
     "adb_state:period_unresolvable": "adb_not_computable",
     "adb_state:opening_balance_underivable": "adb_not_computable",
     "recon:escalation_extraction_failed": "extraction_failure",
-    # REPAIR-GUARD (W3 §PIPE5). A statement-repair stage that raised and was
+    # A statement-repair stage that raised and was
     # discarded whole is a PRODUCTION stage that did not complete, which is
     # what `extraction_failure` already means for the escalation code above it
     # (that class now has two occupants; §4 of the taxonomy says so) — not
@@ -334,7 +332,7 @@ CLASS_OF: dict[str, str] = {
     "recon:debit_coverage_short": "detail_coverage",
     "integrity:credit_detail_coverage_mismatch": "detail_coverage",
     "integrity:debit_detail_coverage_mismatch": "detail_coverage",
-    # COUNTS-P2. A count mismatch has the same cause as a money-coverage
+    # A count mismatch has the same cause as a money-coverage
     # mismatch (the captured detail does not reproduce the bank's stated
     # detail), the same remediation (find the rows the reader lost or
     # mis-sided) and the same owner (that bank's parser cell), so it shares
@@ -385,11 +383,11 @@ CLASS_OF: dict[str, str] = {
 ADVISORY_CODES: frozenset[str] = frozenset({
     "adb:agrees_with_bank_stated_average",
     "adb_state:stated_average_disagrees",
-    # Audit 2026-10-13 REC-1, step 1 (v7): a bank-printed daily balance that is
+    # A bank-printed daily balance that is
     # not the balance the rows reach that day. The engine uses the bank's
     # table either way and the check is never required, so it can never be
     # the reason a document was withheld: advisory, like the printed-average
-    # comparison above. Making it required is an owner ruling (step 2).
+    # comparison above. Making it required would need an owner ruling.
     "adb:bank_daily_balances_agree_with_rows",
     "adb_state:bank_daily_balances_disagree_with_rows",
     # The narrow account-opening fold. It is a DISCLOSURE, not a failure:

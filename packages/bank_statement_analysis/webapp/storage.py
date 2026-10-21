@@ -67,7 +67,7 @@ from typing import Callable, Sequence
 from ocr.inspect import content_sha256
 
 # The data directory's one rename-into-place helper (a brief retry on the Windows refusal while a reader has the
-# target open), shared rather than copied: audit 2026-10-13, BE-4.
+# target open), shared rather than copied.
 from .settings import _replace as _replace_retrying
 
 __all__ = ["Storage", "content_sha256", "default_data_dir", "utc_now_iso", "SCHEMA_VERSION"]

@@ -370,8 +370,8 @@ def dispatch_section(
     So `source` doubles as the provenance mark, with no new field and no new
     enum member: `cached` + a parser id is a reconstruction by construction,
     `live` + a parser id is an observation, and `cached` + null is the
-    reconstruction refusing to name one (the REGFP instrument). The
-    §DISCOBS row vocabulary maps onto it exactly — `live_dispatch`,
+    reconstruction refusing to name one. The discovery row vocabulary maps
+    onto it exactly — `live_dispatch`,
     `live_detect`, and the `unavailable` mark that names no parser.
 
     NOT reconstructed, in either sense: `attempted` and `exceptions`. See
@@ -748,8 +748,7 @@ def build_record(
         # the per-account union on a document one, so a record never carries
         # one account's diagnosis under the document's name.
         #
-        # `source_path_unrecognized_model` (F-7 / MAJOR-3)
-        # is added alongside `diagnose_document`'s
+        # `source_path_unrecognized_model` is added alongside `diagnose_document`'s
         # own closed taxonomy, not INTO it: it is read straight off `source`
         # (the already-built `source_section(doc)` dict this function
         # receives, `source["model"]` being `doc.model` verbatim) rather than

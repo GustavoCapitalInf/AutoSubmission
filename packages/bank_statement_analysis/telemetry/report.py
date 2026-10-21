@@ -85,7 +85,8 @@ def coverage(records: list[dict]) -> dict:
       and an outcome was published) and carry no verdict. Every one of them is
       a document the rate cannot see: pre-#TELCOV records, where that is the
       whole cache-served set, and post-#TELCOV records only where the
-      reconstruction fail-closed (a structurer payload, or the REGFP window).
+      reconstruction fail-closed (a structurer payload, or a registry change
+      under a warm cache).
 
     AND THE RATE REFUSES RATHER THAN DEGRADES. With `unattributed` non-zero
     there is no honest single number: excluding those documents from the
@@ -323,7 +324,7 @@ class UnattributedParsers(RuntimeError):
     Narrowed by #TELCOV, not removed. A cache-served record now carries a
     reconstructed `parser_id` (`record.dispatch_section`), so on a run emitted
     since then this fires only where the reconstruction fail-closed - a
-    structurer payload, or the REGFP window - which is a finding worth
+    structurer payload, or a registry change under a warm cache - which is a finding worth
     stopping on. On a run emitted before it, it still fires on the whole
     cache-served set, which is what it was built for.
     """

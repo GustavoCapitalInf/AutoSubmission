@@ -161,15 +161,14 @@ PINNED_REFUSALS: dict[str, str] = {
 #
 # 1. `validated` and `review` are a FINER partition of the gate's PASS, so a
 #    pinned statement moving review<->validated is invisible to every check
-#    above while all of them stay green. Not hypothetical: at PIPELINE-FIX-2's
-#    first revision (`b8013d5`) two pinned documents made exactly that move and
-#    the gate reported GREEN over it.
+#    above while all of them stay green. Not hypothetical: at `b8013d5` two
+#    pinned documents made exactly that move and the gate reported GREEN over it.
 # 2. A pinned statement can change a PUBLISHED integrity flag without changing
 #    class at all — a withheld document that loses a flag is still withheld.
 #    Not hypothetical either: activating the page-declaration check withdrew
 #    `missing_declared_statement_page` from the pinned BMO January statement,
 #    whose class did not move. A check on the outcome CLASS alone would have
-#    seen nothing, and that movement is why WIRING-1 stopped.
+#    seen nothing.
 # 3. `risk_level` and `possible_document_issue` move INDEPENDENTLY of the flag
 #    list, so pinning the class and the flags is still not enough.
 #    `possible_document_issue` keys on `recon.continuity_breaks >= 3`
@@ -198,9 +197,9 @@ PINNED_REFUSALS: dict[str, str] = {
 # holds every document that is NOT plainly published, and every pinned path
 # absent from it must equal `PUBLISHED_OUTCOME`. Measured: all 102 validated
 # documents share exactly one published state, so "absent" is a real
-# expectation and not a gap. Recorded from the tree at WIRING-2, POST-ceremony
-# (102 validated / 4 review / 3 withheld); moving an entry is truth-set
-# movement and needs the same ceremony as an audit CSV.
+# expectation and not a gap (the gate reports 102 validated / 3 review / 3
+# withheld / 1 refused); moving an entry is truth-set movement and needs the
+# same ceremony as an audit CSV.
 
 
 class _Verdict(NamedTuple):
@@ -286,8 +285,8 @@ PINNED_OUTCOMES: dict[str, _Verdict] = {
     # and ADB field is byte-identical — the two forensic oracles above prove
     # that on every gate run, and neither reads a flag.
     #
-    # This is the exact movement the gate could not see before WIRING-1's
-    # verdict check: `validated` and `review` are BOTH inside the audits' PASS
+    # This is the exact movement the gate cannot see without this verdict
+    # check: `validated` and `review` are BOTH inside the audits' PASS
     # class, so at `b8013d5` two pinned documents made this same move with the
     # gate reporting GREEN over it. It is recorded here because the map is the
     # only place that now watches it.
@@ -1419,7 +1418,7 @@ def production_verdict(path: Path, cache: Path) -> tuple[_Verdict, dict]:
     sites. It is never recovered by re-splitting the markdown: page content is
     untrusted and can print a separator line. The six
     image-only statements resolve to a committed OCR artifact rather than to an
-    intake object, and since WIRING-2 that artifact carries the same intake
+    intake object, and that artifact carries the same intake
     run's page list (`corpus_artifacts.cached_pages`, proven to re-join to the
     committed markdown byte for byte) — which is what makes the approved
     Regions ceremony executable offline at all. An artifact with no committed
@@ -1667,8 +1666,7 @@ def check_currency_source(result: Result, manifest: list[str],
     details: list[str] = []
     # Total over the manifest MINUS the pinned refusals, both ways, exactly as
     # `check_currency` is: a document that publishes no statement has no
-    # provenance to pin (composed at the batch-7 train, where REPAIR-DOCTRINE's
-    # pinned refusal met CURRENCY-SOURCE's 109-entry surface).
+    # provenance to pin.
     denominated = [rel for rel in manifest if rel not in PINNED_REFUSALS]
     for rel in sorted(set(denominated) - set(PINNED_CURRENCY_SOURCE)):
         details.append(
