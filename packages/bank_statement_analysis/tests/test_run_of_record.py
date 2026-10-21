@@ -767,33 +767,6 @@ def test_select_artifact_raises_on_a_corrupt_index_with_two_rows_for_one_triple(
         ro.close()
 
 
-def test_select_artifact_mutant_rows0_would_have_silently_picked_one():
-    """Documents the mutant this test class kills: restoring `rows[0]` on the
-    corrupt-index fixture above would return "path/first.json" instead of
-    raising. Exercised directly against the mutant function (not the
-    production one) so the contrast is explicit."""
-    def _mutant_rows0(conn, stage, input_sha256, settings_key):
-        rows = conn.execute(
-            "SELECT artifact_path FROM artifact_cache WHERE stage = ? AND input_sha256 = ? AND settings_key = ?",
-            (stage, input_sha256, settings_key),
-        ).fetchall()
-        return None if not rows else rows[0][0]
-
-    conn = sqlite3.connect(":memory:")
-    conn.execute("CREATE TABLE artifact_cache (stage TEXT, input_sha256 TEXT, settings_key TEXT, artifact_path TEXT)")
-    conn.executemany(
-        "INSERT INTO artifact_cache VALUES (?, ?, ?, ?)",
-        [("ocr", "SHA1", "KEYA", "path/first.json"), ("ocr", "SHA1", "KEYA", "path/second.json")],
-    )
-    conn.commit()
-    # The mutant silently picks one — SQLite's row order without ORDER BY is
-    # unspecified, so which one is not even the point; that it picks ANY one
-    # instead of raising is the bug.
-    assert _mutant_rows0(conn, "ocr", "SHA1", "KEYA") in ("path/first.json", "path/second.json")
-    with pytest.raises(RunOfRecordError):
-        select_artifact(conn, "ocr", "SHA1", "KEYA")
-
-
 # ---------------------------------------------------------------------------
 # P21-ROUTING closure (MINOR-5): tools/train/provenance.py's `_TREE_PROBE`
 # never writes a raw exception message into the durable run record.

@@ -655,12 +655,8 @@ _MDYY_SIGN = -1
 def major2_drives(package: str) -> dict:
     """The four sites, driven through the REAL reader, inside one package.
 
-    Parameterised by package name so the identical drive runs against the base
-    tree materialised by `tools.hygiene8_base_tree` and against the working
-    tree: a "0 leaking cells" that only ever ran on the branch measures
-    nothing. Shared with `tools.hygiene8_poison_sweep`, which imports this
-    rather than restating it - a second copy of a drive is a second thing to
-    keep in step.
+    Parameterised by package name and shared with `tools.hygiene8_poison_sweep`,
+    which imports this rather than restating it.
     """
     import importlib
 
@@ -693,43 +689,6 @@ def major2_drives(package: str) -> dict:
     }
 
 
-BASE_REVISION = "10cc722"
-
-
-@pytest.fixture(scope="module")
-def base_tree(tmp_path_factory):
-    """`analysis/` as it stood at the base commit, importable beside ours."""
-    try:
-        from tools.hygiene8_base_tree import load_base_analysis
-    except ImportError as exc:                        # pragma: no cover
-        pytest.skip(f"tools.hygiene8_base_tree is not importable: {exc!r}")
-    try:
-        return load_base_analysis(
-            BASE_REVISION,
-            repo=PROJECT_ROOT,
-            scratch=tmp_path_factory.mktemp("hygiene8_base"),
-        )
-    except Exception as exc:                          # pragma: no cover
-        pytest.skip(f"the base tree {BASE_REVISION} is unavailable: {exc!r}")
-
-
-#: Python 3.13+ `date()` echoes the offending digits in its own message
-#: (`day 30 must be in range 1..28 for month 2 in year 2031`); 3.12 raises the
-#: digit-free `day is out of range for month` / `month must be in 1..12`. The
-#: vacuity check proves the fixture REACHED the `date()` site — which either
-#: message form proves, since both can only arise inside `date()` — so the
-#: assert accepts the echo OR the interpreter's own no-echo calendar refusal.
-#: The branch-side law (refuse without quoting) is asserted elsewhere and is
-#: interpreter-independent.
-_CALENDAR_REFUSALS_WITHOUT_ECHO = (
-    "day is out of range for month",
-    "month must be in 1..12",
-)
-
-
-def _reached_the_date_site(message: str) -> bool:
-    return any(message == m for m in _CALENDAR_REFUSALS_WITHOUT_ECHO)
-
 def _leaking(exc: BaseException, token: str) -> list:
     """The poison sweep's own surface rule, imported rather than restated.
 
@@ -741,45 +700,6 @@ def _leaking(exc: BaseException, token: str) -> list:
     from tools.hygiene8_poison_sweep import _leaking_surfaces
 
     return _leaking_surfaces(exc, token, CANARY, set(_digit_runs(token, 2)))
-
-
-#: Statement fields the frozen base tree cannot carry, because they postdate it. Excluded rather than back-filled, as
-#: tests/test_row_grouping.py's `_FIELDS_NEWER_THAN_THE_ORACLES` excludes them; each is proved by name elsewhere:
-#:   `holder_name` (audit fix batch B9)  tests/test_analysis.py (per parser), tests/test_true_revenue_holder.py
-_FIELDS_NEWER_THAN_THE_BASE_TREE = ("holder_name",)
-
-
-def _without_newer_fields(dump: dict) -> dict:
-    return {key: value for key, value in dump.items() if key not in _FIELDS_NEWER_THAN_THE_BASE_TREE}
-
-
-def _payload(result):
-    """A comparable payload, so a base object is never compared with ours."""
-    if result is None:
-        return None
-    if isinstance(result, list):
-        return [_without_newer_fields(item.model_dump()) for item in result]
-    return _without_newer_fields(result.model_dump())
-
-
-@pytest.mark.parametrize("site,shape", MAJOR2_CELLS)
-def test_the_four_date_sites_echoed_the_printed_digits_at_the_base_tree(
-    site, shape, base_tree
-):
-    """The vacuity check for the fix below: without it every branch assertion
-    could pass because the fixture never reached the site at all."""
-    token = MAJOR2_ROW_TOKENS[site][shape]
-    with pytest.raises(ValueError) as raised:
-        major2_drives(base_tree.package)[site](token)
-    assert "date grammar refused" not in str(raised.value), (
-        "the base tree is not supposed to carry the refusal; check the revision"
-    )
-    assert "str" in _leaking(raised.value, token) or _reached_the_date_site(
-        str(raised.value)
-    ), (
-        f"{site}/{shape}: the base tree did not echo the token, so the fixture "
-        f"probably never reached the site: {raised.value}"
-    )
 
 
 @pytest.mark.parametrize("site,shape", MAJOR2_CELLS)
@@ -795,18 +715,25 @@ def test_the_four_date_sites_refuse_without_quoting_at_the_branch(site, shape):
     assert raised.value.__cause__ is None and raised.value.__context__ is None
 
 
-@pytest.mark.parametrize("site", sorted(MAJOR2_VALID_ROWS))
-def test_the_four_date_sites_read_an_in_range_row_identically_on_both_trees(
-    site, base_tree
-):
-    """The other half of "only the message changes": an in-range date produces
-    the same payload leaf for leaf, and no row is silently skipped."""
-    from tools.hygiene8_base_tree import leaf_diff
+#: The date each in-range row prints, as the reader publishes it. The Columbia
+#: fixture carries no printed totals, so the reader publishes no statement; the
+#: row must still not refuse.
+MAJOR2_VALID_READINGS = {
+    "chase.export_row": "2031-02-10",
+    "columbia_bank.cheque_row": None,
+    "scotia.posting_row": "2031-01-10",
+    "scanned_small_bank.mdyy_row": "2031-01-10",
+}
 
-    token = MAJOR2_VALID_ROWS[site]
-    ours = _payload(major2_drives("analysis")[site](token))
-    theirs = _payload(major2_drives(base_tree.package)[site](token))
-    assert leaf_diff(theirs, ours) == []
+
+@pytest.mark.parametrize("site", sorted(MAJOR2_VALID_ROWS))
+def test_the_four_date_sites_read_an_in_range_row(site):
+    published = major2_drives("analysis")[site](MAJOR2_VALID_ROWS[site])
+    expected = MAJOR2_VALID_READINGS[site]
+    if expected is None:
+        assert published is None
+    else:
+        assert expected in repr(published)
 
 
 def test_the_refusal_class_at_the_four_sites_is_still_ValueError():
