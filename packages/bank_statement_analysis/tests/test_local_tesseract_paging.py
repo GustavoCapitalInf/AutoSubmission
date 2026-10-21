@@ -604,7 +604,7 @@ def test_the_worker_ends_a_job_whose_read_timed_out_in_error_and_caches_nothing(
 
     monkeypatch.setattr("ocr.pipeline.parse_local_tesseract", timed_out)
     first = store.create("scan.pdf", pdf_bytes=b"%PDF-SAMPLE-scan")
-    run_job(first.id, b"%PDF-SAMPLE-scan", "scan.pdf", store, parse_mode="deterministic")
+    run_job(first.id, b"%PDF-SAMPLE-scan", "scan.pdf", store)
     failed = store.get(first.id)
     assert failed.status == "error"
     assert failed.error == (
@@ -618,7 +618,7 @@ def test_the_worker_ends_a_job_whose_read_timed_out_in_error_and_caches_nothing(
     monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda report: {"quality": {"level": "transaction_level"}})
     again = store.create("scan.pdf", pdf_bytes=b"%PDF-SAMPLE-scan")
-    run_job(again.id, b"%PDF-SAMPLE-scan", "scan.pdf", store, parse_mode="deterministic")
+    run_job(again.id, b"%PDF-SAMPLE-scan", "scan.pdf", store)
     assert store.get(again.id).status == "done"
     assert store.get(again.id).parse_model == "local-tesseract-ocr"
 

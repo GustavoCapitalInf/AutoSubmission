@@ -154,7 +154,6 @@ class JobStore:
         *,
         page_count: int = 0,
         force_ocr: bool = False,
-        parse_mode: str = "auto",
         pdf_bytes: bytes | None = None,
     ) -> Job:
         job = Job(
@@ -162,7 +161,6 @@ class JobStore:
             filename=filename,
             page_count=page_count,
             force_ocr=force_ocr,
-            parse_mode=parse_mode,
         )
         if pdf_bytes is not None:
             job.content_sha256 = content_sha256(pdf_bytes)
@@ -176,7 +174,6 @@ class JobStore:
             content_sha256=job.content_sha256,
             byte_size=len(pdf_bytes) if pdf_bytes is not None else 0,
             force_ocr=force_ocr,
-            parse_mode=parse_mode,
             page_count=page_count,
         )
         job.duplicate_of_known = True

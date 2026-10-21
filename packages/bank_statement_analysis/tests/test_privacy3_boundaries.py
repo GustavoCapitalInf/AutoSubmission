@@ -1647,12 +1647,12 @@ def test_the_finally_arm_is_a_no_op_on_the_success_path(job_store, monkeypatch):
         lambda pdf_bytes, source_file="", **kwargs: _FakeDoc(),
     )
 
-    def declined(markdown, parse_mode="auto", **kwargs):
+    def declined(markdown, **kwargs):
         raise RuntimeError("no deterministic parser matched this statement")
 
     monkeypatch.setattr("webapp.worker.analyze_document", declined)
     job = job_store.create("ok.pdf")
-    run_job(job.id, b"%PDF-ok", "ok.pdf", job_store, parse_mode="deterministic")
+    run_job(job.id, b"%PDF-ok", "ok.pdf", job_store)
     fetched = job_store.get(job.id)
     assert fetched.status == "done"
     assert fetched.error is None

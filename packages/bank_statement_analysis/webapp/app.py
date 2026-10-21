@@ -309,9 +309,9 @@ def _process_job_queue() -> None:
             if not _job_queue:
                 _job_worker_active = False
                 return
-            job_id, pdf_bytes, filename, force_ocr, parse_mode = _job_queue.popleft()
+            job_id, pdf_bytes, filename, force_ocr = _job_queue.popleft()
         try:
-            run_job(job_id, pdf_bytes, filename, store, force_ocr, parse_mode)
+            run_job(job_id, pdf_bytes, filename, store, force_ocr)
         except BaseException:
             # The handler is on the SUPERVISOR and not on `run_job`'s arm, which
             # is the whole shape §PRIVACY3 P8.1 argued for: the arm must keep
@@ -325,10 +325,10 @@ def _process_job_queue() -> None:
             raise
 
 
-def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool, parse_mode: str) -> None:
+def _enqueue_job(job_id: str, pdf_bytes: bytes, filename: str, force_ocr: bool) -> None:
     global _job_worker_active
     with _job_queue_lock:
-        _job_queue.append((job_id, pdf_bytes, filename, force_ocr, parse_mode))
+        _job_queue.append((job_id, pdf_bytes, filename, force_ocr))
         should_start = not _job_worker_active
         if should_start:
             _job_worker_active = True
@@ -6094,9 +6094,6 @@ def upload():
         return jsonify({"error": FORCE_OCR_REMOVED}), 400
     # Every job is read the same way (native PDF text, then local OCR); the field stays in the job row and the answer.
     force_ocr = False
-    parse_mode = request.form.get("parse_mode") or "auto"
-    if parse_mode not in {"auto", "deterministic"}:
-        return jsonify({"error": "invalid parse_mode"}), 400
 
     # Validate the whole batch before creating any job. A half-accepted upload
     # would leave the dashboard aggregating an incomplete package with nothing
@@ -6128,7 +6125,6 @@ def upload():
                 filename,
                 page_count=page_count,
                 force_ocr=force_ocr,
-                parse_mode=parse_mode,
                 pdf_bytes=pdf_bytes,
             )
             created.append(job)
@@ -6144,13 +6140,13 @@ def upload():
 
     jobs = []
     for job, (filename, pdf_bytes, page_count, profile) in zip(created, accepted):
-        _enqueue_job(job.id, pdf_bytes, filename, force_ocr, parse_mode)
+        _enqueue_job(job.id, pdf_bytes, filename, force_ocr)
         jobs.append({
             "id": job.id,
             "filename": job.filename,
             "page_count": job.page_count,
             "force_ocr": force_ocr,
-            "parse_mode": parse_mode,
+            "parse_mode": job.parse_mode,
             "content_sha256": job.content_sha256,
             # A re-upload of identical bytes names the earliest prior job holding
             # them, read in the transaction that created the job (audit BE-2).

@@ -106,7 +106,6 @@ def test_job_round_trip_survives_reopen(data_dir, store):
         "statement.pdf",
         page_count=3,
         force_ocr=True,
-        parse_mode="deterministic",
         pdf_bytes=PDF,
     )
     store.set_status(job.id, "processing")
@@ -126,13 +125,20 @@ def test_job_round_trip_survives_reopen(data_dir, store):
     assert fetched.analysis_error is None
     assert fetched.parse_model == "test-model"
     assert fetched.force_ocr is True
-    assert fetched.parse_mode == "deterministic"
+    assert fetched.parse_mode == "auto"
     assert fetched.page_count == 3
     assert fetched.filename == "statement.pdf"
     assert fetched.content_sha256 == content_sha256(PDF)
 
     row = reopened.storage.load_job(job.id)
     assert row["created_at"] and row["started_at"] and row["finished_at"]
+
+
+def test_a_job_stored_with_the_retired_deterministic_mode_keeps_it(data_dir, store):
+    job = store.create("statement.pdf", pdf_bytes=PDF)
+    with sqlite3.connect(store.storage.db_path) as conn:
+        conn.execute("UPDATE jobs SET parse_mode = 'deterministic' WHERE id = ?", (job.id,))
+    assert _reopen(data_dir).get(job.id).parse_mode == "deterministic"
 
 
 def test_error_job_survives_reopen(data_dir, store):

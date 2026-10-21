@@ -181,14 +181,6 @@ let queuePackageDuplicates = null;
 let previewJobId = null;
 let previewPage = 0;
 
-function selectedParseMode() {
-  return document.querySelector('input[name="parseMode"]:checked')?.value || "auto";
-}
-
-function parseModeLabel(value) {
-  return value === "deterministic" ? "Deterministic only" : "Auto";
-}
-
 // 5.6 (true revenue spec §10.5): the note under each revenue figure. The owner's request of 2026-10-11 (§2.2, §10):
 // the page shows no Verified revenue and no "Counted, not verified" (the tiers `verified` and `counted_flagged`, kept in
 // the backend), so their notes are gone; True revenue, their sum, keeps its own.
@@ -3118,7 +3110,6 @@ function setInitialState() {
     ["OCR completed", "No"],
     ["Pages processed", "--"],
     ["Processing time", "--"],
-    ["Parsing mode", parseModeLabel(selectedParseMode())],
     ["Validation", "--"],
     ["Text blocks detected", "--"],
     ["File size", "--"],
@@ -4645,7 +4636,6 @@ function renderAccount(report) {
     ["OCR completed", "Yes"],
     ["Pages processed", formatNumber(statement.page_count || report.page_count || "--")],
     ["Processing time", elapsed],
-    ["Parsing mode", parseModeLabel(report.parse_mode || selectedParseMode())],
     ["Parser used", report.model_used || "N/A"],
     ["Document integrity", integrityLabel(integrity)],
     ["Revenue reconciliation", revenueBalanced ? "Balanced" : "Review required"],
@@ -4932,7 +4922,6 @@ function showSelectedFile(file) {
     ["OCR completed", "No"],
     ["Pages processed", "Queued"],
     ["Processing time", "Running"],
-    ["Parsing mode", parseModeLabel(selectedParseMode())],
     ["Validation", "--"],
     ["Text blocks detected", "--"],
     ["File size", formatBytes(file.size)],
@@ -4974,7 +4963,6 @@ function uploadFiles(fileList) {
 
   const form = new FormData();
   files.forEach((item) => form.append("files", item));
-  form.append("parse_mode", selectedParseMode());
 
   fetch("/upload", { method: "POST", body: form })
     .then((response) => {
@@ -5078,7 +5066,6 @@ function pollPackage(jobIds, failures = 0) {
         ["Statements completed", `${finished} / ${statuses.length}`],
         ["Pages queued", formatNumber(totalPages)],
         ["Processing time", startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Running"],
-        ["Parsing mode", parseModeLabel(selectedParseMode())],
         ["Processing errors", formatNumber(errors)],
         ["File size", `${currentFiles.length} files`],
       ]);
@@ -5115,7 +5102,6 @@ function pollJob(jobId, failures = 0) {
         ["OCR completed", "No"],
         ["Pages processed", formatNumber(status.page_count || "--")],
         ["Processing time", startedAt ? `${((Date.now() - startedAt) / 1000).toFixed(1)}s` : "Running"],
-        ["Parsing mode", parseModeLabel(status.parse_mode || selectedParseMode())],
         ["Validation", "--"],
         ["Text blocks detected", stage],
         ["File size", formatBytes(currentFile && currentFile.size)],

@@ -324,7 +324,7 @@ class _CapturedJobStore:
     def __init__(self, store: JobStore, job: Job) -> None:
         self._store = store
         self.cache = _CacheOnly(store.cache, self)
-        self.job = Job(id=job.id, filename=job.filename, force_ocr=job.force_ocr, parse_mode=job.parse_mode,
+        self.job = Job(id=job.id, filename=job.filename, force_ocr=job.force_ocr,
                        page_count=job.page_count, content_sha256=job.content_sha256)
         self.result: tuple[str, str, dict | None, str | None, str | None] | None = None
         self.error: str | None = None
@@ -382,10 +382,10 @@ class Rerun:
 
 
 def rerun_analysis(store: JobStore, job: Job, pdf_bytes: bytes) -> Rerun:
-    """Run a saved job's statement through `webapp.worker.run_job` again, with the job's own read flag and parse mode,
+    """Run a saved job's statement through `webapp.worker.run_job` again, with the job's own read flag,
     into a `_CapturedJobStore`, its reading from the artifact cache only. Nothing of the saved job is written here."""
     run = _CapturedJobStore(store, job)
-    run_job(job.id, pdf_bytes, job.filename, run, force_ocr=job.force_ocr, parse_mode=job.parse_mode)
+    run_job(job.id, pdf_bytes, job.filename, run, force_ocr=job.force_ocr)
     if run.reading_refused:
         return Rerun(None, READING_NOT_CACHED)
     if run.error is not None or run.result is None:

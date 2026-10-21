@@ -62,7 +62,7 @@ def supervisor(monkeypatch, tmp_path):
 
 def _enqueue(store, name: str) -> str:
     job = store.create(name)
-    webapp_app._job_queue.append((job.id, b"%PDF-x", name, False, "auto"))
+    webapp_app._job_queue.append((job.id, b"%PDF-x", name, False))
     return job.id
 
 
@@ -112,8 +112,7 @@ def test_the_worker_slot_is_released_when_run_job_unwinds(supervisor, monkeypatc
     the re-arm decision is not in play and only the release is."""
     first = _enqueue(supervisor, "one.pdf")
 
-    def raising_run_job(job_id, pdf_bytes, filename, target, force_ocr=False,
-                        parse_mode="auto"):
+    def raising_run_job(job_id, pdf_bytes, filename, target, force_ocr=False):
         target.set_status(job_id, "processing")
         target.set_error(job_id, "the worker stopped without publishing a result")
         raise failure
@@ -160,7 +159,7 @@ def test_a_dead_worker_is_replaced_and_the_queue_drains(supervisor, monkeypatch)
     second = _enqueue(supervisor, "two.pdf")
     seen: list[str] = []
 
-    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False, parse_mode="auto"):
+    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False):
         seen.append(job_id)
         target.set_status(job_id, "processing")
         if job_id == first:
@@ -191,8 +190,7 @@ def test_a_failure_that_repeats_for_every_document_drains_and_stops(supervisor, 
     ids = [_enqueue(supervisor, f"{n}.pdf") for n in range(5)]
     seen: list[str] = []
 
-    def always_raising(job_id, pdf_bytes, filename, target, force_ocr=False,
-                       parse_mode="auto"):
+    def always_raising(job_id, pdf_bytes, filename, target, force_ocr=False):
         seen.append(job_id)
         target.set_status(job_id, "processing")
         target.set_error(job_id, "the worker stopped without publishing a result")
@@ -226,7 +224,7 @@ def test_a_replacement_worker_holds_the_slot_while_it_runs(supervisor, monkeypat
     release = threading.Event()      # ...and may finish
     seen: list[str] = []
 
-    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False, parse_mode="auto"):
+    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False):
         seen.append(job_id)
         target.set_status(job_id, "processing")
         if job_id == first:
@@ -247,7 +245,7 @@ def test_a_replacement_worker_holds_the_slot_while_it_runs(supervisor, monkeypat
         workers_during = len(_live_workers())
         # One upload arrives while the replacement is busy with `second`.
         third = supervisor.create("three.pdf")
-        webapp_app._enqueue_job(third.id, b"%PDF-x", "three.pdf", False, "auto")
+        webapp_app._enqueue_job(third.id, b"%PDF-x", "three.pdf", False)
         workers_after_upload = len(_live_workers())
     finally:
         release.set()
@@ -334,7 +332,7 @@ def test_a_signal_raised_in_the_worker_is_a_dead_worker_and_the_queue_still_drai
     second = _enqueue(supervisor, "two.pdf")
     seen: list[str] = []
 
-    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False, parse_mode="auto"):
+    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False):
         seen.append(job_id)
         target.set_status(job_id, "processing")
         if job_id == first:
@@ -397,7 +395,7 @@ def test_the_normal_drain_is_unchanged(supervisor, monkeypatch):
     ids = [_enqueue(supervisor, f"{n}.pdf") for n in range(3)]
     seen: list[str] = []
 
-    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False, parse_mode="auto"):
+    def run_job(job_id, pdf_bytes, filename, target, force_ocr=False):
         seen.append(job_id)
         target.set_status(job_id, "done")
 

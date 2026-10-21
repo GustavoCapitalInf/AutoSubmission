@@ -381,22 +381,6 @@
   }
   .btn-choose:hover { background: var(--accent-hover); }
   .drop-meta { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-3); }
-  .option-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-  .option-card { border: 1px solid var(--border); border-radius: 14px; background: var(--surface); padding: 16px 18px; }
-  .option-title { font-size: 14px; font-weight: 600; }
-  .mode-control { display: flex; flex-direction: column; gap: 10px; }
-  .mode-options {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: 10px;
-    background: var(--bg); border: 1px solid var(--border);
-  }
-  .mode-option { position: relative; display: block; cursor: pointer; }
-  .mode-option input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
-  .mode-option span {
-    display: flex; align-items: center; justify-content: center; height: 32px; border-radius: 7px;
-    font-size: 13px; color: var(--text-3);
-  }
-  .mode-option input:checked + span { background: var(--surface-2); color: var(--text); font-weight: 500; }
-  .mode-option input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
   .queue-row {
     display: grid; grid-template-columns: 28px minmax(0, 1fr) 200px 96px; gap: 14px; align-items: center;
     padding: 12px 20px; border-top: 1px solid var(--border); width: 100%; border-left: 0; border-right: 0; border-bottom: 0;
@@ -970,7 +954,7 @@
   @media (max-width: 860px) {
     .view, .topbar { padding-left: 20px; padding-right: 20px; }
     .evidence-grid, .is-package .evidence-grid { grid-template-columns: 1fr; grid-template-areas: "lenders" "revenue" "insurance"; }
-    .split-2, .modal-detail-grid, .option-grid, .metric-wide-grid { grid-template-columns: 1fr; }
+    .split-2, .modal-detail-grid, .metric-wide-grid { grid-template-columns: 1fr; }
     .modal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .queue-row { grid-template-columns: 28px minmax(0, 1fr) 90px; }
     .queue-row .queue-bar { display: none; }
@@ -1213,10 +1197,6 @@
   .drop-title strong { font-size: 36px; }
   .drop-title span { font-size: 13.5px; }
   .drop-meta { font-size: 12px; color: var(--text-3); }
-  .option-card { border-radius: 20px; border-color: var(--card-border); box-shadow: var(--shadow-soft); padding: 18px 20px; }
-  .mode-options { padding: 4px; border-radius: 999px; background: var(--surface-2); border-color: transparent; }
-  .mode-option span { height: 34px; border-radius: 999px; transition: background-color .3s, color .3s; }
-  .mode-option input:checked + span { background: var(--cta); color: var(--cta-ink); }
   .tx-select, .choice-pair input { accent-color: var(--accent); }
   .queue-bar.busy span { background: var(--accent); }
 
@@ -1655,21 +1635,6 @@
             <div class="drop-meta">Max file size 100MB · up to 25 PDFs · 500 pages each</div>
           </div>
           <input type="file" id="fileInput" accept="application/pdf" multiple hidden>
-          <div class="option-grid">
-            <div class="option-card mode-control">
-              <span class="option-title" id="parseModeLabel">Parsing mode</span>
-              <div class="mode-options" role="radiogroup" aria-labelledby="parseModeLabel">
-                <label class="mode-option">
-                  <input type="radio" name="parseMode" value="auto" checked>
-                  <span>Auto</span>
-                </label>
-                <label class="mode-option">
-                  <input type="radio" name="parseMode" value="deterministic">
-                  <span>Deterministic only</span>
-                </label>
-              </div>
-            </div>
-          </div>
           <section class="panel" id="queueCard" aria-labelledby="queueTitle" hidden>
             <div class="panel-head">
               <h2 id="queueTitle">Queue</h2>

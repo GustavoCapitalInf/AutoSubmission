@@ -40,10 +40,7 @@ def document_to_json(document: DocumentReport) -> dict:
 # O-1: the worker owns NO routing decisions. The single intake ladder
 # (native PDF text -> local Tesseract) lives in ocr.pipeline.parse_statement,
 # driven by the preflight DocumentProfile; this module only does job-store
-# bookkeeping. Auto and Deterministic only read and analyse the same way: the
-# product uses no model (owner ruling, 2026-10-13), so no read and no analysis
-# reaches a model service in either mode, and `parse_mode` only reaches the
-# analysis and its cache key. The ladder reports each rung through on_stage,
+# bookkeeping. The ladder reports each rung through on_stage,
 # mapped here to the dashboard's historical stage labels. The ladder has no
 # visual rung any more (slice S2), so `reading_visual_ocr` is only a stored
 # historical stage value now; the dashboard still labels it.
@@ -180,7 +177,6 @@ def _analysis_failure(exc: BaseException) -> str:
 def _analyze_doc(
     doc: StatementMarkdown,
     filename: str,
-    parse_mode: str,
     cache: ArtifactCache | None = None,
     job_id: str | None = None,
     store: JobStore | None = None,
@@ -208,22 +204,18 @@ def _analyze_doc(
             analyzed = cached_analysis(
                 markdown,
                 compute=lambda: document_to_json(
-                    analyze_document(
-                        markdown, parse_mode=parse_mode, on_dispatch=collector,
-                        sheets=doc.pages,
-                    )
+                    analyze_document(markdown, on_dispatch=collector, sheets=doc.pages)
                 ),
                 cache=cache,
-                parse_mode=parse_mode,
                 sheets=doc.pages,
             )
         _note_cache(store, job_id, analyzed, timer)
         # Copy before stamping: on a cache hit the payload came straight out
-        # of the artifact store, and `parse_mode` is a serving-time annotation
-        # rather than part of the cached analysis (it already partitions the
-        # analysis cache key).
+        # of the artifact store. The stamp is the constant "auto" now that the
+        # upload has no parsing-mode choice; it stays so the published payload
+        # keeps its shape.
         analysis = dict(analyzed.value)
-        analysis["parse_mode"] = parse_mode
+        analysis["parse_mode"] = "auto"
         return markdown, html, analysis, None
     except Exception as e:
         # #WORKERPRIV site 1. This return value becomes the job's DURABLE
@@ -375,7 +367,6 @@ def run_job(
     filename: str,
     store: JobStore,
     force_ocr: bool = False,
-    parse_mode: str = "auto",
 ) -> None:
     # Persistence (D-1): every set_status/set_stage transition and the final
     # set_result/set_error below write through the JobStore facade into the
@@ -435,7 +426,7 @@ def run_job(
             nonlocal phase
             phase = _PHASE_ANALYSIS
             return _analyze_doc(
-                doc, filename, parse_mode, cache, job_id, store,
+                doc, filename, cache, job_id, store,
                 collector=collector, timer=timer,
             )
 

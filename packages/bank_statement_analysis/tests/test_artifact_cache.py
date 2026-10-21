@@ -1641,7 +1641,7 @@ class _CallCounter:
                 pages=[*pages, f"document {content_sha256(pdf_bytes)[:16]}"],
             )
 
-        def fake_analyze(markdown, parse_mode="auto", **kwargs):
+        def fake_analyze(markdown, **kwargs):
             self.analysis += 1
             return object()
 

@@ -107,13 +107,15 @@ docker compose up --build
 Browser login is HTTP Basic (username `intern` plus that password); `/healthz` answers without it. The Fly demo
 runs the same image. Full runbook: [`docs/intern-testing.md`](docs/intern-testing.md).
 
-## Parse modes
+## How a statement is read
 
-The upload page offers **Auto** (the default) and **Deterministic only**. Today both run the same deterministic
-path: the PDF's native text first, then, for scanned pages, local Tesseract on this machine, then the
-deterministic parsers. Nothing is sent out. They give the same results; Auto labels its output `auto` and is
-cached separately. A statement no parser claims ends as "no deterministic parser matched this statement" in
-both: nothing is guessed.
+Every upload runs one deterministic path: the PDF's native text first, then, for scanned pages, local Tesseract on
+this machine, then the deterministic parsers. Nothing is sent out. A statement no parser claims ends as "no
+deterministic parser matched this statement": nothing is guessed.
+
+The upload page has no parsing-mode choice. An upload that still sends a `parse_mode` field is accepted and the field
+is ignored. Jobs and analyses keep the `parse_mode` key: new ones say `auto`, and older jobs keep the value they were
+stored with.
 
 An upload that still sends the old `force_ocr=1` field (an old page or a script) is refused with HTTP 400 before
 anything is stored. A job stored with that flag still displays; re-analysing it is refused with a fixed message

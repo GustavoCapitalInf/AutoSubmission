@@ -88,24 +88,20 @@ def _read_ok(monkeypatch) -> None:
 
 
 def _analysis_raises(monkeypatch, exc: BaseException) -> None:
-    def boom(markdown, parse_mode="auto", **kwargs):
+    def boom(markdown, **kwargs):
         raise exc
 
     monkeypatch.setattr("webapp.worker.analyze_document", boom)
 
 
-def _run(store, filename: str = "s.pdf", *, parse_mode: str = "auto"):
+def _run(store, filename: str = "s.pdf"):
     # Distinct bytes per job: the D-3 artifact cache keys on the content hash,
     # so two jobs over identical bytes in one store would serve the second from
     # the first's cached read and never reach the code under test.
     pdf_bytes = f"%PDF-fake-{filename}".encode()
     job = store.create(filename)
-    run_job(job.id, pdf_bytes, filename, store, parse_mode=parse_mode)
+    run_job(job.id, pdf_bytes, filename, store)
     return store.get(job.id)
-
-
-def _run_deterministic(store, filename: str = "s.pdf"):
-    return _run(store, filename, parse_mode="deterministic")
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +159,7 @@ def test_a_successful_job_publishes_no_error_at_all(monkeypatch, store):
     """The control half: this cell cannot invent an error on a healthy job."""
     _read_ok(monkeypatch)
     monkeypatch.setattr("webapp.worker.analyze_document",
-                        lambda markdown, parse_mode="auto", **kwargs: object())
+                        lambda markdown, **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json",
                         lambda document: {"quality": {"level": "transaction_level"}})
 
@@ -389,7 +385,7 @@ def test_the_declared_refusal_still_reaches_the_user(monkeypatch, store):
     _read_ok(monkeypatch)
     _analysis_raises(monkeypatch, RuntimeError(DECLARED_REFUSAL))
 
-    fetched = _run_deterministic(store)
+    fetched = _run(store)
 
     assert fetched.status == "done"
     assert fetched.analysis_error == DECLARED_REFUSAL
@@ -401,7 +397,7 @@ def test_the_allow_list_is_exact_match_and_not_containment(monkeypatch, store):
     _read_ok(monkeypatch)
     _analysis_raises(monkeypatch, RuntimeError(f"{DECLARED_REFUSAL}: {POISONED_MESSAGE}"))
 
-    fetched = _run_deterministic(store)
+    fetched = _run(store)
 
     published = fetched.analysis_error or ""
     assert published == (
@@ -422,7 +418,7 @@ def test_a_refusal_whose_text_varies_is_not_admitted(monkeypatch, store):
     _read_ok(monkeypatch)
     _analysis_raises(monkeypatch, AmbiguousParserError([("chase", 0.9), ("bmo", 0.9)]))
 
-    fetched = _run_deterministic(store)
+    fetched = _run(store)
 
     assert fetched.analysis_error == (
         "analysis stage failed: AmbiguousParserError "

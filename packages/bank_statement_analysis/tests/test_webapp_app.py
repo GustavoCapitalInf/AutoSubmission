@@ -36,7 +36,7 @@ def _mock_processing(monkeypatch, page_count=2):
         return _FakeDoc()
 
     monkeypatch.setattr("webapp.worker.parse_statement", fake_parse)
-    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, parse_mode="auto", **kwargs: object())
+    monkeypatch.setattr("webapp.worker.analyze_document", lambda markdown, **kwargs: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {
         "statement": {"bank": "Test Bank"},
         "metrics": {"average_daily_balance": 123.45},
@@ -274,7 +274,7 @@ def test_upload_refuses_force_visual_ocr(monkeypatch):
     assert resp.get_json() == {"error": FORCE_OCR_REMOVED}
 
 
-def test_upload_can_request_deterministic_parse_mode(monkeypatch):
+def test_upload_ignores_a_parse_mode_field(monkeypatch):
     seen = {}
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
     monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
@@ -283,8 +283,8 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
     monkeypatch.setattr("ocr.pipeline._native_statement",
                         lambda pdf_bytes, source_file="": _FakeDoc())
 
-    def fake_analyze(markdown, parse_mode="auto", **kwargs):
-        seen["parse_mode"] = parse_mode
+    def fake_analyze(markdown, **kwargs):
+        seen.update(kwargs)
         return object()
 
     monkeypatch.setattr("webapp.worker.analyze_document", fake_analyze)
@@ -296,23 +296,15 @@ def test_upload_can_request_deterministic_parse_mode(monkeypatch):
         data={"parse_mode": "deterministic", "files": (io.BytesIO(_fresh_pdf()), "s.pdf")},
         content_type="multipart/form-data",
     )
+    assert resp.status_code == 200
     body = resp.get_json()
     job_id = body["jobs"][0]["id"]
-    assert body["jobs"][0]["parse_mode"] == "deterministic"
-    assert seen["parse_mode"] == "deterministic"
+    assert body["jobs"][0]["parse_mode"] == "auto"
+    assert "parse_mode" not in seen
 
     status = client.get(f"/status/{job_id}").get_json()
-    assert status["parse_mode"] == "deterministic"
-
-
-def test_upload_rejects_invalid_parse_mode():
-    client = app.test_client()
-    resp = client.post(
-        "/upload",
-        data={"parse_mode": "llm-only", "files": (io.BytesIO(b"%PDF-fake"), "s.pdf")},
-        content_type="multipart/form-data",
-    )
-    assert resp.status_code == 400
+    assert status["parse_mode"] == "auto"
+    assert client.get(f"/analysis/{job_id}").get_json()["analysis"]["parse_mode"] == "auto"
 
 
 def test_package_analysis_aggregates_completed_jobs():
