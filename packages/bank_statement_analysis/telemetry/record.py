@@ -463,12 +463,10 @@ def dispatch_section(
 def model_calls_for(doc: Any | None, payload: dict | None) -> list[dict]:
     """Model calls we can actually count, with tokens only where reported.
 
-    Records are built only for new reads, and every reading rung that remains
-    (native text, local Tesseract, the preflight) is one OCR-stage entry. The
-    visual, visual-pair and Paddle arms left with those rungs: no read the
-    product can make or restore carries their tokens. Prompt tokens are not
-    captured anywhere in the platform today; they are `None`, never estimated
-    from character counts (H3_SCHEMA §9).
+    Records are built only for new reads. A read from a known rung (native
+    text, local Tesseract, the preflight) is one OCR-stage entry with no token
+    counts. Prompt tokens are not captured anywhere in the platform today;
+    they are `None`, never estimated from character counts (H3_SCHEMA §9).
 
     OQ3 provenance (MAJOR-2, PHASE2_P20SEAM_REVIEW.md): every OCR-stage call
     entry also carries `endpoint_class` and `remote_opt_in`. They used to be
