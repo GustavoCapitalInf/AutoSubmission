@@ -588,7 +588,7 @@ def test_the_walk_sees_the_whole_repository():
     files = tracked_python_files()
     assert len(files) > 500, len(files)
     for expected in ("webapp/worker.py", "ocr/pipeline.py", "ocr/local_tesseract.py", "discovery/runner.py",
-                     "tools/train/provenance.py", "analysis/currency_default.py", "conftest.py",
+                     "tools/train/provenance.py", "analysis/schema.py", "conftest.py",
                      "tests/test_no_paddle.py"):
         assert expected in files, expected
     assert sum(1 for relative in files if not is_production(relative)) > 200
@@ -657,7 +657,7 @@ def test_the_removed_model_code_is_gone():
     ("webapp/n1_planted.py", "from urllib.parse import urlsplit\nfrom http import HTTPStatus\n"),
     ("tests/n1_planted.py", "from tests.paddle_synthetic import build_ledger_page\n"),
     ("tests/n1_planted.py", "PLANTED = 'import openai\\n'\n"),  # a test's planted source is data
-    ("analysis/n1_planted.py", "from analysis.currency_default import usd_default\n"),
+    ("analysis/n1_planted.py", "from analysis.schema import Statement\n"),
     ("analysis/n1_planted.py", "PATTERN = r'|CRYPTO COM|GEMINI TRUST'\n"),
     # Local Tesseract stays: the binary through subprocess, its lookup, and the Python bindings to it.
     ("ocr/n1_planted.py", "import subprocess\nsubprocess.run(['tesseract', 'page.png', 'out', '--psm', '6'], "

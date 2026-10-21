@@ -3,8 +3,7 @@
 `vlm/` (the dots.mocr proposer + Qwen reviewer pair, its Vast GPU, LoRA and judgment tooling), its settings module
 `ocr/visual_pair_config.py`, the pair tools (`tools/phase3_pair/`, `tools/vlm_*.py`) and `.env.visual-pair.example`
 were deleted. Nothing may import them again, in any spelling: absolute, from-package, relative (resolved against the
-importing file's package), or a dynamic import by name. A planted import of each form is caught. The owner's currency
-rule that lived in `vlm/currency.py` is `analysis/currency_default.py` now (tests/test_currency_default.py).
+importing file's package), or a dynamic import by name. A planted import of each form is caught.
 """
 from __future__ import annotations
 
@@ -124,7 +123,7 @@ def test_a_planted_import_of_the_visual_pair_is_caught_in_every_form(relative, p
 
 
 @pytest.mark.parametrize("relative, clean", [
-    ("analysis/x.py", "from analysis.currency_default import usd_default\n"),
+    ("analysis/x.py", "from analysis.schema import Statement\n"),
     ("ocr/x.py", "from .private_artifacts import private_artifact_root\n"),
     ("webapp/x.py", "from ocr.document import StatementMarkdown\nVISUAL_PAIR = 'visual-pair-dots-qwen'\n"),
     ("tools/x.py", "import tools.l1s3_surface_census\n"),
