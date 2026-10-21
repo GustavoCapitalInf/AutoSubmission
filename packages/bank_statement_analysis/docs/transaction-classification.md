@@ -1302,7 +1302,7 @@ enter the numerator, the basis or the rate.
 Potential lender exposure is a separate review metric over the same withholding
 basis:
 
-`potential_withholding_exposure = abs(potential_lender_debit_total) / eligible_deposits * 100`
+`potential_withholding_exposure = abs(potential_lender_debit_total) / withholding basis * 100`
 
 Its numerator is the exact set of rows marked
 `contributes_to_potential_withholding_exposure`; those rows are exposed in the
