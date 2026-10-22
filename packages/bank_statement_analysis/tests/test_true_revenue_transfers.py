@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue
+from analysis.true_revenue import public_payers
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -377,7 +378,7 @@ def test_r45_the_glued_transfer_wording(text, transfer):
     ("FROM CONTOSO CHKINGS", False),
 ])
 def test_r45_the_account_abbreviations(text, designation):
-    assert true_revenue._account_designation(text) is designation
+    assert public_payers._account_designation(text) is designation
 
 
 # Audit round 2, R2-B09 (R28): transfer wording inside a company-formed ACH originator's name (before DES, after ORIG CO

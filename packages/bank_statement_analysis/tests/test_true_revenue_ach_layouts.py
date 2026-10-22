@@ -21,6 +21,8 @@ from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import description_text
 from analysis import true_revenue as tr
+from analysis.true_revenue import financing_roots
+from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import sender as true_revenue_sender
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -801,7 +803,7 @@ def test_r41_the_holder_s_own_accounts_payable_push_is_never_verified(text):
 def test_r41_the_holder_funding_its_american_express_account_is_held(text):
     assert _tiers([(text, 1000.0)], holder=PRODUCT, bank="American Express") == [HOLDER_HELD]
     assert _tiers([(text, 1000.0), (text, 1250.0)], holder=PRODUCT, bank="American Express") == [HOLDER_HELD] * 2
-    assert tr.self_originated(text, descriptor_payer.payer_region(text), "American Express")
+    assert self_originated_credits.self_originated(text, descriptor_payer.payer_region(text), "American Express")
 
 
 def test_r41_an_own_push_never_makes_another_row_a_repeat():
@@ -947,12 +949,12 @@ def test_r06_a_wire_credit_label_is_no_financing_root_and_the_row_stays_a_wire(t
 
 
 def test_r06_a_cut_name_s_entry_and_a_dividend_are_no_financing_root():
-    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "FABRIKAM SUPPLY CREDIT NONE") == "FABRIKAM SUPPLY"
-    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE FUNDIN P CREDIT") == "SAMPLE FUNDIN P"
-    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "DIVIDEND CREDIT") == "DIVIDEND"
+    assert financing_roots._CUT_NAME_ENTRY_CREDIT.sub("", "FABRIKAM SUPPLY CREDIT NONE") == "FABRIKAM SUPPLY"
+    assert financing_roots._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE FUNDIN P CREDIT") == "SAMPLE FUNDIN P"
+    assert financing_roots._CUT_NAME_ENTRY_CREDIT.sub("", "DIVIDEND CREDIT") == "DIVIDEND"
     # CREDIT inside a lender's name stays.
-    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT CORP") == "SAMPLE CREDIT CORP"
-    assert tr._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT UNIO CREDIT NONE") == "SAMPLE CREDIT UNIO"
+    assert financing_roots._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT CORP") == "SAMPLE CREDIT CORP"
+    assert financing_roots._CUT_NAME_ENTRY_CREDIT.sub("", "SAMPLE CREDIT UNIO CREDIT NONE") == "SAMPLE CREDIT UNIO"
 
 
 # R2-B09 review round 1 (R06, a recorded residual, §20): a lender whose own name ends in CREDIT, printed with no entry

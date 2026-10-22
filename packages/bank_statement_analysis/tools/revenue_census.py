@@ -1296,6 +1296,10 @@ SPLIT_OWNERS = {
     "analysis.transaction_classifier.payer_region": "analysis.descriptor.payer",
     "analysis.transaction_classifier.platform_entry_leads_with_financing": "analysis.descriptor.holder",
     "analysis.transaction_classifier.revenue_text": "analysis.descriptor.lexical",
+    "analysis.true_revenue.government_benefit": "analysis.true_revenue.public_payers",
+    "analysis.true_revenue.government_grant": "analysis.true_revenue.public_payers",
+    "analysis.true_revenue.merchant_settlement": "analysis.true_revenue.self_originated_credits",
+    "analysis.true_revenue.region_names_holder": "analysis.true_revenue.self_originated_credits",
 }
 
 
@@ -1390,7 +1394,7 @@ def _guard_facts(record, text: str, zelle_true_revenue: bool | None = None) -> d
         if hasattr(classifier, "holder_reading") else record.account_name
     )
     # Audit B9 (I13): a processor's settlement or payout under the merchant's own name is never the holder's own money,
-    # as the pass's holder hold reads it (true_revenue.merchant_settlement, on a checkout that has it).
+    # as the pass's holder hold reads it (true_revenue.self_originated_credits.merchant_settlement, on a checkout that has it).
     pass_7 = _checkout_module("analysis.true_revenue")
     settlement = bool(getattr(pass_7, "merchant_settlement", None) and pass_7.merchant_settlement(revenue))
     facts["gate"] = classifier.channel_gate(revenue)

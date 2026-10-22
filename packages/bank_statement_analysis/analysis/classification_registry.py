@@ -2094,7 +2094,7 @@ ASSET_SALE_SELLER_WORD_ONLY: frozenset[str] = frozenset({"Copart", "Insurance Au
 
 #: Owner ruling 2026-10-02 (Q8; I17): lease-to-own and patient financiers whose merchant payouts are the merchant's
 #: sales, counted and flagged, never verified, like OQ2's BNPL settlements; a one-off lump sum is held until sourced;
-#: read by the true-revenue pass alone (analysis/true_revenue.py _customer_financier), on the payer region; no debit,
+#: read by the true-revenue pass alone (analysis/true_revenue/claimed.py _customer_financier), on the payer region; no debit,
 #: flag or lender reading; each key is a ledger entity (tools/lender_ledger.customer_financing_problems). A bare CHERRY
 #: is Cherry only when the whole region is CHERRY plus company or entry words ('CHERRY FUNDING', 'CHERRY INC'); a
 #: longer name is another payer ('CHERRY HILL PLUMBING LLC'). KATAPULT ENGINEERING and KATAPULT PRO (KatapultPro,

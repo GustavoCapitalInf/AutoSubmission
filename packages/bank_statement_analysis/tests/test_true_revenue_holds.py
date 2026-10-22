@@ -13,6 +13,10 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue as tr
+from analysis.true_revenue import financing_roots
+from analysis.true_revenue import payroll
+from analysis.true_revenue import public_payers
+from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import channel as true_revenue_channel
 from analysis.true_revenue import hold_text
 from analysis.true_revenue import holder_names
@@ -136,7 +140,7 @@ def test_a_funder_s_formed_name_on_a_payer_less_deposit_still_holds(text, bank):
 
 def test_the_deposit_reading_keeps_only_a_funder_s_words():
     # Unit: the words a payer-less deposit's roots are read on (B7 review round 2).
-    read = tr._deposit_location_reading
+    read = financing_roots._deposit_location_reading
     assert read("ATM DEPOSIT 123 MAIN ST CAPITAL HEIGHTS MD", HOLDER, "Wells Fargo") == ""
     assert read("ATM CASH DEPOSIT CAPITAL ONE 123 SAMPLE ST SAMPLEVILLE", HOLDER, "Capital One") == ""
     assert read("MOBILE DEPOSIT FUNDS ON HOLD", HOLDER, "Wells Fargo") == ""
@@ -313,7 +317,7 @@ def test_r3_18_the_pattern_is_shared_with_the_payer_less_deposit_reading():
     assert _one("MOBILE DEPOSIT ADV PMT", 2345.67, bank="Bank of America") == CHECK
     assert _one("ATM CASH DEPOSIT 1234 ADV PMT", 2345.67, bank="Bank of America") == NO_PAYER
     assert _one("MOBILE DEPOSIT CONTOSO FUNDING LLC", 2345.67, bank="Bank of America") == FINANCING
-    assert tr._WIRE_TRADE_PURPOSE.search("ADV PAYM") and not tr._WIRE_TRADE_PURPOSE.search("MERCHANT ADV PMT")
+    assert financing_roots._WIRE_TRADE_PURPOSE.search("ADV PAYM") and not financing_roots._WIRE_TRADE_PURPOSE.search("MERCHANT ADV PMT")
 
 
 def test_a_fundraising_purpose_is_no_financing():
@@ -343,8 +347,8 @@ def test_the_root_readers_strip_only_what_names_no_payer():
     assert not holder_names._p2p_person_name("CONTOSO CAPITALCO")
     assert not holder_names._p2p_person_name("FABRIKAM LLC")
     assert not holder_names._p2p_person_name("LENDSAMPLE")
-    assert "CAPITAL ONE" not in tr._root_reading("PAT SAMPLE CAPITAL ONE", None, None, p2p=True)
-    assert "CAPITAL ONE" in tr._root_reading("PAT SAMPLE CAPITAL ONE", None, None, p2p=False)
+    assert "CAPITAL ONE" not in financing_roots._root_reading("PAT SAMPLE CAPITAL ONE", None, None, p2p=True)
+    assert "CAPITAL ONE" in financing_roots._root_reading("PAT SAMPLE CAPITAL ONE", None, None, p2p=False)
 
 
 # I18: the non-sale words read only as a purpose.
@@ -1549,10 +1553,10 @@ def test_r42_g11_reads_the_hold_s_own_spare(text, bank, fact):
 
 
 def test_r42_the_td_payer_field_s_width_is_fifteen_characters():
-    assert tr._TD_PAYER_WIDTH == 15
+    assert public_payers._TD_PAYER_WIDTH == 15
     # Q7 reads no bank, so TD's cut never spares a word there (fail closed); an operator's word still does.
-    assert tr._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP")
-    assert not tr._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP", TD)
+    assert public_payers._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP")
+    assert not public_payers._personal_income("CONTOSO RETIREM MSP", "CONTOSO RETIREM MSP", TD)
 
 
 # Audit round 2, R2-B13 (R34): B7's I18 spares read DISTRIB... and STOCK as a name word only inside the payer's name
@@ -1657,7 +1661,7 @@ def test_r34_the_formed_name_s_word_before_and_the_numbered_street():
     # B7's street name (no number needed) is unchanged: the deposit reading still removes it.
     assert true_revenue_words._STREET_NAME.sub(" ", "ATM DEPOSIT SAMPLE ST SAMPLEVILLE").split() == ["ATM", "DEPOSIT", "ST",
                                                                                       "SAMPLEVILLE"]
-    assert tr._deposit_location_reading("ATM CASH DEPOSIT CAPITAL BLVD", HOLDER, "Wells Fargo") == ""
+    assert financing_roots._deposit_location_reading("ATM CASH DEPOSIT CAPITAL BLVD", HOLDER, "Wells Fargo") == ""
 
 
 # Audit round 2, R2-B13 (R35; B7 review round 3, minor 1): a deposit's location removal keeps a funder's financing word
@@ -1715,7 +1719,7 @@ def test_r35_a_deposit_s_location_controls(text, expected):
 
 
 def test_r35_the_guarded_location_removal():
-    read = tr._deposit_location_reading
+    read = financing_roots._deposit_location_reading
     assert read("MOBILE DEPOSIT FABRIKAM FUNDING SAMPLEVILLE CA", HOLDER, "Wells Fargo") == "FUNDING"
     assert read("MOBILE DEPOSIT FABRIKAM CAPITAL PLAZA", HOLDER, "Wells Fargo") == "CAPITAL"
     assert read("DEPOSIT FABRIKAM CAPITAL CITY BRANCH", HOLDER, "Wells Fargo") == "CAPITAL"
@@ -1727,7 +1731,7 @@ def test_r35_the_guarded_location_removal():
     # Two financing words in one match: never removed.
     assert read("MOBILE DEPOSIT CAPITAL FUNDING NY", HOLDER, "Wells Fargo") == "CAPITAL FUNDING"
     for word in ("DEPOSIT", "ATM", "ABM", "BRANCH", "COUNTER", "CREDIT", "TELLER", "MOBILE", "REMOTE", "IN", "AT"):
-        assert word in tr._DEPOSIT_LEAD_WORDS
+        assert word in financing_roots._DEPOSIT_LEAD_WORDS
     # The numbered street's suffixes are B7's street name's, kept in step.
     assert true_revenue_words._STREET_NAME.pattern == (r"(?<![A-Z])[A-Z]+(?= (?:" + true_revenue_words._STREET_SUFFIXES + r")\b)")
 
@@ -1863,7 +1867,7 @@ def test_r23_g11_reads_the_business_receiver(indn, holder, fact):
 def test_r23_the_business_receiver():
     def business(receiver, holder=ROUTES):
         text = f"FABRIKAM SVC DES:DIR DEP ID:1 {receiver}CO ID:1234567890 PPD"
-        return tr._business_receiver(revenue_text(normalize_transaction_description(text)), holder)
+        return payroll._business_receiver(revenue_text(normalize_transaction_description(text)), holder)
 
     assert business("INDN:CONTOSO HAULING LLC ")
     assert business("INDN:NORTHWIND ROUTES ")
@@ -1924,7 +1928,7 @@ def test_r23_review_the_holder_s_whole_name_is_the_business(holder, indn):
 def test_r23_review_the_holder_arm():
     def business(receiver, holder):
         text = f"FABRIKAM SVC DES:DIR DEP ID:1 INDN:{receiver} CO ID:1234567890 PPD"
-        return tr._business_receiver(revenue_text(normalize_transaction_description(text)), holder)
+        return payroll._business_receiver(revenue_text(normalize_transaction_description(text)), holder)
 
     for holder, indn in _R23_PERSON_SHAPES:
         assert not business(indn, holder), (holder, indn)
@@ -2338,8 +2342,8 @@ def _places(raw: str, *, holder: str | None = HOLDER, bank: str | None = None):
 
     text = revenue_text(normalize_transaction_description(raw))
     region, entry = payer.payer_region(text), payer.entry_fields(text)
-    places = tr._financing_root_places(text, region, entry, holder, bank=bank)
-    assert bool(places) == tr.financing_named(text, region, entry, holder, bank=bank)
+    places = financing_roots._financing_root_places(text, region, entry, holder, bank=bank)
+    assert bool(places) == financing_roots.financing_named(text, region, entry, holder, bank=bank)
     return places
 
 
@@ -2356,7 +2360,7 @@ def _places(raw: str, *, holder: str | None = HOLDER, bank: str | None = None):
 ])
 def test_q9_the_root_places(raw, bank, expected):
     places = _places(raw, bank=bank)
-    assert places == tr._RootPlaces(**expected)
+    assert places == financing_roots._RootPlaces(**expected)
     assert bool(places) == bool(expected)
 
 
@@ -2458,7 +2462,7 @@ def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
         channel = true_revenue_channel._channel(text, bank)
-        return tr._rent_payer_name(text, tr._facts_region(text, channel, bank))
+        return tr._rent_payer_name(text, self_originated_credits._facts_region(text, channel, bank))
 
     # A payer-name field: the name proper (an ACH originator's or a wire's whole region).
     assert name("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:1") == "BLUEJAY PARTY RENTALS INC"
@@ -2561,7 +2565,7 @@ def test_r3_b14_r1_a_payer_named_rentals_with_no_form_still_makes_no_lessor(row,
 def test_r3_b14_r1_the_rent_reading_names_only_the_payer_s_name_proper():
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
-        return tr._rent_payer_name(text, tr._facts_region(text, true_revenue_channel._channel(text, bank), bank))
+        return tr._rent_payer_name(text, self_originated_credits._facts_region(text, true_revenue_channel._channel(text, bank), bank))
 
     # A leading rent word is the entry description a label-less layout printed first (Truist's), never the name.
     assert name("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "FABRIKAM DELI LLC"

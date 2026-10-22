@@ -262,9 +262,9 @@ def test_r11_review_recorded_residual_a_numbered_company_after_the_tt_label_keep
 
 def test_r11_review_the_reader_s_label_words_are_the_wire_label_list_and_the_originator_labels():
     from analysis.descriptor import rails
-    from analysis import true_revenue as tr
+    from analysis.true_revenue import self_originated_credits
 
-    assert rails._BARE_WIRE_LABEL_WORDS == tr._WIRE_LABEL_ONLY_WORDS | {"TT", "FROM"}
+    assert rails._BARE_WIRE_LABEL_WORDS == self_originated_credits._WIRE_LABEL_ONLY_WORDS | {"TT", "FROM"}
 
 
 @pytest.mark.parametrize(("printed", "state"), [

@@ -2602,7 +2602,7 @@ def test_a3h_a_claim_a_commission_and_a_government_payer_keep_their_verification
 def test_a3h_a_glued_premium_code_reads_where_no_sec_code_splits_it():
     # The revenue text splits a glued SEC code before its SEC label ('PREMSEC PPD'); a glued PREMSEC printed elsewhere
     # is read as the premium code too.
-    from analysis.true_revenue import _premium_coded
+    from analysis.true_revenue.payroll import _premium_coded
 
     assert _premium_coded("CIGNA DES PREMSEC ID 1234567", "CIGNA")
     assert not _premium_coded("CIGNA DES PREMIER ID 1234567", "CIGNA")
@@ -2815,7 +2815,7 @@ _FW_ACH = "{payer} DES:PAYMENT ID:1234 INDN:CONTOSO BAKERY LLC CO ID:1234567890 
 def test_a_short_healthcare_alias_is_read_only_as_the_whole_payer_name(payer):
     # Final review I3: WPS, UHC, ANTHEM, VPAY and every other alias of five letters or fewer name a healthcare payer
     # only as the whole payer name (a company form or a health-plan word may follow), never inside a business name.
-    from analysis.true_revenue import healthcare_payer
+    from analysis.true_revenue.public_payers import healthcare_payer
 
     assert not healthcare_payer(payer)
     assert _one(_FW_ACH.format(payer=payer), 2345.0).revenue_match_method != "public_or_healthcare_payer"
@@ -2828,7 +2828,7 @@ def test_a_short_healthcare_alias_is_read_only_as_the_whole_payer_name(payer):
     "OPTUM", "OPTUM VA CCN", "ZELIS HEALTHCARE", "HCCLAIMPMT UHC COMMUNITY PLAN", "ANTHEM BCBS", "ANTHEM BCBSGA",
 ])
 def test_a_short_healthcare_alias_with_its_plan_words_is_still_a_healthcare_payer(payer):
-    from analysis.true_revenue import healthcare_payer
+    from analysis.true_revenue.public_payers import healthcare_payer
 
     assert healthcare_payer(payer)
 
