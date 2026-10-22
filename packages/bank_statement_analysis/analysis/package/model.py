@@ -91,6 +91,25 @@ class Member:
 
 
 @dataclass(frozen=True)
+class SelectedPackage:
+    """What `select_members` chose, before any figure. `listed`: every job the package lists, its repeats included.
+    `members` and `excluded`: the accounts admitted and left out, each in the kept jobs' order, then the accounts'.
+    `dropped`: the jobs left out as repeats or as printouts other statements print, in listed order.
+    `duplicate_groups`: each repeated statement's jobs. `duplicate_accounts`: how many accounts of kept jobs are left
+    out as repeats. `overlapping`: the overlaps named and never netted. `omitted_sections`: every kept job's ratified
+    omissions, members or not."""
+
+    listed: list[JobLike]
+    members: list[Member]
+    excluded: list[dict]
+    dropped: list[dict]
+    duplicate_groups: list[dict]
+    duplicate_accounts: int
+    overlapping: list[dict]
+    omitted_sections: list[dict]
+
+
+@dataclass(frozen=True)
 class PackagePasses:
     """What `package_matches` found. Each map is keyed by member, and an overlay by the row's original position."""
 

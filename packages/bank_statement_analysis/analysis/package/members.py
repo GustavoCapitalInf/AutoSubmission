@@ -5,7 +5,9 @@ import re
 from collections.abc import Iterable
 
 from analysis.display_settings import DEFAULTS as SETTINGS_DEFAULTS
-from analysis.package.model import AccountFacts, JobLike, Member, MemberKey
+from analysis.package.duplicates import package_duplicates
+from analysis.package.model import AccountFacts, JobLike, Member, MemberKey, SelectedPackage
+from analysis.package.supersede import package_superseded
 from analysis.payload_shape import (
     account_content_digest,
     DOCUMENT_KEY as _DOCUMENT_KEY,
@@ -254,16 +256,7 @@ def package_members(
         repeated = (repeated_accounts or {}).get(job.id) or {}
         for index, account in enumerate(accounts, start=1):
             if index in repeated:
-                excluded.append({
-                    "job_id": job.id,
-                    "filename": getattr(job, "filename", None),
-                    "account_index": index,
-                    "account_count": count,
-                    "outcome": "duplicate",
-                    "reason": "duplicate_statement",
-                    "is_duplicate": True,
-                    "duplicate_of": repeated[index],
-                })
+                excluded.append(_duplicate_exclusion(job, index, count, repeated[index], "duplicate_statement"))
                 continue
             outcome, reason = classify_outcome(account)
             if ambiguous:
@@ -315,3 +308,72 @@ def package_members(
                 analysis_rules_outdated=outdated,
             ))
     return members, excluded
+
+
+def _duplicate_exclusion(job: JobLike, index: int, count: int, duplicate_of: str, reason: str) -> dict:
+    """An account of a document left out because another kept statement prints it (`duplicate_of`, the kept job)."""
+    return {
+        "job_id": job.id,
+        "filename": getattr(job, "filename", None),
+        "account_index": index,
+        "account_count": count,
+        "outcome": "duplicate",
+        "reason": reason,
+        "is_duplicate": True,
+        "duplicate_of": duplicate_of,
+    }
+
+
+def select_members(jobs: Iterable[JobLike], settings: dict) -> SelectedPackage:
+    """Which jobs and accounts the package reads, before any figure: the repeated statements left out
+    (`package_duplicates`), the accounts admitted (`package_members`, once, on one displayed copy of each kept job),
+    then the shorter printouts other kept statements print (`package_superseded`, over the admitted accounts).
+
+    A job whose every account is superseded (all its stored accounts, admitted or not) is dropped as a repeat is, in
+    its listed place, and its members and exclusions go with it. A superseded account of a document whose other
+    accounts stay is excluded as a duplicate in its own place, with the supersede's reason; the job, its other
+    exclusions and its ratified omissions stay, even when no account of it is left a member."""
+    listed = list(jobs)
+    kept, dropped, repeated_accounts, duplicate_groups = package_duplicates(listed)
+    members, excluded = package_members(kept, settings=settings, repeated_accounts=repeated_accounts)
+    kept, superseded_jobs, superseded_accounts, overlapping = package_superseded(
+        kept, repeated_accounts, members={member.key for member in members})
+    if superseded_jobs or superseded_accounts:
+        first_place: dict[str, int] = {}
+        for place, job in enumerate(listed):
+            first_place.setdefault(job.id, place)
+        dropped = sorted(
+            [*dropped, *({**entry, "position": first_place[entry["job"].id]} for entry in superseded_jobs)],
+            key=lambda entry: entry["position"],
+        )
+        for job_id, accounts in superseded_accounts.items():
+            repeated_accounts.setdefault(job_id, {}).update(
+                {index: covering for index, (covering, _reason) in accounts.items()})
+        members, excluded = _without_superseded(kept, members, excluded, superseded_accounts)
+    return SelectedPackage(
+        listed=listed, members=members, excluded=excluded, dropped=dropped, duplicate_groups=duplicate_groups,
+        duplicate_accounts=sum(len(accounts) for accounts in repeated_accounts.values()), overlapping=overlapping,
+        omitted_sections=[omission for job in kept for omission in ratified_omissions(job.analysis or {})],
+    )
+
+
+def _without_superseded(
+    kept: list[JobLike], members: list[Member], excluded: list[dict],
+    superseded_accounts: dict[str, dict[int, tuple[str, str]]],
+) -> tuple[list[Member], list[dict]]:
+    """`package_members`'s answer for `kept` once each superseded account is repeated: the kept jobs' members less
+    those accounts, and their exclusions with each of those accounts excluded as a duplicate. Every exclusion keeps the
+    kept jobs' order, then the accounts' (a job-level exclusion is its job's only one)."""
+    place = {job.id: position for position, job in enumerate(kept)}
+    left, rows = [], [entry for entry in excluded if entry["job_id"] in place]
+    for member in members:
+        if member.key.job_id not in place:
+            continue
+        superseded = superseded_accounts.get(member.key.job_id, {}).get(member.key.account_index)
+        if superseded is None:
+            left.append(member)
+            continue
+        covering, reason = superseded
+        rows.append(_duplicate_exclusion(member.job, member.key.account_index, member.account_count, covering, reason))
+    rows.sort(key=lambda entry: (place[entry["job_id"]], entry["account_index"] or 0))
+    return left, rows
