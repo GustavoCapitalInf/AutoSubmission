@@ -79,7 +79,7 @@ def _export_account_revenue(account: object) -> object:
     # empty cell too, as the dashboard reads it N/A.
     if metrics.get(WITHHOLDING_BASIS_UNESTABLISHED) is True:
         nulled.update({key: None for key in UNESTABLISHED_WITHHOLDING_BASIS_KEYS if key in metrics})
-    # §10.4, §10.8: the Zelle figures' parts of True and Held are empty cells too (`_zelle_deposit_rows`); the
+    # §10.4, §10.8: the Zelle figures' parts of True and Held are empty cells too (`zelle_deposit_rows`); the
     # captured rows' count, total and non-revenue part stay.
     if ZELLE_DEPOSITS_KEY in metrics:
         zelle = unestablished_zelle_figures(

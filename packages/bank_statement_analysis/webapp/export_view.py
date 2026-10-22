@@ -113,10 +113,8 @@ def masked(payload: object) -> object:
     return payload
 
 
-#: True revenue spec §9.1, §9.2, §10.8: the served list of large unsourced deposits (a statement's metrics key, a
-#: package's top-level key) and the fields of a statement's and a package's `large_unsourced_deposit_<n>` section:
-#: LARGE_UNSOURCED_DEPOSIT_FIELDS, then the member's. §2.2, §10.8: without `revenue_tier_reason`, the counted tier's
-#: reason (such a credit is counted in True revenue without proof of the sale); the JSON download keeps it.
+#: True revenue spec §9.1, §9.2: the served list of large unsourced deposits (a statement's metrics key, a package's
+#: top-level key).
 LARGE_UNSOURCED_DEPOSITS_KEY = "large_unsourced_deposits"
 
 

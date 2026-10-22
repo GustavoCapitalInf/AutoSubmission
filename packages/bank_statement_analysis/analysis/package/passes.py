@@ -100,7 +100,7 @@ def member_tiered(rows: list[dict]) -> bool:
 def _match_side(entry: dict, position: int, row: dict) -> dict:
     """One leg of a package match as its row note and the package's `package_matches` name it. The account is
     `account_index` (1-based, None for a statement of one account), never `account`: the served payload masks every
-    key named `account` as a printed account number (`_masked`)."""
+    key named `account` as a printed account number (`masked`)."""
     record = row["classification"]
     digits = entry["digits"]
     return {

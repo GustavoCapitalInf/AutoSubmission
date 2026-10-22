@@ -591,7 +591,7 @@ def test_the_member_loop_reads_the_passes_one_tiering_helper():
 
 
 def test_the_route_serves_each_match_s_legs_with_their_account_index_never_masked():
-    """The served package masks every key named `account` as a printed account number (`_masked`), so a match's leg
+    """The served package masks every key named `account` as a printed account number (`masked`), so a match's leg
     names its account `account_index`, and the route serves the match, the flags and the overlay end to end."""
     from webapp.app import app, store
 

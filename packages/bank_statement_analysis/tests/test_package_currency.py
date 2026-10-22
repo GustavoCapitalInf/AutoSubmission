@@ -1126,7 +1126,7 @@ def test_package_ledger_rows_carry_their_own_source_currency():
 
 
 def test_the_route_serves_the_refusal_through_masking_and_json():
-    """`/package_analysis` runs the payload through `_masked` and `jsonify`.
+    """`/package_analysis` runs the payload through `masked` and `jsonify`.
     Neither may turn a refusal back into a number, and neither may drop the
     block that explains it."""
     from webapp.app import app, store

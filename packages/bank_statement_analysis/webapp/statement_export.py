@@ -303,6 +303,9 @@ def zelle_deposit_rows(
     return rows
 
 
+#: True revenue spec §9.1, §9.2, §10.8: the fields of a statement's and a package's `large_unsourced_deposit_<n>`
+#: section: LARGE_UNSOURCED_DEPOSIT_FIELDS, then the member's. §2.2, §10.8: without `revenue_tier_reason`, the counted
+#: tier's reason (such a credit is counted in True revenue without proof of the sale); the JSON download keeps it.
 _LARGE_UNSOURCED_DEPOSIT_EXPORT_FIELDS = tuple(
     field for field in LARGE_UNSOURCED_DEPOSIT_FIELDS if field != "revenue_tier_reason")
 PACKAGE_LARGE_UNSOURCED_DEPOSIT_FIELDS = (

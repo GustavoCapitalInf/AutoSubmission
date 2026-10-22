@@ -71,7 +71,7 @@ UNDERWRITING_ADB_ALTERNATE_BASES = (
 #: evidence, never a definition (the doctrine above); a bank-printed daily
 #: balance that disagrees with the rows is used anyway (REC-1 step 1). Readers
 #: that print the validations name these as advisory (the statement CSV/XLSX,
-#: `webapp/app.py::_adb_rows`; the audit's final review, finding 3), so a
+#: `webapp/statement_export.py::_adb_rows`; the audit's final review, finding 3), so a
 #: False here is not read as a failed required check. telemetry's
 #: `ADVISORY_CODES` lists the same names (pinned by a test).
 ADVISORY_VALIDATIONS = frozenset({

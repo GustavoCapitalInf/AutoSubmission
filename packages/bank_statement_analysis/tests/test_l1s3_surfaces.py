@@ -15,7 +15,7 @@ from analysis.payload_shape import PayloadShapeError
 from tests.l1s3_payloads import account_payload, document_payload, omission
 
 
-# --- webapp/app.py: the exports ---------------------------------------------
+# --- webapp/statement_export.py and export_view.py: the exports ------------
 
 
 def test_the_export_sheet_renders_every_account():

@@ -1,8 +1,8 @@
 """The spreadsheet formula-injection rule, shared by every CSV and XLSX the product writes.
 
-One rule in one place (audit 2026-10-13, EXP-6): the webapp's statement and package downloads (`webapp/app.py`, which
-re-exports these names) and the `batch.py` triage CSV. It lives outside the `webapp` package on purpose: `batch.py`
-must not import the webapp (tests/test_telemetry.py, T12).
+One rule in one place (audit 2026-10-13, EXP-6): the webapp's statement and package downloads
+(`webapp/spreadsheet.py`, which re-exports these names) and the `batch.py` triage CSV. It lives outside the `webapp`
+package on purpose: `batch.py` must not import the webapp (tests/test_telemetry.py, T12).
 
 A text cell that starts with a formula lead (= + - @ tab CR) gains a leading apostrophe, which Excel and LibreOffice
 both read as "this is text". Money-shaped values (`-1234.56`) are left alone: they parse as numbers, and escaping them
