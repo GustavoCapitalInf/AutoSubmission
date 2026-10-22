@@ -20,7 +20,7 @@ from analysis.transaction_classifier import reversals
 from analysis.descriptor import payer
 from analysis.descriptor import lexical
 from analysis.descriptor import words
-from analysis import true_revenue as tr
+from analysis.true_revenue import financing_roots
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
 
@@ -49,11 +49,11 @@ def _read(bank, rows, holder=HOLDER):
 def _today(bank, rows, monkeypatch, holder=HOLDER):
     """The records as the cash reader read them before this batch."""
     with monkeypatch.context() as patch:
-        patch.setattr(tc, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(payer, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(words, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(reversals, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(channel, "_CASH_BRANCH_ATM_FORM", BEFORE)
+        patch.setattr(financing_roots, "_CASH_BRANCH_ATM_FORM", BEFORE)
         return _read(bank, rows, holder)
 
 
@@ -159,9 +159,9 @@ def test_r3_45_controls(bank):
 
 
 def test_r3_45_the_form_without_arm_s_is_the_form_s_other_alternatives():
-    assert tr._cash_form_without_arm_s().pattern + "|" + words._BRANCH_DEPOSIT_TRANSIT == words._CASH_BRANCH_ATM_FORM.pattern
-    assert tr._SCOTIABANK.search("SCOTIABANK") and tr._SCOTIABANK.search("THE BANK OF NOVA SCOTIA")
-    assert not tr._SCOTIABANK.search("WELLS FARGO")
+    assert financing_roots._cash_form_without_arm_s().pattern + "|" + words._BRANCH_DEPOSIT_TRANSIT == words._CASH_BRANCH_ATM_FORM.pattern
+    assert financing_roots._SCOTIABANK.search("SCOTIABANK") and financing_roots._SCOTIABANK.search("THE BANK OF NOVA SCOTIA")
+    assert not financing_roots._SCOTIABANK.search("WELLS FARGO")
 
 
 # --- the cash forms that already counted ------------------------------------------------------------------------------

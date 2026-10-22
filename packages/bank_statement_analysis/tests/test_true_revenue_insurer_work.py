@@ -22,6 +22,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.true_revenue import claimed
 from analysis.true_revenue import model
 from analysis.true_revenue import words as true_revenue_words
 from analysis.revenue import REVENUE_TIER_REASONS
@@ -446,7 +447,9 @@ def test_a_registry_reading_is_never_the_insurer_name_hold():
 
 def test_a_claimed_row_is_never_the_insurer_name_hold(monkeypatch):
     """The insurer-name hold skips a row the registry, a payout entity or a factoring payee claimed (§8.1)."""
-    monkeypatch.setattr(true_revenue, "_claimed", lambda record, text: True)
+    patched_claimed = lambda record, text: True
+    monkeypatch.setattr(true_revenue, "_claimed", patched_claimed)
+    monkeypatch.setattr(claimed, "_claimed", patched_claimed)
     assert _readings([("SAMPLE INS CO DES:PAYMENT ID:1", 1234.0)]) != [HELD]
 
 
@@ -859,13 +862,15 @@ def test_the_release_s_method_is_never_a_registry_or_claimed_method():
     assert true_revenue_words.INSURER_FOR_WORK_METHOD not in true_revenue_words._REGISTRY_METHODS
     record = _dated([("STATE FARM DES:DRP PAYMENT ID:1", 1234.0, "03-02")])[0]
     assert record.revenue_match_method == METHOD
-    assert not true_revenue._claimed(record, revenue_text(record.normalized_description))
+    assert not claimed._claimed(record, revenue_text(record.normalized_description))
 
 
 def test_a_claimed_row_is_never_released(monkeypatch):
     """The release skips a row the registry, a payout entity, a factoring payee or a financier claimed (the
     insurer-name hold's convention)."""
-    monkeypatch.setattr(true_revenue, "_claimed", lambda record, text: True)
+    patched_claimed = lambda record, text: True
+    monkeypatch.setattr(true_revenue, "_claimed", patched_claimed)
+    monkeypatch.setattr(claimed, "_claimed", patched_claimed)
     records = _dated(_t4())
     assert all(record.revenue_match_method != METHOD for record in records)
     assert all(record.revenue_tier_reason != "insurer_paid_for_services" for record in records)

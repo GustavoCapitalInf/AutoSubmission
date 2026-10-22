@@ -118,9 +118,7 @@ from analysis.classification.counter_debit_reading import (
     counter_debit_debit_reading,
     counter_debit_payer_reading,
 )
-from analysis.classification.credit_predicates import wire_sender_is_beneficiary
 from analysis.classification.operating_sources import _recurrence_vetoed
-from analysis.classification.tax_forms import government_form_payer
 from analysis.description_text import _TRANSFER_WORDING
 from analysis.descriptor.credit_words import (
     CUSTOMER_FINANCING_LUMP_FLOOR,
@@ -128,72 +126,40 @@ from analysis.descriptor.credit_words import (
     CUSTOMER_FINANCING_LUMP_SHARE,
     CUSTOMER_FINANCING_SERIES_MIN,
     CUSTOMER_FINANCING_SERIES_SHARE,
-    _BILL_COM,
     _CARD_CREDIT_PUSH_WORD,
     _FUNDING_SETTLEMENT_ENTITIES,
-    _INVOICE_NUMBER,
-    _PAYER_REMITTANCE_CREDIT_PATTERNS,
-    _PAYMENT_CHANNEL_WORD,
     _PAYOUT_FORMS,
-    _PUBLIC_PAYER_NAME,
-    _PUBLIC_PAYER_NAME_VETO,
     _PUBLIC_PAYER_NON_SALE_WORDS,
-    _PUBLIC_PAYER_TEMPLATE,
-    _STORE_NAME_PAYOUT_ENTITIES,
     _TREASURY_BOILERPLATE,
 )
-from analysis.descriptor.holder import (
-    account_name_text,
-    holder_named,
-    holder_receiver_block,
-    holder_words,
-    store_name_printed,
-    store_name_run_words,
-)
+from analysis.descriptor.holder import account_name_text, holder_named, holder_receiver_block, holder_words
 from analysis.descriptor.lexical import (
-    _distinctive_words,
     _is_payer_word,
     _is_reference_token,
     _originator_segment,
-    _payee_region,
     _skip_numbered_leading_date,
-    _strip_revenue_template,
-    bank_by_form,
     company_form,
-    company_form_outside_address,
     is_round_sum,
-    originator_address,
     payer_name,
 )
 from analysis.descriptor.payer import (
     _is_bare_row,
-    _is_transfer_or_p2p_row,
     entry_fields,
     numbered_company,
     payer_label_layout,
     wire_relayed_customer,
 )
-from analysis.descriptor.rails import _bare_incoming_wire, _is_wire_row, _loose_wire_originator
+from analysis.descriptor.rails import _is_wire_row, _loose_wire_originator
 from analysis.descriptor.words import (
-    BANK_SETTLEMENT_ORIGINATOR,
     HOLDER_NOISE,
-    IRS_TREASURY_FORM,
     REVENUE_GENERIC_WORDS,
-    _AMEX_ACH_CREDIT,
     _BANK_COMPANY_FORM,
-    _BRANCH_DEPOSIT_TRANSIT,
     _CARD_FORM_DEBIT_PREFIX,
-    _CASH_BRANCH_ATM_FORM,
-    _CHECK_DEPOSIT_FORM,
     _CONSUMER_P2P_RAIL,
-    _CREDIT_WIRE_BENEFICIARY_VALUE,
     _ELECTRONIC_PAYMENT_FORM,
     _GLUED_SEC_CODE,
-    _HOLDER_TRADE_NAME,
     _NUMBERED_COMPANY_REGION,
-    _NUMBERED_PROVINCE_START,
     _PUSH_RAIL,
-    _REVENUE_TEMPLATE_PREFIX,
     _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS,
     _WIRE_ORIGINATOR_LABEL,
     _WIRE_SENDER_AFTER_LABEL,

@@ -19,7 +19,7 @@ from analysis.descriptor import rails
 from analysis import description_text
 from analysis.descriptor import lexical
 from analysis.descriptor import words as descriptor_words
-from analysis import true_revenue as tr
+from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import words as true_revenue_words
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -58,7 +58,7 @@ def test_navy_federal_bank_wire_deposit_is_an_incoming_wire_label_and_never_a_ba
     text = "BANK WIRE DEPOSIT"
     assert rails._is_wire_row(text)
     assert payer.payer_region(text) == ""
-    assert not tr._bank_originated_wire(text, "BANK WIRE DEPOSIT", wire=True)
+    assert not self_originated_credits._bank_originated_wire(text, "BANK WIRE DEPOSIT", wire=True)
 
 
 def test_td_glued_reference_wire_names_no_sender():
@@ -210,7 +210,7 @@ def test_a_name_word_starting_with_ll_before_the_field_end_is_no_cut_legal_form(
     "CONTOSO HOME SERVICE MANAGEMNT LLMIAMI",
 ])
 def test_cut_legal_form_reader(region):
-    assert tr._cut_wire_legal_form(region)
+    assert self_originated_credits._cut_wire_legal_form(region)
 
 
 @pytest.mark.parametrize("region", [
@@ -223,7 +223,7 @@ def test_cut_legal_form_reader(region):
     "CONTOSO HOME SERVICES MANAGEMENT LLC MIAMI FL",
 ])
 def test_cut_legal_form_reader_negatives(region):
-    assert not tr._cut_wire_legal_form(region)
+    assert not self_originated_credits._cut_wire_legal_form(region)
 
 
 def test_the_cut_legal_form_never_widens_q6_s_company_form():
@@ -256,9 +256,9 @@ def test_r32_a_wire_that_prints_only_its_labels_is_held_with_no_sender(text):
 
 
 def test_r32_the_label_words_are_every_wire_layout_word_and_cr():
-    assert true_revenue_words._WIRE_LAYOUT_WORDS <= tr._WIRE_LABEL_ONLY_WORDS
-    assert tr._BARE_CHANNEL_WORDS <= tr._WIRE_LABEL_ONLY_WORDS
-    assert {"BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR"} <= tr._WIRE_LABEL_ONLY_WORDS
+    assert true_revenue_words._WIRE_LAYOUT_WORDS <= self_originated_credits._WIRE_LABEL_ONLY_WORDS
+    assert self_originated_credits._BARE_CHANNEL_WORDS <= self_originated_credits._WIRE_LABEL_ONLY_WORDS
+    assert {"BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR"} <= self_originated_credits._WIRE_LABEL_ONLY_WORDS
 
 
 @pytest.mark.parametrize("text", [
@@ -528,8 +528,8 @@ def test_r3_40_control_a_numbered_company_keeps_its_reading():
     text = "INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA 1234567 ONTARIO INC"
     # OQ3: a numbered company is counted, never verified.
     assert _tiers([(text, 2345.67), (text, 3456.78)]) == [NAMED, NAMED]
-    assert not tr._wire_names_nobody("1234567 B C LTD")
-    assert not tr._wire_names_nobody("1234567 ONTARIO INC")
+    assert not self_originated_credits._wire_names_nobody("1234567 B C LTD")
+    assert not self_originated_credits._wire_names_nobody("1234567 ONTARIO INC")
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -548,7 +548,7 @@ def test_r3_40_control_a_holder_named_for_a_designation_word_holds_the_wire_with
 
 
 def test_r3_40_the_designation_words_are_the_brief_s_list_never_a_place_or_a_non_sale_word():
-    words = tr._wire_designation_words()
+    words = self_originated_credits._wire_designation_words()
     assert descriptor_words.REVENUE_GENERIC_WORDS <= words
     assert {"BUSINESS", "OPERATING", "CHECKING", "TRUST", "GROUP", "SERVICES", "AMOUNT", "RENT", "THE", "LLC",
             "INC", "LTD", "PLC"} <= words
@@ -570,7 +570,7 @@ FF_GENERIC_COMPANIES = ("PREMIUM SOLUTIONS LLC", "TOTAL SERVICES INC", "ELITE MA
 def test_ff_f4_a_company_named_with_generic_words_is_a_named_sender(shape, name):
     text = shape.format(name)
     assert _tiers([(text, 12000.0)]) == [NAMED]
-    assert not tr._wire_names_nobody(name, labelled="ORG" in text)
+    assert not self_originated_credits._wire_names_nobody(name, labelled="ORG" in text)
 
 
 @pytest.mark.parametrize("text", [
@@ -626,13 +626,13 @@ def test_ff_f4_control_a_distinctive_name_reads_as_before():
 
 
 def test_ff_f4_the_name_words_are_r3_40_s_product_and_holder_noise_words_never_a_designation():
-    names = tr._WIRE_COMPANY_NAME_WORDS
-    assert names <= tr._WIRE_DESIGNATION_OWN_WORDS
+    names = self_originated_credits._WIRE_COMPANY_NAME_WORDS
+    assert names <= self_originated_credits._WIRE_DESIGNATION_OWN_WORDS
     assert {"PREMIUM", "TOTAL", "ELITE", "ADVANTAGE", "SELECT", "COMMERCIAL", "GROUP", "HOLDINGS", "SERVICES",
             "SOLUTIONS", "MANAGEMENT", "ENTERPRISES"} <= names
     assert not {"BUSINESS", "OPERATING", "OPERATIONS", "CHECKING", "SAVINGS", "ACCOUNT", "ACCT", "MONEY", "MARKET",
                 "TRUST", "DBA", "AMOUNT", "RENT", "THE", "OF", "AND", "LLC", "INC"} & names
-    assert not names & (descriptor_words.REVENUE_GENERIC_WORDS | tr._WIRE_LABEL_ONLY_WORDS)
+    assert not names & (descriptor_words.REVENUE_GENERIC_WORDS | self_originated_credits._WIRE_LABEL_ONLY_WORDS)
 
 
 # Audit round 3, final review (R3-FF), review round 1 (findings 1 and 2; R3-40's verified claim; the underwriter's Q1 of
@@ -674,21 +674,21 @@ def test_ff_r1_a_lone_holder_noise_word_or_product_words_name_nobody_once_and_on
 @pytest.mark.parametrize("region", ["GROUP LLC", "SERVICES INC", "SERVICES", "THE GROUP", "GROUP GROUP LLC",
                                     "PLATINUM SELECT", "ADVANTAGE PLUS LLC", "TOTAL", "FREE LLC", "SMALL CO"])
 def test_ff_r1_the_name_reader_needs_two_name_words_one_a_holder_noise_word(region):
-    assert tr._wire_names_nobody(region, labelled=True)
-    assert tr._wire_names_nobody(region, labelled=False)
+    assert self_originated_credits._wire_names_nobody(region, labelled=True)
+    assert self_originated_credits._wire_names_nobody(region, labelled=False)
 
 
 @pytest.mark.parametrize("region", ["PREMIUM SOLUTIONS LLC", "ELITE GROUP", "THE ADVANTAGE GROUP",
                                     "MANAGEMENT SERVICES LLC"])
 def test_ff_r1_control_two_name_words_with_a_holder_noise_word_still_name_a_company(region):
-    assert not tr._wire_names_nobody(region, labelled=True)
+    assert not self_originated_credits._wire_names_nobody(region, labelled=True)
     assert _tiers([(f"INCOMING WIRE ORG {region} REF 1", 12000.0)]) == [NAMED]
 
 
 def test_ff_r1_the_holder_noise_name_words_are_r3_40_s():
-    noise = tr._WIRE_HOLDER_NOISE_NAME_WORDS
+    noise = self_originated_credits._WIRE_HOLDER_NOISE_NAME_WORDS
     assert noise == {"GROUP", "HOLDINGS", "SERVICES", "SOLUTIONS", "MANAGEMENT", "ENTERPRISES"}
-    assert noise <= tr._WIRE_COMPANY_NAME_WORDS
+    assert noise <= self_originated_credits._WIRE_COMPANY_NAME_WORDS
 
 
 # Audit round 3, R3-B07 (R3-42; Q5 of 2026-09-28: a wire with a named sender is counted): a sender printed straight

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from analysis import transaction_classifier
+from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import sender
 from analysis.classification import counter_debit_reading
 from analysis.classification import credit_predicates
@@ -42,6 +43,7 @@ def test_each_row_is_normalized_exactly_once(monkeypatch):
     monkeypatch.setattr(financing, "normalize_transaction_description", counting)
     monkeypatch.setattr(holder, "normalize_transaction_description", counting)
     monkeypatch.setattr(rails, "normalize_transaction_description", counting)
+    monkeypatch.setattr(self_originated_credits, "normalize_transaction_description", counting)
     monkeypatch.setattr(sender, "normalize_transaction_description", counting)
     records = transaction_classifier.classify_statement_transactions(synthetic_statement())
     assert len(records) == 300

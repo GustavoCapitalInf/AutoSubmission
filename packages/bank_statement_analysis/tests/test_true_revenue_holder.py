@@ -17,6 +17,7 @@ from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
 from analysis import true_revenue as tr
+from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import holder_names
 from analysis.true_revenue import words as true_revenue_words
 from analysis.metrics import compute_metrics
@@ -262,7 +263,7 @@ def test_a_processor_s_payout_under_the_merchant_s_descriptor_is_never_held_as_t
 ])
 def test_the_self_test_reads_the_row_alone(text, own):
     revenue = lexical.revenue_text(description_text.normalize_transaction_description(text))
-    assert tr.self_originated(revenue, descriptor_payer.payer_region(revenue)) is own
+    assert self_originated_credits.self_originated(revenue, descriptor_payer.payer_region(revenue)) is own
 
 
 # --- I13: a statement that names no holder says so ----------------------------------------------------------------
@@ -458,13 +459,13 @@ def test_the_settlement_words_are_read_outside_the_holder_s_own_name():
     holder = "NORTHWIND MERCHANT GROUP LLC"
     zelle, push, wire = _own_rows(holder)
     for text in (zelle, push, wire):
-        assert not tr.merchant_settlement(_revenue(text), (holder,))
+        assert not self_originated_credits.merchant_settlement(_revenue(text), (holder,))
     netsweep = CHASE_ACH.format(orig="NORTHWIND MERCHANT GRO", entry="NETSWEEP ", receiver=holder)
-    assert tr.merchant_settlement(_revenue(netsweep), (holder,))
-    assert tr.merchant_settlement(_revenue(netsweep))
+    assert self_originated_credits.merchant_settlement(_revenue(netsweep), (holder,))
+    assert self_originated_credits.merchant_settlement(_revenue(netsweep))
     # A person-to-person or wire row never prints a processor's settlement.
-    assert not tr.merchant_settlement(_revenue("ZELLE PAYMENT FROM FABRIKAM MERCHANT SERVICES CONF 1234567890"))
-    assert not tr.merchant_settlement(_revenue(_own_rows("FABRIKAM MERCHANT SERVICES")[2]))
+    assert not self_originated_credits.merchant_settlement(_revenue("ZELLE PAYMENT FROM FABRIKAM MERCHANT SERVICES CONF 1234567890"))
+    assert not self_originated_credits.merchant_settlement(_revenue(_own_rows("FABRIKAM MERCHANT SERVICES")[2]))
 
 
 # Audit round 3, R3-B10 (R3-90 part A): a bare SETTLEMENT (SETTLMT, STLMT) under the merchant's own name is a
@@ -506,7 +507,7 @@ def test_r3_90_a_settlement_pushed_under_its_own_name_is_no_own_push_on_the_row_
     tiers = _tiers(rows)
     assert len(tiers) == 2 and _in_true_never_verified(tiers)
     revenue = _revenue(R3_90_ALONE.format(n=1))
-    assert not tr.self_originated(revenue, descriptor_payer.payer_region(revenue))
+    assert not self_originated_credits.self_originated(revenue, descriptor_payer.payer_region(revenue))
 
 
 @pytest.mark.parametrize("text", [
@@ -515,8 +516,8 @@ def test_r3_90_a_settlement_pushed_under_its_own_name_is_no_own_push_on_the_row_
 ])
 def test_r3_90_a_transfer_or_a_person_to_person_row_printing_settlement_stays_the_holder_s(text):
     assert _tiers([(text, 1500.0)], holder_name="CONTOSO HAULING LLC") == [HOLDER_NAME]
-    assert not tr.merchant_settlement(_revenue(text), ("CONTOSO HAULING LLC",))
-    assert not tr.merchant_settlement(_revenue(text))
+    assert not self_originated_credits.merchant_settlement(_revenue(text), ("CONTOSO HAULING LLC",))
+    assert not self_originated_credits.merchant_settlement(_revenue(text))
 
 
 def test_r3_90_a_holder_whose_name_prints_settlement_keeps_its_own_money_held():
@@ -528,7 +529,7 @@ def test_r3_90_a_holder_whose_name_prints_settlement_keeps_its_own_money_held():
     # On the row alone: the word is read outside the row's own receiver and originator names.
     assert _twice(push, 900.0) == [HOLDER_NAME, HOLDER_NAME]
     for text in (zelle, push, wire):
-        assert not tr.merchant_settlement(_revenue(text), (holder,))
+        assert not self_originated_credits.merchant_settlement(_revenue(text), (holder,))
 
 
 def test_r3_90_a_claims_administrator_s_settlement_naming_the_holder_stays_held():
@@ -551,8 +552,8 @@ def test_r3_90_a_claims_administrator_s_settlement_naming_the_holder_stays_held(
     ("CONTOSO HAULING DES:STLMT ID:1 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD", ("CONTOSO HAULING LLC",)),
 ])
 def test_r3_90_merchant_settlement_reads_a_bare_settlement_word(text, names):
-    assert tr.merchant_settlement(_revenue(text), names)
-    assert tr.merchant_settlement(_revenue(text))
+    assert self_originated_credits.merchant_settlement(_revenue(text), names)
+    assert self_originated_credits.merchant_settlement(_revenue(text))
 
 
 # Audit round 3, R3-B10 review round 1 (finding 1): a row the exemption releases is counted and never verified in each
@@ -743,8 +744,8 @@ def test_r3_b10_r2_every_spelling_and_boundary_the_exemption_reads_is_never_veri
     printed = form.format(word=word)
     text = f"CONTOSO HAULING LLC DES:{printed} ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
     assert true_revenue_words._HOLDER_NAMED_SETTLEMENT_ENTRY.search(printed) is not None
-    assert tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,))
-    assert not tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,), bare_settlement=False)
+    assert self_originated_credits.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,))
+    assert not self_originated_credits.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,), bare_settlement=False)
     rows = [(text, 1500.0), (text.replace("ID:0001", "ID:0002"), 1750.0)]
     assert _tiers(rows, bank="Bank of America") == [R3_90_REFUSED, R3_90_REFUSED]
 
@@ -836,7 +837,7 @@ def test_two_companies_sharing_two_first_words_are_never_one_wire_sender(bo, bnf
     assert HOLDER_NAME not in tiers
     # Q5's own-account veto still refuses them as proof.
     assert all(tier[0] == "counted_flagged" for tier in tiers)
-    assert not tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
+    assert not self_originated_credits.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
 
 
 def test_the_holder_s_own_wire_is_held_whatever_town_its_beneficiary_prints():
@@ -851,7 +852,7 @@ def test_the_holder_s_own_wire_with_no_legal_form_is_held_whatever_town_its_bene
     # Review round 2: a name with no legal form is read without the town and state its address prints after it.
     text = LOOKALIKE_WIRE.format(bo=name, bnf=name, city="OTHERTOWN")
     assert _twice(text, 6000.0) == [HOLDER_NAME, HOLDER_NAME]
-    assert tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
+    assert self_originated_credits.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
 
 
 def test_two_names_with_no_legal_form_sharing_two_first_words_are_never_one_wire_sender():
@@ -873,12 +874,12 @@ def test_two_names_with_no_legal_form_sharing_two_first_words_are_never_one_wire
     ("NORTHWIND MARINE SAN SAMPLE TX", "NORTHWIND MARINE SAN"),
 ])
 def test_a_wire_party_is_read_without_its_address(value, party):
-    assert tr._wire_party(value) == party
+    assert self_originated_credits._wire_party(value) == party
 
 
 def test_a_two_word_town_on_one_side_still_reads_one_wire_party():
-    two_word_town = tr._wire_party("NORTHWIND MARINE SAN SAMPLE TX")
-    assert tr._same_name(two_word_town, tr._wire_party("NORTHWIND MARINE OTHERTOWN TX"))
+    two_word_town = self_originated_credits._wire_party("NORTHWIND MARINE SAN SAMPLE TX")
+    assert self_originated_credits._same_name(two_word_town, self_originated_credits._wire_party("NORTHWIND MARINE OTHERTOWN TX"))
 
 
 # A person the account-name field prints beside the parser's holder name is a holder's name too.
@@ -995,8 +996,8 @@ def test_r18_a_payout_under_the_merchant_s_descriptor_verifies_beside_the_holder
     records = classify_statement_transactions(_statement(rows, holder_name=BAKERY))
     for record in records:
         revenue = _revenue(record.normalized_description)
-        assert not tr.region_names_holder(record, revenue, descriptor_payer.payer_region(revenue))
-        assert not tr.self_originated(revenue, descriptor_payer.payer_region(revenue))
+        assert not self_originated_credits.region_names_holder(record, revenue, descriptor_payer.payer_region(revenue))
+        assert not self_originated_credits.self_originated(revenue, descriptor_payer.payer_region(revenue))
 
 
 def test_r18_a_payout_whose_descriptor_prints_another_entry_is_not_held_as_the_holder():
@@ -1013,7 +1014,7 @@ def test_r18_the_holder_s_own_push_echoing_its_name_is_held_on_the_row_alone(lay
     text = layout.format(orig="NORTHWIND MARINE", entry=entry, payout="0000000001",
                          receiver="NORTHWIND MARINE LLC").replace("ST-0000000001", "0000000001")
     assert _twice(text, 900.0) == [HOLDER_NAME, HOLDER_NAME]
-    assert tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
+    assert self_originated_credits.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
 
 
 @pytest.mark.parametrize(("text", "payout"), [
@@ -1033,7 +1034,7 @@ def test_r18_the_holder_s_own_push_echoing_its_name_is_held_on_the_row_alone(lay
     (BOFA_ST.format(payout="123456789012", entry="CONTOSO BAK", **PAYOUT_FIELDS), False),
 ])
 def test_r18_processor_payout_reads_the_payout_id(text, payout):
-    assert tr.processor_payout(_revenue(text)) is payout
+    assert self_originated_credits.processor_payout(_revenue(text)) is payout
 
 
 @pytest.mark.parametrize("text", [
@@ -1371,7 +1372,7 @@ R04_HOLDER = "CONTOSO TRADING LLC"
 def test_r04_capital_one_s_mercury_tails_never_hide_the_holder_s_own_push():
     text = "ACH DEPOSIT CONTOSO TRADING LLC MERCURYACH 000000 CONTOSO TRADING LLC MRCR G0ABC0"
     assert _tiers([(text, 1500.0)], bank="Capital One") == [HOLDER_NAME]
-    assert tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)), "Capital One")
+    assert self_originated_credits.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)), "Capital One")
     other = "ACH DEPOSIT FABRIKAM SUPPLY LLC MERCURYACH 000000 CONTOSO TRADING LLC MRCR G0ABC0"
     assert _tiers([(other, 1500.0)], bank="Capital One") != [HOLDER_NAME]
 
@@ -1391,7 +1392,7 @@ def test_r04_a_processor_s_or_a_franchisor_s_credit_printing_the_holder_s_name_k
     assert tiers != [HOLDER_NAME]
     records = classify_statement_transactions(_statement([(text, 1500.0)], bank=bank, holder_name=R04_HOLDER))
     revenue = _revenue(records[0].normalized_description)
-    assert not tr.region_names_holder(records[0], revenue, descriptor_payer.payer_region(revenue))
+    assert not self_originated_credits.region_names_holder(records[0], revenue, descriptor_payer.payer_region(revenue))
 
 
 @pytest.mark.parametrize("text", [
@@ -1409,7 +1410,7 @@ def test_r04_a_platform_s_word_inside_the_holder_s_own_name_is_the_holder_s():
     text = "NORTHWIND INTUIT GROUP LLC DES:TRANSFER ID:0001 INDN:SAMPLE OWNER CO ID:0000000000 CCD"
     assert _tiers([(text, 1500.0)], bank="Bank of America", holder_name=holder) == [HOLDER_NAME]
     revenue = _revenue(text)
-    assert not tr.platform_credit(revenue, descriptor_payer.payer_region(revenue), (holder,))
+    assert not self_originated_credits.platform_credit(revenue, descriptor_payer.payer_region(revenue), (holder,))
 
 
 @pytest.mark.parametrize(("text", "named"), [
@@ -1428,7 +1429,7 @@ def test_r04_a_platform_s_word_inside_the_holder_s_own_name_is_the_holder_s():
 ])
 def test_r04_platform_credit_reads_the_originator_and_the_fee_words_outside_the_holder_s_names(text, named):
     revenue = _revenue(text)
-    assert tr.platform_credit(revenue, descriptor_payer.payer_region(revenue), (R04_HOLDER,)) is named
+    assert self_originated_credits.platform_credit(revenue, descriptor_payer.payer_region(revenue), (R04_HOLDER,)) is named
 
 
 # --- Audit round 2, R2-B05 (R04 part 2): the holder's name read from page 1 on the banks that printed none ---------

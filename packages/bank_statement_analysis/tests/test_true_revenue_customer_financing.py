@@ -30,6 +30,7 @@ from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import payee_matcher
 from analysis import true_revenue
+from analysis.true_revenue import claimed
 from analysis.true_revenue import words as true_revenue_words
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
@@ -329,7 +330,7 @@ def test_a_zelle_payment_from_a_person_named_cherry_is_never_claimed():
     (record,) = _credits([("ZELLE PAYMENT FROM CHERRY SAMPLE CONF ABC123", 230.0)])
     assert rules_reading(record) == ("counted_flagged", "p2p")
     text = lexical.revenue_text(record.normalized_description)
-    assert true_revenue._customer_financier(record, text) is None
+    assert claimed._customer_financier(record, text) is None
 
 
 def test_the_cherry_consumer_side_credit_keeps_d1_and_its_lender_credit():
@@ -389,8 +390,8 @@ def test_r3_06_a_financier_s_non_sale_or_financing_credit_is_never_a_payout(labe
     assert record.revenue_review_required and not record.contributes_to_true_revenue
     assert _reading(big) == VERIFIED
     text = lexical.revenue_text(record.normalized_description)
-    assert true_revenue._customer_financier(record, text) is None
-    assert not true_revenue._claimed(record, text)
+    assert claimed._customer_financier(record, text) is None
+    assert not claimed._claimed(record, text)
 
 
 @pytest.mark.parametrize(("payer", "entry", "reason"), [
@@ -402,7 +403,7 @@ def test_r3_06_an_oq2_payout_entity_s_non_sale_or_financing_credit_is_never_clai
     (record, big) = _credits([(_bofa(payer, entry), 4870.55), BIG], bank="Bank of America")
     assert _reading(record) == ("excluded_pending_review", reason)
     assert _reading(big) == VERIFIED
-    assert not true_revenue._claimed(record, lexical.revenue_text(record.normalized_description))
+    assert not claimed._claimed(record, lexical.revenue_text(record.normalized_description))
 
 
 @pytest.mark.parametrize("entry", ["ADVNC", "ADVN", "ADVC"])
@@ -616,7 +617,7 @@ def test_r3_b14_r1_a_large_one_off_abbreviated_advance_stays_held_until_sourced(
     assert _reading(record) == LUMP, label
     assert record.revenue_classification == "unverified_deposit"
     assert record.revenue_review_required and not record.contributes_to_true_revenue
-    assert not true_revenue._claimed(record, lexical.revenue_text(record.normalized_description))
+    assert not claimed._claimed(record, lexical.revenue_text(record.normalized_description))
     assert _reading(other) == VERIFIED
 
 
@@ -678,7 +679,7 @@ def test_a_financier_s_debit_keeps_its_reading_alone_and_beside_its_payout(text,
 
 def _financier(text, amount=1500.0, bank=None, holder=HOLDER):
     (record,) = _credits([(text, amount)], bank=bank, holder=holder)
-    return true_revenue._customer_financier(record, lexical.revenue_text(record.normalized_description))
+    return claimed._customer_financier(record, lexical.revenue_text(record.normalized_description))
 
 
 @pytest.mark.parametrize(("text", "bank", "entity"), [
@@ -731,7 +732,7 @@ def test_a_row_naming_a_financier_never_counts_toward_a_q6_repeat():
                         ("CONTOSO HOME SERVICES LLC DES:WISETACK ID:2 INDN:NORTHWIND CO ID:1 CCD", 950.0)],
                        bank="Bank of America")
     assert [_reading(record) for record in records] == [("counted_flagged", "named_payer_one_off")] * 2
-    assert all(true_revenue._customer_financier(record, lexical.revenue_text(record.normalized_description)) is None
+    assert all(claimed._customer_financier(record, lexical.revenue_text(record.normalized_description)) is None
                for record in records)
 
 
