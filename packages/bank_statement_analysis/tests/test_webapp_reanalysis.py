@@ -1167,21 +1167,25 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     are built here by S2's real classifier: first with registries that know none of these payees (the rules the
     statement was analysed under), then with S2's fabricated payees and premium financier (the current rules)."""
     from analysis import transaction_classifier
+    from analysis.classification import credit_predicates
+    from analysis.classification import payees
     from analysis.flag_groups import FLAG_GROUPS
     from tests.flag_group_fixtures import fake_match
     from webapp.app import app
 
     keys = {group.key for group in FLAG_GROUPS}
     rows, deposits = _every_group_rows()
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", lambda normalized_text, *, credit=False: None)
-    monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES", {})
+    patched_match_known_payee = lambda normalized_text, *, credit=False: None
+    monkeypatch.setattr(transaction_classifier, "match_known_payee", patched_match_known_payee)
+    monkeypatch.setattr(credit_predicates, "match_known_payee", patched_match_known_payee)
+    monkeypatch.setattr(payees, "PREMIUM_FINANCE_ALIASES", {})
     job_id = pipeline.upload(_saved_under_old_rules(_payload(rows)))
     for location in deposits:
         _review(job_id, location, "confirm")
     assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
     monkeypatch.setattr(transaction_classifier, "match_known_payee", fake_match)
-    monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES",
-                        {"Fabricated Premium Finance": (PREMIUM_FINANCE_PAYEE,)})
+    monkeypatch.setattr(credit_predicates, "match_known_payee", fake_match)
+    monkeypatch.setattr(payees, "PREMIUM_FINANCE_ALIASES", {"Fabricated Premium Finance": (PREMIUM_FINANCE_PAYEE,)})
     pipeline.new_rules(_payload(rows))
 
     body = _reanalyze(job_id).get_json()

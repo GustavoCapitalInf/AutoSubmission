@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from analysis import transaction_classifier
+from analysis.classification import counter_debit_reading
+from analysis.classification import credit_predicates
+from analysis.classification import operating_sources
 from analysis.descriptor import holder
 from analysis.descriptor import rails
 from analysis.descriptor import financing
@@ -32,6 +35,9 @@ def test_each_row_is_normalized_exactly_once(monkeypatch):
         return original(value)
 
     monkeypatch.setattr(transaction_classifier, "normalize_transaction_description", counting)
+    monkeypatch.setattr(counter_debit_reading, "normalize_transaction_description", counting)
+    monkeypatch.setattr(credit_predicates, "normalize_transaction_description", counting)
+    monkeypatch.setattr(operating_sources, "normalize_transaction_description", counting)
     monkeypatch.setattr(financing, "normalize_transaction_description", counting)
     monkeypatch.setattr(holder, "normalize_transaction_description", counting)
     monkeypatch.setattr(rails, "normalize_transaction_description", counting)

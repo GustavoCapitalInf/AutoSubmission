@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.classification import credit_predicates
 from analysis.descriptor import payer
 from analysis.descriptor import rails
 from analysis.descriptor import lexical
@@ -73,13 +73,13 @@ BOOK = "BOOK TRANSFER CREDIT B/O: {orig} SAMPLEVILLE ST 12345 REF: {purpose}"
 def test_a_third_party_book_transfer_is_an_incoming_wire_on_the_owner_s_yes(monkeypatch):
     third_party = BOOK.format(orig="FABRIKAM EXPORTS LLC", purpose="INVOICE 1234")
     own = BOOK.format(orig="CONTOSO TRADING LLC", purpose="INVOICE 1234")
-    monkeypatch.setattr(transaction_classifier, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
+    monkeypatch.setattr(credit_predicates, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
     monkeypatch.setattr(rails, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
     monkeypatch.setattr(words, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
     assert _credit(third_party).revenue_classification == "verified_revenue"
     assert _credit(own).revenue_classification == "non_revenue"
     assert _credit("BOOK TRANSFER CREDIT").revenue_classification == "non_revenue"
-    monkeypatch.setattr(transaction_classifier, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
+    monkeypatch.setattr(credit_predicates, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
     monkeypatch.setattr(rails, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
     monkeypatch.setattr(words, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
     assert _credit(third_party).revenue_classification == "non_revenue"

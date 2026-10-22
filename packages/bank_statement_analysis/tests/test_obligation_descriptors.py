@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.classification import operating_sources
+from analysis.classification import tax_forms
 from analysis.descriptor import financing
 from analysis.transaction_classifier import classify_transaction
 
@@ -164,6 +166,8 @@ def test_the_owner_truist_example_is_a_bank_loan():
 def test_a_listed_card_issuer_needs_payment_wording(monkeypatch):
     patched_card_issuer_context_aliases = {"Fabricated Issuer": ("FABRICATED ISSUER",)}
     monkeypatch.setattr(transaction_classifier, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
+    monkeypatch.setattr(operating_sources, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
+    monkeypatch.setattr(tax_forms, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(financing, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     paid = classify_transaction("FABRICATED ISSUER EPAYMENT 0001", -300.0)
     bare = classify_transaction("FABRICATED ISSUER 0001", -300.0)
@@ -181,6 +185,8 @@ def test_card_issuer_wording_reads_paymnt_and_a_payment_word_glued_to_its_sec_la
     the payment word to its SEC label."""
     patched_card_issuer_context_aliases = {"Fabricated Issuer": ("FABRICATED ISSUER",)}
     monkeypatch.setattr(transaction_classifier, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
+    monkeypatch.setattr(operating_sources, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
+    monkeypatch.setattr(tax_forms, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(financing, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     record = classify_transaction(description, -300.0)
     assert (record.classification, record.canonical_entity) == ("credit_card_payment", "Fabricated Issuer")

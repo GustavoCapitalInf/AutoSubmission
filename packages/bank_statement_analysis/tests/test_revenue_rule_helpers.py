@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import credit_predicates
+from analysis.classification import operating_sources
 from analysis.descriptor import credit_words
 from analysis.descriptor import payer
 from analysis.descriptor import rails
@@ -34,7 +36,7 @@ def _region(printed: str) -> str:
     ("MANHEIM US DES:ACH PAYMNT ID:1", "Manheim", False),                # an auction, on its originator segment
 ])
 def test_the_operating_source_reader_names_the_source(printed, entity, form):
-    found = tc._operating_source(_text(printed))
+    found = operating_sources._operating_source(_text(printed))
     assert found is not None and found.entity == entity
     assert found.payout_form is form
 
@@ -48,13 +50,13 @@ def test_the_operating_source_reader_names_the_source(printed, entity, form):
     "SAMPLE AUTO MANHEIM FEES",              # an auction name off the originator segment
 ])
 def test_a_vetoed_or_misplaced_read_names_no_source(printed):
-    assert tc._operating_source(_text(printed)) is None
+    assert operating_sources._operating_source(_text(printed)) is None
 
 
 def test_a_cut_read_carries_its_alias_vetoes():
     # §7.0, S1.1 review: the cut 'RTP CREDIT AMAZO' reads as its alias 'RTP CREDIT AMAZON COM', vetoes included.
-    assert tc._operating_source(_text("RTP CREDIT AMAZO DES:PAYROLL ID:1")) is None
-    assert tc._operating_source(_text("RTP CREDIT AMAZO ID:1")).entity == "Amazon Marketplace"
+    assert operating_sources._operating_source(_text("RTP CREDIT AMAZO DES:PAYROLL ID:1")) is None
+    assert operating_sources._operating_source(_text("RTP CREDIT AMAZO ID:1")).entity == "Amazon Marketplace"
 
 
 _CHASE_FIELDS = "ORIG ID:1234567890 DESC DATE:310102 CO ENTRY DESCR:VENDOR PAYSEC:CCD TRACE#:1 EED:310102 IND ID:1"
@@ -77,7 +79,7 @@ _CHASE_FIELDS = "ORIG ID:1234567890 DESC DATE:310102 CO ENTRY DESCR:VENDOR PAYSE
 ])
 def test_the_operating_alias_never_reads_a_receiver_value(printed, entity):
     # S2.2 review item C (§5.2): the alias reads the row with each receiver field's value removed, the rest kept.
-    found = tc._operating_source(_text(printed))
+    found = operating_sources._operating_source(_text(printed))
     assert (found and found.entity) == entity
 
 
@@ -103,7 +105,7 @@ def test_the_receiver_value_goes_and_the_fields_after_it_stay():
     ("REGLEMENT MARCHAND 1234", "french_card_settlement"),
 ])
 def test_the_card_settlement_forms(printed, label):
-    form = tc._card_settlement_form(_text(printed), bank=None)
+    form = operating_sources._card_settlement_form(_text(printed), bank=None)
     assert form is not None and form.label == label
 
 
@@ -117,21 +119,21 @@ def test_the_card_settlement_forms(printed, label):
     "ALLY CC CREDIT CARD DEPOSIT 1234",           # the same, beside another card issuer
 ])
 def test_a_refused_card_form_is_none(printed):
-    assert tc._card_settlement_form(_text(printed), bank=None) is None
+    assert operating_sources._card_settlement_form(_text(printed), bank=None) is None
 
 
 def test_the_card_issuer_refusal_is_its_own_branch():
     # §7.1 (structural S53): these rows print no card-veto word, so the card-issuer check alone refuses them; the same
     # words without an issuer read generic_card_sales.
     for printed in ("BK OF AMER VISA CREDIT CARD DEPOSIT 1234", "ALLY CC CREDIT CARD DEPOSIT 1234"):
-        assert tc._CARD_VETO.search(lexical._before_receiver(_text(printed))) is None
+        assert operating_sources._CARD_VETO.search(lexical._before_receiver(_text(printed))) is None
         assert payee_matcher.registry_match(_text(printed), classification_registry.CARD_ISSUER_CONTEXT_ALIASES) is not None
-    assert tc._card_settlement_form(_text("FABRIKAM CREDIT CARD DEPOSIT 1234"), bank=None).label == "generic_card_sales"
+    assert operating_sources._card_settlement_form(_text("FABRIKAM CREDIT CARD DEPOSIT 1234"), bank=None).label == "generic_card_sales"
 
 
 def test_the_square_checking_form_reads_only_on_a_square_statement():
-    assert tc._card_settlement_form(_text("CARD PAYMENT SALES"), bank="Square").label == "square_checking_sales"
-    assert tc._card_settlement_form(_text("CARD PAYMENT SALES"), bank="Sample Bank") is None
+    assert operating_sources._card_settlement_form(_text("CARD PAYMENT SALES"), bank="Square").label == "square_checking_sales"
+    assert operating_sources._card_settlement_form(_text("CARD PAYMENT SALES"), bank="Sample Bank") is None
 
 
 @pytest.mark.parametrize(("printed", "context"), [
@@ -142,7 +144,7 @@ def test_the_square_checking_form_reads_only_on_a_square_statement():
 ])
 def test_the_payout_context(printed, context):
     text = _text(printed)
-    assert tc._has_operating_context(text, tc._operating_source(text), bank=None) is context
+    assert operating_sources._has_operating_context(text, operating_sources._operating_source(text), bank=None) is context
 
 
 @pytest.mark.parametrize(("printed", "reversal"), [
@@ -153,7 +155,7 @@ def test_the_payout_context(printed, context):
     ("DEBIT CARD CREDIT FABRIKAM STORE", True),            # a card refund
 ])
 def test_the_reversal_rule_and_the_card_credit_release(printed, reversal):
-    assert tc._reversal_credit(_text(printed)) is reversal
+    assert credit_predicates._reversal_credit(_text(printed)) is reversal
 
 
 @pytest.mark.parametrize(("printed", "released"), [
@@ -164,9 +166,9 @@ def test_a_processor_card_credit_with_a_payout_word_is_released(printed, release
     # §7.11: the second release of _card_credit_released (a merchant-processor or invoice source and a payout word).
     text = _text(printed)
     assert credit_words._CARD_CREDIT_PUSH_WORD.search(text) is None
-    assert tc._operating_source(text).source_type == "merchant_processor"
-    assert tc._card_credit_released(text) is released
-    assert tc._reversal_credit(text) is not released
+    assert operating_sources._operating_source(text).source_type == "merchant_processor"
+    assert credit_predicates._card_credit_released(text) is released
+    assert credit_predicates._reversal_credit(text) is not released
 
 
 @pytest.mark.parametrize(("printed", "reversal"), [
@@ -178,7 +180,7 @@ def test_the_return_codes_decide_a_row_on_their_own(printed, reversal):
     text = _text(printed)
     assert not rails._matches_any(text, descriptor_words._REVERSAL_CANCELLATION_CREDIT_PATTERNS)
     assert rails._matches_any(text, credit_words._RETURN_CODE_CREDIT_PATTERNS) is reversal
-    assert tc._reversal_credit(text) is reversal
+    assert credit_predicates._reversal_credit(text) is reversal
 
 
 @pytest.mark.parametrize(("printed", "own"), [
@@ -188,20 +190,20 @@ def test_the_return_codes_decide_a_row_on_their_own(printed, reversal):
     ("ELECTRONIC FUNDS TRANSFER DEPOSIT FABRIKAM", False),                     # the EFT channel
 ])
 def test_a_book_or_funds_transfer_is_own_account_only_without_a_third_party(printed, own):
-    assert tc._own_book_or_funds_transfer(_text(printed), "CONTOSO TRADING LLC") is own
+    assert credit_predicates._own_book_or_funds_transfer(_text(printed), "CONTOSO TRADING LLC") is own
 
 
 def test_a_glued_claim_entry_is_split_for_the_lookups():
-    assert tc._split_glued_claim("FABRIKAM HEALTH PLHCCLAIMPMT") == "FABRIKAM HEALTH PL HCCLAIMPMT"
+    assert credit_predicates._split_glued_claim("FABRIKAM HEALTH PLHCCLAIMPMT") == "FABRIKAM HEALTH PL HCCLAIMPMT"
 
 
 def test_the_payer_guards():
     text = _text("CONTOSO BAKERY LLC DES:VENDOR PAY ID:1")
-    assert tc._refused_by_payer_guards(text, payer.payer_region(text), "CONTOSO BAKERY LLC") == "holder"
+    assert credit_predicates._refused_by_payer_guards(text, payer.payer_region(text), "CONTOSO BAKERY LLC") == "holder"
     numbered = _text("1234567 NOVA SCOTIA LTD DES:VENDOR PAY ID:1")
-    assert tc._refused_by_payer_guards(numbered, payer.payer_region(numbered), "SAMPLE CAFE LLC") == "numbered"
+    assert credit_predicates._refused_by_payer_guards(numbered, payer.payer_region(numbered), "SAMPLE CAFE LLC") == "numbered"
     clean = _text("FABRIKAM SUPPLY DES:VENDOR PAY ID:1")
-    assert tc._refused_by_payer_guards(clean, payer.payer_region(clean), "SAMPLE CAFE LLC") is None
+    assert credit_predicates._refused_by_payer_guards(clean, payer.payer_region(clean), "SAMPLE CAFE LLC") is None
 
 
 @pytest.mark.parametrize(("printed", "remittance"), [
@@ -214,7 +216,7 @@ def test_the_payer_guards():
 ])
 def test_the_payer_remittance(printed, remittance):
     text = _text(printed)
-    assert tc._payer_remittance(text, payer.payer_region(text), "SAMPLE CAFE LLC") is remittance
+    assert credit_predicates._payer_remittance(text, payer.payer_region(text), "SAMPLE CAFE LLC") is remittance
 
 
 @pytest.mark.parametrize(("printed", "rule"), [
@@ -224,7 +226,7 @@ def test_the_payer_remittance(printed, remittance):
     ("FABRIKAM PLUMBING DES:VENDOR PAY ID:1 SAMPLE COUNTY", None),
 ])
 def test_the_public_payer_arms(printed, rule):
-    assert tc._public_payer_remittance(_text(printed)) == rule
+    assert credit_predicates._public_payer_remittance(_text(printed)) == rule
 
 
 BOFA = ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:20540102001234 SEQ:1234/5678 ORIG:{orig} ID:99887766 "
@@ -240,7 +242,7 @@ BOFA = ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:20540102001234 SEQ:1234/
 ])
 def test_the_invoice_wire(orig, purpose, verifies):
     text = _text(BOFA.format(orig=orig, purpose=purpose))
-    assert tc._wire_remittance_purpose(text, payer.payer_region(text), "CONTOSO TRADING LLC") is verifies
+    assert credit_predicates._wire_remittance_purpose(text, payer.payer_region(text), "CONTOSO TRADING LLC") is verifies
 
 
 @pytest.mark.parametrize(("region", "cut"), [
@@ -250,7 +252,7 @@ def test_the_invoice_wire(orig, purpose, verifies):
     ("FABRIKAM EXPORTS", False),
 ])
 def test_the_cut_financing_originator(region, cut):
-    assert tc._cut_financing_originator(region) is cut
+    assert credit_predicates._cut_financing_originator(region) is cut
 
 
 def test_an_alias_read_inside_a_waiting_processor_names_no_source():
@@ -259,11 +261,11 @@ def test_an_alias_read_inside_a_waiting_processor_names_no_source():
     _bare, product = PROCESSOR_ADVANCE_PRODUCTS["Jobber Payments"]
     cleared = product is not None or "Jobber Payments" in PROCESSORS_WITHOUT_ADVANCE_PRODUCT
     jobber = _text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")
-    assert tc._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is not cleared
-    source = tc._operating_source(jobber)
+    assert operating_sources._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is not cleared
+    source = operating_sources._operating_source(jobber)
     assert (source.entity if source is not None else None) == ("Jobber Payments" if cleared else None)
-    assert tc._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
-    assert tc._operating_source(_text("SHIFT4 PAYMENTS DES:DEPOSIT ID:1")).entity == "Shift4"
+    assert operating_sources._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
+    assert operating_sources._operating_source(_text("SHIFT4 PAYMENTS DES:DEPOSIT ID:1")).entity == "Shift4"
 
 
 def test_a_waiting_processor_s_bare_alias_still_refuses_an_alias_read_inside_it(monkeypatch):
@@ -271,33 +273,39 @@ def test_a_waiting_processor_s_bare_alias_still_refuses_an_alias_read_inside_it(
     # (its bare aliases gated, its own aliases unread), so Stripe's BY STRI cut inside JOBBER BY STRI names no source.
     import re
 
-    monkeypatch.setattr(tc, "_GATED_PROCESSOR_PATTERNS", {
-        "Jobber Payments": re.compile(r"\b(?:JOBBER BY STRIPE|JOBBER BY STRI|JOBBER BY STR)\b"),
-    })
-    monkeypatch.setattr(tc, "OPERATING_REVENUE_READ_ALIASES", {
-        entity: aliases for entity, aliases in classification_registry.OPERATING_REVENUE_READ_ALIASES.items() if entity != "Jobber Payments"
-    })
+    monkeypatch.setattr(
+        operating_sources,
+        "_GATED_PROCESSOR_PATTERNS",
+        {
+"Jobber Payments": re.compile(r"\b(?:JOBBER BY STRIPE|JOBBER BY STRI|JOBBER BY STR)\b"),
+},
+    )
+    patched_operating_revenue_read_aliases = {
+entity: aliases for entity, aliases in classification_registry.OPERATING_REVENUE_READ_ALIASES.items() if entity != "Jobber Payments"
+}
+    monkeypatch.setattr(tc, "OPERATING_REVENUE_READ_ALIASES", patched_operating_revenue_read_aliases)
+    monkeypatch.setattr(operating_sources, "OPERATING_REVENUE_READ_ALIASES", patched_operating_revenue_read_aliases)
     jobber = _text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")
-    assert tc._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is True
-    assert tc._operating_source(jobber) is None
-    assert tc._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
+    assert operating_sources._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is True
+    assert operating_sources._operating_source(jobber) is None
+    assert operating_sources._operating_source(_text("FABRIKAM - BY STRI DES:PAYOUT ID:1")).entity == "Stripe"
 
 
 def test_the_wire_financing_text_drops_the_sending_and_originating_banks():
     # §7.9: the roots are read after the sending (Santander) and originating (Chase's OGB) bank fields go.
     santander = _text("USD WIRE IN FROM BANCO DE CREDIT ACCT * 1234 CONTOSO SRL REF INV 10421")
-    assert "CREDIT" not in tc._wire_financing_text(santander) and "CONTOSO SRL" in tc._wire_financing_text(santander)
-    assert tc._wire_originator_run(santander) == "CONTOSOSRL"
+    assert "CREDIT" not in credit_predicates._wire_financing_text(santander) and "CONTOSO SRL" in credit_predicates._wire_financing_text(santander)
+    assert credit_predicates._wire_originator_run(santander) == "CONTOSOSRL"
     chips = _text("CHIPS CREDIT VIA SAMPLE BANK 0959 B O CONTOSO SUPPLY LLC REF NBNF NORTHWIND LABS LLC "
                   "OGB SAMPLE MERCHANTS BANK N A OBI INVOICE 10421")
-    assert "MERCHANTS" not in tc._wire_financing_text(chips)
+    assert "MERCHANTS" not in credit_predicates._wire_financing_text(chips)
 
 
 def test_a_wire_from_a_title_or_escrow_firm_is_vetoed():
     # Review I6 (§8.5's senders): a title or escrow firm's wire carries sale, closing or escrow money.
     text = _text("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:1 ORIG:CONTOSO TITLE AGENCY LLC ID:1 "
                  "SND BK:SAMPLE BANK ID:1 PMT DET:INVOICE 1042")
-    assert tc._wire_vetoed(text, payer.payer_region(text), "NORTHWIND LABS LLC")
+    assert credit_predicates._wire_vetoed(text, payer.payer_region(text), "NORTHWIND LABS LLC")
 
 
 @pytest.mark.parametrize(("printed", "vetoed"), [
@@ -340,10 +348,34 @@ GLUED_VETO_WORDS = [
     ("_TITLE_OR_ESCROW_ORIGINATOR", "ESCROW", True),
 ]
 
+VETO_PATTERNS = {
+    "_CARD_VETO": operating_sources._CARD_VETO,
+    "_RECURRENCE_VETO": credit_words._RECURRENCE_VETO,
+    "_FUNDING_WORD": credit_words._FUNDING_WORD,
+    "_OPERATING_PAY_VETO": operating_sources._OPERATING_PAY_VETO,
+    "_OPERATING_FINANCING_VETO": operating_sources._OPERATING_FINANCING_VETO,
+    "_OPERATING_REVERSAL_VETO": operating_sources._OPERATING_REVERSAL_VETO,
+    "_OPERATING_P2P_VETO": operating_sources._OPERATING_P2P_VETO,
+    "_EMPLOYER_PAY_WORDS": operating_sources._EMPLOYER_PAY_WORDS,
+    "_TRANSPORT_EXTRA_VETO": operating_sources._TRANSPORT_EXTRA_VETO,
+    "_AUCTION_VETO": tc._AUCTION_VETO,
+    "_AUCTION_BUYER_PAYMENT": tc._AUCTION_BUYER_PAYMENT,
+    "_PROPERTY_PLATFORM_GUARD": tc._PROPERTY_PLATFORM_GUARD,
+    "_PROPERTY_MICRO_DEPOSIT": tc._PROPERTY_MICRO_DEPOSIT,
+    "_PROPERTY_PUSH_SHAPE": tc._PROPERTY_PUSH_SHAPE,
+    "_PAYER_REMITTANCE_VETO": credit_predicates._PAYER_REMITTANCE_VETO,
+    "_PUBLIC_PAYER_NAME_VETO": credit_words._PUBLIC_PAYER_NAME_VETO,
+    "_PUBLIC_PAYER_NON_SALE_WORDS": credit_words._PUBLIC_PAYER_NON_SALE_WORDS,
+    "_PUBLIC_PAYER_OTHER_VETO": credit_predicates._PUBLIC_PAYER_OTHER_VETO,
+    "_PUBLIC_PAYER_ARM_B_TRANSFER": credit_predicates._PUBLIC_PAYER_ARM_B_TRANSFER,
+    "_WIRE_NON_SALE_PURPOSE": credit_predicates._WIRE_NON_SALE_PURPOSE,
+    "_TITLE_OR_ESCROW_ORIGINATOR": credit_predicates._TITLE_OR_ESCROW_ORIGINATOR,
+}
+
 
 @pytest.mark.parametrize(("name", "word", "glued"), GLUED_VETO_WORDS)
 def test_a_long_veto_word_reads_through_a_glued_digit(name, word, glued):
-    pattern = getattr(tc, name)
+    pattern = VETO_PATTERNS[name]
     assert pattern.search("FABRIKAM ID " + word) is not None
     assert (pattern.search("FABRIKAM ID 0102" + word) is not None) is glued
     assert pattern.search("FABRIKAM ID X" + word) is None
@@ -355,7 +387,7 @@ def test_a_long_veto_word_reads_through_a_glued_digit(name, word, glued):
     ("BANKCARD DEPOSIT ID 1234CB", "bankcard"),    # a two-letter ID suffix is no chargeback
 ])
 def test_a_glued_card_veto_word(printed, label):
-    form = tc._card_settlement_form(_text(printed), bank=None)
+    form = operating_sources._card_settlement_form(_text(printed), bank=None)
     assert (form and form.label) == label
 
 

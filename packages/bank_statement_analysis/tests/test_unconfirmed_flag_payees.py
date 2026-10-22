@@ -6,6 +6,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.classification import credit_predicates
+from analysis.classification import payees
 from analysis.classification_registry import POTENTIAL_LENDER_ALIASES, REVIEW_FLAG_ENTITIES
 from analysis.detect import find_flagged_positions
 from analysis.flag_groups import FLAG_GROUP_BY_STATE
@@ -32,6 +34,8 @@ FABRICATED_ROUTES = {
 @pytest.fixture
 def review_payees(monkeypatch):
     monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
+    monkeypatch.setattr(credit_predicates, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
+    monkeypatch.setattr(payees, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(transaction_classifier, "REVIEW_FLAG_ENTITIES", FABRICATED_ROUTES)
 
 

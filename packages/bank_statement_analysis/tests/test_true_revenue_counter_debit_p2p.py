@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import counter_debit_reading
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import true_revenue as tr
@@ -88,16 +89,16 @@ def test_a_wallet_s_name_is_no_sender_the_counter_debit_holds_read(region):
     "CAROLINA", "ONTARIO", "ALBERTA", "CANADA", "CANADIAN", "AMERICAN",
 ])
 def test_the_words_that_name_no_payer(word):
-    assert word in tc._COUNTER_DEBIT_NOT_A_PAYER
+    assert word in counter_debit_reading._COUNTER_DEBIT_NOT_A_PAYER
 
 
 def test_the_payer_reading_skips_them_and_the_receiver_originators_keep_theirs():
-    reading = tc.counter_debit_payer_reading("TEXAS CONTOSO LLC")
+    reading = counter_debit_reading.counter_debit_payer_reading("TEXAS CONTOSO LLC")
     assert reading.legacy == "CONTOSO" and "TEXAS" not in reading.keys
     # The receiver-originator grouping reads the payer's first distinctive word unchanged.
-    assert tc._payer_first_distinctive_word("TEXAS CONTOSO LLC") == "TEXAS"
+    assert counter_debit_reading._payer_first_distinctive_word("TEXAS CONTOSO LLC") == "TEXAS"
     debit = tc.classify_transaction("ZELLE PAYMENT TO PRIYA SAMPLE CONF ABC123", -400.0, direction="debit")
-    reading, _ = tc.counter_debit_debit_reading(debit)
+    reading, _ = counter_debit_reading.counter_debit_debit_reading(debit)
     assert reading.legacy == "PRIYA" and "PRIYASAMPLE" in reading.keys and "ZELLE" not in reading.keys
 
 
@@ -186,11 +187,11 @@ def test_a_named_p2p_credit_matches_a_lender_debit_by_its_whole_name_and_as_befo
     # Review round 1 (finding 1): the whole name is one more way a person-to-person or push credit names a lender
     # debit, never the only one. The lender hold never lets a funder's money into True, so a lender debit sharing the
     # sender's first word still holds it, for review (the hold's safe direction).
-    reading = tc._counter_debit_reading("QUILLAN", [["QUILLAN", "SAMPLE"]])
+    reading = counter_debit_reading._counter_debit_reading("QUILLAN", [["QUILLAN", "SAMPLE"]])
     credit = tr.CounterCredit(reading, 90000, None, False, False, person_key="QUILLANSAMPLE")
 
     def lender(words, entity=None):
-        return tr.CounterDebits((tr._CounterDebit(tc._counter_debit_reading(words[0], [words]), "lender", 30000,
+        return tr.CounterDebits((tr._CounterDebit(counter_debit_reading._counter_debit_reading(words[0], [words]), "lender", 30000,
                                                   entity, False),), ())
 
     assert tr.debited_as_lender(credit, lender(["QUILLAN", "FUNDING"]), prefix=True)

@@ -55,7 +55,7 @@ def test_the_legal_form_suffixes():
     })
 
 
-from analysis.transaction_classifier import _unknown_payee_tokens
+from analysis.classification.payees import _unknown_payee_tokens
 from analysis.descriptor.lexical import _leading_payee_words, _originator_segment, _payee_region, _row_before_receiver
 
 

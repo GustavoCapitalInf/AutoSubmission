@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.classification import credit_predicates
+from analysis.classification import payees
 from analysis.payee_matcher import PayeeMatch
 from analysis.schema import Transaction
 
@@ -53,6 +55,7 @@ def fake_match(normalized_text: str, *, credit: bool = False) -> PayeeMatch | No
 def fake_payees(monkeypatch):
     """Route the classifier's known-payee lookups to FAKE_PAYEES for one test."""
     monkeypatch.setattr(transaction_classifier, "match_known_payee", fake_match)
+    monkeypatch.setattr(credit_predicates, "match_known_payee", fake_match)
     return FAKE_PAYEES
 
 
@@ -64,13 +67,9 @@ def fake_premium_finance(monkeypatch):
     alias `FABRICATED INSURER`, as a premium financier's name can contain an
     insurer's.
     """
+    monkeypatch.setattr(payees, "INSURANCE_PROVIDER_ALIASES", {"Fabricated Insurer": ("FABRICATED INSURER",)})
     monkeypatch.setattr(
-        transaction_classifier,
-        "INSURANCE_PROVIDER_ALIASES",
-        {"Fabricated Insurer": ("FABRICATED INSURER",)},
-    )
-    monkeypatch.setattr(
-        transaction_classifier,
+        payees,
         "PREMIUM_FINANCE_ALIASES",
         {
             "Fabricated Premium Finance": ("FABRICATED PFC",),

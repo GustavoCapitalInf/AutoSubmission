@@ -7,11 +7,8 @@ from dataclasses import replace
 import pytest
 
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import (
-    _debit_first_distinctive_word,
-    classify_statement_transactions,
-    classify_transaction,
-)
+from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.classification.counter_debit_reading import _debit_first_distinctive_word
 
 
 def _credit(printed: str, *, holder: str | None = "SAMPLE CAFE LLC"):

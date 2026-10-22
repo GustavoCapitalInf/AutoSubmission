@@ -2234,7 +2234,7 @@ STATEMENT_BANK_PRINTED_NAMES: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...
 
 #: Audit round 3, R3-B17 (R3-77, R3-74; §5.2, §8.1; owner ruling 2026-10-02, the underwriter's Q2 and Q9; standard A9,
 #: B6, C1): the posting-type labels a statement's bank prints before the party on credits and debits alike, which name
-#: no party, so the counter-debit readings (transaction_classifier._without_posting_type_label) never read one as the
+#: no party, so the counter-debit readings (classification.counter_debit_reading._without_posting_type_label) never read one as the
 #: payer's or the payee's word. Each entry is (the words that name the bank inside the statement's bank field, its
 #: labels), all normalized; a bank field names the bank by containment (whole words, any case), as
 #: STATEMENT_BANK_PRINTED_NAMES is read. RBC: the title-case type labels its rows lead with (`Insurance <party>`,

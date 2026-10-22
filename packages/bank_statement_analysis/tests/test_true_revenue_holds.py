@@ -2449,7 +2449,7 @@ def test_q9_b_the_lessor_reading_arm_by_arm():
 
 
 def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
-    from analysis import transaction_classifier as classifier
+    from analysis.classification import counter_debit_reading
 
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
@@ -2465,7 +2465,7 @@ def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
         "PAYMENT SAMPLE RENTALS")
     # A payer-less row names nobody.
     assert name("MOBILE DEPOSIT RENT UNIT 1", "Wells Fargo") == ""
-    assert classifier._payer_key("CHK") == ()
+    assert counter_debit_reading._payer_key("CHK") == ()
 
 
 #: Audit round 3, R3-B14 (R3-60): a tenant's book transfer whose REF memo prints the rent.

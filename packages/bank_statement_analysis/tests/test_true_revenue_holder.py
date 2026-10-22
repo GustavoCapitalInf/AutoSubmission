@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.classification import credit_predicates
 from analysis.descriptor import holder as descriptor_holder
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
@@ -199,9 +199,9 @@ def test_a_wire_to_the_holder_from_another_company_is_q5_s():
 def test_the_wire_veto_and_the_hold_read_one_beneficiary_test():
     text = lexical.revenue_text(description_text.normalize_transaction_description(FEDWIRE.format(bnf="NORTHWIND MARINE LLC")))
     region = descriptor_payer.payer_region(text)
-    assert tc.wire_sender_is_beneficiary(text, region)
+    assert credit_predicates.wire_sender_is_beneficiary(text, region)
     other = lexical.revenue_text(description_text.normalize_transaction_description(FEDWIRE.format(bnf="CONTOSO DINER LLC")))
-    assert not tc.wire_sender_is_beneficiary(other, descriptor_payer.payer_region(other))
+    assert not credit_predicates.wire_sender_is_beneficiary(other, descriptor_payer.payer_region(other))
 
 
 def test_capital_one_s_trailing_receiver_names_the_holder_s_own_deposit():
