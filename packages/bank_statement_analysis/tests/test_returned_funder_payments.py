@@ -31,6 +31,7 @@ from dataclasses import asdict, fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import funder_returns
 from analysis.classification import record as classification_record
 from analysis.descriptor import credit_words
 from analysis import description_text
@@ -310,19 +311,19 @@ def test_the_tier_filter_reads_no_credit_the_revenue_side_counts():
     base = [replace(r, returned_funder_payment_by=None, returns_funder_payment=None,
                     contributes_to_lender_totals=r.contributes_to_lender_totals or r.classification == "confirmed_lender")
             for r in records]
-    assert tc._returned_funder_payment_pairs(base, set()) == [(2, 1)]
+    assert funder_returns._returned_funder_payment_pairs(base, set()) == [(2, 1)]
     for tier in ("verified", "counted_flagged"):
         counted = list(base)
         counted[2] = replace(base[2], revenue_tier=tier)
-        assert tc._returned_funder_payment_pairs(counted, set()) == []
+        assert funder_returns._returned_funder_payment_pairs(counted, set()) == []
     held = list(base)
     held[2] = replace(base[2], revenue_tier="excluded_pending_review")
-    assert tc._returned_funder_payment_pairs(held, set()) == [(2, 1)]
+    assert funder_returns._returned_funder_payment_pairs(held, set()) == [(2, 1)]
     lender_credit = list(base)
     lender_credit[2] = replace(base[2], contributes_to_lender_credit_exclusion=True)
-    assert tc._returned_funder_payment_pairs(lender_credit, set()) == []
+    assert funder_returns._returned_funder_payment_pairs(lender_credit, set()) == []
     # Duplicates are read by neither side.
-    assert tc._returned_funder_payment_pairs(base, {1}) == [] == tc._returned_funder_payment_pairs(base, {2})
+    assert funder_returns._returned_funder_payment_pairs(base, {1}) == [] == funder_returns._returned_funder_payment_pairs(base, {2})
 
 
 @pytest.mark.parametrize("text, bounce", [
@@ -340,20 +341,22 @@ def test_the_tier_filter_reads_no_credit_the_revenue_side_counts():
     ("UNPAIDCONTOSO", False), ("BRTN 1234", False),
 ])
 def test_the_bounce_forms(text, bounce):
-    assert tc._returned_payment_credit(description_text.normalize_transaction_description(text)) is bounce
+    assert funder_returns._returned_payment_credit(description_text.normalize_transaction_description(text)) is bounce
 
 
 def test_the_french_arms_are_r2_b08_s_arms_a_and_c():
-    patterns = [pattern.pattern for pattern in tc._RETURNED_PAYMENT_CREDIT_PATTERNS]
+    patterns = [pattern.pattern for pattern in funder_returns._RETURNED_PAYMENT_CREDIT_PATTERNS]
     assert patterns[-2:] == [credit_words._RETURN_REFUND_R2_B08_ARMS[0], credit_words._RETURN_REFUND_R2_B08_ARMS[2]]
-    assert tc.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS == 7
+    assert funder_returns.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS == 7
 
 
 # ---------------------------------------------------------------------------------------------- MUST NOT CHANGE
 
 
 def _without_rule_d(monkeypatch, rows, bank):
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    patched_apply_returned_funder_payments = lambda records, duplicates: records
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
+    monkeypatch.setattr(funder_returns, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
     return _run(rows, bank)
 
 
@@ -384,7 +387,9 @@ def test_t17_the_reconciliation_reads_the_same_reversal_pairs(monkeypatch):
             (6, BOFA_RETURN, 850.0)]
     statement = _statement(rows).model_copy(update={"stated_total_credits": 10000.0, "stated_total_debits": 850.0})
     after = asdict(reconcile(statement))
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    patched_apply_returned_funder_payments = lambda records, duplicates: records
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
+    monkeypatch.setattr(funder_returns, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
     assert asdict(reconcile(statement)) == after
     assert after["reversal_pair_count"] == 1
 
@@ -393,7 +398,9 @@ def test_the_nsf_count_lender_credits_and_eligible_deposits_do_not_move(monkeypa
     rows, bank, _ = RULE_D["T2"]
     statement = _statement(rows, bank)
     after = compute_metrics(statement, classifications=tc.classify_statement_transactions(statement))
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    patched_apply_returned_funder_payments = lambda records, duplicates: records
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
+    monkeypatch.setattr(funder_returns, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
     before = compute_metrics(statement, classifications=tc.classify_statement_transactions(statement))
     for key in ("nsf_count", "lender_credits", "legacy_eligible_deposits", "eligible_deposits", "ach_debit_count",
                 "loan_count", "potential_lender_debit_total", "lenders_detected", "true_revenue_total",
@@ -511,7 +518,9 @@ def _strip_returned(node):
 
 
 def test_t19_a_payload_stored_before_the_ruling_reads_its_stored_figures(monkeypatch):
-    monkeypatch.setattr(tc, "_apply_returned_funder_payments", lambda records, duplicates: records)
+    patched_apply_returned_funder_payments = lambda records, duplicates: records
+    monkeypatch.setattr(tc, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
+    monkeypatch.setattr(funder_returns, "_apply_returned_funder_payments", patched_apply_returned_funder_payments)
     old = _strip_returned(t1_payload())
     monkeypatch.undo()
     package = _package(old)

@@ -133,7 +133,7 @@ def _owners_example(april=APRIL, *, april_number=ACCOUNT_A, april_opening=None):
     ("CHARGEBACKS FRAIS", None),
 ])
 def test_the_reader_reads_a_processor_s_chargeback_or_adjustment_never_a_fee_or_a_returned_deposit(text, wording):
-    from analysis.transaction_classifier import processor_chargeback_debit
+    from analysis.transaction_classifier.reversals import processor_chargeback_debit
 
     assert processor_chargeback_debit(text) == wording
 
@@ -689,7 +689,7 @@ COUNTED = ("counted_flagged", "no_payer_printed")
     ("INVOICES NORTHWIND SUPPLY", False), ("ONLINE TRANSFER", False),
 ])
 def test_the_reader_reads_a_check_or_cash_device_deposit_never_a_teller_counter_or_branch_one(text, paper_or_cash):
-    from analysis.transaction_classifier import paper_or_cash_deposit
+    from analysis.transaction_classifier.reversals import paper_or_cash_deposit
 
     assert paper_or_cash_deposit(text) is paper_or_cash
 

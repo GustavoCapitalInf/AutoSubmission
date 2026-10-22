@@ -19,7 +19,7 @@ from dataclasses import asdict
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import reversals
 from analysis.descriptor import rails
 from analysis import dates
 from analysis.classification.record import TransactionClassification
@@ -34,7 +34,7 @@ def _reference_reversal_pairs(records, duplicate_indexes, markers, marked=None, 
         if index not in marked:
             text = records[index].normalized_description
             marked[index] = rails._matches_any(text, markers) or (
-                records[index].amount > 0 and tc._credit_pair_marker(text, credit_markers)
+                records[index].amount > 0 and reversals._credit_pair_marker(text, credit_markers)
             )
         return marked[index]
 
@@ -71,7 +71,7 @@ def _reference_reversal_pairs(records, duplicate_indexes, markers, marked=None, 
                 if credit_date is not None and debit_date is not None
                 else 0
             )
-            if day_gap > 14 or not tc._descriptions_share_pair_context(
+            if day_gap > 14 or not reversals._descriptions_share_pair_context(
                 credit.normalized_description,
                 debit.normalized_description,
             ):
@@ -144,13 +144,13 @@ def _calls(function, records, duplicates, markers, *, credit_markers=(), seeded=
 def test_the_index_pairs_as_the_scan_of_every_row(seed):
     _chooser, records, duplicates, seeded = _statement(seed, rows=seed % 60 + 1)
     for markers, credit_markers, seeds, refuse_seed in (
-        (tc._PAIR_MARKER_PATTERNS, tc._CREDIT_PAIR_MARKER_PATTERNS, seeded, None),
-        (tc._LENDER_PAIR_MARKER_PATTERNS, (), (), seed),
-        (tc._LENDER_PAIR_MARKER_PATTERNS, (), (), None),
+        (reversals._PAIR_MARKER_PATTERNS, reversals._CREDIT_PAIR_MARKER_PATTERNS, seeded, None),
+        (reversals._LENDER_PAIR_MARKER_PATTERNS, (), (), seed),
+        (reversals._LENDER_PAIR_MARKER_PATTERNS, (), (), None),
     ):
         expected = _calls(_reference_reversal_pairs, records, duplicates, markers,
                           credit_markers=credit_markers, seeded=seeds, refuse_seed=refuse_seed)
-        found = _calls(tc._reversal_pairs, records, duplicates, markers,
+        found = _calls(reversals._reversal_pairs, records, duplicates, markers,
                        credit_markers=credit_markers, seeded=seeds, refuse_seed=refuse_seed)
         assert found == expected
 
@@ -158,9 +158,9 @@ def test_the_index_pairs_as_the_scan_of_every_row(seed):
 @pytest.mark.parametrize("seed", range(40))
 def test_pass_four_writes_the_same_records(monkeypatch, seed):
     _chooser, records, duplicates, _seeded = _statement(1000 + seed, rows=40 + seed)
-    indexed = tc._apply_reversal_pair_context(records, duplicates)
-    monkeypatch.setattr(tc, "_reversal_pairs", _reference_reversal_pairs)
-    scanned = tc._apply_reversal_pair_context(records, duplicates)
+    indexed = reversals._apply_reversal_pair_context(records, duplicates)
+    monkeypatch.setattr(reversals, "_reversal_pairs", _reference_reversal_pairs)
+    scanned = reversals._apply_reversal_pair_context(records, duplicates)
     assert [asdict(record) for record in indexed] == [asdict(record) for record in scanned]
 
 
@@ -177,8 +177,8 @@ def test_the_differential_harness_catches_a_wrong_index():
     moved = 0
     for seed in range(150):
         _chooser, records, duplicates, _seeded = _statement(seed, rows=seed % 60 + 1)
-        moved += _calls(unposted_too, records, duplicates, tc._LENDER_PAIR_MARKER_PATTERNS) != _calls(
-            tc._reversal_pairs, records, duplicates, tc._LENDER_PAIR_MARKER_PATTERNS)
+        moved += _calls(unposted_too, records, duplicates, reversals._LENDER_PAIR_MARKER_PATTERNS) != _calls(
+            reversals._reversal_pairs, records, duplicates, reversals._LENDER_PAIR_MARKER_PATTERNS)
     assert moved > 0
 
 
@@ -200,6 +200,6 @@ def test_a_credit_no_longer_walks_every_row():
     assert credits > 50
     _CountedRows.walks = 0
 
-    tc._reversal_pairs(rows, set(), tc._PAIR_MARKER_PATTERNS)
+    reversals._reversal_pairs(rows, set(), reversals._PAIR_MARKER_PATTERNS)
 
     assert _CountedRows.walks <= 2

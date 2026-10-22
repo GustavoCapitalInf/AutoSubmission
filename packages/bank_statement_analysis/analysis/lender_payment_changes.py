@@ -107,7 +107,7 @@ FUNDING_NOTE_DAYS_BEFORE = 20
 FUNDING_NOTE_DAYS_AFTER = 5
 #: Audit round 3, R3-82: a credit within LEVEL_MERGE_PERCENT of a payment or an attempt of the series dated 0 to this
 #: many calendar days before it returns that payment (R2-OW13's rule D window,
-#: `transaction_classifier.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS`), and the funding note never cites it.
+#: `transaction_classifier.funder_returns.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS`), and the funding note never cites it.
 FUNDING_NOTE_RETURN_DAYS = 7
 #: A one-off at this multiple of the regular amount or more is a payoff, never presence (A3b, B5).
 PAYOFF_MULTIPLE = 2
