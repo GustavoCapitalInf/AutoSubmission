@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import sys
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -16,8 +17,15 @@ JOB = "0f8fad5b-d9cb-469f-a165-70867728950e"
 OTHER = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
 THIRD = "16fd2706-8baf-433b-82eb-8c7fada847da"
 PLAN = json.dumps(golden.make_plan([("CONTOSO/a.pdf", 1)], shards=1)).encode()
-RESPONSES = [f"s0000.{profile}.{kind}" for profile in ("default", "flipped")
-             for kind in ("analysis", "json", "csv", "xlsx")]
+PAIR = json.dumps(golden.make_plan([("CONTOSO/a.pdf", 1), ("CONTOSO/b.pdf", 1)], shards=1)).encode()
+
+
+def _responses(*names: str) -> list[str]:
+    return [f"{name}.{profile}.{kind}" for name in names for profile in ("default", "flipped")
+            for kind in ("analysis", "json", "csv", "xlsx")]
+
+
+RESPONSES = _responses("s0000")
 BODY = b'200 application/json\n\n{"total": "SAMPLE 1"}'
 
 
@@ -31,14 +39,15 @@ def _xlsx(cell: str, stamp: str, when: tuple) -> bytes:
     return out.getvalue()
 
 
-def _shard(work: Path, bodies: dict[str, bytes], outcomes: dict[str, str] | None = None) -> Path:
+def _shard(work: Path, bodies: dict[str, bytes], outcomes: dict[str, str] | None = None,
+           packages: dict[str, int] | None = None) -> Path:
     """Shard 0 of a run as the shard leaves it: each response gzipped beside a manifest of their hashes."""
     out = work / "capture" / "shard0"
     out.mkdir(parents=True)
     for key, body in bodies.items():
         (out / f"{key}.gz").write_bytes(gzip.compress(body))
     manifest = {"responses": {key: hashlib.sha256(body).hexdigest() for key, body in bodies.items()},
-                "statements": outcomes or {"0": "analysed"}, "packages": {}}
+                "statements": outcomes or {"0": "analysed"}, "packages": packages or {}}
     (out / "manifest.json").write_text(json.dumps(manifest))
     return work
 
@@ -118,8 +127,26 @@ def test_compare_refuses_sides_that_hold_no_completion_marker(tmp_path, monkeypa
     assert _exit(monkeypatch, "compare", tmp_path / "missing-a", tmp_path / "missing-b") == 2
 
 
+def _forge_manifest(side: Path, data: bytes) -> None:
+    """Replace the manifest and re-pin its digest in the marker, as if the run had written it."""
+    (side / "capture/shard0/manifest.json").write_bytes(data)
+    marker = json.loads((side / "complete.json").read_text())
+    marker["shards"][0]["manifest"] = hashlib.sha256(data).hexdigest()
+    (side / "complete.json").write_text(json.dumps(marker))
+
+
 DAMAGE = {
     "no manifest": lambda side: (side / "capture/shard0/manifest.json").unlink(),
+    "an unreadable manifest": lambda side: (side / "capture/shard0/manifest.json").chmod(0),
+    "an unreadable capture": lambda side: (side / "capture/shard0/s0000.default.csv.gz").chmod(0),
+    "a marker without its fields": lambda side: (side / "complete.json").write_text("{}"),
+    "a marker whose shards are not objects": lambda side: (side / "complete.json").write_text(
+        json.dumps({"plan": hashlib.sha256(PLAN).hexdigest(), "shards": [1]})),
+    "a marker that seals no shard": lambda side: (side / "complete.json").write_text(
+        json.dumps({"plan": hashlib.sha256(PLAN).hexdigest(), "shards": []})),
+    "a sealed manifest that is not a manifest": lambda side: _forge_manifest(side, b"[]"),
+    "a sealed manifest with no responses": lambda side: _forge_manifest(
+        side, b'{"responses": {}, "statements": {"0": "analysed"}, "packages": {}}'),
     "an emptied shard": lambda side: (side / "capture/shard0/manifest.json").write_text(
         '{"responses": {}, "statements": {"0": "analysed"}, "packages": {}}'),
     "a missing capture": lambda side: (side / "capture/shard0/s0000.default.csv.gz").unlink(),
@@ -138,6 +165,7 @@ def test_compare_exits_two_on_a_side_with_incomplete_evidence(tmp_path, monkeypa
 
     assert _exit(monkeypatch, "compare", a, b) == 2
     assert _exit(monkeypatch, "compare", b, a) == 2
+    assert _exit(monkeypatch, "compare", b, b) == 2
 
 
 def test_compare_exits_two_on_sides_that_ran_different_plans(tmp_path, monkeypatch):
@@ -154,6 +182,77 @@ def test_a_run_is_sealed_only_when_each_shard_holds_every_response_its_outcomes_
         with pytest.raises(SystemExit):
             golden.seal(work, PLAN)
         assert not (work / "complete.json").exists()
+
+
+INVENTORIES = {
+    "a planned statement with no outcome": (PAIR, {"0": "analysed"}, {}, ["s0000"]),
+    "an outcome for a statement the plan does not hold": (PLAN, {"0": "analysed", "1": "analysed"}, {},
+                                                          ["s0000", "s0001"]),
+    "an outcome that is not one": (PLAN, {"0": "SAMPLE"}, {}, ["s0000"]),
+    "a planned package left out": (PAIR, {"0": "analysed", "1": "analysed"}, {}, ["s0000", "s0001"]),
+    "a package the plan does not hold": (PLAN, {"0": "analysed"}, {"0": 1}, ["s0000", "p0000"]),
+    "a package with the wrong analysed count": (PAIR, {"0": "analysed", "1": "analysed"}, {"0": 1},
+                                                ["s0000", "s0001", "p0000"]),
+}
+
+
+@pytest.mark.parametrize("inventory", INVENTORIES)
+def test_a_run_whose_inventory_differs_from_its_plan_is_not_sealed(tmp_path, monkeypatch, inventory):
+    plan, outcomes, packages, names = INVENTORIES[inventory]
+    work = _shard(tmp_path / "run", {key: BODY for key in _responses(*names)}, outcomes, packages)
+
+    with pytest.raises(SystemExit) as refused:
+        golden.seal(work, plan)
+    assert refused.value.code == 2
+    assert not (work / "complete.json").exists()
+    assert _exit(monkeypatch, "compare", work, work) == 2
+
+
+def test_a_run_matching_its_plan_is_sealed_with_refused_uploads_and_unanalysed_members(tmp_path, monkeypatch):
+    both = _shard(tmp_path / "both", {key: BODY for key in _responses("s0000", "s0001", "p0000")},
+                  {"0": "analysed", "1": "no matching parser"}, {"0": 1})
+    one = _shard(tmp_path / "one", {key: BODY for key in RESPONSES}, {"0": "analysed", "1": "upload refused"})
+
+    assert golden.seal(both, PAIR) == 24
+    assert golden.seal(one, PAIR) == 8
+    assert _exit(monkeypatch, "compare", both, both) == 0
+
+
+def test_no_plan_or_run_of_fewer_than_one_shard(tmp_path, monkeypatch):
+    corpus = tmp_path / "corpus" / "CONTOSO"
+    corpus.mkdir(parents=True)
+    (corpus / "a.pdf").write_bytes(b"%PDF-1.4 SAMPLE")
+    empty = tmp_path / "empty-plan.json"
+    empty.write_text(json.dumps({"shards": 0, "statements": [], "packages": [], "corpus": str(tmp_path)}))
+
+    for shards in (0, -1):
+        assert _exit(monkeypatch, "plan", "--corpus", tmp_path / "corpus", "--out", tmp_path / "p.json",
+                     "--shards", shards) == 2
+        assert not (tmp_path / "p.json").exists()
+    assert _exit(monkeypatch, "run", "--plan", empty, "--code", tmp_path, "--work", tmp_path / "run") == 2
+    assert not (tmp_path / "run").exists()
+    with pytest.raises(SystemExit) as refused:
+        golden.seal(tmp_path, empty.read_bytes())
+    assert refused.value.code == 2
+    assert not (tmp_path / "complete.json").exists()
+
+
+def test_ids_repeat_while_both_sides_accept_the_same_uploads_and_tokens_follow_plan_position(monkeypatch):
+    monkeypatch.setattr(uuid, "uuid4", uuid.uuid4)
+    golden.repeatable_ids("shard0")
+    base = [str(uuid.uuid4()) for _ in range(3)]
+    golden.repeatable_ids("shard0")
+    same = [str(uuid.uuid4()) for _ in range(3)]
+    golden.repeatable_ids("shard0")
+    refused_first = [None, *(str(uuid.uuid4()) for _ in range(2))]
+
+    def third_job(ids: list) -> bytes:
+        return golden.canonical(200, "application/json", "", json.dumps({"job": ids[2]}).encode(),
+                                {ids[2].encode(): b"job-0002"})
+
+    assert same == base
+    assert refused_first[2] != base[2]
+    assert third_job(refused_first) == third_job(base)
 
 
 def test_diff_names_differing_paths_with_every_digit_masked():

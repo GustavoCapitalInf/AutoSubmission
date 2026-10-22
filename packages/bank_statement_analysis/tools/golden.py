@@ -3,23 +3,27 @@
 Each side uploads every planned statement through one checkout's web API, in-process, into its own scratch data
 folder, so the analysis runs with that checkout's code. Per statement it captures the served analysis and the JSON,
 CSV and XLSX downloads; per package the package analysis and its three downloads; each under the default display
-settings and under every setting flipped. Both sides mint the same job and package ids, because a package orders its
-documents by id. A response is kept as its status, content type, disposition and body, with the job and package ids
-the tool minted replaced by plan positions and an XLSX read part by part with its creation stamp masked; every other
-uuid stays as it is. Responses hold statement data: the tool refuses an output path inside any repository, writes
-its files mode 600 and prints counts only.
+settings and under every setting flipped. Each shard mints its job and package ids from a fixed sequence, so two
+sides that accept the same uploads mint the same ids (a package orders its documents by id); after an upload one side
+refuses and the other accepts, the raw ids that follow differ. A response is kept as its status, content type,
+disposition and body, with the job and package ids the tool minted replaced by tokens of their plan position and an
+XLSX read part by part with its creation stamp masked; every other uuid stays as it is. Responses hold statement data:
+the tool refuses an output path inside any repository, writes its files mode 600 and prints counts only.
 
-  plan    --corpus DIR --out PLAN [--shards N]       one statement per PDF; packages of 2 to 6 from each bank folder
+  plan    --corpus DIR --out PLAN [--shards N]       one statement per PDF; packages of 2 to 6 from each bank folder;
+                                                     N is 1 or more
   run     --plan PLAN --code PKG --work DIR [--ocr-from DIR]
                                                      ingest and capture every shard in parallel, one process each;
                                                      --ocr-from reuses another side's OCR readings only. The run
-                                                     writes DIR/complete.json once each shard holds the eight
-                                                     responses of every accepted upload and package; a shard that
-                                                     captured none fails it
+                                                     writes DIR/complete.json once each shard records one outcome
+                                                     per planned statement, the packages its plan and outcomes call
+                                                     for, and the eight responses of every accepted upload and
+                                                     package; exit 1 when a shard fails, 2 when one captured none or
+                                                     holds another inventory
   compare A B                                        counts by response kind, then each difference as its key; exit
                                                      0 when identical, 1 when a response differs, 2 when a side has
-                                                     no complete.json, ran another plan, or lost or changed a
-                                                     manifest or a capture since its run
+                                                     no valid complete.json, ran another plan, holds no responses, or
+                                                     lost, changed or cannot read a manifest or a capture
   diff    A B --index KEY [KEY ...] --out FILE       the differing paths of those responses, every digit masked
 
 What an identical compare does not cover: settings other than the defaults and all 14 flipped (2 of 2^14 mixes);
@@ -59,6 +63,8 @@ PROFILES = ("default", "flipped")
 FORMATS = ("json", "csv", "xlsx")
 KINDS = ("analysis", *FORMATS)
 NO_PARSER = "no deterministic parser matched this statement"
+OUTCOMES = ("analysed", "no matching parser", "not analysed", "failed", "upload refused")
+RESPONSE_KEY = re.compile(r"[sp]\d{4,}\.(default|flipped)\.(analysis|json|csv|xlsx)")
 UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 XLSX_STAMP = re.compile(r"<dcterms:created>[^<]*</dcterms:created>")
 ABSENT = "<absent>"
@@ -85,6 +91,50 @@ def write_private(path: Path, data: bytes) -> None:
     os.fchmod(fd, 0o600)
     with os.fdopen(fd, "wb") as stream:
         stream.write(data)
+
+
+def incomplete(reason: str) -> NoReturn:
+    print(f"incomplete: {reason}", file=sys.stderr)
+    raise SystemExit(INCOMPLETE)
+
+
+def read_evidence(path: Path) -> bytes:
+    """A file's bytes; exits INCOMPLETE when it is missing or unreadable."""
+    try:
+        return path.read_bytes()
+    except OSError as error:
+        incomplete(f"cannot read {path}: {error.strerror or type(error).__name__}")
+
+
+def json_of(data: bytes) -> object:
+    try:
+        return json.loads(data)
+    except ValueError:
+        return None
+
+
+def plan_of(plan_bytes: bytes) -> dict:
+    """A plan parsed; exits INCOMPLETE unless it declares one or more shards."""
+    planned = json_of(plan_bytes)
+    if not isinstance(planned, dict) or type(planned.get("shards")) is not int or planned["shards"] < 1:
+        incomplete("the plan is not JSON that declares one or more shards")
+    return planned
+
+
+def manifest_of(data: bytes, folder: Path) -> dict:
+    """A shard's manifest parsed; exits INCOMPLETE unless it maps responses, statements and packages."""
+    record = json_of(data)
+    parts = [record.get(part) for part in ("responses", "statements", "packages")] if isinstance(record, dict) else []
+    if not (parts and all(isinstance(part, dict) for part in parts)
+            and all(RESPONSE_KEY.fullmatch(key) and isinstance(value, str) for key, value in parts[0].items())):
+        incomplete(f"{folder}/manifest.json is not a shard manifest")
+    return record
+
+
+def positive(text: str) -> int:
+    if (value := int(text)) < 1:
+        raise argparse.ArgumentTypeError(f"{text} is not 1 or more")
+    return value
 
 
 def make_plan(files: list[tuple[str, int]], shards: int) -> dict:
@@ -260,7 +310,7 @@ def shard(args) -> None:
     # MuPDF prints a PDF's parse errors on standard output; only the counts below may reach it.
     report = os.fdopen(os.dup(1), "w")
     os.dup2(2, 1)
-    planned = json.loads(Path(args.plan).read_text())
+    planned = plan_of(read_evidence(Path(args.plan)))
     corpus, work, k = Path(planned["corpus"]), Path(args.work), args.shard
     data, out = work / "data" / f"shard{k}", work / "capture" / f"shard{k}"
     data.mkdir(parents=True)
@@ -329,13 +379,13 @@ def shard(args) -> None:
 
 
 def run(args) -> None:
+    plan_bytes = read_evidence(Path(args.plan))
+    shards = plan_of(plan_bytes)["shards"]
     work = Path(args.work)
     work.mkdir(mode=0o700, parents=True, exist_ok=True)
     if any(work.iterdir()):
         raise SystemExit(f"refused: {work} is not empty; name a new folder")
     (work / "logs").mkdir(mode=0o700)
-    plan_bytes = Path(args.plan).read_bytes()
-    shards = json.loads(plan_bytes)["shards"]
     started = time.monotonic()
     command = [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "shard", "--plan", str(Path(args.plan)),
                "--code", str(Path(args.code).resolve()), "--work", str(work.resolve())]
@@ -358,29 +408,38 @@ def run(args) -> None:
 
 def seal(work: Path, plan_bytes: bytes) -> int:
     """Write `complete.json`, which compare requires: the plan's digest and, per planned shard, its counts and its
-    manifest's digest. Refuses a shard whose responses are not the eight of each accepted upload and each package its
-    outcomes record, or that captured none. Returns the number of responses."""
+    manifest's digest. Exits INCOMPLETE, writing nothing, unless every shard records one known outcome for each of its
+    planned statements and nothing else, the packages of its plan with two or more accepted uploads (each with its
+    count of analysed members), and the eight responses of each accepted upload and package, at least one. Returns the
+    number of responses."""
+    planned = plan_of(plan_bytes)
     shards = []
-    for k in range(json.loads(plan_bytes)["shards"]):
-        manifest = (work / "capture" / f"shard{k}" / "manifest.json").read_bytes()
-        record = json.loads(manifest)
-        names = [f"s{int(i):04d}" for i, done in record["statements"].items() if done != "upload refused"]
-        names += [f"p{int(i):04d}" for i in record["packages"]]
+    for k in range(planned["shards"]):
+        folder = work / "capture" / f"shard{k}"
+        manifest = read_evidence(folder / "manifest.json")
+        record = manifest_of(manifest, folder)
+        outcomes = record["statements"]
+        statements = {str(i) for i, statement in enumerate(planned["statements"]) if statement["shard"] == k}
+        if outcomes.keys() != statements or not set(outcomes.values()) <= set(OUTCOMES):
+            incomplete(f"shard {k} records {len(outcomes)} outcomes, not one for each of its {len(statements)} "
+                       f"planned statements")
+        accepted = {int(i) for i, done in outcomes.items() if done != "upload refused"}
+        packages = {str(i): sum(outcomes.get(str(member)) == "analysed" for member in package["members"])
+                    for i, package in enumerate(planned["packages"])
+                    if package["shard"] == k and len(accepted & set(package["members"])) >= 2}
+        if record["packages"] != packages:
+            incomplete(f"shard {k} records {len(record['packages'])} packages, its plan and outcomes call for "
+                       f"{len(packages)}")
+        names = [f"s{i:04d}" for i in accepted] + [f"p{int(i):04d}" for i in packages]
         expected = {f"{name}.{profile}.{kind}" for name in names for profile in PROFILES for kind in KINDS}
         if not expected:
-            raise SystemExit(f"refused: shard {k} captured no responses; no upload was accepted")
+            incomplete(f"shard {k} captured no responses; no upload was accepted")
         if record["responses"].keys() != expected:
-            raise SystemExit(f"refused: shard {k} holds {len(record['responses'])} responses, its outcomes call for "
-                             f"{len(expected)}")
-        shards.append({"manifest": digest(manifest), "statements": len(record["statements"]),
-                       "packages": len(record["packages"]), "responses": len(expected)})
+            incomplete(f"shard {k} holds {len(record['responses'])} responses, its outcomes call for {len(expected)}")
+        shards.append({"manifest": digest(manifest), "statements": len(outcomes), "packages": len(packages),
+                       "responses": len(expected)})
     write_private(work / "complete.json", json.dumps({"plan": digest(plan_bytes), "shards": shards}).encode())
     return sum(shard["responses"] for shard in shards)
-
-
-def incomplete(reason: str) -> NoReturn:
-    print(f"incomplete: {reason}", file=sys.stderr)
-    raise SystemExit(INCOMPLETE)
 
 
 def unpacked(capture: Path) -> bytes | None:
@@ -393,18 +452,24 @@ def unpacked(capture: Path) -> bytes | None:
 
 def load_side(work: Path) -> dict:
     """A finished run's manifests, merged, once its completion marker vouches for each shard's manifest and each
-    capture's bytes match their manifest hash. Anything less exits INCOMPLETE."""
+    capture's bytes match their manifest hash. Anything less, or a shard with no responses, exits INCOMPLETE."""
     try:
         marker = json.loads((work / "complete.json").read_bytes())
     except (OSError, ValueError):
         incomplete(f"{work} holds no readable complete.json; its run did not finish")
+    shards = marker.get("shards") if isinstance(marker, dict) else None
+    if not (isinstance(shards, list) and shards and isinstance(marker.get("plan"), str)
+            and all(isinstance(sealed, dict) and isinstance(sealed.get("manifest"), str) for sealed in shards)):
+        incomplete(f"{work}/complete.json does not name a plan and one or more sealed shards")
     side: dict = {"plan": marker["plan"], "responses": {}, "statements": {}, "packages": {}}
-    for k, sealed in enumerate(marker["shards"]):
+    for k, sealed in enumerate(shards):
         folder = work / "capture" / f"shard{k}"
-        manifest = (folder / "manifest.json").read_bytes() if (folder / "manifest.json").is_file() else b""
+        manifest = read_evidence(folder / "manifest.json")
         if digest(manifest) != sealed["manifest"]:
             incomplete(f"{folder} lost its manifest or it changed since its run")
-        record = json.loads(manifest)
+        record = manifest_of(manifest, folder)
+        if not record["responses"]:
+            incomplete(f"{folder} holds no responses")
         for key, expected in record["responses"].items():
             if (data := unpacked(folder / f"{key}.gz")) is None or digest(data) != expected:
                 incomplete(f"{folder} lost the capture {key} or it no longer matches its manifest")
@@ -434,9 +499,9 @@ def compare(args) -> None:
 
 def stored(work: str, key: str) -> bytes:
     path = next((Path(work) / "capture").glob(f"shard*/{key}.gz"), None)
-    if path is None:
-        raise SystemExit(f"refused: {work} holds no response {key}")
-    return gzip.decompress(path.read_bytes())
+    if path is None or (data := unpacked(path)) is None:
+        incomplete(f"{work} holds no readable response {key}")
+    return data
 
 
 def diff(args) -> None:
@@ -457,7 +522,7 @@ def main() -> None:
     p = commands.add_parser("plan")
     p.add_argument("--corpus", required=True)
     p.add_argument("--out", required=True)
-    p.add_argument("--shards", type=int, default=16)
+    p.add_argument("--shards", type=positive, default=16)
     for name in ("run", "shard"):
         p = commands.add_parser(name)
         p.add_argument("--plan", required=True)
