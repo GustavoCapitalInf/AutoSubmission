@@ -199,12 +199,18 @@ def _code_lines(path: Path):
             yield number, line
 
 
+def _layer_name(path: Path, layer: Path) -> str:
+    """`path` relative to its scan root. Allow-lists match on this, never on the bare
+    file name, so a nested `pkg/metrics.py` does not inherit `metrics.py`'s exemption."""
+    return path.relative_to(layer).as_posix()
+
+
 def _parser_modules() -> list[Path]:
     """Every module in the parser layer the pattern scans apply to."""
     return [
         path
-        for path in sorted(ANALYSIS_DIR.glob("*.py"))
-        if path.name not in LITERAL_SCAN_EXEMPT
+        for path in sorted(ANALYSIS_DIR.rglob("*.py"))
+        if _layer_name(path, ANALYSIS_DIR) not in LITERAL_SCAN_EXEMPT
     ]
 
 
@@ -291,13 +297,13 @@ def test_removed_literals_stay_removed_anywhere_in_analysis():
     issuer's nine archive statements and hid the other six.
     """
     offenders = []
-    for path in sorted(ANALYSIS_DIR.glob("*.py")):
-        if path.name in LITERAL_SCAN_EXEMPT:
+    for path in sorted(ANALYSIS_DIR.rglob("*.py")):
+        if _layer_name(path, ANALYSIS_DIR) in LITERAL_SCAN_EXEMPT:
             continue
         source = path.read_text(encoding="utf-8").upper()
         for literal in REMOVED_LITERALS:
             if literal.upper() in source:
-                offenders.append(f"{path.name}: {literal}")
+                offenders.append(f"{_layer_name(path, ANALYSIS_DIR)}: {literal}")
     assert not offenders, f"statement-specific literals in analysis/: {offenders}"
 
 
@@ -374,7 +380,7 @@ def _literal_year_offenders() -> list[str]:
                 continue
             if "2000 +" in line or "+= 2000" in line or "+ 2000" in line:
                 continue
-            offenders.append(f"{path.name}:{number}: {line.strip()}")
+            offenders.append(f"{_layer_name(path, ANALYSIS_DIR)}:{number}: {line.strip()}")
     return offenders
 
 
@@ -392,6 +398,15 @@ def test_a_planted_literal_year_is_an_offender(tmp_path, monkeypatch):
     assert _literal_year_offenders()
 
 
+def test_a_nested_module_cannot_borrow_a_top_level_exemption(tmp_path, monkeypatch):
+    nested = tmp_path / "analysis" / "pkg"
+    nested.mkdir(parents=True)
+    (nested / "metrics.py").write_text("PLANTED_TOTAL = 4321.09\n", encoding="utf-8")
+    monkeypatch.setitem(globals(), "ANALYSIS_DIR", tmp_path / "analysis")
+    with pytest.raises(AssertionError):
+        test_no_exact_amount_constants_anywhere_in_analysis()
+
+
 def test_no_exact_amount_constants_anywhere_in_analysis():
     """Layer-wide, and the scan that would have caught `first_citizens.py`.
 
@@ -400,12 +415,12 @@ def test_no_exact_amount_constants_anywhere_in_analysis():
     """
     offenders = []
     for path in _parser_modules():
-        if path.name in PATTERN_SCAN_EXEMPT:
+        if _layer_name(path, ANALYSIS_DIR) in PATTERN_SCAN_EXEMPT:
             continue
         for number, line in _code_lines(path):
             for match in AMOUNT_RE.finditer(line):
                 if float(match.group(0)) >= 1.0:
-                    offenders.append(f"{path.name}:{number}: {line.strip()}")
+                    offenders.append(f"{_layer_name(path, ANALYSIS_DIR)}:{number}: {line.strip()}")
                     break
     assert not offenders, f"exact-cent amount constants: {offenders}"
 
@@ -418,14 +433,14 @@ def test_no_literal_calendar_fields_in_patterns():
     """
     offenders = []
     for path in _parser_modules():
-        if path.name in CALENDAR_BASELINE:
+        if _layer_name(path, ANALYSIS_DIR) in CALENDAR_BASELINE:
             continue
         for number, text in _pattern_strings(path):
             if "\\d" not in text and "\\s" not in text:
                 continue
             for match in CALENDAR_RE.finditer(text):
                 offenders.append(
-                    f"{path.name}:{number}: literal {match.group(1)!r} in {text[:70]!r}"
+                    f"{_layer_name(path, ANALYSIS_DIR)}:{number}: literal {match.group(1)!r} in {text[:70]!r}"
                 )
     assert not offenders, f"literal calendar fields pinned into patterns: {offenders}"
 
@@ -464,9 +479,10 @@ def test_pattern_scans_cover_every_parser_module():
     The defect this file now guards against was a scope defect, so the scope
     itself is asserted rather than assumed.
     """
-    scanned = {path.name for path in _parser_modules()}
-    every = {path.name for path in ANALYSIS_DIR.glob("*.py")}
+    scanned = {_layer_name(path, ANALYSIS_DIR) for path in _parser_modules()}
+    every = {_layer_name(path, ANALYSIS_DIR) for path in ANALYSIS_DIR.rglob("*.py")}
     assert every - scanned == LITERAL_SCAN_EXEMPT
+    assert any("/" in name for name in scanned), "the scans no longer reach sub-packages"
     assert "first_citizens.py" in scanned
     assert "citizens.py" in scanned
     assert not (PATTERN_SCAN_EXEMPT & {"first_citizens.py", "citizens.py"})
@@ -743,7 +759,7 @@ def test_closing_the_docstring_hole_flags_no_module():
         for _, line in _code_lines(path):
             for match in AMOUNT_RE.finditer(line):
                 if float(match.group(0)) >= 1.0:
-                    offenders.add(path.name)
+                    offenders.add(_layer_name(path, ANALYSIS_DIR))
                     break
     assert offenders <= PATTERN_SCAN_EXEMPT
     assert "extract.py" not in offenders
@@ -778,8 +794,8 @@ OCR_AMOUNT_BASELINE = {"column_grid.py", "render.py"}
 
 
 def _ocr_modules() -> list[Path]:
-    """Every module the OQ2 scans apply to: all of `ocr/*.py`."""
-    return sorted(OCR_DIR.glob("*.py"))
+    """Every module the OQ2 scans apply to: all of `ocr/**/*.py`."""
+    return sorted(OCR_DIR.rglob("*.py"))
 
 
 def test_no_removed_literals_in_ocr():
@@ -932,7 +948,7 @@ def test_ocr_account_guard_preserves_neighboring_literals_on_the_same_line(tmp_p
 def test_no_exact_amount_constants_in_ocr():
     offenders = []
     for path in _ocr_modules():
-        if path.name in OCR_AMOUNT_BASELINE:
+        if _layer_name(path, OCR_DIR) in OCR_AMOUNT_BASELINE:
             continue
         for number, line in _code_lines(path):
             for match in AMOUNT_RE.finditer(line):
@@ -1119,7 +1135,7 @@ def test_every_issuer_named_regex_in_ocr_is_registered():
     offenders = []
     scanned = []
     for path in _ocr_modules():
-        if path.name in OCR_ISSUER_STRING_BASELINE:
+        if _layer_name(path, OCR_DIR) in OCR_ISSUER_STRING_BASELINE:
             continue
         scanned.append(path.name)
         offenders.extend(_unregistered_issuer_markers(path, registered))
@@ -1255,12 +1271,12 @@ P22_TRUTHTABLE_MODULES = [
 #: accident is one rename away from covering nothing.
 
 def _paddle_phase21_modules() -> list[Path]:
-    """`evidence/*.py` — CASE 15's scope, which also held `tools/paddle_vast.py`
-    until slice S5 removed it — plus `layout/*.py` (Phase 2.2 case 24) and cell
+    """`evidence/**/*.py` — CASE 15's scope, which also held `tools/paddle_vast.py`
+    until slice S5 removed it — plus `layout/**/*.py` (Phase 2.2 case 24) and cell
     T's two new modules. The name is kept (it
     is imported by `tests/test_layout_signals.py`)."""
-    modules = sorted(EVIDENCE_DIR.glob("*.py"))
-    modules.extend(sorted(LAYOUT_DIR.glob("*.py")))
+    modules = sorted(EVIDENCE_DIR.rglob("*.py"))
+    modules.extend(sorted(LAYOUT_DIR.rglob("*.py")))
     modules.extend(path for path in P22_TRUTHTABLE_MODULES if path.exists())
     return modules
 
@@ -1319,7 +1335,7 @@ EVIDENCE_ACCOUNT_BASELINE = {"canonical.py"}
 def test_no_literal_account_numbers_in_evidence_and_paddle_vast():
     offenders = []
     for path in _paddle_phase21_modules():
-        if path.name in EVIDENCE_ACCOUNT_BASELINE:
+        if path in {EVIDENCE_DIR / name for name in EVIDENCE_ACCOUNT_BASELINE}:
             continue
         for number, line in _code_lines(path):
             if ACCOUNT_RE.search(line):
