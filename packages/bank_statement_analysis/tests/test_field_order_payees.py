@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from analysis.classification_registry import FIELD_ORDER_PAYEE_FORMS, PAYEE_GROUP_REGISTRIES
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 
 CHASE_LOAN = ("Orig CO Name:American Express Orig ID:1234567890 Desc Date:540105 CO Entry Descr:Loan Pmt Sec:CCD "
               "Trace#:1234 Ind Name:Fab Holder")

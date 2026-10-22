@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import obligations
 from analysis.classification import operating_sources
 from analysis.classification import tax_forms
 from analysis.descriptor import financing
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 
 
 @pytest.mark.parametrize(
@@ -120,11 +120,7 @@ def test_a_review_tier_payee_with_lease_wording_is_a_lease_by_its_wording():
 
 @pytest.fixture
 def fabricated_bank(monkeypatch):
-    monkeypatch.setattr(
-        transaction_classifier,
-        "BANK_NAME_ALIASES",
-        {"Fabricated Bank": ("FABRICATED BANK",)},
-    )
+    monkeypatch.setattr(obligations, "BANK_NAME_ALIASES", {"Fabricated Bank": ("FABRICATED BANK",)})
 
 
 def test_a_listed_bank_with_loan_wording_is_a_bank_loan(fabricated_bank):
@@ -165,10 +161,10 @@ def test_the_owner_truist_example_is_a_bank_loan():
 
 def test_a_listed_card_issuer_needs_payment_wording(monkeypatch):
     patched_card_issuer_context_aliases = {"Fabricated Issuer": ("FABRICATED ISSUER",)}
-    monkeypatch.setattr(transaction_classifier, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(operating_sources, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(tax_forms, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(financing, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
+    monkeypatch.setattr(obligations, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     paid = classify_transaction("FABRICATED ISSUER EPAYMENT 0001", -300.0)
     bare = classify_transaction("FABRICATED ISSUER 0001", -300.0)
     assert (paid.classification, paid.canonical_entity, paid.matched_alias) == (
@@ -184,10 +180,10 @@ def test_card_issuer_wording_reads_paymnt_and_a_payment_word_glued_to_its_sec_la
     """Owner decision 2026-09-25: Synchrony prints PAYMNT, and Chase's field layout can glue
     the payment word to its SEC label."""
     patched_card_issuer_context_aliases = {"Fabricated Issuer": ("FABRICATED ISSUER",)}
-    monkeypatch.setattr(transaction_classifier, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(operating_sources, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(tax_forms, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     monkeypatch.setattr(financing, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
+    monkeypatch.setattr(obligations, "CARD_ISSUER_CONTEXT_ALIASES", patched_card_issuer_context_aliases)
     record = classify_transaction(description, -300.0)
     assert (record.classification, record.canonical_entity) == ("credit_card_payment", "Fabricated Issuer")
 

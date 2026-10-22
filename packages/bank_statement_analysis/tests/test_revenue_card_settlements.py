@@ -10,7 +10,7 @@ from analysis.classification_registry import (
     PROCESSOR_ADVANCE_PRODUCTS,
     PROCESSORS_WITHOUT_ADVANCE_PRODUCT,
 )
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 
 
 def _credit(printed: str, *, holder: str | None = None, bank: str | None = None, amount: float = 250.0):

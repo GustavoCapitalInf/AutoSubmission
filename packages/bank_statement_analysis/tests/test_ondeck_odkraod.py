@@ -19,6 +19,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import row
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
@@ -60,7 +61,7 @@ def test_the_ledger_holds_odkraod_once_under_ondeck_with_its_round_3_verdict():
     ],
 )
 def test_an_odkraod_debit_is_a_counted_ondeck_payment(printed, bank):
-    record = tc.classify_transaction(printed, -550.0, bank=bank)
+    record = row.classify_transaction(printed, -550.0, bank=bank)
     assert (record.classification, record.canonical_entity, record.matched_alias) == (
         "confirmed_lender", "ONDECK", "ODKRAOD")
     assert record.contributes_to_lender_totals and record.contributes_to_withholding_rate
@@ -89,7 +90,7 @@ def test_a_statement_reads_the_odkraod_weeks_as_ondeck_payments():
 
 
 def test_an_odkraod_credit_is_ondeck_s_funding():
-    record = tc.classify_transaction("ODKRAOD FUNDING 00000", 25000.0)
+    record = row.classify_transaction("ODKRAOD FUNDING 00000", 25000.0)
     assert (record.classification, record.canonical_entity) == ("other", "ONDECK")
     assert (record.match_method, record.matched_rule) == ("financing_proceeds_credit", "financing_proceeds_credit")
     assert (record.revenue_classification, record.revenue_canonical_entity) == ("non_revenue", "ONDECK")
@@ -99,5 +100,5 @@ def test_an_odkraod_credit_is_ondeck_s_funding():
 def test_an_odkraod_row_printing_a_stop_or_charge_word_is_a_charge():
     # Audit round 3, R3-80: the bank's charge naming a funder is a charge, for ODKRAOD as for every funder.
     for printed in ("STOP PAYMENT ODKRAOD", "STOP PAYMENT CHARGE ODKRAOD"):
-        record = tc.classify_transaction(printed, -35.0)
+        record = row.classify_transaction(printed, -35.0)
         assert (record.classification, record.canonical_entity) == ("fee", None)

@@ -3,11 +3,12 @@ from __future__ import annotations
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import transaction_classifier
+from analysis.transaction_classifier import credit_decision
 from analysis.flag_groups import FINANCING_STATES
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import FAKE_PAYEES, fake_payees, txn  # noqa: F401  (fixture)
 
 PAYEE_ROWS = [(alias, *FAKE_PAYEES[alias]) for alias in FAKE_PAYEES]
@@ -76,7 +77,7 @@ def test_platform_financing_credits_are_proceeds_but_platform_sales_stay_revenue
 def fabricated_payout_entity(monkeypatch):
     """Owner decision 2026-09-25: the credits of a PAYOUT_CREDIT_ENTITIES payee are the
     account holder's own sales, settled by the platform."""
-    monkeypatch.setattr(transaction_classifier, "PAYOUT_CREDIT_ENTITIES", ("Fabricated BNPL",))
+    monkeypatch.setattr(credit_decision, "PAYOUT_CREDIT_ENTITIES", ("Fabricated BNPL",))
 
 
 def test_a_payout_credit_entitys_credit_is_revenue_not_proceeds(fake_payees, fabricated_payout_entity):
@@ -141,7 +142,7 @@ def before_oq2(monkeypatch):
 
     def classify(description, amount):
         with monkeypatch.context() as patch:
-            patch.setattr(transaction_classifier, "PAYOUT_CREDIT_ENTITIES", before)
+            patch.setattr(credit_decision, "PAYOUT_CREDIT_ENTITIES", before)
             return classify_transaction(description, amount)
 
     return classify

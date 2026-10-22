@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import fake_payees  # noqa: F401  (fixture)
 
 

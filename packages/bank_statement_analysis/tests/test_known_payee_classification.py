@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from analysis.flag_groups import FLAG_GROUP_BY_STATE
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import FAKE_PAYEES, fake_payees  # noqa: F401  (fixture)
 
 PAYEE_ROWS = [(alias, *FAKE_PAYEES[alias]) for alias in FAKE_PAYEES]

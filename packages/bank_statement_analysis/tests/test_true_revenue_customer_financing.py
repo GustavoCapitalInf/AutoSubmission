@@ -24,7 +24,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import transaction_classifier as classifier
+from analysis.transaction_classifier import credit_decision
 from analysis.descriptor import credit_words
 from analysis.descriptor import lexical
 from analysis.descriptor import words
@@ -587,10 +587,10 @@ def test_r3_b14_r1_the_classifier_s_cherry_veto_reads_the_holder_s_names_out():
     match = payee_matcher.match_known_payee("CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL", credit=True)
     assert match is not None and match.entity == "Cherry Technologies, Inc."
     row = "CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL"
-    assert classifier._is_payout_credit(row, match, account_name="CAPITAL CONTOSO DENTAL LLC")
+    assert credit_decision._is_payout_credit(row, match, account_name="CAPITAL CONTOSO DENTAL LLC")
     # Without the holder's name the word is read, as R3-06 reads any Cherry row printing it.
-    assert not classifier._is_payout_credit(row, match)
-    assert not classifier._is_payout_credit(row.replace("FUNDING", "ADVANCE"), match,
+    assert not credit_decision._is_payout_credit(row, match)
+    assert not credit_decision._is_payout_credit(row.replace("FUNDING", "ADVANCE"), match,
                                             account_name="CAPITAL CONTOSO DENTAL LLC")
 
 
@@ -745,7 +745,7 @@ def test_the_registry_names_the_eight_financiers_and_cherry_joins_the_payout_ent
         "Progressive Leasing",
     ]
     assert "Cherry Technologies, Inc." in registry.PAYOUT_CREDIT_ENTITIES
-    assert "Cherry Technologies, Inc." in classifier._OQ2_BNPL_ENTITIES
+    assert "Cherry Technologies, Inc." in credit_decision._OQ2_BNPL_ENTITIES
     # Audit round 3, R3-B14 (R3-54): the names miss every cut form of Katapult Engineering, and read the lessor's own.
     import re
 

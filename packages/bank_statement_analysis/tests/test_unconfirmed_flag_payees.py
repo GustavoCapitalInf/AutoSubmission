@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import credit_decision
+from analysis.transaction_classifier import row
 from analysis.true_revenue import dealer
 from analysis.classification import credit_predicates
 from analysis.classification import payees
@@ -13,7 +14,8 @@ from analysis.classification_registry import POTENTIAL_LENDER_ALIASES, REVIEW_FL
 from analysis.detect import find_flagged_positions
 from analysis.flag_groups import FLAG_GROUP_BY_STATE
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import fake_payees, txn  # noqa: F401  (fixture)
 
 #: Fabricated review entities, one per routed group, and one whose business type the ledger does not know.
@@ -34,11 +36,12 @@ FABRICATED_ROUTES = {
 
 @pytest.fixture
 def review_payees(monkeypatch):
-    monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(credit_predicates, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(payees, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
+    monkeypatch.setattr(credit_decision, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
+    monkeypatch.setattr(row, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(dealer, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
-    monkeypatch.setattr(transaction_classifier, "REVIEW_FLAG_ENTITIES", FABRICATED_ROUTES)
+    monkeypatch.setattr(row, "REVIEW_FLAG_ENTITIES", FABRICATED_ROUTES)
 
 
 @pytest.mark.parametrize(("entity", "state"), sorted(FABRICATED_ROUTES.items()))

@@ -1352,7 +1352,7 @@ def test_a_platform_credit_whose_entry_leads_with_a_financing_word_is_a_declared
     later = _held("operating_source_requires_context", text, cents=5000, reason="financing_named_payer")
     assert _causes([prior], [{**later, "rule": census.PLATFORM_FINANCING_ENTRY_RULE}]) == {"platform_financing_entry": 1}
     assert _causes([prior], [{**later, "rule": "operating_source_without_payout_context"}]) == {"undeclared": 1}
-    from analysis.transaction_classifier import PLATFORM_FINANCING_ENTRY_RULE
+    from analysis.transaction_classifier.credit_decision import PLATFORM_FINANCING_ENTRY_RULE
 
     assert census.PLATFORM_FINANCING_ENTRY_RULE == PLATFORM_FINANCING_ENTRY_RULE
 

@@ -16,6 +16,7 @@ import pytest
 
 from analysis import lender_payment_changes as lpc
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
 
@@ -53,7 +54,7 @@ def _no_lender_contribution(record) -> bool:
 @pytest.mark.parametrize("bank", BANKS)
 @pytest.mark.parametrize("printed", FEE_CHARGES)
 def test_a_stop_payment_or_item_charge_is_a_fee_never_a_lender(printed, bank):
-    record = tc.classify_transaction(printed, -35.0, bank=bank)
+    record = transaction_classifier_row.classify_transaction(printed, -35.0, bank=bank)
     assert (record.classification, record.matched_rule, record.canonical_entity) == (
         "fee", "bank_or_processing_fee", None)
     assert _no_lender_contribution(record)
@@ -62,7 +63,7 @@ def test_a_stop_payment_or_item_charge_is_a_fee_never_a_lender(printed, bank):
 @pytest.mark.parametrize("bank", BANKS)
 @pytest.mark.parametrize("printed", NSF_CHARGES)
 def test_a_returned_or_unpaid_item_charge_is_a_returned_item_never_a_lender(printed, bank):
-    record = tc.classify_transaction(printed, -35.0, bank=bank)
+    record = transaction_classifier_row.classify_transaction(printed, -35.0, bank=bank)
     assert (record.classification, record.matched_rule, record.canonical_entity) == (
         "nsf_or_return", "nsf_or_return", None)
     assert _no_lender_contribution(record)
@@ -115,7 +116,7 @@ def test_a_stop_payment_charge_after_a_funder_s_last_payment_keeps_its_possible_
     ],
 )
 def test_the_existing_fee_and_returned_item_words_read_as_before(printed, state):
-    assert tc.classify_transaction(printed, -35.0).classification == state
+    assert transaction_classifier_row.classify_transaction(printed, -35.0).classification == state
 
 
 @pytest.mark.parametrize(
@@ -129,7 +130,7 @@ def test_the_existing_fee_and_returned_item_words_read_as_before(printed, state)
     ],
 )
 def test_the_forms_that_may_be_the_funder_s_own_debit_keep_their_lender_reading(printed, entity):
-    record = tc.classify_transaction(printed, -400.0)
+    record = transaction_classifier_row.classify_transaction(printed, -400.0)
     assert (record.classification, record.canonical_entity) == ("confirmed_lender", entity)
     assert record.contributes_to_lender_totals
 
@@ -137,21 +138,21 @@ def test_the_forms_that_may_be_the_funder_s_own_debit_keep_their_lender_reading(
 def test_a_payee_whose_name_holds_stop_is_never_read_as_a_stop():
     # STOP is not at the row's start, and PAYMENTS is no stop form: today's reading.
     printed = "FABRIKAM STOP PAYMENTS LLC DES:PAYMENT ID:0001 INDN:CONTOSO BAKERY LLC CO ID:0000000003 CCD"
-    record = tc.classify_transaction(printed, -500.0)
+    record = transaction_classifier_row.classify_transaction(printed, -500.0)
     assert (record.classification, record.matched_rule) == ("other", "no_classification_rule")
 
 
 def _without_the_new_words(monkeypatch):
-    monkeypatch.setattr(tc, "_DEBIT_ITEM_CHARGE_NSF_PATTERNS", ())
-    monkeypatch.setattr(tc, "_DEBIT_BANK_CHARGE_FEE_PATTERNS", ())
+    monkeypatch.setattr(transaction_classifier_row, "_DEBIT_ITEM_CHARGE_NSF_PATTERNS", ())
+    monkeypatch.setattr(transaction_classifier_row, "_DEBIT_BANK_CHARGE_FEE_PATTERNS", ())
 
 
 @pytest.mark.parametrize("printed", [*FEE_CHARGES, *NSF_CHARGES, "ACH RETURN KAPITUS STOP PAYMENT"])
 def test_a_credit_keeps_today_s_reading(monkeypatch, printed):
     # The tuples are debit-only: a credit printing the same words reads exactly as without them.
-    after = tc.classify_transaction(printed, 35.0)
+    after = transaction_classifier_row.classify_transaction(printed, 35.0)
     _without_the_new_words(monkeypatch)
-    before = tc.classify_transaction(printed, 35.0)
+    before = transaction_classifier_row.classify_transaction(printed, 35.0)
     assert after == before
 
 

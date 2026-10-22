@@ -323,7 +323,7 @@ HOLDER_OWN_PUSH_METHOD = "self_originated_holder"
 #: checkouts).
 _BANK_ONLY_COUNTED_REASONS = frozenset({"no_payer_printed", "payer_text_not_read"})
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
-#: (analysis/transaction_classifier.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
+#: (analysis/transaction_classifier/credit_decision.py PLATFORM_FINANCING_ENTRY_RULE, copied: the census reads other checkouts).
 PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
 #: §8.5, §8.6: the methods Q5 and Q6 verify with.
 Q5_Q6_METHODS = frozenset({

@@ -17,6 +17,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis import transaction_classifier  # noqa: E402
+from analysis.transaction_classifier import credit_decision  # noqa: E402
+from analysis.transaction_classifier import obligations  # noqa: E402
+from analysis.transaction_classifier import row  # noqa: E402
 from analysis.transaction_classifier import funder_returns  # noqa: E402
 from analysis.transaction_classifier import operating_context  # noqa: E402
 from analysis.classification import credit_predicates  # noqa: E402
@@ -69,15 +72,18 @@ def legacy_match_known_payee(normalized_text: str, *, credit: bool = False) -> P
 #: Each module whose functions read the classifier's matchers, with the matcher it reads. Each such module
 #: holds its own binding of the matcher, so the swap sets every binding.
 MATCHER_BINDINGS = (
-    (transaction_classifier, "match_known_payee"),
-    (transaction_classifier, "registry_match"),
     (credit_predicates, "match_known_payee"),
     (operating_sources, "registry_match"),
     (payees, "registry_match"),
     (tax_forms, "registry_match"),
     (financing, "registry_match"),
+    (credit_decision, "match_known_payee"),
+    (credit_decision, "registry_match"),
     (funder_returns, "match_known_payee"),
+    (obligations, "registry_match"),
     (operating_context, "registry_match"),
+    (row, "match_known_payee"),
+    (row, "registry_match"),
 )
 
 
