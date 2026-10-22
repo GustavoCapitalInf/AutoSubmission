@@ -34,8 +34,8 @@ def _march(number=NUMBER, bank="CONTOSO BANK", opening=11500.0):
 
 
 def _returned(*, april_number=NUMBER, banks=None):
-    """S1, the owner's example: does pass 1 match April's returned deposit to March's deposit? `banks` sets the bank
-    each statement prints, (March, April)."""
+    """Does pass 1 match April's returned deposit to March's deposit? `banks` sets the bank each statement prints,
+    (March, April)."""
     march, april = matching._owners_example(april_number=april_number)
     if banks is not None:
         march["statement"]["bank"], april["statement"]["bank"] = banks
