@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from .payload_shape import DOCUMENT_SHAPE, assert_payload_shape, payload_accounts
 
@@ -268,6 +268,62 @@ def _number(value: object) -> float:
         return 0.0
 
 
+class PostedCredit(NamedTuple):
+    """One posted credit, filed under the state and tier its caller chose (no tier on a payload analysed before tiers).
+    `record` is the caller's own record of it, kept by reference."""
+    amount: float
+    state: RevenueState
+    tier: str | None
+    reason: str | None
+    record: object
+
+
+class RevenueBucket(NamedTuple):
+    total: float
+    count: int
+    records: list
+
+
+class RevenueBuckets(NamedTuple):
+    posted: RevenueBucket
+    states: dict[RevenueState, RevenueBucket]
+    tiers: dict[RevenueTier, RevenueBucket]
+    #: {tier: {reason: {"count", "total"}}}, sorted by reason: the middle tiers by their reason ("" when none), and
+    #: non_revenue by NON_REVENUE_REASONS alone (true revenue spec §9.1).
+    by_reason: dict[str, dict[str, dict[str, float | int]]]
+
+
+def revenue_buckets(credits: list[PostedCredit]) -> RevenueBuckets:
+    """Every credit in the posted bucket and its state bucket, and in its tier bucket when its tier is one of
+    REVENUE_TIERS. Each bucket keeps its credits' records in the order given and its total rounded to cents."""
+    reasons: dict[str, dict[str, list[PostedCredit]]] = {
+        "counted_flagged": {}, "excluded_pending_review": {}, "non_revenue": {},
+    }
+    for credit in credits:
+        if credit.tier in ("counted_flagged", "excluded_pending_review"):
+            reasons[credit.tier].setdefault(credit.reason or "", []).append(credit)
+        elif credit.tier == "non_revenue" and non_revenue_reason(credit.reason):
+            reasons["non_revenue"].setdefault(credit.reason, []).append(credit)
+    return RevenueBuckets(
+        posted=_bucket(credits),
+        states={state: _bucket([credit for credit in credits if credit.state == state]) for state in REVENUE_STATES},
+        tiers={tier: _bucket([credit for credit in credits if credit.tier == tier]) for tier in REVENUE_TIERS},
+        by_reason={
+            tier: {
+                reason: {"count": len(group), "total": _bucket(group).total} for reason, group in sorted(groups.items())
+            }
+            for tier, groups in reasons.items()
+        },
+    )
+
+
+def _bucket(credits: list[PostedCredit]) -> RevenueBucket:
+    total = 0.0
+    for credit in credits:
+        total += credit.amount  # one at a time: builtin sum() compensates float error and can land on another cent
+    return RevenueBucket(round(total, 2), len(credits), [credit.record for credit in credits])
+
+
 def rebuild_serialized_revenue_views(analysis: dict) -> dict:
     """Rebuild every serialized revenue view from transaction records in place.
 
@@ -323,17 +379,7 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
     `contributes_to_true_revenue`)."""
     statement = analysis["statement"]
     transactions = statement.get("transactions") or []
-    evidence: dict[str, list[dict]] = {state: [] for state in REVENUE_STATES}
-    tier_evidence: dict[str, list[dict]] = {tier: [] for tier in REVENUE_TIERS}
-    totals: dict[str, float] = {state: 0.0 for state in REVENUE_STATES}
-    counts: dict[str, int] = {state: 0 for state in REVENUE_STATES}
-    tier_totals: dict[str, float] = {tier: 0.0 for tier in REVENUE_TIERS}
-    tier_counts: dict[str, int] = {tier: 0 for tier in REVENUE_TIERS}
-    by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
-    # R2-OW03: the non_revenue rows that carry a non_revenue code, apart from the counted and held reasons.
-    non_revenue_by_reason: dict[str, list] = {}
-    posted_total = 0.0
-    posted_count = 0
+    posted_credits: list[PostedCredit] = []
     direction_conflict = False
     serialized_records: list[dict] = []
 
@@ -359,8 +405,6 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         if amount <= 0 or record.get("is_posted") is False:
             serialized_records.append(deepcopy(record))
             continue
-        posted_total += amount
-        posted_count += 1
         state = LEGACY_REVENUE_STATE_MAP.get(
             record.get("revenue_classification"),
             record.get("revenue_classification"),
@@ -387,35 +431,18 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         ):
             direction_conflict = True
         serialized_records.append(deepcopy(record))
-        totals[state] += amount
-        counts[state] += 1
-        evidence[state].append(deepcopy(record))
-        if tiered:
-            tier_totals[tier] += amount
-            tier_counts[tier] += 1
-            tier_evidence[tier].append(deepcopy(record))
-            if tier in by_reason:
-                slot = by_reason[tier].setdefault(record.get("revenue_tier_reason") or "", [0, 0.0])
-                slot[0] += 1
-                slot[1] += amount
-            elif tier == "non_revenue" and non_revenue_reason(record.get("revenue_tier_reason")):
-                slot = non_revenue_by_reason.setdefault(record["revenue_tier_reason"], [0, 0.0])
-                slot[0] += 1
-                slot[1] += amount
+        posted_credits.append(PostedCredit(amount, state, tier, record.get("revenue_tier_reason"), record))
 
-    posted_total = round(posted_total, 2)
-    for state in REVENUE_STATES:
-        totals[state] = round(totals[state], 2)
-    for tier in REVENUE_TIERS:
-        tier_totals[tier] = round(tier_totals[tier], 2)
-    classified_total = round(sum(totals.values()), 2)
-    classified_count = sum(counts.values())
-    if tiered:
-        classified_total = round(sum(tier_totals.values()), 2)
-        classified_count = sum(tier_counts.values())
-    delta = round(classified_total - posted_total, 2)
-    reconciles = delta == 0.0 and classified_count == posted_count
-    true_total = round(tier_totals["verified"] + tier_totals["counted_flagged"], 2) if tiered else None
+    revenue = revenue_buckets(posted_credits)
+    posted, states, tiers = revenue.posted, revenue.states, revenue.tiers
+    evidence = {state: [deepcopy(record) for record in bucket.records] for state, bucket in states.items()}
+    tier_evidence = {tier: [deepcopy(record) for record in bucket.records] for tier, bucket in tiers.items()}
+    identity = tiers if tiered else states
+    classified_total = round(sum(bucket.total for bucket in identity.values()), 2)
+    classified_count = sum(bucket.count for bucket in identity.values())
+    delta = round(classified_total - posted.total, 2)
+    reconciles = delta == 0.0 and classified_count == posted.count
+    true_total = round(tiers["verified"].total + tiers["counted_flagged"].total, 2) if tiered else None
     true_evidence = (
         [deepcopy(record) for record in serialized_records if record.get("contributes_to_true_revenue")]
         if tiered else None
@@ -423,16 +450,16 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
 
     metrics = analysis.setdefault("metrics", {})
     metrics.update({
-        "total_posted_credits": posted_total,
-        "total_posted_credit_count": posted_count,
-        "verified_revenue_total": totals["verified_revenue"],
-        "verified_revenue_count": counts["verified_revenue"],
-        "unverified_deposit_total": totals["unverified_deposit"],
-        "unverified_deposit_count": counts["unverified_deposit"],
-        "non_revenue_total": totals["non_revenue"],
-        "non_revenue_count": counts["non_revenue"],
+        "total_posted_credits": posted.total,
+        "total_posted_credit_count": posted.count,
+        "verified_revenue_total": states["verified_revenue"].total,
+        "verified_revenue_count": states["verified_revenue"].count,
+        "unverified_deposit_total": states["unverified_deposit"].total,
+        "unverified_deposit_count": states["unverified_deposit"].count,
+        "non_revenue_total": states["non_revenue"].total,
+        "non_revenue_count": states["non_revenue"].count,
         "maximum_revenue": round(
-            totals["verified_revenue"] + totals["unverified_deposit"], 2
+            states["verified_revenue"].total + states["unverified_deposit"].total, 2
         ),
         "revenue_classified_total": classified_total,
         "revenue_classified_count": classified_count,
@@ -447,31 +474,31 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         # Deprecated aggregate aliases, all derived from canonical records. 5.6 (T9): `true_revenue` and
         # `true_revenue_evidence` are True revenue; None on a payload analysed before 5.6 (§12).
         "true_revenue": true_total,
-        "confirmed_true_revenue": totals["verified_revenue"],
-        "confirmed_true_revenue_total": totals["verified_revenue"],
-        "confirmed_true_revenue_count": counts["verified_revenue"],
-        "potential_revenue_total": totals["unverified_deposit"],
-        "potential_revenue_count": counts["unverified_deposit"],
+        "confirmed_true_revenue": states["verified_revenue"].total,
+        "confirmed_true_revenue_total": states["verified_revenue"].total,
+        "confirmed_true_revenue_count": states["verified_revenue"].count,
+        "potential_revenue_total": states["unverified_deposit"].total,
+        "potential_revenue_count": states["unverified_deposit"].count,
         "true_revenue_evidence": true_evidence,
         "potential_revenue_evidence": evidence["unverified_deposit"],
     })
     if tiered:
         metrics.update({
             "true_revenue_total": true_total,
-            "true_revenue_count": tier_counts["verified"] + tier_counts["counted_flagged"],
-            "counted_flagged_total": tier_totals["counted_flagged"],
-            "counted_flagged_count": tier_counts["counted_flagged"],
-            "excluded_pending_review_total": tier_totals["excluded_pending_review"],
-            "excluded_pending_review_count": tier_counts["excluded_pending_review"],
-            "counted_flagged_by_reason": _by_reason(by_reason["counted_flagged"]),
-            "excluded_pending_review_by_reason": _by_reason(by_reason["excluded_pending_review"]),
+            "true_revenue_count": tiers["verified"].count + tiers["counted_flagged"].count,
+            "counted_flagged_total": tiers["counted_flagged"].total,
+            "counted_flagged_count": tiers["counted_flagged"].count,
+            "excluded_pending_review_total": tiers["excluded_pending_review"].total,
+            "excluded_pending_review_count": tiers["excluded_pending_review"].count,
+            "counted_flagged_by_reason": revenue.by_reason["counted_flagged"],
+            "excluded_pending_review_by_reason": revenue.by_reason["excluded_pending_review"],
             # R2-OW03 (§9.1): the non-revenue breakdown, {code: {"count", "total"}} over NON_REVENUE_REASONS.
-            "non_revenue_by_reason": _by_reason(non_revenue_by_reason),
-            "revenue_review_items": tier_counts["excluded_pending_review"],
+            "non_revenue_by_reason": revenue.by_reason["non_revenue"],
+            "revenue_review_items": tiers["excluded_pending_review"].count,
             "revenue_review_required": revenue_review_gate(
                 direction_conflict=direction_conflict,
-                held_total=tier_totals["excluded_pending_review"],
-                posted_total=posted_total,
+                held_total=tiers["excluded_pending_review"].total,
+                posted_total=posted.total,
                 tiers_sum_to_posted=reconciles,
                 true_total=true_total,
             ),
@@ -482,7 +509,7 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
         # §12: no tier figure, and the gate is the rule the payload was analysed under.
         metrics.update({key: None for key in TIER_METRIC_KEYS})
         metrics["revenue_review_required"] = (
-            counts["unverified_deposit"] > 0 or direction_conflict or not reconciles
+            states["unverified_deposit"].count > 0 or direction_conflict or not reconciles
         )
 
     denominator_mode = normalize_withholding_denominator_mode(
@@ -491,7 +518,7 @@ def _rebuild_account_revenue_views(analysis: dict) -> dict:
     metrics["withholding_denominator_mode"] = denominator_mode
     denominator = None
     if denominator_mode == "verified_revenue":
-        denominator = totals["verified_revenue"]
+        denominator = states["verified_revenue"].total
         metrics["withholding_denominator_label"] = "Verified revenue"
         metrics["eligible_deposit_definition"] = "verified classified revenue"
     elif denominator_mode == "true_revenue" and true_total is not None:
@@ -582,10 +609,6 @@ def _refresh_withholding_basis_readers(
     first = positions[0] if positions else len(notes)
     rest = [note for index, note in enumerate(notes) if index not in set(positions)]
     notes[:] = rest[:first] + wanted + rest[first:]
-
-
-def _by_reason(slots: dict[str, list]) -> dict[str, dict[str, float | int]]:
-    return {reason: {"count": count, "total": round(total, 2)} for reason, (count, total) in sorted(slots.items())}
 
 
 def revenue_review_gate(

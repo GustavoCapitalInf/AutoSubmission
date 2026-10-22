@@ -31,9 +31,10 @@ from .revenue import (
     STATE_OF_TIER,
     WITHHOLDING_DENOMINATOR_MODES,
     _TIER_DISAGREES,
-    non_revenue_reason,
+    PostedCredit,
     normalize_withholding_denominator_mode,
     potential_withholding_unavailable_note,
+    revenue_buckets,
     revenue_review_gate,
     withholding_basis_below_floor,
     withholding_basis_publishable,
@@ -405,8 +406,7 @@ def compute_metrics(
     flagged_credited_counts: dict[str, int] = {}
     flagged_credited_totals: dict[str, float] = {}
     flagged_payees: dict[str, set[str]] = {}
-    by_reason: dict[str, dict[str, list]] = {"counted_flagged": {}, "excluded_pending_review": {}}
-    non_revenue_by_reason: dict[str, list] = {}
+    posted_credits: list[PostedCredit] = []
     withholding_numerator = 0.0
     direction_conflict = False
     for t, classification in zip(stmt.transactions, records):
@@ -473,37 +473,15 @@ def compute_metrics(
                 raise ValueError(_TIER_DISAGREES)
             if classification.revenue_match_method == "direction_conflict":
                 direction_conflict = True
-            if tier in by_reason:
-                slot = by_reason[tier].setdefault(classification.revenue_tier_reason or "", [0, 0.0])
-                slot[0] += 1
-                slot[1] += t.amount
-            elif tier == "non_revenue" and non_revenue_reason(classification.revenue_tier_reason):
-                # R2-OW03: the rebuild's rule (analysis/revenue.py), so the stored and the rebuilt figures agree.
-                slot = non_revenue_by_reason.setdefault(classification.revenue_tier_reason, [0, 0.0])
-                slot[0] += 1
-                slot[1] += t.amount
-            if tier == "counted_flagged":
-                m.counted_flagged_total += t.amount
-                m.counted_flagged_count += 1
-                m.counted_flagged_evidence.append(classification)
-            elif tier == "excluded_pending_review":
-                m.excluded_pending_review_total += t.amount
-                m.excluded_pending_review_count += 1
-                m.excluded_pending_review_evidence.append(classification)
-            m.total_posted_credits += t.amount
-            m.total_posted_credit_count += 1
-            if classification.contributes_to_verified_revenue:
-                m.verified_revenue_total += t.amount
-                m.verified_revenue_count += 1
-                m.verified_revenue_evidence.append(classification)
-            elif classification.contributes_to_unverified_deposit:
-                m.unverified_deposit_total += t.amount
-                m.unverified_deposit_count += 1
-                m.unverified_deposit_evidence.append(classification)
-            else:
-                m.non_revenue_total += t.amount
-                m.non_revenue_count += 1
-                m.non_revenue_evidence.append(classification)
+            # The flag it carries picks the state bucket; nothing above compares it with revenue_classification.
+            state = (
+                "verified_revenue" if classification.contributes_to_verified_revenue
+                else "unverified_deposit" if classification.contributes_to_unverified_deposit
+                else "non_revenue"
+            )
+            posted_credits.append(
+                PostedCredit(t.amount, state, tier, classification.revenue_tier_reason, classification)
+            )
         counts_as_settled_activity = (
             classification.duplicate_of is None
             and not classification.settlement_reversal
@@ -544,25 +522,20 @@ def compute_metrics(
         for group in FLAG_GROUPS
         if group.key in flagged_payees
     }
-    m.verified_revenue_total = round(m.verified_revenue_total, 2)
-    m.unverified_deposit_total = round(m.unverified_deposit_total, 2)
-    m.non_revenue_total = round(m.non_revenue_total, 2)
-    m.counted_flagged_total = round(m.counted_flagged_total, 2)
-    m.excluded_pending_review_total = round(m.excluded_pending_review_total, 2)
+    revenue = revenue_buckets(posted_credits)
+    states, tiers = revenue.states, revenue.tiers
+    m.total_posted_credits, m.total_posted_credit_count = revenue.posted.total, revenue.posted.count
+    m.verified_revenue_total, m.verified_revenue_count, m.verified_revenue_evidence = states["verified_revenue"]
+    m.unverified_deposit_total, m.unverified_deposit_count, m.unverified_deposit_evidence = states["unverified_deposit"]
+    m.non_revenue_total, m.non_revenue_count, m.non_revenue_evidence = states["non_revenue"]
+    m.counted_flagged_total, m.counted_flagged_count, m.counted_flagged_evidence = tiers["counted_flagged"]
+    (m.excluded_pending_review_total, m.excluded_pending_review_count,
+     m.excluded_pending_review_evidence) = tiers["excluded_pending_review"]
     m.true_revenue_total = round(m.verified_revenue_total + m.counted_flagged_total, 2)
     m.true_revenue_count = m.verified_revenue_count + m.counted_flagged_count
-    m.counted_flagged_by_reason = {
-        reason: {"count": count, "total": round(total, 2)}
-        for reason, (count, total) in sorted(by_reason["counted_flagged"].items())
-    }
-    m.excluded_pending_review_by_reason = {
-        reason: {"count": count, "total": round(total, 2)}
-        for reason, (count, total) in sorted(by_reason["excluded_pending_review"].items())
-    }
-    m.non_revenue_by_reason = {
-        reason: {"count": count, "total": round(total, 2)}
-        for reason, (count, total) in sorted(non_revenue_by_reason.items())
-    }
+    m.counted_flagged_by_reason = revenue.by_reason["counted_flagged"]
+    m.excluded_pending_review_by_reason = revenue.by_reason["excluded_pending_review"]
+    m.non_revenue_by_reason = revenue.by_reason["non_revenue"]
     m.revenue_review_items = m.excluded_pending_review_count
     m.confirmed_true_revenue_total = m.verified_revenue_total
     m.confirmed_true_revenue_count = m.verified_revenue_count
@@ -579,7 +552,6 @@ def compute_metrics(
         m.verified_revenue_total + m.unverified_deposit_total,
         2,
     )
-    m.total_posted_credits = round(m.total_posted_credits, 2)
     # 5.6 (§5.1): the four-tier identity, verified + counted + held + non-revenue = posted credits.
     m.revenue_classified_total = round(
         m.verified_revenue_total
