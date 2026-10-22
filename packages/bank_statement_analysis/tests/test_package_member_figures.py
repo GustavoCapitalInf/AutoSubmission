@@ -2,7 +2,8 @@
 it was, and a second read of the same jobs gives the same package. Each monthly row is that member's documents row, so
 the active positions set after the members reach both. Each sum adds a member's figure to the running total and rounds
 it to the cent before the next member; the funder and insurer roll-ups add each detection match the same way, and the
-days-weighted ADB is a decimal mean rounded half up. Fabricated statements of CONTOSO BAKERY LLC, 2031."""
+days-weighted ADB is a decimal mean rounded half up. A job its worker finishes while the package reads it is counted as
+the package read its standing. Fabricated statements of CONTOSO BAKERY LLC, 2031."""
 from __future__ import annotations
 
 import copy
@@ -125,3 +126,29 @@ def test_the_package_adb_is_a_decimal_days_weighted_mean_rounded_half_up():
                               _month(_with_metrics(base, average_daily_balance=2.0, calendar_day_count=1, adb_ok=True),
                                      4)))
     assert weighted["totals"]["average_daily_balance"] == 1.25
+
+
+class _JobFinishedMidPackage:
+    """A processing job whose worker finishes it (`JobStore.set_result`: the analysis, then status done) as the
+    package reads its analysis error, which it does while it writes the member's row."""
+
+    def __init__(self, analysis: dict):
+        self.id, self.filename, self.content_sha256 = "job-late", "late.pdf", "job-late"
+        self.status, self.analysis, self.error = "processing", None, None
+        self._finished_analysis = analysis
+
+    @property
+    def analysis_error(self):
+        self.analysis, self.status = self._finished_analysis, "done"
+        return None
+
+
+def test_a_job_finished_while_the_package_reads_its_member_stays_pending():
+    job = _JobFinishedMidPackage(_payload(DETECTED_ROWS))
+    package = _package([job])
+    assert job.status == "done"
+    totals = package["totals"]
+    assert (totals["completed"], totals.get("pending"), totals["failed"]) == (0, 1, 0)
+    assert [row["status"] for row in package["documents"]] == ["processing"]
+    assert package["monthly"] == []
+    assert totals["decision"] == "review_required"

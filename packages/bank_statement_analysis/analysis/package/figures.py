@@ -43,6 +43,11 @@ from analysis.served_view import zelle_setting
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY
 
 
+#: The job statuses a package counts as pending, not failed (an error, an interrupted run or a job done without an
+#: analysis stays failed).
+_PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
+
+
 def member_revenue(rows: list[dict], *, tiered: bool) -> RevenueBuckets:
     """A member's revenue buckets over its rows (R-d's pairs left out, the package passes' overlay applied), added as
     the package adds them: each bucket with builtin sum(), each reason total rounded after each credit, the reasons in
@@ -156,6 +161,7 @@ def member_figures(member: Member, passes: PackagePasses, settings: dict) -> Mem
     corporate_use = quality.get("corporate_use") or ""
     integrity_risk = integrity.get("risk_level") or ""
     ready = member.ready
+    pending = not ready and job.status in _PENDING_JOB_STATUSES
     statement_currency = member.facts.currency
 
     credits = num(metrics.get("effective_total_deposits"))
@@ -904,7 +910,7 @@ def member_figures(member: Member, passes: PackagePasses, settings: dict) -> Mem
     if member.key in passes.unchecked:
         doc_row["package_match_unchecked"] = passes.unchecked[member.key]
     return MemberFigures(
-        member=member, row=doc_row, credits=credits, debits=debits, cash_flow=cash_flow,
+        member=member, ready=ready, pending=pending, row=doc_row, credits=credits, debits=debits, cash_flow=cash_flow,
         posted_credit_total=posted_credit_total, posted_credit_count=posted_credit_count,
         revenue_totals=revenue_totals, revenue_counts=revenue_counts, by_reason=member_by_reason, tiered=tiered,
         tier_totals=tier_totals, tier_counts={tier: len(rows) for tier, rows in tier_rows.items()},

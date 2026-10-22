@@ -42,11 +42,6 @@ from analysis.served_view import zelle_setting
 from analysis.zelle_view import ZELLE_DEPOSITS_KEY
 
 
-#: The job statuses a package counts as pending, not failed (an error, an interrupted run or a job done without an
-#: analysis stays failed).
-_PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
-
-
 def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -> dict:
     # The one settings snapshot this package is built on: its members are displayed with it, and its flag roll-up
     # keeps the groups it ticks.
@@ -217,7 +212,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # accounts and different on purpose after that: a package sums, counts
         # and days-weights ACCOUNTS, and one document contributing two of them
         # is two contributions.
-        ready = member.ready
+        ready = figures.ready
 
         # CURRENCY DOCTRINE §F. A member with no analysis at all contributes
         # exactly zero to every money total below — each `num` call falls back
@@ -236,7 +231,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
 
         if ready:
             totals["completed"] += 1
-        elif member.job.status in _PENDING_JOB_STATUSES:
+        elif figures.pending:
             # A job still queued or processing has not failed; it is pending, a key the package publishes only when
             # one is, so a package without one is unchanged.
             totals["pending"] = totals.get("pending", 0) + 1

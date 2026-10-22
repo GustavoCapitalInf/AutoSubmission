@@ -158,9 +158,15 @@ class MemberFigures:
 
     `tier_totals` and `tier_counts` are empty on a member with no tiers. `gate_cents` is the held, posted and True
     figures its gate reads, in cents, on a ready tiered member, else None. `zelle_parts` holds (tier, count, total) per
-    Zelle part. The shares, matches and warnings follow the member's detection, and the ledger and evidence its rows."""
+    Zelle part. The shares, matches and warnings follow the member's detection, and the ledger and evidence its rows.
+
+    `ready` (done, with an analysis) and `pending` (not ready, still queued or processing) are the member's job's
+    standing, read once with its figures. The package counts the member by them, so a job a worker finishes while
+    the package is read is counted as its figures read it."""
 
     member: Member
+    ready: bool
+    pending: bool
     row: dict
     credits: float
     debits: float
