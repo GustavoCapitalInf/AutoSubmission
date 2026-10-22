@@ -6,7 +6,7 @@ fails too. Never re-point a reader test to the final tier alone."""
 from __future__ import annotations
 
 from analysis import true_revenue
-from analysis.transaction_classifier import revenue_text
+from analysis.descriptor.lexical import revenue_text
 
 ZELLE_EXCLUDED = ("non_revenue", "zelle_excluded")
 

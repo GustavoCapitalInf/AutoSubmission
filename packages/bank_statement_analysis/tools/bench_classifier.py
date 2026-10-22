@@ -17,6 +17,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis import transaction_classifier  # noqa: E402
+from analysis.descriptor import financing  # noqa: E402
 from analysis.classification_registry import PAYEE_GROUP_REGISTRIES  # noqa: E402
 from analysis.description_text import normalize_transaction_description  # noqa: E402
 from analysis.payee_matcher import PayeeMatch  # noqa: E402
@@ -59,20 +60,28 @@ def legacy_match_known_payee(normalized_text: str, *, credit: bool = False) -> P
     return None if best is None else best[1]
 
 
+#: Each module whose functions read the classifier's matchers, with the matcher it reads. Each such module
+#: holds its own binding of the matcher, so the swap sets every binding.
+MATCHER_BINDINGS = (
+    (transaction_classifier, "match_known_payee"),
+    (transaction_classifier, "registry_match"),
+    (financing, "registry_match"),
+)
+
+
 @contextmanager
 def legacy_matchers() -> Iterator[None]:
-    """Swap the classifier's compiled matchers for the pre-S1 algorithm while the block runs. It swaps
-    whichever of ``registry_match`` and ``match_known_payee`` the classifier module holds, so it works
-    before and after S2 rewires the rule order."""
+    """Swap the classifier's compiled matchers for the pre-S1 algorithm while the block runs. It sets each binding
+    MATCHER_BINDINGS lists."""
     swaps = {"registry_match": legacy_registry_match, "match_known_payee": legacy_match_known_payee}
-    saved = {name: getattr(transaction_classifier, name) for name in swaps if hasattr(transaction_classifier, name)}
+    saved = [(module, name, getattr(module, name)) for module, name in MATCHER_BINDINGS]
     try:
-        for name in saved:
-            setattr(transaction_classifier, name, swaps[name])
+        for module, name, _compiled in saved:
+            setattr(module, name, swaps[name])
         yield
     finally:
-        for name, value in saved.items():
-            setattr(transaction_classifier, name, value)
+        for module, name, compiled in saved:
+            setattr(module, name, compiled)
 
 
 def fabricated_statement(rows: int = 300) -> Statement:

@@ -11,11 +11,8 @@ import pytest
 
 from analysis import true_revenue
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import (
-    classify_statement_transactions,
-    prints_internal_transfer_designation,
-    revenue_text,
-)
+from analysis.transaction_classifier import classify_statement_transactions, prints_internal_transfer_designation
+from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 
 HOLDER = "NORTHWIND PLUMBING LLC"
@@ -365,9 +362,9 @@ def test_r45_the_controls_keep_their_readings(text, reading):
     ("ONLINETRANSFERX", False),
 ])
 def test_r45_the_glued_transfer_wording(text, transfer):
-    from analysis import transaction_classifier
+    from analysis import description_text
 
-    assert bool(transaction_classifier._TRANSFER_WORDING.search(text)) is transfer
+    assert bool(description_text._TRANSFER_WORDING.search(text)) is transfer
 
 
 @pytest.mark.parametrize(("text", "designation"), [
@@ -434,9 +431,10 @@ def test_r28_the_controls_keep_their_readings(layout, name, entry, reading):
 @pytest.mark.parametrize("text", ["INTERNET XFR FRM CHECKG 1234", "TRF CT INTERNET D123"])
 def test_r28_rows_with_no_originator_field_keep_their_transfer_wording(text):
     from analysis import transaction_classifier
+    from analysis import description_text
 
     found = transaction_classifier.credit_transfer_wording(text)
-    assert found is not None and found.span() == transaction_classifier._TRANSFER_WORDING.search(text).span()
+    assert found is not None and found.span() == description_text._TRANSFER_WORDING.search(text).span()
 
 
 def test_r28_the_helper_blanks_only_the_originator_name_s_transfer_tokens():
@@ -662,9 +660,9 @@ def test_r44_the_revenue_text_splits_a_reference_glued_after_a_rail(text, expect
 
 
 def test_r44_the_rail_is_built_from_its_word_list_unchanged():
-    from analysis import transaction_classifier
+    from analysis.descriptor import words
 
-    assert transaction_classifier._CONSUMER_P2P_RAIL.pattern == (
+    assert words._CONSUMER_P2P_RAIL.pattern == (
         r"(?<![A-Z])(?:ZELLE|INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|VIREMENT|VFC|AUTODEPOSIT|VENMO|CASH ?APP|SQUARE CASH"
         r"|APPLE CASH|POPMONEY)\b"
     )
@@ -839,12 +837,12 @@ def test_r24_the_package_pairing_designation_reads_the_same_sources():
 
 
 def test_r24_the_short_and_long_sources_are_the_whole_source_list():
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import words
 
-    sources = tc._INTERNAL_ACCOUNT_SOURCE
+    sources = words._INTERNAL_ACCOUNT_SOURCE
     assert sources.startswith("(?:") and sources.endswith(")")
-    short = tc._SHORT_ACCOUNT_SOURCES.split("|")
-    long = tc._LONG_ACCOUNT_SOURCES.split("|")
+    short = words._SHORT_ACCOUNT_SOURCES.split("|")
+    long = words._LONG_ACCOUNT_SOURCES.split("|")
     assert not set(short) & set(long)
     assert sorted(short + long) == sorted(sources[3:-1].split("|"))
 

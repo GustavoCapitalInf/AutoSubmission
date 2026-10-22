@@ -612,7 +612,7 @@ _NAMED_DESIGNATION_TRANSFERS_56 = (
     _on_masked(r"\bTFR FROM X+\d* TRANSFER DEPOSIT (?=.*[A-Z]{3})\S.*$"),
 )
 #: Audit B8 (I46, §6.3 narrowing 11, the census's twelfth): the statement furniture the classifier's revenue text cuts
-#: (analysis/transaction_classifier.py _STATEMENT_FURNITURE, copied: the census reads other checkouts), on the masked
+#: (analysis/descriptor/lexical.py _STATEMENT_FURNITURE, copied: the census reads other checkouts), on the masked
 #: text: TD's footer and back panel, a Symitar credit union's balance, check-recap and fee summaries, a page header,
 #: Citizens' continued-page header and footer, Fifth Third's disclosure line and a page number. Audit round 2, R2-B10
 #: (R21 parts A and B): and Zions' legal-name footer before a page counter and Navy Federal's JOINT OWNER(S) header.

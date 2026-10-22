@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import lexical
 from analysis import true_revenue as tr
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -276,10 +277,10 @@ def test_a_person_s_push_beside_another_amount_to_the_given_name_alone_is_still_
 
 def test_the_whole_name_key_is_a_person_s_never_a_company_s():
     company = tc.classify_transaction(COMPANY_ZELLE, 9000.0, direction="credit")
-    revenue = tc.revenue_text(company.normalized_description)
+    revenue = lexical.revenue_text(company.normalized_description)
     assert tr.counter_credit(company, revenue, tc.payer_region(revenue)).person_key is None
     person = tc.classify_transaction("ZELLE PAYMENT FROM QUILLAN SAMPLE CONF 1234567890", 900.0, direction="credit")
-    revenue = tc.revenue_text(person.normalized_description)
+    revenue = lexical.revenue_text(person.normalized_description)
     assert tr.counter_credit(person, revenue, tc.payer_region(revenue)).person_key == "QUILLANSAMPLE"
 
 

@@ -15,6 +15,9 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import description_text
+from analysis.descriptor import lexical
+from analysis.descriptor import words as descriptor_words
 from analysis import true_revenue as tr
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -222,7 +225,7 @@ def test_cut_legal_form_reader_negatives(region):
 
 
 def test_the_cut_legal_form_never_widens_q6_s_company_form():
-    assert not tc.company_form("CONTOSO HOME SERVICES MANAGEMENT LLMIAMI FL")
+    assert not lexical.company_form("CONTOSO HOME SERVICES MANAGEMENT LLMIAMI FL")
 
 
 # Audit round 2, R2-B10 (R32): a wire that prints only Fedwire, CHIPS, inbound or credit labels names no sender (Q5),
@@ -357,7 +360,7 @@ def test_r21_wire_transfer_label_controls(text, expected):
 def test_r21_control_a_loan_s_transfers_stay_non_revenue_and_transfers_stays_transfer_wording():
     [(tier, _reason)] = _tiers([("SAMPLE LOAN TRANSFERS", 5000.0)])
     assert tier == "non_revenue"
-    assert tc._TRANSFER_WORDING.search("EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT")
+    assert description_text._TRANSFER_WORDING.search("EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT")
 
 
 # Audit round 2, R2-B10 (R26): a loose-wire originator label is read only after the row's first WIRE word, so a label
@@ -544,7 +547,7 @@ def test_r3_40_control_a_holder_named_for_a_designation_word_holds_the_wire_with
 
 def test_r3_40_the_designation_words_are_the_brief_s_list_never_a_place_or_a_non_sale_word():
     words = tr._wire_designation_words()
-    assert tc.REVENUE_GENERIC_WORDS <= words
+    assert descriptor_words.REVENUE_GENERIC_WORDS <= words
     assert {"BUSINESS", "OPERATING", "CHECKING", "TRUST", "GROUP", "SERVICES", "AMOUNT", "RENT", "THE", "LLC",
             "INC", "LTD", "PLC"} <= words
     assert not {"INTEREST", "ONTARIO", "CANADA", "USA", "AMERICA", "AMERICAN", "NATIONAL", "QUEBEC"} & words
@@ -627,7 +630,7 @@ def test_ff_f4_the_name_words_are_r3_40_s_product_and_holder_noise_words_never_a
             "SOLUTIONS", "MANAGEMENT", "ENTERPRISES"} <= names
     assert not {"BUSINESS", "OPERATING", "OPERATIONS", "CHECKING", "SAVINGS", "ACCOUNT", "ACCT", "MONEY", "MARKET",
                 "TRUST", "DBA", "AMOUNT", "RENT", "THE", "OF", "AND", "LLC", "INC"} & names
-    assert not names & (tc.REVENUE_GENERIC_WORDS | tr._WIRE_LABEL_ONLY_WORDS)
+    assert not names & (descriptor_words.REVENUE_GENERIC_WORDS | tr._WIRE_LABEL_ONLY_WORDS)
 
 
 # Audit round 3, final review (R3-FF), review round 1 (findings 1 and 2; R3-40's verified claim; the underwriter's Q1 of

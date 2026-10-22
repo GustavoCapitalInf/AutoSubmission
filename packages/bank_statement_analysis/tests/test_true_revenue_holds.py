@@ -15,7 +15,8 @@ import pytest
 from analysis import true_revenue as tr
 from analysis import revenue as analysis_revenue
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions, revenue_text
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 from tests.zelle_reading import rules_reading
 

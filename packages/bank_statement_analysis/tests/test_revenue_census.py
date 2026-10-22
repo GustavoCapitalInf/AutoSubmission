@@ -1510,7 +1510,8 @@ def test_the_pass_records_the_readings_the_demotion_causes_key_on(text, fact, va
     # Final review I7: the snapshot's facts name the rule that fires (true_revenue.guard_facts, read with the
     # checkout's own code).
     from analysis.schema import Statement, Transaction
-    from analysis.transaction_classifier import classify_statement_transactions, revenue_text
+    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.descriptor.lexical import revenue_text
     from analysis.true_revenue import guard_facts
 
     [record] = classify_statement_transactions(Statement(account_name="CONTOSO BAKERY LLC", transactions=[
@@ -2372,7 +2373,7 @@ def test_narrowing_12_reads_a_deposit_past_its_glued_statement_furniture(base_me
 def test_b8_the_census_reads_the_classifier_s_furniture_on_the_masked_text(text):
     # The census's copy (it reads other checkouts) finds the furniture where the classifier's cut does, on the
     # digit-masked text it records.
-    from analysis.transaction_classifier import _STATEMENT_FURNITURE
+    from analysis.descriptor.lexical import _STATEMENT_FURNITURE
 
     found = _STATEMENT_FURNITURE.search(text)
     masked = census._STATEMENT_FURNITURE_56.search(re.sub(r"\d", "#", text))
@@ -2406,7 +2407,7 @@ def test_b8_the_sweep_reads_a_credit_past_its_statement_furniture(text, letters)
     "WIRE TRANSFER FROM FABRIKAM INC VIA SAMPLE BANK A DIVISION OF ZIONS BANCORPORATION N A REF 1",
 ])
 def test_r2_b10_the_census_copy_reads_the_zions_footer_and_the_navy_federal_header(text):
-    from analysis.transaction_classifier import _STATEMENT_FURNITURE
+    from analysis.descriptor.lexical import _STATEMENT_FURNITURE
 
     found = _STATEMENT_FURNITURE.search(text)
     masked = census._STATEMENT_FURNITURE_56.search(re.sub(r"\d", "#", text))
@@ -3237,11 +3238,11 @@ def test_r2_b09_the_government_forms_are_read_after_the_new_credit_labels(text, 
 
 
 def test_r2_b09_the_census_prefix_copy_holds_every_classifier_label():
-    from analysis import transaction_classifier
+    from analysis.descriptor import words
 
     for label in ("EDI EFT CCD CREDIT", "INTERNET CREDIT", "PREAUTH CREDIT", "HIP CREDIT RCVD FROM", "HIP CREDIT",
                   "AVIS DE CREDIT", "AUTOMATED CREDIT"):
-        assert transaction_classifier._REVENUE_TEMPLATE_PREFIX.match(f"{label} CONTOSO"), label
+        assert words._REVENUE_TEMPLATE_PREFIX.match(f"{label} CONTOSO"), label
         assert re.match(census._GOVERNMENT_FORM_PREFIX_56 + r"RQ GST$", f"{label} RQ GST"), label
 
 

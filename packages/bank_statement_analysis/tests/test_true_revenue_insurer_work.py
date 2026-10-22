@@ -24,12 +24,8 @@ from analysis import classification_registry as registry
 from analysis import true_revenue
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import (
-    classify_statement_transactions,
-    entry_fields,
-    payer_region,
-    revenue_text,
-)
+from analysis.transaction_classifier import classify_statement_transactions, entry_fields, payer_region
+from analysis.descriptor.lexical import revenue_text
 from tests.zelle_reading import rules_reading
 
 BAKERY = "CONTOSO BAKERY LLC"

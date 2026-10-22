@@ -122,8 +122,6 @@ def ln_name_spans(description: str) -> tuple[tuple[str, str], ...]:
     _TRANSFER_WORDING, read at call time: the classifier imports this module at its own load), where 'FROM LN <name>'
     designates the holder's own loan account. Each name is returned as the normalized row prints it (LN read LOAN) and
     with that LOAN blanked to spaces of its length, for the credit decision's strong non-revenue reading only."""
-    from .transaction_classifier import _TRANSFER_WORDING
-
     before = _before_ln_rewrite(description)
     tokens = before.split()
     if "LN" not in tokens:
@@ -161,3 +159,45 @@ def ln_name_spans(description: str) -> tuple[tuple[str, str], ...]:
 def ln_name_word(description: str) -> bool:
     """Audit round 3, R3-B07 (R3-46): the row prints a company name that holds LN (ln_name_spans)."""
     return bool(ln_name_spans(description))
+
+
+#: The pieces of American Express's incoming-ACH template after its label (_AMEX_ACH_CREDIT): the originator and its
+#: entry, the four-digit id, and the unlabelled receiver block up to EXTERNAL. One source for the template
+#: (_AMEX_ACH_CREDIT) and the originator gate's template arm (_AMEX_TEMPLATE_TAIL), so the two never drift.
+_AMEX_TEMPLATE_PAYER = r"\S.*"
+_AMEX_TEMPLATE_ID = r"\d{4}"
+_AMEX_TEMPLATE_RECEIVER = r"(?: (?!\d{4}\b)\S+)*"
+_AMEX_TEMPLATE_TAIL = " " + _AMEX_TEMPLATE_PAYER + " " + _AMEX_TEMPLATE_ID + _AMEX_TEMPLATE_RECEIVER + r" EXTERNAL\b"
+#: An originator word follows American Express's incoming-ACH label: a letter, never FROM, TO, an account word (CHK,
+#: CHECKING, CHECKG, SAV, SAVINGS, SVGS, ACCT, ACCOUNT, DDA, MMA), ID or a masked account ('XXXX1234'). The label's
+#: three exceptions (_TRANSFER_WORDING, _ELECTRONIC_PAYMENT_FORM, _REVENUE_TEMPLATE_PREFIX) read it, so the bare label,
+#: or the label before an account designation, an id or digits, keeps its transfer reading. The gate reads only a row
+#: the full template does not match; on the full template ('<originator> <entry> <id> [<receiver block>] EXTERNAL ...',
+#: _AMEX_TEMPLATE_TAIL), any originator keeps the ACH reading (a digit-, TO-, FROM-, ID- or account-word-led name: '3M
+#: COMPANY', 'TO GO FOODS LLC', 'ACCT PRO SERVICES INC'). A cut row keeps the gate (no digit-led remedy: a cut row's
+#: '<n> <receiver name>' would pass one).
+_AMEX_LABEL_ORIGINATOR = (
+    r"(?: (?!(?:FROM|TO|CHK|CHECKING|CHECKG|SAV|SAVINGS|SVGS|ACCT|ACCOUNT|DDA|MMA|ID)\b)(?!X+\d)[A-Z]"
+    r"|(?=" + _AMEX_TEMPLATE_TAIL + r"))"
+)
+#: §8.2: transfer wording. And its other spellings TRF, TRSFR, TRANSF and XFR ('TRF CT INTERNET', 'INTERNET PHONE
+#: TRSFR', 'TRANSF FONDS CT', 'INTERNET XFR FRM CHECKG'), and TRANSFER glued to a reference's digits (CIBC's 'CMO
+#: TRANSFER<n>'), never the e-transfer rail's glued form ('E TRANSFER<n> <sender>', a rail, which the revenue text
+#: splits since R44, _GLUED_RAIL_REFERENCE). And the plural TRANSFERS ('EXTERNAL DEPOSIT ACH TRANSFERS PAYMENT', '...
+#: FUNDS TRANSFERS'), once revenue_text cuts the statement furniture that printed it (TD's back panel: '... ELECTRONIC
+#: FUNDS TRANSFERS'). Never American Express's incoming-ACH label, 'ONLINE TRANSFER PAYMENT CREDIT' at the row's start
+#: (_AMEX_ACH_CREDIT); the same words anywhere else stay transfer wording. The label is exempt only when an originator
+#: word follows it (_AMEX_LABEL_ORIGINATOR): the bare label, or the label before FROM, an account word, an ID, a
+#: masked account or digits, is transfer wording (Q2); unless the full template follows, whatever its originator's
+#: first word. And the glued ONLINETRANSFER, MOBILETRANSFER and INTERNETTRANSFER (singular or plural) a bank or its
+#: OCR prints for an online transfer ('COMM ONLINETRANSFER FROM COMM BUS CHCKING ...'), the glued label at the row's
+#: start under the same originator rule; no other glued word (WEBXFR stays as it is).
+_TRANSFER_WORDING = re.compile(
+    r"\b(?:(?<!^ONLINE )TRANSFER|TRANSFER(?! PAYMENT CREDIT" + _AMEX_LABEL_ORIGINATOR + r")|TRANSFERS|TRNSFR|TRSFR"
+    r"|TRANSF|XFER|XFR|TFR|TRF|BR TO BR"
+    r"|ONLINE BANKING|INTERNET (?:BANKING|TRANSFER)"
+    r"|FUNDS TRANSFER)\b"
+    r"|(?<!(?<![A-Z])E )(?<![A-Z])TRANSFER(?=\d)"
+    r"|(?<![A-Z])(?:ONLINE|MOBILE|INTERNET)TRANSFERS?\b(?!(?<=^ONLINETRANSFER) PAYMENT CREDIT"
+    + _AMEX_LABEL_ORIGINATOR + r")"
+)

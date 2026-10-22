@@ -6,7 +6,8 @@ import re
 import pytest
 
 from analysis.description_text import normalize_transaction_description as normalize
-from analysis.transaction_classifier import _LEGAL_FORM_SUFFIXES, _names_financing, _skips
+from analysis.descriptor.financing import _names_financing, _skips
+from analysis.descriptor.words import _LEGAL_FORM_SUFFIXES
 
 
 @pytest.mark.parametrize(
@@ -54,13 +55,8 @@ def test_the_legal_form_suffixes():
     })
 
 
-from analysis.transaction_classifier import (  # noqa: E402
-    _leading_payee_words,
-    _originator_segment,
-    _payee_region,
-    _row_before_receiver,
-    _unknown_payee_tokens,
-)
+from analysis.transaction_classifier import _unknown_payee_tokens
+from analysis.descriptor.lexical import _leading_payee_words, _originator_segment, _payee_region, _row_before_receiver
 
 
 def test_the_payee_region_drops_the_originator_label_and_stops_at_the_first_ach_field():

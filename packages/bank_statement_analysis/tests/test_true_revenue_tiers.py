@@ -444,7 +444,7 @@ def test_a_bare_transfer_or_an_own_account_nickname_is_held(text):
     # Q2 (review I2): field labels, SEC codes, references and account descriptions are no counterparty.
     from analysis import true_revenue
     from analysis.description_text import normalize_transaction_description
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
 
     assert _tier(_one(text, 500.0)) == ("excluded_pending_review", "transfer_no_counterparty")
     record = _one(text, 500.0)
@@ -761,7 +761,7 @@ def test_the_guard_facts_read_the_known_payee_without_the_receiver_value():
     # Review M3: the holder's name in the receiver field never names a payout entity or a lender.
     from analysis import true_revenue
     from analysis.description_text import normalize_transaction_description
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
 
     text = "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:SEZZLE SALON LLC CO ID:1 CCD"
     record = _one(text, 700.0, holder="SEZZLE SALON LLC")
@@ -865,17 +865,18 @@ def test_a_leading_date_never_hides_the_accounts_payable_pmt_numbered_template()
     # Audit B5 (I59): the template reads a number that nothing, a province (or a cut of one) or BMO's code tail
     # follows; a reference before a named payer ('... PMT 1234567 NORTHWIND LTD') is no numbered company, dated or not.
     from analysis import transaction_classifier as classifier
+    from analysis.descriptor import lexical
     from analysis.description_text import normalize_transaction_description
 
     for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567", "ACCOUNTS PAYABLE PMT 1234567", "0302 ACCTS PAYABLE PMT 1234567",
                  "03/02 ACCOUNTS PAYABLE PMT 1234567 ONTA", "0302 ACCTS PAYABLE PMT 1234567 ONTA"):
-        assert classifier.numbered_company(classifier.revenue_text(normalize_transaction_description(text)))
+        assert classifier.numbered_company(lexical.revenue_text(normalize_transaction_description(text)))
         record = _one(text, 700.0)
         assert record.revenue_classification == "unverified_deposit"
         assert _tier(record) == ("counted_flagged", "numbered_company_payer")
     for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD", "ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD",
                  "0302 ACCTS PAYABLE PMT 1234567 NORTHWIND LTD"):
-        assert not classifier.numbered_company(classifier.revenue_text(normalize_transaction_description(text)))
+        assert not classifier.numbered_company(lexical.revenue_text(normalize_transaction_description(text)))
 
 
 @pytest.mark.parametrize("text", [
@@ -992,11 +993,12 @@ def test_an_interac_virement_keeps_its_person_to_person_reading(text):
 @pytest.mark.parametrize("text", INTERAC_COURRIEL_PLURAL)
 def test_r3_29_the_plural_courriel_form_is_the_rail_in_pass_7_only(text):
     # Audit round 3, R3-29 (R3-B12): pass 7 reads it, with the round-sum repeat; the classifier's rail is unchanged.
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import lexical
+    from analysis.descriptor import words
     from analysis.description_text import normalize_transaction_description
 
-    normalized = classifier.revenue_text(normalize_transaction_description(text))
-    assert classifier._CONSUMER_P2P_RAIL.search(normalized) is None
+    normalized = lexical.revenue_text(normalize_transaction_description(text))
+    assert words._CONSUMER_P2P_RAIL.search(normalized) is None
     rows = _records([(text, 500.0), (text.replace("C1AX23X", "C1AX24X"), 600.0), (text, 123.0)])
     assert [_tier(record)[1] for record in rows] == ["p2p_round_repeat", "p2p_round_repeat", "p2p"]
 
@@ -1013,11 +1015,13 @@ def test_the_5_5_channel_gate_of_a_virement_is_unchanged(text):
     # The 5.5 census was accepted on _CONSUMER_P2P_RAIL: every VIREMENT row is still a closed person-to-person row
     # there, never verified; only pass 7's tiering reads the Interac forms.
     from analysis import transaction_classifier as classifier
+    from analysis.descriptor import lexical
+    from analysis.descriptor import words
     from analysis.description_text import normalize_transaction_description
 
-    normalized = classifier.revenue_text(normalize_transaction_description(text))
+    normalized = lexical.revenue_text(normalize_transaction_description(text))
     assert classifier.channel_gate(normalized) == "closed"
-    assert classifier._CONSUMER_P2P_RAIL.search(normalized) is not None
+    assert words._CONSUMER_P2P_RAIL.search(normalized) is not None
     assert _one(text, 250.0).revenue_classification == "unverified_deposit"
 
 
@@ -1025,7 +1029,7 @@ def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
     # §14.3 G4 reads the pass's own transfer fact.
     from analysis import true_revenue
     from analysis.description_text import normalize_transaction_description
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
 
     for text, held in [("VIREMENT EN LIGNE TF 1234567", True), ("VIREMENT ENTRE COMPTES 1234567", True),
                        ("VIREMENT EN LIGNE FABRIKAM LTEE", False), ("VIREMENT INTERAC FABRIKAM LTEE", False),
@@ -1079,7 +1083,7 @@ def test_a_company_printed_without_from_is_a_transfer_s_counterparty(text):
     # numbered company is a counterparty too: counted and flagged, never verified (OQ3).
     from analysis import true_revenue
     from analysis.description_text import normalize_transaction_description
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one(text, 2500.0)
     assert _tier(record) == P2P
@@ -1448,7 +1452,7 @@ def test_gls_auto_is_no_dealer_funding_payer_and_its_legal_name_still_is():
 def test_the_q7_guard_facts():
     from analysis import true_revenue
     from analysis.description_text import normalize_transaction_description
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
 
     def facts(text):
         record = _one(text, 15000.0, holder=DEALER)
@@ -1636,7 +1640,7 @@ _A3_WIRE = "WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{ori
 ])
 def test_a3_a_wire_worded_transfer_with_no_sender_is_held_as_a_wire_with_no_sender(text):
     # Q5: a wire with no sender stays out until confirmed. The wire's channel and layout words name nobody.
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
     from analysis.true_revenue import _transfer_counterparty_words
 
     record = _one(text, 24950.0)
@@ -1665,7 +1669,7 @@ def test_a3_a_named_wire_sender_is_still_counted_or_verified():
 def test_a3_the_holder_s_own_currency_conversion_is_held(text):
     # The standing rule: owner money never becomes revenue. A conversion names no counterparty and designates no
     # account (T13), so it is held as non_sale_purpose (§8.1's own-money group, as SWEEP and ZBA are).
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
     from analysis.true_revenue import _transfer_counterparty_words
 
     record = _one(text, 12000.0)
@@ -1921,7 +1925,8 @@ def test_a3_a_wire_that_prints_its_sender_after_the_label_is_never_held_as_no_se
 
 
 def test_a3_a_numbered_company_after_bmo_s_country_code_keeps_its_number():
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one("INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA 1234567 ONTARIO INC", 24950.0)
     assert payer_region(revenue_text(record.normalized_description)) == "1234567 ONTARIO INC"
@@ -2118,7 +2123,8 @@ _A3G_RELAY = ("BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY C
 ])
 def test_a3g_refinement_a_relaying_bank_s_customer_is_the_wire_s_sender(text):
     # A3-G refinement: a correspondent bank that names the ultimate originator only relays: that customer is read.
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one(text, 13000.0)
     assert payer_region(revenue_text(record.normalized_description)) == "FABRIKAM TRADING LIMITED"
@@ -2157,7 +2163,8 @@ def test_a3g_review_a_b_o_company_that_ends_in_co_keeps_its_wrap_split_root():
 
 def test_a3g_review_a_digit_without_its_slash_is_part_of_the_name():
     # A3-G review: a SWIFT 50F line number prints with its slash ('1/'); a name that starts with a number keeps it.
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one(_A3_WIRE.format(n=1, orig="2 NORTHWIND BAKERS LLC"), 1234.0)
     assert payer_region(revenue_text(record.normalized_description)) == "2 NORTHWIND BAKERS LLC"
@@ -2170,7 +2177,8 @@ _A3G_BOOK_IN = ("WIRE TYPE:BOOK IN DATE:540102 TIME:1200 ET TRN:20540102000012{n
 def test_a3g_refinement_bofa_s_book_in_wire_reads_its_originator():
     # A3-G refinement: WIRE TYPE BOOK IN is the WIRE TYPE WIRE IN layout: its ORIG is read, the SWIFT 50F prefix
     # stripped.
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one(_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND SUPPLY LLC"), 16000.0)
     assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"
@@ -2283,7 +2291,8 @@ def test_a3g_a_bank_s_ach_credit_is_no_wire_and_keeps_its_reading():
 
 
 def test_a3g_a_swift_50f_line_number_never_starts_the_originator():
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one(_A3_WIRE.format(n=1, orig="1/NORTHWIND SUPPLY LLC"), 24950.0)
     assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"
@@ -2395,7 +2404,7 @@ def test_a3g_re_review_a_trust_s_address_holds_only_place_words(text):
 @pytest.mark.parametrize("place", ["DENVER CO 80202 US", "LAS VEGAS NV 89101 US", "SAMPLEVILLE CA 12345 US"])
 def test_a3g_re_review_an_address_s_state_is_never_a_company_form(place):
     # A3-G re-review: CO (Colorado) and NV (Nevada) at the end of a Fedwire city and state are the address's state.
-    from analysis.transaction_classifier import bank_by_form
+    from analysis.descriptor.lexical import bank_by_form
 
     assert _tier(_one(_a3g_fedwire("NORTHWIND BANK", place=place), 257000.0)) == (
         "excluded_pending_review", "financing_named_payer")
@@ -2407,7 +2416,8 @@ def test_a3g_re_review_an_address_s_state_is_never_a_company_form(place):
 
 
 def test_a3g_re_review_a_bank_with_a_state_address_relays_its_customer():
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     text = ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHWIND BANK DENVER CO ORIGINATOR FABRIKAM TRADING "
             "LIMITED REF SAMPLE NYC CTR BNF CONTOSO BAKERY LLC")
@@ -2437,7 +2447,7 @@ def test_a3g_re_review_2_a_state_before_its_zip_or_ending_a_fedwire_city_and_sta
     _A3G_BOFA.format(n=1, orig="NORTHWIND SUPPLY CO", bank="NORTHWIND SUPPLY"),
 ])
 def test_a3g_re_review_2_a_trailing_co_or_nv_with_no_address_is_a_company_form(text):
-    from analysis.transaction_classifier import bank_by_form
+    from analysis.descriptor.lexical import bank_by_form
 
     assert _tier(_one(text, 9000.0)) == ("counted_flagged", "wire_named_sender")
     assert not bank_by_form("LEFT BANK TRADING CO")
@@ -2495,7 +2505,8 @@ def test_a3g_re_review_3_initials_that_spell_no_company_form_keep_a_personal_tru
 @pytest.mark.parametrize("phrase", ["ORG TO BNF", "ORIGINATOR TO BENEFICIARY"])
 def test_a3g_re_review_the_originator_label_skips_the_originator_to_beneficiary_phrase(phrase):
     # A3-G re-review: _WIRE_ORIGINATOR_LABEL takes the same TO BNF / TO BENEFICIARY guards as the relay label.
-    from analysis.transaction_classifier import payer_region, revenue_text
+    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.lexical import revenue_text
 
     record = _one(f"WIRE TRANSFER INCOMING NORTHWIND SUPPLY LLC {phrase} INFO 1234", 9000.0)
     assert payer_region(revenue_text(record.normalized_description)) == "NORTHWIND SUPPLY LLC"
@@ -2784,11 +2795,12 @@ def test_recv_name_is_a_receiver_field_so_the_holder_never_names_an_operating_so
     assert {record.revenue_canonical_entity for record in records} == {None}
     assert "recurring_operating_source" not in {record.revenue_match_method for record in records}
     from analysis import transaction_classifier as tc
+    from analysis.descriptor import lexical
     from analysis.description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS
 
     assert "RECV NAME" in RECEIVER_NAME_LABELS and set(RECEIVER_NAME_LABELS) <= set(RECEIVER_FIELD_LABELS)
     text = "NORTHWIND PAYMENTS DES DEPOSIT ID 1 RECV NAME SQUARE ONE BAKERY CO ID 1234567890 CCD"
-    assert tc._before_receiver(text) == "NORTHWIND PAYMENTS DES DEPOSIT ID 1"
+    assert lexical._before_receiver(text) == "NORTHWIND PAYMENTS DES DEPOSIT ID 1"
     assert "SQUARE" not in tc._without_receiver_value(text)
 
 

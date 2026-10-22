@@ -6,18 +6,14 @@ import pytest
 
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.transaction_classifier import (
-    _joined_text,
     channel_gate,
-    company_form,
     entry_fields,
     holder_named,
     holder_words,
-    is_round_sum,
     numbered_company,
-    payer_name,
     payer_region,
-    revenue_text,
 )
+from analysis.descriptor.lexical import _joined_text, company_form, is_round_sum, payer_name, revenue_text
 
 
 def _text(printed: str) -> str:

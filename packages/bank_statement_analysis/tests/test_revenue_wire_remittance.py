@@ -6,6 +6,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.descriptor import lexical
+from analysis.descriptor import words
 from analysis import description_text
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
@@ -70,10 +72,12 @@ def test_a_third_party_book_transfer_is_an_incoming_wire_on_the_owner_s_yes(monk
     third_party = BOOK.format(orig="FABRIKAM EXPORTS LLC", purpose="INVOICE 1234")
     own = BOOK.format(orig="CONTOSO TRADING LLC", purpose="INVOICE 1234")
     monkeypatch.setattr(transaction_classifier, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
+    monkeypatch.setattr(words, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
     assert _credit(third_party).revenue_classification == "verified_revenue"
     assert _credit(own).revenue_classification == "non_revenue"
     assert _credit("BOOK TRANSFER CREDIT").revenue_classification == "non_revenue"
     monkeypatch.setattr(transaction_classifier, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
+    monkeypatch.setattr(words, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
     assert _credit(third_party).revenue_classification == "non_revenue"
 
 
@@ -445,7 +449,7 @@ def _r314(rows, *, bank="Chase", holder=R314_HOLDER):
 
 
 def _r314_text(printed: str) -> str:
-    return transaction_classifier.revenue_text(description_text.normalize_transaction_description(printed))
+    return lexical.revenue_text(description_text.normalize_transaction_description(printed))
 
 
 def _banking_relay(customer: str, n: int = 1) -> str:
@@ -477,7 +481,7 @@ def test_r3_14_two_customers_of_one_banking_relay_are_read_each_on_its_own_name(
 
 @pytest.mark.parametrize("bank", R314_NON_ENGLISH)
 def test_r3_14_a_non_english_bank_s_relayed_customer_is_read(bank):
-    from analysis.transaction_classifier import bank_by_form
+    from analysis.descriptor.lexical import bank_by_form
 
     printed = R314_RELAY.format(bank=bank, customer="CONTOSO TIMBER LLC", ogb=bank, n=1)
     assert bank_by_form(bank)
@@ -507,7 +511,7 @@ def test_r3_14_a_numbered_company_relayed_by_a_bank_is_the_sender_counted_never_
 
 
 def test_r3_14_banking_after_a_company_name_is_no_bank_and_q5_never_reads_it_as_one_company():
-    from analysis.transaction_classifier import bank_by_form
+    from analysis.descriptor.lexical import bank_by_form
 
     assert not bank_by_form("CONTOSO BANKING SOLUTIONS LLC")
     assert bank_by_form("WESTPAC BANKING CORP") and bank_by_form("NORDKAPP BANKING CORPORATION LIMITED")

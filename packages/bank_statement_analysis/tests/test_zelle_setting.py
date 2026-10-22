@@ -18,11 +18,8 @@ from analysis.metrics import compute_metrics
 from analysis.revenue import rebuild_serialized_revenue_views
 from analysis.schema import Statement, Transaction
 from analysis.serialization import _account_payload, report_to_dict
-from analysis.transaction_classifier import (
-    classify_statement_readings,
-    classify_statement_transactions,
-    revenue_text,
-)
+from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions
+from analysis.descriptor.lexical import revenue_text
 from tests import zelle_setting_fixtures as fx
 
 HELD = "excluded_pending_review"
