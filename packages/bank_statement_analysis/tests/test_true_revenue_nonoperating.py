@@ -18,7 +18,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import true_revenue as tr
+from analysis.true_revenue import asset_sale
+from analysis.true_revenue import guards
 from analysis.true_revenue import purpose as true_revenue_purpose
 from analysis.true_revenue import zelle
 from analysis.true_revenue import counter_debit_pairing
@@ -540,7 +541,7 @@ def test_a_zelle_truck_sale_is_q3_s_never_an_asset_sale():
     ("BIG IRON TRUCKING LLC", None), ("CARVANA FOR PETS LLC", None), ("PROXIBID LLC", None),
 ])
 def test_the_asset_sale_platform_reader(region, entity):
-    assert tr.asset_sale_platform(region) == entity
+    assert asset_sale.asset_sale_platform(region) == entity
     assert "Proxibid" not in " ".join(registry.ASSET_SALE_PAYERS)
     assert registry.ASSET_SALE_SELLER_WORD_ONLY == {"Copart", "Insurance Auto Auctions (IAA)"}
 
@@ -872,7 +873,7 @@ def test_the_hold_rule_fact_names_the_new_readings(text, rule):
 
     record = next(record for record in _records([(text, 900.0)]) if record.amount > 0)
     revenue = revenue_text(record.normalized_description)
-    assert tr.hold_rule(record, revenue, payer_region(revenue), entry_fields(revenue)) == rule
+    assert guards.hold_rule(record, revenue, payer_region(revenue), entry_fields(revenue)) == rule
 
 
 # Audit round 2, R2-B12 (R37): B8's readers read a legal, gambling or owner-money word as the payer's or the purpose's,
@@ -1027,7 +1028,7 @@ def test_r37_the_hold_rule_fact_reads_the_guarded_readers(text, rule):
 
     record = next(record for record in _records([(text, 900.0)], bank="Bank of America") if record.amount > 0)
     revenue = revenue_text(record.normalized_description)
-    assert tr.hold_rule(record, revenue, payer_region(revenue), entry_fields(revenue)) == rule
+    assert guards.hold_rule(record, revenue, payer_region(revenue), entry_fields(revenue)) == rule
 
 
 def test_r37_the_owner_money_platforms_table_is_unchanged():
@@ -1286,7 +1287,7 @@ def test_r37_review_2_the_purpose_trade_name_reader(text, spared):
 ])
 def test_r37_review_2_the_census_reads_the_purpose_trade_name_fact(text, fact):
     record = next(record for record in _records([(text, 900.0)], bank="Bank of America") if record.amount > 0)
-    facts = tr.guard_facts(record, revenue_text(record.normalized_description))
+    facts = guards.guard_facts(record, revenue_text(record.normalized_description))
     assert facts["purpose_trade_name"] is fact
 
 

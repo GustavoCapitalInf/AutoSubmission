@@ -443,13 +443,13 @@ def test_the_numbered_guard_reads_past_a_date_only_before_the_number():
 ])
 def test_a_bare_transfer_or_an_own_account_nickname_is_held(text):
     # Q2 (review I2): field labels, SEC codes, references and account descriptions are no counterparty.
-    from analysis import true_revenue
+    from analysis.true_revenue import guards
     from analysis.description_text import normalize_transaction_description
     from analysis.descriptor.lexical import revenue_text
 
     assert _tier(_one(text, 500.0)) == ("excluded_pending_review", "transfer_no_counterparty")
     record = _one(text, 500.0)
-    facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+    facts = guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))
     assert facts["transfer_no_counterparty"]
 
 
@@ -760,17 +760,17 @@ def test_a_public_payer_s_non_sale_wire_is_held():
 
 def test_the_guard_facts_read_the_known_payee_without_the_receiver_value():
     # Review M3: the holder's name in the receiver field never names a payout entity or a lender.
-    from analysis import true_revenue
+    from analysis.true_revenue import guards
     from analysis.description_text import normalize_transaction_description
     from analysis.descriptor.lexical import revenue_text
 
     text = "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1 INDN:SEZZLE SALON LLC CO ID:1 CCD"
     record = _one(text, 700.0, holder="SEZZLE SALON LLC")
-    facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+    facts = guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))
     assert not facts["payout_or_factoring"] and not facts["known_financing"]
     # A registry-claimed row says so, for the census's holder guards (§8.1: the holds skip claimed rows).
     square = _one("SQUARE INC DES:TRANSFER ID:1", 700.0, holder="SQUARE ONE BAKERY LLC")
-    assert true_revenue.guard_facts(square, "SQUARE INC DES TRANSFER ID 1")["claimed"]
+    assert guards.guard_facts(square, "SQUARE INC DES TRANSFER ID 1")["claimed"]
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1029,7 +1029,7 @@ def test_the_5_5_channel_gate_of_a_virement_is_unchanged(text):
 
 def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
     # §14.3 G4 reads the pass's own transfer fact.
-    from analysis import true_revenue
+    from analysis.true_revenue import guards
     from analysis.description_text import normalize_transaction_description
     from analysis.descriptor.lexical import revenue_text
 
@@ -1040,7 +1040,7 @@ def test_the_census_reads_a_virement_s_transfer_fact_as_pass_7_does():
                        ("DEPOT AUTO VIREMENT PAR COURRIEL C1AX23X", False),
                        ("DEPOT AUTO VIREMENTS PAR COURRIEL C1AX23X", False)]:
         record = _one(text, 250.0)
-        facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+        facts = guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         assert facts["transfer_no_counterparty"] is held
 
 
@@ -1083,14 +1083,14 @@ def test_a_numbered_company_sender_keeps_its_number():
 def test_a_company_printed_without_from_is_a_transfer_s_counterparty(text):
     # §8.2, T13 (fix 2): the company-form arm reads the words after the transfer wording when no FROM prints; a
     # numbered company is a counterparty too: counted and flagged, never verified (OQ3).
-    from analysis import true_revenue
+    from analysis.true_revenue import guards
     from analysis.description_text import normalize_transaction_description
     from analysis.descriptor.lexical import revenue_text
 
     record = _one(text, 2500.0)
     assert _tier(record) == P2P
     assert record.revenue_classification == "unverified_deposit"
-    facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+    facts = guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))
     assert facts["transfer_no_counterparty"] is False
 
 
@@ -1452,13 +1452,14 @@ def test_gls_auto_is_no_dealer_funding_payer_and_its_legal_name_still_is():
 
 
 def test_the_q7_guard_facts():
-    from analysis import true_revenue
+    from analysis.true_revenue import guards
+    from analysis.true_revenue import pass7
     from analysis.description_text import normalize_transaction_description
     from analysis.descriptor.lexical import revenue_text
 
     def facts(text):
         record = _one(text, 15000.0, holder=DEALER)
-        found = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+        found = guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         return {key: found[key] for key in ("q7_payer_ok", "q7_listed", "q7_credit_union", "q7_veto_word")}
 
     assert facts("WESTLAKE FINANCI DES:PAYABLES ID:1 INDN:ADVANCE AUTO SALES LLC CO ID:1 CCD") == {
@@ -1470,7 +1471,7 @@ def test_the_q7_guard_facts():
         "q7_payer_ok": True, "q7_listed": False, "q7_credit_union": True, "q7_veto_word": True}
     assert facts("ACH CREDIT DEALER PAY RECEIVER NAME ALLY FINANCIAL") == {
         "q7_payer_ok": False, "q7_listed": False, "q7_credit_union": False, "q7_veto_word": False}
-    assert true_revenue.CREDIT_UNION_DEALER_MIN_CREDITS == 2
+    assert pass7.CREDIT_UNION_DEALER_MIN_CREDITS == 2
 
 
 # ---------------------------------------------------------------------------------------------------------------------

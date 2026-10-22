@@ -16,7 +16,7 @@ from analysis.descriptor import holder as descriptor_holder
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
-from analysis import true_revenue as tr
+from analysis.true_revenue import facts
 from analysis.true_revenue import tiers as true_revenue_tiers
 from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import holder_names
@@ -628,8 +628,8 @@ def test_r3_b10_r2_a_card_form_s_short_spelling_keeps_its_reading():
     assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank="Bank of America") == [NET_SETTLE, NET_SETTLE]
     rows = _r3_90_pair(R3_90_BOFA, orig="SAMPLE BANKCARD", word="SETTLMT")
     assert _tiers(rows, holder_name="CONTOSO HAULING LLC", bank="Bank of America") == [REPEATS, REPEATS]
-    assert tr._VERIFICATION_ONLY.search("SAMPLE BANKCARD SETTLMT 0001") is None
-    assert tr._VERIFICATION_ONLY.search("SAMPLE BANKCARD STLMT 0001") is None
+    assert facts._VERIFICATION_ONLY.search("SAMPLE BANKCARD SETTLMT 0001") is None
+    assert facts._VERIFICATION_ONLY.search("SAMPLE BANKCARD STLMT 0001") is None
 
 
 # Audit round 3, R3-B10 review round 2 (finding 1): the exemption reads the settlement word anywhere before the receiver

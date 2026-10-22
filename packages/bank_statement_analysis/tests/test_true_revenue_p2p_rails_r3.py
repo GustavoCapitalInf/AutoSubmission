@@ -20,7 +20,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from analysis import true_revenue, zelle_view
+from analysis import zelle_view
+from analysis.true_revenue import guards
 from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import channel
@@ -234,8 +235,8 @@ def test_r3_12_p4_the_census_reads_a_zel_credit_s_channel_and_key_as_its_zelle_t
     zel_raw, zelle_raw = "ZEL FROM PAT SAMPLE WFCT0ABCDE12", "ZELLE FROM PAT SAMPLE WFCT0ABCDE12"
     [zel] = _no([(zel_raw, 1234.0, 3)])
     [zelle] = _no([(zelle_raw, 1234.0, 3)])
-    zel_facts = true_revenue.guard_facts(zel, _text(zel_raw))
-    zelle_facts = true_revenue.guard_facts(zelle, _text(zelle_raw))
+    zel_facts = guards.guard_facts(zel, _text(zel_raw))
+    zelle_facts = guards.guard_facts(zelle, _text(zelle_raw))
     assert zel_facts["payer_key_digest"] is not None
     assert zel_facts["payer_key_digest"] == zelle_facts["payer_key_digest"]
     assert zel_facts == zelle_facts

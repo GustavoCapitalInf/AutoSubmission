@@ -857,7 +857,7 @@ def test_the_square_capital_name_is_gone_and_every_declared_cause_is_produced():
         census.DECLARED_DEMOTIONS)
 
 
-#: The facts a 5.5 snapshot carries (the S2.1 readers'), and those true_revenue.guard_facts adds in 5.6 (S4.2, S4.3).
+#: The facts a 5.5 snapshot carries (the S2.1 readers'), and those true_revenue.guards.guard_facts adds in 5.6 (S4.2, S4.3).
 FACTS_55 = {"gate": None, "holder": False, "numbered": False, "third_party_originator": False, "own_transfer": False,
             "pool_candidate": False, "pool_vetoed": False, "pool_threshold": 3, "wire_vetoed": False,
             "recurrence_veto_wording": False}
@@ -1507,12 +1507,12 @@ def test_g7b_fails_for_any_non_revenue_base_a_text_change_takes_into_true(base_m
     ("WPS DES:PAYMENT ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 CCD", "short_healthcare_alias", False),
 ])
 def test_the_pass_records_the_readings_the_demotion_causes_key_on(text, fact, value):
-    # Final review I7: the snapshot's facts name the rule that fires (true_revenue.guard_facts, read with the
+    # Final review I7: the snapshot's facts name the rule that fires (true_revenue.guards.guard_facts, read with the
     # checkout's own code).
     from analysis.schema import Statement, Transaction
     from analysis.transaction_classifier import classify_statement_transactions
     from analysis.descriptor.lexical import revenue_text
-    from analysis.true_revenue import guard_facts
+    from analysis.true_revenue.guards import guard_facts
 
     [record] = classify_statement_transactions(Statement(account_name="CONTOSO BAKERY LLC", transactions=[
         Transaction(date="2054-03-02", description=text, amount=5000.0, direction="credit")]))
@@ -2296,11 +2296,11 @@ def test_b3_a_returned_deposit_s_pair_is_the_declared_reversal_pair_cause():
 
 
 def test_b3_the_snapshot_reads_a_released_processor_payout_with_no_guard_failure(monkeypatch):
-    from analysis import true_revenue
+    from analysis.true_revenue import pass7
     from analysis.schema import Statement, Transaction
 
     # The owner's switch, which the owner kept off on 2026-10-02 (the underwriter's Q13, spec §19.1); turned on here.
-    monkeypatch.setattr(true_revenue, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
+    monkeypatch.setattr(pass7, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
     statement = Statement(bank="Thread Bank (Relay)", account_name="NORTHWIND PLUMBING LLC", transactions=[
         Transaction(date="2054-03-02", description="Debit Card Credit: Stripe", amount=2100.0, direction="credit"),
         Transaction(date="2054-03-20", description="ACH Pull: Stripe", amount=-50.0, direction="debit"),

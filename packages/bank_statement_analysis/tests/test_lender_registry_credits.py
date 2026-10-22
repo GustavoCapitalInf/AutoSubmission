@@ -15,7 +15,8 @@ from dataclasses import asdict
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import true_revenue
+from analysis.descriptor import payer as descriptor_payer
+from analysis.true_revenue import guards
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import words as true_revenue_words
 from analysis.description_text import normalize_transaction_description as normalize
@@ -351,7 +352,7 @@ def test_a_payer_named_daily_pay_spaced_is_no_earned_wage_push():
 def test_the_counter_debit_reading_reads_past_an_instant_payment_rail_label(text, word):
     [record] = _credits(_records([(text, 50.0)]))
     norm = normalize(text)
-    region = true_revenue._classifier().payer_region(norm)
+    region = descriptor_payer.payer_region(norm)
     counter = counter_debit_pairing.counter_credit(record, norm, region)
     assert counter.reading.legacy == word
 
@@ -430,9 +431,9 @@ def test_a_lending_bank_debit_takes_no_lender_reading():
 def test_the_lending_bank_hold_is_the_census_s_hold_rule():
     text = normalize(CELTIC.format(n=1))
     [record] = _records([(CELTIC.format(n=1), 40000.0)])
-    region = true_revenue._classifier().payer_region(text)
-    entry = true_revenue._classifier().entry_fields(text)
-    assert true_revenue.hold_rule(record, text, region, entry) == "lending_bank"
+    region = descriptor_payer.payer_region(text)
+    entry = descriptor_payer.entry_fields(text)
+    assert guards.hold_rule(record, text, region, entry) == "lending_bank"
 
 
 # --- I24: every IPFS spelling takes the insurance treatment ----------------------------------------------------------

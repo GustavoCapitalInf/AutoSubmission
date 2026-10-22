@@ -2062,7 +2062,7 @@ FACTORING_PAYOUT_PAYERS: dict[str, tuple[str, ...]] = {
 
 #: Owner ruling 2026-10-02 (the underwriter's Q11 (b); audit I45): the equipment auctions and the consumer car buyers
 #: that pay a seller for a vehicle or a piece of equipment, each public, read by the true-revenue pass alone
-#: (analysis/true_revenue.py asset_sale_platform) and only as the whole payer name (the ACH originator or the wire
+#: (analysis/true_revenue/asset_sale.py asset_sale_platform) and only as the whole payer name (the ACH originator or the wire
 #: sender, read as FACTORING_PAYOUT_PAYERS is read: company forms, entry words, references, a DBA tail or a B/O address
 #: after the alias, and a seller's word): Ritchie Bros. (RB Global, rbglobal.com) and its IronPlanet marketplace,
 #: Purple Wave (purplewave.com), BigIron Auctions (bigiron.com; R2-B12's glued or AUCTION-spaced forms), GovDeals

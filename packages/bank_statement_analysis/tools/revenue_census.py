@@ -329,7 +329,7 @@ PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
 Q5_Q6_METHODS = frozenset({
     "repeat_wire_sender", "named_payer_repeats", "named_payer_company_form", "public_or_healthcare_payer",
 })
-#: I7: the 5.6 holds a Q5 or Q6 row can take (the reason, the pass's own hold reading true_revenue.guard_facts records
+#: I7: the 5.6 holds a Q5 or Q6 row can take (the reason, the pass's own hold reading true_revenue.guards.guard_facts records
 #: as `hold_rule`) and the cause each declares. The holder test's hold is its reason alone (its statement-level
 #: receiver names are no row fact); so is the insurer hold's (R2-OW07: the insurer reading is no hold_rule fact).
 LATER_HOLD_REASON_ONLY = frozenset({"holder_name", "insurer_named_payer"})
@@ -383,7 +383,7 @@ MICRO_DEPOSIT_FLOOR_REASON = "non_sale_purpose"
 _POOL_CAUSES = frozenset({"entity_split", "pool_below_recurrence_after_a_declared_veto"})
 #: S3.1 review (fix 3): the §14.3 facts each guard, or each arm of one, reads. A check whose facts no credit of the run
 #: carries is reported "not checked", never as held, unless its guard recorded a failure, which always counts (S3.1
-#: re-review): the facts of true_revenue.guard_facts arrive
+#: re-review): the facts of true_revenue.guards.guard_facts arrive
 #: in 5.6 (S4.2, S4.3). The pool, holder, numbered, gate and own-transfer facts are the S2.1 readers' (5.5).
 GUARD_FACTS = {
     "G2": ("financing_root", "registry_root"),
@@ -1300,10 +1300,13 @@ SPLIT_OWNERS = {
     "analysis.true_revenue.gambling_payout": "analysis.true_revenue.purpose",
     "analysis.true_revenue.government_benefit": "analysis.true_revenue.public_payers",
     "analysis.true_revenue.government_grant": "analysis.true_revenue.public_payers",
+    "analysis.true_revenue.guard_facts": "analysis.true_revenue.guards",
+    "analysis.true_revenue.hold_rule": "analysis.true_revenue.guards",
     "analysis.true_revenue.legal_settlement": "analysis.true_revenue.purpose",
     "analysis.true_revenue.merchant_settlement": "analysis.true_revenue.self_originated_credits",
     "analysis.true_revenue.non_sale_purpose": "analysis.true_revenue.purpose",
     "analysis.true_revenue.owner_disbursement": "analysis.true_revenue.purpose",
+    "analysis.true_revenue.payer_key_digest": "analysis.true_revenue.guards",
     "analysis.true_revenue.purpose_trade_name": "analysis.true_revenue.purpose",
     "analysis.true_revenue.region_names_holder": "analysis.true_revenue.self_originated_credits",
     "analysis.true_revenue.zelle_prior_reading": "analysis.true_revenue.zelle",
