@@ -32,10 +32,9 @@ class LenderFigure(NamedTuple):
 class LenderFigures(NamedTuple):
     paid: LenderFigure
     withholding: LenderFigure
-    #: R2-OW13 (the underwriter's Q5): the funder payments returned unpaid, out of paid.
+    #: The funder payments returned unpaid, out of paid (true revenue spec §11).
     returned: LenderFigure
-    #: The owner's answer of 2026-10-07 to audit round 3's R3-79 (R3-B03): the paid debits that print payoff words, in
-    #: paid and out of the withholding numerator.
+    #: The paid debits that print payoff words: in paid, out of the withholding numerator (true revenue spec §11).
     payoff: LenderFigure
     potential: LenderFigure
     insurance: LenderFigure
