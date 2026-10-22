@@ -23,6 +23,7 @@ import pytest
 from analysis import transaction_classifier as tc
 from analysis.classification import record as classification_record
 from analysis import true_revenue as tr
+from analysis.true_revenue import dealer
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
@@ -155,8 +156,8 @@ def test_the_series_are_ordered_by_first_date_then_the_larger_amount_then_the_pa
 def test_the_first_payment_comes_at_most_ten_days_after_the_deposit(days, after):
     aid = _aid(_run([(9, WIRE, 50000.0)] + _series(KAPITUS, -900.0, *days)))
     assert [item.days_after for item in aid.get("transaction:1", ())] == ([after] if after else [])
-    assert tr.FUNDING_SERIES_WINDOW_DAYS == 10 and tr.FUNDING_SERIES_MIN_PAYMENTS == 2
-    assert tr.FUNDING_SERIES_MIN_LOOKBACK_DAYS == 3
+    assert dealer.FUNDING_SERIES_WINDOW_DAYS == 10 and dealer.FUNDING_SERIES_MIN_PAYMENTS == 2
+    assert dealer.FUNDING_SERIES_MIN_LOOKBACK_DAYS == 3
 
 
 @pytest.mark.parametrize(("start", "wire_day", "observed"), [
@@ -262,7 +263,9 @@ def _without_aid(node):
 def test_the_aid_changes_no_other_field_and_no_lender_or_revenue_figure(monkeypatch, name):
     statement = _statement(SCENARIOS[name][0], balances=True)
     on = tc.classify_statement_transactions(statement)
-    monkeypatch.setattr(tr, "funding_series_after", lambda records, duplicate_indexes, statement_start: records)
+    patched_funding_series_after = lambda records, duplicate_indexes, statement_start: records
+    monkeypatch.setattr(tr, "funding_series_after", patched_funding_series_after)
+    monkeypatch.setattr(dealer, "funding_series_after", patched_funding_series_after)
     off = tc.classify_statement_transactions(statement)
     assert _aid(on) and not _aid(off)
     assert [replace(record, revenue_funding_series=()) for record in on] == off
@@ -299,13 +302,13 @@ def test_the_pass_reads_the_statement_start_by_keyword_only():
     # A1 is observed only from the printed start: its earliest dated row is the wire itself, so
     # classify_statement_transactions hands the pass the statement's period start.
     records = [replace(record, revenue_funding_series=()) for record in _run(SCENARIOS["A1"][0])]
-    [[series]] = _aid(tr.funding_series_after(records, set(), None)).values()
+    [[series]] = _aid(dealer.funding_series_after(records, set(), None)).values()
     assert series.start_observed is False
-    [[series]] = _aid(tr.funding_series_after(records, set(), START)).values()
+    [[series]] = _aid(dealer.funding_series_after(records, set(), START)).values()
     assert series.start_observed is True
     # A duplicate is never a target, and a statement with no held wire is returned as it is.
-    assert tr.funding_series_after(records, {0}, START) == records
-    assert tr.funding_series_after(records[1:], set(), START) == records[1:]
+    assert dealer.funding_series_after(records, {0}, START) == records
+    assert dealer.funding_series_after(records[1:], set(), START) == records[1:]
 
 
 # --- C8: the payload ---------------------------------------------------------------------------------------------
@@ -439,6 +442,8 @@ def test_r3_66_controls_read_as_before():
 def test_r3_66_moves_no_tier_reason_or_lender_reading(monkeypatch, name):
     rows = _bounced_before(R3_66_RETURNS[name])
     on = _deli(rows)
-    monkeypatch.setattr(tr, "funding_series_after", lambda records, duplicate_indexes, statement_start: records)
+    patched_funding_series_after = lambda records, duplicate_indexes, statement_start: records
+    monkeypatch.setattr(tr, "funding_series_after", patched_funding_series_after)
+    monkeypatch.setattr(dealer, "funding_series_after", patched_funding_series_after)
     off = _deli(rows)
     assert [replace(record, revenue_funding_series=()) for record in on] == off

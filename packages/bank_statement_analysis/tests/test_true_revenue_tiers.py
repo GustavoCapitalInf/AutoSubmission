@@ -901,10 +901,10 @@ def test_an_account_description_or_a_field_label_after_from_is_still_no_counterp
 def test_the_owner_money_and_deferred_payer_tables_live_in_the_registry():
     # §7.0 "Where vocabulary lives" (re-review fix 5): the tables that name companies are the registry's.
     from analysis import classification_registry as registry
-    from analysis import true_revenue
+    from analysis.true_revenue import purpose
     from analysis.true_revenue import eligibility
 
-    assert true_revenue._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
+    assert purpose._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
     assert eligibility._SECTION_15_DEFERRED_PAYERS.pattern == registry.SECTION_15_DEFERRED_PAYERS
     assert "BANK OF AMERICA" in registry.P2P_SENDING_BANK_NAMES
 
@@ -3547,22 +3547,22 @@ def test_q9_c_the_demotion_never_moves_a_debit_or_a_lender_reading():
 
 
 def test_q9_c_the_payables_only_reading_and_the_dealer_evidence_arms():
-    from analysis import true_revenue
+    from analysis.true_revenue import dealer
 
-    assert true_revenue._payables_only_dealer_funding("WESTLAKE FINANCI DES PAYABLES ID 1")
-    assert true_revenue._payables_only_dealer_funding("WESTLAKE FINANCI DES TRADE PAYABLE ID 1")
-    assert true_revenue._payables_only_dealer_funding("WESTLAKE FINANCIAL DES ACCT FUNDING ID 1")
+    assert dealer._payables_only_dealer_funding("WESTLAKE FINANCI DES PAYABLES ID 1")
+    assert dealer._payables_only_dealer_funding("WESTLAKE FINANCI DES TRADE PAYABLE ID 1")
+    assert dealer._payables_only_dealer_funding("WESTLAKE FINANCIAL DES ACCT FUNDING ID 1")
     # A dealer-specific word is read first, the credit-union arm is no listed arm, and no lender reads none.
-    assert not true_revenue._payables_only_dealer_funding("WESTLAKE FINANCI DES DEALER PAY ID 1")
-    assert not true_revenue._payables_only_dealer_funding("ONE RIVER FUNDING DES PAYABLES DEALER PAY ID 1")
-    assert not true_revenue._payables_only_dealer_funding("CU DIRECT DES VHCL PURCH ID 1")
-    assert not true_revenue._payables_only_dealer_funding("NORTHWIND SUPPLY DES PAYABLES ID 1")
+    assert not dealer._payables_only_dealer_funding("WESTLAKE FINANCI DES DEALER PAY ID 1")
+    assert not dealer._payables_only_dealer_funding("ONE RIVER FUNDING DES PAYABLES DEALER PAY ID 1")
+    assert not dealer._payables_only_dealer_funding("CU DIRECT DES VHCL PURCH ID 1")
+    assert not dealer._payables_only_dealer_funding("NORTHWIND SUPPLY DES PAYABLES ID 1")
 
     def evidence(rows, holder="SAMPLE HOLDINGS LLC"):
         records = _records(rows, holder=holder)
         credits = [index for index, record in enumerate(records) if record.amount > 0]
-        return (true_revenue._dealer_activity(records, set(), credits),
-                true_revenue._dealer_contract_evidence(records, set(), credits))
+        return (dealer._dealer_activity(records, set(), credits),
+                dealer._dealer_contract_evidence(records, set(), credits))
 
     payables = ("WESTLAKE FINANCI DES:PAYABLES ID:1", 15000.0)
     # A payables-only Q7 credit is no dealer activity.
@@ -3582,7 +3582,7 @@ def test_q9_c_the_payables_only_reading_and_the_dealer_evidence_arms():
     assert evidence([payables, ("MANHEIM US DES:ACH PAYMNT ID:3", 8000.0)]) == (False, False)
     # A duplicate row never counts.
     records = _records([payables, ("NEXTGEAR CAPITAL DES:PAYMENT ID:2", -9000.0)], holder="SAMPLE HOLDINGS LLC")
-    assert not true_revenue._dealer_activity(records, {1}, [0])
+    assert not dealer._dealer_activity(records, {1}, [0])
     # The holder arm, and its veto.
     assert evidence([payables], holder="SAMPLE MOTORS LLC") == (False, True)
     assert evidence([payables], holder="SAMPLE AUTO SALES LLC") == (False, True)
@@ -3603,12 +3603,12 @@ def test_q9_c_the_payables_only_reading_and_the_dealer_evidence_arms():
     for form, read in (("FLOORPLAN", True), ("FLOOR PLAN", True), ("FLOORPLANS", True), ("FLOOR PLANNING", True),
                        ("FLOORPLAN INT", True), ("FLOORPLANNER", False), ("FLOOR PLANKS", False),
                        ("FLOOR PLANER", False), ("SUBFLOOR PLAN", False)):
-        assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
+        assert bool(dealer._FLOOR_PLAN_FORM.search(form)) is read, form
     for words, read in (("VENDOR PAY", True), ("VENDORPMT", True), ("VENDOR PAYMENT", True), ("REPO FEE", True),
                         ("REPOS", True), ("REPOSSESSION", True), ("RECOVERY", True), ("TOWING", True), ("TOW", True),
                         ("TRANSPORT", True), ("INSPECTION", True), ("COMMISSION", True),
                         ("ADVANCE", False), ("PAYMENT", False), ("CURTAILMNT", False), ("FLOOR PLAN", False)):
-        assert bool(true_revenue._FLOOR_PLAN_SERVICE_CREDIT.search(words)) is read, words
+        assert bool(dealer._FLOOR_PLAN_SERVICE_CREDIT.search(words)) is read, words
 
 
 # Audit round 3, R3-B14 (R3-52; the underwriter's Q9 (c), "a lender paying a business for services counts as 'lender
@@ -3688,7 +3688,7 @@ def test_r3_b14_r1_the_narrowed_arms_still_read_a_dealer_s_own_evidence(holder, 
 
 
 def test_r3_b14_r1_the_arms_controls():
-    from analysis import true_revenue
+    from analysis.true_revenue import dealer
 
     # A card charge in Found's or Bluevine's form (no wire, ACH or check word) is still a card purchase in the town.
     payables = (WESTLAKE_PAYABLES.format(holder=_R3_52_AGENCY), 3150.0)
@@ -3703,7 +3703,7 @@ def test_r3_b14_r1_the_arms_controls():
     for form, read in (("FLOORPLANINT", True), ("FLOORPLANPAYOFF", True), ("FLOORPLANXPRESS", True),
                        ("FLOORPLANADV", True), ("FLOORPLANNER", False), ("FLOORPLANNERS", False),
                        ("FLOOR PLANKS", False), ("FLOORPLANK", False), ("FLOOR PLANER", False)):
-        assert bool(true_revenue._FLOOR_PLAN_FORM.search(form)) is read, form
+        assert bool(dealer._FLOOR_PLAN_FORM.search(form)) is read, form
 
 
 def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():

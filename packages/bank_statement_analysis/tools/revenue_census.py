@@ -303,7 +303,7 @@ ASSET_SALE_INVOICE_METHODS = frozenset(
 #: reads other checkouts).
 LENDER_PAID_FOR_SERVICES_METHOD = "lender_paid_for_services"
 #: The owner's ruling of 2026-10-02 (the underwriter's Q3): the method pass 7 gives a Zelle deposit the Zelle policy
-#: excluded (analysis/true_revenue.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
+#: excluded (analysis/true_revenue/zelle.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
 ZELLE_POLICY_METHOD = "zelle_deposit_excluded"
 #: The owner's amendment of 2026-10-06 to the underwriter's Q3 (spec §14.2; R2-OW17): the declared cause of a credit whose
 #: base method is the Zelle policy's and whose (tier, reason) moves between snapshots of the two Zelle readings, given
@@ -1296,10 +1296,17 @@ SPLIT_OWNERS = {
     "analysis.transaction_classifier.payer_region": "analysis.descriptor.payer",
     "analysis.transaction_classifier.platform_entry_leads_with_financing": "analysis.descriptor.holder",
     "analysis.transaction_classifier.revenue_text": "analysis.descriptor.lexical",
+    "analysis.true_revenue.construction_progress_draw": "analysis.true_revenue.purpose",
+    "analysis.true_revenue.gambling_payout": "analysis.true_revenue.purpose",
     "analysis.true_revenue.government_benefit": "analysis.true_revenue.public_payers",
     "analysis.true_revenue.government_grant": "analysis.true_revenue.public_payers",
+    "analysis.true_revenue.legal_settlement": "analysis.true_revenue.purpose",
     "analysis.true_revenue.merchant_settlement": "analysis.true_revenue.self_originated_credits",
+    "analysis.true_revenue.non_sale_purpose": "analysis.true_revenue.purpose",
+    "analysis.true_revenue.owner_disbursement": "analysis.true_revenue.purpose",
+    "analysis.true_revenue.purpose_trade_name": "analysis.true_revenue.purpose",
     "analysis.true_revenue.region_names_holder": "analysis.true_revenue.self_originated_credits",
+    "analysis.true_revenue.zelle_prior_reading": "analysis.true_revenue.zelle",
 }
 
 
@@ -1448,7 +1455,7 @@ def account_snapshot(account: dict, *, zelle_true_revenue: bool | None = True) -
     """Re-classify one account payload with the `analysis` package on sys.path. The owner's amendment of 2026-10-06 to
     the underwriter's Q3 (spec §14.2; R2-OW17, J1): in the Zelle reading `zelle_true_revenue` (Yes by default, as the
     Settings page's; None reads the checkout's one reading), on a checkout that takes it; each credit also records the
-    stored reading's zelle_prior (true_revenue.zelle_prior_reading, where the checkout has it)."""
+    stored reading's zelle_prior (true_revenue.zelle.zelle_prior_reading, where the checkout has it)."""
     from analysis import classification_registry
     from analysis.classification_registry import OPERATING_REVENUE_SOURCE_ALIASES
     from analysis.metrics import compute_metrics

@@ -573,7 +573,7 @@ def test_a_payroll_provider_paying_a_holder_named_for_taxes_on_a_label_less_row_
     ("ADP DES:SALES ID:1 INDN:CONTOSO TAX SERVICES CO ID:1 CCD", False),
 ])
 def test_the_payroll_tax_word_is_read_on_the_payer_region_and_the_entry_fields(text, expected):
-    from analysis.true_revenue import payroll_tax_credit
+    from analysis.true_revenue.finance_release import payroll_tax_credit
 
     revenue = lexical.revenue_text(description_text.normalize_transaction_description(text))
     assert payroll_tax_credit(revenue, descriptor_payer.payer_region(revenue)) is expected
@@ -1131,13 +1131,13 @@ def test_ow09_the_release_reads_the_hidden_loan_guard_last(debit, released):
     assert rules_reading(credit) == (
         ("counted_flagged", "finance_named_customer") if released else ("excluded_pending_review", "financing_named_payer"))
     # The guard is the release's last step: the credit's reading (a customer's name, payables wording) is the same.
-    from analysis import true_revenue as tr
+    from analysis.true_revenue import finance_release
     from analysis.true_revenue import counter_debit_pairing
 
     records = _records(rows)
     text = lexical.revenue_text(records[0].normalized_description)
     region, entry = descriptor_payer.payer_region(text), descriptor_payer.entry_fields(text)
-    reason = tr.finance_named_release(records[0], text, region=region, entry=entry,
+    reason = finance_release.finance_named_release(records[0], text, region=region, entry=entry,
                                       debits=counter_debit_pairing.counter_debits(records, set()))
     assert reason == ("finance_named_customer" if released else None)
     assert counter_debit_pairing._payer_collects(counter_debit_pairing.counter_credit(records[0], text, region), counter_debit_pairing.counter_debits(records, set())) is (

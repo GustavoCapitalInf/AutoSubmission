@@ -5,7 +5,7 @@ Zelle deposit it was due on, so a reader's regression stays visible behind the p
 fails too. Never re-point a reader test to the final tier alone."""
 from __future__ import annotations
 
-from analysis import true_revenue
+from analysis.true_revenue import zelle
 from analysis.descriptor.lexical import revenue_text
 
 ZELLE_EXCLUDED = ("non_revenue", "zelle_excluded")
@@ -16,9 +16,9 @@ def zelle_policy_due(record) -> bool:
     direction does not conflict: the policy must have excluded it."""
     if not (record.amount > 0 and record.is_posted and record.revenue_tier is not None):
         return False
-    if not true_revenue.zelle_deposit(revenue_text(record.normalized_description)):
+    if not zelle.zelle_deposit(revenue_text(record.normalized_description)):
         return False
-    if true_revenue.zelle_prior_reading(record) is not None:
+    if zelle.zelle_prior_reading(record) is not None:
         return True
     return record.revenue_classification != "non_revenue" and record.revenue_match_method != "direction_conflict"
 
@@ -27,10 +27,10 @@ def rules_reading(record, *, method: bool = False) -> tuple[str | None, str | No
     """The rules' tier and reason of a credit (with `method`, its method where it has no reason). A Zelle deposit the
     policy excluded reads through zelle_prior_reading, its final tier asserted to be (non_revenue, zelle_excluded);
     a Zelle deposit the policy was due on and did not exclude fails."""
-    prior = true_revenue.zelle_prior_reading(record)
+    prior = zelle.zelle_prior_reading(record)
     if zelle_policy_due(record) or prior is not None:
         assert (record.revenue_tier, record.revenue_tier_reason) == ZELLE_EXCLUDED, record.normalized_description
-        assert record.revenue_match_method == true_revenue.ZELLE_POLICY_METHOD
+        assert record.revenue_match_method == zelle.ZELLE_POLICY_METHOD
         assert prior is not None
         return prior
     reason = record.revenue_tier_reason

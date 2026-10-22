@@ -2327,7 +2327,7 @@ INSURANCE_PROVIDER_ALIASES: dict[str, tuple[str, ...]] = {
 #: Audit I26 (by Q6 of 2026-09-28, "insurers never count", and the last sentence of the underwriter's Q2 (2026-10-02)
 #: option the owner picked, "a one-off claim paid to a business on its own policy stays out"; R2-OW07): carriers whose
 #: credits print no insurer word, each a public insurer, as regular expressions the true-revenue pass alone reads
-#: (analysis/true_revenue.py insurer_credit_brand wraps each in (?<![A-Z])(?:...)(?![A-Z])) on a credit's payer region
+#: (analysis/true_revenue/insurer.py insurer_credit_brand wraps each in (?<![A-Z])(?:...)(?![A-Z])) on a credit's payer region
 #: without the holder's names. CREDIT-ONLY: classify_transaction's insurance rule never reads it, no debit reads it and
 #: no record carries it, so INSURANCE_PROVIDER_ALIASES, detection.insurance_providers and the lender census (G7) are
 #: untouched. A brand INSURANCE_PROVIDER_ALIASES also names is keyed by that entity's name, spelled identically

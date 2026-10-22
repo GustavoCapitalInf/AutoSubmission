@@ -192,7 +192,7 @@ _BASIS_DEFINITIONS = {
     "verified_revenue": "a part of true revenue only",
     "true_revenue": "true revenue: posted credits minus known non-revenue and the deposits held for review",
 }
-#: The context signal that keeps a Zelle deposit's reading with Zelle counted (analysis/true_revenue.py `_ZELLE_PRIOR`).
+#: The context signal that keeps a Zelle deposit's reading with Zelle counted (analysis/true_revenue/zelle.py `_ZELLE_PRIOR`).
 _ZELLE_PRIOR = "zelle_prior:"
 
 

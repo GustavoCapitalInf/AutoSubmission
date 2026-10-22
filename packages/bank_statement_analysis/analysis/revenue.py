@@ -92,10 +92,10 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "insurer_paid_for_services": ("counted_flagged", "Insurer paid for the business's work"),
     # Owner ruling 2026-10-02 (the underwriter's Q9 (a)), R2-OW09: a customer whose own name carries a finance word,
     # paying on a line that prints invoice, accounts-payable or vendor-payment wording (or a commission), released from
-    # T4's financing-root hold, counted, never verified (true_revenue.FINANCE_NAMED_CUSTOMER).
+    # T4's financing-root hold, counted, never verified (true_revenue.finance_release.FINANCE_NAMED_CUSTOMER).
     "finance_named_customer": ("counted_flagged", "Customer with a finance word in its name, paying an invoice"),
     # Owner ruling 2026-10-02 (the underwriter's Q9 (b)), R2-OW09: a rent LEASE received by a business in leasing or
-    # property, released from T4's financing-root hold, counted, never verified (true_revenue.LESSOR_RENT).
+    # property, released from T4's financing-root hold, counted, never verified (true_revenue.finance_release.LESSOR_RENT).
     "lessor_rent": ("counted_flagged", "Rent received by a leasing or property business"),
     # Audit B11 (I53): the payer's own settlement of the merchant's sales (OQ2's BNPL providers, marketplaces), counted;
     # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
@@ -109,7 +109,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "named_payer_one_off": ("counted_flagged", "One-off payer"),
     "named_payer_unlabelled": ("counted_flagged", "Payer named, channel not printed"),
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): a Zelle deposit the Zelle policy excluded
-    # (true_revenue.ZELLE_EXCLUDED), the one non_revenue row that carries a reason; a Zelle row another non-revenue
+    # (true_revenue.zelle.ZELLE_EXCLUDED), the one non_revenue row that carries a reason; a Zelle row another non-revenue
     # rule decided keeps that rule and no reason.
     "zelle_excluded": ("non_revenue", "Zelle deposit (excluded by policy)"),
     # The owner's ruling of 2026-10-02 (the underwriter's Q12), R2-OW03: the display reason of a government payment

@@ -1832,9 +1832,9 @@ def test_q12_the_compare_declares_a_verified_form_that_became_non_revenue():
 # The owner's ruling of 2026-10-02 (the underwriter's Q3): every Zelle deposit is non_revenue (zelle_excluded). No
 # corpus Zelle row is verified; the compare still declares a verified one the policy excluded (a safeguard).
 def test_q3_the_compare_declares_a_verified_zelle_deposit_the_policy_excluded():
-    from analysis import true_revenue
+    from analysis.true_revenue import zelle
 
-    assert census.ZELLE_POLICY_METHOD == true_revenue.ZELLE_POLICY_METHOD
+    assert census.ZELLE_POLICY_METHOD == zelle.ZELLE_POLICY_METHOD
     assert "zelle_policy" in census.DECLARED_DEMOTIONS
     text = census.mask("ZELLE PAYMENT FROM NORTHWIND SUPPLY LLC CONF 1")
     causes, run = _cause56(
