@@ -18,6 +18,7 @@ from .adb import (
     compute_average_daily_balance,
     money_to_cents as _money,
 )
+from .lender_figures import LenderRow, lender_figures
 from .nsf_days import PRINTED as NSF_PRINTED, UNAVAILABLE as NSF_UNAVAILABLE, negative_day_count
 from .schema import Statement
 from .flag_groups import FLAG_GROUPS
@@ -407,7 +408,7 @@ def compute_metrics(
     flagged_credited_totals: dict[str, float] = {}
     flagged_payees: dict[str, set[str]] = {}
     posted_credits: list[PostedCredit] = []
-    withholding_numerator = 0.0
+    lender_rows: list[LenderRow] = []
     direction_conflict = False
     for t, classification in zip(stmt.transactions, records):
         if t.amount >= 0:
@@ -420,34 +421,20 @@ def compute_metrics(
             m.nsf_count += 1
         if classification.contributes_to_lender_credit_exclusion:
             m.lender_credits += abs(t.amount)
-        if classification.contributes_to_lender_totals:
-            m.lender_debits += abs(t.amount)
-            m.lender_debit_count += 1
-            m.lender_evidence.append(classification)
-        if classification.contributes_to_withholding_rate:
-            withholding_numerator += abs(t.amount)
-        if classification.lump_sum_payoff and classification.contributes_to_lender_totals:
-            # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs"; R3-B03): a paid
-            # payoff-worded debit, in the paid figure above and out of the withholding numerator.
-            m.lump_sum_payoff_total += abs(t.amount)
-            m.lump_sum_payoff_count += 1
-        if classification.returned_funder_payment_by:
-            # R2-OW13 (the underwriter's Q5): a funder payment returned unpaid, out of the paid figure above.
-            m.returned_funder_payment_total += abs(t.amount)
-            m.returned_funder_payment_count += 1
-            m.returned_funder_payment_evidence.append(classification)
+        lender_rows.append(LenderRow(
+            t.amount,
+            paid=classification.contributes_to_lender_totals,
+            withheld=classification.contributes_to_withholding_rate,
+            returned=bool(classification.returned_funder_payment_by),
+            payoff_words=bool(classification.lump_sum_payoff),
+            potential=classification.contributes_to_potential_lender_totals,
+            insurance=classification.contributes_to_insurance_totals,
+            record=classification,
+        ))
         if classification.contributes_to_lender_count and classification.canonical_entity:
             confirmed_entities.add(classification.canonical_entity)
         if classification.contributes_to_potential_lender_count and classification.canonical_entity:
             potential_entities.add(classification.potential_payee_label or classification.canonical_entity)
-        if classification.contributes_to_potential_lender_totals:
-            m.potential_lender_debit_total += abs(t.amount)
-            m.potential_lender_debit_count += 1
-            m.potential_lender_evidence.append(classification)
-        if classification.contributes_to_insurance_totals:
-            m.insurance_count += 1
-            m.insurance_total += abs(t.amount)
-            m.insurance_evidence.append(classification)
         if classification.contributes_to_flagged_totals and classification.flagged_group:
             group_key = classification.flagged_group
             if t.amount < 0:
@@ -505,12 +492,15 @@ def compute_metrics(
     m.total_deposits = round(m.total_deposits, 2)
     m.total_withdrawals = round(m.total_withdrawals, 2)
     m.lender_credits = round(m.lender_credits, 2)
-    m.lender_debits = round(m.lender_debits, 2)
-    m.returned_funder_payment_total = round(m.returned_funder_payment_total, 2)
-    m.potential_lender_debit_total = round(m.potential_lender_debit_total, 2)
+    lender = lender_figures(lender_rows, accumulation="sequential")
+    m.lender_debits, m.lender_debit_count, m.lender_evidence = lender.paid
+    (m.returned_funder_payment_total, m.returned_funder_payment_count,
+     m.returned_funder_payment_evidence) = lender.returned
+    m.lump_sum_payoff_total, m.lump_sum_payoff_count = lender.payoff.total, lender.payoff.count
+    m.potential_lender_debit_total, m.potential_lender_debit_count, m.potential_lender_evidence = lender.potential
     m.potential_lender_debits = m.potential_lender_debit_total
     m.monthly_lender_debits = m.lender_debits
-    m.insurance_total = round(m.insurance_total, 2)
+    m.insurance_total, m.insurance_count, m.insurance_evidence = lender.insurance
     m.flagged_groups = {
         group.key: {
             "count": flagged_counts.get(group.key, 0),
@@ -716,7 +706,7 @@ def compute_metrics(
     # R2-OW13 (the underwriter's Q5): every row the rate reads, the paid lender debits and the returned funder payments
     # still standing (lender_debits + returned_funder_payment_total, less the returned payments their funder re-debited
     # (`represented_by`; audit round 3, R3-B02, "Count it once"), to the cent).
-    m.withholding_numerator = round(withholding_numerator, 2)
+    m.withholding_numerator = lender.withholding.total
     if m.returned_funder_payment_count:
         # The money in the statement's own unit (CURRENCY DOCTRINE: never a '$' on a CAD statement).
         unit = f" {stmt.currency}" if getattr(stmt, "currency", None) else ""
@@ -739,7 +729,6 @@ def compute_metrics(
                 f"{m.returned_funder_payment_count} returned funder {payments} "
                 f"({m.returned_funder_payment_total:,.2f}{unit}): out of paid to lenders, kept in the withholding rate"
             )
-    m.lump_sum_payoff_total = round(m.lump_sum_payoff_total, 2)
     if m.lump_sum_payoff_count:
         # The owner's answer of 2026-10-07 to audit round 3's R3-79 ("Exclude worded payoffs (Recommended)"; R3-B03): the
         # lump sums out of the withholding rate, in the statement's own unit.

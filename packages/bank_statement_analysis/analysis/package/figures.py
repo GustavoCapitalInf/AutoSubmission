@@ -1,8 +1,9 @@
-"""Row rules the member fold applies: revenue buckets, flagged rows and potential lender totals."""
+"""Row rules the member fold applies: revenue buckets, lender figures, flagged rows and potential lender totals."""
 from __future__ import annotations
 
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
+from analysis.lender_figures import lender_figures, LenderFigures, LenderRow
 from analysis.package.model import num
 from analysis.revenue import PostedCredit, revenue_buckets, REVENUE_STATES, RevenueBuckets
 
@@ -30,6 +31,26 @@ def member_revenue(rows: list[dict], *, tiered: bool) -> RevenueBuckets:
             ))
     return revenue_buckets(credits, accumulation="builtin_sum", reason_accumulation="rounded_each",
                            reason_order="first_seen")
+
+
+def member_lender(rows: list[dict]) -> LenderFigures:
+    """A member's lender figures over its classified rows (R-d's pairs left out, the package passes' overlay applied),
+    each figure added with builtin sum(). A stored row's flag counts only when it is exactly True, and a row with no
+    potential total flag reads its potential count flag (`contributes_to_potential_totals`)."""
+    lender_rows = []
+    for row in rows:
+        record = row["classification"]
+        lender_rows.append(LenderRow(
+            num(row.get("amount")),
+            paid=record.get("contributes_to_lender_totals") is True,
+            withheld=record.get("contributes_to_withholding_rate") is True,
+            returned=bool(record.get("returned_funder_payment_by")),
+            payoff_words=bool(record.get("lump_sum_payoff")),
+            potential=contributes_to_potential_totals(record),
+            insurance=record.get("contributes_to_insurance_totals") is True,
+            record=row,
+        ))
+    return lender_figures(lender_rows, accumulation="builtin_sum")
 
 
 def contributes_to_potential_totals(classification: dict) -> bool:
