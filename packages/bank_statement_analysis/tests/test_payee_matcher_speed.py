@@ -19,9 +19,10 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
-from analysis import classification_registry, payee_matcher, transaction_classifier, true_revenue
+from analysis import classification_registry, payee_matcher, transaction_classifier
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.payee_matcher import AliasIndex
+from tests.classifier_modules import classifier_modules
 
 
 def _reference_match(index: AliasIndex, normalized_text: str):
@@ -76,7 +77,7 @@ def _registries() -> list[Mapping[str, Sequence[str]]]:
     """Every registry the classifier and the true-revenue pass can hand registry_match: each module-level mapping of
     names to alias sequences, and each one nested one level down (the group and bank-specific registries)."""
     found: dict[int, Mapping[str, Sequence[str]]] = {}
-    for module in (classification_registry, transaction_classifier, true_revenue):
+    for module in (classification_registry, *classifier_modules()):
         for value in vars(module).values():
             if _is_registry(value):
                 found.setdefault(id(value), value)

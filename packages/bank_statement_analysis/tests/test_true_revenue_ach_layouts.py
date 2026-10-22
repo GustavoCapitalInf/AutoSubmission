@@ -14,6 +14,9 @@ from dataclasses import replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import financing
+from analysis.descriptor import lexical
+from analysis.descriptor import words
 from analysis import description_text
 from analysis import true_revenue as tr
 from analysis.schema import Statement, Transaction
@@ -55,7 +58,7 @@ def _rtp(sender: str) -> str:
 
 
 def test_chase_real_time_reads_the_sender_after_the_contra_bank_label():
-    assert tc.payer_region(tc.revenue_text(description_text.normalize_transaction_description(
+    assert tc.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(
         _rtp("FABRIKAM CAPITAL FUNDING LLC")))) == "FABRIKAM CAPITAL FUNDING LLC"
 
 
@@ -377,14 +380,14 @@ def test_r3_88_the_numbered_company_controls_keep_their_readings(text, bank, exp
 
 def test_r3_88_the_code_tail_and_the_tail_words_keep_their_names_and_hold_the_pairs_longest_first():
     # R3-B17 builds on both names; the pairs come before the single codes.
-    assert tc._BMO_CODE_TAIL.startswith("(?:BPY FAC|")
+    assert words._BMO_CODE_TAIL.startswith("(?:BPY FAC|")
     for pair in (*R388_PAIRS, "CAP CDE", "INS ASS", "INV PLA"):
-        assert pair in tc._BMO_CODE_TAIL
-        assert pair in tc._NUMBERED_TAIL_WORDS
+        assert pair in words._BMO_CODE_TAIL
+        assert pair in words._NUMBERED_TAIL_WORDS
     for code in ("BPY", "PAY"):
-        assert f"|{code}|" in tc._NUMBERED_TAIL_WORDS or tc._NUMBERED_TAIL_WORDS.endswith(f"|{code})")
+        assert f"|{code}|" in words._NUMBERED_TAIL_WORDS or words._NUMBERED_TAIL_WORDS.endswith(f"|{code})")
     for word in ("BUS", "CAP", "INS"):
-        assert f"|{word}|" not in tc._NUMBERED_TAIL_WORDS and f"|{word}|" not in tc._BMO_CODE_TAIL
+        assert f"|{word}|" not in words._NUMBERED_TAIL_WORDS and f"|{word}|" not in words._BMO_CODE_TAIL
 
 
 # I19: American Express's incoming ACH template.
@@ -400,7 +403,7 @@ def _amex(originator: str, entry: str, receiver: str = "XXXX5678 NORTHWIND DISTR
 def test_amex_template_reads_the_originator_and_cuts_the_receiver():
     text = _amex("CONTOSO SRE INC", "EFT")
     assert tc.payer_region(text) == "CONTOSO SRE INC EFT"
-    assert "NORTHWIND" not in tc._before_receiver(text)
+    assert "NORTHWIND" not in lexical._before_receiver(text)
 
 
 def test_amex_company_paying_twice_verifies_as_a_repeat():
@@ -433,7 +436,7 @@ def test_amex_originator_s_transfer_entry_reads_as_the_same_entry_in_an_ach_des_
     assert _tiers(amex, holder=AMEX_HOLDER, bank="American Express") == _tiers(
         bofa, holder=AMEX_HOLDER, bank="Bank of America") == [("counted_flagged", "p2p")] * 2
     records = _records(amex, holder=AMEX_HOLDER, bank="American Express")
-    text = tc.revenue_text(records[0].normalized_description)
+    text = lexical.revenue_text(records[0].normalized_description)
     assert not tr.guard_facts(records[0], text)["transfer_no_counterparty"]
     # The payer region still reads the originator and its entry, never the transfer reader's FROM sender (none).
     assert tc.payer_region(text) == "CONTOSO PAVING TRANSFER"
@@ -448,7 +451,7 @@ def test_amex_originator_s_transfer_entry_reads_as_the_same_entry_in_an_ach_des_
     ("ONLINE TRANSFER PAYMENT DEBIT CONTOSO", True),
 ])
 def test_only_american_express_s_incoming_ach_label_is_no_transfer_wording(text, transfer):
-    assert bool(tc._TRANSFER_WORDING.search(text)) is transfer
+    assert bool(description_text._TRANSFER_WORDING.search(text)) is transfer
 
 
 def test_amex_entry_wording_is_still_read():
@@ -520,7 +523,7 @@ def test_navy_federal_payer_printed_without_a_digit_block_keeps_its_region():
     ("CORPORATE ACH PAYROLL CONTOSO PAVING 00026001000000001", False),
 ])
 def test_payer_label_layout(text, layout):
-    assert tc.payer_label_layout(tc.revenue_text(description_text.normalize_transaction_description(text))) is layout
+    assert tc.payer_label_layout(lexical.revenue_text(description_text.normalize_transaction_description(text))) is layout
 
 
 # Audit round 2, R2-B03 (R05; I01, Q2, the registry's note: a bank's name is never the payer's name): a payer region
@@ -645,7 +648,7 @@ def test_r3_31_the_statement_s_own_bank_alone_is_counted_with_no_payer_never_hel
 @pytest.mark.parametrize("name", ["SAMPLE SPERM BANK", "CONTOSO EYE BANK", "FABRIKAM TISSUE BANK", "SAMPLE MILK BANK",
                                   "SAMPLE BONE BANK", "SAMPLE CORD BLOOD BANK"])
 def test_r3_31_a_tissue_bank_paying_by_ach_is_a_customer(name):
-    assert not tc.bank_by_form(name)
+    assert not lexical.bank_by_form(name)
     assert tr._bank_only_payer(name, "", RELAY) is None
     assert _tiers([(f"ACH CREDIT {name}", 1500.0)], holder=R331_HOLDER, bank="Fabrikam Bank") == [ONE_OFF]
     ccd = f"{name} DES:PAYMENT ID:0001 INDN:NORTHWIND PLUMBING LLC CO ID:0000000001 CCD"
@@ -738,7 +741,7 @@ def test_r3_31_every_own_spelling_is_a_listed_sending_bank_name():
 
 def test_a_claimed_or_verified_row_never_takes_the_bank_only_pull():
     [record] = _records([("ACH CREDIT SAMPLE STATE BANK", 2600.0)], bank=RELAY)
-    text = tc.revenue_text(record.normalized_description)
+    text = lexical.revenue_text(record.normalized_description)
     region = tc.payer_region(text)
     assert tr._bank_only_pull(record, text, region)
     assert not tr._bank_only_pull(replace(record, revenue_match_method="recurring_operating_source"), text, region)
@@ -751,7 +754,7 @@ def test_g4_no_counted_or_verified_row_carries_the_bank_only_transfer_fact():
             ("ACH CREDIT CONTOSO SUPPLY LLC", 900.0), ("ACH CREDIT CONTOSO SUPPLY LLC", 800.0),
             (CHASE_ONLINE.format(n=1), 300.0), (BANK_BILL_PAY.format(n=1), 400.0)]
     for record in _records(rows, bank=RELAY):
-        facts = tr.guard_facts(record, tc.revenue_text(record.normalized_description))
+        facts = tr.guard_facts(record, lexical.revenue_text(record.normalized_description))
         in_true = record.revenue_tier in {"verified", "counted_flagged"}
         assert not (in_true and facts["transfer_no_counterparty"]), record.description
 
@@ -932,12 +935,12 @@ def test_r06_the_payer_region_starts_after_the_label(text, region):
     "INTL WIRE CREDIT ORG FABRIKAM SUPPLY INC",
 ])
 def test_r06_a_wire_credit_label_is_no_financing_root_and_the_row_stays_a_wire(text):
-    assert not tc._names_financing(tc._wire_financing_text(text))
+    assert not financing._names_financing(tc._wire_financing_text(text))
     # The label is removed from the veto's text only: the row still reads as a wire, its sender after ORG.
     assert tc._is_wire_row(text)
     assert tc.payer_region(text) == "FABRIKAM SUPPLY INC"
     # A lender's name after the label still vetoes.
-    assert tc._names_financing(tc._wire_financing_text(text.replace("FABRIKAM SUPPLY INC", "SAMPLE CREDIT CORP")))
+    assert financing._names_financing(tc._wire_financing_text(text.replace("FABRIKAM SUPPLY INC", "SAMPLE CREDIT CORP")))
 
 
 def test_r06_a_cut_name_s_entry_and_a_dividend_are_no_financing_root():
@@ -982,8 +985,8 @@ def test_r31_the_label_with_no_originator_after_it_is_a_bare_transfer(bank, tail
     text = "ONLINE TRANSFER PAYMENT CREDIT" + tail
     assert _tiers([(text, 5000.0)], holder=AMEX_HOLDER, bank=bank) == [
         ("excluded_pending_review", "transfer_no_counterparty")]
-    assert tc._TRANSFER_WORDING.search(text)
-    assert not tc._REVENUE_TEMPLATE_PREFIX.match(text)
+    assert description_text._TRANSFER_WORDING.search(text)
+    assert not words._REVENUE_TEMPLATE_PREFIX.match(text)
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -1019,16 +1022,16 @@ def test_r31_the_label_before_an_originator_keeps_its_ach_reading(text, expected
     ("ONLINE TRANSFER PAYMENT CREDIT IDEAL SUPPLY INC EFT 1234", True),
 ])
 def test_r31_the_three_label_exceptions_read_one_originator_gate(text, exempt):
-    assert (tc._TRANSFER_WORDING.search(text) is None) is exempt
-    assert (tc._REVENUE_TEMPLATE_PREFIX.match(text) is not None) is exempt
-    assert bool(tc._ELECTRONIC_PAYMENT_FORM.search(text)) is exempt
+    assert (description_text._TRANSFER_WORDING.search(text) is None) is exempt
+    assert (words._REVENUE_TEMPLATE_PREFIX.match(text) is not None) is exempt
+    assert bool(words._ELECTRONIC_PAYMENT_FORM.search(text)) is exempt
 
 
 def test_r31_the_label_followed_by_from_keeps_its_transfer_wording():
     # 'CREDIT FROM' is an electronic-payment form of its own (unchanged); the label's TRANSFER stays transfer wording.
     text = "ONLINE TRANSFER PAYMENT CREDIT FROM CONTOSO"
-    assert tc._TRANSFER_WORDING.search(text)
-    assert not tc._REVENUE_TEMPLATE_PREFIX.match(text)
+    assert description_text._TRANSFER_WORDING.search(text)
+    assert not words._REVENUE_TEMPLATE_PREFIX.match(text)
 
 
 # Audit round 3, R3-B08 (R3-41; standard A4, Q2 of 2026-09-28; amends R2-B09's R31 line): R31's originator gate reads
@@ -1104,10 +1107,10 @@ def test_r3_41_the_controls_keep_their_readings(text, expected):
     _amex("CONTOSO SRE INC", "EFT"),
 ])
 def test_r3_41_the_three_label_exceptions_exempt_the_full_template_whatever_its_originator(text):
-    assert tc._AMEX_ACH_CREDIT.match(text)
-    assert tc._TRANSFER_WORDING.search(text) is None
-    assert tc._REVENUE_TEMPLATE_PREFIX.match(text)
-    assert tc._ELECTRONIC_PAYMENT_FORM.search(text)
+    assert words._AMEX_ACH_CREDIT.match(text)
+    assert description_text._TRANSFER_WORDING.search(text) is None
+    assert words._REVENUE_TEMPLATE_PREFIX.match(text)
+    assert words._ELECTRONIC_PAYMENT_FORM.search(text)
 
 
 @pytest.mark.parametrize("text", [
@@ -1123,15 +1126,15 @@ def test_r3_41_the_row_before_the_receiver_block_keeps_the_template_s_external(t
     # The readers of the label's three exceptions read the row before the receiver block, so on the full template it
     # keeps EXTERNAL after the id (the receiver block cut out, the sending bank and trace dropped); a cut row is as
     # printed. The payer region still ends at the id, and the cut is stable.
-    row = tc._before_receiver(text)
-    template = tc._AMEX_ACH_CREDIT.match(text)
+    row = lexical._before_receiver(text)
+    template = words._AMEX_ACH_CREDIT.match(text)
     if template:
         assert row == text[: template.end("id")] + " EXTERNAL"
         assert "NORTHWIND" not in row and "FABRIKAM BANK" not in row
-        assert tc._TRANSFER_WORDING.search(row) is None and tc._REVENUE_TEMPLATE_PREFIX.match(row)
+        assert description_text._TRANSFER_WORDING.search(row) is None and words._REVENUE_TEMPLATE_PREFIX.match(row)
     else:
         assert row == text
-    assert tc._before_receiver(row) == row
+    assert lexical._before_receiver(row) == row
     assert "EXTERNAL" not in tc.payer_region(text)
 
 
@@ -1147,5 +1150,5 @@ def test_r3_41_the_row_before_the_receiver_block_keeps_the_template_s_external(t
 def test_r3_41_the_gate_s_template_tail_and_the_template_are_one_source(text):
     # _AMEX_ACH_CREDIT is built from _AMEX_TEMPLATE_TAIL's pieces, so the gate's template arm and the template never
     # drift: the label followed by the tail matches exactly where the template does.
-    tail = re.match(r"^ONLINE TRANSFER PAYMENT CREDIT(?=" + tc._AMEX_TEMPLATE_TAIL + ")", text)
-    assert (tail is not None) is (tc._AMEX_ACH_CREDIT.match(text) is not None)
+    tail = re.match(r"^ONLINE TRANSFER PAYMENT CREDIT(?=" + description_text._AMEX_TEMPLATE_TAIL + ")", text)
+    assert (tail is not None) is (words._AMEX_ACH_CREDIT.match(text) is not None)

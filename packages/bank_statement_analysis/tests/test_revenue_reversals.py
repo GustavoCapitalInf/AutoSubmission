@@ -1418,12 +1418,13 @@ def test_r3_44_the_possible_return_backstop_reads_the_lost_accent(hold_text, hel
 
 def test_r3_44_the_french_interest_copy_in_the_census_is_the_classifier_s():
     from analysis import transaction_classifier as tc
+    from analysis.descriptor import words
     from tools import revenue_census as census
 
-    pattern = tc._FRENCH_INTEREST_CREDIT.pattern
-    assert tc._FRENCH_INTEREST_CREDIT in tc._NON_REVENUE_CREDIT_PATTERNS
+    pattern = words._FRENCH_INTEREST_CREDIT.pattern
+    assert words._FRENCH_INTEREST_CREDIT in tc._NON_REVENUE_CREDIT_PATTERNS
     assert census._on_masked(pattern).pattern == census._FRENCH_INTEREST_AND_REBATE_R2_B08[0].pattern
     for text in ("INTERETS GAGNES", "INTERETS CREDITEURS", "INTERETS PAYES", "INTERETS VERSES", "CREDIT D INTERET"):
-        assert tc._FRENCH_INTEREST_CREDIT.search(text)
-    assert not tc._FRENCH_INTEREST_CREDIT.search("INTERETS SUR PRET")
-    assert not tc._FRENCH_INTEREST_CREDIT.search("INTERETS DECOUVERT")
+        assert words._FRENCH_INTEREST_CREDIT.search(text)
+    assert not words._FRENCH_INTEREST_CREDIT.search("INTERETS SUR PRET")
+    assert not words._FRENCH_INTEREST_CREDIT.search("INTERETS DECOUVERT")

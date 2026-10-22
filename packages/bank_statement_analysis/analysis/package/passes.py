@@ -21,19 +21,18 @@ from analysis.payee_matcher import match_known_payee
 from analysis.revenue import revenue_contribution_flags, REVENUE_STATES
 from analysis.revenue_view import DEBIT_FLAG_KINDS, debit_side_flags
 from analysis.transaction_classifier import (
-    _CONSUMER_P2P_RAIL,
     _deposit_channel_credit,
     _deposit_return_debit,
-    _PUSH_RAIL,
     _received_on_day,
     _RETURN_CREDIT_TIERS,
     _returned_payment_credit,
-    _TRANSFER_WORDING,
     _undo_debit_names_a_credit,
-    is_round_sum,
     paper_or_cash_deposit,
     RETURNED_FUNDER_PAYMENT_WINDOW_DAYS,
 )
+from analysis.description_text import _TRANSFER_WORDING
+from analysis.descriptor.lexical import is_round_sum
+from analysis.descriptor.words import _CONSUMER_P2P_RAIL, _PUSH_RAIL
 from analysis.true_revenue import zelle_deposit
 
 

@@ -218,7 +218,7 @@ NOT_ONLY_A_REFERENCE = [
 
 
 def _revenue_text(printed: str) -> str:
-    from analysis.transaction_classifier import revenue_text
+    from analysis.descriptor.lexical import revenue_text
     from analysis.description_text import normalize_transaction_description
 
     return revenue_text(normalize_transaction_description(printed))

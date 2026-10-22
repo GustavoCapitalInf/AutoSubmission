@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import lexical
+from analysis.descriptor import words as descriptor_words
 from analysis import classification_registry
 from analysis import payee_matcher
 from analysis.classification_registry import PROCESSOR_ADVANCE_PRODUCTS, PROCESSORS_WITHOUT_ADVANCE_PRODUCT
@@ -15,7 +17,7 @@ from analysis.description_text import normalize_transaction_description as norma
 
 
 def _text(printed: str) -> str:
-    return tc.revenue_text(normalize(printed))
+    return lexical.revenue_text(normalize(printed))
 
 
 def _region(printed: str) -> str:
@@ -119,7 +121,7 @@ def test_the_card_issuer_refusal_is_its_own_branch():
     # §7.1 (structural S53): these rows print no card-veto word, so the card-issuer check alone refuses them; the same
     # words without an issuer read generic_card_sales.
     for printed in ("BK OF AMER VISA CREDIT CARD DEPOSIT 1234", "ALLY CC CREDIT CARD DEPOSIT 1234"):
-        assert tc._CARD_VETO.search(tc._before_receiver(_text(printed))) is None
+        assert tc._CARD_VETO.search(lexical._before_receiver(_text(printed))) is None
         assert payee_matcher.registry_match(_text(printed), classification_registry.CARD_ISSUER_CONTEXT_ALIASES) is not None
     assert tc._card_settlement_form(_text("FABRIKAM CREDIT CARD DEPOSIT 1234"), bank=None).label == "generic_card_sales"
 
@@ -171,7 +173,7 @@ def test_a_processor_card_credit_with_a_payout_word_is_released(printed, release
 def test_the_return_codes_decide_a_row_on_their_own(printed, reversal):
     # §7.11: _RETURN_CODE_CREDIT_PATTERNS, on a row no reversal or cancellation pattern reads.
     text = _text(printed)
-    assert not tc._matches_any(text, tc._REVERSAL_CANCELLATION_CREDIT_PATTERNS)
+    assert not tc._matches_any(text, descriptor_words._REVERSAL_CANCELLATION_CREDIT_PATTERNS)
     assert tc._matches_any(text, tc._RETURN_CODE_CREDIT_PATTERNS) is reversal
     assert tc._reversal_credit(text) is reversal
 

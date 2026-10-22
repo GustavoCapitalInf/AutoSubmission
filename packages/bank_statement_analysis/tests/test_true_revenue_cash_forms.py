@@ -16,6 +16,8 @@ import re
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import lexical
+from analysis.descriptor import words
 from analysis import true_revenue as tr
 from analysis.schema import Statement, Transaction
 
@@ -24,8 +26,8 @@ NO_PAYER = ("counted_flagged", "no_payer_printed")
 
 #: The cash reader as it read before this batch: the two arms taken off (each is its own alternative).
 BEFORE = re.compile(
-    tc._CASH_BRANCH_ATM_FORM.pattern.replace("|" + tc._RETAIL_CASH_LOAD, "").replace(
-        "|" + tc._BRANCH_DEPOSIT_TRANSIT, "")
+    words._CASH_BRANCH_ATM_FORM.pattern.replace("|" + words._RETAIL_CASH_LOAD, "").replace(
+        "|" + words._BRANCH_DEPOSIT_TRANSIT, "")
 )
 
 
@@ -45,6 +47,7 @@ def _today(bank, rows, monkeypatch, holder=HOLDER):
     """The records as the cash reader read them before this batch."""
     with monkeypatch.context() as patch:
         patch.setattr(tc, "_CASH_BRANCH_ATM_FORM", BEFORE)
+        patch.setattr(words, "_CASH_BRANCH_ATM_FORM", BEFORE)
         return _read(bank, rows, holder)
 
 
@@ -53,10 +56,10 @@ def _tier(record):
 
 
 def test_the_before_reader_is_the_reader_without_the_two_arms():
-    assert BEFORE.pattern != tc._CASH_BRANCH_ATM_FORM.pattern
-    assert tc._RETAIL_CASH_LOAD not in BEFORE.pattern and tc._BRANCH_DEPOSIT_TRANSIT not in BEFORE.pattern
-    assert tc._CASH_BRANCH_ATM_FORM.pattern == BEFORE.pattern + "|" + tc._RETAIL_CASH_LOAD + "|" + (
-        tc._BRANCH_DEPOSIT_TRANSIT)
+    assert BEFORE.pattern != words._CASH_BRANCH_ATM_FORM.pattern
+    assert words._RETAIL_CASH_LOAD not in BEFORE.pattern and words._BRANCH_DEPOSIT_TRANSIT not in BEFORE.pattern
+    assert words._CASH_BRANCH_ATM_FORM.pattern == BEFORE.pattern + "|" + words._RETAIL_CASH_LOAD + "|" + (
+        words._BRANCH_DEPOSIT_TRANSIT)
 
 
 # --- the arms ---------------------------------------------------------------------------------------------------------
@@ -75,8 +78,8 @@ def test_the_before_reader_is_the_reader_without_the_two_arms():
     "OK SAMPLEVILLE 1234 E 51ST USCIRCLE K W1",
 ])
 def test_arm_r_reads_a_retail_cash_load(text):
-    assert re.search(tc._RETAIL_CASH_LOAD, text)
-    assert tc._CASH_BRANCH_ATM_FORM.search(text) and not BEFORE.search(text)
+    assert re.search(words._RETAIL_CASH_LOAD, text)
+    assert words._CASH_BRANCH_ATM_FORM.search(text) and not BEFORE.search(text)
 
 
 @pytest.mark.parametrize("text", [
@@ -87,7 +90,7 @@ def test_arm_r_reads_a_retail_cash_load(text):
     "OK SAMPLEVILLE 1234 E 51ST USTARGET W1234",            # not a listed retailer
 ])
 def test_arm_r_reads_nothing_else(text):
-    assert not re.search(tc._RETAIL_CASH_LOAD, text)
+    assert not re.search(words._RETAIL_CASH_LOAD, text)
 
 
 @pytest.mark.parametrize("text", [
@@ -98,8 +101,8 @@ def test_arm_r_reads_nothing_else(text):
     "03 02 DEPOSIT SAMPLEVILLE 12345 001",
 ])
 def test_arm_s_reads_a_branch_deposit(text):
-    assert re.search(tc._BRANCH_DEPOSIT_TRANSIT, text)
-    assert tc._CASH_BRANCH_ATM_FORM.search(text)
+    assert re.search(words._BRANCH_DEPOSIT_TRANSIT, text)
+    assert words._CASH_BRANCH_ATM_FORM.search(text)
 
 
 @pytest.mark.parametrize("text", [
@@ -114,7 +117,7 @@ def test_arm_s_reads_a_branch_deposit(text):
     "MOBILE DEPOSIT SAMPLEVILLE 12345 001",           # not at the row's start
 ])
 def test_arm_s_reads_nothing_else(text):
-    assert not re.search(tc._BRANCH_DEPOSIT_TRANSIT, text)
+    assert not re.search(words._BRANCH_DEPOSIT_TRANSIT, text)
 
 
 # Audit round 3, R3-B07 (R3-45; §8.1 T4, §17.1 (3)): off Scotiabank's statements, arm S's whole-row match never counts
@@ -132,7 +135,7 @@ R345_FINANCING = ("excluded_pending_review", "financing_named_payer")
 @pytest.mark.parametrize("bank", ["Wells Fargo", "TD Bank", None])
 @pytest.mark.parametrize("text", R345_FUNDER_PLACES)
 def test_r3_45_off_scotiabank_a_funder_s_name_before_a_place_holds(text, bank):
-    assert re.search(tc._BRANCH_DEPOSIT_TRANSIT, text)
+    assert re.search(words._BRANCH_DEPOSIT_TRANSIT, text)
     assert _tier(_read(bank, [(text, 2345.67)])[0]) == R345_FINANCING
 
 
@@ -150,7 +153,7 @@ def test_r3_45_controls(bank):
 
 
 def test_r3_45_the_form_without_arm_s_is_the_form_s_other_alternatives():
-    assert tr._cash_form_without_arm_s().pattern + "|" + tc._BRANCH_DEPOSIT_TRANSIT == tc._CASH_BRANCH_ATM_FORM.pattern
+    assert tr._cash_form_without_arm_s().pattern + "|" + words._BRANCH_DEPOSIT_TRANSIT == words._CASH_BRANCH_ATM_FORM.pattern
     assert tr._SCOTIABANK.search("SCOTIABANK") and tr._SCOTIABANK.search("THE BANK OF NOVA SCOTIA")
     assert not tr._SCOTIABANK.search("WELLS FARGO")
 
@@ -186,9 +189,9 @@ def test_a_retail_cash_load_counts_flagged_beside_a_purchase_at_the_same_place(m
     assert [_tier(record) for record in records[:2]] == [NO_PAYER] * 2
     assert [record.revenue_classification for record in records[:2]] == ["unverified_deposit"] * 2
     assert all(record.contributes_to_true_revenue for record in records[:2])
-    assert tr._channel(tc.revenue_text(BLUEVINE_LOAD), "Bluevine") == "cash_branch_atm"
-    assert tc.channel_gate(tc.revenue_text(BLUEVINE_LOAD)) == "closed"
-    assert tc.payer_region(tc.revenue_text(BLUEVINE_LOAD)) == ""
+    assert tr._channel(lexical.revenue_text(BLUEVINE_LOAD), "Bluevine") == "cash_branch_atm"
+    assert tc.channel_gate(lexical.revenue_text(BLUEVINE_LOAD)) == "closed"
+    assert tc.payer_region(lexical.revenue_text(BLUEVINE_LOAD)) == ""
 
 
 def test_a_retail_cash_load_never_verifies(monkeypatch):
@@ -229,7 +232,7 @@ def test_a_branch_deposit_counts_flagged_beside_a_withdrawal_at_the_same_branch(
     record = _read("Scotiabank", rows)[0]
     assert _tier(record) == NO_PAYER
     assert record.revenue_classification == "unverified_deposit"
-    assert tr._channel(tc.revenue_text(BRANCH_DEPOSIT), "Scotiabank") == "cash_branch_atm"
+    assert tr._channel(lexical.revenue_text(BRANCH_DEPOSIT), "Scotiabank") == "cash_branch_atm"
 
 
 def test_a_branch_deposit_three_times_never_verifies():

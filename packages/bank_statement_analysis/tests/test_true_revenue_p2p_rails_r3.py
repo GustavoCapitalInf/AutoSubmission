@@ -22,7 +22,8 @@ import pytest
 
 from analysis import true_revenue, zelle_view
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions, revenue_text
+from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions
+from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 from tests import zelle_setting_fixtures as fx
 
@@ -340,10 +341,10 @@ def test_r3_29_a_french_autodeposit_is_no_zelle_deposit(text):
 def test_r3_29_the_classifier_s_rail_is_unchanged():
     # The 5.5 channel gate, the legacy classes and the debits read the classifier's rail, which this batch leaves as
     # it is: its VIREMENT never reads the plural (§8.4's residual).
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import words
 
-    assert "COURRIEL" not in classifier._CONSUMER_P2P_RAIL.pattern
-    assert classifier._CONSUMER_P2P_RAIL.search(_text(F1[0][0])) is None
+    assert "COURRIEL" not in words._CONSUMER_P2P_RAIL.pattern
+    assert words._CONSUMER_P2P_RAIL.search(_text(F1[0][0])) is None
 
 
 # --- R3-56: a wire is never a Zelle deposit --------------------------------------------------------------------------

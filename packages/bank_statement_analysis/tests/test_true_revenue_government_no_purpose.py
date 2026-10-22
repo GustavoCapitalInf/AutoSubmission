@@ -18,8 +18,8 @@ from analysis.transaction_classifier import (
     GOVERNMENT_NO_PURPOSE_FORMS,
     classify_statement_transactions,
     government_no_purpose,
-    revenue_text,
 )
+from analysis.descriptor.lexical import revenue_text
 
 HOLDER = "NORTHWIND CLINIC LLC"
 METHOD = "government_no_purpose_exclusion"

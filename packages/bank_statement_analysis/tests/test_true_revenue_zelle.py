@@ -27,7 +27,8 @@ from analysis.revenue import (
     record_serialized_revenue_review,
 )
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import TransactionClassification, classify_statement_transactions, revenue_text
+from analysis.transaction_classifier import TransactionClassification, classify_statement_transactions
+from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 
 HOLDER = "CONTOSO BAKERY LLC"
@@ -258,10 +259,10 @@ def test_q3_the_zelle_reader(text, zelle):
 
 def test_q3_the_consumer_rail_is_unchanged():
     """The classifier's rail, shared with the legacy classes and the debits, does not read PNC's ZEL."""
-    from analysis import transaction_classifier
+    from analysis.descriptor import words
 
-    assert "ZEL " not in transaction_classifier._CONSUMER_P2P_RAIL.pattern
-    assert transaction_classifier._CONSUMER_P2P_RAIL.search("ZEL FROM PAT SAMPLE") is None
+    assert "ZEL " not in words._CONSUMER_P2P_RAIL.pattern
+    assert words._CONSUMER_P2P_RAIL.search("ZEL FROM PAT SAMPLE") is None
 
 
 def test_q3_an_unregistered_reason_code_names_itself():

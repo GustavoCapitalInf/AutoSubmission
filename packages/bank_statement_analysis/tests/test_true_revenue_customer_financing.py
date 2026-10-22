@@ -25,6 +25,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import transaction_classifier as classifier
+from analysis.descriptor import lexical
+from analysis.descriptor import words
 from analysis import payee_matcher
 from analysis import true_revenue
 from analysis.revenue import REVENUE_TIER_REASONS
@@ -324,7 +326,7 @@ def test_a_zelle_payment_from_a_person_named_cherry_is_never_claimed():
     # 38 (CR7): never claimed; the rules read it as person-to-person, and the Zelle policy excludes it.
     (record,) = _credits([("ZELLE PAYMENT FROM CHERRY SAMPLE CONF ABC123", 230.0)])
     assert rules_reading(record) == ("counted_flagged", "p2p")
-    text = classifier.revenue_text(record.normalized_description)
+    text = lexical.revenue_text(record.normalized_description)
     assert true_revenue._customer_financier(record, text) is None
 
 
@@ -384,7 +386,7 @@ def test_r3_06_a_financier_s_non_sale_or_financing_credit_is_never_a_payout(labe
     assert _reading(record) == _reading(twin) == ("excluded_pending_review", reason), label
     assert record.revenue_review_required and not record.contributes_to_true_revenue
     assert _reading(big) == VERIFIED
-    text = classifier.revenue_text(record.normalized_description)
+    text = lexical.revenue_text(record.normalized_description)
     assert true_revenue._customer_financier(record, text) is None
     assert not true_revenue._claimed(record, text)
 
@@ -398,7 +400,7 @@ def test_r3_06_an_oq2_payout_entity_s_non_sale_or_financing_credit_is_never_clai
     (record, big) = _credits([(_bofa(payer, entry), 4870.55), BIG], bank="Bank of America")
     assert _reading(record) == ("excluded_pending_review", reason)
     assert _reading(big) == VERIFIED
-    assert not true_revenue._claimed(record, classifier.revenue_text(record.normalized_description))
+    assert not true_revenue._claimed(record, lexical.revenue_text(record.normalized_description))
 
 
 @pytest.mark.parametrize("entry", ["ADVNC", "ADVN", "ADVC"])
@@ -489,7 +491,7 @@ def test_r3_06_a_lessor_s_loan_proceeds_keep_the_strong_rule():
     ("NORTHWINDCAPITAL", False),
 ])
 def test_r3_06_the_non_sale_and_financing_words(text, read):
-    assert bool(classifier._PAYOUT_NON_SALE_CREDIT.search(text)) is read
+    assert bool(words._PAYOUT_NON_SALE_CREDIT.search(text)) is read
 
 
 # --- audit round 3, R3-B14 (R3-54): a cut Katapult Engineering name is the namesake ---------------------------------
@@ -612,7 +614,7 @@ def test_r3_b14_r1_a_large_one_off_abbreviated_advance_stays_held_until_sourced(
     assert _reading(record) == LUMP, label
     assert record.revenue_classification == "unverified_deposit"
     assert record.revenue_review_required and not record.contributes_to_true_revenue
-    assert not true_revenue._claimed(record, classifier.revenue_text(record.normalized_description))
+    assert not true_revenue._claimed(record, lexical.revenue_text(record.normalized_description))
     assert _reading(other) == VERIFIED
 
 
@@ -674,7 +676,7 @@ def test_a_financier_s_debit_keeps_its_reading_alone_and_beside_its_payout(text,
 
 def _financier(text, amount=1500.0, bank=None, holder=HOLDER):
     (record,) = _credits([(text, amount)], bank=bank, holder=holder)
-    return true_revenue._customer_financier(record, classifier.revenue_text(record.normalized_description))
+    return true_revenue._customer_financier(record, lexical.revenue_text(record.normalized_description))
 
 
 @pytest.mark.parametrize(("text", "bank", "entity"), [
@@ -715,7 +717,7 @@ def test_the_reader_refuses_a_credit_under_the_floor():
 
 def test_the_census_fact_is_the_reader_s():
     (record,) = _credits([(SNAP, 1500.0)], bank="Wells Fargo")
-    text = classifier.revenue_text(record.normalized_description)
+    text = lexical.revenue_text(record.normalized_description)
     assert true_revenue.guard_facts(record, text)["customer_financing_payer"] == "SNAP Finance"
     assert true_revenue.guard_facts(record, text)["claimed"]
 
@@ -727,7 +729,7 @@ def test_a_row_naming_a_financier_never_counts_toward_a_q6_repeat():
                         ("CONTOSO HOME SERVICES LLC DES:WISETACK ID:2 INDN:NORTHWIND CO ID:1 CCD", 950.0)],
                        bank="Bank of America")
     assert [_reading(record) for record in records] == [("counted_flagged", "named_payer_one_off")] * 2
-    assert all(true_revenue._customer_financier(record, classifier.revenue_text(record.normalized_description)) is None
+    assert all(true_revenue._customer_financier(record, lexical.revenue_text(record.normalized_description)) is None
                for record in records)
 
 

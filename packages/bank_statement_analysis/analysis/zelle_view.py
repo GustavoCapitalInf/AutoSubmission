@@ -30,7 +30,7 @@ from .revenue import (
     record_serialized_revenue_review,
     revenue_contribution_flags,
 )
-from .transaction_classifier import revenue_text
+from .descriptor.lexical import revenue_text
 from .true_revenue import ZELLE_POLICY_METHOD, pass_text, zelle_deposit
 
 #: The account key of the stored edits that turn the stored (No) reading into the counted (Yes) one.
