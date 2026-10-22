@@ -2,7 +2,7 @@
 
 `describe_cadence` names a payee's debit rhythm for display: the Flagged
 positions panel, its exports and the package roll-up. It is deliberately
-separate from `transaction_classifier.classify_cadence`, whose daily/weekly
+separate from `classification.record.classify_cadence`, whose daily/weekly
 answer gates potential-lender promotion and must not move.
 """
 from __future__ import annotations

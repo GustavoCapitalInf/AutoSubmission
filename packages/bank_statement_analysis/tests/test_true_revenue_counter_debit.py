@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import record as classification_record
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
@@ -1462,7 +1463,7 @@ def test_r3_74_the_pad_label_keeps_a_numbered_company_s_number():
     assert _debit_reading("PRE-AUTH DEBIT 0000000 1234567 ONTARIO INC BUSINESS PAD", "CIBC").number == "1234567"
     assert _debit_reading("PRE-AUTH DEBIT 1234-5678 QUEBEC INC", "CIBC").number == "12345678"
     # A label alone names nobody.
-    assert _debit_reading("PRE-AUTH DEBIT 0000000", "CIBC") == tc._NO_COUNTER_DEBIT_READING
+    assert _debit_reading("PRE-AUTH DEBIT 0000000", "CIBC") == classification_record._NO_COUNTER_DEBIT_READING
 
 
 @pytest.mark.parametrize(("debit", "entity"), [
@@ -1532,7 +1533,7 @@ def test_r3_15_same_payer_reads_equal_numbers():
 
 
 def test_r3_15_the_number_is_the_reading_s_last_field():
-    from analysis.transaction_classifier import CounterDebitReading
+    from analysis.classification.record import CounterDebitReading
 
     assert list(CounterDebitReading.__dataclass_fields__)[-1] == "number"
     assert CounterDebitReading.__dataclass_fields__["number"].default is None

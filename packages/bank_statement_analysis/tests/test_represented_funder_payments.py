@@ -20,6 +20,7 @@ from dataclasses import fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import record as classification_record
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
 from tests.test_returned_funder_payments import BOFA_RETURN, KAPITUS, NAMED_RETURN, ONDECK, SALE, _pairs, _statement
@@ -451,7 +452,7 @@ def test_a_re_debited_payment_s_reason_no_longer_says_it_is_kept_in_the_rate():
 
 
 def test_the_record_carries_represented_by_after_the_two_returned_fields():
-    names = [field.name for field in fields(tc.TransactionClassification)]
+    names = [field.name for field in fields(classification_record.TransactionClassification)]
     position = names.index("returns_funder_payment")
     assert names[position + 1] == "represented_by"
     assert getattr(tc.classify_transaction(KAPITUS, -850.0), "represented_by") is None

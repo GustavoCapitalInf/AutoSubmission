@@ -15,7 +15,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Mapping
 
-from analysis import transaction_classifier
+from analysis.classification import record
 from analysis.flag_groups import FLAG_GROUPS
 from analysis.payload_shape import (
     ACCOUNTS_KEY,
@@ -64,10 +64,10 @@ def _rules_outdated(accounts: list[Mapping]) -> bool:
 
     A record with no `classification_version` (absent or null) predates the field, so it was classified by older
     rules. A readable version is compared, as a (major, minor) pair, with the running
-    `analysis.transaction_classifier.CLASSIFICATION_VERSION`, read at each call: an older one marks the analysis
+    `analysis.classification.record.CLASSIFICATION_VERSION`, read at each call: an older one marks the analysis
     outdated, the same or a newer one does not. A version that is present but cannot be read says nothing either
     way. Rows without a record are skipped."""
-    current = _version_number(transaction_classifier.CLASSIFICATION_VERSION)
+    current = _version_number(record.CLASSIFICATION_VERSION)
     for account in accounts:
         statement = account.get(STATEMENT_KEY)
         rows = statement.get("transactions") if isinstance(statement, Mapping) else None

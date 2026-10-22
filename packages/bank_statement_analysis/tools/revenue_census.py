@@ -1267,6 +1267,7 @@ def _fingerprint(statement) -> tuple:
 #: The module that owns each name the census reads, keyed by the name's dotted path under the classifier or
 #: true-revenue module. The census reads a listed name from its owner where the checkout has that module and name.
 SPLIT_OWNERS = {
+    "analysis.transaction_classifier.CLASSIFICATION_VERSION": "analysis.classification.record",
     "analysis.transaction_classifier._BUSINESS_ACCOUNT_PATTERNS": "analysis.descriptor.words",
     "analysis.transaction_classifier._STATEMENT_FURNITURE": "analysis.descriptor.lexical",
     "analysis.transaction_classifier._TRANSFER_WORDING": "analysis.description_text",

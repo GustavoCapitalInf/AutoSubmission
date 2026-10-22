@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from analysis.cadence import describe_cadence
-from analysis.transaction_classifier import classify_cadence
+from analysis.classification.record import classify_cadence
 
 
 def _days(*isos: str) -> list[date]:

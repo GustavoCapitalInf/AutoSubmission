@@ -67,9 +67,10 @@ from analysis.holder_name import (
 )
 from analysis.payee_matcher import PayeeMatch, match_known_payee, registry_match
 from analysis.revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
+from analysis.classification.record import DealerFunding, FundingSeries
 
 if TYPE_CHECKING:
-    from analysis.transaction_classifier import CounterDebitReading, TransactionClassification
+    from analysis.classification.record import CounterDebitReading, TransactionClassification
 
 #: §8.1: the posting labels removed before a hold reads a row: §7.5's credit posting labels, the branch, card and batch
 #: CREDIT labels, and the channel phrases. The plural FUNDS TRANSFERS too, transfer wording since B8 (a bank's channel
@@ -3879,18 +3880,6 @@ def _dealer_funding_payer(text: str) -> str | None:
     return found[0] if found is not None else None
 
 
-@dataclass(frozen=True)
-class DealerFunding:
-    """§6.1 step 4 (Q7): a dealer-funding credit's reading. `arm` is 'listed' or 'credit_union'; `entity` and `alias`
-    are the listed lender and the alias that named it, or the credit union as its payer region prints it (both the
-    same); `word` is the dealer-funding word (or the VHCL PURCH entry) the row prints."""
-
-    arm: str
-    entity: str
-    alias: str
-    word: str
-
-
 def _q7_refused_by_a_hold(text: str, words: str, region: str) -> bool:
     """§8.1: Q7 decides at step 4, before any hold of §8.1 reads the row, so it refuses a row whose wording one of
     those holds names, fail closed: the pay and personal-income words and the payroll providers (Q8, G11), a non-sale
@@ -7355,30 +7344,6 @@ FUNDING_SERIES_MIN_LOOKBACK_DAYS = 3
 #: The states the Lenders and Potential Lenders tabs list, the only payees the aid reads ("frequent payment" read as a
 #: lender-side series: an all-debits pool is card purchases, payroll, own transfers and person-to-person payments).
 _FUNDING_SERIES_STATES = ("confirmed_lender", "potential_lender")
-
-
-@dataclass(frozen=True)
-class FundingSeries:
-    """§5.4, §8.5: one lender's daily or weekly payment series that starts after a held wire with no sender printed,
-    the review aid's line ("possible funding").
-
-    `payee` is the name the Lenders or Potential Lenders tab lists (the potential payee label, else the canonical
-    entity; never a payee word for an unnamed payee, D11); `lender_state` its tab's state (`confirmed_lender` or
-    `potential_lender`); `amount` the payment, positive; `cadence` daily or weekly and `average_gap_days` its mean gap
-    (classify_cadence); `first_date` the first payment's date as printed and `days_after` its days after the deposit;
-    `payments` its distinct dates; `start_observed` whether the statement shows one full gap of the series before the
-    deposit; `source_locations` its rows."""
-
-    payee: str
-    lender_state: str
-    amount: float
-    cadence: str
-    average_gap_days: float
-    first_date: str
-    days_after: int
-    payments: int
-    start_observed: bool
-    source_locations: tuple[str, ...]
 
 
 def funding_series_after(

@@ -22,7 +22,7 @@ import pytest
 from analysis import transaction_classifier as tc
 from analysis.descriptor import rails
 from analysis import dates
-from analysis.transaction_classifier import TransactionClassification
+from analysis.classification.record import TransactionClassification
 
 
 def _reference_reversal_pairs(records, duplicate_indexes, markers, marked=None, *, credit_markers=(), seeded=(),

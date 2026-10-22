@@ -8,11 +8,11 @@ import pytest
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.schema import Statement
 from analysis.transaction_classifier import (
-    UNIDENTIFIED_LENDER_OBLIGATION as UNIDENTIFIED,
     _canonical_unknown_entity,
     _unknown_payee_tokens,
     classify_statement_transactions,
 )
+from analysis.classification.record import UNIDENTIFIED_LENDER_OBLIGATION as UNIDENTIFIED
 from tests.flag_group_fixtures import txn
 
 WEEKLY = ("2054-01-05", "2054-01-12", "2054-01-19", "2054-01-26")

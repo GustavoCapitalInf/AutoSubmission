@@ -31,6 +31,7 @@ from dataclasses import asdict, fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import record as classification_record
 from analysis.descriptor import credit_words
 from analysis import description_text
 from analysis.detect import detect
@@ -136,7 +137,7 @@ CONTROLS = {
 
 
 def test_the_record_carries_the_two_fields_after_settlement_reversal():
-    names = [field.name for field in fields(tc.TransactionClassification)]
+    names = [field.name for field in fields(classification_record.TransactionClassification)]
     position = names.index("settlement_reversal")
     assert names[position + 1:position + 3] == ["returned_funder_payment_by", "returns_funder_payment"]
     record = tc.classify_transaction(KAPITUS, -850.0)
@@ -356,7 +357,7 @@ def _without_rule_d(monkeypatch, rows, bank):
     return _run(rows, bank)
 
 
-_REVENUE_FIELDS = tuple(f.name for f in fields(tc.TransactionClassification)
+_REVENUE_FIELDS = tuple(f.name for f in fields(classification_record.TransactionClassification)
                         if f.name.startswith("revenue_") or f.name.startswith("contributes_to_")
                         and f.name not in ("contributes_to_lender_totals", "contributes_to_flagged_totals"))
 

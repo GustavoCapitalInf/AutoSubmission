@@ -19,7 +19,7 @@ from datetime import date, timedelta
 import pytest
 
 from analysis import lender_payment_changes as lpc
-from analysis.transaction_classifier import TransactionClassification
+from analysis.classification.record import TransactionClassification
 from tests.helpers import every
 
 UNNAMED = "Unidentified lender obligation"
