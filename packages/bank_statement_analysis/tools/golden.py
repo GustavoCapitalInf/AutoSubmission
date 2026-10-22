@@ -14,23 +14,30 @@ the tool refuses an output path inside any repository, writes its files mode 600
                                                      N is 1 or more
   run     --plan PLAN --code PKG --work DIR [--ocr-from DIR]
                                                      ingest and capture every shard in parallel, one process each;
-                                                     --ocr-from reuses another side's OCR readings only. The run
-                                                     writes DIR/complete.json once each shard records one outcome
-                                                     per planned statement, the packages its plan and outcomes call
-                                                     for, and the eight responses of every accepted upload and
-                                                     package; exit 1 when a shard fails, 2 when the plan or a
-                                                     manifest is incomplete, or a shard captured none or holds
-                                                     another inventory
+                                                     --ocr-from reuses another side's OCR readings only. Then the run
+                                                     seals DIR, writing DIR/plan.json, a copy of the plan, and
+                                                     DIR/complete.json; exit 1 when a shard fails, 2 when DIR is
+                                                     not the evidence its plan calls for
   compare A B                                        counts by response kind, then each difference as its key; exit
                                                      0 when identical, 1 when a response differs, 2 when a side is
-                                                     incomplete: it ran another plan, or its complete.json, a
-                                                     manifest or a capture is missing, unreadable, changed, or not
-                                                     what the tool writes
+                                                     not sealed evidence of its plan or the two ran different plans
   diff    A B --index KEY [KEY ...] --out FILE       the differing paths of those responses, every digit masked
 
-Each file the tool reads back (the plan, complete.json, a manifest, a capture) is parsed whole before any check uses
-it. A repeated key, NaN or Infinity, a missing or unknown field, or a value of another type or outside what the tool
-writes makes the file incomplete, as a missing one does: seal writes no complete.json and compare exits 2 naming it.
+Seal and compare check a side against its plan with one function, `validate`. The capture folder holds a folder for
+each planned shard and nothing else, and each of those holds its manifest and the capture of each response the
+manifest lists and nothing else. Each manifest records one outcome for each planned statement of its shard, the
+packages of its shard with two or more accepted uploads, each with its count of analysed members, and the eight
+responses of each accepted upload and package. Each capture is a response as the tool writes it (a status and content
+type line, a disposition line, then the body), and its bytes match the manifest. Each file the tool reads back is
+parsed whole before any check uses it. A repeated key, NaN or Infinity, a missing or unknown field, or a value of
+another type or outside what the tool writes makes the file incomplete, as a missing one does. Seal then writes
+nothing, and compare exits 2 naming the file.
+
+Compare exits 2 on a side that is incomplete, corrupt, unsealed, inconsistent with its plan, or edited after its seal
+in any way its plan can expose; it holds each side to the plan copy its complete.json pins, and to the other side's
+plan. Two sides that differ only in the content of genuine responses compare as different, with exit 1. An edit the
+plan cannot expose, such as a response rewritten with its hash re-pinned in the manifest and complete.json, reads as
+a genuine response.
 
 What an identical compare does not cover: settings other than the defaults and all 14 flipped (2 of 2^14 mixes);
 requests it does not capture (upload, status and settings responses, pages, markdown, md and html downloads,
@@ -75,6 +82,7 @@ RESPONSE_KEY = re.compile(r"[sp][0-9]{4,}\.(default|flipped)\.(analysis|json|csv
 INDEX = re.compile(r"0|[1-9][0-9]*")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+ENVELOPE = re.compile(r"-?(0|[1-9][0-9]*) .*\n.*")
 XLSX_STAMP = re.compile(r"<dcterms:created>[^<]*</dcterms:created>")
 ABSENT = "<absent>"
 DIFF_PATHS_PER_RESPONSE = 200
@@ -270,6 +278,16 @@ def marker_of(data: bytes) -> Marker:
     if not sealed:
         raise Incomplete("it seals no shard")
     return Marker(string(plan, "its plan digest", SHA256), sealed)
+
+
+def response_of(data: bytes) -> bytes:
+    """A capture's response as `canonical` writes it, out of its gzip: a UTF-8 line of an int status and a content
+    type, a UTF-8 disposition line, then the body. The body stays opaque, so a changed output is a difference."""
+    response = gzip.decompress(data)
+    lines = response.split(b"\n", 2)
+    if len(lines) != 3 or not ENVELOPE.fullmatch(b"\n".join(lines[:2]).decode()):
+        raise Incomplete("it is not a response as the tool writes it")
+    return response
 
 
 def positive(text: str) -> int:
@@ -545,16 +563,16 @@ def run(args) -> None:
     print(f"complete: {seal(work, plan_bytes)} responses")
 
 
-@refuses_incomplete
-def seal(work: Path, plan_bytes: bytes) -> int:
-    """Write `complete.json`, which compare requires: the plan's digest and, per planned shard, its manifest's digest
-    and counts. Exits INCOMPLETE, writing nothing, unless the plan and every manifest parse and each manifest records
-    one outcome for each planned statement of its shard and nothing else, and the packages of its shard with two or
-    more accepted uploads, each with its count of analysed members. Returns the number of responses."""
-    planned = plan_of(plan_bytes)
-    shards = []
+def validate(work: Path, planned: Plan) -> tuple[tuple[Sealed, ...], Manifest]:
+    """Each shard's seal and the side's manifests merged, once the side holds exactly the evidence its plan and
+    recorded outcomes call for, as the module docstring lists it. Exits INCOMPLETE otherwise."""
+    capture = work / "capture"
+    folders = set(os.listdir(capture))
+    if len(folders) != planned.shards or folders != {f"shard{k}" for k in range(planned.shards)}:
+        incomplete(f"{capture} does not hold exactly a folder for each of its {planned.shards} planned shards")
+    shards, side = [], Manifest({}, {}, {})
     for k in range(planned.shards):
-        path = work / "capture" / f"shard{k}" / "manifest.json"
+        path = capture / f"shard{k}" / "manifest.json"
         manifest, data = evidence(path, manifest_of)
         statements = {i for i, statement in enumerate(planned.statements) if statement.shard == k}
         if manifest.statements.keys() != statements:
@@ -565,34 +583,40 @@ def seal(work: Path, plan_bytes: bytes) -> int:
                     for i, package in enumerate(planned.packages)
                     if package.shard == k and len(accepted & set(package.members)) >= 2}
         if manifest.packages != packages:
-            incomplete(f"{path} records {len(manifest.packages)} packages, its plan and outcomes call for "
-                       f"{len(packages)}")
+            incomplete(f"{path} does not record the {len(packages)} packages its plan and outcomes call for, each "
+                       f"with its count of analysed members")
+        if set(os.listdir(path.parent)) != {path.name, *(f"{key}.gz" for key in manifest.responses)}:
+            incomplete(f"{path.parent} does not hold exactly its manifest and the captures it lists")
+        for key, expected in manifest.responses.items():
+            if digest(evidence(path.parent / f"{key}.gz", response_of)[0]) != expected:
+                incomplete(f"{path.parent / key}.gz does not match its manifest")
         shards.append(Sealed(digest(data), len(statements), len(packages), len(manifest.responses)))
+        for merged, part in zip(side, manifest):
+            merged.update(part)
+    return tuple(shards), side
+
+
+@refuses_incomplete
+def seal(work: Path, plan_bytes: bytes) -> int:
+    """Write `plan.json`, the plan's bytes, and `complete.json`, the plan's digest and each shard's seal, once
+    `validate` accepts the side against the plan; exit INCOMPLETE, writing neither, otherwise. Returns the number of
+    responses."""
+    shards, side = validate(work, plan_of(plan_bytes))
+    write_private(work / "plan.json", plan_bytes)
     write_private(work / "complete.json",
                   json.dumps({"plan": digest(plan_bytes), "shards": [sealed._asdict() for sealed in shards]}).encode())
-    return sum(sealed.responses for sealed in shards)
+    return len(side.responses)
 
 
 @refuses_incomplete
 def load_side(work: Path) -> tuple[str, Manifest]:
-    """A finished run's plan digest and its manifests merged, once its marker and every manifest parse, the marker
-    holds each manifest's digest and counts, no statement, package or response sits in two shards, and each capture's
-    bytes match their manifest hash. Anything less exits INCOMPLETE."""
+    """A sealed side's plan digest and its manifests merged, once `validate` accepts the side against its plan copy
+    and its complete.json is the one `seal` writes for that plan and evidence. Exits INCOMPLETE otherwise."""
     marker, _ = evidence(work / "complete.json", marker_of)
-    side = Manifest({}, {}, {})
-    for k, sealed in enumerate(marker.shards):
-        path = work / "capture" / f"shard{k}" / "manifest.json"
-        manifest, data = evidence(path, manifest_of)
-        if Sealed(digest(data), len(manifest.statements), len(manifest.packages), len(manifest.responses)) != sealed:
-            incomplete(f"{path} is not the manifest {work / 'complete.json'} sealed")
-        for key, expected in manifest.responses.items():
-            capture = path.parent / f"{key}.gz"
-            if digest(evidence(capture, gzip.decompress)[0]) != expected:
-                incomplete(f"{capture} no longer matches its manifest")
-        for merged, part in zip(side, manifest):
-            if merged.keys() & part.keys():
-                incomplete(f"{path} holds a statement, package or response of another shard")
-            merged.update(part)
+    planned, plan_bytes = evidence(work / "plan.json", plan_of)
+    shards, side = validate(work, planned)
+    if Marker(digest(plan_bytes), shards) != marker:
+        incomplete(f"{work / 'complete.json'} is not the seal of the plan and evidence beside it")
     return marker.plan, side
 
 
@@ -619,7 +643,7 @@ def stored(work: str, key: str) -> bytes:
     path = next((Path(work) / "capture").glob(f"shard*/{key}.gz"), None)
     if path is None:
         incomplete(f"{work} holds no response {key}")
-    return evidence(path, gzip.decompress)[0]
+    return evidence(path, response_of)[0]
 
 
 def response_key(key: str) -> str:
