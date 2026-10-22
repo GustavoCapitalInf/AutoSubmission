@@ -12,7 +12,12 @@ from analysis.flagged_view import enabled_group_keys
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.package.calendar import covered_days, months_covered, statement_month
 from analysis.package.duplicates import duplicate_row
-from analysis.package.figures import add_flagged_rows, contributes_to_potential_totals, counts_as_flagged
+from analysis.package.figures import (
+    add_flagged_rows,
+    contributes_to_potential_totals,
+    counts_as_flagged,
+    member_revenue,
+)
 from analysis.package.lender import package_active_positions, package_lender_payment_changes
 from analysis.package.members import select_members
 from analysis.package.model import (
@@ -406,14 +411,6 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
             for transaction in classified_positive_rows
             if transaction["classification"].get("is_posted") is not False
         ]
-        revenue_rows = {
-            state: [
-                transaction
-                for transaction in posted_credit_rows
-                if transaction["classification"].get("revenue_classification") == state
-            ]
-            for state in REVENUE_STATES
-        }
         revenue_rows_are_authoritative = (
             bool(authoritative_rows)
             and len(classified_positive_rows) == len(positive_statement_rows)
@@ -423,8 +420,6 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
                 in REVENUE_STATES
                 for transaction in classified_positive_rows
             )
-            and len(posted_credit_rows)
-            == sum(len(rows) for rows in revenue_rows.values())
         )
         # Monthly Statements' True deposits (the verified revenue) stand for this member only when every captured
         # credit carries its revenue state AND the captured credits are the money its Total counts: the line items are
@@ -447,31 +442,16 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # (`member_tiered`).
         tiered = member_tiered(statement_transactions)
         revenue_established = verified_revenue_established and (tiered or not posted_credit_rows)
+        revenue = member_revenue(statement_transactions, tiered=tiered)
         tier_rows = {
-            tier: [row for row in posted_credit_rows if row["classification"].get("revenue_tier") == tier]
-            for tier in ("verified", "counted_flagged", "excluded_pending_review")
+            tier: revenue.tiers[tier].records for tier in ("verified", "counted_flagged", "excluded_pending_review")
         } if tiered else {}
-        tier_totals = {tier: round(sum(num(row.get("amount")) for row in rows), 2) for tier, rows in tier_rows.items()}
-        member_by_reason: dict[str, dict[str, dict]] = {"counted_flagged": {}, "excluded_pending_review": {},
-                                                        "non_revenue": {}}
-        for tier in ("counted_flagged", "excluded_pending_review"):
-            for row in tier_rows.get(tier, []):
-                reason = row["classification"].get("revenue_tier_reason") or ""
-                slot = member_by_reason[tier].setdefault(reason, {"count": 0, "total": 0.0})
-                slot["count"] += 1
-                slot["total"] = round(slot["total"] + num(row.get("amount")), 2)
+        tier_totals = {tier: revenue.tiers[tier].total for tier in tier_rows}
+        member_by_reason = revenue.by_reason
         # §9.2: the non-revenue breakdown, the rebuild's rule (a non_revenue row that carries a code
         # REVENUE_TIER_REASONS files under non_revenue), from the member's rows when it has them (the rows
         # `non_revenue_total` reads, its internal-transfer pairs left out), else from its stored metrics.
-        if authoritative_rows:
-            for row in posted_credit_rows:
-                record = row["classification"]
-                if record.get("revenue_tier") == "non_revenue" and non_revenue_reason(record.get("revenue_tier_reason")):
-                    slot = member_by_reason["non_revenue"].setdefault(
-                        record["revenue_tier_reason"], {"count": 0, "total": 0.0})
-                    slot["count"] += 1
-                    slot["total"] = round(slot["total"] + num(row.get("amount")), 2)
-        elif isinstance(metrics.get("non_revenue_by_reason"), dict):
+        if not authoritative_rows and isinstance(metrics.get("non_revenue_by_reason"), dict):
             for reason, figures in metrics["non_revenue_by_reason"].items():
                 if non_revenue_reason(reason) and isinstance(figures, dict):
                     member_by_reason["non_revenue"][reason] = {
@@ -519,41 +499,12 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
             )
             insurance_count = int(num(metrics.get("insurance_count"), 0.0))
             insurance_total = num(metrics.get("insurance_total"))
-        if revenue_rows_are_authoritative:
-            posted_credit_total = round(
-                sum(num(row.get("amount")) for row in posted_credit_rows),
-                2,
-            )
-            posted_credit_count = len(posted_credit_rows)
-            revenue_totals = {
-                state: round(sum(num(row.get("amount")) for row in rows), 2)
-                for state, rows in revenue_rows.items()
-            }
-            revenue_counts = {
-                state: len(rows) for state, rows in revenue_rows.items()
-            }
-        elif authoritative_rows:
-            # A partially classified new report fails reconciliation closed.
-            # Valid state rows remain visible as evidence, while every positive
-            # row still remains in the posted-credit side of the equation.
-            incomplete_posted_rows = [
-                transaction
-                for transaction in positive_statement_rows
-                if not isinstance(transaction.get("classification"), dict)
-                or transaction["classification"].get("is_posted") is not False
-            ]
-            posted_credit_total = round(
-                sum(num(row.get("amount")) for row in incomplete_posted_rows),
-                2,
-            )
-            posted_credit_count = len(incomplete_posted_rows)
-            revenue_totals = {
-                state: round(sum(num(row.get("amount")) for row in rows), 2)
-                for state, rows in revenue_rows.items()
-            }
-            revenue_counts = {
-                state: len(rows) for state, rows in revenue_rows.items()
-            }
+        if authoritative_rows:
+            # A partially classified new report fails reconciliation closed: every positive row stays on the
+            # posted-credit side of the equation, and only the credits that name a state fill the state figures.
+            posted_credit_total, posted_credit_count = revenue.posted.total, revenue.posted.count
+            revenue_totals = {state: bucket.total for state, bucket in revenue.states.items()}
+            revenue_counts = {state: bucket.count for state, bucket in revenue.states.items()}
         else:
             posted_credit_total = num(metrics.get("total_posted_credits"), credits)
             posted_credit_count = int(

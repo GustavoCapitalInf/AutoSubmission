@@ -1,9 +1,35 @@
-"""Row rules the member fold applies: flagged rows and potential lender totals."""
+"""Row rules the member fold applies: revenue buckets, flagged rows and potential lender totals."""
 from __future__ import annotations
 
 from analysis.dates import parse_date
 from analysis.flag_groups import FLAG_GROUP_BY_KEY
 from analysis.package.model import num
+from analysis.revenue import PostedCredit, revenue_buckets, REVENUE_STATES, RevenueBuckets
+
+
+def member_revenue(rows: list[dict], *, tiered: bool) -> RevenueBuckets:
+    """A member's revenue buckets over its rows (R-d's pairs left out, the package passes' overlay applied), added as
+    the package adds them: each bucket with builtin sum(), each reason total rounded after each credit, the reasons in
+    the order they first appear (§9.2).
+
+    Its posted credits are its positive rows but a classified one marked unposted. A row with no classification record
+    is posted in no state (a partly classified payload, whose figures then do not reconcile). A classified credit files
+    under its revenue_classification when that is a state, and under its tier only on a tiered member
+    (`member_tiered`); on any other, a non_revenue credit still files its reason."""
+    credits = []
+    for row in rows:
+        amount = num(row.get("amount"))
+        record = row.get("classification")
+        if amount > 0 and not isinstance(record, dict):
+            credits.append(PostedCredit(amount, None, None, None, row))
+        elif amount > 0 and record.get("is_posted") is not False:
+            state, tier = record.get("revenue_classification"), record.get("revenue_tier")
+            credits.append(PostedCredit(
+                amount, state if state in REVENUE_STATES else None,
+                tier if tiered or tier == "non_revenue" else None, record.get("revenue_tier_reason"), row,
+            ))
+    return revenue_buckets(credits, accumulation="builtin_sum", reason_accumulation="rounded_each",
+                           reason_order="first_seen")
 
 
 def contributes_to_potential_totals(classification: dict) -> bool:
