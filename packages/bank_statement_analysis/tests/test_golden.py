@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import copy
 import gzip
 import hashlib
 import io
 import json
+import shutil
 import sys
 import uuid
 import zipfile
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -206,6 +209,170 @@ def test_a_run_whose_inventory_differs_from_its_plan_is_not_sealed(tmp_path, mon
     assert refused.value.code == 2
     assert not (work / "complete.json").exists()
     assert _exit(monkeypatch, "compare", work, work) == 2
+
+
+def _pair(work: Path) -> Path:
+    """A run over PAIR before its seal: both statements analysed and packaged together, every response BODY."""
+    return _shard(work, {key: BODY for key in _responses("s0000", "s0001", "p0000")},
+                  {"0": "analysed", "1": "analysed"}, {"0": 2})
+
+
+MALFORMED_MANIFESTS = {
+    "a repeated outcome key": ('"statements": {"0": "analysed"',
+                               '"statements": {"0": "upload refused", "0": "analysed"'),
+    "an array outcome": ('"0": "analysed"', '"0": []'),
+    "an object outcome": ('"0": "analysed"', '"0": {}'),
+    "a string package count": ('"packages": {"0": 2}', '"packages": {"0": "2"}'),
+    "a null package count": ('"packages": {"0": 2}', '"packages": {"0": null}'),
+}
+
+
+@pytest.mark.parametrize("case", MALFORMED_MANIFESTS)
+def test_a_manifest_the_tool_did_not_write_is_neither_sealed_nor_compared(tmp_path, monkeypatch, case):
+    old, new = MALFORMED_MANIFESTS[case]
+    a, b = _pair(tmp_path / "a"), _pair(tmp_path / "b")
+    golden.seal(a, PAIR)
+    manifest = b / "capture/shard0/manifest.json"
+    assert manifest.read_text().count(old) == 1
+    manifest.write_text(manifest.read_text().replace(old, new))
+
+    with pytest.raises(SystemExit) as refused:
+        golden.seal(b, PAIR)
+    assert refused.value.code == 2
+    assert not (b / "complete.json").exists()
+    shutil.copy(a / "complete.json", b / "complete.json")
+    _forge_manifest(b, manifest.read_bytes())
+    assert _exit(monkeypatch, "compare", a, b) == 2
+    assert _exit(monkeypatch, "compare", b, a) == 2
+
+
+MALFORMED_MARKERS = {
+    "a string response count": lambda sealed: {**sealed, "responses": str(sealed["responses"])},
+    "no counts": lambda sealed: {"manifest": sealed["manifest"]},
+    "another response count": lambda sealed: {**sealed, "responses": sealed["responses"] + 8},
+}
+
+
+@pytest.mark.parametrize("case", MALFORMED_MARKERS)
+def test_a_marker_whose_counts_the_tool_did_not_write_is_not_compared(tmp_path, monkeypatch, case):
+    a, b = _finished(tmp_path / "a"), _finished(tmp_path / "b")
+    marker = json.loads((b / "complete.json").read_text())
+    marker["shards"][0] = MALFORMED_MARKERS[case](marker["shards"][0])
+    (b / "complete.json").write_text(json.dumps(marker))
+
+    assert _exit(monkeypatch, "compare", a, b) == 2
+    assert _exit(monkeypatch, "compare", b, a) == 2
+
+
+def test_compare_exits_two_on_a_side_that_holds_a_statement_in_two_shards(tmp_path, monkeypatch):
+    a, b = _finished(tmp_path / "a"), _finished(tmp_path / "b")
+    shutil.copytree(b / "capture/shard0", b / "capture/shard1")
+    marker = json.loads((b / "complete.json").read_text())
+    marker["shards"] *= 2
+    (b / "complete.json").write_text(json.dumps(marker))
+
+    assert _exit(monkeypatch, "compare", a, b) == 2
+    assert _exit(monkeypatch, "compare", b, a) == 2
+
+
+class _Pairs(list):
+    """A JSON object read as its (key, value) pairs, so a test can write one that repeats a key."""
+
+
+def _dump(node: object) -> str:
+    if isinstance(node, _Pairs):
+        return "{" + ", ".join(f"{json.dumps(key)}: {_dump(value)}" for key, value in node) + "}"
+    if isinstance(node, list):
+        return "[" + ", ".join(map(_dump, node)) + "]"
+    return json.dumps(node)
+
+
+BREAKS = ("delete", "string", "list", "object", "null", "negative", "float", "repeat")
+
+
+def _broken(text: str):
+    """(label, text) for each member of each object and each element of each list of a JSON file, broken each way
+    in BREAKS: deleted, retyped, made negative or a float, or repeated (an object's key twice, a list's element)."""
+    def places(node, at, label):
+        if isinstance(node, list):
+            for i, item in enumerate(node):
+                key, value = item if isinstance(node, _Pairs) else (i, item)
+                yield (*at, i), f"{label}/{key}"
+                yield from places(value, (*at, i), f"{label}/{key}")
+
+    root = json.loads(text, object_pairs_hook=_Pairs)
+    for at, label in places(root, (), ""):
+        for how in BREAKS:
+            tree = copy.deepcopy(root)
+            parent = tree
+            for i in at[:-1]:
+                parent = parent[i][1] if isinstance(parent, _Pairs) else parent[i]
+            i = at[-1]
+            key, value = parent[i] if isinstance(parent, _Pairs) else (None, parent[i])
+            if how == "delete":
+                del parent[i]
+            elif how == "repeat":
+                parent.insert(i + 1, copy.deepcopy(parent[i]))
+            else:
+                new = {"string": str(value) if type(value) in (int, float) else "SAMPLE", "list": [],
+                       "object": _Pairs(), "null": None, "negative": -1,
+                       "float": float(value) if type(value) is int else 0.5}[how]
+                parent[i] = (key, new) if isinstance(parent, _Pairs) else new
+            yield f"{label} {how}", _dump(tree)
+
+
+def _seal(work: Path, plan: bytes) -> str:
+    try:
+        golden.seal(work, plan)
+    except SystemExit as refused:
+        return "refused" if refused.code == 2 and not (work / "complete.json").exists() else f"exit {refused.code}"
+    return "sealed"
+
+
+def test_every_field_of_every_evidence_file_broken_any_way_is_refused(tmp_path, monkeypatch):
+    a, b, unsealed = _pair(tmp_path / "a"), _pair(tmp_path / "b"), _pair(tmp_path / "unsealed")
+    golden.seal(a, PAIR)
+    golden.seal(b, PAIR)
+    marker, manifest = b / "complete.json", b / "capture/shard0/manifest.json"
+    files = {"plan": PAIR.decode(), "marker": marker.read_text(), "manifest": manifest.read_text()}
+
+    def incomplete_both_ways(side: Path) -> bool:
+        return _exit(monkeypatch, "compare", a, side) == 2 and _exit(monkeypatch, "compare", side, a) == 2
+
+    assert all(_dump(json.loads(text, object_pairs_hook=_Pairs)) == text for text in files.values())
+    assert _seal(unsealed, PAIR) == "sealed" and _exit(monkeypatch, "compare", a, unsealed) == 0
+    (unsealed / "complete.json").unlink()
+    _forge_manifest(b, json.dumps(json.loads(files["manifest"]), sort_keys=True).encode())
+    assert _exit(monkeypatch, "compare", a, b) == 0
+    manifest.write_text(files["manifest"])
+    marker.write_text(files["marker"])
+
+    tried, escaped = Counter(), []
+    for name, text in files.items():
+        for label, broken in _broken(text):
+            tried[name] += 1
+            if name == "plan":
+                sealed = _seal(unsealed, broken.encode())
+                refused = sealed == "refused" or sealed == "sealed" and incomplete_both_ways(unsealed)
+                (unsealed / "complete.json").unlink(missing_ok=True)
+            elif name == "marker":
+                marker.write_text(broken)
+                refused = incomplete_both_ways(b)
+            else:
+                manifest.write_text(broken)
+                marker.unlink()
+                refused = _seal(b, PAIR) == "refused"
+                marker.write_text(files["marker"])
+                _forge_manifest(b, broken.encode())
+                refused = incomplete_both_ways(b) and refused
+            manifest.write_text(files["manifest"])
+            marker.write_text(files["marker"])
+            if not refused:
+                escaped.append(f"{name}{label}")
+
+    assert escaped == []
+    assert tried == {"plan": 15 * len(BREAKS), "marker": 7 * len(BREAKS), "manifest": 30 * len(BREAKS)}
+    assert _exit(monkeypatch, "compare", a, b) == 0
 
 
 def test_a_run_matching_its_plan_is_sealed_with_refused_uploads_and_unanalysed_members(tmp_path, monkeypatch):

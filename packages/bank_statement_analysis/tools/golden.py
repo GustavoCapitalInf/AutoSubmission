@@ -18,13 +18,19 @@ the tool refuses an output path inside any repository, writes its files mode 600
                                                      writes DIR/complete.json once each shard records one outcome
                                                      per planned statement, the packages its plan and outcomes call
                                                      for, and the eight responses of every accepted upload and
-                                                     package; exit 1 when a shard fails, 2 when one captured none or
-                                                     holds another inventory
+                                                     package; exit 1 when a shard fails, 2 when the plan or a
+                                                     manifest is incomplete, or a shard captured none or holds
+                                                     another inventory
   compare A B                                        counts by response kind, then each difference as its key; exit
-                                                     0 when identical, 1 when a response differs, 2 when a side has
-                                                     no valid complete.json, ran another plan, holds no responses, or
-                                                     lost, changed or cannot read a manifest or a capture
+                                                     0 when identical, 1 when a response differs, 2 when a side is
+                                                     incomplete: it ran another plan, or its complete.json, a
+                                                     manifest or a capture is missing, unreadable, changed, or not
+                                                     what the tool writes
   diff    A B --index KEY [KEY ...] --out FILE       the differing paths of those responses, every digit masked
+
+Each file the tool reads back (the plan, complete.json, a manifest, a capture) is parsed whole before any check uses
+it. A repeated key, NaN or Infinity, a missing or unknown field, or a value of another type or outside what the tool
+writes makes the file incomplete, as a missing one does: seal writes no complete.json and compare exits 2 naming it.
 
 What an identical compare does not cover: settings other than the defaults and all 14 flipped (2 of 2^14 mixes);
 requests it does not capture (upload, status and settings responses, pages, markdown, md and html downloads,
@@ -40,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import functools
 import gzip
 import hashlib
 import io
@@ -53,23 +60,67 @@ import threading
 import time
 import uuid
 import zipfile
-import zlib
 from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import NoReturn
+from typing import Callable, NamedTuple, NoReturn, TypeVar
 
 PROFILES = ("default", "flipped")
 FORMATS = ("json", "csv", "xlsx")
 KINDS = ("analysis", *FORMATS)
 NO_PARSER = "no deterministic parser matched this statement"
-OUTCOMES = ("analysed", "no matching parser", "not analysed", "failed", "upload refused")
-RESPONSE_KEY = re.compile(r"[sp]\d{4,}\.(default|flipped)\.(analysis|json|csv|xlsx)")
+REFUSED = "upload refused"
+OUTCOMES = ("analysed", "no matching parser", "not analysed", "failed", REFUSED)
+RESPONSE_KEY = re.compile(r"[sp][0-9]{4,}\.(default|flipped)\.(analysis|json|csv|xlsx)")
+INDEX = re.compile(r"0|[1-9][0-9]*")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 XLSX_STAMP = re.compile(r"<dcterms:created>[^<]*</dcterms:created>")
 ABSENT = "<absent>"
 DIFF_PATHS_PER_RESPONSE = 200
 DIFFERENT, INCOMPLETE = 1, 2
+T = TypeVar("T")
+
+
+class Statement(NamedTuple):
+    path: str
+    shard: int
+
+
+class Package(NamedTuple):
+    members: tuple[int, ...]
+    shard: int
+
+
+class Plan(NamedTuple):
+    shards: int
+    statements: tuple[Statement, ...]
+    packages: tuple[Package, ...]
+    corpus: str
+
+
+class Manifest(NamedTuple):
+    """A shard's captures: the sha256 of each response by key; by plan index, each statement's outcome and each
+    package's count of analysed members."""
+    responses: dict[str, str]
+    statements: dict[int, str]
+    packages: dict[int, int]
+
+
+class Sealed(NamedTuple):
+    manifest: str
+    statements: int
+    packages: int
+    responses: int
+
+
+class Marker(NamedTuple):
+    plan: str
+    shards: tuple[Sealed, ...]
+
+
+class Incomplete(Exception):
+    """Evidence that is not what the tool writes."""
 
 
 def repository_of(path: Path) -> Path | None:
@@ -98,37 +149,127 @@ def incomplete(reason: str) -> NoReturn:
     raise SystemExit(INCOMPLETE)
 
 
-def read_evidence(path: Path) -> bytes:
-    """A file's bytes; exits INCOMPLETE when it is missing or unreadable."""
+def evidence(path: Path, parse: Callable[[bytes], T]) -> tuple[T, bytes]:
+    """The file parsed, with its bytes; exits INCOMPLETE naming the file when it cannot be read or parsed."""
     try:
-        return path.read_bytes()
+        data = path.read_bytes()
     except OSError as error:
         incomplete(f"cannot read {path}: {error.strerror or type(error).__name__}")
-
-
-def json_of(data: bytes) -> object:
     try:
-        return json.loads(data)
-    except ValueError:
-        return None
+        return parse(data), data
+    except Exception as error:
+        incomplete(f"{path}: {error if isinstance(error, Incomplete) else type(error).__name__}")
 
 
-def plan_of(plan_bytes: bytes) -> dict:
-    """A plan parsed; exits INCOMPLETE unless it declares one or more shards."""
-    planned = json_of(plan_bytes)
-    if not isinstance(planned, dict) or type(planned.get("shards")) is not int or planned["shards"] < 1:
-        incomplete("the plan is not JSON that declares one or more shards")
-    return planned
+def refuses_incomplete(read: Callable[..., T]) -> Callable[..., T]:
+    """`read`, exiting INCOMPLETE with one line on any exception it raises: a side whose evidence cannot be read or
+    parsed stops before a seal or a comparison, with exit 2, not 1."""
+    @functools.wraps(read)
+    def checked(work: Path, *args):
+        try:
+            return read(work, *args)
+        except Exception as error:
+            incomplete(f"{work}: {error if isinstance(error, Incomplete) else type(error).__name__}")
+    return checked
 
 
-def manifest_of(data: bytes, folder: Path) -> dict:
-    """A shard's manifest parsed; exits INCOMPLETE unless it maps responses, statements and packages."""
-    record = json_of(data)
-    parts = [record.get(part) for part in ("responses", "statements", "packages")] if isinstance(record, dict) else []
-    if not (parts and all(isinstance(part, dict) for part in parts)
-            and all(RESPONSE_KEY.fullmatch(key) and isinstance(value, str) for key, value in parts[0].items())):
-        incomplete(f"{folder}/manifest.json is not a shard manifest")
-    return record
+def strict_json(data: bytes) -> object:
+    """JSON with no key repeated in an object and no NaN or Infinity."""
+    def unique(pairs: list[tuple[str, object]]) -> dict:
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise Incomplete("an object repeats a key")
+        return dict(pairs)
+
+    def refuse(constant: str) -> NoReturn:
+        raise Incomplete(f"holds {constant}")
+
+    return json.loads(data, object_pairs_hook=unique, parse_constant=refuse)
+
+
+def exact(value: object, names: tuple[str, ...], what: str) -> list:
+    """The values of an object whose keys are exactly `names`, in that order."""
+    if type(value) is not dict or value.keys() != set(names):
+        raise Incomplete(f"{what} is not an object of exactly {', '.join(names)}")
+    return [value[name] for name in names]
+
+
+def number(value: object, what: str, low: int = 0, high: float = float("inf")) -> int:
+    if type(value) is not int or not low <= value < high:
+        raise Incomplete(f"{what} is not an int in its range")
+    return value
+
+
+def string(value: object, what: str, pattern: re.Pattern | None = None) -> str:
+    if type(value) is not str or (pattern is not None and not pattern.fullmatch(value)):
+        raise Incomplete(f"{what} is not {'text' if pattern is None else pattern.pattern}")
+    return value
+
+
+def listed(value: object, what: str) -> list:
+    if type(value) is not list:
+        raise Incomplete(f"{what} is not a list")
+    return value
+
+
+def indexed(value: object, what: str) -> dict[int, object]:
+    """An object keyed by plan index, its keys as ints."""
+    if type(value) is not dict:
+        raise Incomplete(f"{what} is not an object")
+    return {int(string(key, f"a key of {what}", INDEX)): item for key, item in value.items()}
+
+
+def plan_of(data: bytes) -> Plan:
+    """A plan as `make_plan` writes it: one or more shards, each statement in one, and each package two or more
+    statements of its shard, in plan order."""
+    shards, statements, packages, corpus = exact(strict_json(data), Plan._fields, "the plan")
+    shards = number(shards, "its shards", low=1)
+    statements = tuple(Statement(string(path, "a statement path"), number(shard, "a statement shard", high=shards))
+                       for path, shard in (exact(item, Statement._fields, "a statement")
+                                           for item in listed(statements, "its statements")))
+    planned = []
+    for members, shard in (exact(item, Package._fields, "a package") for item in listed(packages, "its packages")):
+        members = tuple(number(member, "a package member", high=len(statements))
+                        for member in listed(members, "a package's members"))
+        shard = number(shard, "a package shard", high=shards)
+        if len(members) < 2 or list(members) != sorted(set(members)) or any(
+                statements[member].shard != shard for member in members):
+            raise Incomplete("a package is not two or more statements of its shard in plan order")
+        planned.append(Package(members, shard))
+    return Plan(shards, statements, tuple(planned), string(corpus, "its corpus"))
+
+
+def response_keys(outcomes: dict[int, str], packages: dict[int, int]) -> set[str]:
+    """The keys of the eight responses of each accepted upload and each package."""
+    names = [f"s{i:04d}" for i, done in outcomes.items() if done != REFUSED] + [f"p{i:04d}" for i in packages]
+    return {f"{name}.{profile}.{kind}" for name in names for profile in PROFILES for kind in KINDS}
+
+
+def manifest_of(data: bytes) -> Manifest:
+    """A shard's manifest as `shard` writes it: known outcomes, counts of zero or more, and a sha256 for exactly the
+    responses of its accepted uploads and packages, one or more."""
+    responses, statements, packages = exact(strict_json(data), Manifest._fields, "the manifest")
+    statements = indexed(statements, "its statements")
+    if not all(type(done) is str and done in OUTCOMES for done in statements.values()):
+        raise Incomplete("an outcome is not one of the tool's")
+    packages = {i: number(count, "an analysed member count") for i, count in indexed(packages, "its packages").items()}
+    if type(responses) is not dict or responses.keys() != response_keys(statements, packages):
+        raise Incomplete("its responses are not the eight of each accepted upload and package")
+    if not responses:
+        raise Incomplete("it holds no responses; no upload was accepted")
+    return Manifest({key: string(sha, "a response hash", SHA256) for key, sha in responses.items()}, statements,
+                    packages)
+
+
+def marker_of(data: bytes) -> Marker:
+    """A completion marker as `seal` writes it: the plan's digest and one or more sealed shards."""
+    plan, shards = exact(strict_json(data), Marker._fields, "the marker")
+    sealed = tuple(Sealed(string(manifest, "a manifest digest", SHA256), number(statements, "a statement count"),
+                          number(packages, "a package count"), number(responses, "a response count", low=1))
+                   for manifest, statements, packages, responses in (
+                       exact(item, Sealed._fields, "a sealed shard") for item in listed(shards, "its shards")))
+    if not sealed:
+        raise Incomplete("it seals no shard")
+    return Marker(string(plan, "its plan digest", SHA256), sealed)
 
 
 def positive(text: str) -> int:
@@ -137,10 +278,10 @@ def positive(text: str) -> int:
     return value
 
 
-def make_plan(files: list[tuple[str, int]], shards: int) -> dict:
-    """Every (relative path, size) is a statement. The sorted statements of each top folder are cut into packages
-    whose sizes cycle through 2 to 6; a last single statement stays out. Each package, and each statement outside
-    one, goes whole to the shard with the fewest bytes so far, largest first."""
+def make_plan(files: list[tuple[str, int]], shards: int, corpus: str = "") -> dict:
+    """Every (relative path, size) below `corpus` is a statement. The sorted statements of each top folder are cut
+    into packages whose sizes cycle through 2 to 6; a last single statement stays out. Each package, and each
+    statement outside one, goes whole to the shard with the fewest bytes so far, largest first."""
     folders: dict[str, list[tuple[str, int]]] = {}
     for relative, size in sorted(files):
         folders.setdefault(relative.split("/", 1)[0], []).append((relative, size))
@@ -165,7 +306,7 @@ def make_plan(files: list[tuple[str, int]], shards: int) -> dict:
             statements[i]["shard"] = shard
     for package in packages:
         package["shard"] = statements[package["members"][0]]["shard"]
-    return {"shards": shards, "statements": statements, "packages": packages}
+    return {"shards": shards, "statements": statements, "packages": packages, "corpus": corpus}
 
 
 def xlsx_parts(data: bytes) -> list[list[str]]:
@@ -259,8 +400,7 @@ def plan(args) -> None:
     corpus = Path(args.corpus).resolve()
     files = [(path.relative_to(corpus).as_posix(), path.stat().st_size) for path in corpus.rglob("*")
              if path.is_file() and path.suffix.lower() == ".pdf"]
-    planned = make_plan(files, args.shards)
-    planned["corpus"] = str(corpus)
+    planned = make_plan(files, args.shards, str(corpus))
     write_private(Path(args.out), json.dumps(planned).encode())
     sizes = Counter(len(package["members"]) for package in planned["packages"])
     print(f"statements {len(planned['statements'])}, packages {len(planned['packages'])} "
@@ -297,7 +437,7 @@ def repeatable_ids(seed: str) -> None:
 
 def outcome(status: dict | None) -> str:
     if status is None:
-        return "upload refused"
+        return REFUSED
     if status["status"] != "done":
         return "failed"
     if status["analysis_ready"]:
@@ -310,8 +450,8 @@ def shard(args) -> None:
     # MuPDF prints a PDF's parse errors on standard output; only the counts below may reach it.
     report = os.fdopen(os.dup(1), "w")
     os.dup2(2, 1)
-    planned = plan_of(read_evidence(Path(args.plan)))
-    corpus, work, k = Path(planned["corpus"]), Path(args.work), args.shard
+    planned, _ = evidence(Path(args.plan), plan_of)
+    corpus, work, k = Path(planned.corpus), Path(args.work), args.shard
     data, out = work / "data" / f"shard{k}", work / "capture" / f"shard{k}"
     data.mkdir(parents=True)
     out.mkdir(parents=True)
@@ -326,10 +466,10 @@ def shard(args) -> None:
             seeded += 1
     started = time.monotonic()
     jobs = {}
-    for index, statement in enumerate(planned["statements"]):
-        if statement["shard"] == k:
-            with open(corpus / statement["path"], "rb") as stream:
-                response = client.post("/upload", data={"files": (stream, Path(statement["path"]).name)})
+    for index, statement in enumerate(planned.statements):
+        if statement.shard == k:
+            with open(corpus / statement.path, "rb") as stream:
+                response = client.post("/upload", data={"files": (stream, Path(statement.path).name)})
             if response.status_code == 200:
                 jobs[index] = response.get_json()["jobs"][0]["id"]
     statuses = {}
@@ -340,13 +480,13 @@ def shard(args) -> None:
             if status["status"] not in ("queued", "processing"):
                 statuses[index] = status
     outcomes = {index: outcome(statuses.get(index))
-                for index, statement in enumerate(planned["statements"]) if statement["shard"] == k}
+                for index, statement in enumerate(planned.statements) if statement.shard == k}
     packages, analysed_members = {}, {}
-    for index, package in enumerate(planned["packages"]):
-        members = [jobs[member] for member in package["members"] if member in jobs]
-        if package["shard"] == k and len(members) >= 2:
+    for index, package in enumerate(planned.packages):
+        members = [jobs[member] for member in package.members if member in jobs]
+        if package.shard == k and len(members) >= 2:
             packages[index] = client.post("/package", json={"ids": members}).get_json()["package_id"]
-            analysed_members[index] = sum(outcomes[member] == "analysed" for member in package["members"])
+            analysed_members[index] = sum(outcomes[member] == "analysed" for member in package.members)
     ingested = time.monotonic()
     ids = {job.encode(): f"job-{index:04d}".encode() for index, job in jobs.items()}
     ids.update({package.encode(): f"package-{index:04d}".encode() for index, package in packages.items()})
@@ -370,8 +510,8 @@ def shard(args) -> None:
                 key = f"{name}.{profile}.{kind}"
                 write_private(out / f"{key}.gz", gzip.compress(data_bytes, mtime=0))
                 manifest[key] = digest(data_bytes)
-    record = {"responses": manifest, "statements": outcomes, "packages": analysed_members}
-    write_private(out / "manifest.json", json.dumps(record, sort_keys=True).encode())
+    record = Manifest(manifest, outcomes, analysed_members)
+    write_private(out / "manifest.json", json.dumps(record._asdict(), sort_keys=True).encode())
     stages = {stage: f"{row['entries']} entries, {row['hits']} hits" for stage, row in sorted(cache.stats().items())}
     print(f"shard {k}: statements {len(outcomes)}, packages {len(packages)}, responses {len(manifest)}; "
           f"ocr seeded {seeded}; cache {stages}; ingest {ingested - started:.0f} s, "
@@ -379,8 +519,7 @@ def shard(args) -> None:
 
 
 def run(args) -> None:
-    plan_bytes = read_evidence(Path(args.plan))
-    shards = plan_of(plan_bytes)["shards"]
+    planned, plan_bytes = evidence(Path(args.plan), plan_of)
     work = Path(args.work)
     work.mkdir(mode=0o700, parents=True, exist_ok=True)
     if any(work.iterdir()):
@@ -392,7 +531,7 @@ def run(args) -> None:
     if args.ocr_from:
         command += ["--ocr-from", str(Path(args.ocr_from).resolve())]
     running = []
-    for k in range(shards):
+    for k in range(planned.shards):
         log = os.open(work / "logs" / f"shard{k}.err", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         running.append(subprocess.Popen([*command, "--shard", str(k)], stdout=subprocess.PIPE, stderr=log, text=True))
         os.close(log)
@@ -406,88 +545,67 @@ def run(args) -> None:
     print(f"complete: {seal(work, plan_bytes)} responses")
 
 
+@refuses_incomplete
 def seal(work: Path, plan_bytes: bytes) -> int:
-    """Write `complete.json`, which compare requires: the plan's digest and, per planned shard, its counts and its
-    manifest's digest. Exits INCOMPLETE, writing nothing, unless every shard records one known outcome for each of its
-    planned statements and nothing else, the packages of its plan with two or more accepted uploads (each with its
-    count of analysed members), and the eight responses of each accepted upload and package, at least one. Returns the
-    number of responses."""
+    """Write `complete.json`, which compare requires: the plan's digest and, per planned shard, its manifest's digest
+    and counts. Exits INCOMPLETE, writing nothing, unless the plan and every manifest parse and each manifest records
+    one outcome for each planned statement of its shard and nothing else, and the packages of its shard with two or
+    more accepted uploads, each with its count of analysed members. Returns the number of responses."""
     planned = plan_of(plan_bytes)
     shards = []
-    for k in range(planned["shards"]):
-        folder = work / "capture" / f"shard{k}"
-        manifest = read_evidence(folder / "manifest.json")
-        record = manifest_of(manifest, folder)
-        outcomes = record["statements"]
-        statements = {str(i) for i, statement in enumerate(planned["statements"]) if statement["shard"] == k}
-        if outcomes.keys() != statements or not set(outcomes.values()) <= set(OUTCOMES):
-            incomplete(f"shard {k} records {len(outcomes)} outcomes, not one for each of its {len(statements)} "
-                       f"planned statements")
-        accepted = {int(i) for i, done in outcomes.items() if done != "upload refused"}
-        packages = {str(i): sum(outcomes.get(str(member)) == "analysed" for member in package["members"])
-                    for i, package in enumerate(planned["packages"])
-                    if package["shard"] == k and len(accepted & set(package["members"])) >= 2}
-        if record["packages"] != packages:
-            incomplete(f"shard {k} records {len(record['packages'])} packages, its plan and outcomes call for "
+    for k in range(planned.shards):
+        path = work / "capture" / f"shard{k}" / "manifest.json"
+        manifest, data = evidence(path, manifest_of)
+        statements = {i for i, statement in enumerate(planned.statements) if statement.shard == k}
+        if manifest.statements.keys() != statements:
+            incomplete(f"{path} records {len(manifest.statements)} outcomes, not one for each of its "
+                       f"{len(statements)} planned statements")
+        accepted = {i for i, done in manifest.statements.items() if done != REFUSED}
+        packages = {i: sum(manifest.statements[member] == "analysed" for member in package.members)
+                    for i, package in enumerate(planned.packages)
+                    if package.shard == k and len(accepted & set(package.members)) >= 2}
+        if manifest.packages != packages:
+            incomplete(f"{path} records {len(manifest.packages)} packages, its plan and outcomes call for "
                        f"{len(packages)}")
-        names = [f"s{i:04d}" for i in accepted] + [f"p{int(i):04d}" for i in packages]
-        expected = {f"{name}.{profile}.{kind}" for name in names for profile in PROFILES for kind in KINDS}
-        if not expected:
-            incomplete(f"shard {k} captured no responses; no upload was accepted")
-        if record["responses"].keys() != expected:
-            incomplete(f"shard {k} holds {len(record['responses'])} responses, its outcomes call for {len(expected)}")
-        shards.append({"manifest": digest(manifest), "statements": len(outcomes), "packages": len(packages),
-                       "responses": len(expected)})
-    write_private(work / "complete.json", json.dumps({"plan": digest(plan_bytes), "shards": shards}).encode())
-    return sum(shard["responses"] for shard in shards)
+        shards.append(Sealed(digest(data), len(statements), len(packages), len(manifest.responses)))
+    write_private(work / "complete.json",
+                  json.dumps({"plan": digest(plan_bytes), "shards": [sealed._asdict() for sealed in shards]}).encode())
+    return sum(sealed.responses for sealed in shards)
 
 
-def unpacked(capture: Path) -> bytes | None:
-    """A capture's canonical bytes; None when the file is missing or not one whole gzip stream."""
-    try:
-        return gzip.decompress(capture.read_bytes())
-    except (OSError, EOFError, zlib.error):
-        return None
-
-
-def load_side(work: Path) -> dict:
-    """A finished run's manifests, merged, once its completion marker vouches for each shard's manifest and each
-    capture's bytes match their manifest hash. Anything less, or a shard with no responses, exits INCOMPLETE."""
-    try:
-        marker = json.loads((work / "complete.json").read_bytes())
-    except (OSError, ValueError):
-        incomplete(f"{work} holds no readable complete.json; its run did not finish")
-    shards = marker.get("shards") if isinstance(marker, dict) else None
-    if not (isinstance(shards, list) and shards and isinstance(marker.get("plan"), str)
-            and all(isinstance(sealed, dict) and isinstance(sealed.get("manifest"), str) for sealed in shards)):
-        incomplete(f"{work}/complete.json does not name a plan and one or more sealed shards")
-    side: dict = {"plan": marker["plan"], "responses": {}, "statements": {}, "packages": {}}
-    for k, sealed in enumerate(shards):
-        folder = work / "capture" / f"shard{k}"
-        manifest = read_evidence(folder / "manifest.json")
-        if digest(manifest) != sealed["manifest"]:
-            incomplete(f"{folder} lost its manifest or it changed since its run")
-        record = manifest_of(manifest, folder)
-        if not record["responses"]:
-            incomplete(f"{folder} holds no responses")
-        for key, expected in record["responses"].items():
-            if (data := unpacked(folder / f"{key}.gz")) is None or digest(data) != expected:
-                incomplete(f"{folder} lost the capture {key} or it no longer matches its manifest")
-        for part in ("responses", "statements", "packages"):
-            side[part].update(record[part])
-    return side
+@refuses_incomplete
+def load_side(work: Path) -> tuple[str, Manifest]:
+    """A finished run's plan digest and its manifests merged, once its marker and every manifest parse, the marker
+    holds each manifest's digest and counts, no statement, package or response sits in two shards, and each capture's
+    bytes match their manifest hash. Anything less exits INCOMPLETE."""
+    marker, _ = evidence(work / "complete.json", marker_of)
+    side = Manifest({}, {}, {})
+    for k, sealed in enumerate(marker.shards):
+        path = work / "capture" / f"shard{k}" / "manifest.json"
+        manifest, data = evidence(path, manifest_of)
+        if Sealed(digest(data), len(manifest.statements), len(manifest.packages), len(manifest.responses)) != sealed:
+            incomplete(f"{path} is not the manifest {work / 'complete.json'} sealed")
+        for key, expected in manifest.responses.items():
+            capture = path.parent / f"{key}.gz"
+            if digest(evidence(capture, gzip.decompress)[0]) != expected:
+                incomplete(f"{capture} no longer matches its manifest")
+        for merged, part in zip(side, manifest):
+            if merged.keys() & part.keys():
+                incomplete(f"{path} holds a statement, package or response of another shard")
+            merged.update(part)
+    return marker.plan, side
 
 
 def compare(args) -> None:
-    sides = {"A": load_side(Path(args.a)), "B": load_side(Path(args.b))}
-    if sides["A"]["plan"] != sides["B"]["plan"]:
+    (plan_a, a), (plan_b, b) = load_side(Path(args.a)), load_side(Path(args.b))
+    if plan_a != plan_b:
         incomplete("the two sides ran different plans")
-    for name, side in sides.items():
-        outcomes = Counter(side["statements"].values())
-        analysed = sum(count >= 2 for count in side["packages"].values())
+    for name, side in (("A", a), ("B", b)):
+        outcomes = Counter(side.statements.values())
+        analysed = sum(count >= 2 for count in side.packages.values())
         print(f"coverage {name}: statements {sum(outcomes.values())} {dict(sorted(outcomes.items()))}; "
-              f"packages {len(side['packages'])}, with two or more analysed members {analysed}")
-    kinds, found = compare_manifests(sides["A"]["responses"], sides["B"]["responses"])
+              f"packages {len(side.packages)}, with two or more analysed members {analysed}")
+    kinds, found = compare_manifests(a.responses, b.responses)
     print("responses:", dict(sorted(sum(kinds.values(), Counter()).items())))
     for kind in sorted(kinds):
         print(f"  {kind:26s} {dict(sorted(kinds[kind].items()))}")
@@ -499,9 +617,15 @@ def compare(args) -> None:
 
 def stored(work: str, key: str) -> bytes:
     path = next((Path(work) / "capture").glob(f"shard*/{key}.gz"), None)
-    if path is None or (data := unpacked(path)) is None:
-        incomplete(f"{work} holds no readable response {key}")
-    return data
+    if path is None:
+        incomplete(f"{work} holds no response {key}")
+    return evidence(path, gzip.decompress)[0]
+
+
+def response_key(key: str) -> str:
+    if not RESPONSE_KEY.fullmatch(key):
+        raise argparse.ArgumentTypeError(f"{key} is not a response key such as s0001.default.json")
+    return key
 
 
 def diff(args) -> None:
@@ -537,7 +661,7 @@ def main() -> None:
     p = commands.add_parser("diff")
     p.add_argument("a")
     p.add_argument("b")
-    p.add_argument("--index", nargs="+", required=True)
+    p.add_argument("--index", nargs="+", type=response_key, required=True)
     p.add_argument("--out", required=True)
     args = parser.parse_args()
     for path in (getattr(args, "out", None), getattr(args, "work", None)):
