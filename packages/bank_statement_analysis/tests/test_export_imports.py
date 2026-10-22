@@ -1,9 +1,9 @@
 """The download writers import without starting the web app.
 
-`balance_forensic_audit.py` writes the statement and package downloads to check what they print. While the writers
-lived in `webapp/app.py`, importing them built the Flask app and opened the job store, which created `webapp.db` in
-the data folder and marked queued jobs interrupted. Each import here runs in a fresh interpreter with a data folder
-that does not exist yet and with the constructors of the Flask app, the job store and its storage made to raise.
+`balance_forensic_audit.py` writes the statement and package downloads to check what they print, so importing the
+writers must not build the Flask app or open the job store, which would create `webapp.db` and mark queued jobs
+interrupted. Each import here runs in a fresh interpreter with a data folder that does not exist yet and with the
+constructors of the Flask app, the job store and its storage made to raise.
 """
 from __future__ import annotations
 
