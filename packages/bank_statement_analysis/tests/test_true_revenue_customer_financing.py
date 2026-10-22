@@ -30,6 +30,7 @@ from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import payee_matcher
 from analysis import true_revenue
+from analysis.true_revenue import words as true_revenue_words
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -767,5 +768,5 @@ def test_the_two_reasons_sit_at_their_places_in_the_reason_table():
         "excluded_pending_review", "One-off lump sum from a lease-to-own or patient financier")
     assert REVENUE_TIER_REASONS["customer_financing_payout"] == (
         "counted_flagged", "Lease-to-own or patient-financing payout")
-    assert (true_revenue.CUSTOMER_FINANCING_PAYOUT, true_revenue.CUSTOMER_FINANCING_LUMP_SUM) == (
+    assert (true_revenue_words.CUSTOMER_FINANCING_PAYOUT, true_revenue.CUSTOMER_FINANCING_LUMP_SUM) == (
         "customer_financing_payout", "customer_financing_lump_sum")

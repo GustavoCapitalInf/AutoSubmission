@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from analysis import transaction_classifier, true_revenue
+from analysis import transaction_classifier
+from analysis.true_revenue import words as true_revenue_words
 from analysis.classification import record as classification_record
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue import REVENUE_TIER_REASONS, REVENUE_TIERS, WITHHOLDING_DENOMINATOR_MODES
@@ -62,24 +63,24 @@ def test_the_contracts_reason_table_repeats_revenue_tier_reasons_in_its_order():
 
 
 def test_the_insurer_named_payer_row_names_every_word_the_insurer_hold_reads():
-    """The row's When cell names each name word of true_revenue._INSURER_NAME and the claim-word arm."""
+    """The row's When cell names each name word of true_revenue.words._INSURER_NAME and the claim-word arm."""
     when = {cells[0]: cells[3] for cells in _reason_table()}["`insurer_named_payer`"]
-    words = re.findall(r"[A-Z]{4,}", true_revenue._INSURER_NAME.pattern)
+    words = re.findall(r"[A-Z]{4,}", true_revenue_words._INSURER_NAME.pattern)
     assert words == ["INSUR", "ASSURANCE", "MUTUAL", "CASUALTY", "INDEMNITY", "UNDERWRIT"]
     for word in words:
         assert f"`{word}" in when, word
-    assert "CLAIM" in true_revenue._CLAIM_WORD.pattern
+    assert "CLAIM" in true_revenue_words._CLAIM_WORD.pattern
     assert "`CLAIM`" in when and "`HCCLAIMPMT`" in when and "healthcare payer" in when
 
 
 def test_the_insurer_named_payer_row_names_every_insurer_spelling_and_the_brand_table():
-    """The When cell names each spelling true_revenue._INSURER_SPELLINGS reads, the brand table and the holder
+    """The When cell names each spelling true_revenue.words._INSURER_SPELLINGS reads, the brand table and the holder
     strip."""
     when = {cells[0]: cells[3] for cells in _reason_table()}["`insurer_named_payer`"]
     for word in ("ASSUR", "ASSURANCES", "ASSURANT", "ASSUREUR", "MUTUA", "CASUALT", "INDEMN", "INS", "P AND C",
                  "LOSS PMT", "SUBRO"):
         assert f"`{word}" in when, word
-        assert word.split()[0] in true_revenue._INSURER_SPELLINGS.pattern, word
+        assert word.split()[0] in true_revenue_words._INSURER_SPELLINGS.pattern, word
     assert "`INSURER_CREDIT_BRANDS`" in when and "without the holder's own names" in when
     assert "`ASSURED`" in when and "`CLM`" in when
 

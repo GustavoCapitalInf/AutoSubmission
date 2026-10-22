@@ -81,14 +81,14 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "factoring_payout": ("counted_flagged", "Factoring payout"),
     # Owner ruling 2026-10-02 (the underwriter's Q9, part (c)), R2-OW05: a lender paying the business for its services
     # (a listed auto lender's payables on a statement with no dealer evidence: a repossession agency's recoveries),
-    # counted, never verified (true_revenue.LENDER_PAID_FOR_SERVICES).
+    # counted, never verified (true_revenue.words.LENDER_PAID_FOR_SERVICES).
     "lender_paid_for_services": ("counted_flagged", "Lender paid for services"),
     # Owner ruling 2026-10-02 (the underwriter's Q11 (a)), R2-OW06: a builder's progress draw, counted and flagged, never
-    # verified (true_revenue.CONSTRUCTION_PROGRESS_DRAW_REASON).
+    # verified (true_revenue.words.CONSTRUCTION_PROGRESS_DRAW_REASON).
     "construction_progress_draw": ("counted_flagged", "Builder's progress draw"),
     # Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: an insurer paying the business for its work (a holder's
     # trade, a service form, or three or more credits from one insurer within 31 days), counted, never verified
-    # (true_revenue.INSURER_FOR_WORK_METHOD).
+    # (true_revenue.words.INSURER_FOR_WORK_METHOD).
     "insurer_paid_for_services": ("counted_flagged", "Insurer paid for the business's work"),
     # Owner ruling 2026-10-02 (the underwriter's Q9 (a)), R2-OW09: a customer whose own name carries a finance word,
     # paying on a line that prints invoice, accounts-payable or vendor-payment wording (or a commission), released from
@@ -101,7 +101,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     # the label keeps the caution that the payer also lends, and never reads as financing counted in True.
     "payout_credit_entity": ("counted_flagged", "BNPL or marketplace settlement (payer also lends)"),
     # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's payout to the merchant for a customer's
-    # financed purchase, counted, never verified (true_revenue.CUSTOMER_FINANCING_PAYOUT).
+    # financed purchase, counted, never verified (true_revenue.words.CUSTOMER_FINANCING_PAYOUT).
     "customer_financing_payout": ("counted_flagged", "Lease-to-own or patient-financing payout"),
     "platform_unconfirmed": ("counted_flagged", "Platform payout, not confirmed"),
     "numbered_company_payer": ("counted_flagged", "Numbered company payer"),
@@ -118,7 +118,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "government_no_purpose": ("non_revenue", "Government payment, no purpose printed"),
     # The owner's ruling of 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: a non-dealer's sale of equipment or
     # vehicles (an equipment auction's or a car buyer's seller payout, a printed truck, trailer, vehicle or equipment
-    # sale), non_revenue with this reason (true_revenue.ASSET_SALE_METHOD); no review path.
+    # sale), non_revenue with this reason (true_revenue.words.ASSET_SALE_METHOD); no review path.
     "asset_sale_proceeds": ("non_revenue", "Sale of equipment or vehicles (not a dealer)"),
 }
 #: R2-OW03 (owner ruling 2026-10-02; §5.3, §9.1): the reason codes REVENUE_TIER_REASONS files under non_revenue. A

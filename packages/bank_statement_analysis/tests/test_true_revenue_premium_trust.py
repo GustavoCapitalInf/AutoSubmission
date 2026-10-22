@@ -25,6 +25,7 @@ import pytest
 from analysis import holder_name as hn
 from analysis import transaction_classifier as tc
 from analysis import true_revenue as tr
+from analysis.true_revenue import words
 from analysis import revenue
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
@@ -492,7 +493,7 @@ def test_t6_commissions_count_on_the_operating_account_and_are_held_on_the_trust
     # method stays the release's).
     records = tc.classify_statement_transactions(trust)
     assert _reading(records) == [PT] * 6
-    assert [record.revenue_match_method for record in records[:4]] == [tr.INSURER_FOR_WORK_METHOD] * 4
+    assert [record.revenue_match_method for record in records[:4]] == [words.INSURER_FOR_WORK_METHOD] * 4
     metrics = compute_metrics(trust, classifications=records)
     assert (_money(metrics.true_revenue_total), _money(metrics.excluded_pending_review_total)) == (0.0, 7130.67)
     assert metrics.premium_trust_account is True

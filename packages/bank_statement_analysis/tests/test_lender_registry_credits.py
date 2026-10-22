@@ -16,6 +16,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.true_revenue import words as true_revenue_words
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.detect import find_flagged_positions
 from analysis.payee_matcher import match_known_payee, registry_match
@@ -172,7 +173,7 @@ def test_the_digit_arm_reads_only_a_whole_run_together_token_and_its_trailing_di
     ("FABRIKAMFINUSA", False), ("FABRIKAMFINUSA1", False), ("MUFFINUSA LLC", False),
 ])
 def test_the_financing_root_reads_a_special_purpose_entity_never_a_glued_fin_usa(word, root):
-    assert bool(true_revenue._FINANCING_ROOT.search(word)) is root
+    assert bool(true_revenue_words._FINANCING_ROOT.search(word)) is root
 
 
 def test_a_repeat_payer_whose_run_together_name_ends_in_fin_usa_stays_verified():

@@ -635,7 +635,7 @@ def test_the_debit_kinds(text, kind):
 
 
 def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insurer=False, released_insurer=False):
-    from analysis.true_revenue import CounterCredit
+    from analysis.true_revenue.model import CounterCredit
 
     # Audit round 3, R3-B16 (R3-03): `released_insurer` is CounterCredit's last field, passed only when set.
     extra = {"released_insurer": True} if released_insurer else {}
@@ -645,7 +645,7 @@ def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insu
 def _debits(*, lender=(), other=()):
     """Each other debit is (legacy, words, kind, cents, recurring), or (..., recurring, premium): audit round 3,
     R3-B16 (R3-03), `premium` is _CounterDebit's last field, passed only when set."""
-    from analysis.true_revenue import CounterDebits, _CounterDebit
+    from analysis.true_revenue.model import CounterDebits, _CounterDebit
 
     return CounterDebits(
         tuple(_CounterDebit(counter_debit_reading._counter_debit_reading(legacy, [words]), "lender", 30000, entity, False)
@@ -933,7 +933,8 @@ def test_r01_a_card_charge_recurs_with_the_other_debits():
 
 
 def test_r01_also_debited_reads_a_card_charge_and_a_settlement():
-    from analysis.true_revenue import CounterDebits, _CounterDebit, also_debited
+    from analysis.true_revenue import also_debited
+    from analysis.true_revenue.model import CounterDebits, _CounterDebit
 
     def held(kind, *, settlement, card=False, cents=2500, recurring=False, insurer=False):
         debit = _CounterDebit(counter_debit_reading._counter_debit_reading("CONTOSO", [["CONTOSO"]]), kind, cents, None, recurring,
@@ -1077,7 +1078,8 @@ def test_ow05_payer_collects_reads_5_6_s_first_word_and_a_cut_spelling_on_anothe
 
 
 def test_ow05_payer_collects_never_reads_the_bank_s_receiving_fee_or_a_card_charge():
-    from analysis.true_revenue import CounterDebits, _CounterDebit, _payer_collects
+    from analysis.true_revenue import _payer_collects
+    from analysis.true_revenue.model import CounterDebits, _CounterDebit
 
     reading = counter_debit_reading._counter_debit_reading("CONTOSO", [["CONTOSO"]])
     assert not _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
@@ -1263,7 +1265,8 @@ def test_r3_03_also_debited_reads_a_released_insurer_s_carrier_debits():
 
 
 def test_r3_03_the_released_insurer_fact():
-    from analysis.true_revenue import CounterCredit, counter_credit
+    from analysis.true_revenue import counter_credit
+    from analysis.true_revenue.model import CounterCredit
 
     assert CounterCredit.__dataclass_fields__["released_insurer"].default is False
     assert list(CounterCredit.__dataclass_fields__)[-1] == "released_insurer"

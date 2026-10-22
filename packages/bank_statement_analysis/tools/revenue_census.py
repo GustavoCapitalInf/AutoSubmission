@@ -184,11 +184,11 @@ COUNTED_ONLY_NARROWINGS = frozenset({
     "15_insurer_paid_for_services",
 })
 #: Owner ruling 2026-10-02 (the underwriter's Q2), R2-OW08: the method, rule and reason the true-revenue pass gives an
-#: insurer's credit it releases as the business's work (analysis/true_revenue.py INSURER_FOR_WORK_METHOD, copied: the
+#: insurer's credit it releases as the business's work (analysis/true_revenue/words.py INSURER_FOR_WORK_METHOD, copied: the
 #: census reads other checkouts).
 INSURER_FOR_WORK_METHOD = "insurer_paid_for_services"
 #: Audit B3 (I11): the method the true-revenue pass gives a released processor card payout
-#: (analysis/true_revenue.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
+#: (analysis/true_revenue/words.py PROCESSOR_CARD_PAYOUT_METHOD, copied: the census reads other checkouts).
 PROCESSOR_CARD_PAYOUT_METHOD = "processor_card_payout"
 #: Final review I8: the narrowings that lead to True only through verification (§6.3: a claim payment and a released
 #: card credit are verified or held, never counted).
@@ -293,13 +293,13 @@ CONSTRUCTION_PROGRESS_DRAW = "construction_progress_draw"
 Q5_Q6_REPEAT_METHODS = frozenset({"repeat_wire_sender", "named_payer_repeats"})
 #: Owner ruling 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: the method pass 7 gives a non-dealer's asset sale (also
 #: its non_revenue reason code), and the single-row verifications a printed vehicle sale is read on
-#: (analysis/true_revenue.py ASSET_SALE_METHOD and ASSET_SALE_INVOICE_METHODS, copied: the census reads other checkouts).
+#: (analysis/true_revenue/words.py ASSET_SALE_METHOD and ASSET_SALE_INVOICE_METHODS, copied: the census reads other checkouts).
 ASSET_SALE_METHOD = "asset_sale_proceeds"
 ASSET_SALE_INVOICE_METHODS = frozenset(
     {"operating_income_descriptor", "payer_remittance_descriptor", "wire_remittance_purpose"}
 )
 #: Owner ruling 2026-10-02 (the underwriter's Q9, part (c')), R2-OW05: the revenue method pass 7 gives a listed auto
-#: lender's payables-only credit it overrules (analysis/true_revenue.py LENDER_PAID_FOR_SERVICES, copied: the census
+#: lender's payables-only credit it overrules (analysis/true_revenue/words.py LENDER_PAID_FOR_SERVICES, copied: the census
 #: reads other checkouts).
 LENDER_PAID_FOR_SERVICES_METHOD = "lender_paid_for_services"
 #: The owner's ruling of 2026-10-02 (the underwriter's Q3): the method pass 7 gives a Zelle deposit the Zelle policy

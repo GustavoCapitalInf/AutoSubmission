@@ -19,6 +19,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue as tr
+from analysis.true_revenue import hold_text
+from analysis.true_revenue import words as true_revenue_words
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 from analysis.descriptor.lexical import revenue_text
@@ -392,7 +394,7 @@ def test_a_non_dealer_s_asset_sale_is_non_revenue(rows, holder, arm):
     assert [rules_reading(record, method=True) for record in records] == [ASSET_SALE] * len(records)
     for record in records:
         assert record.revenue_classification == "non_revenue"
-        assert record.revenue_match_method == tr.ASSET_SALE_METHOD == "asset_sale_proceeds"
+        assert record.revenue_match_method == true_revenue_words.ASSET_SALE_METHOD == "asset_sale_proceeds"
         assert record.revenue_matched_rule == f"asset_sale_{arm}"
         assert record.revenue_tier_reason == "asset_sale_proceeds" and record.revenue_confidence_score == 0.90
         assert not record.revenue_review_required and not record.contributes_to_true_revenue
@@ -982,12 +984,12 @@ def test_r37_the_trade_name_reader(text, words, keep, trade):
         "PLATFORM": (tr._PLATFORM_NAME_WORDS, tr._PLATFORM_NAME_KEEP),
     }
     revenue = revenue_text(normalize_transaction_description(text))
-    row = tr._hold_text(revenue)
+    row = hold_text._hold_text(revenue)
     assert tr._trade_name(revenue, row, payer_region(revenue), tables[words][0], tables[keep][1]) is trade
 
 
 def test_r37_the_title_firm_s_settlement_services_arm_spares_a_processor_s_and_a_carrier_s_word():
-    title = tr._TITLE_FIRM
+    title = true_revenue_words._TITLE_FIRM
     for name in ("FABRIKAM SETTLEMENT SERVICES INC", "CONTOSO CLOSING SERVICES LLC", "CONTOSO CLOSING SERVICE",
                  "SAMPLE TITLE AND ESCROW", "FABRIKAM SETTLEMENT SERVICE"):
         assert title.search(name), name
@@ -1119,7 +1121,7 @@ def test_r37_review_the_trade_name_reader_reads_a_purpose_word_as_the_purpose_s(
         "PLATFORM": (tr._PLATFORM_NAME_WORDS, tr._PLATFORM_NAME_KEEP),
     }
     revenue = revenue_text(normalize_transaction_description(text))
-    row = tr._hold_text(revenue)
+    row = hold_text._hold_text(revenue)
     assert tr._trade_name(revenue, row, payer_region(revenue), *tables[words]) is trade
 
 
@@ -1269,7 +1271,7 @@ def test_r37_review_2_the_purpose_trade_name_reader(text, spared):
     from analysis.descriptor.payer import payer_region
 
     revenue = revenue_text(normalize_transaction_description(text))
-    row = tr._hold_text(revenue)
+    row = hold_text._hold_text(revenue)
     assert tr.purpose_trade_name(revenue, row, payer_region(revenue)) is spared
 
 
@@ -1360,7 +1362,7 @@ def test_r36_controls_keep_their_readings(rows, expected):
 ])
 def test_r36_the_gambling_reader(text, held):
     revenue = revenue_text(normalize_transaction_description(text))
-    assert tr.gambling_payout(revenue, tr._hold_text(revenue)) is held
+    assert tr.gambling_payout(revenue, hold_text._hold_text(revenue)) is held
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -1375,7 +1377,7 @@ def test_r36_review_an_agency_s_name_on_a_row_with_no_entry_spares_no_prize(text
 
 def test_r36_the_entry_field_reader_is_the_premium_reader_s():
     text = revenue_text(normalize_transaction_description(_bofa("CONTOSO STATE LOTTERY", "PRIZE PMT")))
-    assert tr._layout_entry(text).strip() == "PRIZE PMT"
+    assert hold_text._layout_entry(text).strip() == "PRIZE PMT"
     text = revenue_text(normalize_transaction_description(_chase("CONTOSO STATE LOTTERY", "PRIZE PMT")))
-    assert tr._layout_entry(text).strip() == "PRIZE PMT"
-    assert tr._layout_entry("ACH CREDIT STATE LOTTERY PRIZE PAYMENT 12345") == ""
+    assert hold_text._layout_entry(text).strip() == "PRIZE PMT"
+    assert hold_text._layout_entry("ACH CREDIT STATE LOTTERY PRIZE PAYMENT 12345") == ""

@@ -17,6 +17,8 @@ from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
 from analysis import true_revenue as tr
+from analysis.true_revenue import holder_names
+from analysis.true_revenue import words as true_revenue_words
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -124,7 +126,7 @@ def test_the_holder_reading_prefers_the_printed_holder_name():
     "BMO BUS CKG", "GENERAL CHECKING", "Treasury Enterprise Plan", "Virtual Wallet With Performance Spend",
 ])
 def test_a_grid_header_or_a_product_never_names_the_holder(name):
-    assert not tr._usable_holder_name(name)
+    assert not holder_names._usable_holder_name(name)
     assert descriptor_holder.holder_words(name) == ()
 
 
@@ -135,8 +137,8 @@ def test_a_grid_header_or_a_product_never_names_the_holder(name):
     ("NORTHWIND FISH", True, False),
 ])
 def test_a_bare_two_word_fragment_needs_corroboration(name, usable, names_the_holder):
-    assert tr._usable_holder_name(name) is usable
-    assert tr._holder_name_known(name) is names_the_holder
+    assert holder_names._usable_holder_name(name) is usable
+    assert holder_names._holder_name_known(name) is names_the_holder
 
 
 def test_a_bare_two_word_fragment_leaves_the_receiver_fields_read():
@@ -740,7 +742,7 @@ def test_r3_b10_r2_every_spelling_and_boundary_the_exemption_reads_is_never_veri
     # as proof; B9's own settlement words alone do not read it.
     printed = form.format(word=word)
     text = f"CONTOSO HAULING LLC DES:{printed} ID:0001 INDN:CONTOSO HAULING LLC CO ID:1234567890 CCD"
-    assert tr._HOLDER_NAMED_SETTLEMENT_ENTRY.search(printed) is not None
+    assert true_revenue_words._HOLDER_NAMED_SETTLEMENT_ENTRY.search(printed) is not None
     assert tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,))
     assert not tr.merchant_settlement(_revenue(text), (R3_B10_R2_HOLDER,), bare_settlement=False)
     rows = [(text, 1500.0), (text.replace("ID:0001", "ID:0002"), 1750.0)]
@@ -914,7 +916,7 @@ def test_the_holder_hold_never_reads_a_product_as_a_second_holder_name():
         [("ACH CREDIT FABRIKAM SUPPLY INC 123456789 CCD", 900.0)], account_name=PNC_PRODUCT, holder_name=PNC_HOLDER,
         bank="PNC Bank",
     ))[0]
-    assert tr._holder_names(record) == (PNC_HOLDER,)
+    assert holder_names._holder_names(record) == (PNC_HOLDER,)
     assert descriptor_holder.holder_words(PNC_PRODUCT) == ()
     assert not descriptor_holder.holder_named("US TREASURY", PNC_PRODUCT)
     # The holder's own money is still held beside the product.
@@ -924,7 +926,7 @@ def test_the_holder_hold_never_reads_a_product_as_a_second_holder_name():
 
 def test_a_company_whose_name_prints_product_words_still_names_the_holder():
     for holder in ("TREASURY SAMPLE PLAN LLC", "TREASURY ENTERPRISE PLAN LLC"):
-        assert tr._usable_holder_name(holder)
+        assert holder_names._usable_holder_name(holder)
         assert descriptor_holder.holder_words(holder) != ()
     text = "ZELLE PAYMENT FROM TREASURY SAMPLE PLAN LLC CONF 1234567890"
     assert _tiers([(text, 900.0)], holder_name="TREASURY SAMPLE PLAN LLC") == [HOLDER_NAME]
@@ -938,7 +940,7 @@ def test_no_product_a_holder_reader_publishes_names_a_holder():
                  "Business Banking II", "Professional Business Checking", "Analysis Business Checking",
                  "Business Checking")
     for product in published:
-        assert not tr._usable_holder_name(product), product
+        assert not holder_names._usable_holder_name(product), product
     for product in pnc._PRODUCTS:
         assert descriptor_holder.holder_words(product) == (), product
 
@@ -1133,7 +1135,7 @@ def test_r19_a_product_a_city_and_state_or_a_glued_word_still_names_nobody(accou
     ("NORTHWIND SAMPLE CONTOSO FABRIKAM TRADING", False),
 ])
 def test_r19_the_usable_holder_name_reads_a_trailing_co_partners_a_dba_and_senc(name, usable):
-    assert tr._usable_holder_name(name) is usable
+    assert holder_names._usable_holder_name(name) is usable
 
 
 WF_UNLABELLED = "CONTOSO PTO PAYMENT 540115 1234567 {receiver}"
@@ -1170,14 +1172,14 @@ def test_r19_the_holder_s_own_name_never_holds_a_customer_s_unlabelled_payment(h
 
 
 def test_r3_37_a_leading_the_is_no_word_of_a_holder_run():
-    runs = tr._holder_runs("THE NORTHWIND DISTRIBUTION CO", False)
+    runs = holder_names._holder_runs("THE NORTHWIND DISTRIBUTION CO", False)
     # No 'THE <one word>' run: a third party printed 'THE NORTHWIND …' keeps its words.
     assert runs.match("THE NORTHWIND PAYROLL") is None
     assert runs.sub(" ", "THE NORTHWIND PAYROLL").split() == ["THE", "NORTHWIND", "PAYROLL"]
     for printed in ("NORTHWIND DISTRIBUTION", "THE NORTHWIND DISTRIBUTION", "NORTHWIND DISTRIBUTION CO"):
         assert runs.search(printed) is not None, printed
     # The row-end cut is tried first at each word: the third word's cut leaves nothing behind.
-    cut = tr._holder_runs("FABRIKAM COASTAL DISTRIBUTION LLC", False)
+    cut = holder_names._holder_runs("FABRIKAM COASTAL DISTRIBUTION LLC", False)
     assert cut.sub(" ", "CONTOSO PTO PAYMENT FABRIKAM COASTAL DISTRIBUT").split() == ["CONTOSO", "PTO", "PAYMENT"]
     assert cut.sub(" ", "FABRIKAM COASTAL DISTRIBUTIO SAMPLE").split() == ["DISTRIBUTIO", "SAMPLE"]
 
@@ -1688,7 +1690,7 @@ def test_r3_b10_r1_a_the_led_holder_s_bare_run_strips_a_third_party_as_the_name_
         return _tiers(rows, holder_name=holder, bank="Bank of America")
 
     assert tiers("THE CAPITAL GROUP LLC") == tiers("CAPITAL GROUP LLC")
-    assert tr._without_holder_name("FABRIKAM CAPITAL GROUP", "THE CAPITAL GROUP LLC", whole_name=True).split() == [
+    assert holder_names._without_holder_name("FABRIKAM CAPITAL GROUP", "THE CAPITAL GROUP LLC", whole_name=True).split() == [
         "FABRIKAM"
     ]
 

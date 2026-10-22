@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 from analysis import true_revenue, zelle_view
+from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions
 from analysis.descriptor.lexical import revenue_text
@@ -223,7 +224,7 @@ def test_r3_12_p4_pass_text_spells_pnc_s_zel_as_zelle(text, expected):
 
 def test_r3_12_p4_pass_text_drops_td_s_transfer_code_as_before():
     record = _holder("TD Canada Trust", "E-TRANSFER ***PAY")
-    assert true_revenue.pass_text(record, "E TRANSFER PAY") == true_revenue.without_transfer_code(
+    assert true_revenue.pass_text(record, "E TRANSFER PAY") == channel.without_transfer_code(
         record, "E TRANSFER PAY") == "E TRANSFER"
 
 
@@ -282,7 +283,7 @@ def test_r3_29_f4_the_singular_is_the_rail_too():
     # Before the batch: a French transfer (VIREMENT with no Interac form).
     records = _royale(F4)
     assert _credit_tiers(records) == [P2P]
-    assert true_revenue._channel(_text(F4[0][0]), ROYALE) == "person_to_person"
+    assert channel._channel(_text(F4[0][0]), ROYALE) == "person_to_person"
 
 
 def _english(rows):
@@ -330,7 +331,7 @@ def test_r3_29_the_other_french_rows_read_as_before(text, expected):
 
 
 def test_r3_29_a_bare_depot_stays_a_branch_deposit():
-    assert true_revenue._channel(_text("DEPOT"), ROYALE) == "cash_branch_atm"
+    assert channel._channel(_text("DEPOT"), ROYALE) == "cash_branch_atm"
 
 
 @pytest.mark.parametrize("text", [row[0] for row in (*F1, *F2, *F3, *F4)])

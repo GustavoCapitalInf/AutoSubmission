@@ -346,9 +346,9 @@ def test_a_quebec_health_payer_s_remboursement_to_a_clinic_is_counted():
     ("REVERE CONTOSO LLC", False),
 ])
 def test_the_possible_return_backstop_reads_step_3_s_new_spellings(hold_text, held):
-    from analysis import true_revenue
+    from analysis.true_revenue import words
 
-    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+    assert (words._POSSIBLE_RETURN.search(hold_text) is not None) is held
 
 
 def test_a_card_marker_on_a_debit_pairs_nothing():
@@ -771,9 +771,9 @@ def test_the_narrowed_spellings_still_read_the_bank_forms(bank, text):
     ("UNAUTHORIZED", True),
 ])
 def test_the_possible_return_backstop_reads_the_narrowed_spellings(hold_text, held):
-    from analysis import true_revenue
+    from analysis.true_revenue import words
 
-    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+    assert (words._POSSIBLE_RETURN.search(hold_text) is not None) is held
 
 
 @pytest.mark.parametrize("text", ["POINT OF SALE DEPOSIT 123456", "POINT OF SALE DEPOSIT"])
@@ -1231,16 +1231,16 @@ def test_r48_the_bank_s_fee_waivers_stay_non_revenue(text):
     ("FABRIKAM FEE WAIVER CONSULTING INC INVOICE PMT", False),
 ])
 def test_r2_b08_the_possible_return_backstop_reads_the_new_spellings(hold_text, held):
-    from analysis import true_revenue
+    from analysis.true_revenue import words
 
-    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+    assert (words._POSSIBLE_RETURN.search(hold_text) is not None) is held
 
 
 def test_r2_b08_the_three_readers_hold_the_same_new_arms():
     """The classifier's step-3 credit markers, the pass's possible-return backstop and the census's declared markers
     each carry the batch's arms verbatim (the census's on the digit-masked text), so the copies stay in step."""
     from analysis.descriptor import credit_words
-    from analysis import true_revenue
+    from analysis.true_revenue import words
     from tools import revenue_census as census
 
     arms = credit_words._RETURN_REFUND_R2_B08_ARMS
@@ -1249,18 +1249,18 @@ def test_r2_b08_the_three_readers_hold_the_same_new_arms():
     masked = {pattern.pattern for pattern in census._REVERSAL_MARKERS_56}
     for arm in arms:
         assert arm in classifier, arm
-        assert arm in true_revenue._POSSIBLE_RETURN.pattern, arm
+        assert arm in words._POSSIBLE_RETURN.pattern, arm
         assert census._on_masked(arm).pattern in masked, arm
-    assert census._RETURN_REFUND_R2_B08_ARMS == true_revenue._RETURN_REFUND_R2_B08_ARMS == arms
+    assert census._RETURN_REFUND_R2_B08_ARMS == words._RETURN_REFUND_R2_B08_ARMS == arms
     # The fee waiver arm carries the no-legal-form guard in all three.
     waiver = r"\bFEES? WAIVE[DR]?\b" + credit_words._NO_LEGAL_FORM_LATER
     assert waiver in arms
-    assert credit_words._NO_LEGAL_FORM_LATER == true_revenue._NO_LEGAL_FORM_LATER == census._NO_LEGAL_FORM_LATER
+    assert credit_words._NO_LEGAL_FORM_LATER == words._NO_LEGAL_FORM_LATER == census._NO_LEGAL_FORM_LATER
     # The old unguarded arm is gone from every copy.
     bare = r"\bFEES? WAIVE[DR]?\b"
     assert bare not in classifier
     assert census._on_masked(bare).pattern not in masked
-    assert r"|\bFEES? WAIVE[DR]?\b|" not in true_revenue._POSSIBLE_RETURN.pattern
+    assert r"|\bFEES? WAIVE[DR]?\b|" not in words._POSSIBLE_RETURN.pattern
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1328,9 +1328,9 @@ def test_r2_b08_review_the_controls_of_the_payment_forms_read_as_before():
     ("ORIG CO NAME CONTOSO SUPPLY INC CO ENTRY DESCR CHECK NOT PAID SEC CCD", False),
 ])
 def test_r2_b08_review_the_backstop_reads_the_check_word_not_paid_at_the_row_s_head_only(hold_text, held):
-    from analysis import true_revenue
+    from analysis.true_revenue import words
 
-    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+    assert (words._POSSIBLE_RETURN.search(hold_text) is not None) is held
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1412,9 +1412,9 @@ def test_r3_44_a_name_holding_the_letters_and_a_debit_keep_their_readings():
     ("CH QUE 1234", False),
 ])
 def test_r3_44_the_possible_return_backstop_reads_the_lost_accent(hold_text, held):
-    from analysis import true_revenue
+    from analysis.true_revenue import words
 
-    assert (true_revenue._POSSIBLE_RETURN.search(hold_text) is not None) is held
+    assert (words._POSSIBLE_RETURN.search(hold_text) is not None) is held
 
 
 def test_r3_44_the_french_interest_copy_in_the_census_is_the_classifier_s():

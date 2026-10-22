@@ -1642,7 +1642,7 @@ _A3_WIRE = "WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:{n} SEQ:1/2 ORIG:{ori
 def test_a3_a_wire_worded_transfer_with_no_sender_is_held_as_a_wire_with_no_sender(text):
     # Q5: a wire with no sender stays out until confirmed. The wire's channel and layout words name nobody.
     from analysis.descriptor.lexical import revenue_text
-    from analysis.true_revenue import _transfer_counterparty_words
+    from analysis.true_revenue.channel import _transfer_counterparty_words
 
     record = _one(text, 24950.0)
     assert _tier(record) == ("excluded_pending_review", "wire_no_sender")
@@ -1671,7 +1671,7 @@ def test_a3_the_holder_s_own_currency_conversion_is_held(text):
     # The standing rule: owner money never becomes revenue. A conversion names no counterparty and designates no
     # account (T13), so it is held as non_sale_purpose (§8.1's own-money group, as SWEEP and ZBA are).
     from analysis.descriptor.lexical import revenue_text
-    from analysis.true_revenue import _transfer_counterparty_words
+    from analysis.true_revenue.channel import _transfer_counterparty_words
 
     record = _one(text, 12000.0)
     assert _tier(record) == ("excluded_pending_review", "non_sale_purpose")
@@ -1825,7 +1825,7 @@ def test_a3_a_payer_named_title_in_another_sense_is_not_held(text):
 
 @pytest.mark.parametrize("payer", ["CHICAGO TITLE BOXING CLUB", "STEWART TITLE CLUB"])
 def test_a3_review_a_title_insurer_s_city_or_name_before_boxing_or_club_is_no_title_firm(payer):
-    from analysis.true_revenue import _TITLE_FIRM
+    from analysis.true_revenue.words import _TITLE_FIRM
 
     assert _TITLE_FIRM.search(payer) is None
     text = f"{payer} DES:PAYMENT ID:1 INDN:CONTOSO BAKERY CO ID:1 CCD"
@@ -3706,9 +3706,9 @@ def test_r3_b14_r1_the_arms_controls():
 
 
 def test_q9_c_the_reason_is_a_counted_reason_of_the_one_reason_table_right_after_factoring_payout():
-    from analysis import true_revenue
+    from analysis.true_revenue import words
 
-    assert true_revenue.LENDER_PAID_FOR_SERVICES == "lender_paid_for_services"
+    assert words.LENDER_PAID_FOR_SERVICES == "lender_paid_for_services"
     assert REVENUE_TIER_REASONS["lender_paid_for_services"] == ("counted_flagged", "Lender paid for services")
     codes = list(REVENUE_TIER_REASONS)
     assert codes[codes.index("factoring_payout") + 1] == "lender_paid_for_services"

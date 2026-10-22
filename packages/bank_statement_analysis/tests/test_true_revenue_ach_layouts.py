@@ -21,6 +21,7 @@ from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import description_text
 from analysis import true_revenue as tr
+from analysis.true_revenue import sender as true_revenue_sender
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 from tests.zelle_reading import rules_reading
@@ -613,17 +614,17 @@ def test_the_bank_only_reading_leaves_customers_settlements_and_named_banks_as_t
     ("", "", RELAY, None),
 ])
 def test_bank_only_payer(region, entry, bank, kind):
-    assert tr._bank_only_payer(region, entry, bank) == kind
+    assert true_revenue_sender._bank_only_payer(region, entry, bank) == kind
 
 
 def test_a_row_printing_a_p2p_label_names_no_bank_only_payer():
-    assert tr._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA P2P AB12345CD DEPOSIT") is None
-    assert tr._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA AB12345CD") == "sending"
+    assert true_revenue_sender._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA P2P AB12345CD DEPOSIT") is None
+    assert true_revenue_sender._bank_only_payer("BANK OF AMERICA", "", "Wells Fargo", row="BANK OF AMERICA AB12345CD") == "sending"
     # Audit round 3, R3-B08 (R3-32 (2)): the label counts only after the bank's name, inside the payer region; an
     # entry field's P2P no longer refuses the bank-only reading.
     row = "ORIG CO NAME JPMORGAN CHASE ORIG ID 0000000001 DESC DATE CO ENTRY DESCR P2P SEC CCD TRACE 0001"
-    assert tr._bank_only_payer("JPMORGAN CHASE", "P2P", "Chase", row=row) == "own"
-    assert tr._bank_only_payer("JPMORGAN CHASE", "P2P", RELAY, row=row) == "sending"
+    assert true_revenue_sender._bank_only_payer("JPMORGAN CHASE", "P2P", "Chase", row=row) == "own"
+    assert true_revenue_sender._bank_only_payer("JPMORGAN CHASE", "P2P", RELAY, row=row) == "sending"
 
 
 # Audit round 3, R3-B08 (R3-31, R3-32; §8.2, §8.6, Q2 of 2026-09-28, standard A4): the statement's own bank is read
@@ -651,7 +652,7 @@ def test_r3_31_the_statement_s_own_bank_alone_is_counted_with_no_payer_never_hel
                                   "SAMPLE BONE BANK", "SAMPLE CORD BLOOD BANK"])
 def test_r3_31_a_tissue_bank_paying_by_ach_is_a_customer(name):
     assert not lexical.bank_by_form(name)
-    assert tr._bank_only_payer(name, "", RELAY) is None
+    assert true_revenue_sender._bank_only_payer(name, "", RELAY) is None
     assert _tiers([(f"ACH CREDIT {name}", 1500.0)], holder=R331_HOLDER, bank="Fabrikam Bank") == [ONE_OFF]
     ccd = f"{name} DES:PAYMENT ID:0001 INDN:NORTHWIND PLUMBING LLC CO ID:0000000001 CCD"
     assert _tiers([(ccd, 1500.0), (ccd, 2500.0)], holder=R331_HOLDER, bank="Bank of America") == [REPEATS] * 2
@@ -673,7 +674,7 @@ def test_r3_32_chase_s_bill_pay_channel_is_its_own_on_every_chase_bank_field(ban
     assert _tiers(rows, holder=R331_HOLDER, bank=bank) == [NO_PAYER] * 2
     transfers = [(CHASE_ONLINE_R332.format(entry="TRANSFER", n=n), 1500.0 + n) for n in (1, 2)]
     assert _tiers(transfers, holder=R331_HOLDER, bank=bank) == [NO_COUNTERPARTY] * 2
-    assert "CHASE" in tr._statement_bank_forms(bank)
+    assert "CHASE" in true_revenue_sender._statement_bank_forms(bank)
 
 
 def test_r3_32_an_entry_field_s_p2p_never_lifts_the_bank_only_reading():
@@ -720,14 +721,14 @@ def test_r3_31_the_controls_keep_their_readings(bank, texts, expected):
     ("TD Canada Trust", ("TD CANADA TRUST",)),
 ])
 def test_r3_31_the_own_bank_spellings_read_the_statement_s_bank_field(bank, markers):
-    spellings = tr._own_bank_sending_spellings(bank)
+    spellings = true_revenue_sender._own_bank_sending_spellings(bank)
     for marker in markers:
         assert marker in spellings
 
 
 @pytest.mark.parametrize("bank", ["First Citizens Bank", "Thread Bank (Relay)", "Fabrikam Bank", "TD Bank"])
 def test_r3_31_a_marker_never_matches_inside_another_bank_s_name(bank):
-    spellings = tr._own_bank_sending_spellings(bank)
+    spellings = true_revenue_sender._own_bank_sending_spellings(bank)
     assert "CITIZENS BANK" not in spellings
     assert "TD CANADA TRUST" not in spellings
     assert "JPMORGAN CHASE" not in spellings

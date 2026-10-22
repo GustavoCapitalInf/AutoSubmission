@@ -22,6 +22,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.true_revenue import model
+from analysis.true_revenue import words as true_revenue_words
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -449,7 +451,7 @@ def test_a_claimed_row_is_never_the_insurer_name_hold(monkeypatch):
 
 
 def test_the_insurer_reading_is_frozen():
-    reading = true_revenue.InsurerReading("Safeco", "brand", True)
+    reading = model.InsurerReading("Safeco", "brand", True)
     with pytest.raises(AttributeError):
         reading.key = "other"  # type: ignore[misc]
 
@@ -468,7 +470,7 @@ def test_the_insurer_reading_is_frozen():
     "SAMPLE COUNTY MUT",
 ])
 def test_the_insurer_spellings_read(text):
-    assert true_revenue._INSURER_SPELLINGS.search(text)
+    assert true_revenue_words._INSURER_SPELLINGS.search(text)
 
 
 @pytest.mark.parametrize("text", [
@@ -480,12 +482,12 @@ def test_the_insurer_spellings_read(text):
     "SAMPLE MUTTON FARM",
 ])
 def test_the_insurer_spellings_never_read(text):
-    assert true_revenue._INSURER_SPELLINGS.search(text) is None
+    assert true_revenue_words._INSURER_SPELLINGS.search(text) is None
 
 
 def test_the_spelled_out_insurer_words_are_unchanged():
     """_INSURER_NAME stays byte-identical (the contract's docs test pins its words); the spellings are read beside it."""
-    assert true_revenue._INSURER_NAME.pattern == (
+    assert true_revenue_words._INSURER_NAME.pattern == (
         r"(?<![A-Z])(?:INSUR\w*|ASSURANCE\b|MUTUAL\b|CASUALTY\b|INDEMNITY\b|UNDERWRIT\w*)"
     )
 
@@ -558,7 +560,11 @@ def test_the_brand_table_is_credit_only():
         for path in (ROOT / folder).rglob("*.py")
         if "INSURER_CREDIT_BRANDS" in path.read_text(encoding="utf-8", errors="ignore")
     )
-    assert readers == ["analysis/classification_registry.py", "analysis/true_revenue/__init__.py"]
+    assert readers == [
+        "analysis/classification_registry.py",
+        "analysis/true_revenue/__init__.py",
+        "analysis/true_revenue/model.py",
+    ]
     assert not set(registry.INSURER_CREDIT_BRANDS) & {
         name for name in registry.INSURANCE_PROVIDER_ALIASES if name != "Travelers"
     }
@@ -849,8 +855,8 @@ def test_a_zelle_credit_from_an_insurer_at_an_agency_is_excluded_with_the_releas
 
 def test_the_release_s_method_is_never_a_registry_or_claimed_method():
     """A released row is unclaimed, so §8.10's holds 4 to 11 still read it (T18b, T16 pin it on the tiers)."""
-    assert true_revenue.INSURER_FOR_WORK_METHOD == "insurer_paid_for_services"
-    assert true_revenue.INSURER_FOR_WORK_METHOD not in true_revenue._REGISTRY_METHODS
+    assert true_revenue_words.INSURER_FOR_WORK_METHOD == "insurer_paid_for_services"
+    assert true_revenue_words.INSURER_FOR_WORK_METHOD not in true_revenue_words._REGISTRY_METHODS
     record = _dated([("STATE FARM DES:DRP PAYMENT ID:1", 1234.0, "03-02")])[0]
     assert record.revenue_match_method == METHOD
     assert not true_revenue._claimed(record, revenue_text(record.normalized_description))

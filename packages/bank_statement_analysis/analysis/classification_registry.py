@@ -2252,7 +2252,7 @@ BANK_POSTING_TYPE_LABELS: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] = 
 
 #: Audit round 3, R3-B08 (R3-31, R3-32; §8.2, §8.6, Q2 of 2026-09-28: a bank's name is never the payer's name, and the
 #: statement's own bank's channel is never held): the listed sending-bank spellings (P2P_SENDING_BANK_NAMES) a
-#: statement's own bank prints for itself, read only by the bank-only payer reader (true_revenue._bank_only_payer): a
+#: statement's own bank prints for itself, read only by the bank-only payer reader (true_revenue.sender._bank_only_payer): a
 #: payer region that is, as a whole, one of them names the statement's own bank (counted with no payer printed, never
 #: verified, never held as another bank's pull). Each entry is (the words that name the bank at the start of the
 #: statement's normalized bank field, a leading THE skipped, as whole words; its spellings), all normalized. A marker is

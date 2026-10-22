@@ -20,6 +20,7 @@ from analysis.classification import counter_debit_reading
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import true_revenue as tr
+from analysis.true_revenue import model
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 from tests.zelle_reading import rules_reading
@@ -188,16 +189,16 @@ def test_a_named_p2p_credit_matches_a_lender_debit_by_its_whole_name_and_as_befo
     # debit, never the only one. The lender hold never lets a funder's money into True, so a lender debit sharing the
     # sender's first word still holds it, for review (the hold's safe direction).
     reading = counter_debit_reading._counter_debit_reading("QUILLAN", [["QUILLAN", "SAMPLE"]])
-    credit = tr.CounterCredit(reading, 90000, None, False, False, person_key="QUILLANSAMPLE")
+    credit = model.CounterCredit(reading, 90000, None, False, False, person_key="QUILLANSAMPLE")
 
     def lender(words, entity=None):
-        return tr.CounterDebits((tr._CounterDebit(counter_debit_reading._counter_debit_reading(words[0], [words]), "lender", 30000,
+        return model.CounterDebits((model._CounterDebit(counter_debit_reading._counter_debit_reading(words[0], [words]), "lender", 30000,
                                                   entity, False),), ())
 
     assert tr.debited_as_lender(credit, lender(["QUILLAN", "FUNDING"]), prefix=True)
     assert tr.debited_as_lender(credit, lender(["QUILLAN", "SAMPLE"]), prefix=True)
     assert not tr.debited_as_lender(credit, lender(["FABRIKAM", "FUNDING"]), prefix=True)
-    named = tr.CounterCredit(reading, 90000, "Sample Lender", False, False, person_key="QUILLANSAMPLE")
+    named = model.CounterCredit(reading, 90000, "Sample Lender", False, False, person_key="QUILLANSAMPLE")
     assert tr.debited_as_lender(named, lender(["FABRIKAM"], "Sample Lender"), prefix=False)
 
 
