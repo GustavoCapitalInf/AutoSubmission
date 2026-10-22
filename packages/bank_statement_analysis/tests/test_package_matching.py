@@ -693,10 +693,10 @@ def test_the_reader_reads_a_check_or_cash_device_deposit_never_a_teller_counter_
 
 
 def test_two_members_are_two_accounts_only_on_four_printed_digits_that_differ():
-    from analysis.package.model import different_accounts
+    from analysis.package.model import AccountFacts, different_accounts
 
-    def member(key, digits, currency="USD"):
-        return {"key": key, "digits": digits, "currency": currency}
+    def member(key, number, currency="USD"):
+        return {"key": key, "facts": AccountFacts.of({"statement": {"account_number": number, "currency": currency}})}
 
     assert different_accounts(member(("a", None), "000000001010"), member(("b", None), "000000002020"))
     assert different_accounts(member(("d", 1), "000000001010"), member(("d", 2), "000000002020"))

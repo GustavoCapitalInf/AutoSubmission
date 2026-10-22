@@ -3,15 +3,12 @@ from __future__ import annotations
 
 from analysis import active_positions as active_positions_module, lender_payment_changes as payment_changes_module
 from analysis.dates import parse_date
-from analysis.package.calendar import iso_day, statement_month
+from analysis.package.calendar import statement_month
 from analysis.package.model import (
-    bank_key,
     Member,
     MemberKey,
     PACKAGE_CONSECUTIVE_DAYS,
-    printed_account_digits,
     same_account,
-    statement_currency,
 )
 
 
@@ -78,18 +75,13 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
                 continue
             rows.append(record)
         entries.append({
-            **source, "key": member.key, "job_id": job.id, "currency": statement_currency(analysis),
-            "bank": bank_key(statement),
-            "digits": printed_account_digits(analysis),
-            "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
-            "start": iso_day(statement.get("period_start")), "end": iso_day(statement.get("period_end")),
-            "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
+            **source, "key": member.key, "job_id": job.id, "facts": member.facts,
             "order": (str(statement.get("period_start") or ""), str(job.id), account_index or 0),
             # A statement holding no rows list is read here as empty, as before, and is N/A to
             # `package_active_positions`, never 0.
             "has_rows": isinstance(statement.get("transactions"), list),
             "rows": payment_changes_module.StatementRows(rows, statement.get("period_start"),
-                                                          statement.get("period_end"), statement_currency(analysis)),
+                                                          statement.get("period_end"), member.facts.currency),
         })
     if not entries:
         return None, unchecked
@@ -98,8 +90,9 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
     for entry in entries:
         for chain in chains:
             last = chain[-1]
-            if (last["end"] is not None and entry["start"] is not None and same_account(last, entry)
-                    and -LENDER_CHAIN_OVERLAP_DAYS <= (entry["start"] - last["end"]).days <= PACKAGE_CONSECUTIVE_DAYS):
+            start, end = entry["facts"].start, last["facts"].end
+            if (end is not None and start is not None and same_account(last, entry)
+                    and -LENDER_CHAIN_OVERLAP_DAYS <= (start - end).days <= PACKAGE_CONSECUTIVE_DAYS):
                 chain.append(entry)
                 break
         else:
@@ -111,9 +104,10 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
             if len(chain) != 1:
                 continue
             entry = chain[0]
-            reason = ("no_currency" if entry["currency"] is None
-                      else "no_period" if entry["start"] is None or entry["end"] is None
-                      else "no_account_number" if len(entry["digits"]) < 4 else None)
+            facts = entry["facts"]
+            reason = ("no_currency" if facts.currency is None
+                      else "no_period" if facts.start is None or facts.end is None
+                      else "no_account_number" if len(facts.digits) < 4 else None)
             if reason is not None:
                 unchecked.append({key: entry[key] for key in ("source_job", "source_document", "source_account")
                                   if key in entry} | {"reason": reason})
@@ -131,7 +125,7 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
             published = payment_changes_module.public_item(item)
             source = chain[item["_source_statement"]]
             published.update(statement_source(chain, item["_source_statement"]))
-            published["source_currency"] = source["currency"]
+            published["source_currency"] = source["facts"].currency
             published["source_period_end"] = source["rows"].period_end
             if item["kind"] in ("decrease", "increase", "cadence_change"):
                 published.update(statement_source(chain, item["_from_statement"], "from"))
@@ -146,7 +140,7 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
                 # leaves the stop as its own chain reads it and is named apart.
                 found = None
                 reappears = None
-                calendar = payment_changes_module.calendar_for(chain[0]["currency"])
+                calendar = payment_changes_module.calendar_for(chain[0]["facts"].currency)
                 for other_index, other in enumerate(chains):
                     if other_index == chain_index or any(same_account(one, two) for one in chain for two in other):
                         continue
@@ -156,7 +150,7 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
                         continue
                     covered = payment_changes_module.covered_business_days(
                         item["_last_presence"], activity["date"],
-                        [(entry["start"], entry["end"]) for entry in chain + other], calendar)
+                        [(entry["facts"].start, entry["facts"].end) for entry in chain + other], calendar)
                     key = (activity["date"], other_index)
                     if covered <= item["grace_business_days"]:
                         if found is None or key < found[0]:
@@ -200,7 +194,7 @@ def package_active_positions(rows: list[dict], reading: dict) -> list[dict]:
               if (month := statement_month(row.get("period_start"), row.get("period_end"))) is not None}
     per_statement, by_month = active_positions_module.package_active_positions(
         [[entry["rows"] for entry in chain] for chain in chains],
-        months=[[statement_month(entry["start"], entry["end"]) if entry.get("has_rows", True) else None
+        months=[[statement_month(entry["facts"].start, entry["facts"].end) if entry.get("has_rows", True) else None
                  for entry in chain] for chain in chains],
         links=reading.get("links") or (), unread_months=unread)
     counts = {entry["key"].id: per_statement[chain_index][index]

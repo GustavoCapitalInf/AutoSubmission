@@ -10,7 +10,7 @@ from math import isfinite
 from analysis.display_settings import DEFAULTS as SETTINGS_DEFAULTS
 from analysis.flagged_view import enabled_group_keys
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
-from analysis.package.calendar import covered_days, iso_day, months_covered, statement_month
+from analysis.package.calendar import covered_days, months_covered, statement_month
 from analysis.package.duplicates import duplicate_row, package_duplicates
 from analysis.package.figures import add_flagged_rows, contributes_to_potential_totals, counts_as_flagged
 from analysis.package.lender import package_active_positions, package_lender_payment_changes
@@ -21,9 +21,6 @@ from analysis.package.model import (
     MemberKey,
     months_linked,
     num,
-    package_bank,
-    printed_account_digits,
-    statement_currency as _statement_currency,  # package_analysis has a local named statement_currency
 )
 from analysis.package.passes import member_tiered, package_match_totals, package_matches
 from analysis.package.publish import (
@@ -279,7 +276,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # make a package multi-currency. A member that DOES contribute money has
         # to declare the unit it contributed in; one that does not is an unknown
         # and fails the package closed rather than joining a pool as if proven.
-        statement_currency = _statement_currency(member.account)
+        statement_currency = member.facts.currency
         if member.account:
             if statement_currency is None:
                 undeclared_currency_documents += 1
@@ -1285,11 +1282,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
             # The days it covers, for its account's month floor below; with what its account is read by
             # (`months_linked`).
             months_members.append({
-                "job_id": job.id, "account_index": account_index,
-                "bank": package_bank(statement), "digits": printed_account_digits(member.account),
-                "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
-                "start": iso_day(statement.get("period_start")), "end": iso_day(statement.get("period_end")),
-                "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
+                "job_id": job.id, "facts": member.facts,
                 "days": covered_days(statement.get("period_start"), statement.get("period_end")),
             })
             if (member.account.get("reconciliation") or {}).get("ok") is not True:

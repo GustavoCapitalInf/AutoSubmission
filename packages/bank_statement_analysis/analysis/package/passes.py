@@ -6,18 +6,15 @@ import re
 
 from analysis.package.calendar import iso_day
 from analysis.package.model import (
-    bank_key,
     consecutive,
     different_accounts,
     Member,
     MemberKey,
     num,
     PackagePasses,
-    printed_account_digits,
     REVIEW_DECISIONS,
     row_cents,
     same_account,
-    statement_currency,
 )
 from analysis.payee_matcher import match_known_payee
 from analysis.revenue import revenue_contribution_flags, REVENUE_STATES
@@ -105,11 +102,11 @@ def _match_side(entry: dict, position: int, row: dict) -> dict:
     `account_index` (1-based, None for a statement of one account), never `account`: the served payload masks every
     key named `account` as a printed account number (`masked`)."""
     record = row["classification"]
-    digits = entry["digits"]
+    digits = entry["facts"].digits
     return {
         "job": entry["job_id"], "filename": entry["filename"], "account_index": entry["account"],
         "source_location": record.get("source_location") or f"transaction:{position + 1}",
-        "date": row.get("date"), "amount": row.get("amount"), "bank": entry["bank_printed"],
+        "date": row.get("date"), "amount": row.get("amount"), "bank": entry["facts"].printed_bank,
         "last4": digits[-4:] if len(digits) >= 4 else None,
     }
 
@@ -179,12 +176,7 @@ def package_matches(members: list[Member]) -> PackagePasses:
             "key": member.key, "job_id": job.id, "filename": getattr(job, "filename", None),
             "account": member.key.account_index,
             "order": (str(statement.get("period_start") or ""), str(job.id), member.key.account_index or 0),
-            "currency": statement_currency(analysis), "bank": bank_key(statement), "bank_printed": statement.get("bank"),
-            "digits": printed_account_digits(analysis),
-            "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
-            "start": iso_day(statement.get("period_start")), "end": iso_day(statement.get("period_end")),
-            "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
-            "raw": raw, "kept": kept,
+            "facts": member.facts, "raw": raw, "kept": kept,
             "rows": [(position, row) for position, row in enumerate(kept)
                      if row is not None and isinstance(row.get("classification"), dict)
                      and row["classification"].get("is_posted") is not False
@@ -197,13 +189,13 @@ def package_matches(members: list[Member]) -> PackagePasses:
         for entry in entries:
             if not any(row is not None for row in entry["kept"]):
                 continue  # a statement that prints no row has nothing to match, and is never marked
-            if entry["currency"] is None:
+            if entry["facts"].currency is None:
                 unchecked[entry["key"]] = "no_currency"
             elif not entry["tiered"]:
                 unchecked[entry["key"]] = "older_rules"
-            elif len(entry["digits"]) < 4:
+            elif len(entry["facts"].digits) < 4:
                 unchecked[entry["key"]] = "no_account_number"  # Pass 2 never pairs it
-    matchable = [entry for entry in entries if entry["currency"] is not None and entry["tiered"]]
+    matchable = [entry for entry in entries if entry["facts"].currency is not None and entry["tiered"]]
 
     def text_of(row: dict) -> str:
         return str(row["classification"].get("normalized_description") or "")
@@ -259,7 +251,8 @@ def package_matches(members: list[Member]) -> PackagePasses:
         cents = -row_cents(row)
         best = best_any = None
         for credit_entry in matchable:
-            if not (same_account(credit_entry, debit_entry) and consecutive(credit_entry, debit_entry)):
+            if not (same_account(credit_entry, debit_entry)
+                    and consecutive(credit_entry["facts"], debit_entry["facts"])):
                 continue
             for credit_position, credit_row in credit_entry["rows"]:
                 record = credit_row["classification"]
@@ -315,9 +308,9 @@ def package_matches(members: list[Member]) -> PackagePasses:
         matched_locations.setdefault(debit_entry["key"], set()).add(location)
         matches.append({
             "kind": "returned_deposit", "moved": True,
-            "credit": {**credit_side, "currency": credit_entry["currency"], "tier_before": tier_before,
+            "credit": {**credit_side, "currency": credit_entry["facts"].currency, "tier_before": tier_before,
                        "reason_before": reason_before},
-            "debit": {**debit_side, "currency": debit_entry["currency"]},
+            "debit": {**debit_side, "currency": debit_entry["facts"].currency},
             "gap_days": gap,
         })
 
@@ -329,7 +322,7 @@ def package_matches(members: list[Member]) -> PackagePasses:
 
     transfers_out: list[tuple] = []
     for entry in matchable:
-        if len(entry["digits"]) < 4:
+        if len(entry["facts"].digits) < 4:
             continue  # `different_accounts` never pairs it (marked 'no_account_number')
         for position, row in entry["rows"]:
             record = row["classification"]
@@ -346,7 +339,7 @@ def package_matches(members: list[Member]) -> PackagePasses:
     def deposits_in(held: bool) -> list[tuple]:
         found = []
         for entry in matchable:
-            if len(entry["digits"]) < 4:
+            if len(entry["facts"].digits) < 4:
                 continue
             for position, row in entry["rows"]:
                 record = row["classification"]
@@ -381,7 +374,7 @@ def package_matches(members: list[Member]) -> PackagePasses:
                 gap = (credit_day - debit_day).days
                 if not 0 <= gap <= PACKAGE_TRANSFER_DAYS:
                     continue
-                if destination is not None and destination != credit_entry["digits"][-4:]:
+                if destination is not None and destination != credit_entry["facts"].digits[-4:]:
                     continue  # the destination veto: it went to another account
                 candidate = ((gap, debit_entry["order"], position), debit_entry, position, row, gap)
                 if best is None or candidate[0] < best[0]:
@@ -417,9 +410,9 @@ def package_matches(members: list[Member]) -> PackagePasses:
             }
             matches.append({
                 "kind": "own_account_transfer", "moved": not held,
-                "credit": {**credit_side, "currency": credit_entry["currency"], "tier_before": tier_before,
+                "credit": {**credit_side, "currency": credit_entry["facts"].currency, "tier_before": tier_before,
                            "reason_before": reason_before},
-                "debit": {**debit_side, "currency": debit_entry["currency"]},
+                "debit": {**debit_side, "currency": debit_entry["facts"].currency},
                 "gap_days": gap,
             })
 
@@ -434,7 +427,7 @@ def package_matches(members: list[Member]) -> PackagePasses:
                 **({"wording": flag["wording"]} if "wording" in flag else {}),
                 **({"candidate_decided": decided} if decided else {}),
                 "source_job": entry["job_id"], "source_document": entry["filename"], "source_account": entry["account"],
-                "source_currency": entry["currency"], "source_location": flag["source_location"],
+                "source_currency": entry["facts"].currency, "source_location": flag["source_location"],
                 "date": flag["date"], "amount": flag["amount"], "description": flag["description"],
             })
 
@@ -470,7 +463,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
     following: dict[tuple, dict] = {}
     for entry in matchable:
         for later in matchable:
-            if later is not entry and same_account(entry, later) and consecutive(entry, later):
+            if later is not entry and same_account(entry, later) and consecutive(entry["facts"], later["facts"]):
                 following.setdefault(entry["key"], later)
                 break
     by_member: dict[tuple, list] = {}
@@ -524,7 +517,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
         if not allowed:
             continue
         series = [candidate for key in {entry["key"], *allowed} for candidate in by_member.get(key, [])]
-        found = re_debits([Returned(attempt, credit_day)], series, calendar_for(entry["currency"]),
+        found = re_debits([Returned(attempt, credit_day)], series, calendar_for(entry["facts"].currency),
                           may_re_debit=lambda _returned, candidate: (candidate.key[0] in allowed
                                                                      and candidate.key not in out_of_rate),
                           taken=list(used),
@@ -622,7 +615,8 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
         best = None
         guards: list[int] = []
         for debit_entry in matchable:
-            preceding = same_account(debit_entry, credit_entry) and consecutive(debit_entry, credit_entry)
+            preceding = (same_account(debit_entry, credit_entry)
+                         and consecutive(debit_entry["facts"], credit_entry["facts"]))
             if not (preceding or debit_entry is credit_entry):
                 continue
             for position, row in debit_entry["rows"]:
@@ -669,8 +663,9 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
         }
         matches.append({
             "kind": "returned_funder_payment", "moved": True,
-            "credit": {**credit_side, "currency": credit_entry["currency"], "description": credit_row.get("description")},
-            "debit": {**debit_side, "currency": debit_entry["currency"]},
+            "credit": {**credit_side, "currency": credit_entry["facts"].currency,
+                       "description": credit_row.get("description")},
+            "debit": {**debit_side, "currency": debit_entry["facts"].currency},
             "gap_days": gap,
         })
 

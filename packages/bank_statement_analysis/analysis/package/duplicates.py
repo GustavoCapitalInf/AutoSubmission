@@ -8,6 +8,7 @@ from collections import Counter
 from analysis import zelle_view
 from analysis.flagged_view import apply_flagged_groups_to_payload
 from analysis.package.model import (
+    bank_key,
     is_money_value,
     num,
     numbers_conflict,
@@ -27,9 +28,9 @@ def _account_identities(account: object) -> frozenset[str]:
 
     * its published content (`account_content_digest`), when its ledger prints at least one transaction: a payload
       with no ledger publishes too little to tell two statements apart, and is never matched on it;
-    * its statement key, when every part of it is printed: the bank, the account number's last four digits, the
-      period's first and last day, and the opening and closing balance. A re-download of the same statement (other
-      bytes, so another content hash) prints the same key;
+    * its statement key, when every part of it is printed: the bank (`bank_key`, never an informal printout's label
+      read as its bank), the account number's last four digits, the period's first and last day, and the opening and
+      closing balance. A re-download of the same statement (other bytes, so another content hash) prints the same key;
       * its ledger key (`ledger:`), when it prints both period days, both balances and at
       least one ledger row: the period's days, the two balances and a hash over every ledger row's day and signed
       cents (`row_day`, `row_cents`), whatever its classification. It is a parse identity no review decision, rules
@@ -45,7 +46,7 @@ def _account_identities(account: object) -> frozenset[str]:
     ledger = [row for row in statement.get("transactions") or [] if isinstance(row, dict)]
     if ledger:
         identities.add("digest:" + account_content_digest(account))
-    bank = " ".join(str(statement.get("bank") or "").split()).casefold()
+    bank = bank_key(statement)
     digits = "".join(character for character in str(statement.get("account_number") or "") if character.isdigit())
     start, end = statement.get("period_start"), statement.get("period_end")
     opening, closing = statement.get("beginning_balance"), statement.get("ending_balance")
