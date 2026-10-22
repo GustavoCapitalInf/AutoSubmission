@@ -1,7 +1,7 @@
 # Fly.io config for the intern tryout (https://bank-statement-tryout.fly.dev).
 # Saved from the running app's config on 2026-09-22 so deploys are reproducible.
-# The repository's .github/workflows/fly-deploy.yml deploys it when a push to cursor/intern-testing-host-d911
-# changes this folder, or when someone runs that workflow by hand. A push to any other branch deploys nothing.
+# The repository's .github/workflows/fly-deploy.yml deploys it from main after the Corpus gate passes for a push
+# that changes this folder, or when someone runs that workflow by hand on main. No other branch deploys.
 # Secrets (WEBAPP_AUTH_USER, WEBAPP_AUTH_PASSWORD) live in Fly, never here.
 # The volume keeps uploads, analyses, revenue review decisions and settings
 # across idle stops and deploys (without it every stop wiped them). It is
