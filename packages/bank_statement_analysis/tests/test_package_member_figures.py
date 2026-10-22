@@ -3,7 +3,8 @@ it was, and a second read of the same jobs gives the same package. Each monthly 
 the active positions set after the members reach both. Each sum adds a member's figure to the running total and rounds
 it to the cent before the next member; the funder and insurer roll-ups add each detection match the same way, and the
 days-weighted ADB is a decimal mean rounded half up. A job its worker finishes while the package reads it is counted as
-the package read its standing. Fabricated statements of CONTOSO BAKERY LLC, 2031."""
+the package read its standing, and a statement that prints no period is one month of its own. Fabricated statements
+of CONTOSO BAKERY LLC, 2031."""
 from __future__ import annotations
 
 import copy
@@ -127,6 +128,15 @@ def test_the_package_adb_is_a_decimal_days_weighted_mean_rounded_half_up():
                                      4)))
     assert weighted["totals"]["average_daily_balance"] == 1.25
 
+
+def test_a_statement_that_prints_no_period_is_one_month_of_its_own():
+    unplaced = _with_metrics(_payload(month=4), effective_total_deposits=100.0)
+    unplaced["statement"]["period_start"] = unplaced["statement"]["period_end"] = None
+    package = _package(_jobs(_with_metrics(_payload(DETECTED_ROWS), effective_total_deposits=300.0), unplaced))
+    assert len(package["monthly"]) == 2
+    assert {row["period_start"] for row in package["monthly"]} == {"2031-03-01", None}
+    assert package["totals"]["months"] == 2
+    assert package["totals"]["avg_monthly_credits"] == 200.0
 
 class _JobFinishedMidPackage:
     """A processing job whose worker finishes it (`JobStore.set_result`: the analysis, then status done) as the
