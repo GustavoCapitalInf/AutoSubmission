@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from analysis import true_revenue, zelle_view
+from analysis import zelle_view
+from analysis.true_revenue import guards
 from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.metrics import compute_metrics
 from analysis.revenue import rebuild_serialized_revenue_views
@@ -156,8 +157,8 @@ def test_z4_a_builder_s_zelle_draw_counts_in_the_counted_reading():
     assert true_revenue_zelle.zelle_prior_reading(no[0]) == (HELD, "non_sale_purpose")
     assert _tier(yes[0]) == (COUNTED, "construction_progress_draw")
     text = revenue_text(no[0].normalized_description)
-    assert true_revenue.guard_facts(yes[0], text, zelle_true_revenue=True)["progress_draw"] is True
-    assert true_revenue.guard_facts(yes[0], text)["progress_draw"] is False
+    assert guards.guard_facts(yes[0], text, zelle_true_revenue=True)["progress_draw"] is True
+    assert guards.guard_facts(yes[0], text)["progress_draw"] is False
 
 
 def test_z4_no_fabricated_pair_reaches_a_person_to_person_repeat_verification():

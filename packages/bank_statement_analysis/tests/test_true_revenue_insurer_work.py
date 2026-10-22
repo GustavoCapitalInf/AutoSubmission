@@ -21,7 +21,8 @@ from pathlib import Path
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import true_revenue
+from analysis.true_revenue import facts as true_revenue_facts
+from analysis.true_revenue import guards
 from analysis.true_revenue import insurer as true_revenue_insurer
 from analysis.true_revenue import purpose as true_revenue_purpose
 from analysis.true_revenue import zelle as true_revenue_zelle
@@ -453,8 +454,9 @@ def test_a_registry_reading_is_never_the_insurer_name_hold():
 def test_a_claimed_row_is_never_the_insurer_name_hold(monkeypatch):
     """The insurer-name hold skips a row the registry, a payout entity or a factoring payee claimed (§8.1)."""
     patched_claimed = lambda record, text: True
-    monkeypatch.setattr(true_revenue, "_claimed", patched_claimed)
     monkeypatch.setattr(claimed, "_claimed", patched_claimed)
+    monkeypatch.setattr(true_revenue_facts, "_claimed", patched_claimed)
+    monkeypatch.setattr(guards, "_claimed", patched_claimed)
     monkeypatch.setattr(true_revenue_insurer, "_claimed", patched_claimed)
     assert _readings([("SAMPLE INS CO DES:PAYMENT ID:1", 1234.0)]) != [HELD]
 
@@ -875,8 +877,9 @@ def test_a_claimed_row_is_never_released(monkeypatch):
     """The release skips a row the registry, a payout entity, a factoring payee or a financier claimed (the
     insurer-name hold's convention)."""
     patched_claimed = lambda record, text: True
-    monkeypatch.setattr(true_revenue, "_claimed", patched_claimed)
     monkeypatch.setattr(claimed, "_claimed", patched_claimed)
+    monkeypatch.setattr(true_revenue_facts, "_claimed", patched_claimed)
+    monkeypatch.setattr(guards, "_claimed", patched_claimed)
     monkeypatch.setattr(true_revenue_insurer, "_claimed", patched_claimed)
     records = _dated(_t4())
     assert all(record.revenue_match_method != METHOD for record in records)
@@ -917,7 +920,7 @@ def test_a_released_row_never_counts_toward_a_q5_or_q6_repeat():
     records = _dated(_t4())
     assert all(record.revenue_classification != "verified_revenue" for record in records)
     texts = [revenue_text(record.normalized_description) for record in records]
-    facts = true_revenue.credit_facts(records[0], texts[0], debits=counter_debit_pairing.counter_debits(records, set()))
+    facts = true_revenue_facts.credit_facts(records[0], texts[0], debits=counter_debit_pairing.counter_debits(records, set()))
     assert eligibility._never_q5_or_q6(records[0], texts[0], facts)
 
 

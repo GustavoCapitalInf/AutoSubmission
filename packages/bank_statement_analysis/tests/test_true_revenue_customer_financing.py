@@ -29,7 +29,8 @@ from analysis.descriptor import credit_words
 from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import payee_matcher
-from analysis import true_revenue
+from analysis.true_revenue import guards
+from analysis.true_revenue import pass7
 from analysis.true_revenue import claimed
 from analysis.true_revenue import words as true_revenue_words
 from analysis.revenue import REVENUE_TIER_REASONS
@@ -721,8 +722,8 @@ def test_the_reader_refuses_a_credit_under_the_floor():
 def test_the_census_fact_is_the_reader_s():
     (record,) = _credits([(SNAP, 1500.0)], bank="Wells Fargo")
     text = lexical.revenue_text(record.normalized_description)
-    assert true_revenue.guard_facts(record, text)["customer_financing_payer"] == "SNAP Finance"
-    assert true_revenue.guard_facts(record, text)["claimed"]
+    assert guards.guard_facts(record, text)["customer_financing_payer"] == "SNAP Finance"
+    assert guards.guard_facts(record, text)["claimed"]
 
 
 def test_a_row_naming_a_financier_never_counts_toward_a_q6_repeat():
@@ -769,5 +770,5 @@ def test_the_two_reasons_sit_at_their_places_in_the_reason_table():
         "excluded_pending_review", "One-off lump sum from a lease-to-own or patient financier")
     assert REVENUE_TIER_REASONS["customer_financing_payout"] == (
         "counted_flagged", "Lease-to-own or patient-financing payout")
-    assert (true_revenue_words.CUSTOMER_FINANCING_PAYOUT, true_revenue.CUSTOMER_FINANCING_LUMP_SUM) == (
+    assert (true_revenue_words.CUSTOMER_FINANCING_PAYOUT, pass7.CUSTOMER_FINANCING_LUMP_SUM) == (
         "customer_financing_payout", "customer_financing_lump_sum")

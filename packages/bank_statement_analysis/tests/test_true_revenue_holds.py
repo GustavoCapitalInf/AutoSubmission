@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import true_revenue as tr
+from analysis.true_revenue import asset_sale
+from analysis.true_revenue import facts as true_revenue_facts
+from analysis.true_revenue import guards
 from analysis.true_revenue import dealer as true_revenue_dealer
 from analysis.true_revenue import finance_release
 from analysis.true_revenue import purpose as true_revenue_purpose
@@ -440,7 +442,7 @@ def test_r17_a_loan_disbursement_stays_non_revenue():
 ])
 def test_r17_the_census_reads_the_spared_disbursement_fact(payer, entry, fact):
     record = _records(_grill(payer, entry, 1), holder="NORTHWIND GRILL LLC")[0]
-    facts = tr.guard_facts(record, revenue_text(record.normalized_description))
+    facts = guards.guard_facts(record, revenue_text(record.normalized_description))
     assert facts["spared_disbursement"] is fact
 
 
@@ -474,7 +476,7 @@ def test_r17_review_a_disbursement_word_in_the_payer_s_own_name_is_no_refused_en
 ])
 def test_r17_review_the_spared_disbursement_fact_reads_the_entry(payer, entry, fact):
     record = _records(_grill(payer, entry, 1), holder="NORTHWIND GRILL LLC")[0]
-    facts = tr.guard_facts(record, revenue_text(record.normalized_description))
+    facts = guards.guard_facts(record, revenue_text(record.normalized_description))
     assert facts["spared_disbursement"] is fact
 
 
@@ -1012,7 +1014,7 @@ def test_r3_59_a_platform_seller_payout_printing_net_of_fees_stays_asset_sale_pr
     ("", "MINUS COMMISSIONS NET OF FEES ", False), (" FEES WITHHELD FROM PROCEEDS", "", False),
 ])
 def test_r3_59_the_netting_words(after, before, vetoed):
-    assert tr._asset_sale_commission(after, before) is vetoed
+    assert asset_sale._asset_sale_commission(after, before) is vetoed
 
 
 R3_59_AGENCY = "NORTHWIND SALES AGENCY LLC"
@@ -1179,7 +1181,7 @@ def test_the_holder_s_own_name_after_the_references_is_no_person():
 def test_g11_reads_the_direct_deposit_words_with_the_row_s_own_sign():
     def fact(text, holder):
         record = _records([(text, 1700.0)], holder=holder)[0]
-        return tr.guard_facts(record, revenue_text(normalize_transaction_description(text)))["pay_or_personal"]
+        return guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))["pay_or_personal"]
 
     assert fact("FABRIKAM SVC DIR DEP 540105 C1234567", "NORTHWIND ROUTES LLC") is False
     assert fact("FABRIKAM INC DIR DEP 540115 1234567 JOHN SMITH", "NORTHWIND ROUTES LLC") is True
@@ -1367,10 +1369,10 @@ def test_the_census_reads_a_released_trust_as_no_personal_trust():
     text = _CHIPS.format(sender="PAT SAMPLE TTEE", obi=" OBI=URI SAMPLE CHILD TUITION")
     record = _records([(text, 12000.0)], holder=_SCHOOL)[0]
     revenue = revenue_text(normalize_transaction_description(text))
-    assert tr.guard_facts(record, revenue)["hold_rule"] != "personal_trust"
+    assert guards.guard_facts(record, revenue)["hold_rule"] != "personal_trust"
     held = _CHIPS.format(sender="PAT SAMPLE TTEE", obi="")
     record = _records([(held, 12000.0)], holder=_SCHOOL)[0]
-    assert tr.guard_facts(record, revenue_text(normalize_transaction_description(held)))["hold_rule"] == (
+    assert guards.guard_facts(record, revenue_text(normalize_transaction_description(held)))["hold_rule"] == (
         "personal_trust")
 
 
@@ -1395,7 +1397,7 @@ def test_a_northeast_bank_credit_is_held_as_financing_and_gates_its_statement():
         FINANCING, COMPANY]
     assert compute_metrics(statement, classifications=records).revenue_review_required
     revenue = revenue_text(normalize_transaction_description(_NORTHEAST))
-    assert tr.guard_facts(records[0], revenue)["hold_rule"] == "lending_bank"
+    assert guards.guard_facts(records[0], revenue)["hold_rule"] == "lending_bank"
 
 
 @pytest.mark.parametrize(("text", "expected"), [
@@ -1555,7 +1557,7 @@ def test_r42_the_pay_code_and_the_holder_s_own_name_keep_their_readings():
 ])
 def test_r42_g11_reads_the_hold_s_own_spare(text, bank, fact):
     [record] = _records([(text, 1500.0)], bank=bank)
-    assert tr.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
+    assert guards.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
 
 
 def test_r42_the_td_payer_field_s_width_is_fifteen_characters():
@@ -1867,7 +1869,7 @@ def test_r23_controls_that_were_never_held(layout, fields, expected):
 def test_r23_g11_reads_the_business_receiver(indn, holder, fact):
     text = _R23_BOFA.format(n=1, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD")
     [record] = _records([(text, 3500.0)], holder=holder)
-    assert tr.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
+    assert guards.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
 
 
 def test_r23_the_business_receiver():
@@ -1998,7 +2000,7 @@ def test_r3_89_the_holder_s_own_cut_form_and_cut_name_are_still_the_business(hol
 def test_r23_review_g11_reads_the_narrowed_holder_arm(indn, holder, fact):
     text = _R23_BOFA.format(n=1, payer="FABRIKAM SVC", entry="DIR DEP", indn=indn, sec="PPD")
     [record] = _records([(text, 3500.0)], holder=holder)
-    assert tr.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
+    assert guards.guard_facts(record, revenue_text(record.normalized_description))["pay_or_personal"] is fact
 
 
 # Audit round 2, R2-B13 review round 1 (R34 c): a payer-less check, cash, branch or ATM deposit keeps B7's number-free
@@ -2123,7 +2125,7 @@ def _pass_facts(rows, *, holder: str | None = HOLDER, bank: str | None = None):
     for index in credits:
         record = records[index]
         text = true_revenue_channel.without_transfer_code(record, revenue_text(record.normalized_description))
-        facts = tr.credit_facts(record, text, debits=debits, lessor=lessor)
+        facts = true_revenue_facts.credit_facts(record, text, debits=debits, lessor=lessor)
         found.append((facts, tiers._tier_reason(record, text, replace(facts, q9=None), False)))
     return found
 

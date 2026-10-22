@@ -20,7 +20,8 @@ from analysis.descriptor import financing
 from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import description_text
-from analysis import true_revenue as tr
+from analysis.true_revenue import facts as true_revenue_facts
+from analysis.true_revenue import guards
 from analysis.true_revenue import financing_roots
 from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import sender as true_revenue_sender
@@ -442,7 +443,7 @@ def test_amex_originator_s_transfer_entry_reads_as_the_same_entry_in_an_ach_des_
         bofa, holder=AMEX_HOLDER, bank="Bank of America") == [("counted_flagged", "p2p")] * 2
     records = _records(amex, holder=AMEX_HOLDER, bank="American Express")
     text = lexical.revenue_text(records[0].normalized_description)
-    assert not tr.guard_facts(records[0], text)["transfer_no_counterparty"]
+    assert not guards.guard_facts(records[0], text)["transfer_no_counterparty"]
     # The payer region still reads the originator and its entry, never the transfer reader's FROM sender (none).
     assert descriptor_payer.payer_region(text) == "CONTOSO PAVING TRANSFER"
 
@@ -748,9 +749,9 @@ def test_a_claimed_or_verified_row_never_takes_the_bank_only_pull():
     [record] = _records([("ACH CREDIT SAMPLE STATE BANK", 2600.0)], bank=RELAY)
     text = lexical.revenue_text(record.normalized_description)
     region = descriptor_payer.payer_region(text)
-    assert tr._bank_only_pull(record, text, region)
-    assert not tr._bank_only_pull(replace(record, revenue_match_method="recurring_operating_source"), text, region)
-    assert not tr._bank_only_pull(replace(record, revenue_classification="verified_revenue"), text, region)
+    assert true_revenue_facts._bank_only_pull(record, text, region)
+    assert not true_revenue_facts._bank_only_pull(replace(record, revenue_match_method="recurring_operating_source"), text, region)
+    assert not true_revenue_facts._bank_only_pull(replace(record, revenue_classification="verified_revenue"), text, region)
 
 
 def test_g4_no_counted_or_verified_row_carries_the_bank_only_transfer_fact():
@@ -759,7 +760,7 @@ def test_g4_no_counted_or_verified_row_carries_the_bank_only_transfer_fact():
             ("ACH CREDIT CONTOSO SUPPLY LLC", 900.0), ("ACH CREDIT CONTOSO SUPPLY LLC", 800.0),
             (CHASE_ONLINE.format(n=1), 300.0), (BANK_BILL_PAY.format(n=1), 400.0)]
     for record in _records(rows, bank=RELAY):
-        facts = tr.guard_facts(record, lexical.revenue_text(record.normalized_description))
+        facts = guards.guard_facts(record, lexical.revenue_text(record.normalized_description))
         in_true = record.revenue_tier in {"verified", "counted_flagged"}
         assert not (in_true and facts["transfer_no_counterparty"]), record.description
 

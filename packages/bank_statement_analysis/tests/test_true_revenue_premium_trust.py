@@ -24,7 +24,7 @@ import pytest
 
 from analysis import holder_name as hn
 from analysis import transaction_classifier as tc
-from analysis import true_revenue as tr
+from analysis.true_revenue import pass7
 from analysis.true_revenue import trust as true_revenue_trust
 from analysis.true_revenue import words
 from analysis import revenue
@@ -621,7 +621,7 @@ def test_c9_a_payer_that_prints_the_words_never_makes_a_title(monkeypatch):
 def _pass_arguments(statement, monkeypatch):
     """The arguments classify_statement_transactions hands pass 7 (the records before it, the duplicates...)."""
     seen = {}
-    original = tc.apply_true_revenue_pass
+    original = pass7.apply_true_revenue_pass
 
     def capture(*args, **kwargs):
         seen["args"], seen["kwargs"] = args, kwargs
@@ -641,9 +641,9 @@ def test_the_pass_reads_the_title_only_through_its_keyword(monkeypatch):
     # reading, the stored one by default.
     assert kwargs == {"premium_trust": "PREMIUM TRUST ACCOUNT", "statement_start": None, "zelle_true_revenue": False}
     # premium_trust=None, or no keyword, returns today's records exactly.
-    assert tr.apply_true_revenue_pass(*args) == tr.apply_true_revenue_pass(*args, premium_trust=None)
-    today = tr.apply_true_revenue_pass(*args)
-    held = tr.apply_true_revenue_pass(*args, premium_trust="PREMIUM TRUST ACCOUNT")
+    assert pass7.apply_true_revenue_pass(*args) == pass7.apply_true_revenue_pass(*args, premium_trust=None)
+    today = pass7.apply_true_revenue_pass(*args)
+    held = pass7.apply_true_revenue_pass(*args, premium_trust="PREMIUM TRUST ACCOUNT")
     moved = [index for index, (old, new) in enumerate(zip(today, held)) if old != new]
     assert moved == [index for index, record in enumerate(today)
                      if record.amount > 0 and record.revenue_tier in {"verified", "counted_flagged"}]

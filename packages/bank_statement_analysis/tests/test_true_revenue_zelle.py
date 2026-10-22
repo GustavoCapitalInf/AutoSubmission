@@ -15,7 +15,8 @@ from dataclasses import asdict, fields
 
 import pytest
 
-from analysis import true_revenue
+from analysis.true_revenue import asset_sale
+from analysis.true_revenue import pass7
 from analysis.true_revenue import finance_release
 from analysis.true_revenue import purpose
 from analysis.true_revenue import zelle as true_revenue_zelle
@@ -67,8 +68,9 @@ def _both(monkeypatch, rows, bank, **kwargs):
     """The rows read with the Zelle policy, then without it (zelle_deposit reading no row)."""
     on = _run(rows, bank, **kwargs)
     patched_zelle_deposit = lambda text: False
-    monkeypatch.setattr(true_revenue, "zelle_deposit", patched_zelle_deposit)
+    monkeypatch.setattr(asset_sale, "zelle_deposit", patched_zelle_deposit)
     monkeypatch.setattr(finance_release, "zelle_deposit", patched_zelle_deposit)
+    monkeypatch.setattr(pass7, "zelle_deposit", patched_zelle_deposit)
     monkeypatch.setattr(purpose, "zelle_deposit", patched_zelle_deposit)
     monkeypatch.setattr(true_revenue_zelle, "zelle_deposit", patched_zelle_deposit)
     off = _run(rows, bank, **kwargs)

@@ -40,7 +40,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "possible_return": ("excluded_pending_review", "Possible return or adjustment"),
     "financing_named_payer": ("excluded_pending_review", "Payer or entry suggests financing"),
     # Owner ruling 2026-10-02 (Q8): a lease-to-own or patient financier's payout that is a large one-off lump sum, held
-    # until sourced (true_revenue.CUSTOMER_FINANCING_LUMP_SUM).
+    # until sourced (true_revenue.pass7.CUSTOMER_FINANCING_LUMP_SUM).
     "customer_financing_lump_sum": (
         "excluded_pending_review", "One-off lump sum from a lease-to-own or patient financier",
     ),
@@ -114,7 +114,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "zelle_excluded": ("non_revenue", "Zelle deposit (excluded by policy)"),
     # The owner's ruling of 2026-10-02 (the underwriter's Q12), R2-OW03: the display reason of a government payment
     # that prints no purpose (§6.1 step 3a, method government_no_purpose_exclusion), which the non-revenue breakdown
-    # names (true_revenue.GOVERNMENT_NO_PURPOSE). Display only: no tier, state, method or flag moves.
+    # names (true_revenue.pass7.GOVERNMENT_NO_PURPOSE). Display only: no tier, state, method or flag moves.
     "government_no_purpose": ("non_revenue", "Government payment, no purpose printed"),
     # The owner's ruling of 2026-10-02 (the underwriter's Q11 (b)), R2-OW06: a non-dealer's sale of equipment or
     # vehicles (an equipment auction's or a car buyer's seller payout, a printed truck, trailer, vehicle or equipment

@@ -22,7 +22,7 @@ import pytest
 
 from analysis import transaction_classifier as tc
 from analysis.classification import record as classification_record
-from analysis import true_revenue as tr
+from analysis.true_revenue import pass7
 from analysis.true_revenue import dealer
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
@@ -264,8 +264,8 @@ def test_the_aid_changes_no_other_field_and_no_lender_or_revenue_figure(monkeypa
     statement = _statement(SCENARIOS[name][0], balances=True)
     on = tc.classify_statement_transactions(statement)
     patched_funding_series_after = lambda records, duplicate_indexes, statement_start: records
-    monkeypatch.setattr(tr, "funding_series_after", patched_funding_series_after)
     monkeypatch.setattr(dealer, "funding_series_after", patched_funding_series_after)
+    monkeypatch.setattr(pass7, "funding_series_after", patched_funding_series_after)
     off = tc.classify_statement_transactions(statement)
     assert _aid(on) and not _aid(off)
     assert [replace(record, revenue_funding_series=()) for record in on] == off
@@ -296,7 +296,7 @@ def test_the_aid_is_frozen_and_hashable_and_last_on_the_record():
 def test_the_pass_reads_the_statement_start_by_keyword_only():
     import inspect
 
-    parameters = inspect.signature(tr.apply_true_revenue_pass).parameters
+    parameters = inspect.signature(pass7.apply_true_revenue_pass).parameters
     assert parameters["statement_start"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["statement_start"].default is None
     # A1 is observed only from the printed start: its earliest dated row is the wire itself, so
@@ -443,7 +443,7 @@ def test_r3_66_moves_no_tier_reason_or_lender_reading(monkeypatch, name):
     rows = _bounced_before(R3_66_RETURNS[name])
     on = _deli(rows)
     patched_funding_series_after = lambda records, duplicate_indexes, statement_start: records
-    monkeypatch.setattr(tr, "funding_series_after", patched_funding_series_after)
     monkeypatch.setattr(dealer, "funding_series_after", patched_funding_series_after)
+    monkeypatch.setattr(pass7, "funding_series_after", patched_funding_series_after)
     off = _deli(rows)
     assert [replace(record, revenue_funding_series=()) for record in on] == off

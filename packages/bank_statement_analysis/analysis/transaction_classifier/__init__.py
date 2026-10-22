@@ -32,30 +32,7 @@ from analysis.true_revenue.tiers import payer_text_unread_indexes, payer_text_un
 from analysis.true_revenue.trust import premium_trust_title
 from analysis.true_revenue.zelle import zelle_credits_present
 from analysis.transaction_classifier.row import classify_transaction
-# The true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from analysis.true_revenue import apply_true_revenue_pass
-
-# True revenue reads these through _classifier() until its readers leave analysis/true_revenue/.
-from analysis.classification.counter_debit_reading import _payer_key
-from analysis.classification.operating_sources import _recurrence_vetoed
-from analysis.descriptor.credit_words import _FUNDING_SETTLEMENT_ENTITIES
-from analysis.descriptor.holder import account_name_text, holder_named, holder_receiver_block
-from analysis.descriptor.lexical import (
-    _before_receiver,
-    _joined_text,
-    _skip_numbered_leading_date,
-    company_form,
-    is_round_sum,
-    payer_name,
-)
-from analysis.descriptor.payer import entry_fields, numbered_company, payer_label_layout, wire_relayed_customer
-from analysis.descriptor.rails import _is_wire_row, _matches_any, _without_receiver_value
-from analysis.descriptor.words import (
-    _CUSTOMER_INVOICE_DESCRIPTORS,
-    _ELECTRONIC_PAYMENT_FORM,
-    _NUMBERED_COMPANY_REGION,
-    _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS,
-)
+from analysis.true_revenue.pass7 import apply_true_revenue_pass
 
 if TYPE_CHECKING:
     from analysis.schema import Statement

@@ -431,15 +431,15 @@ RELAY = "Thread Bank (Relay)"
 
 @pytest.fixture
 def processor_release(monkeypatch):
-    from analysis import true_revenue
+    from analysis.true_revenue import pass7
 
-    monkeypatch.setattr(true_revenue, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
+    monkeypatch.setattr(pass7, "PROCESSOR_CARD_PAYOUT_RELEASE", True)
 
 
 def test_the_processor_card_payout_release_ships_off():
-    from analysis import true_revenue
+    from analysis.true_revenue import pass7
 
-    assert true_revenue.PROCESSOR_CARD_PAYOUT_RELEASE is False
+    assert pass7.PROCESSOR_CARD_PAYOUT_RELEASE is False
     records = _classify([
         ("2054-03-02", "Debit Card Credit: Stripe", 2100.0),
         ("2054-03-20", "ACH Pull: Stripe", -50.0),
@@ -562,10 +562,10 @@ def test_a_card_payout_the_processor_pulls_back_stays_paired():
 # switches stay off. These tests run with the switches as shipped: no fixture turns them on.
 
 def test_the_owner_kept_both_card_push_switches_off():
-    from analysis import true_revenue
+    from analysis.true_revenue import pass7
     from analysis.classification import credit_predicates
 
-    assert true_revenue.PROCESSOR_CARD_PAYOUT_RELEASE is False
+    assert pass7.PROCESSOR_CARD_PAYOUT_RELEASE is False
     assert credit_predicates.CASH_APP_CARD_PUSH_RELEASE is False
 
 

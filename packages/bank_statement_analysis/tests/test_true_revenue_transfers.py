@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import true_revenue
+from analysis.true_revenue import facts as true_revenue_facts
+from analysis.true_revenue import guards
 from analysis.true_revenue import zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import public_payers
@@ -286,7 +287,7 @@ def test_the_census_reads_the_same_transfer_fact_as_the_pass():
         ("Northwind Community Bank", "NORTHWIND COMMUNITY BANK ONLINE TRANSFER 123456", True),
     ):
         record = _one(text, bank)
-        facts = true_revenue.guard_facts(record, revenue_text(normalize_transaction_description(text)))
+        facts = guards.guard_facts(record, revenue_text(normalize_transaction_description(text)))
         assert facts["transfer_no_counterparty"] is expected, text
 
 
@@ -874,7 +875,7 @@ def test_r09_a_td_e_transfer_code_names_no_payer(code):
 def test_r09_a_td_e_transfer_code_is_no_round_repeat_key():
     records = _td([("E-TRANSFER ***BFD", 3000.0)] * 3)
     assert [_tier(record) for record in records] == [P2P] * 3
-    facts = true_revenue.credit_facts(
+    facts = true_revenue_facts.credit_facts(
         records[0], channel.without_transfer_code(records[0], revenue_text(records[0].normalized_description)),
         debits=counter_debit_pairing.counter_debits(records, set()),
     )
@@ -925,6 +926,6 @@ def test_r09_a_td_code_is_never_a_counter_debit_key(credit, debit):
 
 def test_r09_a_the_census_reads_the_pass_s_text():
     [record] = _td([("E-TRANSFER ***PAY", 1234.56)])
-    facts = true_revenue.guard_facts(record, revenue_text(record.normalized_description))
+    facts = guards.guard_facts(record, revenue_text(record.normalized_description))
     assert facts["pay_or_personal"] is False
     assert facts["financing_root"] is False
