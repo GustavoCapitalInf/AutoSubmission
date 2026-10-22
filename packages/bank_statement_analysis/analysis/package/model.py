@@ -102,6 +102,15 @@ class PackagePasses:
     represented: dict[tuple[MemberKey, str], dict]
 
 
+def overlaid_row(row: dict, overlay: dict[int, dict], position: int) -> dict:
+    """The row at original `position` of a member's statement with the package passes' patch for that position merged
+    into its classification record (`overlay`: one member's patches by original position). A patched row is a new row
+    holding a new record; any other row is returned as it is, so the displayed copy is never written."""
+    if position not in overlay:
+        return row
+    return {**row, "classification": {**row["classification"], **overlay[position]}}
+
+
 def is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 

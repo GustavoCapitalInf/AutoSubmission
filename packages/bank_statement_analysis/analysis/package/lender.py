@@ -7,6 +7,7 @@ from analysis.package.calendar import statement_month
 from analysis.package.model import (
     Member,
     MemberKey,
+    overlaid_row,
     PACKAGE_CONSECUTIVE_DAYS,
     same_account,
 )
@@ -69,8 +70,7 @@ def package_lender_payment_changes(members: list[Member], overlays: dict[MemberK
             record = transaction.get("classification") if isinstance(transaction, dict) else None
             if position in excluded or not isinstance(record, dict):
                 continue
-            if position in member_overlay:
-                record = {**record, **member_overlay[position]}
+            record = overlaid_row(transaction, member_overlay, position)["classification"]
             if record.get("is_posted") is False or record.get("duplicate_of"):
                 continue
             rows.append(record)

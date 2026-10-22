@@ -11,6 +11,7 @@ from analysis.package.model import (
     Member,
     MemberKey,
     num,
+    overlaid_row,
     PackagePasses,
     REVIEW_DECISIONS,
     row_cents,
@@ -457,8 +458,7 @@ def _represented_funder_payments_across(matchable: list[dict], overlays: dict, l
     from analysis.represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
 
     def record_of(entry: dict, position: int, row: dict) -> dict:
-        overlay = (overlays.get(entry["key"]) or {}).get(position)
-        return {**row["classification"], **overlay} if overlay else row["classification"]
+        return overlaid_row(row, overlays.get(entry["key"]) or {}, position)["classification"]
 
     following: dict[tuple, dict] = {}
     for entry in matchable:

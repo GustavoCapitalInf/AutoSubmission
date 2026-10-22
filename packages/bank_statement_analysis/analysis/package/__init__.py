@@ -21,6 +21,7 @@ from analysis.package.model import (
     MemberKey,
     months_linked,
     num,
+    overlaid_row,
 )
 from analysis.package.passes import member_tiered, package_match_totals, package_matches
 from analysis.package.publish import (
@@ -331,11 +332,8 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # row.
         member_overlay = package_matched.overlays.get(member.key) or {}
         if member_overlay:
-            raw_transactions = [
-                {**transaction, "classification": {**transaction["classification"], **member_overlay[position]}}
-                if position in member_overlay else transaction
-                for position, transaction in enumerate(raw_transactions)
-            ]
+            raw_transactions = [overlaid_row(transaction, member_overlay, position)
+                                for position, transaction in enumerate(raw_transactions)]
         excluded_positions = member.internal_transfer_positions
         statement_transactions = [
             transaction
