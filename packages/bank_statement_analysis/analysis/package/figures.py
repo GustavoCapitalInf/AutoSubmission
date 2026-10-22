@@ -144,7 +144,7 @@ def add_flagged_rows(rollup: dict[tuple[str, str], dict], rows: list[dict]) -> N
 def member_figures(member: Member, passes: PackagePasses, settings: dict) -> MemberFigures:
     """One member's figures, its published row, and what it adds to each of the package's totals, lists and roll-ups,
     read off its displayed account with the package passes' result (`passes`) applied, under the package's settings
-    snapshot. It writes nothing it is handed: a row the passes patch is a new row, and every list and row is new."""
+    snapshot. It writes nothing it is handed: a row the passes patch is copied first."""
     shown_groups = enabled_group_keys(settings)
     zelle_counted = zelle_setting(settings)
     job, account_index = member.job, member.key.account_index

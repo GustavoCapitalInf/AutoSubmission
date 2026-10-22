@@ -151,14 +151,14 @@ class InsuranceShare(NamedTuple):
 
 @dataclass(frozen=True)
 class MemberFigures:
-    """What one member adds to its package (`member_figures`). The package adds each figure to its total and rounds
-    the sum, so a figure here is the member's own, not rounded again. `row` is the member's published row: the one
-    dict the package lists in `documents` and, for a ready member, in `monthly`, which the lender reading's active
-    positions are later set on; the package's member lists and months read its id, period and flags off it.
+    """What one member adds to its package (`member_figures`). Each figure is the member's own, as `member_figures`
+    computed it; the package adds it to its running sum and rounds the sum. `row` is the member's published row: the
+    one dict the package lists in `documents` and, for a ready member, in `monthly`, which the lender reading's active
+    positions are later set on; the package's member lists and months read its id, period, labels and flags off it.
 
     `tier_totals` and `tier_counts` are empty on a member with no tiers. `gate_cents` is the held, posted and True
     figures its gate reads, in cents, on a ready tiered member, else None. `zelle_parts` holds (tier, count, total) per
-    Zelle part. The share, match, warning and evidence lists are the member's own, in its ledger's order."""
+    Zelle part. The shares, matches and warnings follow the member's detection, and the ledger and evidence its rows."""
 
     member: Member
     row: dict
