@@ -115,11 +115,11 @@ def _without_flag(node):
 
 def _reader_finds_nothing(monkeypatch):
     """The flag's reader finding nothing, from here on in the test: what every surface computed before the batch."""
-    import analysis.package
     from analysis import revenue_view
+    from analysis.package import figures
 
     monkeypatch.setattr(revenue_view, "large_unsourced_deposits", lambda transactions, true_total: [])
-    monkeypatch.setattr(analysis.package, "large_unsourced_deposits", lambda transactions, true_total: [])
+    monkeypatch.setattr(figures, "large_unsourced_deposits", lambda transactions, true_total: [])
 
 
 # ---------------------------------------------------------------- the reader and its constants

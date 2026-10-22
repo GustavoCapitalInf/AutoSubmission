@@ -1,5 +1,5 @@
-"""A package's members and its passes' result, what the package reads off each member account (`AccountFacts`), and
-whether two statements are one account."""
+"""A package's members and its passes' result, what the package reads off each member account (`AccountFacts`), what
+each member adds to the package (`MemberFigures`), and whether two statements are one account."""
 from __future__ import annotations
 
 import re
@@ -119,6 +119,112 @@ class PackagePasses:
     unchecked: dict[MemberKey, str]
     moved: dict[MemberKey, list[dict]]
     represented: dict[tuple[MemberKey, str], dict]
+
+
+class FunderShare(NamedTuple):
+    """One known-funder match of a member's detection, as the package's funder roll-up adds it. `debit_count` is None
+    for a match that publishes no `debit_count` and counts no debit: the roll-up gains no `debit_count` from it."""
+
+    funder: str
+    debit_count: int | None
+    total_debited: float
+    returned_payment_count: int
+    returned_payment_total: float
+
+
+class PotentialLenderShare(NamedTuple):
+    """One potential lender of a member, as the package's potential lender roll-up adds it: its rows' count and total,
+    or its detection match's where it has no row."""
+
+    funder: str
+    debit_count: int
+    total_debited: float
+
+
+class InsuranceShare(NamedTuple):
+    """One insurance provider match of a member's detection, as the package's insurance roll-up adds it."""
+
+    provider: str
+    count: int
+    total_debited: float
+
+
+@dataclass(frozen=True)
+class MemberFigures:
+    """What one member adds to its package (`member_figures`). Each figure is the member's own, as `member_figures`
+    computed it; the package adds it to its running sum and rounds the sum. `row` is the member's published row: the
+    one dict the package lists in `documents` and, for a ready member, in `monthly`, which the lender reading's active
+    positions are later set on; the package's member lists and months read its id, period, labels and flags off it.
+
+    `tier_totals` and `tier_counts` are empty on a member with no tiers. `gate_cents` is the held, posted and True
+    figures its gate reads, in cents, on a ready tiered member, else None. `zelle_parts` holds (tier, count, total) per
+    Zelle part. The shares, matches and warnings follow the member's detection, and the ledger and evidence its rows.
+
+    `ready` (done, with an analysis) and `pending` (not ready, still queued or processing) are the member's job's
+    standing, read once with its figures. The package counts the member by them, so a job a worker finishes while
+    the package is read is counted as its figures read it."""
+
+    member: Member
+    ready: bool
+    pending: bool
+    row: dict
+    credits: float
+    debits: float
+    cash_flow: float
+    posted_credit_total: float
+    posted_credit_count: int
+    revenue_totals: dict[str, float | None]
+    revenue_counts: dict[str, int]
+    by_reason: dict[str, dict[str, dict]]
+    tiered: bool
+    tier_totals: dict[str, float]
+    tier_counts: dict[str, int]
+    verified_revenue_established: bool
+    revenue_established: bool
+    partial_revenue_denominator: bool
+    gated: bool
+    gate_cents: tuple[int, int, int] | None
+    zelle_carried: bool
+    zelle_setting_applied: bool
+    zelle_counted_as_true_revenue: bool
+    zelle_parts: list[tuple[str, int, float]]
+    lender_debits: float
+    lender_debit_count: int
+    withholding_numerator: float
+    returned_funder_payment_total: float
+    returned_funder_payment_count: int
+    lump_sum_payoff_total: float
+    lump_sum_payoff_count: int
+    potential_lender_debit_total: float
+    potential_lender_debit_count: int
+    insurance_total: float
+    insurance_count: int
+    eligible_deposits: float
+    denominator_mode: str
+    withholding_basis: dict
+    basis_unestablished: bool
+    nsf_count: int
+    nsf_source: object
+    adb_validated: bool
+    adb_value: float
+    adb_calendar_days: object
+    funder_shares: list[FunderShare]
+    potential_lender_shares: list[PotentialLenderShare]
+    insurance_shares: list[InsuranceShare]
+    flagged_rows: list[dict]
+    funder_matches: list[dict]
+    potential_matches: list[dict]
+    insurance_matches: list[dict]
+    returned_funder_payments: list[dict]
+    lump_sum_payoffs: list[dict]
+    large_unsourced_deposits: list[dict]
+    transactions: list[dict]
+    lender_evidence: list[dict]
+    potential_lender_evidence: list[dict]
+    insurance_evidence: list[dict]
+    flagged_evidence: list[dict]
+    revenue_evidence: dict[str, list[dict]]
+    tier_evidence: dict[str, list[dict]]
 
 
 def overlaid_row(row: dict, overlay: dict[int, dict], position: int) -> dict:
