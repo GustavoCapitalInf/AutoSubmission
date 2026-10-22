@@ -19,7 +19,7 @@ from analysis import transaction_classifier as tc
 from analysis.classification import counter_debit_reading
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
-from analysis import true_revenue as tr
+from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import model
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -79,7 +79,7 @@ def test_a_wallet_cash_out_is_counted_beside_the_holder_s_wallet_debits(rows, ba
                                     "APPLE CASH"])
 def test_a_wallet_s_name_is_no_sender_the_counter_debit_holds_read(region):
     record = tc.classify_transaction("RTP CREDIT CONTOSO", 500.0, direction="credit")
-    counter = tr.counter_credit(record, "RTP CREDIT CONTOSO", region)
+    counter = counter_debit_pairing.counter_credit(record, "RTP CREDIT CONTOSO", region)
     assert counter.reading.legacy is None and not counter.reading.keys
 
 
@@ -147,8 +147,8 @@ def test_only_an_e_transfer_s_sender_printed_without_from_is_read_for_the_holds(
     rows = [("CASH APP CONTOSO 03 02 000000001 PMNT RCVD CASH APP CONTOSO EG 0000000000 CA", 300.0),
             ("PMNT SENT 0312 CASH APP*CONTOSO 0000000000 CA", -60.0)]
     assert [_tier(record) for record in _credits(rows, bank="Bank of America")] == [P2P]
-    assert tr._counter_region("CASH APP CONTOSO PMNT RCVD CASH APP CONTOSO", "") == ""
-    assert tr._counter_region("E TRANSFER AUTODEPOSIT CONTOSO SAMPLE", "") == "CONTOSO SAMPLE"
+    assert counter_debit_pairing._counter_region("CASH APP CONTOSO PMNT RCVD CASH APP CONTOSO", "") == ""
+    assert counter_debit_pairing._counter_region("E TRANSFER AUTODEPOSIT CONTOSO SAMPLE", "") == "CONTOSO SAMPLE"
 
 
 def test_a_cash_app_push_to_a_person_sharing_the_sender_s_given_name_holds_nothing():
@@ -181,7 +181,7 @@ def test_a_same_person_zelle_or_e_transfer_round_trip_is_held(credit, debit, ban
     ("", None),
 ])
 def test_the_sender_s_whole_name_key(region, key):
-    assert tr._sender_name_key(region) == key
+    assert counter_debit_pairing._sender_name_key(region) == key
 
 
 def test_a_named_p2p_credit_matches_a_lender_debit_by_its_whole_name_and_as_before():
@@ -195,11 +195,11 @@ def test_a_named_p2p_credit_matches_a_lender_debit_by_its_whole_name_and_as_befo
         return model.CounterDebits((model._CounterDebit(counter_debit_reading._counter_debit_reading(words[0], [words]), "lender", 30000,
                                                   entity, False),), ())
 
-    assert tr.debited_as_lender(credit, lender(["QUILLAN", "FUNDING"]), prefix=True)
-    assert tr.debited_as_lender(credit, lender(["QUILLAN", "SAMPLE"]), prefix=True)
-    assert not tr.debited_as_lender(credit, lender(["FABRIKAM", "FUNDING"]), prefix=True)
+    assert counter_debit_pairing.debited_as_lender(credit, lender(["QUILLAN", "FUNDING"]), prefix=True)
+    assert counter_debit_pairing.debited_as_lender(credit, lender(["QUILLAN", "SAMPLE"]), prefix=True)
+    assert not counter_debit_pairing.debited_as_lender(credit, lender(["FABRIKAM", "FUNDING"]), prefix=True)
     named = model.CounterCredit(reading, 90000, "Sample Lender", False, False, person_key="QUILLANSAMPLE")
-    assert tr.debited_as_lender(named, lender(["FABRIKAM"], "Sample Lender"), prefix=False)
+    assert counter_debit_pairing.debited_as_lender(named, lender(["FABRIKAM"], "Sample Lender"), prefix=False)
 
 
 WEEKLY = [2, 9, 16, 23, 30]
@@ -281,10 +281,10 @@ def test_a_person_s_push_beside_another_amount_to_the_given_name_alone_is_still_
 def test_the_whole_name_key_is_a_person_s_never_a_company_s():
     company = tc.classify_transaction(COMPANY_ZELLE, 9000.0, direction="credit")
     revenue = lexical.revenue_text(company.normalized_description)
-    assert tr.counter_credit(company, revenue, descriptor_payer.payer_region(revenue)).person_key is None
+    assert counter_debit_pairing.counter_credit(company, revenue, descriptor_payer.payer_region(revenue)).person_key is None
     person = tc.classify_transaction("ZELLE PAYMENT FROM QUILLAN SAMPLE CONF 1234567890", 900.0, direction="credit")
     revenue = lexical.revenue_text(person.normalized_description)
-    assert tr.counter_credit(person, revenue, descriptor_payer.payer_region(revenue)).person_key == "QUILLANSAMPLE"
+    assert counter_debit_pairing.counter_credit(person, revenue, descriptor_payer.payer_region(revenue)).person_key == "QUILLANSAMPLE"
 
 
 @pytest.mark.parametrize(("credit", "debit", "tier"), [
@@ -327,7 +327,7 @@ def test_a_branch_deposit_is_counted_beside_a_cash_withdrawal_in_its_town():
 ])
 def test_the_counter_debits_leave_out_atm_abm_and_cash_withdrawals(text, kept):
     record = tc.classify_transaction(text, -200.0, direction="debit")
-    debits = tr.counter_debits([record], set())
+    debits = counter_debit_pairing.counter_debits([record], set())
     assert bool(debits.other) is kept
 
 
@@ -372,7 +372,7 @@ def test_a_banking_centre_credit_from_an_account_is_held_as_naming_an_account(cr
     ("ATM CONTOSO GROUP LLC", False),
 ])
 def test_r3_34_the_atm_company_carve_out_never_reads_a_cash_or_posting_word(text, withdrawal):
-    assert tr._cash_withdrawal(text) is withdrawal
+    assert counter_debit_pairing._cash_withdrawal(text) is withdrawal
 
 
 def test_r3_34_a_remittance_reads_as_without_an_atm_withdrawal_printing_a_company_s_name():

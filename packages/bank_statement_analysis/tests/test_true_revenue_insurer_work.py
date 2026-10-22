@@ -22,6 +22,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.true_revenue import counter_debit_pairing
+from analysis.true_revenue import eligibility
 from analysis.true_revenue import claimed
 from analysis.true_revenue import model
 from analysis.true_revenue import words as true_revenue_words
@@ -550,7 +552,7 @@ def test_a_brand_the_insurance_registry_names_is_keyed_by_the_registry_s_entity(
 def test_no_brand_is_a_section_15_deferred_or_left_out_carrier(carrier):
     assert insurer_credit_brand(carrier) is None
     for entity in registry.INSURER_CREDIT_BRANDS:
-        assert true_revenue._SECTION_15_DEFERRED_PAYERS.search(entity.upper()) is None, entity
+        assert eligibility._SECTION_15_DEFERRED_PAYERS.search(entity.upper()) is None, entity
 
 
 def test_the_brand_table_is_credit_only():
@@ -910,8 +912,8 @@ def test_a_released_row_never_counts_toward_a_q5_or_q6_repeat():
     records = _dated(_t4())
     assert all(record.revenue_classification != "verified_revenue" for record in records)
     texts = [revenue_text(record.normalized_description) for record in records]
-    facts = true_revenue.credit_facts(records[0], texts[0], debits=true_revenue.counter_debits(records, set()))
-    assert true_revenue._never_q5_or_q6(records[0], texts[0], facts)
+    facts = true_revenue.credit_facts(records[0], texts[0], debits=counter_debit_pairing.counter_debits(records, set()))
+    assert eligibility._never_q5_or_q6(records[0], texts[0], facts)
 
 
 def test_the_bill_clause_reads_a_released_credit_as_no_insurer():
@@ -920,7 +922,7 @@ def test_the_bill_clause_reads_a_released_credit_as_no_insurer():
     held = _dated([("FABRIKAM MUTUAL INSURANCE COMPANY DES:CLAIM PAYMT ID:1", 1234.0, "03-02")])[0]
     for record, insurer in ((released, False), (held, True)):
         text = revenue_text(record.normalized_description)
-        assert true_revenue.counter_credit(record, text, payer_region(text)).insurer is insurer
+        assert counter_debit_pairing.counter_credit(record, text, payer_region(text)).insurer is insurer
 
 
 @pytest.mark.parametrize(("days", "frequent"), [
@@ -1580,7 +1582,7 @@ def test_r3_03_the_unreleased_insurer_beside_its_premium_and_the_kind_pins_are_u
         rows = [("FABRIKAM LIFE DES:FL INS ID:1 INDN:CONTOSO BAKERY LLC CO ID:1 PPD", 1500.0, "03-02"),
                 (debit, -105.0, "03-03")]
         assert [rules_reading(record) for record in _dated(rows)] == [HELD_ALSO]
-    assert true_revenue._counter_debit_kind("FABRIKAM LIFE DES:INS PREM ID:2") == "other"
+    assert counter_debit_pairing._counter_debit_kind("FABRIKAM LIFE DES:INS PREM ID:2") == "other"
     # T18 and T18b: a one-off AUTOPAY to the carrier is counted; a debit for the credit's own amount holds it.
     drp = ("STATE FARM DES:DRP PAYMENT ID:1", 3000.0, "03-02")
     assert [rules_reading(record) for record in _dated([drp, ("STATE FARM DES:AUTOPAY ID:9", -412.18, "03-03")],
@@ -1594,7 +1596,7 @@ def test_r3_03_american_income_life_is_a_credit_only_brand():
     deferred payer."""
     assert registry.INSURER_CREDIT_BRANDS["American Income Life"] == (r"AM(?:ERICAN)? INCOME LIFE",)
     assert "American Income Life" not in registry.INSURANCE_PROVIDER_ALIASES
-    assert true_revenue._SECTION_15_DEFERRED_PAYERS.search("AMERICAN INCOME LIFE") is None
+    assert eligibility._SECTION_15_DEFERRED_PAYERS.search("AMERICAN INCOME LIFE") is None
     record = _dated([AIL_CREDITS[0]], **AIL_HOLDER)[0]
     row = revenue_text(record.normalized_description)
     assert insurer_credit_brand(payer_region(row)) == "American Income Life"

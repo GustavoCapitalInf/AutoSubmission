@@ -45,7 +45,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
         "excluded_pending_review", "One-off lump sum from a lease-to-own or patient financier",
     ),
     # Audit round 2, R2-B07 (R07): a credit the parser marked unread whose run of payer blocks prints a lender's or a
-    # lending bank's block (true_revenue.UNREAD_RUN_NAMES_FINANCING).
+    # lending bank's block (true_revenue.tiers.UNREAD_RUN_NAMES_FINANCING).
     "unread_run_names_financing": (
         "excluded_pending_review", "A lender is printed among this credit's unread payer blocks",
     ),
@@ -63,7 +63,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "p2p_round_repeat": ("excluded_pending_review", "Repeated round sums from one sender"),
     # Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: a credit a rule verified or counted, into an account
     # whose printed title reads PREMIUM TRUST (insureds' premiums, not the agency's revenue), held by pass 7's step after
-    # the $1 floor (true_revenue.PREMIUM_TRUST_REASON); the end of the held group.
+    # the $1 floor (true_revenue.trust.PREMIUM_TRUST_REASON); the end of the held group.
     "premium_trust_account": ("excluded_pending_review", "Deposit into a premium trust account"),
     # Owner ruling 2026-10-02 (the underwriter's Q4), R2-OW16: within a package, a counted deposit that prints no payer,
     # matched to an exact-cents transfer out of another of the business's accounts 0 to 2 days earlier
@@ -75,7 +75,7 @@ REVENUE_TIER_REASONS: dict[str, tuple[RevenueTier, str]] = {
     "wire_named_sender": ("counted_flagged", "Wire from a named sender"),
     "check_deposit": ("counted_flagged", "Check deposit"),
     "no_payer_printed": ("counted_flagged", "No payer printed"),
-    # Audit B10 (I05, I60): the statement printed a payer the parser did not read (true_revenue.PAYER_TEXT_NOT_READ).
+    # Audit B10 (I05, I60): the statement printed a payer the parser did not read (true_revenue.tiers.PAYER_TEXT_NOT_READ).
     "payer_text_not_read": ("counted_flagged", "Payer text not read"),
     "p2p": ("counted_flagged", "Person-to-person"),
     "factoring_payout": ("counted_flagged", "Factoring payout"),

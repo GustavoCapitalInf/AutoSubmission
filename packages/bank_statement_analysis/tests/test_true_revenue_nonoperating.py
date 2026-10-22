@@ -19,6 +19,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue as tr
+from analysis.true_revenue import counter_debit_pairing
+from analysis.true_revenue import eligibility
 from analysis.true_revenue import hold_text
 from analysis.true_revenue import words as true_revenue_words
 from analysis.schema import Statement, Transaction
@@ -550,7 +552,7 @@ def test_an_auction_or_car_buyer_seller_payout_is_never_verified(payer):
     text = _bofa(payer, "SELLER PMT")
     tier = _one(text, 15000.0, bank="Bank of America")
     assert tier[0] != "verified"
-    deferred = tr._SECTION_15_DEFERRED_PAYERS
+    deferred = eligibility._SECTION_15_DEFERRED_PAYERS
     assert deferred.search(normalize_transaction_description(text))
     assert deferred.pattern == registry.SECTION_15_DEFERRED_PAYERS
 
@@ -567,7 +569,7 @@ def test_an_auction_or_car_buyer_seller_payout_is_never_verified(payer):
     "FABRIKAM PEDDLERS LLC DES PAYMENT ID 1",
 ])
 def test_a_lender_or_a_vendor_payment_is_no_deferred_seller_payout(text):
-    assert not tr._SECTION_15_DEFERRED_PAYERS.search(text)
+    assert not eligibility._SECTION_15_DEFERRED_PAYERS.search(text)
 
 
 # I46: statement furniture a parser glued onto a row is cut before classification.
@@ -945,7 +947,7 @@ def test_r37_an_equipment_auction_s_seller_payout_is_still_never_verified():
     for payer in ("BIG IRON AUCTION CO", "BIG IRON AUCTIONS LLC", "BIGIRON AUCTIONS LLC"):
         assert _tiers(_twice(payer, "PAYMENT", 15000.0), bank="Bank of America") == [ASSET_SALE, ASSET_SALE], payer
     assert _tiers(_twice("BIG IRON TRUCKING LLC", "PAYMENT", 15000.0), bank="Bank of America") == [REPEATS, REPEATS]
-    deferred = tr._SECTION_15_DEFERRED_PAYERS
+    deferred = eligibility._SECTION_15_DEFERRED_PAYERS
     assert deferred.pattern == registry.SECTION_15_DEFERRED_PAYERS
     for text in ("BIG IRON AUCTION CO", "BIG IRON AUCTIONS", "BIGIRON", "BIGIRON AUCTIONS LLC"):
         assert deferred.search(text), text
@@ -1247,7 +1249,7 @@ def test_r37_review_2_the_legal_reader_reads_the_classifier_s_settlement_spellin
     """The legal context and the purpose words read every settlement spelling a processor's settlement credit reads
     (_SETTLEMENT_CREDIT), so the two lists stay in step."""
     for word in ("SETTLE", "SETTLED", "SETTLEMENT", "SETTLEMENTS", "SETTLMT", "SETLMT", "STLMT", "STLMNT"):
-        assert tr._SETTLEMENT_CREDIT.fullmatch(word), word
+        assert counter_debit_pairing._SETTLEMENT_CREDIT.fullmatch(word), word
         assert tr._LEGAL_CONTEXT.fullmatch(word), word
         assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
 

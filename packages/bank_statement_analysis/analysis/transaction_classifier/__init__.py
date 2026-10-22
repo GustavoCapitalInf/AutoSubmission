@@ -96,75 +96,36 @@ from analysis.transaction_classifier.potential_lenders import (
 )
 from analysis.transaction_classifier.reversals import _apply_reversal_pair_context
 from analysis.true_revenue.holder_names import without_receiver_and_holder
+from analysis.true_revenue.counter_debit_pairing import also_debited, counter_credit, counter_debits, debited_as_lender
+from analysis.true_revenue.tiers import payer_text_unread_indexes, payer_text_unread_texts
+from analysis.true_revenue.trust import premium_trust_title
 # The true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from analysis.true_revenue import (
-    also_debited,
-    apply_true_revenue_pass,
-    counter_credit,
-    counter_debits,
-    dealer_funding_reading,
-    debited_as_lender,
-    payer_text_unread_indexes,
-    payer_text_unread_texts,
-    premium_trust_title,
-    zelle_credits_present,
-)
+from analysis.true_revenue import apply_true_revenue_pass, dealer_funding_reading, zelle_credits_present
 
 # True revenue reads these through _classifier() until its readers leave analysis/true_revenue/.
-from analysis.classification.counter_debit_reading import (
-    _counter_debit_head,
-    _payer_key,
-    _split_glued_digits,
-    counter_debit_debit_reading,
-    counter_debit_payer_reading,
-)
+from analysis.classification.counter_debit_reading import _payer_key
 from analysis.classification.operating_sources import _recurrence_vetoed
-from analysis.description_text import _TRANSFER_WORDING
 from analysis.descriptor.credit_words import (
-    CUSTOMER_FINANCING_LUMP_FLOOR,
-    CUSTOMER_FINANCING_LUMP_ROUND,
-    CUSTOMER_FINANCING_LUMP_SHARE,
-    CUSTOMER_FINANCING_SERIES_MIN,
-    CUSTOMER_FINANCING_SERIES_SHARE,
-    _CARD_CREDIT_PUSH_WORD,
     _FUNDING_SETTLEMENT_ENTITIES,
-    _PAYOUT_FORMS,
     _PUBLIC_PAYER_NON_SALE_WORDS,
     _TREASURY_BOILERPLATE,
 )
-from analysis.descriptor.holder import account_name_text, holder_named, holder_receiver_block, holder_words
+from analysis.descriptor.holder import account_name_text, holder_named, holder_receiver_block
 from analysis.descriptor.lexical import (
-    _is_payer_word,
-    _is_reference_token,
     _originator_segment,
     _skip_numbered_leading_date,
     company_form,
     is_round_sum,
     payer_name,
 )
-from analysis.descriptor.payer import (
-    _is_bare_row,
-    entry_fields,
-    numbered_company,
-    payer_label_layout,
-    wire_relayed_customer,
-)
+from analysis.descriptor.payer import entry_fields, numbered_company, payer_label_layout, wire_relayed_customer
 from analysis.descriptor.rails import _is_wire_row, _loose_wire_originator
 from analysis.descriptor.words import (
-    HOLDER_NOISE,
     REVENUE_GENERIC_WORDS,
-    _BANK_COMPANY_FORM,
     _CARD_FORM_DEBIT_PREFIX,
-    _CONSUMER_P2P_RAIL,
     _ELECTRONIC_PAYMENT_FORM,
-    _GLUED_SEC_CODE,
     _NUMBERED_COMPANY_REGION,
-    _PUSH_RAIL,
     _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS,
-    _WIRE_ORIGINATOR_LABEL,
-    _WIRE_SENDER_AFTER_LABEL,
-    _WIRE_SENDER_AFTER_LABEL_END,
-    _WIRE_WORD,
 )
 
 if TYPE_CHECKING:

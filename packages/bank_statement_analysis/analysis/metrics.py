@@ -38,7 +38,8 @@ from .revenue import (
     withholding_basis_publishable,
     withholding_unavailable_note,
 )
-from .true_revenue import holder_unscreened, payer_text_unread, premium_trust_title
+from .true_revenue.tiers import holder_unscreened, payer_text_unread
+from .true_revenue.trust import premium_trust_title
 
 #: Owner ruling 2026-10-02 (the underwriter's Q5, audit I29; true revenue spec §11; R2-OW13): the withholding rate's
 #: numerator is the confirmed lender debits paid plus the funder payments returned unpaid (the scheduled obligation
@@ -170,16 +171,16 @@ class Metrics:
     revenue_tiers_sum_to_posted: bool = True
     revenue_reconciles: bool = True
     revenue_review_required: bool = False
-    #: Audit B9 (I13): no holder's name is known for the statement (true_revenue.holder_unscreened), so the holds that
+    #: Audit B9 (I13): no holder's name is known for the statement (true_revenue.tiers.holder_unscreened), so the holds that
     #: read the holder's name cannot see the holder's own money. A fact for the True card and the exports (audit B11).
     holder_unscreened: bool = False
-    #: Audit B10 (I05): more than true_revenue.PAYER_TEXT_UNREAD_SHARE of the statement's posted credit rows carry the
+    #: Audit B10 (I05): more than true_revenue.tiers.PAYER_TEXT_UNREAD_SHARE of the statement's posted credit rows carry the
     #: parser's 'payer text not read' mark (Transaction.payer_text_unread), so its True rests on credits whose payer
     #: nobody read; and how many posted credits carry it. A statement integrity fact for the True card (audit B11).
     payer_text_unread: bool = False
     payer_text_unread_count: int = 0
     #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the statement's printed title reads PREMIUM TRUST
-    #: (true_revenue.premium_trust_title over its account title, account name and holder name), so pass 7 holds every
+    #: (true_revenue.trust.premium_trust_title over its account title, account name and holder name), so pass 7 holds every
     #: credit a rule verified or counted. A statement fact for the True card and the package; no figure reads it.
     premium_trust_account: bool = False
     cash_flow: float = 0.0

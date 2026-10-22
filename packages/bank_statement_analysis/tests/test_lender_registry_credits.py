@@ -16,6 +16,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import words as true_revenue_words
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.detect import find_flagged_positions
@@ -351,7 +352,7 @@ def test_the_counter_debit_reading_reads_past_an_instant_payment_rail_label(text
     [record] = _credits(_records([(text, 50.0)]))
     norm = normalize(text)
     region = true_revenue._classifier().payer_region(norm)
-    counter = true_revenue.counter_credit(record, norm, region)
+    counter = counter_debit_pairing.counter_credit(record, norm, region)
     assert counter.reading.legacy == word
 
 
@@ -370,7 +371,7 @@ def test_the_counter_debit_reading_reads_past_an_instant_payment_rail_label(text
     ("ELECTRONIC DEPOSIT FROM VENMO", "VENMO", ""),
 ])
 def test_the_counter_region_drops_only_a_leading_rail_label(text, region, words):
-    assert true_revenue._counter_region(text, region) == words
+    assert counter_debit_pairing._counter_region(text, region) == words
 
 
 def test_an_unlisted_app_s_instant_payment_is_held_beside_its_lender_debits():

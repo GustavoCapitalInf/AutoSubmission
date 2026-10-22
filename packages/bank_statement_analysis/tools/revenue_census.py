@@ -284,7 +284,7 @@ DECLARED_DEMOTIONS = (
     "premium_trust_account",
 )
 #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the method pass 7 gives a verified credit it holds on a
-#: premium trust account (analysis/true_revenue.py PREMIUM_TRUST_METHOD, copied: the census reads other checkouts).
+#: premium trust account (analysis/true_revenue/trust.py PREMIUM_TRUST_METHOD, copied: the census reads other checkouts).
 PREMIUM_TRUST_METHOD = "premium_trust_account"
 #: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue/
 #: CONSTRUCTION_PROGRESS_DRAW_REASON, copied: the census reads other checkouts), and the Q5 and Q6 methods that rest on
@@ -316,10 +316,10 @@ ZELLE_VIEW_CAUSE = "zelle_true_revenue_view"
 #: partner is a lifted carve-out row (its prior verified, the after counted, its payer key among the account's q11_kept).
 ZELLE_VIEW_LIFTED_REASONS = frozenset({"asset_sale_proceeds", "construction_progress_draw"})
 #: Audit round 2, R2-B04 (R41): the method pass 7 gives the holder's own push it overrules
-#: (analysis/true_revenue.py _holder_never_verified, copied: the census reads other checkouts).
+#: (analysis/true_revenue/demotions.py _holder_never_verified, copied: the census reads other checkouts).
 HOLDER_OWN_PUSH_METHOD = "self_originated_holder"
 #: Audit round 2, R2-B03 (R05): the reasons a counted bank-only payer takes (pass 7's no_payer_printed, or the
-#: parser's unread payer text in its place: true_revenue.PAYER_TEXT_NOT_READ, copied: the census reads other
+#: parser's unread payer text in its place: true_revenue.tiers.PAYER_TEXT_NOT_READ, copied: the census reads other
 #: checkouts).
 _BANK_ONLY_COUNTED_REASONS = frozenset({"no_payer_printed", "payer_text_not_read"})
 #: Re-review N6: the matched rule the operating registry gives a credit whose entry leads with a financing word
