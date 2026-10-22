@@ -6,6 +6,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.descriptor import payer
+from analysis.descriptor import rails
 from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import description_text
@@ -72,11 +74,13 @@ def test_a_third_party_book_transfer_is_an_incoming_wire_on_the_owner_s_yes(monk
     third_party = BOOK.format(orig="FABRIKAM EXPORTS LLC", purpose="INVOICE 1234")
     own = BOOK.format(orig="CONTOSO TRADING LLC", purpose="INVOICE 1234")
     monkeypatch.setattr(transaction_classifier, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
+    monkeypatch.setattr(rails, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
     monkeypatch.setattr(words, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", True)
     assert _credit(third_party).revenue_classification == "verified_revenue"
     assert _credit(own).revenue_classification == "non_revenue"
     assert _credit("BOOK TRANSFER CREDIT").revenue_classification == "non_revenue"
     monkeypatch.setattr(transaction_classifier, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
+    monkeypatch.setattr(rails, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
     monkeypatch.setattr(words, "THIRD_PARTY_BOOK_TRANSFER_AS_WIRE", False)
     assert _credit(third_party).revenue_classification == "non_revenue"
 
@@ -459,8 +463,8 @@ def _banking_relay(customer: str, n: int = 1) -> str:
 def test_r3_14_a_banking_corporation_s_relayed_customer_is_the_sender_and_verifies_on_repeat():
     rows = [(_banking_relay("CONTOSO TIMBER LLC", 1), 12345.67), (_banking_relay("CONTOSO TIMBER LLC", 2), 9876.54)]
     assert _r314(rows) == [R314_REPEAT, R314_REPEAT]
-    assert transaction_classifier.wire_relayed_customer(_r314_text(rows[0][0])) == "CONTOSO TIMBER LLC"
-    assert transaction_classifier.payer_region(_r314_text(rows[0][0])) == "CONTOSO TIMBER LLC"
+    assert payer.wire_relayed_customer(_r314_text(rows[0][0])) == "CONTOSO TIMBER LLC"
+    assert payer.payer_region(_r314_text(rows[0][0])) == "CONTOSO TIMBER LLC"
 
 
 def test_r3_14_the_holder_relayed_by_a_banking_corporation_is_held_as_the_holder_s_name():
@@ -475,7 +479,7 @@ def test_r3_14_two_customers_of_one_banking_relay_are_read_each_on_its_own_name(
     rows = [(_banking_relay("SAMPLE CONTOSO", 1), 12345.67), (_banking_relay("FABRIKAM HOLDINGS LLC", 2), 9876.54)]
     # Each is its own sender: the person-shaped one is counted, never verified with the other.
     assert _r314(rows) == [R314_NAMED, R314_NAMED]
-    assert [transaction_classifier.payer_region(_r314_text(text)) for text, _amount in rows] == [
+    assert [payer.payer_region(_r314_text(text)) for text, _amount in rows] == [
         "SAMPLE CONTOSO", "FABRIKAM HOLDINGS LLC"]
 
 
@@ -485,7 +489,7 @@ def test_r3_14_a_non_english_bank_s_relayed_customer_is_read(bank):
 
     printed = R314_RELAY.format(bank=bank, customer="CONTOSO TIMBER LLC", ogb=bank, n=1)
     assert bank_by_form(bank)
-    assert transaction_classifier.payer_region(_r314_text(printed)) == "CONTOSO TIMBER LLC"
+    assert payer.payer_region(_r314_text(printed)) == "CONTOSO TIMBER LLC"
     assert _r314([(printed, 12345.67)]) == [R314_NAMED]
     # The holder relayed by such a bank is the holder's own money, held.
     assert _r314([(R314_RELAY.format(bank=bank, customer=R314_HOLDER, ogb=bank, n=1), 12345.67)]) == [
@@ -505,8 +509,8 @@ R314_RBC = ("BOOK TRANSFER CREDIT B/O: ROYAL BANK OF CANADA PAYMENT CENTRE TORON
                                                   ("1234567 BC LTD", "1234567 BC LTD")])
 def test_r3_14_a_numbered_company_relayed_by_a_bank_is_the_sender_counted_never_verified(customer, region):
     rows = [(R314_RBC.format(customer=customer, n=1), 2345.67), (R314_RBC.format(customer=customer, n=2), 3456.78)]
-    assert transaction_classifier.payer_region(_r314_text(rows[0][0])) == region
-    assert transaction_classifier.numbered_company(_r314_text(rows[0][0]))
+    assert payer.payer_region(_r314_text(rows[0][0])) == region
+    assert payer.numbered_company(_r314_text(rows[0][0]))
     assert _r314(rows) == [R314_NAMED, R314_NAMED]
 
 

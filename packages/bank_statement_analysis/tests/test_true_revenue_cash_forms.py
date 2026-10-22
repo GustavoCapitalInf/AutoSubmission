@@ -16,6 +16,7 @@ import re
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import payer
 from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import true_revenue as tr
@@ -47,6 +48,7 @@ def _today(bank, rows, monkeypatch, holder=HOLDER):
     """The records as the cash reader read them before this batch."""
     with monkeypatch.context() as patch:
         patch.setattr(tc, "_CASH_BRANCH_ATM_FORM", BEFORE)
+        patch.setattr(payer, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(words, "_CASH_BRANCH_ATM_FORM", BEFORE)
         return _read(bank, rows, holder)
 
@@ -190,8 +192,8 @@ def test_a_retail_cash_load_counts_flagged_beside_a_purchase_at_the_same_place(m
     assert [record.revenue_classification for record in records[:2]] == ["unverified_deposit"] * 2
     assert all(record.contributes_to_true_revenue for record in records[:2])
     assert tr._channel(lexical.revenue_text(BLUEVINE_LOAD), "Bluevine") == "cash_branch_atm"
-    assert tc.channel_gate(lexical.revenue_text(BLUEVINE_LOAD)) == "closed"
-    assert tc.payer_region(lexical.revenue_text(BLUEVINE_LOAD)) == ""
+    assert payer.channel_gate(lexical.revenue_text(BLUEVINE_LOAD)) == "closed"
+    assert payer.payer_region(lexical.revenue_text(BLUEVINE_LOAD)) == ""
 
 
 def test_a_retail_cash_load_never_verifies(monkeypatch):

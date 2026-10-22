@@ -21,7 +21,7 @@ import re._parser as sre_parse
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.descriptor import rails
 from analysis import description_text
 from tests import zelle_setting_fixtures as fx
 from tests.classifier_modules import classifier_modules
@@ -122,12 +122,12 @@ def test_the_census_found_the_rule_tuples():
 
 @pytest.mark.parametrize("name, patterns", COLLECTIONS, ids=[name for name, _ in COLLECTIONS])
 def test_every_rule_tuple_gets_its_alternation(name, patterns):
-    combined = tc._alternation(patterns)
+    combined = rails._alternation(patterns)
     if name in LOOP_KEPT:
         assert combined is None
     else:
         assert combined is not None, name
-        assert tc._alternation(patterns) is combined
+        assert rails._alternation(patterns) is combined
 
 
 @pytest.mark.parametrize("name, patterns", COLLECTIONS, ids=[name for name, _ in COLLECTIONS])
@@ -144,7 +144,7 @@ def test_the_alternation_answers_as_the_loop(name, patterns):
     positives = 0
     for text in texts:
         expected = _loop(text, patterns)
-        assert tc._matches_any(text, patterns) is expected, (name, text)
+        assert rails._matches_any(text, patterns) is expected, (name, text)
         positives += expected
     assert positives > 0, name
 
@@ -152,15 +152,15 @@ def test_the_alternation_answers_as_the_loop(name, patterns):
 def test_a_verbose_tuple_keeps_the_loop():
     """A `#` comment in a VERBOSE pattern would swallow the patterns joined after it."""
     patterns = (re.compile("A  # an A", re.X), re.compile("B\n|C", re.X))
-    assert tc._alternation(patterns) is None
-    assert tc._matches_any("B", patterns) is True
-    assert tc._matches_any("D", patterns) is False
+    assert rails._alternation(patterns) is None
+    assert rails._matches_any("B", patterns) is True
+    assert rails._matches_any("D", patterns) is False
 
 
 def test_a_bytes_tuple_keeps_the_loop():
     patterns = (re.compile(b"SAMPLE"), re.compile(b"CONTOSO"))
-    assert tc._alternation(patterns) is None
-    assert tc._matches_any(b"ACH CONTOSO", patterns) is True
+    assert rails._alternation(patterns) is None
+    assert rails._matches_any(b"ACH CONTOSO", patterns) is True
 
 
 @pytest.mark.parametrize(
@@ -175,19 +175,19 @@ def test_a_bytes_tuple_keeps_the_loop():
     ],
 )
 def test_a_tuple_the_alternation_cannot_answer_alike_keeps_the_loop(patterns):
-    assert tc._alternation(patterns) is None
+    assert rails._alternation(patterns) is None
     for text in ("SAMPLE", "AA", "AB", "C", "B", "CONTOSO", "NORTHWIND"):
         if all(isinstance(pattern, re.Pattern) for pattern in patterns):
-            assert tc._matches_any(text, patterns) is _loop(text, patterns)
+            assert rails._matches_any(text, patterns) is _loop(text, patterns)
 
 
 def test_a_list_keeps_the_loop():
     patterns = [re.compile("SAMPLE"), re.compile("CONTOSO")]
-    assert tc._alternation(patterns) is None
-    assert tc._matches_any("ACH CONTOSO", patterns) is True
+    assert rails._alternation(patterns) is None
+    assert rails._matches_any("ACH CONTOSO", patterns) is True
 
 
 def test_a_tuple_built_per_call_never_grows_the_cache():
     for number in range(600):
-        tc._matches_any("SAMPLE", (re.compile("SAMPLE"), re.compile(f"CONTOSO{number}")))
-    assert len(tc._ALTERNATIONS) <= tc._ALTERNATION_LIMIT
+        rails._matches_any("SAMPLE", (re.compile("SAMPLE"), re.compile(f"CONTOSO{number}")))
+    assert len(rails._ALTERNATIONS) <= rails._ALTERNATION_LIMIT

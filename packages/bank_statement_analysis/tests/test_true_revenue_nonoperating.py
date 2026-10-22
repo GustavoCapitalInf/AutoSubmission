@@ -862,7 +862,7 @@ def test_an_ordinary_payer_s_disb_entry_keeps_its_reading(rows, expected):
     ("CONTRACTOR MGMT SETTLEMENT 1", None),
 ])
 def test_the_hold_rule_fact_names_the_new_readings(text, rule):
-    from analysis.transaction_classifier import entry_fields, payer_region
+    from analysis.descriptor.payer import entry_fields, payer_region
 
     record = next(record for record in _records([(text, 900.0)]) if record.amount > 0)
     revenue = revenue_text(record.normalized_description)
@@ -974,7 +974,7 @@ def test_r37_an_equipment_auction_s_seller_payout_is_still_never_verified():
     (_bofa("CONTOSO LITIGATION SUPPORT LLC", "LITIGATION"), "LEGAL", "LEGAL", False),
 ])
 def test_r37_the_trade_name_reader(text, words, keep, trade):
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
 
     tables = {
         "LEGAL": (tr._LEGAL_NAME_WORDS, tr._LEGAL_NAME_KEEP),
@@ -1017,7 +1017,7 @@ def test_r37_the_title_firm_s_settlement_services_arm_spares_a_processor_s_and_a
     (_bofa("CONTOSO CARD SETTLEMENT SERVICES", "DEPOSIT"), None),
 ])
 def test_r37_the_hold_rule_fact_reads_the_guarded_readers(text, rule):
-    from analysis.transaction_classifier import entry_fields, payer_region
+    from analysis.descriptor.payer import entry_fields, payer_region
 
     record = next(record for record in _records([(text, 900.0)], bank="Bank of America") if record.amount > 0)
     revenue = revenue_text(record.normalized_description)
@@ -1111,7 +1111,7 @@ def test_r37_review_a_name_word_is_no_purpose_word(word):
     (_bofa("CONTOSO LITIGATION SUPPORT LLC", "PAYMENT"), "LEGAL", True),
 ])
 def test_r37_review_the_trade_name_reader_reads_a_purpose_word_as_the_purpose_s(text, words, trade):
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
 
     tables = {
         "LEGAL": (tr._LEGAL_NAME_WORDS, tr._LEGAL_NAME_KEEP),
@@ -1266,7 +1266,7 @@ def test_r37_review_2_the_legal_reader_reads_the_classifier_s_settlement_spellin
     (_bofa("FABRIKAM INC", "PAYMENT"), False),
 ])
 def test_r37_review_2_the_purpose_trade_name_reader(text, spared):
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
 
     revenue = revenue_text(normalize_transaction_description(text))
     row = tr._hold_text(revenue)

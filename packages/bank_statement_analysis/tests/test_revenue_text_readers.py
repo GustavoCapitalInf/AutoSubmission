@@ -5,14 +5,8 @@ from __future__ import annotations
 import pytest
 
 from analysis.description_text import normalize_transaction_description as normalize
-from analysis.transaction_classifier import (
-    channel_gate,
-    entry_fields,
-    holder_named,
-    holder_words,
-    numbered_company,
-    payer_region,
-)
+from analysis.descriptor.holder import holder_named, holder_words
+from analysis.descriptor.payer import channel_gate, entry_fields, numbered_company, payer_region
 from analysis.descriptor.lexical import _joined_text, company_form, is_round_sum, payer_name, revenue_text
 
 

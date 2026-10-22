@@ -1238,13 +1238,13 @@ def test_r2_b08_the_possible_return_backstop_reads_the_new_spellings(hold_text, 
 def test_r2_b08_the_three_readers_hold_the_same_new_arms():
     """The classifier's step-3 credit markers, the pass's possible-return backstop and the census's declared markers
     each carry the batch's arms verbatim (the census's on the digit-masked text), so the copies stay in step."""
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import credit_words
     from analysis import true_revenue
     from tools import revenue_census as census
 
-    arms = tc._RETURN_REFUND_R2_B08_ARMS
+    arms = credit_words._RETURN_REFUND_R2_B08_ARMS
     assert len(arms) == 7
-    classifier = {pattern.pattern for pattern in tc._RETURN_REFUND_CREDIT_PATTERNS}
+    classifier = {pattern.pattern for pattern in credit_words._RETURN_REFUND_CREDIT_PATTERNS}
     masked = {pattern.pattern for pattern in census._REVERSAL_MARKERS_56}
     for arm in arms:
         assert arm in classifier, arm
@@ -1252,9 +1252,9 @@ def test_r2_b08_the_three_readers_hold_the_same_new_arms():
         assert census._on_masked(arm).pattern in masked, arm
     assert census._RETURN_REFUND_R2_B08_ARMS == true_revenue._RETURN_REFUND_R2_B08_ARMS == arms
     # The fee waiver arm carries the no-legal-form guard in all three.
-    waiver = r"\bFEES? WAIVE[DR]?\b" + tc._NO_LEGAL_FORM_LATER
+    waiver = r"\bFEES? WAIVE[DR]?\b" + credit_words._NO_LEGAL_FORM_LATER
     assert waiver in arms
-    assert tc._NO_LEGAL_FORM_LATER == true_revenue._NO_LEGAL_FORM_LATER == census._NO_LEGAL_FORM_LATER
+    assert credit_words._NO_LEGAL_FORM_LATER == true_revenue._NO_LEGAL_FORM_LATER == census._NO_LEGAL_FORM_LATER
     # The old unguarded arm is gone from every copy.
     bare = r"\bFEES? WAIVE[DR]?\b"
     assert bare not in classifier

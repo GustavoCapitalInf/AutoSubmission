@@ -101,9 +101,9 @@ def test_a_verified_public_payment_is_still_demoted_by_a_duplicate_and_its_rever
 ])
 def test_arm_a_reads_its_three_codes_in_order(text, expected):
     # Final review M1: arm A's Treasury code, MISC PAY and RMR IV, read by chained searches (the old '.*' pattern).
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import rails
 
-    assert tc._public_payer_arm_a(text) is expected
+    assert rails._public_payer_arm_a(text) is expected
 
 
 def test_arm_a_is_linear_on_a_long_row():
@@ -111,10 +111,10 @@ def test_arm_a_is_linear_on_a_long_row():
     # characters). A 10,000-character row reads in under 50 ms.
     import time
 
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import rails
 
     row = ("TREAS 123 MISC PAY " * 600)[:10000]
     assert len(row) == 10000
     started = time.perf_counter()
-    assert tc._public_payer_arm_a(row) is False
+    assert rails._public_payer_arm_a(row) is False
     assert time.perf_counter() - started < 0.05

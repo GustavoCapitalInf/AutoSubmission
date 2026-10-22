@@ -18,11 +18,8 @@ from .dates import assign_transaction_years
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
-from .transaction_classifier import (
-    TransactionClassification,
-    classify_statement_readings,
-    prints_internal_transfer_designation,
-)
+from .transaction_classifier import TransactionClassification, classify_statement_readings
+from .descriptor.rails import prints_internal_transfer_designation
 from .bofa import repair_bofa_summary
 from .regions import repair_regions_summary
 # Re-exported, not re-declared. `SiblingOmission` is CONSTRUCTED at the skip
@@ -1373,7 +1370,7 @@ def identify_internal_transfers(
        which one posting is a leg of two transfers;
     4. **the printed designation** — at least one of the two legs prints an
        INTERNAL-MOVEMENT designation, read by
-       `analysis/transaction_classifier.py::prints_internal_transfer_designation`
+       `analysis/descriptor/rails.py::prints_internal_transfer_designation`
        and therefore by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5
        (§7.11), a book or funds transfer that prints no third-party originator;
        never by the peer-to-peer vocabulary of `_TRANSFER_PATTERNS`. A pair that

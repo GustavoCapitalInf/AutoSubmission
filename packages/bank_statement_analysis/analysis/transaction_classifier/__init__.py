@@ -17,16 +17,12 @@ from analysis.classification_registry import (
     BANK_SPECIFIC_LENDER_ALIASES,
     CARD_ISSUER_CONTEXT_ALIASES,
     FACTORING_REVIEW_ENTITIES,
-    FIELD_ORDER_PAYEE_FORMS,
     GATED_PROCESSOR_ALIASES,
     INSURANCE_PROVIDER_ALIASES,
     OPERATING_ALIASES_READ_WITH_VETOES,
     OPERATING_REVENUE_READ_ALIASES,
-    OPERATING_REVENUE_SOURCE_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
-    OPERATING_REVENUE_TRUNCATIONS,
     OPERATING_SOURCE_CONTEXT_WORDS,
-    OPERATING_SOURCE_PAYOUT_FORMS,
     OPERATING_SOURCES_READ_WITH_VETOES,
     PAYEE_GROUP_REGISTRIES,
     PAYOUT_CREDIT_ENTITIES,
@@ -35,13 +31,12 @@ from analysis.classification_registry import (
     REVIEW_FLAG_ENTITIES,
     WHOLESALE_AUCTION_PAYOUT_FORMS,
     WHOLESALE_AUCTION_REFUND_NAMES,
-    _operating_alias_cut,
 )
 from analysis.dates import parse_date
 from analysis.flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
 from analysis.revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
-from analysis.description_text import ln_name_spans, normalize_transaction_description, _TRANSFER_WORDING
+from analysis.description_text import ln_name_spans, normalize_transaction_description
 from analysis.payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, match_memo, registry_match
 from analysis.descriptor.financing import (
     _card_posting_vetoed,
@@ -54,7 +49,6 @@ from analysis.descriptor.lexical import (
     _before_receiver,
     _distinctive_words,
     _first_distinctive_word,
-    _is_payer_word,
     _is_reference_token,
     _joined_text,
     _leading_name_words,
@@ -66,39 +60,28 @@ from analysis.descriptor.lexical import (
     _skip_numbered_leading_date,
     _strip_revenue_template,
     _wire_beneficiary,
-    bank_by_form,
     company_form,
-    originator_address,
     payer_name,
     revenue_text,
     without_statement_furniture,
 )
 from analysis.descriptor.words import (
-    HOLDER_NOISE,
     IRS_TREASURY_FORM,
     REVENUE_GENERIC_WORDS,
     THIRD_PARTY_BOOK_TRANSFER_AS_WIRE,
     _ACH_FIELD_SEGMENT,
-    _ACH_ORIGINATOR_FIELD,
     _AMEX_ACH_CREDIT,
-    _BANK_COMPANY_FORM,
     _BANK_TEMPLATE_WORDS,
     _BMO_CODE_TAIL,
     _BNPL_CONSUMER_CREDIT,
-    _BOFA_ENTRY_FIELD,
     _BUSINESS_ACCOUNT_PATTERNS,
     _CARD_FORM_DEBIT_PREFIX,
     _CASH_BRANCH_ATM_FORM,
     _CHANNEL_TRANSFER_FROM_ACCOUNT,
     _CHANNEL_VOCABULARY,
-    _CHASE_ENTRY_FIELD,
     _CHECK_DEPOSIT_FORM,
     _CHECK_PATTERNS,
-    _COMPANY_FORM,
     _CONSUMER_P2P_RAIL,
-    _CONTRA_BANK_FIELD,
-    _CREDIT_RECEIVER_FIELD,
-    _CREDIT_WIRE_BENEFICIARY_VALUE,
     _CUSTOMER_INVOICE_DESCRIPTORS,
     _DEPOSIT_UNDO_FEE,
     _DIRECT_DEBIT_LOAN_PATTERNS,
@@ -110,19 +93,13 @@ from analysis.descriptor.words import (
     _FLAGGED_REVENUE_CREDIT_STATES,
     _FRENCH_CANCEL_CREDIT_PATTERN,
     _FRENCH_INTEREST_CREDIT,
-    _HOLDER_TEST_NOISE,
-    _HOLDER_TRADE_NAME,
-    _INTERNAL_ACCOUNT_SOURCE_WORDS,
     _INTERNAL_TRANSFER_CREDIT_PATTERNS,
     _LEGAL_FORM_SUFFIXES,
     _LINE_OF_CREDIT_PATTERNS,
-    _MEMO_ENTRY_FIELD,
     _NAME_STARTERS,
     _NUMBERED_COMPANY_REGION,
-    _NUMBERED_PROVINCE_START,
     _NUMBERED_TAIL_WORDS,
     _ORGANISATION_CUES,
-    _OWN_ACCOUNT_PRODUCT_WORDS,
     _OWN_ACCOUNT_SWEEP_CREDIT_PATTERNS,
     _PAYEE_TEMPLATE_PREFIX,
     _PAYOUT_NON_SALE_CREDIT,
@@ -133,24 +110,76 @@ from analysis.descriptor.words import (
     _PUSH_RAIL,
     _QUEBEC,
     _RECEIVER_FIELD_VALUE,
-    _RECEIVER_NAME_LABELS,
-    _RECEIVER_VALUE_END,
     _REFUND_REVERSAL_PATTERNS,
-    _RELAY_ORIGINATOR_LABEL,
     _RETAIL_CASH_LOAD,
     _REVERSAL_CANCELLATION_CREDIT_PATTERNS,
     _SANTANDER_WIRE,
     _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS,
-    _SENDER_END,
     _SETTLEMENT_REVERSAL_PATTERNS,
     _SNAP_MERCHANT_FUNDING,
     _TFR_TRANSFER_DEPOSIT,
     _TRANSFER_FROM_ACCOUNT,
-    _WIRE_FIELD_END,
     _WIRE_ORIGINATOR_LABEL,
-    _WIRE_SENDER_AFTER_LABEL,
-    _WIRE_SENDER_AFTER_LABEL_END,
     _WIRE_WORD,
+)
+from analysis.descriptor.credit_words import (
+    _BILL_COM,
+    _BOOK_OR_FUNDS_TRANSFER,
+    _CARD_CREDIT_PUSH_WORD,
+    _CARD_REFUND_LABELS,
+    _EFT_FUNDS_TRANSFER,
+    _FUNDING_SETTLEMENT_ENTITIES,
+    _FUNDING_WORD,
+    _HCCLAIMPMT,
+    _INSURER_CUSTOMER_PAYMENT,
+    _INVOICE_NUMBER,
+    _MICRO_DEPOSIT_FLOOR,
+    _NO_LEGAL_FORM_LATER,
+    _PAYER_REMITTANCE_CREDIT_PATTERNS,
+    _PAYMENT_CHANNEL_WORD,
+    _PAYOUT_FORMS,
+    _PROCESSOR_CONTEXT_TYPES,
+    _PUBLIC_PAYER_NAME,
+    _PUBLIC_PAYER_NAME_VETO,
+    _PUBLIC_PAYER_NON_SALE_WORDS,
+    _PUBLIC_PAYER_TEMPLATE,
+    _RECURRENCE_VETO,
+    _REMBOURSEMENT_WORD,
+    _RETURN_CODE_CREDIT_PATTERNS,
+    _RETURN_REFUND_CREDIT_PATTERNS,
+    _STORE_NAME_PAYOUT_ENTITIES,
+    _TREASURY_BOILERPLATE,
+)
+from analysis.descriptor.holder import (
+    _business_account,
+    account_name_text,
+    holder_named,
+    holder_reading,
+    holder_words,
+    platform_entry_leads_with_financing,
+    store_name_printed,
+    store_name_run_words,
+)
+from analysis.descriptor.payer import (
+    _is_bare_row,
+    _sender_payer_region,
+    channel_gate,
+    entry_fields,
+    numbered_company,
+    payer_region,
+)
+from analysis.descriptor.rails import (
+    _bare_incoming_wire,
+    _compile_field_order_forms,
+    _counter_debit_skip_words,
+    _is_wire_row,
+    _matches_any,
+    _public_payer_arm_a,
+    _state_words,
+    _third_party_originator,
+    _wire_vetoes_apply,
+    _with_served_cuts,
+    _without_receiver_value,
 )
 # The true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from analysis.true_revenue import (
@@ -170,13 +199,52 @@ from analysis.true_revenue import (
 )
 
 # True revenue reads these through _classifier() until its readers leave analysis/true_revenue/.
-from analysis.descriptor.lexical import company_form_outside_address, is_round_sum
+from analysis.description_text import _TRANSFER_WORDING
+from analysis.descriptor.credit_words import (
+    CUSTOMER_FINANCING_LUMP_FLOOR,
+    CUSTOMER_FINANCING_LUMP_ROUND,
+    CUSTOMER_FINANCING_LUMP_SHARE,
+    CUSTOMER_FINANCING_SERIES_MIN,
+    CUSTOMER_FINANCING_SERIES_SHARE,
+)
+from analysis.descriptor.holder import _summary_grid_header, account_product, holder_receiver_block
+from analysis.descriptor.lexical import (
+    _is_payer_word,
+    bank_by_form,
+    company_form_outside_address,
+    is_round_sum,
+    originator_address,
+)
+from analysis.descriptor.payer import (
+    _is_transfer_or_p2p_row,
+    credit_transfer_wording,
+    payer_label_layout,
+    relayed_customer_text,
+    wire_relayed_customer,
+)
+from analysis.descriptor.rails import _loose_wire_originator
 from analysis.descriptor.words import (
     BANK_SETTLEMENT_ORIGINATOR,
+    HOLDER_NOISE,
+    _ACH_ORIGINATOR_FIELD,
+    _BANK_COMPANY_FORM,
+    _BOFA_ENTRY_FIELD,
     _BRANCH_DEPOSIT_TRANSIT,
+    _CHASE_ENTRY_FIELD,
+    _CREDIT_WIRE_BENEFICIARY_VALUE,
     _GLUED_SEC_CODE,
+    _HOLDER_TEST_NOISE,
+    _HOLDER_TRADE_NAME,
+    _INTERNAL_ACCOUNT_SOURCE_WORDS,
+    _MEMO_ENTRY_FIELD,
+    _NUMBERED_PROVINCE_START,
+    _OWN_ACCOUNT_PRODUCT_WORDS,
     _PROVINCE,
     _REVENUE_TEMPLATE_PREFIX,
+    _SENDER_END,
+    _WIRE_FIELD_END,
+    _WIRE_SENDER_AFTER_LABEL,
+    _WIRE_SENDER_AFTER_LABEL_END,
 )
 
 if TYPE_CHECKING:
@@ -978,109 +1046,6 @@ _PAIR_FAMILY_PATTERNS = (
 )
 
 
-#: A tuple of rule patterns read as ONE compiled alternation, kept by the tuple's id beside the tuple itself (so an id
-#: is never reused while its entry is kept; the callers pass module constants, about 85 tuples). Searching
-#: `(?:p1)|(?:p2)|...` finds a match exactly when one of the patterns matches somewhere, and the alternation is built
-#: only where that holds by construction: a tuple of str patterns with one set of flags, no VERBOSE flag (a `#` comment
-#: would swallow the patterns joined after it), no group reference or conditional group, and an alternation that
-#: compiles. Anything else keeps the loop. tests/test_matches_any_alternation.py pins both.
-_ALTERNATIONS: dict[int, tuple[Sequence[object], re.Pattern[str] | None]] = {}
-_GROUP_REFERENCE = re.compile(r"\\\d|\(\?P=|\(\?\(")
-_ALTERNATION_LIMIT = 256
-
-
-def _alternation(patterns: Sequence[object]) -> re.Pattern[str] | None:
-    if not isinstance(patterns, tuple):
-        return None
-    found = _ALTERNATIONS.get(id(patterns))
-    if found is not None and found[0] is patterns:
-        return found[1]
-    combined = None
-    if (
-        patterns
-        and all(isinstance(pattern, re.Pattern) and isinstance(pattern.pattern, str) for pattern in patterns)
-        and len({pattern.flags for pattern in patterns}) == 1
-        and not patterns[0].flags & re.VERBOSE
-        and not any(_GROUP_REFERENCE.search(pattern.pattern) for pattern in patterns)
-    ):
-        try:
-            combined = re.compile("|".join(f"(?:{pattern.pattern})" for pattern in patterns), patterns[0].flags)
-        except re.error:
-            combined = None
-    if len(_ALTERNATIONS) >= _ALTERNATION_LIMIT:
-        # A caller building a tuple per call (a mutation tool) never grows this past the limit.
-        _ALTERNATIONS.clear()
-    _ALTERNATIONS[id(patterns)] = (patterns, combined)
-    return combined
-
-
-def _matches_any(text: str, patterns: Sequence[re.Pattern[str]]) -> bool:
-    combined = _alternation(patterns)
-    if combined is None:
-        return any(pattern.search(text) is not None for pattern in patterns)
-    return combined.search(text) is not None
-
-
-def prints_internal_transfer_designation(description: str) -> bool:
-    """Does this printed row DESIGNATE a movement between the member's own accounts?
-
-    R-d's fourth clause, and the only place it is decided. A movement is
-    INTERNAL only when the paper prints such a designation on at least one of
-    the two legs; an arithmetic coincidence — same day, same cent, opposite
-    sign — never sets it, because a member who deposits a sum into checking on
-    the day they withdraw the same sum from savings for an unrelated purpose
-    produces exactly that signature, and flagging it removes a printed deposit
-    from a funder's view of the business by an inference (design §3.2).
-
-    **Decided by `_INTERNAL_TRANSFER_CREDIT_PATTERNS` and, since 5.5 (§7.11),
-    the narrowed book and funds transfer rule, and by nothing else.** Every
-    member of that tuple names one member's OWN accounts as the source or the
-    destination — `TRANSFER FROM SAVINGS`, `SH TO SH`, `ACCOUNT TO ACCOUNT`,
-    `TRANSFER FROM <masked> TO <masked>`. A `BOOK TRANSFER` or `FUNDS TRANSFER`
-    (never `ELECTRONIC FUNDS TRANSFER DEPOSIT`, an EFT channel) designates an
-    own account only when it prints no third-party originator
-    (`_third_party_originator`): an account description after FROM (`BUSINESS
-    SAVINGS`, `LINE OF CREDIT`) names no payer, a payer's name does. Without the
-    owner's yes to T19 every `BOOK TRANSFER` designates one. A funds transfer an
-    incoming-wire label starts that prints only a reference
-    (`_bare_incoming_wire`) designates none: it is an incoming wire whose sender
-    is not printed. No account name is read here, so
-    `_own_book_or_funds_transfer`'s holder test does not apply: a transfer that
-    prints the holder's own name as its originator designates no own account for
-    R-d, the conservative direction.
-
-    **`_TRANSFER_PATTERNS` is REFUSED as evidence for this question, and the
-    refusal is a ruling rather than a preference**. That tuple carries `ZELLE`, `VENMO`, `CASH APP`,
-    `E TRANSFER`, `ETRANSFER` and `XFER`, and its one production use builds a
-    `strong_non_lender_exclusion` whose own reason string says the descriptor
-    identifies "an account, online, or person-to-person transfer" — so it
-    answers *this row is not a lender debit*, never *this row is an internal
-    movement*. A payment to or from another PERSON is not evidence that money
-    moved inside one member's ledger set, and admitting it would flag the pair
-    and then delete the matching printed deposit from package gross deposits,
-    deposit counts, revenue and the withholding denominator. Measured over the
-    archive's 47 candidate pairs: 43 carry an internal designation, 3 are
-    admitted only by the peer-to-peer vocabulary and 1 prints nothing at all,
-    and all 4 stay refused.
-
-    The description is normalised by this module's own normaliser first, so the
-    question is asked of exactly the text every other classification in this
-    module is decided on.
-    """
-    text = normalize_transaction_description(description)
-    # §7.11: a book or funds transfer designates an own account only when it prints no third-party originator. Nor
-    # when an incoming-wire label starts it and prints only a reference (_bare_incoming_wire), the rule
-    # _own_book_or_funds_transfer reads.
-    return _matches_any(text, _INTERNAL_TRANSFER_CREDIT_PATTERNS) or (
-        _BOOK_OR_FUNDS_TRANSFER.search(text) is not None
-        and _EFT_FUNDS_TRANSFER.search(text) is None
-        and (
-            (_BOOK_OR_FUNDS_TRANSFER.search(text).group(0).startswith("BOOK") and not THIRD_PARTY_BOOK_TRANSFER_AS_WIRE)
-            or (_third_party_originator(text) is None and not _bare_incoming_wire(text))
-        )
-    )
-
-
 # ---------------------------------------------------------------------------------------------------------------------
 # True revenue spec §5.2, §6.1, §7: the credit revenue
 # readers. Every credit revenue rule reads revenue_text(text); D11, normalized_description and every debit rule keep
@@ -1090,39 +1055,6 @@ def prints_internal_transfer_designation(description: str) -> bool:
 #: T18 (OQ5): a credit that prints the NACHA claim-payment entry skips the insurer registry, so an insurer's healthcare
 #: claim payment to a provider verifies. Off, it is held with the insurer's other credits.
 HCCLAIMPMT_CLAIM_FIRST = True
-#: §5.2: a receiver field of _CREDIT_RECEIVER_FIELD with its value.
-_CREDIT_RECEIVER_VALUE = re.compile(_CREDIT_RECEIVER_FIELD.pattern + _RECEIVER_VALUE_END)
-_WIRE_ENTRY_FIELD = re.compile(
-    r"\b(?:OBI|RMR|PMT DET|RFB|REF)\b (.*?)(?=\b(?:BNF|NBNF|BBI|OBI|SRF|TRN|IMAD|ACCT|SND BK|RFB|ORIG|B O|ORG)\b|$)"
-)
-#: The words the holder readers' published products print beyond the holder test's noise: PNC's product lines
-#: (analysis/pnc.py _PRODUCTS: 'PNC Core Commercial Checking', 'Virtual Wallet With Performance Spend', 'Treasury
-#: Enterprise Plan'). Every other product those readers publish ('Checking', 'TD Business Simple Checking', 'Business
-#: Chequing Account', First Citizens' and Navy Federal's printed product lines) prints a noise word, which already makes
-#: it name nobody as a holder's name (true_revenue._usable_holder_name).
-_ACCOUNT_PRODUCT_WORDS: frozenset[str] = frozenset({
-    "PNC", "CORE", "VIRTUAL", "WALLET", "WITH", "SPEND", "TREASURY", "ENTERPRISE", "PLAN",
-})
-#: Name particles, never a brand's initialism: a three-letter word the holder test skips when it reads the word a name
-#: leads with.
-_NAME_PARTICLES = frozenset({"DEL", "LOS", "LAS", "LES", "VAN", "VON", "DOS", "DAS", "SAN"})
-#: Chase's CHECKING SUMMARY grid header, which its parser published as the account name before B9 ('INSTANCES
-#: AMOUNT', alone or with the grid's first row glued on, or 'AMOUNT'): never a holder's name.
-_SUMMARY_GRID_HEADER_NAME = re.compile(r"^(?:INSTANCES|AMOUNT)\b")
-#: A word of fewer letters is a short initialism when a name leads with it.
-_INITIALISM_LETTERS = 3
-_NUMBERED_COMPANY_TEMPLATE = re.compile(
-    rf"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) \d{{6,10}}"
-    rf"(?:$| {_PROVINCE_NOT_A_NAME_START})"
-)
-#: A reference of six to fifteen digits printed in the same slot, before the payer's name: no part of the payer
-#: region, unless a province or territory (or a cut of one), Quebec's form or BMO's code tail follows it (a numbered
-#: company's number, or BMO's merchant reference before its code, which names no payer). Only when that word is no
-#: name's first word (_PROVINCE_NOT_A_NAME_START).
-_REFERENCE_BEFORE_PAYER = re.compile(
-    r"^(?:DIRECT DEPOSIT|ACC(?:OUN)?TS? PAYABLE(?: PMT)?|MISC PAYMENT|BILL PAYMENT) (?P<reference>\d{6,15}) (?=\S)"
-)
-_KEEPS_ITS_NUMBER = re.compile(_PROVINCE_NOT_A_NAME_START)
 #: §5.2, §8.1: the numbered-company form the counter-debit holds key a numbered company by: six to ten digits (no
 #: digit before them) and then a province or territory (or a cut of one) or BMO's code tail that is no name's first
 #: word (_PROVINCE_NOT_A_NAME_START), or Quebec's NNNN NNNN before QUEBEC (or its cut, or QC), then any legal forms,
@@ -1135,945 +1067,6 @@ _NUMBERED_FORM = re.compile(
     rf"|(?P<first>\d{{4}}) (?P<second>\d{{4}}) {_QUEBEC}\b)"
     rf"(?: (?:{_BMO_CODE_TAIL}|{_NUMBERED_TAIL_WORDS})\b)*"
 )
-#: §5.2: RBC's `ACCOUNT PAYABLE PMT` and Scotiabank's `ACCOUNTS PAYABLE` label printed before a numbered company's
-#: number: removed before the payer region is read, so `ACCOUNT PAYABLE PMT 1234567 ONTARIO` reads the region
-#: `1234567 ONTARIO`, as `MISC PAYMENT 1234567 ONTARIO` does, and the holder test reads the holder's own number. A
-#: word-named payer after a reference keeps its region (`ACCOUNTS PAYABLE <reference> NORTHWIND SUPPLY INC`).
-_AP_LABEL_BEFORE_NUMBERED = re.compile(rf"^ACC(?:OUN)?TS? PAYABLE(?: PMT)? (?=\d{{6,10}} {_PROVINCE_NOT_A_NAME_START})")
-
-
-def _without_receiver_value(text: str) -> str:
-    """§5.2: the text with each receiver field's value removed and every field after it kept, for the operating alias
-    and the ledger gate. The holder's name never names a source ('INDN SQUARE INC CO ID ...' is the holder), while
-    Bank of America's PMT INFO addenda, printed after INDN and CO ID, still does ('... CO ID 1 CCD PMT INFO
-    WORLDPAY ...'): _before_receiver would cut the addenda away with the receiver.
-
-    On an incoming wire (_is_wire_row: labels only a credit prints) the beneficiary field's value goes too, as a
-    receiver's does: a credit wire's beneficiary is the holder ('... ORIG NORTHWIND EXPORTS LLC... BNF SQUARE ONE
-    BAKERY'). Any other row keeps it: Chase's real-time layout prints the originator there ('FROM BNF INTUIT
-    PAYMENTS INC'), and a debit's beneficiary is its payee.
-
-    American Express's incoming-ACH template loses its unlabelled receiver block, the sending bank and trace after it
-    kept (_AMEX_ACH_CREDIT)."""
-    amex = _AMEX_ACH_CREDIT.match(text)
-    if amex is not None:
-        text = text[: amex.end("id")] + text[amex.end("receiver"):]
-    stripped = _CREDIT_RECEIVER_VALUE.sub(" ", text)
-    if _is_wire_row(text):
-        stripped = _CREDIT_WIRE_BENEFICIARY_VALUE.sub(" ", stripped)
-    return stripped
-
-
-def _is_wire_row(text: str) -> bool:
-    """§7.9, §8.5: the row begins with an incoming-wire label, or (T19) is a third-party book transfer."""
-    return _INCOMING_WIRE_LABEL.match(text) is not None or _third_party_book_transfer(text)
-
-
-def _wire_vetoes_apply(text: str) -> bool:
-    """The wire vetoes (_wire_vetoed) and the wire company-form gate read a wire row (_is_wire_row) and, failing
-    closed, any row that prints WIRE, so a reference glued to WIRE never skips them. The verifier's own channel test
-    (N1, _wire_remittance_purpose) keeps _is_wire_row. WIRE in the receiver's (the holder's) name makes no row a
-    wire (§5.2)."""
-    return _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is not None
-
-
-def _is_transfer_or_p2p_row(text: str) -> bool:
-    """§8.4: a person-to-person rail, or transfer wording, on a row that is no wire. The transfer wording a credit's
-    row prints outside a company-formed ACH originator's own name (credit_transfer_wording)."""
-    row = _before_receiver(text)
-    return _CONSUMER_P2P_RAIL.search(row) is not None or _PUSH_RAIL.search(row) is not None or (
-        credit_transfer_wording(row) is not None
-    )
-
-
-#: The ACH originator fields that open an originator's own name for credit_transfer_wording: Chase's labels, or Bank of
-#: America's DES with a field of its layout after its entry (ID, INDN, CO ID, IND NAME, IND ID or an ACH class code, the
-#: entry five words at most, as _BOFA_ENTRY_FIELD ends it). A DES with none of them after it is no field: a town's word
-#: ('TRANSFER FROM CONTOSO LLC DES MOINES IA', 'XFER CONTOSO LLC DES PLAINES IL'), a French word or a wire's cut text. A
-#: town's DES never opens the field, whatever field word follows the town ('TRANSFER CONTOSO LLC DES MOINES IA TEL <n>',
-#: '... DES PLAINES IL ID <n>'): Des Moines, Des Plaines, Des Peres, Des Allemands, Des Lacs (Des Arc is left out: ARC is
-#: also an ACH class code).
-_ORIGINATOR_NAME_FIELD = re.compile(
-    r"\b(?:CO ENTRY DESCR|ORIG CO NAME)\b"
-    r"|\bDES(?! (?:MOINES|PLAINES|PERES|ALLEMANDS|LACS)\b)(?: \S+){0,5}? "
-    r"(?:ID|INDN|CO ID|IND NAME|IND ID|CCD|CTX|PPD|WEB|IAT|TEL|POP|BOC|ARC|RCK|CIE)\b"
-)
-#: A transfer's phrase words ('TRANSFER FROM CONTOSO LLC', 'XFER FRM ...', 'TRANSFER FR ...', 'TRF TO ...', 'TRANSFER
-#: BETWEEN ...'): a name that prints one is a transfer's text, never a company's own name.
-_TRANSFER_PHRASE_WORD = re.compile(r"\b(?:FROM|FRM|FR|TO|BETWEEN)\b")
-
-
-def credit_transfer_wording(row: str) -> re.Match[str] | None:
-    """§8.2, §8.6: the transfer wording a credit's row prints (_TRANSFER_WORDING), a company-formed ACH originator's own
-    name aside. On a row that prints an ACH originator field (_ACH_ORIGINATOR_FIELD: DES, CO ENTRY DESCR, ORIG CO NAME)
-    whose originator name (_ach_payer_region) prints transfer wording and, that wording removed, a company form
-    (_COMPANY_FORM: 'CONTOSO TRF LLC', 'TRF INDUSTRIES INC', 'CONTOSO TRANSFER INC'), the name's transfer tokens are
-    blanked inside the name's span only (the row's length kept, so the match's positions are the row's own) before the
-    row is read: the entry field's wording ('DES:TRANSFER', 'CO ENTRY DESCR:BANK XFER') is still read, and a name with
-    no company form ('SAMPLE BANK XFER', 'TRANSFER AND STORAGE CO', 'ONLINE TRANSFER') keeps its transfer reading. Any
-    other row is read as _TRANSFER_WORDING reads it. The credit's readers use it (the channel, the transfer row, the
-    bare row, the payer region); a debit's reader, the token filters and Q6's entry-field refusal keep
-    _TRANSFER_WORDING.
-
-    The field is Chase's label or Bank of America's DES with its layout after the entry (_ORIGINATOR_NAME_FIELD), never a
-    town's DES, and a name printing a transfer's phrase word (_TRANSFER_PHRASE_WORD: 'TRANSFER FROM CONTOSO LLC') is no
-    company's own name: such a named transfer keeps its transfer reading (Q4, T13)."""
-    found = _TRANSFER_WORDING.search(row)
-    if found is None or _ORIGINATOR_NAME_FIELD.search(row) is None:
-        return found
-    name = _ach_payer_region(row)
-    if not name or _TRANSFER_WORDING.search(name) is None or _TRANSFER_PHRASE_WORD.search(name) is not None:
-        return found
-    if _COMPANY_FORM.search(" ".join(_TRANSFER_WORDING.sub(" ", name).split())) is None:
-        return found
-    span = re.search(r"(?<!\S)" + re.escape(name) + r"(?!\S)", row)
-    if span is None:
-        return found
-    blanked = _TRANSFER_WORDING.sub(lambda token: " " * len(token.group(0)), name)
-    return _TRANSFER_WORDING.search(row[: span.start()] + blanked + row[span.end():])
-
-
-def _wire_payer_region(text: str, start: int = 0) -> str:
-    """§5.2: a wire's originator, after its label, up to the next wire field; on Santander's layout, the words after
-    the account number (the words after WIRE IN FROM are the sending bank). The label is searched from `start` (a
-    loose-wire row's own label, _loose_wire_label; 0 on an incoming-wire row)."""
-    santander = _SANTANDER_WIRE.match(text)
-    if santander is not None:
-        return _leading_name_words(santander.group("originator").strip())
-    found = _WIRE_ORIGINATOR_LABEL.search(text, start)
-    if found is None:
-        return _wire_sender_after_label(text)
-    region, customer = _labelled_originator(text, found)
-    return _leading_name_words(customer) if customer else region
-
-
-def _labelled_originator(text: str, found: re.Match[str]) -> tuple[str, str]:
-    """§5.2: a labelled wire originator's region, and the relaying bank's customer it names after a relay label
-    ('' when it names none, relayed_customer_text)."""
-    # A SWIFT 50F line number is dropped by the normalizer, where its slash still shows.
-    rest = text[found.end():]
-    end = _WIRE_FIELD_END.search(rest)
-    region = _leading_name_words(rest[: end.start()] if end is not None else rest)
-    after, city_state_end = originator_address(text, region)
-    return region, relayed_customer_text(region, rest, after=after, city_state_end=city_state_end) or ""
-
-
-def wire_relayed_customer(text: str) -> str:
-    """The relaying bank's customer a labelled wire's payer region reads, or '' (no label, Santander's layout, or
-    no relay)."""
-    if _SANTANDER_WIRE.match(text) is not None:
-        return ""
-    found = _WIRE_ORIGINATOR_LABEL.search(text)
-    return _labelled_originator(text, found)[1] if found is not None else ""
-
-
-_RELAY_CUSTOMER_END = re.compile(
-    _WIRE_FIELD_END.pattern + r"|\b(?:OGB|ORIGINATING BANK|OCMT|CHGS|INS|BBK|INT BK|INTERMEDIARY)\b"
-)
-
-
-def relayed_customer_text(region: str, rest: str, *, after: str = "", city_state_end: bool = False) -> str:
-    """§8.5: when a wire's originator (`region`, read from `rest`, the text after the originator label) reads as a
-    bank, and a relay label after it names the ultimate originator, that customer's text up to its end
-    (_RELAY_CUSTOMER_END), after its account number and any SWIFT line number: the bank only relays, so the customer is
-    the sender, read normally. '' when the originator is no bank by form (bank_by_form, read with the region's address
-    context, A3-G re-review 2), or no relay label names a customer (a bank sending on its own behalf). A numbered
-    company is a named payer (§5.2), so a relayed name that starts as one once its account number is dropped
-    (_NUMBERED_PROVINCE_START: '1234567 B C LTD', whose single letters and legal form are no payer words) is the
-    customer too."""
-    if not region or not bank_by_form(region, after, city_state_end=city_state_end):
-        return ""
-    for label in _RELAY_ORIGINATOR_LABEL.finditer(rest):
-        if label.start() == 0:
-            continue
-        after = rest[label.end():]
-        end = _RELAY_CUSTOMER_END.search(after)
-        tokens = (after[: end.start()] if end is not None else after).split()
-        while tokens and _is_reference_token(tokens[0]) and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
-            tokens.pop(0)
-        name = " ".join(tokens)
-        if _NUMBERED_PROVINCE_START.match(name) is not None or any(
-            _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
-            for token in _leading_name_words(name).split()
-        ):
-            return name
-    return ""
-
-
-#: A3: the words of the label layouts, never a sender's name ('WIRE TRANSFER DEPOSIT WIRE REF ...'), and a legal form
-#: or an article, which alone names nobody (as the person-to-person reader holds: 'WIRE TRANSFER INCOMING 1ABC LLC',
-#: whose name the reference reading drops, stays a wire with no sender).
-_WIRE_LABEL_WORDS = frozenset({
-    "INCOMING", "WIRE", "PAYMENT", "TRANSFER", "DEPOSIT", "CREDIT", "IN", "FROM",
-    "LLC", "INC", "INCORPORATED", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "PLLC", "ULC",
-    "PLC", "THE", "OF", "AND",
-})
-
-
-def _wire_sender_after_label(text: str) -> str:
-    """A3: the sender a wire prints right after its label (_WIRE_SENDER_AFTER_LABEL), read as the originator is: up to
-    the next wire field, NOTPROVIDED or WIRE PAYMENT, and to the first reference token after a name word
-    (_leading_name_words). A reference printed before the sender is no part of it, except a numbered company's number
-    before its province ('CA 1234567 ONTARIO INC', §5.2). '' when no payer word is left."""
-    found = _WIRE_SENDER_AFTER_LABEL.match(text)
-    if found is None:
-        return ""
-    rest = text[found.end():]
-    end = _WIRE_SENDER_AFTER_LABEL_END.search(rest)
-    tokens = (rest[: end.start()] if end is not None else rest).split()
-    while tokens and tokens[0].isdigit() and _NUMBERED_PROVINCE_START.match(" ".join(tokens)) is None:
-        tokens.pop(0)
-    region = _leading_name_words(" ".join(tokens))
-    named = any(
-        _is_payer_word(token) and not _is_reference_token(token) and token not in _WIRE_LABEL_WORDS
-        for token in region.split()
-    )
-    return region if named else ""
-
-
-def _sender_payer_region(text: str) -> str:
-    """§5.2: a person-to-person or transfer sender: the words after FROM, up to ON, REF, CONF, MEMO, TRN, ID, FOR,
-    NOTE, PMT INFO, PAYMENT INFO, PAYMENT ID (Truist's business-Zelle label, whose PAYMENT is no part of the
-    sender) or a reference token. Venmo and Cash App cash-outs print no sender. The sender after the next FROM when
-    the first prints Chase's contra-bank label (_CONTRA_BANK_FIELD)."""
-    row = _CONTRA_BANK_FIELD.sub(" ", _before_receiver(text), count=1)
-    found = re.search(r"\bFROM\b ?", row)
-    if found is None:
-        return ""
-    rest = row[found.end():]
-    end = _SENDER_END.search(rest)
-    return _leading_name_words(rest[: end.start()] if end is not None else rest)
-
-
-#: PNC prints 'CORPORATE ACH <entry> <reference(s)> <payer> <reference>': its entry description (ten characters at
-#: most, one or two words) and a reference before the payer's name. A row whose words after the label are no such
-#: entry and reference ('CORPORATE ACH PAYROLL <payer> <reference>') keeps its reading.
-_PNC_CORPORATE_ACH = "CORPORATE ACH "
-_PNC_ENTRY_WIDTH = 10
-
-
-def pnc_corporate_ach(row: str) -> tuple[str, str] | None:
-    """PNC's CORPORATE ACH layout read as (entry, the text from the payer's name on), or None."""
-    if not row.startswith(_PNC_CORPORATE_ACH):
-        return None
-    tokens = row[len(_PNC_CORPORATE_ACH):].split()
-    for size in (1, 2):
-        entry = tokens[:size]
-        if len(entry) < size or len(" ".join(entry)) > _PNC_ENTRY_WIDTH:
-            return None
-        rest = tokens[size:]
-        references = 0
-        while references < len(rest) and _is_reference_token(rest[references]):
-            references += 1
-        if references and references < len(rest):
-            return " ".join(entry), " ".join(rest[references:])
-    return None
-
-
-#: Navy Federal's 'DEPOSIT ACH PAID FROM <digits> <payer>' and Symitar's 'EXTERNAL DEPOSIT <digits> <payer>' print
-#: a block of four or more digits before the payer's name: the payer is read past it (a numbered company's number
-#: before its province is kept).
-_DIGIT_BLOCK_BEFORE_PAYER = re.compile(r"^(?:DEPOSIT ACH PAID FROM|EXTERNAL DEPOSIT) (?P<reference>\d{4,}) (?=[A-Z])")
-#: An ACH originator label printed with no value ('ORIG CO ACH CREDIT', a Chase export that keeps only the label) is
-#: no payer, and CO ENTRY DESCR starts the entry field ('CO ENTRY' is no payer either). CO alone stays a possible name
-#: word (_EMPTY_ACH_FIELD_LABELS reads label sequences only).
-_BARE_ORIG_CO_LABEL = re.compile(r"\bORIG CO\b(?! NAME\b)")
-_CO_ENTRY_DESCR_LABEL = re.compile(r"\bCO ENTRY DESCR\b")
-_EMPTY_ACH_FIELD_LABELS = re.compile(r"\b(?:ORIG CO NAME|ORIG CO|CO ENTRY DESCR|ORIG ID|IND NAME|IND ID)\b")
-
-
-def _without_reference_before_payer(row: str) -> str:
-    """The row without the reference printed before the payer's name (after DIRECT DEPOSIT, ACCOUNTS PAYABLE, MISC
-    PAYMENT or BILL PAYMENT, unless a province, Quebec's form or BMO's code tail follows it: _REFERENCE_BEFORE_PAYER,
-    _KEEPS_ITS_NUMBER), and without Navy Federal's or Symitar's digit block (_DIGIT_BLOCK_BEFORE_PAYER)."""
-    found = _REFERENCE_BEFORE_PAYER.match(row)
-    if found is not None and _KEEPS_ITS_NUMBER.match(row, found.end()) is None:
-        return row[: found.start("reference")] + row[found.end():]
-    found = _DIGIT_BLOCK_BEFORE_PAYER.match(row)
-    if found is not None and _NUMBERED_PROVINCE_START.match(row[found.start("reference"):]) is None:
-        return row[: found.start("reference")] + row[found.end():]
-    return row
-
-
-def _ach_payer_region(text: str) -> str:
-    """§5.2: an ACH or EFT payer: the row before its receiver fields, template prefixes removed, originator labels
-    removed, cut at the first ACH field, up to the first reference token after a name word. PNC's payer after its
-    entry and reference (pnc_corporate_ach); no reference printed before the payer's name
-    (_without_reference_before_payer); an empty ORIG CO label removed and CO ENTRY DESCR read as the entry field it
-    starts. RBC's and Scotiabank's accounts-payable label before a numbered company's number removed
-    (_AP_LABEL_BEFORE_NUMBERED), so the region keeps the number."""
-    row = _before_receiver(text)
-    pnc = pnc_corporate_ach(row)
-    if pnc is not None:
-        return _leading_name_words(_payee_region(pnc[1]))
-    row = _CO_ENTRY_DESCR_LABEL.sub("DESCR", _BARE_ORIG_CO_LABEL.sub("", row)).strip()
-    row = _AP_LABEL_BEFORE_NUMBERED.sub("", row, count=1)
-    return _leading_name_words(_payee_region(_strip_revenue_template(_without_reference_before_payer(row))))
-
-
-def _amex_ach_credit(text: str) -> bool:
-    """American Express's incoming-ACH template (_AMEX_ACH_CREDIT) on a row that prints no
-    person-to-person or push rail."""
-    if _AMEX_ACH_CREDIT.match(text) is None:
-        return False
-    row = _before_receiver(text)
-    return _CONSUMER_P2P_RAIL.search(row) is None and _PUSH_RAIL.search(row) is None
-
-
-def payer_label_layout(text: str) -> bool:
-    """The row prints a layout whose payer the payer region reads past a bank's label, entry, reference or code, or
-    where only an empty label prints: Chase's contra-bank field (_CONTRA_BANK_FIELD), PNC's CORPORATE ACH entry and
-    reference (pnc_corporate_ach), an empty ORIG CO label or a row that starts with CO ENTRY DESCR, a reference
-    before the payer or Navy Federal's or Symitar's digit block (_without_reference_before_payer) and
-    American Express's incoming-ACH template (_amex_ach_credit)."""
-    row = _before_receiver(text)
-    return bool(
-        _CONTRA_BANK_FIELD.search(row)
-        or pnc_corporate_ach(row) is not None
-        or _BARE_ORIG_CO_LABEL.search(row)
-        or row.startswith("CO ENTRY DESCR")
-        or _without_reference_before_payer(row) != row
-        or _amex_ach_credit(text)
-    )
-
-
-#: The originator labels a loose-wire row may print (Bank of America's ORIG, ORG, Fedwire's B O, ORIGINATOR),
-#: never an ACH layout's ORIG CO or ORIG ID.
-_LOOSE_WIRE_ORIGINATOR_LABEL = re.compile(
-    r"\b(?:B O|ORIGINATOR(?: NAME)?(?! TO BNF\b| TO BENEFICIARY\b)|ORIG(?! CO\b)(?! ID\b)(?! TO BNF\b)"
-    r"|ORG(?! TO BNF\b| TO BENEFICIARY\b))\b"
-)
-
-
-def _loose_wire_label(text: str) -> re.Match[str] | None:
-    """On a row no incoming-wire label starts that prints WIRE outside the receiver's value and no person-to-person or
-    push rail, the originator label ('DEPOSIT WIRE IN <reference> ORG <sender>') whose sender is read as an incoming
-    wire's is (_wire_payer_region). The first label after the row's first WIRE word (searched from that position, the
-    label's left boundary still read), never one before it: on the '<sender> WIRE' layout (Mercury, Brex) ORG, ORIG,
-    ORIGINATOR or B O before a row-final WIRE is a word of the sender's own name ('CONTOSO ORG LLC WIRE', a '.org'
-    domain), never a label. None when the row has no such label."""
-    if _is_wire_row(text) or _WIRE_WORD.search(_without_receiver_value(text)) is None:
-        return None
-    row = _before_receiver(text)
-    if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
-        return None
-    wire = _WIRE_WORD.search(row)
-    if wire is None:
-        return None
-    return _LOOSE_WIRE_ORIGINATOR_LABEL.search(row, wire.end())
-
-
-def _loose_wire_originator(text: str) -> bool:
-    """A loose-wire row that prints an originator label (_loose_wire_label; after the row's first WIRE word only)."""
-    return _loose_wire_label(text) is not None
-
-
-def _prints_no_payer(text: str) -> bool:
-    """§5.2, §6.1: a check, cash, branch, ATM or bare row: a channel that prints no payer."""
-    row = _before_receiver(text)
-    if _CHECK_DEPOSIT_FORM.search(row):
-        return True
-    if (
-        not _ELECTRONIC_PAYMENT_FORM.search(row)
-        and not _CONSUMER_P2P_RAIL.search(row)
-        and _CASH_BRANCH_ATM_FORM.search(row)
-    ):
-        return True
-    return _is_bare_row(text)
-
-
-def _is_bare_row(text: str) -> bool:
-    """§8.2: a bare deposit, credit or EFT: once the template prefixes, the generic words, the reference tokens and
-    single letters are removed, no payer word remains, and the row prints no transfer wording. No transfer wording
-    outside a company-formed ACH originator's own name (credit_transfer_wording)."""
-    row = _before_receiver(text)
-    if credit_transfer_wording(row):
-        return False
-    # An ACH field label printed with no value names no payer.
-    row = _EMPTY_ACH_FIELD_LABELS.sub(" ", row).strip()
-    return not any(_is_payer_word(token) for token in _strip_revenue_template(row).split())
-
-
-def payer_region(text: str) -> str:
-    """§5.2: the payer region of a credit's revenue text, read by its channel: a wire's originator, a
-    person-to-person or transfer sender, an ACH or EFT payer, or nothing on a check, cash, branch, ATM or bare row.
-    Read before any token is filtered, so a numbered company's leading digits and a legal word are kept. A
-    loose-wire row's originator label is read as an incoming wire's (_loose_wire_originator), and American
-    Express's incoming-ACH template is read as ACH, its entry's transfer word aside (_amex_ach_credit). A
-    loose-wire row is read from its own label, the first after the row's first WIRE word (_loose_wire_label), so a
-    label word inside a '<sender> WIRE' row's name never cuts it."""
-    if _is_wire_row(text):
-        return _wire_payer_region(text)
-    loose = _loose_wire_label(text)
-    if loose is not None:
-        # _before_receiver returns a prefix of the text, so the label's offset is the text's own.
-        return _wire_payer_region(text, loose.start())
-    if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text):
-        sender = _sender_payer_region(text)
-        row = _before_receiver(text)
-        # A transfer-worded row that prints an ACH originator field and no FROM sender names its payer the ACH way
-        # ('CONTOSO BAKERY LLC DES:TRANSFER'), so the holder test and the counter-debit hold read it.
-        if (
-            not sender
-            and _ACH_ORIGINATOR_FIELD.search(row)
-            and not _CONSUMER_P2P_RAIL.search(row)
-            and not _PUSH_RAIL.search(row)
-        ):
-            return _ach_payer_region(text)
-        return sender
-    if _prints_no_payer(text):
-        return ""
-    return _ach_payer_region(text)
-
-
-def entry_fields(text: str) -> str:
-    """§5.2: the words the payer prints about the payment: Bank of America's DES field, Chase's CO ENTRY DESCR field,
-    a wire's OBI, RMR, PMT DET, RFB and REF text, a transfer's memo. Empty when the layout has none (its entry words
-    sit inside the payer region, which the holds read too)."""
-    row = _before_receiver(text)
-    fields = []
-    for pattern in (_BOFA_ENTRY_FIELD, _CHASE_ENTRY_FIELD):
-        found = pattern.search(row)
-        if found is not None:
-            fields.append(found.group(1).strip())
-    # PNC's entry description, printed before its reference and the payer (pnc_corporate_ach).
-    pnc = pnc_corporate_ach(row)
-    if pnc is not None:
-        fields.append(pnc[0])
-    if _is_wire_row(text):
-        fields.extend(found.group(1).strip() for found in _WIRE_ENTRY_FIELD.finditer(text))
-    elif _is_transfer_or_p2p_row(text):
-        fields.extend(found.group(1).strip() for found in _MEMO_ENTRY_FIELD.finditer(row))
-    return " ".join(field for field in fields if field)
-
-
-@cache
-def account_name_text(account_name: str | None) -> str:
-    """The statement's account name, normalized once per name ('' when none is printed), so the holder test
-    never re-normalizes it row by row."""
-    return normalize_transaction_description(account_name) if account_name else ""
-
-
-def holder_reading(account_name: str | None, holder_name: str | None = None) -> str | None:
-    """The name the holder tests read: the holder's own name when the parser read it from the header or the mailing
-    block (Statement.holder_name), else the account-name field (a product, a nickname or, on some layouts, the
-    holder). The account-name field keeps every product reading (_business_account)."""
-    if holder_name and holder_name.strip():
-        return holder_name
-    return account_name
-
-
-def _holder_test_words(words: Sequence[str]) -> list[str]:
-    """A name's words as the holder test reads them, on either side: no holder-test noise word, no digit, three
-    letters or more."""
-    return [
-        word for word in words
-        if word not in _HOLDER_TEST_NOISE and not any(ch.isdigit() for ch in word) and len(word) > 2
-    ]
-
-
-def _summary_grid_header(text: str) -> bool:
-    """A normalized account name that is Chase's summary grid header, not a name."""
-    return _SUMMARY_GRID_HEADER_NAME.match(text) is not None
-
-
-def account_product(text: str) -> bool:
-    """A normalized account name that is a product a holder reader publishes, never a holder's name: no company form,
-    and every word the holder test reads (_holder_test_words) a product word (_ACCOUNT_PRODUCT_WORDS), so PNC's
-    'Treasury Enterprise Plan' names nobody while 'TREASURY SAMPLE PLAN LLC' does."""
-    if not text or company_form(text):
-        return False
-    return all(word in _ACCOUNT_PRODUCT_WORDS for word in _holder_test_words(text.split()))
-
-
-def holder_words(account_name: str | None) -> tuple[str, ...]:
-    """§5.2: the holder's name (holder_reading), normalized, without holder-test noise, digit tokens and short tokens.
-    Often empty: the account-name field is frequently only a product name. A summary grid header names nobody, and the
-    bank and product abbreviations are noise. Nor does a product a holder reader publishes (account_product)."""
-    text = account_name_text(account_name)
-    if not text or _summary_grid_header(text) or account_product(text):
-        return ()
-    return tuple(_holder_test_words(text.split()))
-
-
-def _lead_word(words: Sequence[str]) -> str | None:
-    """The word a name leads with: its first word that is no common name-starter and no particle."""
-    return next((word for word in words if word not in _NAME_STARTERS and word not in _NAME_PARTICLES), None)
-
-
-def _person_name_reading(text: str) -> bool:
-    """§5.2: a name that reads as a person's: no company form and no trade-name marker (_HOLDER_TRADE_NAME), and,
-    its digit tokens and generic words (REVENUE_GENERIC_WORDS) dropped, two to four words of letters, none a
-    holder-test noise word (_HOLDER_TEST_NOISE)."""
-    if not text or company_form(text) or _HOLDER_TRADE_NAME.search(text):
-        return False
-    words = [
-        word for word in text.split()
-        if not any(character.isdigit() for character in word) and word not in REVENUE_GENERIC_WORDS
-    ]
-    return 2 <= len(words) <= 4 and all(word.isalpha() and word not in _HOLDER_TEST_NOISE for word in words)
-
-
-def _printed_lead(words: Sequence[str]) -> str | None:
-    """§5.2: the word a name leads with as printed: its first word of letters, two letters or more, that is no
-    holder-test noise word (_HOLDER_TEST_NOISE: a layout's labels, the generic words) and no particle (_NAME_PARTICLES).
-    Unlike _lead_word, a name-starter and a two- or three-letter word are kept ('GOLDEN', 'ACE', 'JB')."""
-    return next((
-        word for word in words
-        if word.isalpha() and len(word) >= 2 and word not in _HOLDER_TEST_NOISE and word not in _NAME_PARTICLES
-    ), None)
-
-
-def _holder_abbreviation(word: str, holder_printed: Sequence[str]) -> bool:
-    """§5.2: `word` abbreviates the holder's printed name (`holder_printed`, its words of letters): two to
-    _INITIALISM_LETTERS letters, and either the initials of the holder's first words ('NYS' for 'NORTHWIND YACHT
-    SERVICE') or a run of the holder's printed lead's letters in order from its first ('NW', 'NWD' for 'NORTHWIND';
-    never 'ACE', 'AAA' or 'JB')."""
-    if not 2 <= len(word) <= _INITIALISM_LETTERS:
-        return False
-    if len(holder_printed) >= len(word) and "".join(held[0] for held in holder_printed[: len(word)]) == word:
-        return True
-    lead = _printed_lead(holder_printed)
-    if lead is None or not lead.startswith(word[0]):
-        return False
-    letters = iter(lead)
-    return all(letter in letters for letter in word)
-
-
-def _holder_name_words_match(
-    payer: Sequence[str], holder: Sequence[str], *, people: bool = False,
-    printed_payer: Sequence[str] | None = None, holder_printed: Sequence[str] | None = None,
-) -> bool:
-    """§5.2's holder test on one name of the holder's. A one-word holder must be the word the payer's name leads
-    with. When either name leads with a short initialism, the two lead words are compared as printed: the same
-    initialism is a likely affiliate, a different one a different company (never the industry word after it);
-    otherwise the first distinctive words (four letters or more) are compared, the brand-word affiliate arm of §5.2.
-    Two shared words always match.
-
-    When both names read as a person's (`people`, holder_named), the initialism and brand-word arms are skipped: a
-    person sharing only the holder's given name is another person. And two shared words match only when they include the
-    word the holder's name leads with, or when the payer's own first distinctive word is a holder word (or it has none):
-    another company leading with its own name and sharing the holder's trailing trade words ('<A> YACHT SERVICE' paying
-    '<B> YACHT SERVICE LLC') is a customer, while the holder's own words after a label or the owner's name ('SAMPLE
-    PERSON NORTHWIND MARINE LLC', 'SAMPLEMAN TRUCKING') stay the holder's.
-
-    Read with the two names as printed (`printed_payer`, the payer reading's words of letters; `holder_printed`, the
-    holder's; holder_named passes both, and without them the R20 reading above is kept), two shared words match when
-    they include the holder's lead and, if the holder's name leads with a name-starter or a two-letter word (its
-    printed lead, _printed_lead, is not its lead), the payer prints that word ('GOLDEN' for 'GOLDEN YACHT SERVICE LLC',
-    'JB' for 'JB MARINE REPAIR LLC'); or when the R20 payer condition holds and the payer's own printed lead (a
-    name-starter, a short word or an initialism included) is none, a holder word or the holder's abbreviation
-    (_holder_abbreviation: 'NW' for 'NORTHWIND'): 'GOLDEN', 'ACE' or 'JB YACHT SERVICE' paying 'NORTHWIND YACHT SERVICE
-    LLC' is a customer. The reading is narrower than R20's: it can only release."""
-    if not holder:
-        return False
-    payer_lead = _lead_word(payer)
-    if len(holder) == 1:
-        return payer_lead == holder[0]
-    holder_lead = _lead_word(holder)
-    printed = printed_payer is not None and holder_printed is not None
-    holder_printed_lead = _printed_lead(holder_printed) if printed else None
-    if not people and _brand_word_match(
-        payer, holder, payer_lead, holder_lead, printed_payer=printed_payer if printed else None,
-        holder_printed_lead=holder_printed_lead,
-    ):
-        return True
-    shared = _shared_holder_words(payer, holder, cuts=people)
-    if len(shared) < 2:
-        return False
-    if holder_lead in shared and (
-        not printed or holder_printed_lead in (None, holder_lead) or holder_printed_lead in printed_payer
-    ):
-        return True
-    payer_first = _first_distinctive_word(payer)
-    if payer_first is not None and payer_first not in holder:
-        return False
-    if not printed:
-        return True
-    payer_printed_lead = _printed_lead(printed_payer)
-    return (
-        payer_printed_lead is None or payer_printed_lead in holder_printed
-        or _holder_abbreviation(payer_printed_lead, holder_printed)
-    )
-
-
-def _shared_holder_words(payer: Sequence[str], holder: Sequence[str], *, cuts: bool) -> list[str]:
-    """§5.2: the holder's words the payer prints, in the payer's order. With `cuts` (two names read as a person's,
-    whose given-name arm is skipped), a payer word the bank's field cut, a proper prefix of a holder word of
-    _HOLDER_RUN_CUT_LETTERS letters or more, is that holder word, so the holder's own name cut short ('NORTHWIND
-    DISTRIB' for 'NORTHWIND DISTRIBUTION', the B5 American Express pull) stays the holder's."""
-    shared: list[str] = []
-    for word in dict.fromkeys(payer):
-        if word in holder:
-            shared.append(word)
-        elif cuts and len(word) >= _HOLDER_RUN_CUT_LETTERS:
-            whole = next((held for held in holder if held != word and held.startswith(word)), None)
-            if whole is not None:
-                shared.append(whole)
-    return list(dict.fromkeys(shared))
-
-
-def _brand_word_match(
-    payer: Sequence[str], holder: Sequence[str], payer_lead: str | None, holder_lead: str | None, *,
-    printed_payer: Sequence[str] | None = None, holder_printed_lead: str | None = None,
-) -> bool:
-    """§5.2: the initialism and brand-word affiliate arms of _holder_name_words_match: when either name leads with a
-    short initialism, the two lead words as printed; otherwise the first distinctive words. When the holder's printed
-    lead (`holder_printed_lead`) is a name-starter or a two-letter word, which the first distinctive word skips, a
-    first-distinctive match also needs the payer to print it (`printed_payer`), so 'ROYAL YACHT SERVICE' never matches
-    'GOLDEN YACHT SERVICE LLC' on YACHT; the initialism arm is unchanged."""
-    if holder_lead is not None and payer_lead is not None and (
-        len(holder_lead) <= _INITIALISM_LETTERS or len(payer_lead) <= _INITIALISM_LETTERS
-    ):
-        return holder_lead == payer_lead
-    holder_first = _first_distinctive_word(holder)
-    if holder_first is None or _first_distinctive_word(payer) != holder_first:
-        return False
-    if printed_payer is not None and holder_printed_lead is not None and (
-        holder_printed_lead in _NAME_STARTERS or len(holder_printed_lead) == _DROPPED_INITIALISM_LETTERS
-    ):
-        return holder_printed_lead in printed_payer
-    return True
-
-
-#: The legal forms a holder's name run may print or leave off, read out of both names before a payer's trailing run of
-#: the holder's name is looked for.
-_HOLDER_RUN_LEGAL_FORMS = frozenset({
-    "LLC", "INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "LP", "LLP", "PLLC", "PLC", "DBA",
-})
-
-
-def _holder_run_words(name: str) -> list[str]:
-    """A holder's name's words as the receiver-block strip reads them: tokenized as the payer reading is (payer_name:
-    no token holding a digit, no single letter), its legal forms left out (_HOLDER_RUN_LEGAL_FORMS), so 'CONTOSO S
-    FLOWER SHOP LLC' (a possessive's apostrophe normalized to a space) runs 'CONTOSO FLOWER SHOP' as the payer reading
-    prints it."""
-    return [word for word in payer_name(name).split() if word not in _HOLDER_RUN_LEGAL_FORMS]
-
-
-#: Another payer's name before a trailing run of the holder's name holds this many name words (letters, no generic or
-#: noise word): a layout's labels before the holder's own name ('DEPOSIT ACH PAID FROM') name no payer.
-_PAYER_BEFORE_HOLDER_RUN_WORDS = 2
-
-
-#: A run of the holder's name inside another payer's region starts with the holder's first two name words, the
-#: second whole or cut to this many letters or more.
-_HOLDER_RUN_CUT_LETTERS = 3
-
-
-#: Truist's receiver slot. Its credit rows print '<entry> <company field> <receiver> CUSTOMER ID <id>': the receiver
-#: (the holder) after the originator's company field, with no label, the bank printing no padding, so a short
-#: originator runs straight on into the holder's name.
-_RECEIVER_SLOT_LABEL = re.compile(r" CUSTOMER ID\b")
-#: The statement's bank that prints that receiver slot (Truist's own reader publishes 'Truist'); another bank
-#: printing CUSTOMER ID keeps the two-word reading.
-_RECEIVER_SLOT_BANK = re.compile(r"\bTRUIST\b", re.IGNORECASE)
-
-
-def holder_receiver_block(text: str, bank: str | None = None) -> int | None:
-    """How the row's payer reading may print the holder's name as another payer's unlabelled receiver block
-    (holder_named's `receiver_block`: the name words of another payer's that must print before a run of the holder's
-    name for the run to be read as the receiver). None on a labelled sender, which prints the sender alone, so a run of
-    the holder's name inside it is the holder's ('ZELLE PAYMENT FROM <owner> <holder>'): an incoming wire's originator
-    field, a person-to-person or push rail, a transfer's sender after FROM. One on Truist's layout, whose receiver slot
-    follows a company field that may print one word (_RECEIVER_SLOT_LABEL: 'TRANSFER <originator> INC <holder> CUSTOMER
-    ID <id>'). Two (_PAYER_BEFORE_HOLDER_RUN_WORDS) on any other row. The one-word slot is read on a Truist statement
-    only (`bank`, _RECEIVER_SLOT_BANK)."""
-    if _is_wire_row(text) or _loose_wire_originator(text):
-        return None
-    row = _before_receiver(text)
-    if _CONSUMER_P2P_RAIL.search(row) or _PUSH_RAIL.search(row):
-        return None
-    if _is_transfer_or_p2p_row(text) and not _amex_ach_credit(text) and _sender_payer_region(text):
-        return None
-    if _RECEIVER_SLOT_LABEL.search(row) and bank and _RECEIVER_SLOT_BANK.search(bank):
-        return 1
-    return _PAYER_BEFORE_HOLDER_RUN_WORDS
-
-
-def _without_trailing_holder_run(
-    payer: str, names: Sequence[str], payer_words: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
-) -> str:
-    """A payer name that prints another payer's name first (two name words or more, _PAYER_BEFORE_HOLDER_RUN_WORDS) and
-    then a run of one of the holder's names (its first two words, the second whole or cut): the unlabelled receiver
-    block, read without that run and whatever follows it ('FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC'; Truist's
-    company field running on into the holder's name and a person's, 'INVOICES SAMPLE CHURC NORTHWIND HARBOR SAMPLE P');
-    any other payer name as it is. The layout sets how many name words of another payer's must print first
-    (`payer_words`, holder_receiver_block): one on Truist's receiver slot, and None on a labelled sender, which is read
-    as it is. The holder's name is read as the payer's is (_holder_run_words), so a possessive's S ('SAMPLE'S'
-    normalizes to 'SAMPLE S'), a middle initial or a digit token never stops the strip."""
-    if payer_words is None:
-        return payer
-    words = [word for word in payer.split() if word not in _HOLDER_RUN_LEGAL_FORMS]
-    held_names = [held for held in (_holder_run_words(name) for name in names) if len(held) >= 2]
-    for start in range(1, len(words) - 1):
-        if len(_holder_test_words(words[:start])) < payer_words:
-            continue
-        first, second = words[start], words[start + 1]
-        for held in held_names:
-            if held[0] == first and len(second) >= _HOLDER_RUN_CUT_LETTERS and held[1].startswith(second):
-                # A field printing the holder's own name glued is the holder's, never another payer.
-                return payer if _glued_holder_name(words[:start], held) else " ".join(words[:start])
-    return payer
-
-
-def _glued_holder_name(field: Sequence[str], held: Sequence[str]) -> bool:
-    """The words before a run of the holder's name print the holder's name with its spaces removed, whole, with a
-    legal form glued on, or cut to _HOLDER_CUT_LETTERS letters or more (Truist's company field printing the holder's
-    own name: 'TRANSFER CONTOSOGAMES CONTOSO GAMES CUSTOMER ID ...')."""
-    glued, name = "".join(field), "".join(held)
-    return glued.startswith(name) or (len(glued) >= _HOLDER_CUT_LETTERS and name.startswith(glued))
-
-
-#: A word the holder test drops that can still lead the holder's own name: GENERAL (a product's or a nickname's
-#: word, and a business's) and, by length, a two-letter initialism ('JB TRUCKING LLC'). A single letter never is:
-#: the payer reading drops it (payer_name).
-_DROPPED_NAME_LEADS = frozenset({"GENERAL"})
-_DROPPED_INITIALISM_LETTERS = 2
-
-
-def _dropped_lead_run(name: str, holder: Sequence[str]) -> tuple[str, ...] | None:
-    """A one-word holder whose printed name leads with a word the holder test drops (_DROPPED_NAME_LEADS, a two-letter
-    initialism): the printed run from that word to the holder's one word ('GENERAL PLUMBING' for 'GENERAL PLUMBING
-    LLC', 'JB TRUCKING' for 'JB TRUCKING LLC'), which the payer must print, so another company leading with the
-    industry word is never the holder. None for any other holder (a one-word holder printed alone, or after a bank's or
-    a product's abbreviation, keeps the one-word reading). A single letter is no word of the run, as the payer reading
-    drops it (payer_name), so 'JB'S TRUCKING LLC' (normalized 'JB S TRUCKING LLC') runs 'JB TRUCKING'."""
-    if len(holder) != 1:
-        return None
-    words = [
-        word for word in name.split() if word.isalpha() and len(word) > 1 and word not in _HOLDER_RUN_LEGAL_FORMS
-    ]
-    if holder[0] not in words:
-        return None
-    end = words.index(holder[0])
-    start = next((
-        index for index, word in enumerate(words[:end])
-        if word in _DROPPED_NAME_LEADS or len(word) == _DROPPED_INITIALISM_LETTERS
-    ), None)
-    return None if start is None else tuple(words[start:end + 1])
-
-
-def _prints_run(words: Sequence[str], run: Sequence[str]) -> bool:
-    """`words` print `run` as consecutive words."""
-    return any(tuple(words[index:index + len(run)]) == tuple(run) for index in range(len(words) - len(run) + 1))
-
-
-def holder_named(
-    region: str, account_name: str | None, *, receiver_block: int | None = _PAYER_BEFORE_HOLDER_RUN_WORDS,
-) -> bool:
-    """§5.2: the holder test, read on a payer region (never on a check, cash, branch, ATM or bare row, which has none)
-    against the holder's name (`account_name`: holder_reading's name). It matches when the payer's words name the holder
-    (_holder_name_words_match), when the payer is the holder's name cut short, or when the region prints a run of four
-    or more digits that the holder's name also prints. A DBA name's sides are each a name of the holder's, a summary
-    grid header names nobody, and the holder's name printed after another payer's words is that payer's unlabelled
-    receiver, never the payer (_without_trailing_holder_run). The row's layout says where that receiver can print
-    (`receiver_block`, holder_receiver_block: never on a labelled sender, after one name word on Truist's receiver
-    slot), and a one-word holder left by a dropped lead word is read with that word (_dropped_lead_run). A product a
-    holder reader publishes names nobody (account_product). A name of the holder's and a payer reading that both read as
-    a person's (_person_name_reading) are compared on their shared words only, never by the given name they lead with.
-    The shared words are read with both names as printed; and a DBA holder's whole name is read as a person's when its
-    first side is one ('<owner> DBA <trade>'), so another person sharing only the owner's given name is counted."""
-    if not region or not account_name:
-        return False
-    printed = account_name_text(account_name)
-    if not printed or _summary_grid_header(printed) or account_product(printed):
-        return False
-    names: tuple[str, ...] = (printed,)
-    if _HOLDER_TRADE_NAME.search(printed):
-        names = (printed, *_HOLDER_TRADE_NAME.split(printed, maxsplit=1))
-    reading = _without_trailing_holder_run(payer_name(region), names, receiver_block)
-    payer = _holder_test_words(reading.split())
-    printed_payer = [word for word in reading.split() if word.isalpha()]
-    person_payer = _person_name_reading(reading)
-    for index, name in enumerate(names):
-        holder = _holder_test_words(name.split())
-        run = _dropped_lead_run(name, holder)
-        if run is not None:
-            if _prints_run(printed_payer, run):
-                return True
-            continue
-        # The whole DBA name (names[0] beside its two sides) reads as a person's when its first side does; each side
-        # keeps its own reading.
-        person_side = names[1].strip() if index == 0 and len(names) > 1 else name
-        holder_printed = [word for word in name.split() if word.isalpha()]
-        if _holder_name_words_match(
-            payer, holder, people=person_payer and _person_name_reading(person_side), printed_payer=printed_payer,
-            holder_printed=holder_printed,
-        ):
-            return True
-    if _holder_cut_name(payer_name(region), printed):
-        return True
-    return any(
-        re.search(rf"(?<!\d){run}(?!\d)", printed) for run in re.findall(r"\d{4,}", region)
-    )
-
-
-#: A cut holder name names the holder when it keeps this many whole words before the cut, or this many letters in
-#: all.
-_HOLDER_CUT_WHOLE_WORDS = 2
-_HOLDER_CUT_LETTERS = 12
-
-
-def _holder_cut_name(payer: str, holder: str) -> bool:
-    """§5.2: the payer name is the holder's normalized name cut short: a word-by-word prefix of it whose last word is
-    a proper prefix of the holder's word there ('GLOBAL AMERICAN NORTHW' against 'GLOBAL AMERICAN NORTHWIND...'),
-    with _HOLDER_CUT_WHOLE_WORDS whole words before the cut or _HOLDER_CUT_LETTERS letters in all, so a single common
-    word never matches."""
-    sender = payer.split()
-    words = holder.split()
-    if not sender or len(sender) > len(words):
-        return False
-    whole, cut = sender[:-1], sender[-1]
-    if whole != words[: len(whole)]:
-        return False
-    target = words[len(whole)]
-    if cut == target or not target.startswith(cut):
-        return False
-    return len(whole) >= _HOLDER_CUT_WHOLE_WORDS or sum(len(word) for word in sender) >= _HOLDER_CUT_LETTERS
-
-
-def numbered_company(text: str, region: str | None = None) -> bool:
-    """§5.2: the payer is a Canadian numbered company: a template prefix followed by six or more digits, or a payer
-    region that begins with six or more digits and then a province, territory, CANADA or a cut of one, or up to four
-    words and a legal form, or with Quebec's form: four digits, a hyphen and four digits, then QUEBEC, a cut of it or
-    QC (S4.2 round 4; fix round 5: Quebec's words only, '1234-5678 QUEBEC INC'). Both read past a leading date."""
-    if _NUMBERED_COMPANY_TEMPLATE.search(_skip_numbered_leading_date(_before_receiver(text))):
-        return True
-    region = payer_region(text) if region is None else region
-    return _NUMBERED_COMPANY_REGION.search(_skip_numbered_leading_date(region)) is not None
-
-
-def channel_gate(text: str) -> str | None:
-    """5.5 (§6.1 step 9b), read on a credit's revenue text: 'closed' when a consumer person-to-person rail, a
-    check-deposit form, a cash, branch or ATM form, or no payer word at all is printed (no step verifies it);
-    'push' for a real-time or push rail (only the operating registry may verify it); None otherwise."""
-    row = _before_receiver(text)
-    if _CONSUMER_P2P_RAIL.search(row):
-        return "closed"
-    if _prints_no_payer(text) and not _is_wire_row(text):
-        return "closed"
-    if _PUSH_RAIL.search(row):
-        return "push"
-    return None
-
-#: §7.9 N1 and §7.11 (T19): the labels a reader needs to tell an incoming wire, and the originator a book or
-#: funds transfer prints after B O, CUSTOMER, ORIGINATOR, ORG, TT, FROM or WIRE FROM.
-_THIRD_PARTY_ORIGINATOR = re.compile(r"\b(?:B O|CUSTOMER|ORIGINATOR|ORG|TT|FROM|WIRE FROM)\b ?")
-#: §7.9 N1 and §7.11: the incoming-wire labels a row begins with. And Columbia Bank's 'WIRE DEPOSIT WIRE IN <reference>
-#: ORG <sender>', Navy Federal's 'BANK WIRE DEPOSIT' (which prints no sender) and U.S. Bank's 'WIRE CREDIT REF<n>
-#: <sending bank> <reference>' (whose sender prints after ORG= when the line is kept). The plural 'WIRE TRANSFERS
-#: <DEPOSIT|CREDIT|IN|INCOMING|FROM>' is the same wire label, never a person-to-person transfer (TRANSFERS stays
-#: transfer wording on any other row). And 'INCOMING FEDWIRE', 'INBOUND FEDWIRE', 'INBOUND WIRE' and 'INCOMING CHIPS',
-#: so a sender printed after them (ORG, B O, WIRE FROM) reaches Q5 as 'FEDWIRE CREDIT ORG <sender>' does; a row that
-#: prints none is held as a wire with no sender (Huntington's bare 'INCOMING FEDWIRE TRANSFER' among them). CHIPS alone
-#: is no label.
-_INCOMING_WIRE_LABEL = re.compile(
-    r"^(?:WIRE TYPE (?:WIRE|INTL|FX) IN\b|USD WIRE IN\b|[A-Z]{3} WIRE IN\b|FEDWIRE CREDIT\b|CHIPS CREDIT\b|WT FED"
-    r"|WIRE TSF\b|WIRE TRANSFERS? (?:DEPOSIT|CREDIT|IN|INCOMING|FROM)\b|INCOMING WIRE\b|WIRE IN\b|WIRE FROM\b"
-    r"|(?:DOMESTIC|INTL|INTERNATIONAL|FOREIGN) (?:INCOMING )?WIRE\b|INCOMING FUNDS TRANSFER\b"
-    r"|FUNDS TRANSFER CREDIT TT\b|INBD FUNDS TRANSFER\b|FUNDS TRANSFER WIRE FROM\b"
-    r"|WIRE DEPOSIT WIRE IN\b|BANK WIRE DEPOSIT\b|WIRE CREDIT REF ?\d+\b"
-    # Falcon International Bank's incoming international wire (IWT), which prints its sender after the bank's own
-    # wire field once its reader keeps the text after the amount (_FALCON_WIRE_FIELD).
-    r"|INTERNATIONAL IWT\b"
-    r"|INCOMING FEDWIRE\b|INBOUND (?:FEDWIRE|WIRE)\b|INCOMING CHIPS\b)"
-)
-_BOOK_TRANSFER_FROM = re.compile(r"^(?:BOOK TRANSFER CREDIT B O|WIRE TYPE BOOK IN\b.*\bORIG)\b ?")
-#: §7.11: the funds-transfer labels of an incoming wire (the label stands for FROM).
-_FUNDS_TRANSFER_WIRE_LABEL = re.compile(
-    r"\b(?:INCOMING FUNDS TRANSFER|FUNDS TRANSFER CREDIT TT|INBD FUNDS TRANSFER(?: RECEIVED)?|FUNDS TRANSFER WIRE FROM)"
-    r"\b ?"
-)
-
-
-def _third_party_originator(text: str) -> str | None:
-    """§7.11: the originator a book or funds transfer prints (after B O, CUSTOMER, ORIGINATOR, ORG, TT, FROM or WIRE
-    FROM, or one of the four funds-transfer wire labels), when it prints a distinctive payer word; otherwise None.
-    An account description is no payer ('FROM BUSINESS SAVINGS', 'FROM LINE OF CREDIT', 'FROM TAX RESERVE'):
-    _originator_payer_words."""
-    labels: tuple[re.Pattern[str], ...] = (_FUNDS_TRANSFER_WIRE_LABEL, _THIRD_PARTY_ORIGINATOR)
-    if _BOFA_BOOK_IN.match(text):
-        # Bank of America's WIRE TYPE BOOK IN is its WIRE TYPE WIRE IN layout: the originator follows ORIG (the
-        # normalizer drops a SWIFT 50F line number printed with its slash).
-        labels = (*labels, _BOFA_BOOK_IN_ORIGINATOR)
-    for label in labels:
-        for found in label.finditer(text):
-            rest = text[found.end():]
-            end = _WIRE_FIELD_END.search(rest)
-            words = _leading_name_words(rest[: end.start()] if end is not None else rest)
-            if _originator_payer_words(words):
-                return words
-    return None
-
-
-#: Bank of America's book-transfer wire and its originator label (never ORIG CO NAME, ORIG ID or ORIG TO BNF).
-_BOFA_BOOK_IN = re.compile(r"^WIRE TYPE BOOK IN\b")
-_BOFA_BOOK_IN_ORIGINATOR = re.compile(r"\bORIG\b(?! CO NAME\b)(?! ID\b)(?! TO BNF\b) ?")
-
-
-#: The words besides a reference that a bare incoming wire may print after its label: the wire label words
-#: (true_revenue's _WIRE_LABEL_ONLY_WORDS, made one list by R32: the bare channel words, every wire layout word, BANK,
-#: DEPOSIT, DEP, IN, RECEIVED and CR; a test keeps the two lists in step) and the funds-transfer labels' own originator
-#: labels, TT and FROM. Never a legal form, an article, a currency or a generic or holder-noise word (BUSINESS, TRUST,
-#: OPERATING, USD, CAD, ONLINE, PAYMENT, INC, LLC, THE): those are no reference.
-_BARE_WIRE_LABEL_WORDS = frozenset({
-    "WIRE", "WIRES", "TRANSFER", "BOOK", "CREDIT", "INCOMING", "INBOUND", "INBD", "FEDWIRE", "FED", "WT", "IWT",
-    "CHIPS", "SWIFT", "DOMESTIC", "INTL", "INTERNATIONAL", "BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR",
-    "TT", "FROM",
-})
-
-
-def _bare_incoming_wire(text: str) -> bool:
-    """§7.11: a row an incoming-wire label starts (_INCOMING_WIRE_LABEL: RBC's 'FUNDS TRANSFER CREDIT TT <reference> [O]',
-    'INCOMING FUNDS TRANSFER <reference>', 'WIRE TRANSFER IN <reference>') that prints no third-party originator
-    (_third_party_originator), and, after its label, no account word (_INTERNAL_ACCOUNT_SOURCE_WORDS: SAVINGS, CHECKING,
-    ACCOUNT, LOC ...) and no own-account product word (_OWN_ACCOUNT_PRODUCT_WORDS: RESERVE, TAX, PAYROLL, LOAN ...): an
-    incoming wire whose sender is not printed, which pass 7 holds as wire_no_sender (Q5), never the holder's own transfer.
-    A row that names the holder as its originator, or an own account after its label ('FUNDS TRANSFER CREDIT TT SAVINGS
-    <n>'), is not one.
-
-    The row prints only a reference, so every word after the label is a reference token (_is_reference_token: digits, a
-    masked token, a month), a single letter (RBC's trailing O or W) or a wire label word (_BARE_WIRE_LABEL_WORDS); any
-    other word ('<n> BUSINESS', '<n> USD', '<n> PAYMENT', '<n> INC') makes no bare incoming wire, and the row keeps its
-    own-account reading (true_revenue's credit_facts blanks a bare row's payer region, so its reference or label words
-    are never a counted sender)."""
-    found = _INCOMING_WIRE_LABEL.match(text)
-    if found is None or _third_party_originator(text) is not None:
-        return False
-    after = text[found.end():]
-    if _INTERNAL_ACCOUNT_SOURCE_WORDS.search(after):
-        return False
-    tokens = after.split()
-    if any(token in _OWN_ACCOUNT_PRODUCT_WORDS for token in tokens):
-        return False
-    return all(
-        _is_reference_token(token) or (len(token) == 1 and token.isalpha()) or token in _BARE_WIRE_LABEL_WORDS
-        for token in tokens
-    )
-
-
-def _third_party_book_transfer(text: str) -> bool:
-    """A Chase BOOK TRANSFER CREDIT B/O <originator> or a Bank of America WIRE TYPE BOOK IN that prints an
-    originator. Read as an incoming wire only on the owner's yes (THIRD_PARTY_BOOK_TRANSFER_AS_WIRE)."""
-    return (
-        THIRD_PARTY_BOOK_TRANSFER_AS_WIRE
-        and _BOOK_TRANSFER_FROM.match(text) is not None
-        and _third_party_originator(text) is not None
-    )
-
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Classification 5.5: the credit revenue rules (§6.1 steps 3 to 14, §7.1 to §7.11).
-# ---------------------------------------------------------------------------------------------------------------------
-
-#: §7.11: the unambiguous return codes, read on credits only (the debit rules keep _REFUND_REVERSAL_PATTERNS). The
-#: reversal-pair pass reads them too.
-_RETURN_CODE_CREDIT_PATTERNS = (
-    re.compile(
-        r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RECALL(?:ED)?|UNPAID|REJT|CHBK|CHGBK)\b"
-    ),
-)
 #: §7.11: a claim or provider signal. REIMBURSEMENT on such a row is a provider's claim payment, not a refund.
 _CLAIM_OR_PROVIDER_SIGNAL = re.compile(
     r"\b(?:MEDICAID|MEDICARE|MEDI CAL|TRICARE|CHAMPVA|GEMT|EMS|PROV(?:IDER)? ?PAY(?:MENTS?)?|EDI PYMNTS|CLAIM PMT)\b"
@@ -2085,103 +1078,11 @@ _REIMBURSEMENT_WORD = re.compile(r"\bREIMBURSEMENT\b")
 #: REMBOURSEMENT on such a row is the clinic's claim payment, as REIMBURSEMENT is beside a claim or provider signal
 #: (_CLAIM_OR_PROVIDER_SIGNAL).
 _QUEBEC_HEALTH_PAYER = re.compile(r"(?<![A-Z])(?:RAMQ|REGIE (?:DE L )?ASSURANCE MALADIE(?: DU QUEBEC)?)\b")
-#: The card-shaped refund labels step 3 adds (Citibank's cut DEBIT CARD CREDI, Bank of America's credit-side
-#: CHECKCARD <mmdd>, a point-of-sale deposit naming its merchant), released as a card credit is
-#: (_card_credit_released).
-_CARD_REFUND_LABELS = (
-    re.compile(r"\bDEBIT CARD CREDI\b"),
-    re.compile(r"^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b"),
-    re.compile(r"\bPOINT OF SALE DEPOSIT [A-Z]"),
-)
-_REMBOURSEMENT_WORD = re.compile(r"(?<![A-Z])REMBOURSEMENT\b")
-#: No legal-form word later on the row. A marker word that starts a company's name (REV MOBILE LLC, RETOUR CONTOSO
-#: INC, UNAUTHORIZED CONTOSO LLC) is no reversal. Copied in true_revenue._POSSIBLE_RETURN and in
-#: tools/revenue_census.py.
-_NO_LEGAL_FORM_LATER = (
-    r"(?!.*\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|COMPANY|LTD|LTEE|LIMITED|LLP|LLLP|PLLC|ULC|PLC|GMBH)\b)"
-)
-#: §6.1, §7.11, §20: the reversal, correction and refund spellings
-#: step 3 also reads on a credit, beside its 5.4 patterns and the return codes:
-#: - a bounced outgoing payment credited back (Zions' ITEM RET NOT PAID; never ITEM RETURNED before a fee, the bank's
-#:   charge), and a returned deposited item (PNC's RET DEP ITEM). NOT PAID is read only after an item or return word,
-#:  or as the whole row with its references (never inside a memo or a wire's remittance field);
-#: - a bank's error or transaction correction, and a correction printed first, glued to its reference too (never a
-#:   name that only starts with it: CORRECTIONAL ...; never DEPT OF CORRECTION, which prints it last);
-#: - card-purchase refunds: U.S. Bank's DEBIT PURCHASE RET, a reversed card or mobile purchase printed first (REV
-#:  MOBILE, POS, DEBIT, PURCHASE, ACH or CARD) and the card-shaped labels (_CARD_REFUND_LABELS). The
-#:   leading REV form needs a transaction word, a reference or the row's end after the rail word, or no legal-form word
-#:   later on the row (never REV MOBILE LLC ...);
-#: - a provisional credit cut to CR, an unauthorized-ACH settlement (never a company's name: no legal-form word
-#:   later), and an e-Transfer the holder reclaimed (RECLAIM with its reference glued after it, or last on the row:
-#:  CIBC's E TRANSFER RECLAIM<digits>; never a payer's word, RECLAIM CONTOSO LLC or RECLAIMED ...);
-#: - the French reversal, return and refund words RENV, RENVERSEMENT, RETOUR and REMBOURSEMENT (REMBOURSEMENT with
-#:  §7.11's provider carve-out, _remboursement_from_a_provider). RETOUR needs a reference, MDSE or
-#:   MARCHANDISE, or the row's end after it, or no legal-form word later (never RETOUR CONTOSO INC);
-#: - a fee waiver (FEE WAIVE, WAIVED, WAIVER) and a courtesy refund (TD's WIRE OUT COURTESY REF).
-#: Read on credits only, by step 3 and, on the credit row, by pass 4's revenue side (_CREDIT_PAIR_MARKER_PATTERNS); the
-#: lender side of pass 4 never reads them.
-#:
-#: And these arms, each copied verbatim in
-#: true_revenue._POSSIBLE_RETURN and in tools/revenue_census.py (_REVERSAL_MARKERS_56, on the masked text), where a test
-#: keeps the three copies in step:
-#: - a Quebec returned item (EFFET RETOURNE, EFFETS RETOURNES, the bank's cut EFFET RET);
-#: - CIBC's reversal of the holder's cheque or pre-authorized debit (CONTRE-PASSATION DE CHEQUE|DEBIT ..., its hyphen
-#:   normalized to a space or dropped);
-#: - RBC's French refused item, the bank crediting back a payment refused for no funds (EFFET|CHEQUE REFUSE SANS
-#:   PROVISION; a lost accent leaves REFUS);
-#: - the English check-word form of NOT PAID (CHECK|CHEQUE|CHK|CHQ [<n>] NOT PAID). At the row's head
-#:   only (a spaced or glued leading date before it, spaces the backstop's label removal leaves), as the whole-row NOT
-#:   PAID is read: never inside a wire's remittance field, a person-to-person memo or an ACH entry description;
-#: - an e-Transfer the holder reclaimed with a spaced or colon-separated reference, the rail word (INTERAC, E TRANSFER,
-#:   E TFR) printed right before RECLAIM and a reference holding a digit right after it, or TD's RECLAIM E-TFR. Never
-#:   RECLAIM as a payer's word, nor after a reference (a sender's name follows it there);
-#: - the fee waiver, now with no legal-form word later on the row (never a company named <word> FEE WAIVER ... INC), as
-#:   RETOUR, REV and UNAUTHORIZED read.
-#: The lost accent (a replacement character the French text layer can
-#: leave, normalized to a space) is tolerated inside CHEQUE ('CH QUE REFUS SANS PROVISION') and after RETOURN ('EFFET
-#: RETOURN', 'EFFETS RETOURN S'), as after REFUS; the REFUS ... SANS PROV tail stays mandatory after CH QUE, so a name
-#: or a town ('RANCH QUEEN CREEK') never matches.
-_RECLAIM_RAIL = r"(?:INTERAC|E ?TRANSFER|E ?TFR)"
-_RETURN_REFUND_R2_B08_ARMS = (
-    r"(?<![A-Z])EFFETS? (?:RET|RETOUR|RETOURNEE?S?|RETOURN(?: E?E?S)?)\b",
-    r"(?<![A-Z])CONTRE ?PASSATIONS?\b",
-    r"(?<![A-Z])(?:EFFETS?|CHEQUES?|CH QUES?|CHQ) REFUS\w* SANS PROV(?:ISION)?\b",
-    r"^\s*(?:\d{1,2} \d{1,2} ?)?(?:CHECK|CHEQUE|CHK|CHQ)(?: \d+)? NOT PAID\b",
-    r"(?<![A-Z])" + _RECLAIM_RAIL + r" ?:? ?RECLAIM ?:? ?(?=[A-Z]{0,4}\d)",
-    r"(?<![A-Z])RECLAIM " + _RECLAIM_RAIL + r"(?![A-Z])",
-    r"\bFEES? WAIVE[DR]?\b" + _NO_LEGAL_FORM_LATER,
-)
-_RETURN_REFUND_CREDIT_PATTERNS = (
-    re.compile(r"(?<![A-Z])ITEMS? RET(?:URNED)?\b(?! FEES?\b)"),
-    re.compile(
-        r"(?<![A-Z])(?:ITEMS?|RET|RETN|RTN|RETURN(?:ED)?) NOT PAID\b|^(?:\d{1,2} \d{1,2} )?NOT PAID(?: \S*\d\S*)*$"
-    ),
-    re.compile(r"\bRET(?:URN(?:ED)?)? DEP(?:OSIT(?:ED)?)? ITEMS?\b"),
-    re.compile(r"\b(?:ERROR|TRANSACTION) CORRECTION\b"),
-    re.compile(r"^(?:\d{1,2} \d{1,2} )?CORRECTION(?![A-Z])"),
-    re.compile(r"\bPURCHASE RET\b"),
-    *_CARD_REFUND_LABELS,
-    re.compile(r"\b(?:PROVISIONAL|TEMPORARY|CONDITIONAL) CR\b"),
-    re.compile(r"\bUNAUTHORI[SZ]ED\b" + _NO_LEGAL_FORM_LATER),
-    re.compile(r"(?<![A-Z])RECLAIM(?=\d|\s*$)"),
-    re.compile(
-        r"^(?:\d{1,2} \d{1,2} )?REV (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD)\b(?:(?= (?:MOBILE|POS|DEBIT|PURCHASE|ACH|CARD"
-        r"|CREDIT|PMT|PAYMENT|TRANSACTION|TXN|WITHDRAWAL)\b| ?\d|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"
-    ),
-    re.compile(r"(?<![A-Z])(?:RENV|RENVERSEMENT)\b"),
-    re.compile(r"(?<![A-Z])RETOUR\b(?:(?= ?\d| MDSE\b| MARCHANDISE\b|\s*$)|" + _NO_LEGAL_FORM_LATER + ")"),
-    _REMBOURSEMENT_WORD,
-    re.compile(r"\bCOURTESY REF(?:UND)?\b"),
-    *(re.compile(arm) for arm in _RETURN_REFUND_R2_B08_ARMS),
-)
 #: §7.11: push payouts printed as card credits: a push-rail word, or a processor or invoice source with a payout word.
 #: The card-credit labels include Citibank's cut DEBIT CARD CREDI and the card-shaped refund labels step 3 adds
 #: (_CARD_REFUND_LABELS).
 _CARD_CREDIT_LABEL = re.compile(
     r"\b(?:DEBIT CARD CREDIT?|POS CREDIT)\b|^(?:\d{1,2} \d{1,2} )?CHECKCARD \d{4}\b|\bPOINT OF SALE DEPOSIT\b"
-)
-_CARD_CREDIT_PUSH_WORD = re.compile(
-    r"\b(?:VISA DIRECT|MC SEND|VISA MONEY TRANSFER|FASTPAY|INSTANT PAY|INSTANT PAYOUT)\b"
 )
 #: §7.11: Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT or POS CREDIT join the push words (released from
 #: the reversal rule, then held by §8.1 as any released card credit is) only with CASH_APP_CARD_PUSH_RELEASE on. It
@@ -2191,9 +1092,6 @@ _CARD_CREDIT_PUSH_WORD = re.compile(
 CASH_APP_CARD_PUSH_RELEASE = False
 _CARD_CREDIT_P2P_PUSH_WORD = re.compile(r"(?<![A-Z])(?:CASH ?APP|APPLE CASH)\b")
 _CARD_CREDIT_PAYOUT_WORD = re.compile(r"\b(?:PAYOUTS?|INSTANT (?:PAYOUT|PAY|TRANSFER)|SETTLEMENT|DEPOSIT)\b")
-#: §7.11 (T5): account verification, Square Capital's SQ CAP, SBA and EIDL disbursements (the tax-refund forms sit
-#: in _NON_REVENUE_CREDIT_PATTERNS).
-_ACCOUNT_VERIFICATION_CREDIT = re.compile(r"\bACCT ?VERIFY\w*\b|\bMICRO ?DEPOSITS?\b|\bPENNY TEST\b|\bTRIAL DEPOSITS?\b")
 _SQUARE_CAPITAL_CREDIT = re.compile(r"\bSQ ?CAP\d*\b")
 _SQUARE_NAME = re.compile(r"\bSQ\b|\bSQUARE\b")
 _SBA_DISBURSEMENT_CREDIT = re.compile(r"\bSBAD TREAS\b|\bSBA (?:EIDL|LOAN|DISB\w*)\b|\bEIDL\b")
@@ -2206,55 +1104,6 @@ _SBA_CUT_ORIGINATOR = re.compile(
     + "|".join("ADMINISTRATION"[:length] for length in range(len("ADMINISTRATION"), 0, -1))
     + r"))?$"
 )
-#: §7.11 (T19 and this spec): a book or funds transfer is own-account only when no third-party originator is printed.
-_BOOK_OR_FUNDS_TRANSFER = re.compile(r"\b(?:BOOK|FUNDS?) TRANSFER\b")
-#: §7.11: the Electronic Funds Transfer channel, never a book or funds transfer between accounts.
-_EFT_FUNDS_TRANSFER = re.compile(r"\bELECTRONIC FUNDS TRANSFER DEPOSIT\b")
-
-#: In the 5.5 veto patterns below (the recurrence, card, operating, employer, transport, auction, property,
-#: payer-remittance, public-payer and wire vetoes) a veto spelling of four letters or more (all its words counted)
-#: takes a (?<![A-Z]) left boundary, the owner's card-form convention, so digits glued on its left ('0102CHBK',
-#: '1234PAYROLL') never hide it; a spelling of three letters or fewer keeps \b, since a digit glued to it is usually an
-#: ID's suffix ('ID 1234CB'). Each spelling counts on its own: FEES reads through a glued digit, FEE does not. Measured
-#: exceptions (the cached corpus): the card veto's BOOK and its DUP spellings keep \b, since a digit glued to them
-#: there was a company name or an ID fragment, never the word. \b stays on the right of every word. §7.0: the
-#: recurrence pass's veto: pay, financing and verification words and the card-credit labels, read on the row before its
-#: receiver fields.
-_RECURRENCE_VETO = re.compile(
-    r"(?<![A-Z])(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCE|FINANC\w*|LEND\w*|CASH ADV\w*"
-    r"|PAYROLL\w*|PAYRLL|PAYROL|PAYRL|DIR ?DEP|DIRDEP|DIRECT DEP|SALARY|SALARIES|REG SAL|WAGES?|NET ?PAY|BONUS"
-    r"|REIMB\w*|ACCT ?VERIFY|ACCTVERIFY\w*|VERIFY|VERIFICATION|INSUR\w*|DEBIT CARD CREDIT|POS CREDIT)\b"
-    r"|\b(?:CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
-)
-#: §7.0: FUNDING vetoes recurrence too, except on the settlements of the platforms that print it there.
-_FUNDING_WORD = re.compile(r"(?<![A-Z])(?:FUNDING|FUNDED)\b")
-_FUNDING_SETTLEMENT_ENTITIES = frozenset({"TapGoods Payments", "Braintree", "Buildium"})
-#: §7.0, §5.2: the operating sources whose payout rows print the merchant's store name, which is the holder's, in the
-#: entry field: the food-delivery and ordering platforms of the registry ('DOORDASH INC DES:<store> CAPITA ...
-#: INDN:<store> CAPITAL GROUP'; BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). Only on their rows does the
-#: recurrence veto spare a veto word that is one of the holder's own words. On every other source (Square, Stripe,
-#: PayPal, Shopify, the marketplaces and processors) the entry field is the platform's own wording, and a holder named
-#: like a veto word ('CAPITAL CITY BAKERY LLC', 'SAMPLE LENDING LLC') would otherwise let that source's financing
-#: credits verify ('SQUARE INC DES:CAPITAL'), so a veto word always vetoes there. The registry's Uber (driver payouts)
-#: and Instacart (shopper payouts) pay no store and stay out.
-_STORE_NAME_PAYOUT_ENTITIES = frozenset({
-    "DoorDash", "Uber Eats", "Grubhub", "SkipTheDishes", "ezCater", "Menufy", "Snackpass",
-})
-#: §7.0, §7.8, §7.10: the absolute micro-deposit floor, in whole dollars.
-_MICRO_DEPOSIT_FLOOR = 1
-#: §8.9, §8.10: a lease-to-own or patient financier's payout (customer_financing_payout) is a large one-off lump sum,
-#: held until sourced (customer_financing_lump_sum), when it is this many whole dollars or more and is an incoming
-#: wire, a whole multiple of CUSTOMER_FINANCING_LUMP_ROUND dollars or at least CUSTOMER_FINANCING_LUMP_SHARE percent of
-#: the statement's posted credits; and the financier makes fewer than CUSTOMER_FINANCING_SERIES_MIN payouts in the
-#: statement (the row included) of at least CUSTOMER_FINANCING_SERIES_SHARE percent of its amount (three or more
-#: similar-size payouts are an ordinary series).
-CUSTOMER_FINANCING_LUMP_FLOOR = 10_000
-CUSTOMER_FINANCING_LUMP_ROUND = 1_000
-CUSTOMER_FINANCING_LUMP_SHARE = 50
-CUSTOMER_FINANCING_SERIES_MIN = 3
-CUSTOMER_FINANCING_SERIES_SHARE = 50
-#: §7.0: a legal-form holder name is a business account for the recurrence rule.
-_LEGAL_FORM_HOLDER = re.compile(r"\b(?:LLC|INC|CORP|LTD|LLP|PLLC)\b")
 #: §7.0: the operating-source methods whose rows may join the recurrence pool.
 _OPERATING_POOL_METHODS = frozenset({
     "operating_source_requires_context", "operating_source_with_credit_context", "recurring_operating_source",
@@ -2284,7 +1133,6 @@ _PROCESSOR_PAYOUT_CONTEXT = re.compile(
     r"|\b(?:RTP|FEDNOW|REAL TIME (?:TRANSFER|PAYMENT)|INSTANT (?:PMT|PAYMENT|TRANSFER)|VISA DIRECT|MC SEND"
     r"|PMNT RCVD|PAYMENT RECEIVED)\b"
 )
-_PROCESSOR_CONTEXT_TYPES = frozenset({"merchant_processor", "invoice_and_receivables"})
 #: §7.2: the vetoes on every new operating read (a payout form, and an alias added in 5.5).
 _OPERATING_PAY_VETO = re.compile(
     r"(?<![A-Z])(?:PAYROLL\w*|PAYRLL|PAYROL|PAYRL|SALARY|SALARIES|REG SAL|WAGES?|DIR ?DEP|DIRDEP|DIRECT DEP|NET ?PAY"
@@ -2299,17 +1147,6 @@ _OPERATING_REVERSAL_VETO = re.compile(
     r"|\b(?:RTN|RFD|ADJ|NSF)\b"
 )
 _OPERATING_P2P_VETO = re.compile(r"(?<![A-Z])(?:ZELLE|VENMO|CASH APP|E ?TRANSFER|ETRANSFER|INTERAC)\b")
-
-
-def _with_served_cuts(aliases: frozenset[str]) -> frozenset[str]:
-    """§7.0: a sixteen-character cut reads as its alias, so a set of operating aliases that carries a rule of §7.2
-    carries each alias's served cut (OPERATING_REVENUE_TRUNCATIONS) too. Derived once, at import."""
-    return aliases | frozenset(
-        cut
-        for entity, source_aliases in OPERATING_REVENUE_SOURCE_ALIASES.items()
-        for alias in source_aliases
-        if alias in aliases and (cut := _operating_alias_cut(alias)) in OPERATING_REVENUE_TRUNCATIONS.get(entity, ())
-    )
 
 
 #: §7.2: the aliases of older entities whose reads carry the vetoes above, with their cuts ('RTP CREDIT AMAZO').
@@ -2353,44 +1190,10 @@ _NET_SETTLE_MIN_CREDITS = 3
 #: §7.0: the operating recurrence rule.
 _RECURRENCE_MIN_CREDITS = 3
 _RECURRENCE_MIN_BUSINESS_CREDITS = 2
-
-#: §7.7: the NACHA claim-payment entry. The unbounded branch takes only the full token (never THECLAIMPMT).
-_HCCLAIMPMT = re.compile(r"(?:\bH[CE]?|HC)CLAIMPMT(?:SEC)?\b")
 #: §7.7: inside the credit decision, the financing, potential-lender and insurer lookups read a glued HCCLAIMPMT
 #: split from the name before it, so a sixteen-character funder name glued to the token is still found.
 _GLUED_CLAIM_ENTRY = re.compile(r"(?<=[A-Z0-9])(H[CE]?CLAIMPMT)")
-#: §8.1 (T14): an insurer's customer-payment wording (a DRP payment, a vendor payment, a commission).
-_INSURER_CUSTOMER_PAYMENT = re.compile(
-    r"\b(?:DRP|VENDOR ?(?:PMT|PAY|PAYMENT)|COMM?ISS?IONS?|AGT ?COMM|AGENT COMP|AGTEFT|REPAIR)\b"
-)
 _BLUE_PLAN_CLAIM_PAYER = re.compile("|".join(BLUE_PLAN_CLAIM_PAYERS))
-
-#: §7.5: the payer's accounts-payable remittance (credits only), read on the revenue text and the joined text.
-_PAYER_REMITTANCE_CREDIT_PATTERNS = (
-    re.compile(r"\bACC(?:OUN)?TS? PAYABLE\b"),
-    re.compile(r"^DIRECT DEPOSIT\b(?=.* AP CC$)"),
-    re.compile(r"\bA ?P (?:PMTS?|PAYMENTS?|PYMTS?)\b"),
-    re.compile(r"\bCO ENTRY DESCR A ?P\b"),
-    re.compile(r"\b(?:CCD)?ACC PAY\b"),
-    re.compile(r"\bVENDOR ?(?:PMTS?|PAYMENTS?|PAY|PYMTS?)(?:SEC)?\b"),
-    re.compile(r"\bTRADE PAY(?:MENTS?)?(?:SEC)?\b"),
-    # PAYABLES is Bill.com's payer-side debit wording: never read on a row that prints BILL COM (_payer_remittance).
-    re.compile(r"\bPAYABLES\b"),
-    re.compile(r"\bPO REMIT(?:TANCE)?\b"),
-    re.compile(r"\bAVID ?PAY\b|\bAVIDXCHANGE\b|\bCOUPA PAY\b|\bPAYMODE\b"),
-    re.compile(r"\bPAYING BILLS? (?:\d|INV)|\bFOR \d+ BILLS\b"),
-    re.compile(r"\bBI ?LL COM (?:INV|MULTIPLE INVOICES|RECEIVABLE)\b|\b(?:DESCR|DES) BI ?LL COM\b"
-               r"|\bRECEIVABLE\b(?=.*\bBI ?LL COM\b)"),
-    re.compile(r"\bINV(?:OICE)? (?:PMT|PYMT)\b|\b(?:OF|FOR) INVOI ?CES?\b"),
-    re.compile(r"\bRMR IV\b"),
-    re.compile(r"\bPAIEMENT (?:DE )?FACTURE\b"),
-)
-_BILL_COM = re.compile(r"\bBI ?LL COM\b")
-#: §7.5: the invoice number counts only with a payment-channel word, and never after CREATED FROM or TRANSFER FROM.
-_INVOICE_NUMBER = re.compile(r"(?<!\bCREATED FROM )(?<!\bTRANSFER FROM )\bINV(?:OICE)?S?(?: (?:NO|NUM|NUMBER|N))? ?\d")
-_PAYMENT_CHANNEL_WORD = re.compile(
-    r"\b(?:ACH|PMT|PAYMENTS?|ZELLE|WIRE|FEDWIRE|CHIPS|CCD|CTX|PPD|EFT|RTP|REMIT)\b"
-)
 #: §7.5: the free-text forms (invoice, bill and 'for invoices') count on a PAYPAL row or a wire from a person only
 #: when the sender prints a company form.
 _FREE_TEXT_REMITTANCE = re.compile(
@@ -2417,80 +1220,9 @@ _PAYER_REMITTANCE_VETO = re.compile(
     r"|\bRTN\b|(?<![A-Z])RETURN(?:ED)? ITEM\b|(?<![A-Z])RECALL\w*|(?<![A-Z])UNPAID\b|\bADJ\b"
     r"|ACIMA"
 )
-#: §7.5, §8.1: words that never make a payer's or a debit's first distinctive word: the AP words, the public-payer
-#: words, the holder noise (legal suffixes, generic words) and the bank's template and channel words (D11's channel
-#: words, D6's channel vocabulary and bank template words, read at call time: _counter_debit_skip_words).
-_COUNTER_DEBIT_SKIP_WORDS = frozenset({
-    "PAYABLE", "PAYABLES", "ACCOUNTS", "ACCTS", "VENDOR", "TRADE", "REMIT", "REMITTANCE", "STATE", "COUNTY", "CITY",
-    "TOWN", "DEPT", "DEPARTMENT", "TREAS", "GOVERNMENT",
-    "CHECKCARD", "OVERDRAFT", "TRANF", "CHECKG", "TRANSFERS", "WITHDRAW", "OUTGOING", "PURCHASES",
-}) | HOLDER_NOISE
-
-
-@cache
-def _counter_debit_skip_words() -> frozenset[str]:
-    return _COUNTER_DEBIT_SKIP_WORDS | frozenset(_ENTITY_NOISE) | _CHANNEL_VOCABULARY | _BANK_TEMPLATE_WORDS
-
-
-#: §7.6: the public-payer remittance rule. Arm A reads the whole row: a DOD MISC Treasury code on a row that prints no
-#: PPD, or a Treasury code, then MISC PAY, then RMR IV. The three codes are read by chained searches
-#: (_public_payer_arm_a), each from the end of the one before, which is linear; the '.*' pattern it replaces was cubic
-#: on a long row.
-_PUBLIC_PAYER_ARM_A_DOD = re.compile(r"^(?!.*\bPPD\b).*\bTREAS \d{3}(?: DES)? DOD MISC\b")
-_TREASURY_CODE = re.compile(r"\bTREAS \d{3}\b")
-_MISC_PAY_CODE = re.compile(r"\bMISC PAY(?:SEC)?\b")
-_RMR_IV_CODE = re.compile(r"\bRMR IV\b")
-
-
-def _public_payer_arm_a(text: str) -> bool:
-    """§7.6 arm A: the DOD MISC form, or the Treasury code, MISC PAY and RMR IV in this order. The earliest match of
-    each code is the one to chain from: any later one leaves less of the row to the next."""
-    if _PUBLIC_PAYER_ARM_A_DOD.search(text) is not None:
-        return True
-    treasury = _TREASURY_CODE.search(text)
-    misc = _MISC_PAY_CODE.search(text, treasury.end()) if treasury is not None else None
-    return misc is not None and _RMR_IV_CODE.search(text, misc.end()) is not None
-#: §7.6 arm B: a public payer anchored on the payer name. A Texas county mutual is a private carrier, never a county:
-#: `<WORD> COUNTY` (or PARISH, TOWNSHIP, BOROUGH) followed by an insurer word (MUTUAL and its cuts MUTUA and MUT, INS,
-#: INSUR..., CASUALT..., INDEMN..., ASSUR..., LLOYDS) is no public payer ('PROG COUNTY MUT', 'STATE FARM COUNTY MUTUAL
-#: INS CO'). Never FIRE (a county fire department) or SELF ('<NAME> COUNTY SELF INSURANCE FUND' stays a government
-#: payer, a public insurance programme), and INS only as a whole word (never INSPECTIONS). Credit-side only:
-#: government_payer, _public_named, _public_payer_remittance and the payer-remittance veto read this pattern; no debit
-#: or lender reading does. Never MUTUAL AID ('<NAME> COUNTY MUTUAL AID' is a public mutual-aid compact, no carrier).
-_PUBLIC_PAYER_NAME = re.compile(
-    r"^((?:\S+ ){0,3})(?:TREAS \d{3}"
-    r"|(?:STATE|COUNTY|CITY|TOWN|VILLAGE|TOWNSHIP|BOROUGH|PARISH|DISTRICT|PROVINCE|COMMONWEALTH|GOVERNMENT|GOVT"
-    r"|MUNICIPALITY) OF [A-Z]"
-    r"|(?<!\bFROM )(?<!\bTO )(?<!\bTHE )(?<!\bOF )(?<!\bAND )(?<!\bINTO )\b[A-Z]{3,} (?:COUNTY|PARISH|TOWNSHIP|BOROUGH)\b"
-    r"(?! (?:MUTUAL(?! AID\b)|MUTUA|MUT|INS|INSUR\w*|CASUALT\w*|INDEMN\w*|ASSUR\w*|LLOYDS)\b)"
-    r"|(?:DEPT|DEPARTMENT|MINISTRY) OF\b|(?:DHS|DHHS|DSHS|DCF|DCFS|DSS)\b|SCHOOL DIST(?:RICT)?\b|DFAS\b)"
-)
-_PUBLIC_PAYER_TEMPLATE = re.compile(
-    r"^(?:ELECTRONIC (?:CREDIT|DEPOSIT)(?: FROM)?|ACH (?:CORP )?CREDIT|ACH DEPOSIT|CCD DEPOSIT|DEPOSIT FROM"
-    r"|PREAUTHORIZED CREDIT|EFT CREDIT)\b ?"
-)
 _PUBLIC_PAYER_PURPOSE = re.compile(
     r"\bVEN(?:DOR)? ?(?:PAY(?:MENTS?)?|P(?:Y)?MTS?)(?:SEC)?\b|\bPROV(?:IDER)? ?PAY(?:MENTS?)?(?:SEC)?\b"
     r"|\bEDI ?(?:PYMNTS|PAYMENTS?|PMTS?)(?:SEC)?\b"
-)
-_PUBLIC_PAYER_NAME_VETO = re.compile(
-    r"(?<![A-Z])(?:DEPT OF REVENUE|DEPARTMENT OF REVENUE|TAXATION|COMPTROLLER|TREASURER|DEPT OF LABOR|UNEMPLOYMENT"
-    r"|WORKFORCE)\b|FUNDING|FUNDER|FINANC|CAPITAL|LENDING|LENDER"
-)
-_TREASURY_BOILERPLATE = re.compile(
-    r"\bADDITIONAL INFORMATION IS AVAILABLE FOR THIS PMT CONTACT A TREASURY SALES OFFICER FOR ASSISTANCE\b"
-)
-#: §7.6: the whole-row veto, by group; §8.1 holds a public payer's non-sale credit on the first groups.
-_PUBLIC_PAYER_NON_SALE_WORDS = re.compile(
-    r"(?<![A-Z])(?:TAXES|TAXRFD|TAX ?REF(?:UND)?S?|REFUNDS?|STUREFUND|R(?:E)?F(?:U)?ND|(?:XX)?SOC SEC|SUPP SEC"
-    r"|(?:XX)?VA BEN\w*|BENEF\w*)\b|\b(?:TAX|RFD|EIC|SSI|BEN)\b|[A-Z]*REFUNDS?\b|[A-Z]*RFND\b"
-    r"|(?<![A-Z])(?:FED SAL|SALARY|PAYROLL|WAGES?|STIPENDS?|PER DIEM|RETIRE\w*|PENSION|ANNUIT\w*)\b"
-    r"|(?<![A-Z])(?:UNEMPLOY\w*|STIMULUS|GRANTS?|RELIEF|DISASTER|CARES|SBAD|EIDL|EIDG|LOANS?|ADVANCES?|FORGIV\w*)\b"
-    r"|\b(?:UI|PPP|SBA|ADV)\b"
-    r"|(?<![A-Z])(?:CHI?LD ?SUPP\w*|CHILD ?CTC|JURY|RESTITUTION|FOSTER|ADOPT\w*|KINSHIP|WORK(?:ERS)? ?COMP)\b|\bCTC\b"
-    r"|(?<![A-Z])(?:CLAIMS?|AWARDS?|SUBSID\w*|DISB\w*|PROCEEDS|UNCLAIMED|OVERPA\w*|OVERP(?:Y)?MT|REBATES?|REIMB\w*"
-    r"|BONDS?|ESCROW|RETURN(?:ED)?|STABILI[SZ]\w*|OFFSET|RECOVERY|ARPA|RESCUE|ERTC|INCENTIVES?|TUITION)\b|\bERC\b"
-    r"|(?<![A-Z])ASSISTANCE\b"
 )
 _PUBLIC_PAYER_OTHER_VETO = re.compile(
     r"(?<![A-Z])(?:ZELLE|VENMO|CASH ?APP|E ?TRANSFER|INTERAC)\b"
@@ -2554,11 +1286,6 @@ _AUCTION_ALIAS_REGISTRIES = {
 _CARD_FORMS = tuple(
     (form, re.compile(form.pattern), re.compile(form.refusal) if form.refusal else None)
     for form in CARD_SETTLEMENT_CREDIT_FORMS
-)
-_PAYOUT_FORMS = tuple(
-    (entity, label, re.compile(pattern))
-    for entity, forms in OPERATING_SOURCE_PAYOUT_FORMS.items()
-    for label, pattern in forms
 )
 _AUCTION_PAYOUT_FORMS = {
     entity: tuple(re.compile(pattern) for pattern in patterns)
@@ -3393,13 +2120,6 @@ def _operating_source_decision(
     )
 
 
-def _business_account(account_name: str | None) -> bool:
-    """§7.0: a business account for the recurrence rule: BUSINESS, COMMERCIAL, OPERATING or MERCHANT, or (5.5) a
-    holder name that prints a legal form."""
-    name = account_name_text(account_name)
-    return _matches_any(name, _BUSINESS_ACCOUNT_PATTERNS) or _LEGAL_FORM_HOLDER.search(name) is not None
-
-
 def _fallback_credit_decision(text: str) -> _RevenueDecision:
     """§6.1 steps 15 and 16: deposit wording, else an unidentified posted credit."""
     if _matches_any(text, _UNVERIFIED_DEPOSIT_CREDIT_PATTERNS):
@@ -3435,8 +2155,6 @@ _TRUIST_CORP_PREFIX = re.compile(r"^ACH CORP (?:DEBIT|CREDIT)\b")
 #: Truist prints no padding, so a short originator lets the receiver's words into the 16-character company
 #: field. A Truist name is published only when a whole legal-form word lies inside those 16 characters.
 _TRUIST_COMPANY_FIELD = 16
-#: FW wave 3: a receiver-name field's label, before its value.
-_RECEIVER_NAME_LABEL = re.compile(rf"^(?:{_RECEIVER_NAME_LABELS})\b\s*")
 
 
 def _is_payroll_provider_row(text: str) -> bool:
@@ -3685,23 +2403,8 @@ def _build_record(
     )
 
 
-def _state_words(state: str) -> str:
-    return state.replace("_", " ")
-
-
 #: D9: known-payee groups that LOC wording moves to lines of credit.
 _LOC_OVERRIDE_STATES = frozenset({"confirmed_lender", "alternative_position", "line_of_credit"})
-
-
-def _compile_field_order_forms() -> tuple[tuple[re.Pattern[str], PayeeMatch], ...]:
-    """FIELD_ORDER_PAYEE_FORMS compiled once, each with its payee's group (PAYEE_GROUP_REGISTRIES)."""
-    state_of = {entity: state for state, registry in PAYEE_GROUP_REGISTRIES.items() for entity in registry}
-    return tuple(
-        (re.compile(form), PayeeMatch(entity, state_of[entity], ""))
-        for entity, forms in FIELD_ORDER_PAYEE_FORMS.items()
-        if entity in state_of
-        for form in forms
-    )
 
 
 _FIELD_ORDER_FORMS = _compile_field_order_forms()
@@ -5570,99 +4273,8 @@ def _recurrence_veto_word(
     return False
 
 
-def store_name_printed(text: str, entity: str | None, account_name: str | None = None) -> bool:
-    """§7.0: a store-name platform's row prints a store name where the platform prints the merchant's store: its entry
-    field (Bank of America's DES, Chase's CO ENTRY DESCR), or the row before its receiver fields on a layout that
-    prints none (BMO's 'DIRECT DEPOSIT DOORDASH <store> MSP/DIV'). A store name is a word that is no veto or financing
-    word (_RECURRENCE_VETO, _FUNDING_WORD), no generic word, no reference token, no company form and none of the
-    platform's own alias words. A veto word that is the whole field, or forms it alone with generic words
-    ('DES:CAPITAL', 'DES:CAPITAL ADVANCE', 'DES:LENDING PAYMENT'), is the platform's own financing wording, so the
-    holder's word exemption never reads it. Nor is a veto word that leads the field, whatever follows it ('DES:CAPITAL
-    DISB', 'DES:LENDING DAILY': the ten-character entry field often cuts a financing entry's second word); a store name
-    prints its own words first ('DES:<store> CAPITA'), so the field must lead with a store word. FW wave 3 (W2-1): a
-    store whose own name starts with a financing word ('DES:CAPITAL GRILLE' for a holder named '... CAPITAL GRILLE ...')
-    leads with it too: the field leads with a store word when its words (two or more) are a consecutive run of the
-    holder's name (_store_name_run)."""
-    words = _platform_entry_words(text, entity)
-    if not words:
-        return False
-    led = " ".join(words)
-    if _RECURRENCE_VETO.match(led) is None and _FUNDING_WORD.match(led) is None:
-        return True
-    return _store_name_run(words, text, account_name)
-
-
-def store_name_run_words(text: str, entity: str | None, account_name: str | None) -> frozenset[str]:
-    """FW wave 3 (W2-1): the store-name platform's entry words when they are a run of the holder's name
-    (_store_name_run): the store's own name, whose words the recurrence veto and the registry's financing words spare
-    at any length ('FIN AND FORK'); empty otherwise."""
-    if entity not in _STORE_NAME_PAYOUT_ENTITIES:
-        return frozenset()
-    words = _platform_entry_words(text, entity)
-    return frozenset(words) if _store_name_run(words, text, account_name) else frozenset()
-
-
-def _store_name_run(words: Sequence[str], text: str, account_name: str | None) -> bool:
-    """FW wave 3 (W2-1): the platform's entry words, two or more, are a consecutive run of whole words of the holder's
-    own name as the classifier knows it: the statement's account name (its trade name after DBA included), or a name
-    the row's receiver fields print (a product-name account). A bare financing word is one word; a financing entry
-    ('CAPITAL DISB', 'LENDING DAILY') or a store the holder is not ('CAPITAL GRILLE' for 'SAMPLE BAKERY LLC') is no
-    run."""
-    if len(words) < 2:
-        return False
-    names = [account_name_text(account_name).split()] if account_name else []
-    for found in _RECEIVER_FIELD_VALUE.finditer(text):
-        names.append(_RECEIVER_NAME_LABEL.sub("", found.group(0), count=1).split())
-    run = list(words)
-    return any(
-        name[start:start + len(run)] == run for name in names for start in range(len(name) - len(run) + 1)
-    )
-
-
-def _platform_entry_words(text: str, entity: str | None) -> list[str]:
-    """§7.0, §7.2: the words of the field where a platform prints its entry (the merchant's store on a store-name
-    platform): its entry field (Bank of America's DES, Chase's CO ENTRY DESCR), or the row before its receiver fields
-    on a layout that prints none, without its generic words, reference tokens, company forms and the platform's own
-    alias words."""
-    row = _before_receiver(text)
-    fields = [found.group(1).strip() for pattern in (_BOFA_ENTRY_FIELD, _CHASE_ENTRY_FIELD)
-              if (found := pattern.search(row)) is not None]
-    field = " ".join(fields) if any(fields) else row
-    platform = {word for alias in OPERATING_REVENUE_SOURCE_ALIASES.get(entity or "", ()) for word in alias.split()}
-    return [
-        word for word in field.split()
-        if not (
-            word in REVENUE_GENERIC_WORDS or _is_reference_token(word) or _BANK_COMPANY_FORM.fullmatch(word)
-            or word in platform
-        )
-    ]
-
-
-#: §7.2: the financing words a platform's entry field may lead with: the recurrence veto's financing words, and
-#: FUNDING or FUNDED except on the settlements of the three platforms that print it (§7.0).
-_ENTRY_FINANCING_LEAD = re.compile(
-    r"(?:LOANS?|CAPITAL|CAPI|CAPIT|CAPITA|CAPSEC|ADVANCES?|FINANC\w*|LEND\w*|CASH ADV\w*|FUNDING|FUNDED"
-    r"|CAP\d*(?:SEC)?|FIN|ADV|MCA)\b"
-)
-
-
 #: The matched rule of an operating-registry credit whose entry leads with a financing word.
 PLATFORM_FINANCING_ENTRY_RULE = "platform_entry_leads_with_financing"
-
-
-def platform_entry_leads_with_financing(text: str, entity: str | None, account_name: str | None = None) -> bool:
-    """§7.2: a processor, marketplace or platform credit whose entry field leads with a financing word (CAPITAL,
-    LENDING, LOAN, ADVANCE, FUNDING, FINANCING and their cuts): the platform's own financing, never its settlement of
-    the business's sales, for any holder. FW wave 3 (W2-1): on a store-name platform, an entry whose words are a
-    consecutive run of the holder's own name is the store's name ('DES:CAPITAL GRILLE'), never financing
-    (_store_name_run)."""
-    words = _platform_entry_words(text, entity)
-    found = _ENTRY_FINANCING_LEAD.match(" ".join(words)) if words else None
-    if found is None:
-        return False
-    if entity in _STORE_NAME_PAYOUT_ENTITIES and _store_name_run(words, text, account_name):
-        return False
-    return not (found.group(0) in {"FUNDING", "FUNDED"} and entity in _FUNDING_SETTLEMENT_ENTITIES)
 
 
 def _in_operating_pool(record: TransactionClassification) -> bool:

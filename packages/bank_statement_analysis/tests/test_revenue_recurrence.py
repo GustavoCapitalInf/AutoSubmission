@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.descriptor import credit_words
 from analysis.classification_registry import OPERATING_REVENUE_SOURCE_TYPES
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -285,9 +285,9 @@ def test_a_delivery_payout_printing_a_financing_word_the_holder_s_name_lacks_sta
 
 
 def test_the_store_name_platforms_are_registry_delivery_platforms_and_no_processor():
-    assert "DoorDash" in tc._STORE_NAME_PAYOUT_ENTITIES
-    assert tc._STORE_NAME_PAYOUT_ENTITIES == {
+    assert "DoorDash" in credit_words._STORE_NAME_PAYOUT_ENTITIES
+    assert credit_words._STORE_NAME_PAYOUT_ENTITIES == {
         "DoorDash", "Uber Eats", "Grubhub", "SkipTheDishes", "ezCater", "Menufy", "Snackpass"}
-    assert {OPERATING_REVENUE_SOURCE_TYPES.get(entity) for entity in tc._STORE_NAME_PAYOUT_ENTITIES} == {
+    assert {OPERATING_REVENUE_SOURCE_TYPES.get(entity) for entity in credit_words._STORE_NAME_PAYOUT_ENTITIES} == {
         "delivery_marketplace"}
-    assert not tc._STORE_NAME_PAYOUT_ENTITIES & {"Square", "Stripe", "PayPal", "Shopify Payments"}
+    assert not credit_words._STORE_NAME_PAYOUT_ENTITIES & {"Square", "Stripe", "PayPal", "Shopify Payments"}
