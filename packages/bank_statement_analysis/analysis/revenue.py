@@ -269,10 +269,11 @@ def _number(value: object) -> float:
 
 
 class PostedCredit(NamedTuple):
-    """One posted credit, filed under the state and tier its caller chose (no tier on a payload analysed before tiers).
-    `record` is the caller's own record of it, kept by reference."""
+    """One posted credit, filed under the state and tier its caller chose: no tier on a payload analysed before tiers,
+    and no state on a package credit that carries none (it is posted all the same). `record` is the caller's own
+    record of it, kept by reference."""
     amount: float
-    state: RevenueState
+    state: RevenueState | None
     tier: str | None
     reason: str | None
     record: object
@@ -293,9 +294,39 @@ class RevenueBuckets(NamedTuple):
     by_reason: dict[str, dict[str, dict[str, float | int]]]
 
 
-def revenue_buckets(credits: list[PostedCredit]) -> RevenueBuckets:
+#: How a money total adds its amounts to cents: one at a time and rounded once, with builtin sum() and rounded once,
+#: or rounded after each amount. Float addition makes them differ: builtin sum() compensates float error and can land
+#: on another cent, and it sums no amount to the integer 0.
+Accumulation = Literal["sequential", "builtin_sum", "rounded_each"]
+
+
+def cents_total(amounts: list[float], accumulation: Accumulation) -> float:
+    """`amounts` added in the order given, to the cent, as `accumulation` says."""
+    if accumulation == "builtin_sum":
+        return round(sum(amounts), 2)
+    total = 0.0
+    if accumulation == "rounded_each":
+        for amount in amounts:
+            total = round(total + amount, 2)
+        return total
+    for amount in amounts:
+        total += amount
+    return round(total, 2)
+
+
+def revenue_buckets(
+    credits: list[PostedCredit],
+    *,
+    accumulation: Accumulation = "sequential",
+    reason_accumulation: Accumulation = "sequential",
+    reason_order: Literal["sorted", "first_seen"] = "sorted",
+) -> RevenueBuckets:
     """Every credit in the posted bucket and its state bucket, and in its tier bucket when its tier is one of
-    REVENUE_TIERS. Each bucket keeps its credits' records in the order given and its total rounded to cents."""
+    REVENUE_TIERS. Each bucket keeps its credits' records in the order given and its total rounded to cents.
+
+    The defaults are how compute_metrics and the rebuild add: every total one credit at a time in the order given, the
+    reasons sorted. The package's member figures (analysis/package/figures.py) add each bucket with builtin sum() and
+    each reason total rounded after each credit, the reasons in the order they first appear."""
     reasons: dict[str, dict[str, list[PostedCredit]]] = {
         "counted_flagged": {}, "excluded_pending_review": {}, "non_revenue": {},
     }
@@ -305,23 +336,25 @@ def revenue_buckets(credits: list[PostedCredit]) -> RevenueBuckets:
         elif credit.tier == "non_revenue" and non_revenue_reason(credit.reason):
             reasons["non_revenue"].setdefault(credit.reason, []).append(credit)
     return RevenueBuckets(
-        posted=_bucket(credits),
-        states={state: _bucket([credit for credit in credits if credit.state == state]) for state in REVENUE_STATES},
-        tiers={tier: _bucket([credit for credit in credits if credit.tier == tier]) for tier in REVENUE_TIERS},
+        posted=_bucket(credits, accumulation),
+        states={state: _bucket([credit for credit in credits if credit.state == state], accumulation)
+                for state in REVENUE_STATES},
+        tiers={tier: _bucket([credit for credit in credits if credit.tier == tier], accumulation)
+               for tier in REVENUE_TIERS},
         by_reason={
             tier: {
-                reason: {"count": len(group), "total": _bucket(group).total} for reason, group in sorted(groups.items())
+                reason: {"count": len(group), "total": cents_total([credit.amount for credit in group],
+                                                                   reason_accumulation)}
+                for reason, group in (sorted(groups.items()) if reason_order == "sorted" else groups.items())
             }
             for tier, groups in reasons.items()
         },
     )
 
 
-def _bucket(credits: list[PostedCredit]) -> RevenueBucket:
-    total = 0.0
-    for credit in credits:
-        total += credit.amount  # one at a time: builtin sum() compensates float error and can land on another cent
-    return RevenueBucket(round(total, 2), len(credits), [credit.record for credit in credits])
+def _bucket(credits: list[PostedCredit], accumulation: Accumulation) -> RevenueBucket:
+    return RevenueBucket(cents_total([credit.amount for credit in credits], accumulation), len(credits),
+                         [credit.record for credit in credits])
 
 
 def rebuild_serialized_revenue_views(analysis: dict) -> dict:
