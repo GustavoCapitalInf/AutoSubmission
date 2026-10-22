@@ -116,6 +116,7 @@ import contextlib
 import functools
 import gzip
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -1263,6 +1264,41 @@ def _fingerprint(statement) -> tuple:
             statement.ending_balance, len(statement.transactions), statement.account_number)
 
 
+#: The module that owns each name the census reads, keyed by the name's dotted path under the classifier or
+#: true-revenue module. The census reads a listed name from its owner where the checkout has that module and name.
+SPLIT_OWNERS = {
+    "analysis.transaction_classifier._BUSINESS_ACCOUNT_PATTERNS": "analysis.descriptor.words",
+    "analysis.transaction_classifier._STATEMENT_FURNITURE": "analysis.descriptor.lexical",
+    "analysis.transaction_classifier._TRANSFER_WORDING": "analysis.description_text",
+    "analysis.transaction_classifier.revenue_text": "analysis.descriptor.lexical",
+}
+
+
+class _CheckoutModule:
+    """A checkout's classifier or true-revenue module, read by name. The census reads other checkouts (--code-root),
+    from before the split or from any step of it. A name the split moved (SPLIT_OWNERS) is read from its new module
+    where the checkout has that module and name. Every other name is read from the old module."""
+
+    def __init__(self, module: ModuleType):
+        self._module = module
+
+    def __getattr__(self, name: str):
+        owner = SPLIT_OWNERS.get(f"{self._module.__name__}.{name}")
+        if owner is not None:
+            with contextlib.suppress(ImportError, AttributeError):
+                return getattr(importlib.import_module(owner), name)
+        return getattr(self._module, name)
+
+
+def _checkout_module(name: str) -> _CheckoutModule | None:
+    """The checkout's module `name`, read through SPLIT_OWNERS; None on a checkout without it (one from before the
+    true-revenue pass)."""
+    try:
+        return _CheckoutModule(importlib.import_module(name))
+    except ImportError:
+        return None
+
+
 def _pool_threshold(classifier, record) -> int:
     """§7.0: the recurrence count of the entity's pool: two on a business account (a customer-payment platform reads
     only the business words), three otherwise."""
@@ -1290,17 +1326,15 @@ def _accepts(function, keyword: str) -> bool:
 def zelle_reading_supported() -> bool:
     """R2-OW17 (J1): whether the checkout's classifier takes the Zelle reading (classify_statement_transactions'
     `zelle_true_revenue`, guarded for --code-root)."""
-    from analysis import transaction_classifier
-
-    return _accepts(transaction_classifier.classify_statement_transactions, "zelle_true_revenue")
+    classifier = _checkout_module("analysis.transaction_classifier")
+    return _accepts(classifier.classify_statement_transactions, "zelle_true_revenue")
 
 
 def _readings(statement, zelle_true_revenue: bool | None):
     """(records in the snapshot's reading, the stored reading's records). The owner's amendment of 2026-10-06 to the
     underwriter's Q3 (J1): on a checkout that takes the reading, the counted reading is read where asked (one fork,
     classify_statement_readings, when the checkout has it); elsewhere the checkout's one reading is both."""
-    from analysis import transaction_classifier as classifier
-
+    classifier = _checkout_module("analysis.transaction_classifier")
     if zelle_true_revenue is None or not zelle_reading_supported():
         records = classifier.classify_statement_transactions(statement)
         return records, records
@@ -1317,8 +1351,7 @@ def _readings(statement, zelle_true_revenue: bool | None):
 def _guard_facts(record, text: str, zelle_true_revenue: bool | None = None) -> dict:
     """The §14.3 guard facts of one posted credit, read with the checkout's own readers when it has them. R2-OW17 (J1):
     the pass's guard facts read the snapshot's Zelle reading where the checkout takes it (its progress_draw fact)."""
-    from analysis import transaction_classifier as classifier
-
+    classifier = _checkout_module("analysis.transaction_classifier")
     facts: dict = {}
     if not hasattr(classifier, "revenue_text"):
         return facts
@@ -1333,10 +1366,7 @@ def _guard_facts(record, text: str, zelle_true_revenue: bool | None = None) -> d
     )
     # Audit B9 (I13): a processor's settlement or payout under the merchant's own name is never the holder's own money,
     # as the pass's holder hold reads it (true_revenue.merchant_settlement, on a checkout that has it).
-    try:
-        from analysis import true_revenue as pass_7
-    except ImportError:
-        pass_7 = None
+    pass_7 = _checkout_module("analysis.true_revenue")
     settlement = bool(getattr(pass_7, "merchant_settlement", None) and pass_7.merchant_settlement(revenue))
     facts["gate"] = classifier.channel_gate(revenue)
     facts["holder"] = classifier.holder_named(region, holder) and not settlement
@@ -1375,9 +1405,8 @@ def _guard_facts(record, text: str, zelle_true_revenue: bool | None = None) -> d
     # S3.1 (recurrence_veto): the worded recurrence veto (§7.0, S2.2-A, S2.4), read with the checkout's own code.
     if hasattr(classifier, "_recurrence_veto_wording"):
         facts["recurrence_veto_wording"] = bool(classifier._recurrence_veto_wording(record, revenue))
-    try:
-        from analysis import true_revenue
-    except ImportError:
+    true_revenue = _checkout_module("analysis.true_revenue")
+    if true_revenue is None:
         return facts
     if zelle_true_revenue is not None and _accepts(true_revenue.guard_facts, "zelle_true_revenue"):
         facts.update(true_revenue.guard_facts(record, revenue, zelle_true_revenue=zelle_true_revenue))
@@ -1397,10 +1426,7 @@ def account_snapshot(account: dict, *, zelle_true_revenue: bool | None = True) -
     from analysis.payee_matcher import registry_match
     from analysis.schema import Statement
 
-    try:
-        from analysis import true_revenue as pass_7
-    except ImportError:
-        pass_7 = None
+    pass_7 = _checkout_module("analysis.true_revenue")
     prior_reading = getattr(pass_7, "zelle_prior_reading", None)
     statement = Statement.model_validate(account["statement"])
     reading = zelle_true_revenue if zelle_reading_supported() else None
@@ -1588,10 +1614,10 @@ def snapshot(accounts: Iterable[tuple[str, dict]], *, basis: str = "input", basi
     no older analysis stands in for it; an analysis that raised and was replaced by a newer one counts none. (R12) The
     accounts the filter leaves out as unreconciled are summarised apart (`unreconciled_summary`), never in the shares."""
     from analysis.schema import Statement
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION
 
+    version = _checkout_module("analysis.transaction_classifier").CLASSIFICATION_VERSION
     reading = bool(zelle_true_revenue) if zelle_reading_supported() else None
-    result: dict = {"classification_version": CLASSIFICATION_VERSION, "analysis_stage_version": _analysis_stage_version(),
+    result: dict = {"classification_version": version, "analysis_stage_version": _analysis_stage_version(),
                     "basis": basis, "zelle_true_revenue": reading, "accounts": {}, "skipped": {}}
     skipped: Counter = Counter()
     groups: dict[tuple, list[dict]] = {}

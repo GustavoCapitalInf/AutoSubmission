@@ -338,10 +338,9 @@ def snapshot(accounts: Iterable[tuple[str, int, dict]], *, zelle_true_revenue: b
     """{"classification_version", "zelle_true_revenue", "accounts": {"<sha>:<index>": account snapshot},
     "skipped": {reason: n}}. R2-OW17 (J3): `zelle_true_revenue` is the Zelle reading, recorded as true or false, or
     null on a checkout that takes none (its one reading: from R2-OW02 on, No)."""
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION
-
+    version = revenue_census._checkout_module("analysis.transaction_classifier").CLASSIFICATION_VERSION
     reading = bool(zelle_true_revenue) if revenue_census.zelle_reading_supported() else None
-    result: dict = {"classification_version": CLASSIFICATION_VERSION, "zelle_true_revenue": reading, "accounts": {},
+    result: dict = {"classification_version": version, "zelle_true_revenue": reading, "accounts": {},
                     "skipped": {}}
     skipped: Counter = Counter()
     for sha, index, account in accounts:
