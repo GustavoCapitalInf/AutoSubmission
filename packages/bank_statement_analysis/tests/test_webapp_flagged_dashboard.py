@@ -873,7 +873,7 @@ def test_a_served_fabricated_statement_fills_the_panel_and_follows_its_switches(
     """S2's classifier and S3's serving, end to end. A mortgage descriptor (spec §4.3 step 8) and a premium-finance
     payee (C4: its rows stay insurance and carry flagged_group) are served as flagged positions while their switches
     are on; the panel, the chips and a payee click follow the switches without re-analysis (D7)."""
-    from analysis import transaction_classifier
+    from analysis.classification import payees
     from analysis.serialization import document_report_to_dict
     from tests.test_webapp_studio_views import _report
     from analysis.served_view import displayed
@@ -881,8 +881,7 @@ def test_a_served_fabricated_statement_fills_the_panel_and_follows_its_switches(
 
     # A fabricated premium financier, routed into the insurance rule as S2's own tests route one
     # (tests/flag_group_fixtures.py, fake_premium_finance).
-    monkeypatch.setattr(transaction_classifier, "PREMIUM_FINANCE_ALIASES",
-                        {"Fabricated Premium Finance": ("FABRICATED PFC",)})
+    monkeypatch.setattr(payees, "PREMIUM_FINANCE_ALIASES", {"Fabricated Premium Finance": ("FABRICATED PFC",)})
     stored = document_report_to_dict(_report("FABRICATED BUSINESS CHECKING", "000000001010", 1500.0, SERVED_ROWS))
     shown = displayed(stored)
     save_settings(tmp_path, {"flag_premium_financing": False})

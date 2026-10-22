@@ -6,12 +6,8 @@ import pytest
 
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.schema import Statement
-from analysis.transaction_classifier import (
-    _d6_skip,
-    _unknown_payee_tokens,
-    classify_statement_transactions,
-    classify_transaction,
-)
+from analysis.transaction_classifier import _d6_skip, classify_statement_transactions, classify_transaction
+from analysis.classification.payees import _unknown_payee_tokens
 from tests.flag_group_fixtures import txn
 
 WEEKLY = (2, 9, 16, 23)

@@ -16,6 +16,9 @@ from dataclasses import asdict
 import pytest
 
 from analysis import transaction_classifier
+from analysis.classification import operating_sources
+from analysis.classification import payees
+from analysis.classification import tax_forms
 from analysis.descriptor import financing
 from analysis import payee_matcher
 from tools.bench_classifier import REQUIRED_SPEEDUP, fabricated_statement, measure
@@ -37,6 +40,9 @@ def test_the_classifier_matches_through_the_compiled_registry_index(monkeypatch)
         return compiled(text, registry, **options)
 
     monkeypatch.setattr(transaction_classifier, "registry_match", spy)
+    monkeypatch.setattr(operating_sources, "registry_match", spy)
+    monkeypatch.setattr(payees, "registry_match", spy)
+    monkeypatch.setattr(tax_forms, "registry_match", spy)
     monkeypatch.setattr(financing, "registry_match", spy)
     transaction_classifier.classify_statement_transactions(fabricated_statement(3))
     assert calls

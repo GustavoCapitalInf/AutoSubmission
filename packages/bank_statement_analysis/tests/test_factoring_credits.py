@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.classification import credit_predicates
 from analysis.metrics import compute_metrics
 from analysis.payee_matcher import PayeeMatch
 from analysis.schema import Statement
@@ -129,6 +130,7 @@ def two_factors(monkeypatch):
         return None
 
     monkeypatch.setattr(transaction_classifier, "match_known_payee", match)
+    monkeypatch.setattr(credit_predicates, "match_known_payee", match)
 
 
 def test_positions_rank_by_debited_plus_credited_within_a_group(two_factors):

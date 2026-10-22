@@ -5,6 +5,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.classification import credit_predicates
+from analysis.classification import payees
 from analysis.detect import find_flagged_positions
 from analysis.flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY
 from analysis.payee_matcher import AliasIndex
@@ -79,8 +81,10 @@ def test_debt_relief_rows_are_a_flagged_position_and_never_a_d6_payee(relief_pay
 
 
 def test_a_review_debt_relief_payee_takes_the_flag_marked_unconfirmed(monkeypatch):
-    monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES",
-                        {"FABRIKAM NEGOTIATORS (unconfirmed)": ("FABRIKAM NEGOTIATORS",)})
+    patched_potential_lender_aliases = {"FABRIKAM NEGOTIATORS (unconfirmed)": ("FABRIKAM NEGOTIATORS",)}
+    monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
+    monkeypatch.setattr(credit_predicates, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
+    monkeypatch.setattr(payees, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
     monkeypatch.setattr(transaction_classifier, "REVIEW_FLAG_ENTITIES",
                         {"FABRIKAM NEGOTIATORS (unconfirmed)": "debt_relief"})
     record = classify_transaction("ACH DEBIT FABRIKAM NEGOTIATORS 0001", -900.0)

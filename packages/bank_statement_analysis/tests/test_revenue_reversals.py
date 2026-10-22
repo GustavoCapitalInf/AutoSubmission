@@ -383,9 +383,9 @@ def cash_app_release(monkeypatch):
     """The owner's switch for Cash App and Apple Cash pushes printed as a DEBIT CARD CREDIT. It stays off: the owner
     kept these credits excluded on 2026-10-02 (the underwriter's Q13, spec §19.1); these tests turn it on to keep the
     declined option's code honest."""
-    from analysis import transaction_classifier
+    from analysis.classification import credit_predicates
 
-    monkeypatch.setattr(transaction_classifier, "CASH_APP_CARD_PUSH_RELEASE", True)
+    monkeypatch.setattr(credit_predicates, "CASH_APP_CARD_PUSH_RELEASE", True)
 
 
 @pytest.mark.usefixtures("cash_app_release")
@@ -412,9 +412,9 @@ def test_a_card_shaped_refund_label_with_a_push_word_is_released_and_held(text):
 
 
 def test_the_cash_app_card_push_release_ships_off():
-    from analysis import transaction_classifier
+    from analysis.classification import credit_predicates
 
-    assert transaction_classifier.CASH_APP_CARD_PUSH_RELEASE is False
+    assert credit_predicates.CASH_APP_CARD_PUSH_RELEASE is False
     record = _one("DEBIT CARD CREDIT CASH APP", "Thread Bank (Relay)")
     assert record.revenue_classification == "non_revenue"
     assert record.revenue_match_method == "reversal_cancellation_exclusion"
@@ -562,10 +562,11 @@ def test_a_card_payout_the_processor_pulls_back_stays_paired():
 # switches stay off. These tests run with the switches as shipped: no fixture turns them on.
 
 def test_the_owner_kept_both_card_push_switches_off():
-    from analysis import transaction_classifier, true_revenue
+    from analysis import true_revenue
+    from analysis.classification import credit_predicates
 
     assert true_revenue.PROCESSOR_CARD_PAYOUT_RELEASE is False
-    assert transaction_classifier.CASH_APP_CARD_PUSH_RELEASE is False
+    assert credit_predicates.CASH_APP_CARD_PUSH_RELEASE is False
 
 
 #: (holder, bank, rows, the index of each card credit the ruling keeps excluded, the statement's True).
@@ -1417,12 +1418,12 @@ def test_r3_44_the_possible_return_backstop_reads_the_lost_accent(hold_text, hel
 
 
 def test_r3_44_the_french_interest_copy_in_the_census_is_the_classifier_s():
-    from analysis import transaction_classifier as tc
+    from analysis.classification import tax_forms
     from analysis.descriptor import words
     from tools import revenue_census as census
 
     pattern = words._FRENCH_INTEREST_CREDIT.pattern
-    assert words._FRENCH_INTEREST_CREDIT in tc._NON_REVENUE_CREDIT_PATTERNS
+    assert words._FRENCH_INTEREST_CREDIT in tax_forms._NON_REVENUE_CREDIT_PATTERNS
     assert census._on_masked(pattern).pattern == census._FRENCH_INTEREST_AND_REBATE_R2_B08[0].pattern
     for text in ("INTERETS GAGNES", "INTERETS CREDITEURS", "INTERETS PAYES", "INTERETS VERSES", "CREDIT D INTERET"):
         assert words._FRENCH_INTEREST_CREDIT.search(text)

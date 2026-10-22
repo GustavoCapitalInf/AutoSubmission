@@ -13,7 +13,7 @@ from dataclasses import replace
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.classification import credit_predicates
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import rails
 from analysis.descriptor import financing
@@ -937,12 +937,12 @@ def test_r06_the_payer_region_starts_after_the_label(text, region):
     "INTL WIRE CREDIT ORG FABRIKAM SUPPLY INC",
 ])
 def test_r06_a_wire_credit_label_is_no_financing_root_and_the_row_stays_a_wire(text):
-    assert not financing._names_financing(tc._wire_financing_text(text))
+    assert not financing._names_financing(credit_predicates._wire_financing_text(text))
     # The label is removed from the veto's text only: the row still reads as a wire, its sender after ORG.
     assert rails._is_wire_row(text)
     assert descriptor_payer.payer_region(text) == "FABRIKAM SUPPLY INC"
     # A lender's name after the label still vetoes.
-    assert financing._names_financing(tc._wire_financing_text(text.replace("FABRIKAM SUPPLY INC", "SAMPLE CREDIT CORP")))
+    assert financing._names_financing(credit_predicates._wire_financing_text(text.replace("FABRIKAM SUPPLY INC", "SAMPLE CREDIT CORP")))
 
 
 def test_r06_a_cut_name_s_entry_and_a_dividend_are_no_financing_root():

@@ -604,7 +604,7 @@ _GOVERNMENT_TAX_REFUNDS_56 = _on_masked(
     r"|(?<![A-Z])IRS TREAS ?\d{3}\b"
 )
 #: Audit B2 (I20, §6.3 narrowing 8, the census's ninth): the two layouts that print a named sender after an
-#: own-account designation (analysis/transaction_classifier.py _NAMED_DESIGNATION_TRANSFERS, copied: the census reads
+#: own-account designation (analysis/classification/credit_predicates.py _NAMED_DESIGNATION_TRANSFERS, copied: the census reads
 #: other checkouts), read on the masked text: Bank of America's 'ONLINE|MOBILE [BANKING] TRANSFER FROM CHK|SAV <n>
 #: CONFIRMATION <reference> <sender>' and a credit union's 'TFR FROM X...<n> TRANSFER DEPOSIT <sender>', the sender
 #: printing a word of three letters or more.
@@ -1269,17 +1269,23 @@ def _fingerprint(statement) -> tuple:
 SPLIT_OWNERS = {
     "analysis.transaction_classifier.CLASSIFICATION_VERSION": "analysis.classification.record",
     "analysis.transaction_classifier._BUSINESS_ACCOUNT_PATTERNS": "analysis.descriptor.words",
+    "analysis.transaction_classifier._NON_REVENUE_CREDIT_PATTERNS": "analysis.classification.tax_forms",
     "analysis.transaction_classifier._STATEMENT_FURNITURE": "analysis.descriptor.lexical",
     "analysis.transaction_classifier._TRANSFER_WORDING": "analysis.description_text",
     "analysis.transaction_classifier._ach_payer_region": "analysis.descriptor.payer",
     "analysis.transaction_classifier._bare_incoming_wire": "analysis.descriptor.rails",
     "analysis.transaction_classifier._business_account": "analysis.descriptor.holder",
     "analysis.transaction_classifier._matches_any": "analysis.descriptor.rails",
+    "analysis.transaction_classifier._recurrence_veto_wording": "analysis.classification.operating_sources",
+    "analysis.transaction_classifier._recurrence_vetoed": "analysis.classification.operating_sources",
+    "analysis.transaction_classifier._reversal_credit": "analysis.classification.credit_predicates",
     "analysis.transaction_classifier._third_party_originator": "analysis.descriptor.rails",
+    "analysis.transaction_classifier._wire_vetoed": "analysis.classification.credit_predicates",
     "analysis.transaction_classifier._wire_vetoes_apply": "analysis.descriptor.rails",
     "analysis.transaction_classifier.account_name_text": "analysis.descriptor.holder",
     "analysis.transaction_classifier.channel_gate": "analysis.descriptor.payer",
     "analysis.transaction_classifier.credit_transfer_wording": "analysis.descriptor.payer",
+    "analysis.transaction_classifier.government_no_purpose": "analysis.classification.tax_forms",
     "analysis.transaction_classifier.holder_named": "analysis.descriptor.holder",
     "analysis.transaction_classifier.holder_reading": "analysis.descriptor.holder",
     "analysis.transaction_classifier.numbered_company": "analysis.descriptor.payer",
@@ -1689,7 +1695,7 @@ def _share(part: int, whole: int) -> float:
 SWEEP_UNCLEAR = "unclear"
 UNCLEAR_OWNER_CLASS = "H"
 #: The owner's ruling of 2026-10-02 (the underwriter's Q12; §6.1 step 3a): the classifier's no-purpose government forms
-#: (analysis/transaction_classifier.py GOVERNMENT_NO_PURPOSE_FORMS and government_no_purpose, copied: the census reads
+#: (analysis/classification/tax_forms.py GOVERNMENT_NO_PURPOSE_FORMS and government_no_purpose, copied: the census reads
 #: other checkouts), on the masked text with each '#' read as 0. The form follows the government template prefixes
 #: (_GOVERNMENT_FORM_PREFIX_56) and a credit union's DESCRIPTIVE DEPOSIT or Chase's ORIG CO NAME; after it only the
 #: reader's words print (posting words, the ACH field labels, SEC codes, the X12 segment names, the no-purpose entries,

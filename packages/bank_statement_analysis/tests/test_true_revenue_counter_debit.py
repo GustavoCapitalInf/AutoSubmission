@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import counter_debit_reading
 from analysis.classification import record as classification_record
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
@@ -343,7 +344,7 @@ def test_the_debit_kind_is_read_without_the_receiver_s_value(text, kind):
     "CHASE", "TRUIST", "BLUEVINE",
 ])
 def test_the_counter_debit_generic_words(word):
-    assert word in tc._COUNTER_DEBIT_GENERIC_WORDS
+    assert word in counter_debit_reading._COUNTER_DEBIT_GENERIC_WORDS
 
 
 @pytest.mark.parametrize(("rows", "bank"), [
@@ -594,18 +595,18 @@ def test_a_three_letter_word_other_than_a_payroll_provider_is_still_no_counter_d
     ("AB12CD CONTOSO", "AB12CD CONTOSO"),              # digits inside a token are a reference
 ])
 def test_a_glued_digit_run_is_split_off_a_name(text, split):
-    assert tc._split_glued_digits(text) == split
+    assert counter_debit_reading._split_glued_digits(text) == split
 
 
 def test_the_payer_reading_keeps_5_6_s_word_and_adds_the_glued_forms():
-    reading = tc.counter_debit_payer_reading("CONTOSO RIDGE HILL")
+    reading = counter_debit_reading.counter_debit_payer_reading("CONTOSO RIDGE HILL")
     assert reading.legacy == "CONTOSO"
     assert reading.keys == {"CONTOSO", "CONTOSORIDGE", "CONTOSORIDGEHILL"}
-    generic = tc.counter_debit_payer_reading("XY EXPRESS INC")
+    generic = counter_debit_reading.counter_debit_payer_reading("XY EXPRESS INC")
     assert (generic.legacy, generic.keys) == ("EXPRESS", frozenset())
-    glued = tc.counter_debit_payer_reading("FORWARDFINUSA1 PAYMENTS")
+    glued = counter_debit_reading.counter_debit_payer_reading("FORWARDFINUSA1 PAYMENTS")
     assert (glued.legacy, glued.keys) == (None, frozenset({"FORWARDFINUSA"}))
-    assert tc.counter_debit_payer_reading("ADP TAX").keys == {"ADP", "ADPTAX"}
+    assert counter_debit_reading.counter_debit_payer_reading("ADP TAX").keys == {"ADP", "ADPTAX"}
 
 
 @pytest.mark.parametrize(("text", "kind"), [
@@ -638,7 +639,7 @@ def _counter(legacy, words, *, entity=None, cents=100000, settlement=False, insu
 
     # Audit round 3, R3-B16 (R3-03): `released_insurer` is CounterCredit's last field, passed only when set.
     extra = {"released_insurer": True} if released_insurer else {}
-    return CounterCredit(tc._counter_debit_reading(legacy, [words]), cents, entity, settlement, insurer, **extra)
+    return CounterCredit(counter_debit_reading._counter_debit_reading(legacy, [words]), cents, entity, settlement, insurer, **extra)
 
 
 def _debits(*, lender=(), other=()):
@@ -647,9 +648,9 @@ def _debits(*, lender=(), other=()):
     from analysis.true_revenue import CounterDebits, _CounterDebit
 
     return CounterDebits(
-        tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), "lender", 30000, entity, False)
+        tuple(_CounterDebit(counter_debit_reading._counter_debit_reading(legacy, [words]), "lender", 30000, entity, False)
               for legacy, words, entity in lender),
-        tuple(_CounterDebit(tc._counter_debit_reading(legacy, [words]), kind, cents, None, recurring,
+        tuple(_CounterDebit(counter_debit_reading._counter_debit_reading(legacy, [words]), kind, cents, None, recurring,
                             **({"premium": True} if rest and rest[0] else {}))
               for legacy, words, kind, cents, recurring, *rest in other),
     )
@@ -935,7 +936,7 @@ def test_r01_also_debited_reads_a_card_charge_and_a_settlement():
     from analysis.true_revenue import CounterDebits, _CounterDebit, also_debited
 
     def held(kind, *, settlement, card=False, cents=2500, recurring=False, insurer=False):
-        debit = _CounterDebit(tc._counter_debit_reading("CONTOSO", [["CONTOSO"]]), kind, cents, None, recurring,
+        debit = _CounterDebit(counter_debit_reading._counter_debit_reading("CONTOSO", [["CONTOSO"]]), kind, cents, None, recurring,
                               card=card)
         return also_debited(_counter("CONTOSO", ["CONTOSO"], settlement=settlement, insurer=insurer),
                             CounterDebits((), (debit,)))
@@ -1078,7 +1079,7 @@ def test_ow05_payer_collects_reads_5_6_s_first_word_and_a_cut_spelling_on_anothe
 def test_ow05_payer_collects_never_reads_the_bank_s_receiving_fee_or_a_card_charge():
     from analysis.true_revenue import CounterDebits, _CounterDebit, _payer_collects
 
-    reading = tc._counter_debit_reading("CONTOSO", [["CONTOSO"]])
+    reading = counter_debit_reading._counter_debit_reading("CONTOSO", [["CONTOSO"]])
     assert not _payer_collects(_counter("CONTOSO", ["CONTOSO"]),
                                _debits(other=[("CONTOSO", ["CONTOSO"], "receiving_fee", 100000, False)]))
     for kind in ("other", "bill", "processor_fee"):
@@ -1348,34 +1349,34 @@ def _funding_and_ten(credit, debit, bank, *, amount=30000.0):
 
 def _debit_reading(text, bank, *, keep_places=False):
     record = _r3_b17([(text, -450.0)], bank)[0]
-    return tc.counter_debit_debit_reading(record, keep_places=keep_places)[0]
+    return counter_debit_reading.counter_debit_debit_reading(record, keep_places=keep_places)[0]
 
 
 @pytest.mark.parametrize("bank", [RBC, "RBC", "Banque Royale du Canada", "RBC Royal Bank", "royal bank of canada"])
 def test_r3_77_rbc_s_insurance_label_names_no_payer(bank):
-    reading = tc.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank)
+    reading = counter_debit_reading.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank)
     assert reading.legacy == "SUNLIFE"
     assert "SUNLIFE" in reading.keys and not any(key.startswith("INSURANCE") for key in reading.keys)
-    lender = tc.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank, keep_places=True)
+    lender = counter_debit_reading.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank, keep_places=True)
     assert lender.legacy == "SUNLIFE"
 
 
 @pytest.mark.parametrize("bank", [None, "", "Chase", "Royal Bank of Scotland", "CIBC"])
 def test_r3_77_another_bank_reads_a_leading_insurance_word_as_before(bank):
-    reading = tc.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank)
+    reading = counter_debit_reading.counter_debit_payer_reading("INSURANCE SUNLIFE MED INS", bank=bank)
     assert reading.legacy == "INSURANCE" and "INSURANCE" in reading.keys
 
 
 def test_r3_77_the_label_is_cut_once_and_only_before_a_word():
-    assert tc._without_posting_type_label("INSURANCE SUNLIFE GRP", RBC) == "SUNLIFE GRP"
-    assert tc._without_posting_type_label("INSURANCE", RBC) == "INSURANCE"
-    assert tc._without_posting_type_label("INSURANCE INSURANCE SAMPLE", RBC) == "INSURANCE SAMPLE"
-    assert tc._without_posting_type_label("FEES DUES SAMPLE ASSOCIATION", RBC) == "SAMPLE ASSOCIATION"
-    assert tc._without_posting_type_label("PAY EMPLOYEE VENDOR CONTOSO", RBC) == "CONTOSO"
-    assert tc._without_posting_type_label("SAMPLE INSURANCE CO", RBC) == "SAMPLE INSURANCE CO"
-    assert tc._without_posting_type_label("INVESTMENT FABRIKAM CAPITAL INC", "Scotiabank") == "FABRIKAM CAPITAL INC"
-    assert tc._without_posting_type_label("INSURANCE SAMPLE", "The Bank of Nova Scotia") == "INSURANCE SAMPLE"
-    assert tc._without_posting_type_label("INVESTMENT FABRIKAM", "Chase") == "INVESTMENT FABRIKAM"
+    assert counter_debit_reading._without_posting_type_label("INSURANCE SUNLIFE GRP", RBC) == "SUNLIFE GRP"
+    assert counter_debit_reading._without_posting_type_label("INSURANCE", RBC) == "INSURANCE"
+    assert counter_debit_reading._without_posting_type_label("INSURANCE INSURANCE SAMPLE", RBC) == "INSURANCE SAMPLE"
+    assert counter_debit_reading._without_posting_type_label("FEES DUES SAMPLE ASSOCIATION", RBC) == "SAMPLE ASSOCIATION"
+    assert counter_debit_reading._without_posting_type_label("PAY EMPLOYEE VENDOR CONTOSO", RBC) == "CONTOSO"
+    assert counter_debit_reading._without_posting_type_label("SAMPLE INSURANCE CO", RBC) == "SAMPLE INSURANCE CO"
+    assert counter_debit_reading._without_posting_type_label("INVESTMENT FABRIKAM CAPITAL INC", "Scotiabank") == "FABRIKAM CAPITAL INC"
+    assert counter_debit_reading._without_posting_type_label("INSURANCE SAMPLE", "The Bank of Nova Scotia") == "INSURANCE SAMPLE"
+    assert counter_debit_reading._without_posting_type_label("INVESTMENT FABRIKAM", "Chase") == "INVESTMENT FABRIKAM"
 
 
 def test_r3_77_the_label_table_is_normalized():
@@ -1458,7 +1459,7 @@ def test_r3_74_the_debit_readings_read_the_payee_after_the_label(text, bank, kee
 
 
 def test_r3_74_the_pad_label_keeps_a_numbered_company_s_number():
-    assert tc._PAD_LABEL_BEFORE_PAYEE.sub("", "PRE AUTH DEBIT 0000000 1234567 ONTARIO INC BUSINESS PAD") == (
+    assert counter_debit_reading._PAD_LABEL_BEFORE_PAYEE.sub("", "PRE AUTH DEBIT 0000000 1234567 ONTARIO INC BUSINESS PAD") == (
         "1234567 ONTARIO INC BUSINESS PAD")
     assert _debit_reading("PRE-AUTH DEBIT 0000000 1234567 ONTARIO INC BUSINESS PAD", "CIBC").number == "1234567"
     assert _debit_reading("PRE-AUTH DEBIT 1234-5678 QUEBEC INC", "CIBC").number == "12345678"
@@ -1490,7 +1491,7 @@ def test_r3_74_the_d6_potential_lender_names_are_unchanged(debit, entity):
 ])
 def test_r3_15_a_credit_s_numbered_company_reads_its_number(region, number, keys):
     for keep_places in (False, True):
-        reading = tc.counter_debit_payer_reading(region, keep_places=keep_places)
+        reading = counter_debit_reading.counter_debit_payer_reading(region, keep_places=keep_places)
         assert (reading.number, set(reading.keys)) == (number, keys)
 
 
@@ -1521,7 +1522,7 @@ def test_r3_15_same_payer_reads_equal_numbers():
     from analysis.true_revenue import _same_payer
 
     def reading(number, words=()):
-        return tc._counter_debit_reading(words[0] if words else None, [list(words)], number=number)
+        return counter_debit_reading._counter_debit_reading(words[0] if words else None, [list(words)], number=number)
 
     for legacy in (False, True):
         assert _same_payer(reading("1234567"), reading("1234567"), legacy=legacy)
@@ -1580,6 +1581,6 @@ def test_r3_15_a_numbered_company_s_debits_are_kept_and_recur_by_their_number():
     assert not debits.lender
     assert [(debit.reading.number, debit.recurring) for debit in debits.other] == [
         ("1234567", True), ("1234567", True), ("7654321", False)]
-    assert _head_word(tc._counter_debit_reading(None, [[]], number="1234567")) == "1234567"
-    assert _head_word(tc._counter_debit_reading("CONTOSO", [["CONTOSO"]], number="1234567")) == "CONTOSO"
-    assert _head_word(tc._counter_debit_reading(None, [[]])) is None
+    assert _head_word(counter_debit_reading._counter_debit_reading(None, [[]], number="1234567")) == "1234567"
+    assert _head_word(counter_debit_reading._counter_debit_reading("CONTOSO", [["CONTOSO"]], number="1234567")) == "CONTOSO"
+    assert _head_word(counter_debit_reading._counter_debit_reading(None, [[]])) is None

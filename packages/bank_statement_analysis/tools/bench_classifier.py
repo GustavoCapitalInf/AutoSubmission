@@ -17,6 +17,10 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis import transaction_classifier  # noqa: E402
+from analysis.classification import credit_predicates  # noqa: E402
+from analysis.classification import operating_sources  # noqa: E402
+from analysis.classification import payees  # noqa: E402
+from analysis.classification import tax_forms  # noqa: E402
 from analysis.descriptor import financing  # noqa: E402
 from analysis.classification_registry import PAYEE_GROUP_REGISTRIES  # noqa: E402
 from analysis.description_text import normalize_transaction_description  # noqa: E402
@@ -65,6 +69,10 @@ def legacy_match_known_payee(normalized_text: str, *, credit: bool = False) -> P
 MATCHER_BINDINGS = (
     (transaction_classifier, "match_known_payee"),
     (transaction_classifier, "registry_match"),
+    (credit_predicates, "match_known_payee"),
+    (operating_sources, "registry_match"),
+    (payees, "registry_match"),
+    (tax_forms, "registry_match"),
     (financing, "registry_match"),
 )
 
