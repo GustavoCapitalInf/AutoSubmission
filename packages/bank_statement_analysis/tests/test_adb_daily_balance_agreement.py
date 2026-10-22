@@ -172,7 +172,7 @@ def _export_rows(stmt: Statement) -> list[tuple]:
     from dataclasses import asdict
 
     from analysis.metrics import compute_metrics
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     return _analysis_rows({"metrics": asdict(compute_metrics(stmt))})
 
@@ -231,12 +231,12 @@ def test_the_csv_and_xlsx_downloads_carry_the_label():
     from dataclasses import asdict
 
     from analysis.metrics import compute_metrics
-    from webapp.app import _analysis_csv, _analysis_xlsx
+    from webapp.statement_export import analysis_csv, analysis_xlsx
 
     payload = {"metrics": asdict(compute_metrics(
         _statement({"2054-02-02": 150.0, "2054-02-03": 900.0, "2054-02-04": 150.0})))}
-    assert f"adb_validation,{CHECK},advisory FAIL\r\n" in _analysis_csv(payload)
-    with zipfile.ZipFile(io.BytesIO(_analysis_xlsx(payload))) as book:
+    assert f"adb_validation,{CHECK},advisory FAIL\r\n" in analysis_csv(payload)
+    with zipfile.ZipFile(io.BytesIO(analysis_xlsx(payload))) as book:
         sheet = book.read("xl/worksheets/sheet1.xml").decode("utf-8")
     assert f"<t>{CHECK}</t>" in sheet
     assert "<t>advisory FAIL</t>" in sheet

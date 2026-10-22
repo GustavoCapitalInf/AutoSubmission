@@ -147,7 +147,7 @@ def test_f1_an_established_statement_is_served_as_before(monkeypatch):
 # ---------------------------------------------------------------- the downloads
 
 def test_f1_the_statement_downloads_leave_the_basis_empty(monkeypatch):
-    from webapp.app import _account_analysis_rows, _analysis_csv
+    from webapp.statement_export import _account_analysis_rows, analysis_csv
 
     exported = _served(_stored(monkeypatch, "true_revenue"), export=True)
     metrics = exported["metrics"]
@@ -160,7 +160,7 @@ def test_f1_the_statement_downloads_leave_the_basis_empty(monkeypatch):
     for key in (*BASIS_FIGURES, *RATE_FIGURES):
         assert rows[("metrics", key)] == "", key
     assert rows[("metrics", "withholding_basis_unestablished")] is True
-    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_analysis_csv(exported))) if len(row) >= 3}
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(analysis_csv(exported))) if len(row) >= 3}
     assert cells[("metrics", "withholding_denominator")] == "" and cells[("metrics", "withholding_rate")] == ""
     # An established statement's download keeps every figure.
     established = _served(_stored(monkeypatch, "true_revenue", dropped=False), export=True)["metrics"]
@@ -171,7 +171,7 @@ def test_f1_the_statement_downloads_leave_the_basis_empty(monkeypatch):
 # ---------------------------------------------------------------- the package
 
 def test_f1_the_package_follows_the_rule_per_member_and_for_its_own_figures(monkeypatch):
-    from webapp.app import _package_for_export
+    from webapp.export_view import package_for_export
 
     package = _package(("mar", _stored(monkeypatch, "true_revenue")))
     (row,) = package["documents"]
@@ -184,7 +184,7 @@ def test_f1_the_package_follows_the_rule_per_member_and_for_its_own_figures(monk
     assert rollup["potential_withholding_exposure"] is None and rollup["eligible_deposit_denominator"] is None
     (match,) = package["detection"]["potential_lenders"]
     assert match["potential_withholding_exposure"] is None and match["eligible_deposit_denominator"] is None
-    exported = _package_for_export(package)
+    exported = package_for_export(package)
     for key in BASIS_FIGURES:
         assert exported["totals"][key] is None, key
     for key in ("withholding_denominator", "potential_withholding_denominator"):

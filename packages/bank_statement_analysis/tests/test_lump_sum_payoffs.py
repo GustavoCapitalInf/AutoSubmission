@@ -259,7 +259,8 @@ def test_ff_f2_a_member_row_s_rate_counts_the_returned_payoff_it_prints():
 
 
 def test_the_downloads_carry_it():
-    from webapp.app import _account_analysis_rows, _package_csv
+    from webapp.package_export import package_csv
+    from webapp.statement_export import _account_analysis_rows
     from analysis.served_view import displayed
 
     march, april = _months()
@@ -267,8 +268,8 @@ def test_the_downloads_carry_it():
             _account_analysis_rows(displayed(march, settings={}, export=True))}
     assert rows[("metrics", "lump_sum_payoff_total")] == 15000.0
     assert json.loads(rows[("detection", "lump_sum_payoffs")])[0]["words"] == "PAYOFF"
-    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(_package(("mar", march),
-                                                                                              ("apr", april)))))
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(package_csv(_package(("mar", march),
+                                                                                             ("apr", april)))))
              if len(row) == 3}
     assert cells[("totals", "lump_sum_payoff_total")] == "15000.0"
     assert cells[("lump_sum_payoff_1", "words")] == "PAYOFF"

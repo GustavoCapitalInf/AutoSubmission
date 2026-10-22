@@ -1277,7 +1277,7 @@ def test_package_rollup_weights_each_statement_by_its_own_calendar_days():
 
 
 def test_csv_export_emits_one_row_per_day_not_a_json_blob():
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     s = Statement(
         period_start="2054-01-01", period_end="2054-01-03",

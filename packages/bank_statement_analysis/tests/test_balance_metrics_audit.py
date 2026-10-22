@@ -271,7 +271,7 @@ def test_the_export_readers_read_the_flat_rows_beside_the_per_credit_ledger():
     import io
 
     from balance_forensic_audit import csv_rows, surface_value, xlsx_rows
-    from webapp.app import _analysis_csv, _analysis_xlsx
+    from webapp.statement_export import analysis_csv, analysis_xlsx
 
     analysis = {
         "statement": {
@@ -286,13 +286,13 @@ def test_the_export_readers_read_the_flat_rows_beside_the_per_credit_ledger():
         },
         "metrics": {"max_balance": 1500.0, "min_balance": 1000.0},
     }
-    text = _analysis_csv(analysis)
+    text = analysis_csv(analysis)
     # The ledger is there, and it is wider than the flat rows.
     assert any(len(row) > 3 and row[0] == "posted_credit" for row in csv.reader(io.StringIO(text)))
-    for reader, blob in ((csv_rows, text), (xlsx_rows, _analysis_xlsx(analysis))):
+    for reader, blob in ((csv_rows, text), (xlsx_rows, analysis_xlsx(analysis))):
         rows = reader(blob)
         assert surface_value(rows, "statement", "beginning_balance") == "1000.0"
         assert surface_value(rows, "statement", "ending_balance") == "1500.0"
         assert surface_value(rows, "metrics", "max_balance") == "1500.0"
         assert surface_value(rows, "metrics", "min_balance") == "1000.0"
-    assert csv_rows(text).keys() == xlsx_rows(_analysis_xlsx(analysis)).keys()
+    assert csv_rows(text).keys() == xlsx_rows(analysis_xlsx(analysis)).keys()

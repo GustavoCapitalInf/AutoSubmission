@@ -448,11 +448,11 @@ def test_exp6_plain_cells_are_written_unchanged(monkeypatch, tmp_path):
 
 def test_exp6_batch_and_the_webapp_share_one_formula_rule():
     import spreadsheet_safety
-    from webapp import app as webapp_app
+    from webapp import spreadsheet
 
-    assert webapp_app._escape_formula is spreadsheet_safety.escape_formula
-    assert webapp_app._FORMULA_LEAD is spreadsheet_safety.FORMULA_LEAD
-    assert webapp_app._NUMERIC_CELL is spreadsheet_safety.NUMERIC_CELL
+    assert spreadsheet._escape_formula is spreadsheet_safety.escape_formula
+    assert spreadsheet._FORMULA_LEAD is spreadsheet_safety.FORMULA_LEAD
+    assert spreadsheet._NUMERIC_CELL is spreadsheet_safety.NUMERIC_CELL
     assert batch.escape_formula is spreadsheet_safety.escape_formula
 
 

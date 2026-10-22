@@ -339,7 +339,7 @@ def test_the_served_payload_carries_the_aid_as_a_list_of_objects():
     assert all(record["revenue_funding_series"] == [] for record in records[1:])
     assert payload["classifications"][0]["revenue_funding_series"] == records[0]["revenue_funding_series"]
     # The posted-credit export table gains no column (the field rides in the evidence JSON cells).
-    from webapp.app import _POSTED_CREDIT_COLUMNS
+    from webapp.statement_export import _POSTED_CREDIT_COLUMNS
     assert "revenue_funding_series" not in _POSTED_CREDIT_COLUMNS
 
 

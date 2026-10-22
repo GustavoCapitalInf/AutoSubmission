@@ -689,7 +689,9 @@ def test_a_large_deposit_awaits_review_in_its_own_account_only():
     and the True evidence alike."""
     from tests.test_large_unsourced_deposits import _package as package_of
     from tests.test_package_matching import NW_A, SENT, TRANSFER_OUT, _rows_b, _two_account_document
-    from webapp.app import _analysis_csv, _masked, _package_csv
+    from webapp.export_view import masked
+    from webapp.package_export import package_csv
+    from webapp.statement_export import analysis_csv
 
     document = _two_account_document([(1, "MOBILE DEPOSIT", 300.0), (2, NW_A, 20000.0), (3, TRANSFER_OUT, -SENT)],
                                      _rows_b(amount=12000.0))
@@ -702,12 +704,12 @@ def test_a_large_deposit_awaits_review_in_its_own_account_only():
     assert not served["accounts"][0]["metrics"].get("large_unsourced_deposits")
     expected = {("1", "MOBILE DEPOSIT"): "not_required", ("1", NW_A): "not_required", ("2", "DEPOSIT"): "pending"}
 
-    statement = _csv(_analysis_csv(_masked(served)))
+    statement = _csv(analysis_csv(masked(served)))
     credits = {(row[0].split(".")[0].removeprefix("account_"), row[3]): row[8] for row in statement
                if row[0].endswith("posted_credit") and row[1] != "columns"}
     assert {key: credits[key] for key in expected} == expected
 
-    package = _csv(_package_csv(_masked(package_of(("doc", document)))))
+    package = _csv(package_csv(masked(package_of(("doc", document)))))
     ledger = {(row[3], row[6]): row[11] for row in package if row[0] == "package_transaction" and row[1] != "columns"}
     assert {key: ledger[key] for key in expected} == expected
     true_records = {}
@@ -732,12 +734,12 @@ def test_an_older_statement_download_names_each_credit_in_the_page_words():
     deposits to review (the page's review view and badge) are `review_required_count`, `_total` and `_evidence`, beside
     `revenue_evidence` and `non_revenue_evidence`."""
     from tests.test_webapp_true_revenue import _untiered
-    from webapp.app import _analysis_csv, _analysis_xlsx
+    from webapp.statement_export import analysis_csv, analysis_xlsx
     from analysis.served_view import displayed
 
     served = displayed(_untiered(_payload(ROWS)), settings={}, export=True)
     assert served["metrics"]["unverified_deposit_count"] == 4 and served["metrics"]["true_revenue_evidence"] is None
-    for name, table in (("csv", _csv(_analysis_csv(served))), ("xlsx", _sheet_rows(_analysis_xlsx(served)))):
+    for name, table in (("csv", _csv(analysis_csv(served))), ("xlsx", _sheet_rows(analysis_xlsx(served)))):
         assert _hidden_cells(table) == [], name
         credits = [row for row in table if row[0] == "posted_credit"]
         assert {row[3]: (row[6], row[7]) for row in credits[1:]} == {
@@ -769,12 +771,12 @@ def test_a_package_mixing_an_older_statement_writes_every_credit_in_one_section(
     ledger reads each older credit in the page's words."""
     from tests.test_webapp_true_revenue import _package as package_of
     from tests.test_webapp_true_revenue import _untiered
-    from webapp.app import _package_csv, _package_xlsx
+    from webapp.package_export import package_csv, package_xlsx
 
     package = package_of(_payload(ROWS), _untiered(_payload(ROWS, 4)))
     assert package["true_revenue_evidence"] is None
-    assert _hidden_cells(_sheet_rows(_package_xlsx(package))) == []
-    table = _csv(_package_csv(package))
+    assert _hidden_cells(_sheet_rows(package_xlsx(package))) == []
+    table = _csv(package_csv(package))
     assert _hidden_cells(table) == []
     sections: dict[str, list[dict]] = {}
     for row in table:
@@ -903,9 +905,9 @@ def test_a_record_s_reason_is_kept_where_it_names_no_hidden_tier(record, written
     """Review round 1: the downloads keep a held or non-revenue credit's rule and sentence, the words that say why it is
     out of True revenue, rewriting only the words that name a hidden tier; a rule or sentence still naming one is left
     out. A credit in True revenue carries neither, nor its 5.4 state."""
-    from webapp.app import _downloads_view
+    from webapp.export_view import downloads_view
 
-    view = _downloads_view(record)
+    view = downloads_view(record)
     for key in ("revenue_reason", "revenue_matched_rule", "revenue_classification", "revenue_initial_classification"):
         assert (key in view) == (key in written), key
     for key, value in written.items():
@@ -914,7 +916,7 @@ def test_a_record_s_reason_is_kept_where_it_names_no_hidden_tier(record, written
 
 
 def test_a_download_on_the_verified_basis_names_it_without_the_word():
-    from webapp.app import _analysis_csv
+    from webapp.statement_export import analysis_csv
     from analysis.served_view import displayed
 
     from analysis.revenue import rebuild_serialized_revenue_views
@@ -923,7 +925,7 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     payload["metrics"]["withholding_denominator_mode"] = "verified_revenue"
     rebuild_serialized_revenue_views(payload)
     served = displayed(payload, settings={}, export=True)
-    rows = _csv(_analysis_csv(served))
+    rows = _csv(analysis_csv(served))
     assert _hidden_cells(rows) == []
     cells = {(row[0], row[1]): row[2] for row in rows if len(row) == 3}
     assert cells[("metrics", "withholding_denominator_mode")] == "narrower_revenue_basis"
@@ -942,8 +944,8 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     assert served["metrics"]["withholding_denominator_mode"] == "verified_revenue"
     assert "verified_revenue" in served["metrics"]["withholding_denominator_options"]
     # A statement on any other basis lists no narrower basis: nothing on screen offers it.
-    true_basis = {(row[0], row[1]): row[2] for row in _csv(_analysis_csv(displayed(_payload(ROWS), settings={},
-                                                                                     export=True))) if len(row) == 3}
+    true_basis = {(row[0], row[1]): row[2] for row in _csv(analysis_csv(displayed(_payload(ROWS), settings={},
+                                                                                    export=True))) if len(row) == 3}
     assert modes(true_basis[("metrics", "withholding_denominator_options")]) == [
         "legacy_eligible_deposits", "true_revenue"]
     # Review round 1: inside a note the basis is named mid-sentence, in lower case, as the page's rate note names it.
@@ -951,7 +953,7 @@ def test_a_download_on_the_verified_basis_names_it_without_the_word():
     unpaid["metrics"]["withholding_denominator_mode"] = "verified_revenue"
     rebuild_serialized_revenue_views(unpaid)
     assert "withholding rate is unavailable because Verified revenue is zero or missing" in unpaid["metrics"]["notes"]
-    unpaid_rows = _csv(_analysis_csv(displayed(unpaid, settings={}, export=True)))
+    unpaid_rows = _csv(analysis_csv(displayed(unpaid, settings={}, export=True)))
     notes = json.loads({(row[0], row[1]): row[2] for row in unpaid_rows if len(row) == 3}[("metrics", "notes")])
     assert "withholding rate is unavailable because the narrower revenue basis is zero or missing" in notes
     assert not any("Verified" in note or "Narrower" in note for note in notes)

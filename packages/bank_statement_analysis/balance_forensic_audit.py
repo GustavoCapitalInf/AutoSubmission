@@ -33,7 +33,8 @@ from ocr.local_tesseract import parse_local_tesseract
 # production reads because it calls the same function, not a copy of it.
 from ocr.native_text import native_statement as native_document
 from ocr.rasterize import pdf_page_count
-from webapp.app import _analysis_csv, _analysis_xlsx, _package_csv, _package_xlsx
+from webapp.package_export import package_csv, package_xlsx
+from webapp.statement_export import analysis_csv, analysis_xlsx
 from analysis.package import package_analysis
 from webapp.jobs import Job
 from webapp.settings import load_settings
@@ -541,8 +542,8 @@ def audit_source(
         "highest": metrics.get("max_balance"),
         "lowest": metrics.get("min_balance"),
     }
-    export_csv = csv_rows(_analysis_csv(payload))
-    export_xlsx = xlsx_rows(_analysis_xlsx(payload))
+    export_csv = csv_rows(analysis_csv(payload))
+    export_xlsx = xlsx_rows(analysis_xlsx(payload))
     export_values = {
         "csv": {
             "opening": surface_value(export_csv, "statement", "beginning_balance"),
@@ -671,8 +672,8 @@ def apply_package_results(
     jobs = [job for _, job in paired]
     package = package_analysis(jobs, settings=load_settings(default_data_dir()))
     documents = {document["id"]: document for document in package["documents"]}
-    package_csv = csv_rows(_package_csv(package))
-    package_xlsx = xlsx_rows(_package_xlsx(package))
+    export_csv = csv_rows(package_csv(package))
+    export_xlsx = xlsx_rows(package_xlsx(package))
     for index, (row, job) in enumerate(paired, start=1):
         document = documents[job.id]
         expected = expected_by_id[job.id]
@@ -692,8 +693,8 @@ def apply_package_results(
             ("max_balance", "highest"),
             ("min_balance", "lowest"),
         ):
-            csv_value = surface_value(package_csv, f"document_{index}", field)
-            xlsx_value = surface_value(package_xlsx, f"document_{index}", field)
+            csv_value = surface_value(export_csv, f"document_{index}", field)
+            xlsx_value = surface_value(export_xlsx, f"document_{index}", field)
             if not values_match(package_values[name], expected[name]):
                 row["status"] = "FAIL"
             if not values_match(csv_value, expected[name]):

@@ -254,14 +254,14 @@ def test_the_csv_and_xlsx_exports_carry_readable_rows_for_ticked_groups_only(set
 
 
 def test_every_account_of_a_document_gets_its_own_flagged_rows():
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     rows = _analysis_rows(flagged_document_payload(groups=("mortgages",)))
     assert {"account_1.flagged_mortgages_1", "account_2.flagged_mortgages_1"} <= {section for section, _f, _v in rows}
 
 
 def test_two_payees_of_one_group_are_numbered_in_the_payload_order():
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     payload = with_flagged_rows(account_payload(), [
         flagged_row("mortgages", payee="FABRICATED MORTGAGE A"),
@@ -272,13 +272,13 @@ def test_two_payees_of_one_group_are_numbered_in_the_payload_order():
 
 
 def test_a_payee_that_reads_as_a_formula_is_escaped_in_both_sheets():
-    from webapp.app import _analysis_csv, _analysis_xlsx
+    from webapp.statement_export import analysis_csv, analysis_xlsx
     from analysis.served_view import displayed
 
     payload = with_flagged_rows(account_payload(), [flagged_row("mortgages", payee="=FABRICATED(1)")])
     shown = displayed(payload, settings=dict(DEFAULTS))
-    assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _analysis_csv(shown)
-    sheet = _sheet(_analysis_xlsx(shown))
+    assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in analysis_csv(shown)
+    sheet = _sheet(analysis_xlsx(shown))
     assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet
 
 
@@ -447,33 +447,33 @@ def test_a_member_without_analysis_adds_nothing_to_the_flag_roll_up(settings_fil
 
 @EACH_GROUP
 def test_the_package_csv_and_xlsx_carry_the_ticked_groups_only(settings_file, group):
-    from webapp.app import _package_csv, _package_xlsx
+    from webapp.package_export import package_csv, package_xlsx
     from analysis.package import package_analysis
 
     jobs = [_member("a", flagged_account_payload(0)), _member("b", flagged_account_payload(1))]
     section = f"flagged_{group.key}_1"
     package = package_analysis(jobs)
-    cells = _csv_cells(_package_csv(package))
+    cells = _csv_cells(package_csv(package))
     assert cells[(section, "payee")] == fabricated_payee(group.key)
     assert (cells[(section, "documents")], cells[(section, "count")]) == ("2", "2")
     assert cells[(section, "total_debited")] == str(2 * FLAGGED_DEBIT)
     assert cells[("totals", "flagged_position_count")] == str(2 * len(GROUP_KEYS))
-    assert f"<t>{section}</t>" in _sheet(_package_xlsx(package))
+    assert f"<t>{section}</t>" in _sheet(package_xlsx(package))
     save_settings(settings_file.parent, {group.setting: False})
     package = package_analysis(jobs, settings=load_settings(settings_file.parent))
-    cells = _csv_cells(_package_csv(package))
+    cells = _csv_cells(package_csv(package))
     assert not [key for key in cells if key[0].startswith(f"flagged_{group.key}_")]
-    assert f"<t>{section}</t>" not in _sheet(_package_xlsx(package))
+    assert f"<t>{section}</t>" not in _sheet(package_xlsx(package))
 
 
 def test_a_package_payee_that_reads_as_a_formula_is_escaped(settings_file):
-    from webapp.app import _package_csv, _package_xlsx
+    from webapp.package_export import package_csv, package_xlsx
     from analysis.package import package_analysis
 
     payload = with_flagged_rows(account_payload(), [flagged_row("mortgages", payee="=FABRICATED(1)")])
     package = package_analysis([_member("a", payload)])
-    assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in _package_csv(package)
-    sheet = _sheet(_package_xlsx(package))
+    assert "flagged_mortgages_1,payee,'=FABRICATED(1)" in package_csv(package)
+    sheet = _sheet(package_xlsx(package))
     assert "<t>'=FABRICATED(1)</t>" in sheet and "<t>=FABRICATED(1)</t>" not in sheet
 
 
@@ -523,16 +523,16 @@ def test_a_factoring_credit_is_served_flagged_and_follows_its_checkbox(settings_
 
 
 def test_the_statement_csv_and_xlsx_carry_the_credited_fields(settings_file):
-    from webapp.app import _analysis_csv, _analysis_xlsx
+    from webapp.statement_export import analysis_csv, analysis_xlsx
     from analysis.served_view import displayed
 
     shown = displayed(_factored(), settings=dict(DEFAULTS))
-    cells = _csv_cells(_analysis_csv(shown))
+    cells = _csv_cells(analysis_csv(shown))
     assert (cells[("flagged_factoring_1", "count")], cells[("flagged_factoring_1", "total_debited")]) == (
         "1", str(FLAGGED_DEBIT))
     assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
         "1", str(FACTOR_PAYOUT))
-    assert "<t>total_credited</t>" in _sheet(_analysis_xlsx(shown))
+    assert "<t>total_credited</t>" in _sheet(analysis_xlsx(shown))
 
 
 def test_the_package_rolls_up_credits_apart_from_debits(settings_file):
@@ -586,16 +586,16 @@ def test_package_positions_rank_by_debited_plus_credited(settings_file):
 
 
 def test_the_package_csv_and_xlsx_carry_the_credited_fields(settings_file):
-    from webapp.app import _package_csv, _package_xlsx
+    from webapp.package_export import package_csv, package_xlsx
     from analysis.package import package_analysis
 
     package = package_analysis([_member("a", _factored(0)), _member("b", _factored(1))])
-    cells = _csv_cells(_package_csv(package))
+    cells = _csv_cells(package_csv(package))
     assert (cells[("flagged_factoring_1", "count_credited")], cells[("flagged_factoring_1", "total_credited")]) == (
         "2", str(2 * FACTOR_PAYOUT))
     assert (cells[("totals", "flagged_position_count_credited")],
             cells[("totals", "flagged_position_total_credited")]) == ("2", str(2 * FACTOR_PAYOUT))
-    assert "<t>flagged_position_total_credited</t>" in _sheet(_package_xlsx(package))
+    assert "<t>flagged_position_total_credited</t>" in _sheet(package_xlsx(package))
 
 
 # --- the package cadence (§8.3; needs analysis/cadence.py from S2) -------------------------------------------
@@ -814,7 +814,7 @@ def test_the_fixture_records_use_only_fields_the_classifier_writes():
 # --- 5.3 (owner ruling 2026-09-27): an unconfirmed flagged payee --------------------------------------------------
 
 def test_an_unconfirmed_flagged_payee_is_marked_in_the_package_and_its_export(settings_file):
-    from webapp.app import _package_csv
+    from webapp.package_export import package_csv
     from analysis.package import package_analysis
 
     row = flagged_row("vehicle_financing", payee="FABRICATED REVIEW AUTO")
@@ -823,6 +823,6 @@ def test_an_unconfirmed_flagged_payee_is_marked_in_the_package_and_its_export(se
     package = package_analysis([_member("a", with_flagged_rows(account_payload(0), [row, known]))])
     items = {item["payee"]: item["review_required"] for item in package["flagged_positions"]["vehicle_financing"]}
     assert items == {"FABRICATED REVIEW AUTO": True, "FABRICATED KNOWN AUTO": False}
-    cells = _csv_cells(_package_csv(package))
+    cells = _csv_cells(package_csv(package))
     assert sorted(value for (section, field), value in cells.items()
                   if section.startswith("flagged_vehicle_financing_") and field == "review_required") == ["False", "True"]

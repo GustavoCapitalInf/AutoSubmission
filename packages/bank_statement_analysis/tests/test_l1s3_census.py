@@ -23,13 +23,13 @@ def test_the_census_holds_at_this_tree():
 
 
 def test_a_taught_reader_whose_branch_is_gone_fails_it(monkeypatch):
-    """FORWARD. `_masked` genuinely never reads the account key, so declaring
+    """FORWARD. `masked` genuinely never reads the account key, so declaring
     it `refuses` is exactly the state of a reader whose refusal was deleted."""
     monkeypatch.setattr(census, "READERS", (
-        ("webapp/app.py", "_masked", "refuses", "doctored"),
+        ("webapp/export_view.py", "masked", "refuses", "doctored"),
     ))
     failures, _notes, _sites = census.census_readers()
-    assert any("never calls" in failure and "_masked" in failure
+    assert any("never calls" in failure and "::masked" in failure
                for failure in failures)
 
 
@@ -83,7 +83,7 @@ def test_a_seam_that_publishes_one_account_fails_it(tmp_path, monkeypatch):
 
 def test_the_census_exits_non_zero_when_it_fails(monkeypatch, capsys):
     monkeypatch.setattr(census, "READERS", (
-        ("webapp/app.py", "_masked", "refuses", "doctored"),
+        ("webapp/export_view.py", "masked", "refuses", "doctored"),
     ))
     assert census.main(["--readers"]) == 1
     assert "CENSUS FAILS" in capsys.readouterr().out

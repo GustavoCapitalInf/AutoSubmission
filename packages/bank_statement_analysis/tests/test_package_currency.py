@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from webapp.app import _package_csv, _package_rows, _package_xlsx
+from webapp.package_export import _package_rows, package_csv, package_xlsx
 from analysis.package import package_analysis
 from analysis.package.model import statement_currency
 from analysis.package.publish import CROSS_CURRENCY_TOTAL_KEYS
@@ -414,7 +414,7 @@ def test_the_deprecated_rollup_alias_is_refused_with_its_canonical_key():
         assert item["documents"] == 2
         assert item["potential_lender_debit_count"] == item["debit_count"]
 
-    text = _package_csv(package)
+    text = package_csv(package)
     assert "potential_lender_1,potential_lender_debit_total," in text
     assert "1500.0" not in text  # 500 CAD + 500 USD, had it been summed
 
@@ -588,7 +588,7 @@ def test_the_corpus_gate_package_surface_survives_a_refusal():
 
     # The exports address by (section, field), never by row position, so the
     # added `currency` section and `currency` column cannot shift them.
-    from webapp.app import _package_csv as pkg_csv, _package_xlsx as pkg_xlsx
+    from webapp.package_export import package_csv as pkg_csv, package_xlsx as pkg_xlsx
 
     for reader, blob in ((csv_rows, pkg_csv(package)), (xlsx_rows, pkg_xlsx(package))):
         rows = reader(blob)
@@ -672,7 +672,7 @@ def test_refused_field_list_matches_the_constant_and_the_payload():
 
 def test_csv_export_carries_the_refusal_and_never_a_mixed_number():
     package = package_analysis([member("a", "CAD"), member("b", "USD")])
-    text = _package_csv(package)
+    text = package_csv(package)
     rows = list(csv.reader(io.StringIO(text)))
     cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
 
@@ -691,7 +691,7 @@ def test_csv_export_carries_the_refusal_and_never_a_mixed_number():
 
 def test_csv_export_of_a_single_currency_package_states_the_denomination():
     package = package_analysis([member("a", "CAD"), member("b", "CAD")])
-    text = _package_csv(package)
+    text = package_csv(package)
     assert "totals,currency,CAD" in text
     assert "currency,resolution,single" in text
     assert "totals,total_credits,20000.0" in text
@@ -699,7 +699,7 @@ def test_csv_export_of_a_single_currency_package_states_the_denomination():
 
 def test_xlsx_export_carries_the_same_refusal():
     package = package_analysis([member("a", "CAD"), member("b", "USD")])
-    blob = _package_xlsx(package)
+    blob = package_xlsx(package)
     with zipfile.ZipFile(io.BytesIO(blob)) as archive:
         sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
     assert "multiple_currencies" in sheet
@@ -1005,10 +1005,10 @@ def test_monthly_lender_debits_is_the_lender_debits_per_calendar_month():
     # The withholding figures read the total, as before.
     assert totals["withholding_numerator"] == 3000.0
     assert totals["package_withholding_rate"] == round(3000.0 / totals["withholding_denominator"] * 100, 2)
-    rows = list(csv.reader(io.StringIO(_package_csv(package))))
+    rows = list(csv.reader(io.StringIO(package_csv(package))))
     assert ["totals", "monthly_lender_debits", "1000.0"] in rows
     assert ["totals", "lender_debits", "3000.0"] in rows
-    with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as archive:
+    with zipfile.ZipFile(io.BytesIO(package_xlsx(package))) as archive:
         sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
     row = next(row for row in re.findall(r"<row [^>]*>(.*?)</row>", sheet) if ">monthly_lender_debits<" in row)
     assert [float(value) for value in re.findall(r"<v>([^<]*)</v>", row)] == [1000.0]
@@ -1126,7 +1126,7 @@ def test_package_ledger_rows_carry_their_own_source_currency():
 
 
 def test_the_route_serves_the_refusal_through_masking_and_json():
-    """`/package_analysis` runs the payload through `_masked` and `jsonify`.
+    """`/package_analysis` runs the payload through `masked` and `jsonify`.
     Neither may turn a refusal back into a number, and neither may drop the
     block that explains it."""
     from webapp.app import app, store

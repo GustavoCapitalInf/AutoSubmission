@@ -15,11 +15,11 @@ from analysis.payload_shape import PayloadShapeError
 from tests.l1s3_payloads import account_payload, document_payload, omission
 
 
-# --- webapp/app.py: the exports ---------------------------------------------
+# --- webapp/statement_export.py and export_view.py: the exports ------------
 
 
 def test_the_export_sheet_renders_every_account():
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     payload = document_payload()
     rows = _analysis_rows(payload)
@@ -37,7 +37,7 @@ def test_the_export_sheet_renders_every_account():
 
 
 def test_the_export_sheet_carries_the_account_count_and_no_chosen_account():
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     rows = _analysis_rows(document_payload(outcomes=("validated",) * 3))
     document_rows = {field: value for section, field, value in rows
@@ -47,7 +47,7 @@ def test_the_export_sheet_carries_the_account_count_and_no_chosen_account():
 
 
 def test_the_export_sheet_is_unchanged_for_one_account():
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     payload = account_payload()
     assert _analysis_rows(payload) == _analysis_rows(copy.deepcopy(payload))
@@ -59,21 +59,21 @@ def test_the_export_sheet_is_unchanged_for_one_account():
 
 def test_the_csv_export_of_a_document_is_not_empty():
     """Measured before the teaching: zero rows, for a document that reconciled."""
-    from webapp.app import _analysis_csv
+    from webapp.statement_export import analysis_csv
 
-    text = _analysis_csv(document_payload())
+    text = analysis_csv(document_payload())
     assert "account_1.statement" in text
     assert "account_2.statement" in text
 
 
 def test_the_masked_route_is_account_count_agnostic():
     """No branch needed and none added: it is keyed on KEY NAMES."""
-    from webapp.app import _masked
+    from webapp.export_view import masked
 
-    masked = _masked(document_payload())
-    assert set(masked) == {"document", "accounts"}
-    assert len(masked["accounts"]) == 2
-    for index, account in enumerate(masked["accounts"]):
+    served = masked(document_payload())
+    assert set(served) == {"document", "accounts"}
+    assert len(served["accounts"]) == 2
+    for index, account in enumerate(served["accounts"]):
         assert account["statement"]["account_number"] == f"****{index:04d}"
 
 
@@ -152,7 +152,7 @@ def test_two_accounts_of_one_document_are_not_package_duplicates():
 
 
 def test_every_member_is_its_own_row_in_the_package_export():
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     package = package_analysis([_Job("job-1", document_payload())])
@@ -268,12 +268,12 @@ def test_a_package_of_todays_payloads_carries_none_of_the_q10_keys():
 def test_the_q10_surface_reaches_the_export_an_underwriter_reads():
     """A refusal that lives only in the JSON is invisible to the person the
     package is for."""
-    from webapp.app import _package_csv
+    from webapp.package_export import package_csv
     from analysis.package import package_analysis
 
     payload = document_payload(outcomes=("validated",),
                                omitted_sections=(omission(),))
-    text = _package_csv(package_analysis([_Job("job-1", payload)]))
+    text = package_csv(package_analysis([_Job("job-1", payload)]))
     assert "sibling_account_omission_detected" in text
     assert "completeness" in text
 

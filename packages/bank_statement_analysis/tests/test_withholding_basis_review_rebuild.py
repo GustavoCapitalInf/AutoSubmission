@@ -90,7 +90,7 @@ def _basis_notes(metrics):
 
 
 def _export_cells(served):
-    from webapp.app import _account_analysis_rows
+    from webapp.statement_export import _account_analysis_rows
     from analysis.served_view import displayed
     rows = {(section, field): value for section, field, value in _account_analysis_rows(served)}
     lenders = json.loads(rows[("detection", "potential_lenders")])

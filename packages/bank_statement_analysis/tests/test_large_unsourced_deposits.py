@@ -262,7 +262,8 @@ def test_l4_a_statement_whose_revenue_is_not_established_carries_no_flag():
 
 
 def test_l5_a_statement_with_no_flag_is_served_and_downloaded_as_before():
-    from webapp.app import _analysis_csv, _masked
+    from webapp.export_view import masked
+    from webapp.statement_export import analysis_csv
     from analysis.served_view import displayed
 
     payload = _payload([*_squares(), (6, DEPOSIT, 4000.0)])
@@ -271,7 +272,7 @@ def test_l5_a_statement_with_no_flag_is_served_and_downloaded_as_before():
     # since the owner's request of 2026-10-10 (active positions by month), its two active position counts.
     assert set(served["metrics"]) - set(payload["metrics"]) == {"verified_revenue_established", "revenue_established",
                                                                 "nsf_days", "active_positions", "possible_positions"}
-    exported = _analysis_csv(_masked(displayed(payload, settings={}, export=True)))
+    exported = analysis_csv(masked(displayed(payload, settings={}, export=True)))
     assert "large_unsourced" not in exported
 
 
@@ -390,11 +391,12 @@ def test_l7_a_document_s_account_names_its_account():
 
 def _statement_downloads(payload):
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _analysis_csv, _analysis_xlsx, _masked
+    from webapp.export_view import masked
+    from webapp.statement_export import analysis_csv, analysis_xlsx
     from analysis.served_view import displayed
 
-    exported = _masked(displayed(payload, settings={}, export=True))
-    return list(csv.reader(io.StringIO(_analysis_csv(exported)))), _sheet_rows(_analysis_xlsx(exported)), exported
+    exported = masked(displayed(payload, settings={}, export=True))
+    return list(csv.reader(io.StringIO(analysis_csv(exported)))), _sheet_rows(analysis_xlsx(exported)), exported
 
 
 def _section_rows(rows, prefix=""):
@@ -436,14 +438,15 @@ def test_l8_a_document_s_accounts_write_under_their_prefix():
 
 def test_l8_the_package_downloads_write_one_section_per_flag_after_the_debit_flags():
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+    from webapp.export_view import masked, package_for_export
+    from webapp.package_export import package_csv, package_xlsx
 
     march, _april = _months()
     # April adds a processor's chargeback (R2-OW15's debit flag) after its rows, so the package has a debit_flag_1.
     april = _payload([*APRIL, (24, "HRTLAND PMT SYS CHARGEBACK 123456", -350.0)], month=4)
-    exported = _masked(_package_for_export(_package(("mar", march), ("apr", april))))
+    exported = masked(package_for_export(_package(("mar", march), ("apr", april))))
     assert exported["debit_flags"]
-    rows = list(csv.reader(io.StringIO(_package_csv(exported))))
+    rows = list(csv.reader(io.StringIO(package_csv(exported))))
     # The owner's request of 2026-10-11 (true revenue spec §2.2, §10.8): no counted reason (`revenue_tier_reason`) in
     # the downloads; the served package (the JSON download) keeps it.
     fields = ("source_location", "date", "description", "amount", "share_of_true_percent",
@@ -458,7 +461,7 @@ def test_l8_the_package_downloads_write_one_section_per_flag_after_the_debit_fla
     totals = {row[1]: row[2] for row in rows if row[0] == "totals"}
     assert (totals["large_unsourced_deposit_count"], totals["large_unsourced_deposit_total"]) == ("3", "300000.0")
     assert "large_unsourced_deposits" not in totals
-    xlsx = [row[:3] for row in _sheet_rows(_package_xlsx(exported)) if row[0] == "large_unsourced_deposit_2"]
+    xlsx = [row[:3] for row in _sheet_rows(package_xlsx(exported)) if row[0] == "large_unsourced_deposit_2"]
     assert xlsx[2] == ["large_unsourced_deposit_2", "description", WIRE]
 
 
