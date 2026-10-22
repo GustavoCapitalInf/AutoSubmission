@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 from analysis.package import package_analysis
+from analysis.package.model import PackagePasses
 from analysis.package.passes import package_matches
 
 BANK = "Sample Bank"
@@ -390,8 +391,8 @@ def _without_passes(monkeypatch, *members):
     import analysis.package
 
     with monkeypatch.context() as patched:
-        patched.setattr(analysis.package, "package_matches", lambda members: {
-            "overlays": {}, "matches": [], "debit_flags": [], "unchecked": {}, "moved": {}})
+        patched.setattr(analysis.package, "package_matches", lambda members: PackagePasses(
+            overlays={}, matches=[], debit_flags=[], unchecked={}, moved={}, represented={}))
         return _package(*members)
 
 

@@ -12,6 +12,7 @@ from analysis.package.model import (
     Member,
     MemberKey,
     num,
+    PackagePasses,
     printed_account_digits,
     REVIEW_DECISIONS,
     row_cents,
@@ -113,7 +114,7 @@ def _match_side(entry: dict, position: int, row: dict) -> dict:
     }
 
 
-def package_matches(members: list[Member]) -> dict:
+def package_matches(members: list[Member]) -> PackagePasses:
     """True revenue spec §6.2's package passes, §9.2, §11: the package passes over the members `package_members`
     admitted, recomputed on every call from their displayed copies and never written back (no job, stored analysis,
     review row or package record changes; a statement viewed alone keeps its own figures).
@@ -160,8 +161,9 @@ def package_matches(members: list[Member]) -> dict:
     neither its statement nor pass 1 matched (`unmatched_deposit_return`, with `candidate_decided` when the nearest
     candidate but for the decision carries one) and its processor chargebacks and adjustments (`processor_chargeback`).
 
-    Returns `{"overlays": {member: {position: fields}}, "matches": [...], "debit_flags": [...], "unchecked": {member:
-    marker}, "moved": {member: [{"tier", "state", "amount"}]}}`, deterministic and independent of the listing order."""
+    Returns `PackagePasses`: `overlays` ({member: {position: fields}}), `matches`, `debit_flags`, `unchecked` ({member:
+    marker}), `moved` ({member: [{"tier", "state", "amount"}]}) and `represented`, deterministic and independent of the
+    listing order."""
     from types import SimpleNamespace
 
     entries: list[dict] = []
@@ -441,8 +443,8 @@ def package_matches(members: list[Member]) -> dict:
     # Pass 4's re-debits: a returned payment the same funder re-debits in the account's next statement leaves
     # the package's numerator.
     represented = _represented_funder_payments_across(matchable, overlays, location_of)
-    return {"overlays": overlays, "matches": matches, "debit_flags": debit_flags, "unchecked": unchecked,
-            "moved": moved, "represented": represented}
+    return PackagePasses(overlays=overlays, matches=matches, debit_flags=debit_flags, unchecked=unchecked, moved=moved,
+                         represented=represented)
 
 
 def _represented_funder_payments_across(matchable: list[dict], overlays: dict, location_of) -> dict:
@@ -673,30 +675,30 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
         })
 
 
-def package_match_totals(matched: dict) -> dict:
+def package_match_totals(matched: PackagePasses) -> dict:
     """§9.2: the package passes' totals, each count and total only where a pass found a row:
     `returned_deposit_cross_statement_count` / `_total` (the deposits pass 1 took out of True), 
     `own_account_transfer_held_count` / `_total` (the deposits pass 2 held) and
     `own_account_transfer_already_held_count` / `_total` (the held deposits it annotated), the debit flags'
     `<kind>_count` / `<kind>_total` (their magnitude) and `package_match_unchecked_count`."""
     totals: dict = {}
-    returned = [match for match in matched["matches"] if match["kind"] == "returned_deposit" and match["moved"]]
+    returned = [match for match in matched.matches if match["kind"] == "returned_deposit" and match["moved"]]
     if returned:
         totals["returned_deposit_cross_statement_count"] = len(returned)
         totals["returned_deposit_cross_statement_total"] = round(
             sum(abs(num(match["credit"]["amount"])) for match in returned), 2)
     # The deposits pass 2 held, and the already-held deposits it only annotated.
     for key, moved in (("own_account_transfer_held", True), ("own_account_transfer_already_held", False)):
-        transfers = [match for match in matched["matches"]
+        transfers = [match for match in matched.matches
                      if match["kind"] == "own_account_transfer" and match["moved"] is moved]
         if transfers:
             totals[f"{key}_count"] = len(transfers)
             totals[f"{key}_total"] = round(sum(abs(num(match["credit"]["amount"])) for match in transfers), 2)
     for kind in DEBIT_FLAG_KINDS:
-        flags = [flag for flag in matched["debit_flags"] if flag["kind"] == kind]
+        flags = [flag for flag in matched.debit_flags if flag["kind"] == kind]
         if flags:
             totals[f"{kind}_count"] = len(flags)
             totals[f"{kind}_total"] = round(sum(abs(num(flag["amount"])) for flag in flags), 2)
-    if matched["unchecked"]:
-        totals["package_match_unchecked_count"] = len(matched["unchecked"])
+    if matched.unchecked:
+        totals["package_match_unchecked_count"] = len(matched.unchecked)
     return totals

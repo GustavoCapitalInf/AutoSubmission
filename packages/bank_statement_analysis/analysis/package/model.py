@@ -1,5 +1,5 @@
-"""A package's members, and what the package reads off each member account: values, currency, printed account digits,
-bank, and whether two statements are one account."""
+"""A package's members and its passes' result, and what the package reads off each member account: values, currency,
+printed account digits, bank, and whether two statements are one account."""
 from __future__ import annotations
 
 import re
@@ -53,6 +53,18 @@ class Member:
     @property
     def ready(self) -> bool:
         return self.job.status == "done" and self.job.analysis is not None
+
+
+@dataclass(frozen=True)
+class PackagePasses:
+    """What `package_matches` found. Each map is keyed by member, and an overlay by the row's original position."""
+
+    overlays: dict[MemberKey, dict[int, dict]]
+    matches: list[dict]
+    debit_flags: list[dict]
+    unchecked: dict[MemberKey, str]
+    moved: dict[MemberKey, list[dict]]
+    represented: dict[tuple[MemberKey, str], dict]
 
 
 def is_count(value: object) -> bool:

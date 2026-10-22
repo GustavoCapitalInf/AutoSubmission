@@ -332,7 +332,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # the stored job are never touched), before R-d's positions are left out, so every reader below sees it: the
         # tiers and their reasons, the revenue rows and evidence, the member's gate, the ledger and the document
         # row.
-        member_overlay = package_matched["overlays"].get(member.key) or {}
+        member_overlay = package_matched.overlays.get(member.key) or {}
         if member_overlay:
             raw_transactions = [
                 {**transaction, "classification": {**transaction["classification"], **member_overlay[position]}}
@@ -671,7 +671,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # loses the moved credits stored verified or counted, the Verified mode those stored as verified revenue; the
         # legacy basis and the numerator are untouched. Pass 2's held deposits (stored counted) are moved credits too;
         # its annotated held deposits never are.
-        moved_credits = package_matched["moved"].get(member.key) or []
+        moved_credits = package_matched.moved.get(member.key) or []
         if moved_credits and denominator_mode in ("true_revenue", "verified_revenue"):
             moved_total = round(sum(
                 item["amount"] for item in moved_credits
@@ -891,7 +891,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
                     "source_currency": statement_currency,
                     **({"source_account": account_index} if account_index is not None else {}),
                     # A payment the funder re-debited in the next statement.
-                    **package_matched["represented"].get((member.key, returned_item.get("debit_location")), {}),
+                    **package_matched.represented.get((member.key, returned_item.get("debit_location")), {}),
                 })
         # §9.2, §17.1: a ready, tiered member whose revenue is established lists its large unsourced deposits as the
         # package counts its rows (R-d's pairs left out, the package passes' holds applied, so a deposit the package holds
@@ -1264,8 +1264,8 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # ('no_currency', 'older_rules'), each only where there is one.
         if member_overlay:
             doc_row["package_match_count"] = len(member_overlay)
-        if member.key in package_matched["unchecked"]:
-            doc_row["package_match_unchecked"] = package_matched["unchecked"][member.key]
+        if member.key in package_matched.unchecked:
+            doc_row["package_match_unchecked"] = package_matched.unchecked[member.key]
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
@@ -1309,7 +1309,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     # displayed copies (information only).
     lender_reading: dict = {}
     lender_payment_changes, lender_payment_unchecked = package_lender_payment_changes(
-        members, package_matched["overlays"], reading=lender_reading)
+        members, package_matched.overlays, reading=lender_reading)
     # §9.2, §10: each member row's active and possible positions, read from the same chains, and the package's
     # months.
     active_positions_by_month = package_active_positions(documents, lender_reading)
@@ -1396,7 +1396,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     # Each payment pass 4 matched to a return in the next statement is out of its funder's paid rollup and in its
     # returned payments (the member rows already read the overlay), and the returned-payment warning lists it, naming both
     # documents.
-    for match in package_matched["matches"]:
+    for match in package_matched.matches:
         if match["kind"] != "returned_funder_payment":
             continue
         debit, credit = match["debit"], match["credit"]
@@ -1418,8 +1418,8 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
             **({"credit_account": credit["account_index"]} if credit.get("account_index") is not None else {}),
             "cross_statement": True,
             # The funder re-debited it (the re-debit's statement named).
-            **package_matched["represented"].get((MemberKey(debit.get("job"), debit.get("account_index")),
-                                                  debit.get("source_location")), {}),
+            **package_matched.represented.get((MemberKey(debit.get("job"), debit.get("account_index")),
+                                               debit.get("source_location")), {}),
         })
     totals["lenders_detected"] = len(funders)
     totals["potential_lenders_detected"] = len(potential_lenders)
@@ -1942,6 +1942,6 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         **({"omitted_sections": omitted_sections} if omitted_sections else {}),
         # §9.2: each match the package passes made across its statements, each leg naming its statement, account and
         # unit, and each debit they flag (never deducted); only where there is one.
-        **({"package_matches": package_matched["matches"]} if package_matched["matches"] else {}),
-        **({"debit_flags": package_matched["debit_flags"]} if package_matched["debit_flags"] else {}),
+        **({"package_matches": package_matched.matches} if package_matched.matches else {}),
+        **({"debit_flags": package_matched.debit_flags} if package_matched.debit_flags else {}),
     }
