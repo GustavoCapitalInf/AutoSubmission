@@ -1,6 +1,6 @@
 # Transaction Classification Contract
 
-`analysis.transaction_classifier.classify_statement_transactions` creates the
+`analysis.transaction_classifier.statement.classify_statement_transactions` creates the
 authoritative classification record for every parsed ledger row. The pipeline
 creates this list once, then passes the same records to metrics, detection,
 serialization, API responses, downloads, dashboard cards, filters, and evidence

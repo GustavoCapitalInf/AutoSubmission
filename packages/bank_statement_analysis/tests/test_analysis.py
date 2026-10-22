@@ -11,7 +11,7 @@ from analysis.adb import compute_average_daily_balance
 from analysis.reconcile import reconcile
 from analysis.metrics import compute_metrics, daily_closing_balances
 from analysis.detect import detect, find_known_funders, find_recurring_debits
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.altana import parse_altana_statement
 from analysis.atb import parse_atb_statement
 from analysis.b1 import parse_b1_statement
@@ -714,7 +714,7 @@ def test_r3_91_b1_an_incoming_wire_keeps_the_lines_printed_under_it_apart_from_i
     assert [(t.payer_text_unread, t.unread_payer_text) for t in stmt.transactions] == [
         (True, "FABRIKAM HOLDINGS LL REF 0001"), (False, ""), (False, ""),
     ]
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     wire = classify_statement_transactions(stmt)[0]
     assert (wire.revenue_tier, wire.revenue_tier_reason) == ("excluded_pending_review", "wire_no_sender")

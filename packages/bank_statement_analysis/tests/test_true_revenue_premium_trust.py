@@ -23,7 +23,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import holder_name as hn
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.true_revenue import pass7
 from analysis.true_revenue import trust as true_revenue_trust
 from analysis.true_revenue import words
@@ -297,8 +297,8 @@ def _statement(rows, line=None, *, bank="First Citizens Bank", **fields):
 def _today(statement, monkeypatch):
     """The statement's records with the premium-trust rule reading no title (every other rule as today)."""
     with monkeypatch.context() as patch:
-        patch.setattr(tc, "premium_trust_title", lambda *fields: None)
-        return tc.classify_statement_transactions(statement)
+        patch.setattr(transaction_classifier_statement, "premium_trust_title", lambda *fields: None)
+        return transaction_classifier_statement.classify_statement_transactions(statement)
 
 
 def _reading(records):
@@ -314,7 +314,7 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
     assert statement.holder_name == "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"
     assert statement.account_title == "PREMIUM TRUST ACCOUNT"
     before = _today(statement, monkeypatch)
-    after = tc.classify_statement_transactions(statement)
+    after = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _reading(before) == [today for _text, _amount, today, _after in T1_ROWS]
     assert _reading(after) == [held for _text, _amount, _today, held in T1_ROWS]
     for old, new in zip(before, after):
@@ -378,7 +378,7 @@ def test_t2_a_holder_name_that_ends_in_the_title(monkeypatch):
     statement = _statement(SHORT, f"NORTHWIND INSURANCE AGENCY PREMIUM TRUST {ADDR}")
     assert (statement.holder_name, statement.account_title) == ("NORTHWIND INSURANCE AGENCY PREMIUM TRUST", None)
     before = compute_metrics(statement, classifications=_today(statement, monkeypatch))
-    after = tc.classify_statement_transactions(statement)
+    after = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _reading(after) == [PT] * 5
     metrics = compute_metrics(statement, classifications=after)
     assert (_money(before.true_revenue_total), _money(metrics.true_revenue_total)) == (30436.21, 0.0)
@@ -399,7 +399,7 @@ def test_t3_to_t5_an_account_name_that_reads_the_title(bank, account_name, monke
     assert _reading(_today(statement, monkeypatch)) == [
         ("counted_flagged", "no_payer_printed"), ("verified", "repeat_wire_sender"), ("verified", "repeat_wire_sender"),
         ("verified", "operating_income_descriptor"), ("verified", "operating_income_descriptor")]
-    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 5
+    assert _reading(transaction_classifier_statement.classify_statement_transactions(statement)) == [PT] * 5
     assert compute_metrics(statement).premium_trust_account is True
 
 
@@ -426,14 +426,14 @@ def test_r3_61_a_contact_naming_the_premium_trust_account_holds_in_any_spacing(c
     statement = _statement(R3_61_ROWS, _r3_61_line(contact))
     assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", "PREMIUM TRUST ACCOUNT")
     assert _reading(_today(statement, monkeypatch)) == R3_61_TODAY
-    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+    assert _reading(transaction_classifier_statement.classify_statement_transactions(statement)) == [PT] * 3
     assert compute_metrics(statement).premium_trust_account is True
 
 
 def test_r3_61_a_contact_naming_a_person_is_no_title_and_holds_nothing(monkeypatch):
     statement = _statement(R3_61_ROWS, _r3_61_line("ATTN:SAMPLE PERSON"))
     assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", None)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert records == _today(statement, monkeypatch)
     assert _reading(records) == R3_61_TODAY
     assert compute_metrics(statement, classifications=records).premium_trust_account is False
@@ -452,7 +452,7 @@ def test_r3_b11_r1_a_contact_naming_the_trust_account_by_its_kind_holds_in_any_s
     statement = _statement(R3_61_ROWS, _r3_61_line(contact))
     assert (statement.holder_name, statement.account_title) == ("CONTOSO INSURANCE AGENCY INC", title)
     assert _reading(_today(statement, monkeypatch)) == R3_61_TODAY
-    assert _reading(tc.classify_statement_transactions(statement)) == [PT] * 3
+    assert _reading(transaction_classifier_statement.classify_statement_transactions(statement)) == [PT] * 3
 
 
 def test_r3_b11_r1_a_dba_home_care_name_keeps_its_care_of_and_its_reading():
@@ -464,7 +464,7 @@ def test_r3_b11_r1_a_dba_home_care_name_keeps_its_care_of_and_its_reading():
         "CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE", None)
     whole = Statement(bank="Bank of America", holder_name="CONTOSO HOLDINGS LLC DBA NORTHWIND HOME CARE OF SAMPLEVILLE",
                       transactions=statement.transactions)
-    assert tc.classify_statement_transactions(statement) == tc.classify_statement_transactions(whole)
+    assert transaction_classifier_statement.classify_statement_transactions(statement) == transaction_classifier_statement.classify_statement_transactions(whole)
 
 
 #: T6: the owner's two halves. Carrier commissions and a bare deposit, on the operating and on the trust statement.
@@ -483,7 +483,7 @@ def test_t6_commissions_count_on_the_operating_account_and_are_held_on_the_trust
     operating = _statement(T6, OPERATING_LINE, account_name="Business Banking")
     trust = _statement(T6, TRUST_LINE, account_name="Business Banking")
     # (a) The operating account: the underwriter's Q2 counts the four insurer-worded commissions; Q10 moves nothing.
-    records = tc.classify_statement_transactions(operating)
+    records = transaction_classifier_statement.classify_statement_transactions(operating)
     assert records == _today(operating, monkeypatch)
     assert _reading(records) == [INSURER_FOR_WORK] * 4 + [
         ("counted_flagged", "named_payer_unlabelled"), ("counted_flagged", "no_payer_printed")]
@@ -492,7 +492,7 @@ def test_t6_commissions_count_on_the_operating_account_and_are_held_on_the_trust
     assert metrics.premium_trust_account is False
     # (b) The trust account: the same six credits are held for the title, the released commissions included (their
     # method stays the release's).
-    records = tc.classify_statement_transactions(trust)
+    records = transaction_classifier_statement.classify_statement_transactions(trust)
     assert _reading(records) == [PT] * 6
     assert [record.revenue_match_method for record in records[:4]] == [words.INSURER_FOR_WORK_METHOD] * 4
     metrics = compute_metrics(trust, classifications=records)
@@ -516,11 +516,11 @@ def test_r3_53_a_counted_re_statement_held_on_a_trust_account_says_it_is_held(mo
     sentence names the hold by its own label (REVENUE_TIER_REASONS), never "counted and flagged"; the operating account
     keeps the counted sentence, and a verified row on the trust account keeps the sentence the hold already writes."""
     rows = [(text, amount) for text, amount, _today in R3_53_ROWS]
-    operating = tc.classify_statement_transactions(_statement(rows, OPERATING_LINE, account_name="Business Banking"))
+    operating = transaction_classifier_statement.classify_statement_transactions(_statement(rows, OPERATING_LINE, account_name="Business Banking"))
     assert [rules_reading(record) for record in operating] == [today for _text, _amount, today in R3_53_ROWS]
     for record in operating[:3]:
         assert "counted and flagged, never verified" in record.revenue_reason
-    trust = tc.classify_statement_transactions(_statement(rows, TRUST_LINE, account_name="Business Banking"))
+    trust = transaction_classifier_statement.classify_statement_transactions(_statement(rows, TRUST_LINE, account_name="Business Banking"))
     assert _reading(trust) == [PT] * 4
     label = revenue.REVENUE_TIER_REASONS[true_revenue_trust.PREMIUM_TRUST_REASON][1]
     for counted, held in zip(operating[:3], trust[:3]):
@@ -538,7 +538,7 @@ def test_a_zelle_deposit_into_a_trust_account_stays_excluded(monkeypatch):
     reading is asserted through zelle_prior_reading)."""
     rows = [("ZELLE PAYMENT FROM SAMPLE PERSON CONF 1234567890", 900.00), ("DEPOSIT", 2345.67)]
     statement = _statement(rows, TRUST_LINE)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert (records[0].revenue_tier, records[0].revenue_tier_reason) == ("non_revenue", "zelle_excluded")
     assert rules_reading(records[0]) == ("counted_flagged", "p2p")
     assert (records[1].revenue_tier, records[1].revenue_tier_reason) == PT
@@ -552,7 +552,7 @@ def test_a_first_hold_is_kept_on_a_trust_account(monkeypatch):
             ("ONLINE TRANSFER TO SAMPLE VENDOR", -50.00)]
     statement = _statement(rows, TRUST_LINE)
     before = _today(statement, monkeypatch)
-    after = tc.classify_statement_transactions(statement)
+    after = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _reading(before) == [("excluded_pending_review", "payer_also_debited"), ("counted_flagged", "no_payer_printed")]
     assert _reading(after) == [("excluded_pending_review", "payer_also_debited"), PT]
     assert after[0] == before[0]
@@ -592,7 +592,7 @@ def test_a_control_account_reads_as_today(spec, true_total, monkeypatch):
     spec = dict(spec)
     statement = _statement(spec.pop("rows"), spec.pop("line", None), **spec)
     assert true_revenue_trust.premium_trust_title(statement.account_title, statement.account_name, statement.holder_name) is None
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert records == _today(statement, monkeypatch)
     assert all(record.revenue_tier_reason != "premium_trust_account" for record in records)
     metrics = compute_metrics(statement, classifications=records)
@@ -610,7 +610,7 @@ def test_c9_a_payer_that_prints_the_words_never_makes_a_title(monkeypatch):
         ("DEPOSIT", 2345.67),
     ]
     statement = _statement(rows, holder_name="CONTOSO TRADING LLC", account_name="Business Checking")
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert records == _today(statement, monkeypatch)
     assert _reading(records)[:2] == [("verified", "named_payer_repeats")] * 2
     assert compute_metrics(statement, classifications=records).premium_trust_account is False
@@ -628,8 +628,8 @@ def _pass_arguments(statement, monkeypatch):
         return original(*args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(tc, "apply_true_revenue_pass", capture)
-        tc.classify_statement_transactions(statement)
+        patch.setattr(transaction_classifier_statement, "apply_true_revenue_pass", capture)
+        transaction_classifier_statement.classify_statement_transactions(statement)
     return seen["args"], seen["kwargs"]
 
 
@@ -668,7 +668,7 @@ def test_a_duplicate_a_direction_conflict_and_a_credit_under_one_dollar_keep_the
     statement = Statement(bank="First Citizens Bank", holder_name=reading.name, account_title=reading.title,
                           transactions=rows)
     before = _today(statement, monkeypatch)
-    after = tc.classify_statement_transactions(statement)
+    after = transaction_classifier_statement.classify_statement_transactions(statement)
     assert [(r.revenue_tier, r.revenue_tier_reason or r.revenue_match_method) for r in after] == [
         PT, ("non_revenue", "duplicate_credit_exclusion"), ("excluded_pending_review", "direction_conflict"),
         ("excluded_pending_review", "non_sale_purpose"), PT]

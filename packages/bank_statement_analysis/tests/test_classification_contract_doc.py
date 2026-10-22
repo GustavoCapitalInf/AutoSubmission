@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import statement
 from analysis.true_revenue import words as true_revenue_words
 from analysis.classification import record as classification_record
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
@@ -173,9 +173,9 @@ PASS_CALLS = (
 def test_the_contract_lists_the_statement_passes_in_the_classifiers_order():
     # classify_statement_transactions runs the shared prefix, then one Zelle reading's passes and duplicate
     # finalisation; read in that order.
-    source = (inspect.getsource(transaction_classifier._classify_statement_prefix)
-              + inspect.getsource(transaction_classifier._classify_statement_reading))
-    assert "_classify_statement_prefix(" in inspect.getsource(transaction_classifier.classify_statement_transactions)
+    source = (inspect.getsource(statement._classify_statement_prefix)
+              + inspect.getsource(statement._classify_statement_reading))
+    assert "_classify_statement_prefix(" in inspect.getsource(statement.classify_statement_transactions)
     positions = [source.index(call) for call, _ in PASS_CALLS]
     assert positions == sorted(positions)
     assert source.index("duplicate_of[index] = seen[fingerprint]") < source.index("recurring_fixed_debit")
@@ -203,7 +203,7 @@ DRAW_AND_SELLER_ROWS = (
 
 
 def _first_record(text: str):
-    return transaction_classifier.classify_statement_transactions(Statement(
+    return statement.classify_statement_transactions(Statement(
         account_name=HOLDER, bank="Bank of America", transactions=[
             Transaction(date="2054-03-02", description=text, amount=12000.0, direction="credit"),
             Transaction(date="2054-03-03", description="MOBILE DEPOSIT", amount=300.0, direction="credit"),

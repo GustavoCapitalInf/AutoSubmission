@@ -212,7 +212,7 @@ def reconcile(stmt: Statement, *, parser_id: str | None = None) -> ReconResult:
     if stmt.transactions and needs_reversal_coverage:
         # Only the reversal pass's two fields and the amounts are read here, final after pass 4, so the true-revenue
         # pass is not run for them (classify_statement_reversals).
-        from .transaction_classifier import classify_statement_reversals
+        from .transaction_classifier.statement import classify_statement_reversals
 
         classifications = classify_statement_reversals(stmt)
         reversal_credits = round(

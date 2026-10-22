@@ -14,7 +14,7 @@ from analysis.classification import credit_predicates
 from analysis.metrics import compute_metrics
 from analysis.payee_matcher import PayeeMatch
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import FAKE_PAYEES, fake_payees, flagged_statement, txn  # noqa: F401  (fixture)
 

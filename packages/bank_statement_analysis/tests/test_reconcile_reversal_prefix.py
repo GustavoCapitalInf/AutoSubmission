@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.reconcile import reconcile
 from tests import zelle_setting_fixtures as fx
 from tests.test_represented_funder_payments import CASES as REPRESENTED
@@ -75,11 +75,11 @@ def _fields(records):
 @pytest.mark.parametrize("name", sorted(STATEMENTS))
 def test_the_reversal_fields_are_final_after_pass_four(name):
     statement = STATEMENTS[name]
-    prefix = _fields(tc.classify_statement_reversals(statement))
+    prefix = _fields(transaction_classifier_statement.classify_statement_reversals(statement))
 
-    assert _fields(tc.classify_statement_transactions(statement)) == prefix
-    assert _fields(tc.classify_statement_transactions(statement, zelle_true_revenue=True)) == prefix
-    stored, counted = tc.classify_statement_readings(statement)
+    assert _fields(transaction_classifier_statement.classify_statement_transactions(statement)) == prefix
+    assert _fields(transaction_classifier_statement.classify_statement_transactions(statement, zelle_true_revenue=True)) == prefix
+    stored, counted = transaction_classifier_statement.classify_statement_readings(statement)
     assert _fields(stored) == prefix
     if counted is not None:
         assert _fields(counted) == prefix
@@ -89,7 +89,11 @@ def test_the_reversal_fields_are_final_after_pass_four(name):
 def test_reconcile_reads_the_same_with_the_whole_classification(monkeypatch, name):
     statement = _missing_its_totals(STATEMENTS[name])
     now = asdict(reconcile(statement))
-    monkeypatch.setattr(tc, "classify_statement_reversals", lambda stmt: tc.classify_statement_transactions(stmt))
+    monkeypatch.setattr(
+        transaction_classifier_statement,
+        "classify_statement_reversals",
+        lambda stmt: transaction_classifier_statement.classify_statement_transactions(stmt),
+    )
     assert asdict(reconcile(statement)) == now
 
 
@@ -103,13 +107,13 @@ def test_the_fixtures_reach_the_branch_and_its_pairs():
 def test_reconcile_runs_no_reading_for_the_reversal_fields(monkeypatch):
     """F4: the coverage check classifies through pass 4's prefix only; the true-revenue pass is not run for it."""
     readings: list[object] = []
-    real = tc._classify_statement_reading
+    real = transaction_classifier_statement._classify_statement_reading
 
     def counting(*args, **kwargs):
         readings.append(args)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(tc, "_classify_statement_reading", counting)
+    monkeypatch.setattr(transaction_classifier_statement, "_classify_statement_reading", counting)
     result = reconcile(_missing_its_totals(_statement(EXTRA["funder_return"])))
 
     assert result.reversal_pair_count == 1
@@ -176,18 +180,18 @@ def test_the_prefix_is_a_statement_scope_of_the_matcher_memo(monkeypatch):
     from analysis import payee_matcher
 
     seen = []
-    real = tc._classify_statement_prefix
+    real = transaction_classifier_statement._classify_statement_prefix
 
     def watching(statement, min_recurring_count):
         seen.append(payee_matcher._MATCH_MEMO.get() is not None)
         return real(statement, min_recurring_count)
 
-    monkeypatch.setattr(tc, "_classify_statement_prefix", watching)
-    tc.classify_statement_reversals(_statement(EXTRA["funder_return"]))
+    monkeypatch.setattr(transaction_classifier_statement, "_classify_statement_prefix", watching)
+    transaction_classifier_statement.classify_statement_reversals(_statement(EXTRA["funder_return"]))
 
     assert seen == [True]
     assert payee_matcher._MATCH_MEMO.get() is None
 
 
 def test_a_statement_with_no_rows_is_still_answered():
-    assert tc.classify_statement_reversals(_statement([])) == []
+    assert transaction_classifier_statement.classify_statement_reversals(_statement([])) == []

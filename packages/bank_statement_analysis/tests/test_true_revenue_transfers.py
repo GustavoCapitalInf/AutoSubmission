@@ -16,7 +16,7 @@ from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import public_payers
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.descriptor.rails import prints_internal_transfer_designation
 from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description

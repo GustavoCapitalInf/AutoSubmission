@@ -35,7 +35,7 @@ from analysis.true_revenue import claimed
 from analysis.true_revenue import words as true_revenue_words
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from tests.zelle_reading import rules_reading
 
 HOLDER = "NORTHWIND FURNITURE LLC"

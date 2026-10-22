@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.transaction_classifier.row import classify_transaction
 from analysis.classification.counter_debit_reading import _debit_first_distinctive_word
 
@@ -131,16 +131,16 @@ def test_an_ach_debit_to_the_payer_is_still_a_counter_debit():
 
 def test_a_card_form_debit_the_classifier_names_as_a_lender_is_still_a_counter_debit():
     # Final review I5: the card flag spares a card purchase only when the classifier names no lender on it (D8).
-    from analysis import transaction_classifier as tc
+    from analysis.transaction_classifier import statement
 
     debit = classify_transaction("CHECKCARD 0302 NORTHWIND SUPPLY SAMPLEVILLE CA", -120.0, direction="debit")
     lender = replace(debit, classification="potential_lender")
     credit = classify_transaction("NORTHWIND SUPPLY DES:VENDOR PAY ID:1", 5000.0, direction="credit",
                                   account_name="SAMPLE CAFE LLC")
     assert credit.revenue_match_method == "payer_remittance_descriptor"
-    guarded = tc._apply_payer_remittance_counter_debit_guard([credit, lender], set())
+    guarded = statement._apply_payer_remittance_counter_debit_guard([credit, lender], set())
     assert guarded[0].revenue_match_method == "payer_remittance_with_counter_debit"
-    spared = tc._apply_payer_remittance_counter_debit_guard([credit, debit], set())
+    spared = statement._apply_payer_remittance_counter_debit_guard([credit, debit], set())
     assert spared[0].revenue_match_method == "payer_remittance_descriptor"
 
 

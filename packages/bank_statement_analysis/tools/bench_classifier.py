@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from analysis import transaction_classifier  # noqa: E402
+from analysis.transaction_classifier import statement as transaction_classifier_statement  # noqa: E402
 from analysis.transaction_classifier import credit_decision  # noqa: E402
 from analysis.transaction_classifier import obligations  # noqa: E402
 from analysis.transaction_classifier import row  # noqa: E402
@@ -125,7 +125,7 @@ def _timed(statement: Statement, repeats: int) -> tuple[float, list]:
     records: list = []
     for _ in range(repeats):
         started = time.perf_counter()
-        records = transaction_classifier.classify_statement_transactions(statement)
+        records = transaction_classifier_statement.classify_statement_transactions(statement)
         best = min(best, time.perf_counter() - started)
     return best, records
 

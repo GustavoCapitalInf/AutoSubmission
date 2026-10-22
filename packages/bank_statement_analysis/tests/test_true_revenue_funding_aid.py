@@ -20,7 +20,7 @@ from dataclasses import asdict, fields, replace
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.classification import record as classification_record
 from analysis.true_revenue import pass7
 from analysis.true_revenue import dealer
@@ -68,7 +68,7 @@ def _statement(rows, *, bank=BANK, start=START, balances=False, account_title=No
 
 
 def _run(rows, **kwargs):
-    return tc.classify_statement_transactions(_statement(rows, **kwargs))
+    return transaction_classifier_statement.classify_statement_transactions(_statement(rows, **kwargs))
 
 
 def _aid(records):
@@ -219,7 +219,7 @@ def test_no_series_starts_after_the_wire(name):
     statement = _statement(CONTROLS[name])
     if name == "undated":
         statement.transactions[0] = statement.transactions[0].model_copy(update={"date": "SOMETIME"})
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert (records[0].revenue_tier, records[0].revenue_tier_reason) == HELD_WIRE
     assert _aid(records) == {}
 
@@ -262,11 +262,11 @@ def _without_aid(node):
 @pytest.mark.parametrize("name", sorted(SCENARIOS))
 def test_the_aid_changes_no_other_field_and_no_lender_or_revenue_figure(monkeypatch, name):
     statement = _statement(SCENARIOS[name][0], balances=True)
-    on = tc.classify_statement_transactions(statement)
+    on = transaction_classifier_statement.classify_statement_transactions(statement)
     patched_funding_series_after = lambda records, duplicate_indexes, statement_start: records
     monkeypatch.setattr(dealer, "funding_series_after", patched_funding_series_after)
     monkeypatch.setattr(pass7, "funding_series_after", patched_funding_series_after)
-    off = tc.classify_statement_transactions(statement)
+    off = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _aid(on) and not _aid(off)
     assert [replace(record, revenue_funding_series=()) for record in on] == off
     for mode in ("legacy_eligible_deposits", "true_revenue"):

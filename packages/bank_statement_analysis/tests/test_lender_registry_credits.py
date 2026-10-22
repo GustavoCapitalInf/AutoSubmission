@@ -24,7 +24,7 @@ from analysis.detect import find_flagged_positions
 from analysis.payee_matcher import match_known_payee, registry_match
 from analysis.revenue import apply_serialized_revenue_review, rebuild_serialized_revenue_views
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 
 HOLDER = "NORTHWIND LABS INC"
 

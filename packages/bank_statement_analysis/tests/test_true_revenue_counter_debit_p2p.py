@@ -22,7 +22,7 @@ from analysis.descriptor import lexical
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import model
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from tests.zelle_reading import rules_reading
 
 HOLDER = "NORTHWIND BAKERY LLC"

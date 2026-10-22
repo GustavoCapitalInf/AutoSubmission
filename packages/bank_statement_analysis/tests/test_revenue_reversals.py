@@ -20,7 +20,7 @@ import pytest
 
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from tests.zelle_reading import rules_reading, zelle_policy_due
 
 HOLDER = "NORTHWIND PLUMBING LLC"

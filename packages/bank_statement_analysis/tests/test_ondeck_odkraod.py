@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.transaction_classifier import row
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
@@ -81,7 +81,7 @@ def test_a_statement_reads_the_odkraod_weeks_as_ondeck_payments():
     statement = _statement([
         ("2054-02-02", SALE, 12000.0), ("2054-02-05", ONDECK_ROW, -1000.0), ("2054-02-12", ODKRAOD_ROW, -1000.0),
         ("2054-02-16", SALE, 12000.0), ("2054-02-19", ODKRAOD_ROW, -1000.0), ("2054-02-26", ONDECK_ROW, -1000.0)])
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
     assert (metrics.lender_debits, metrics.withholding_numerator, metrics.lenders_detected) == (4000.0, 4000.0, 1)
     assert metrics.true_revenue_total == 24000.0

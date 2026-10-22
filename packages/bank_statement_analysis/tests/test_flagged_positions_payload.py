@@ -108,7 +108,7 @@ EXPECTED_POSITIONS = [
 
 def test_detection_groups_flagged_rows_by_group_then_total(fake_payees):
     from analysis.detect import find_flagged_positions
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     statement = flagged_statement()
     positions = find_flagged_positions(statement, classify_statement_transactions(statement))
@@ -138,7 +138,7 @@ def test_a_detection_result_without_flagged_rows_publishes_an_empty_list():
 
 def test_a_premium_financier_is_a_flagged_position_under_its_own_name(fake_premium_finance):
     from analysis.detect import find_flagged_positions
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     statement = flagged_statement(PREMIUM_ROWS)
     [position] = find_flagged_positions(statement, classify_statement_transactions(statement))

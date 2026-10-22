@@ -12,7 +12,7 @@ from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import description_text
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.transaction_classifier.row import classify_transaction
 
 BOFA = ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:20540102001234 SEQ:1234/5678 ORIG:{orig} ID:99887766 "

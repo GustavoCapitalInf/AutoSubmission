@@ -121,7 +121,7 @@ def flagged_report(rows: tuple[tuple[str, str, float], ...] = FLAGGED_ROWS):
     from analysis.metrics import compute_metrics
     from analysis.pipeline import DocumentIntegrity, Quality, Report
     from analysis.reconcile import reconcile
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     statement = flagged_statement(rows)
     records = classify_statement_transactions(statement)

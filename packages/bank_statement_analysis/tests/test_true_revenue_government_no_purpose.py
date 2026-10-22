@@ -14,7 +14,7 @@ import pytest
 
 from analysis.description_text import normalize_transaction_description
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.classification.tax_forms import GOVERNMENT_NO_PURPOSE_FORMS, government_no_purpose
 from analysis.descriptor.lexical import revenue_text
 

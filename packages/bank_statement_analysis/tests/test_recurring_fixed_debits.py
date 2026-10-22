@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from tests.flag_group_fixtures import txn
 
 UNIDENTIFIED = "Unidentified lender obligation"

@@ -10,7 +10,7 @@ from .dates import parse_date
 from .flag_groups import FLAG_GROUPS
 from .metrics import POTENTIAL_WITHHOLDING_FORMULA
 from .schema import Statement, Transaction
-from .transaction_classifier import classify_statement_transactions
+from .transaction_classifier.statement import classify_statement_transactions
 from .classification.record import TransactionClassification, classify_cadence, flagged_payee
 
 

@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict
 from typing import TYPE_CHECKING
 
-from .transaction_classifier import classify_statement_transactions
+from .transaction_classifier.statement import classify_statement_transactions
 from .classification.record import TransactionClassification
 from .payload_shape import DOCUMENT_KEY, account_content_digest
 from .revenue import rebuild_serialized_revenue_views

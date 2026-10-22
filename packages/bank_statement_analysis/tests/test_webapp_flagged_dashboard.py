@@ -726,7 +726,7 @@ def test_the_page_asks_browsers_for_the_new_script():
     # owner's own design (2026-10-11, display only): -13. His request of 2026-10-11 to hide Verified revenue and
     # "Counted, not verified": -14. The code audit of 2026-10-13 (its dashboard fixes): -15. The model-code removal (no
     # Force visual OCR control, the advice texts rewritten): -16.
-    assert '<script src="/static/app.js?v=true-revenue-17"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-18"></script>' in html
 
 
 # ---------------------------------------------------------------- Task 15: what a flagged payee paid in

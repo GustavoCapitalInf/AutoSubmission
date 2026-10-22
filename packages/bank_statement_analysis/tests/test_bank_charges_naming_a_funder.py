@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import lender_payment_changes as lpc
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
@@ -81,7 +81,7 @@ def test_a_stop_payment_naming_a_funder_makes_no_lender_of_it():
     # Today: 1 lender, 35.00 paid and 35.00 in the withholding numerator, from one stop-payment charge.
     statement = _statement([("2054-03-02", SALE, 12000.0), ("2054-03-09", SALE, 12000.0),
                             ("2054-03-16", "STOP PAYMENT FORA FINANCIAL", -35.0)])
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
     assert (metrics.lenders_detected, metrics.lender_debits, metrics.withholding_numerator) == (0, 0.0, 0.0)
     assert metrics.true_revenue_total == 24000.0
@@ -96,7 +96,7 @@ def test_a_stop_payment_charge_after_a_funder_s_last_payment_keeps_its_possible_
     rows.append(("2054-04-27", "STOP PAYMENT KAPITUS", -30.0))
     rows.sort(key=lambda row: row[0])
     statement = _statement(rows, period_end="2054-04-30")
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     items = lpc.statement_payment_changes(records, period_start=statement.period_start,
                                           period_end=statement.period_end, currency="USD")
     stops = [item for item in items if item["kind"] == "stop"]
@@ -160,9 +160,9 @@ def test_a_funder_s_return_printing_stop_payment_still_pairs(monkeypatch):
     # A KAPITUS payment and the bank's return of it printing STOP PAYMENT: paired as today (the debit returned unpaid).
     rows = [("2054-03-02", SALE, 12000.0), ("2054-03-03", KAPITUS, -400.0),
             ("2054-03-05", "ACH RETURN KAPITUS STOP PAYMENT", 400.0)]
-    after = tc.classify_statement_transactions(_statement(rows))
+    after = transaction_classifier_statement.classify_statement_transactions(_statement(rows))
     _without_the_new_words(monkeypatch)
-    before = tc.classify_statement_transactions(_statement(rows))
+    before = transaction_classifier_statement.classify_statement_transactions(_statement(rows))
     assert after == before
     debit = after[1]
     assert debit.classification == "confirmed_lender"

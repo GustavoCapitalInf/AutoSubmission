@@ -18,7 +18,7 @@ from .dates import assign_transaction_years
 from .reconcile import reconcile, ReconResult
 from .metrics import compute_metrics, Metrics
 from .detect import detect, DetectionResult
-from .transaction_classifier import classify_statement_readings
+from .transaction_classifier.statement import classify_statement_readings
 from .classification.record import TransactionClassification
 from .descriptor.rails import prints_internal_transfer_designation
 from .bofa import repair_bofa_summary

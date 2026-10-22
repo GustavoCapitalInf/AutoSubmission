@@ -22,7 +22,7 @@ from .lender_figures import LenderRow, lender_figures
 from .nsf_days import PRINTED as NSF_PRINTED, UNAVAILABLE as NSF_UNAVAILABLE, negative_day_count
 from .schema import Statement
 from .flag_groups import FLAG_GROUPS
-from .transaction_classifier import classify_statement_transactions
+from .transaction_classifier.statement import classify_statement_transactions
 from .classification.record import TransactionClassification, flagged_payee
 from .revenue import (
     DEFAULT_WITHHOLDING_DENOMINATOR_MODE,
