@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.transaction_classifier.row import classify_transaction
 
 HOLDER = "NORTHWIND PLUMBING LLC"

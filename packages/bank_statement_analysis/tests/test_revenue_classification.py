@@ -13,7 +13,7 @@ from analysis.pipeline import analyze_markdown
 from analysis.revenue import REVENUE_STATES, rebuild_serialized_revenue_views
 from analysis.schema import Statement, Transaction
 from analysis.serialization import report_to_dict
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.transaction_classifier.row import classify_transaction
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
 from webapp.app import app, store

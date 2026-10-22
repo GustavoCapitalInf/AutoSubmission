@@ -1150,9 +1150,9 @@ def test_the_snapshot_masks_an_entity_or_alias_no_registry_names():
 def test_a_credit_union_named_with_digits_is_written_masked(monkeypatch):
     from dataclasses import replace
 
-    from analysis import transaction_classifier
+    from analysis.transaction_classifier import statement
 
-    classify = transaction_classifier.classify_statement_transactions
+    classify = statement.classify_statement_transactions
 
     def fabricated(*args, **kwargs):
         return [
@@ -1161,7 +1161,7 @@ def test_a_credit_union_named_with_digits_is_written_masked(monkeypatch):
             for record in classify(*args, **kwargs)
         ]
 
-    monkeypatch.setattr(transaction_classifier, "classify_statement_transactions", fabricated)
+    monkeypatch.setattr(statement, "classify_statement_transactions", fabricated)
     credits = _named_snapshot()["credits"]
     assert [(credit["entity"], credit["alias"]) for credit in credits[:2]] == [("SAMPLE CU ####", "SAMPLE CU ####")] * 2
     assert credits[3]["entity"] == "Shift4 Capital"
@@ -1510,7 +1510,7 @@ def test_the_pass_records_the_readings_the_demotion_causes_key_on(text, fact, va
     # Final review I7: the snapshot's facts name the rule that fires (true_revenue.guards.guard_facts, read with the
     # checkout's own code).
     from analysis.schema import Statement, Transaction
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
     from analysis.descriptor.lexical import revenue_text
     from analysis.true_revenue.guards import guard_facts
 
@@ -2569,7 +2569,7 @@ def test_b9_the_holder_facts_read_the_holder_s_name_field():
     assert [credit["facts"]["own_transfer"] for credit in credits] == [False, True, False]
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): the holder's own Zelle is held by the rules (its prior
     # reading) and excluded by the Zelle policy (R2-OW02 CR7).
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
     from tests.zelle_reading import rules_reading
 
     assert rules_reading(classify_statement_transactions(statement)[0]) == ("excluded_pending_review", "holder_name")
@@ -2606,7 +2606,7 @@ def test_b9_review_1_a_holder_named_merchant_keeps_its_own_zelle_a_holder_fact()
                                       zelle_true_revenue=False)["credits"]
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules hold it as the holder's (its prior reading),
     # and the Zelle policy excludes it (R2-OW02 CR7); the holder fact is unchanged.
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
     from tests.zelle_reading import rules_reading
 
     assert rules_reading(classify_statement_transactions(statement)[0]) == ("excluded_pending_review", "holder_name")
@@ -3960,15 +3960,15 @@ def test_ow17_the_snapshot_records_its_reading_and_the_rules_prior():
 
 
 def test_ow17_a_checkout_without_the_setting_records_null(monkeypatch):
-    from analysis import transaction_classifier
+    from analysis.transaction_classifier import statement as transaction_classifier_statement
 
-    real = transaction_classifier.classify_statement_transactions
+    real = transaction_classifier_statement.classify_statement_transactions
 
     def without_the_keyword(statement, *, min_recurring_count=3):
         return real(statement, min_recurring_count=min_recurring_count)
 
-    monkeypatch.setattr(transaction_classifier, "classify_statement_transactions", without_the_keyword)
-    monkeypatch.delattr(transaction_classifier, "classify_statement_readings")
+    monkeypatch.setattr(transaction_classifier_statement, "classify_statement_transactions", without_the_keyword)
+    monkeypatch.delattr(transaction_classifier_statement, "classify_statement_readings")
     snap = _zelle_snapshot(["Z1"])
     assert snap["zelle_true_revenue"] is None
     assert [(credit["tier"], credit["reason"]) for credit in snap["accounts"]["Z1"]["credits"]][1] == (

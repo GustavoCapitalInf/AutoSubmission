@@ -15,7 +15,7 @@ import re
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement
 from analysis.transaction_classifier import reversals
 from analysis.descriptor import payer
 from analysis.descriptor import lexical
@@ -43,7 +43,7 @@ def _statement(bank, rows, holder=HOLDER):
 
 
 def _read(bank, rows, holder=HOLDER):
-    return tc.classify_statement_transactions(_statement(bank, rows, holder))
+    return statement.classify_statement_transactions(_statement(bank, rows, holder))
 
 
 def _today(bank, rows, monkeypatch, holder=HOLDER):

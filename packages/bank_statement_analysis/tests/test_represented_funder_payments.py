@@ -19,7 +19,7 @@ from dataclasses import fields, replace
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.transaction_classifier import funder_returns
 from analysis.classification import record as classification_record
@@ -87,7 +87,7 @@ def _represented(records):
 def test_a_returned_payment_leaves_the_numerator_once_its_funder_re_debits_it(name):
     rows, expected, numerator, paid = CASES[name]
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _represented(records) == expected
     for record in records:
         if record.represented_by:
@@ -110,7 +110,7 @@ def test_a_returned_payment_leaves_the_numerator_once_its_funder_re_debits_it(na
 def test_the_warning_item_names_the_re_debit():
     rows = CASES["re_presented"][0]
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     [item] = detect(statement, classifications=records).returned_funder_payments
     assert item == {
         "funder": "KAPITUS", "amount": 1000.0, "debit_date": "2054-03-13", "debit_location": "transaction:3",
@@ -127,7 +127,7 @@ def test_the_warning_item_names_the_re_debit():
             "(1,000.00 USD), counted once by the re-debit") in metrics.notes
     # A returned payment still standing keeps today's item and note.
     on_cycle = _statement(CASES["on_cycle"][0])
-    on_cycle_records = tc.classify_statement_transactions(on_cycle)
+    on_cycle_records = transaction_classifier_statement.classify_statement_transactions(on_cycle)
     [standing] = detect(on_cycle, classifications=on_cycle_records).returned_funder_payments
     assert "represented_date" not in standing
     assert ("1 returned funder payment (1,000.00 USD): out of paid to lenders, kept in the withholding rate"
@@ -143,7 +143,7 @@ def test_ff_f5_the_formula_s_words_are_what_the_numerator_sums():
 
     rows = _weekly((16, KAPITUS, -1000.0), (24, KAPITUS_PAYOFF, -5000.0), (29, BOFA_RETURN, 1000.0))
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
     re_debited = round(sum(abs(record.amount) for record in records if record.represented_by), 2)
     assert (metrics.lender_debits, metrics.lump_sum_payoff_total, metrics.returned_funder_payment_total, re_debited) == (
@@ -173,7 +173,7 @@ def test_the_cli_names_the_re_debited_payment():
 
 def test_a_catch_up_is_named_as_one():
     statement = _statement(DAILY)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     [item] = detect(statement, classifications=records).returned_funder_payments
     assert (item["debit_date"], item["represented_date"], item["represented_kind"]) == (
         "2054-03-05", "2054-03-06", "caught_up")
@@ -184,19 +184,19 @@ def test_a_catch_up_is_named_as_one():
 def test_a_two_x_level_of_its_own_is_no_catch_up():
     # A second weekly position at 2,000.00 on the same Fridays: the 20th's 2,000.00 is its regular payment.
     rows = _weekly(*[(day, KAPITUS, -2000.0) for day in (6, 13, 20, 27)])
-    records = tc.classify_statement_transactions(_statement(rows))
+    records = transaction_classifier_statement.classify_statement_transactions(_statement(rows))
     assert _represented(records) == {}
     # Three 2x debits within a week of the candidate on a daily rhythm: a level of its own.
     daily_level = sorted([SALE_ROW, *[(day, KAPITUS, -250.0) for day in (2, 3, 4, 5, 9, 10)], (6, BOFA_RETURN, 250.0),
                           *[(day, KAPITUS, -500.0) for day in (6, 9, 10)]], key=lambda row: row[0])
-    assert _represented(tc.classify_statement_transactions(_statement(daily_level))) == {}
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(daily_level))) == {}
 
 
 def test_two_two_x_debits_after_a_bounce_are_no_level_and_the_first_catches_up():
     # An irregular rhythm: the 3rd's 500.00 returned on the 5th, 1,000.00 taken that day and again on the 9th.
     rows = [SALE_ROW, (3, KAPITUS, -500.0), (5, BOFA_RETURN, 500.0), (5, KAPITUS, -1000.0), (9, KAPITUS, -1000.0),
             (12, KAPITUS, -500.0)]
-    assert _represented(tc.classify_statement_transactions(_statement(rows))) == {"03": ("05", "caught_up")}
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(rows))) == {"03": ("05", "caught_up")}
 
 
 def test_two_x_debits_off_the_cycle_do_not_hide_a_weekly_schedule():
@@ -204,7 +204,7 @@ def test_two_x_debits_off_the_cycle_do_not_hide_a_weekly_schedule():
     # another 2,000.00 on Friday the 6th blurs the series read with its 2x dates, so the Monday dates alone read it.
     rows = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16, 23, 30)], (6, KAPITUS, -2000.0),
                    (17, BOFA_RETURN, 1000.0), (18, KAPITUS, -2000.0)], key=lambda row: row[0])
-    assert _represented(tc.classify_statement_transactions(_statement(rows))) == {"16": ("18", "caught_up")}
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(rows))) == {"16": ("18", "caught_up")}
 
 
 #: Shapes the measurement found misread before the schedule needed three dates and a biweekly series its weekday
@@ -222,7 +222,7 @@ SHORT_SERIES = {
 
 @pytest.mark.parametrize("name", sorted(SHORT_SERIES))
 def test_a_series_too_short_to_show_its_cycle_reads_nothing(name):
-    records = tc.classify_statement_transactions(_statement(SHORT_SERIES[name]))
+    records = transaction_classifier_statement.classify_statement_transactions(_statement(SHORT_SERIES[name]))
     assert _pairs(records)  # the payment was returned
     assert _represented(records) == {}
 
@@ -252,7 +252,7 @@ def test_a_second_recurring_weekday_is_no_re_presentment(layout, week):
     second same-cents position), which cannot be told from a re-presentment, so the returned payment stands, as Q5
     rules until a re-debit exists."""
     statement = _statement(_twice_weekly(*TWICE_WEEKLY_LAYOUTS[layout], week))
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _pairs(records)  # the payment was returned
     assert _represented(records) == {}
     metrics = compute_metrics(statement, classifications=records)
@@ -266,7 +266,7 @@ def test_two_re_presentments_on_one_off_weekday_each_count_once():
     rows = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (6, 13, 20, 27)], (9, BOFA_RETURN, 1000.0),
                    (10, KAPITUS, -1000.0), (16, BOFA_RETURN, 1000.0), (17, KAPITUS, -1000.0)],
                   key=lambda row: row[0])
-    assert _represented(tc.classify_statement_transactions(_statement(rows))) == {
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(rows))) == {
         "06": ("10", "re_presented"), "13": ("17", "re_presented")}
 
 
@@ -279,21 +279,21 @@ def test_a_weekly_step_up_to_2x_right_after_a_bounce_is_a_new_level_not_a_catch_
     rows = sorted([SALE_ROW, (2, KAPITUS, -1000.0), (9, KAPITUS, -1000.0), (11, BOFA_RETURN, 1000.0),
                    *[(day, KAPITUS, -2000.0) for day in (16, 23, 30)]], key=lambda row: row[0])
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _pairs(records)
     assert _represented(records) == {}
     metrics = compute_metrics(statement, classifications=records)
     assert (metrics.withholding_numerator, metrics.lender_debits) == (8000.0, 7000.0)
     short = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (2, 9, 16)], (18, BOFA_RETURN, 1000.0),
                     *[(day, KAPITUS, -2000.0) for day in (23, 30)]], key=lambda row: row[0])
-    assert _represented(tc.classify_statement_transactions(_statement(short))) == {"16": ("23", "caught_up")}
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(short))) == {"16": ("23", "caught_up")}
     # Review round 2 of R3-B02 (finding 1): every 2x debit after it counts, on the series' cycle or not. A Thursday
     # series (the 5th to the 26th), the 5th's returned on Friday the 6th and 2,000.00 on Tuesday the 10th, then 2,000.00
     # on Thursday the 19th and on Tuesday the 24th: two 2x debits within two cycles after the 10th make 2x a level of
     # its own, so the 10th is no catch-up and the 5th stands (the 12th's regular 1,000.00 was paid).
     off_cycle = sorted([SALE_ROW, *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)], (6, BOFA_RETURN, 1000.0),
                         *[(day, KAPITUS, -2000.0) for day in (10, 19, 24)]], key=lambda row: row[0])
-    assert _represented(tc.classify_statement_transactions(_statement(off_cycle))) == {}
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(off_cycle))) == {}
 
 
 #: Review round 2 of R3-B02 (finding 1), a fabricated rebuild of a corpus shape (relative days only): KAPITUS pays
@@ -319,7 +319,7 @@ SECOND_POSITION_CASES = {
 def test_a_second_position_s_2x_payment_on_another_weekday_is_no_catch_up(name):
     rows, numerator, paid = SECOND_POSITION_CASES[name]
     statement = _statement(sorted(rows, key=lambda row: row[0]))
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _represented(records) == {}
     [thursday] = [record for record in records if record.date.endswith("-05")]
     assert thursday.returned_funder_payment_by and thursday.contributes_to_withholding_rate is True
@@ -350,7 +350,7 @@ LEVEL_BEFORE_CASES = {
 def test_a_2x_level_running_before_the_candidate_is_no_catch_up(name):
     rows, numerator, paid = LEVEL_BEFORE_CASES[name]
     statement = _statement(sorted(rows, key=lambda row: row[0]))
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _pairs(records)  # the payment was returned
     assert _represented(records) == {}
     metrics = compute_metrics(statement, classifications=records)
@@ -363,7 +363,7 @@ def test_one_earlier_catch_up_makes_no_level():
     23rd (or after the 9th) is no level: each returned payment counts once."""
     rows = [SALE_ROW, (2, KAPITUS, -1000.0), (3, BOFA_RETURN, 1000.0), (9, KAPITUS, -2000.0), (16, KAPITUS, -1000.0),
             (17, BOFA_RETURN, 1000.0), (23, KAPITUS, -2000.0), (30, KAPITUS, -1000.0)]
-    assert _represented(tc.classify_statement_transactions(_statement(rows))) == {
+    assert _represented(transaction_classifier_statement.classify_statement_transactions(_statement(rows))) == {
         "02": ("09", "caught_up"), "16": ("23", "caught_up")}
 
 
@@ -414,7 +414,7 @@ CHRONIC_CASES = {
 def test_chronic_re_presentments_on_one_weekday_each_count_once(name):
     rows, expected = CHRONIC_CASES[name]
     statement = _statement(sorted(rows, key=lambda row: row[0]))
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _represented(records) == {day: (re_debit, "re_presented") for day, re_debit in expected.items()}
     metrics = compute_metrics(statement, classifications=records)
     assert metrics.withholding_numerator == metrics.lender_debits
@@ -428,7 +428,7 @@ def test_a_twice_weekly_schedule_whose_first_weekday_bounces_three_times_stays_s
                    *[(day, KAPITUS, -1000.0) for day in (5, 12, 19, 26)],
                    *[(day + 1, BOFA_RETURN, 1000.0) for day in (9, 16, 23)]], key=lambda row: row[0])
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert len(_pairs(records)) == 3
     assert _represented(records) == {}
     metrics = compute_metrics(statement, classifications=records)
@@ -438,7 +438,7 @@ def test_a_twice_weekly_schedule_whose_first_weekday_bounces_three_times_stays_s
 def test_a_re_debited_payment_s_reason_no_longer_says_it_is_kept_in_the_rate():
     """Review round 1 of R3-B02 (finding 3): the Q5 sentence of a re-debited payment drops "kept in the withholding
     rate", which the re-debit sentence after it contradicted; a payment still standing keeps it word for word."""
-    records = tc.classify_statement_transactions(_statement(CASES["re_presented"][0]))
+    records = transaction_classifier_statement.classify_statement_transactions(_statement(CASES["re_presented"][0]))
     debit = records[2]
     assert debit.represented_by == "transaction:5"
     assert "kept in the withholding rate" not in debit.reason
@@ -446,7 +446,7 @@ def test_a_re_debited_payment_s_reason_no_longer_says_it_is_kept_in_the_rate():
         "Returned unpaid by transaction:4: out of paid to lenders (the owner's ruling on the underwriter's Q5). The "
         "funder re-presented it by transaction:5: out of the withholding rate, which counts the obligation once (the "
         "owner's answer on re-presented payments, \"Count it once\").")
-    [standing] = [record for record in tc.classify_statement_transactions(_statement(CASES["on_cycle"][0]))
+    [standing] = [record for record in transaction_classifier_statement.classify_statement_transactions(_statement(CASES["on_cycle"][0]))
                   if record.returned_funder_payment_by]
     assert standing.reason.endswith(
         "Returned unpaid by transaction:4: out of paid to lenders, kept in the withholding rate (the owner's ruling on "
@@ -463,11 +463,15 @@ def test_the_record_carries_represented_by_after_the_two_returned_fields():
 @pytest.mark.parametrize("name", ["re_presented", "daily_catch_up", "bounced_again"])
 def test_pass_7c_moves_no_revenue_reading_and_nothing_but_the_returned_debit(monkeypatch, name):
     rows = CASES[name][0]
-    after = tc.classify_statement_transactions(_statement(rows))
+    after = transaction_classifier_statement.classify_statement_transactions(_statement(rows))
     patched_apply_represented_funder_payments = lambda records, duplicates, calendar="US": records
-    monkeypatch.setattr(tc, "_apply_represented_funder_payments", patched_apply_represented_funder_payments)
     monkeypatch.setattr(funder_returns, "_apply_represented_funder_payments", patched_apply_represented_funder_payments)
-    before = tc.classify_statement_transactions(_statement(rows))
+    monkeypatch.setattr(
+        transaction_classifier_statement,
+        "_apply_represented_funder_payments",
+        patched_apply_represented_funder_payments,
+    )
+    before = transaction_classifier_statement.classify_statement_transactions(_statement(rows))
     for old, new in zip(before, after):
         if new.represented_by:
             assert replace(new, represented_by=None, contributes_to_withholding_rate=True, reason=old.reason) == old
@@ -810,7 +814,7 @@ def test_ff_f3_a_worded_payoff_never_catches_up_a_returned_payment():
     attempt stands (Q5), the payoff stays a lump sum."""
     rows = _weekly(days=(6, 13, 27)) + [(20, KAPITUS_PAYOFF, -2000.0)]
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _represented(records) == {}
     returned = next(record for record in records if record.returned_funder_payment_by)
     assert (returned.date, returned.contributes_to_withholding_rate, returned.represented_by) == (
@@ -829,7 +833,7 @@ def test_ff_f3_a_worded_payoff_never_catches_up_a_returned_payment():
 
 def test_ff_f3_control_the_same_2x_without_a_payoff_word_still_catches_up():
     rows = _weekly(days=(6, 13, 27)) + [(20, KAPITUS, -2000.0)]
-    records = tc.classify_statement_transactions(_statement(rows))
+    records = transaction_classifier_statement.classify_statement_transactions(_statement(rows))
     assert _represented(records) == {"13": ("20", "caught_up")}
     assert not any(record.lump_sum_payoff for record in records)
 

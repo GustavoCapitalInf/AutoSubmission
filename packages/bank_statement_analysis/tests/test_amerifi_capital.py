@@ -25,7 +25,7 @@ from analysis import classification_registry as registry
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.transaction_classifier.row import classify_transaction
 
 ROOT = Path(__file__).resolve().parent.parent

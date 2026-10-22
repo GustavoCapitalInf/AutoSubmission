@@ -26,7 +26,7 @@ from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_readings, classify_statement_transactions
 from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 from tests import zelle_setting_fixtures as fx

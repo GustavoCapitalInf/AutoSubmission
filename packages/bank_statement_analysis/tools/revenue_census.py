@@ -1287,6 +1287,8 @@ SPLIT_OWNERS = {
     "analysis.transaction_classifier._wire_vetoes_apply": "analysis.descriptor.rails",
     "analysis.transaction_classifier.account_name_text": "analysis.descriptor.holder",
     "analysis.transaction_classifier.channel_gate": "analysis.descriptor.payer",
+    "analysis.transaction_classifier.classify_statement_readings": "analysis.transaction_classifier.statement",
+    "analysis.transaction_classifier.classify_statement_transactions": "analysis.transaction_classifier.statement",
     "analysis.transaction_classifier.credit_transfer_wording": "analysis.descriptor.payer",
     "analysis.transaction_classifier.government_no_purpose": "analysis.classification.tax_forms",
     "analysis.transaction_classifier.holder_named": "analysis.descriptor.holder",

@@ -19,7 +19,8 @@ from dataclasses import asdict
 
 import pytest
 
-from analysis import payee_matcher, transaction_classifier
+from analysis import payee_matcher
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.payee_matcher import AliasIndex, match_memo
 from tests import zelle_setting_fixtures as fx
 from tools.bench_classifier import fabricated_statement
@@ -122,7 +123,7 @@ def test_a_statement_classification_answers_each_question_once(evaluations, monk
 
     monkeypatch.setattr(AliasIndex, "match", asking)
 
-    transaction_classifier.classify_statement_readings(fabricated_statement(120))
+    transaction_classifier_statement.classify_statement_readings(fabricated_statement(120))
 
     assert answers["asked"] > 0
     assert evaluations["evaluated"] < answers["asked"]
@@ -132,9 +133,9 @@ def test_a_statement_classification_answers_each_question_once(evaluations, monk
 def test_each_classification_starts_cold(evaluations):
     """What the spec 4.6 speed gate times: a classification with an empty memo, every time."""
     statement = fabricated_statement(60)
-    transaction_classifier.classify_statement_transactions(statement)
+    transaction_classifier_statement.classify_statement_transactions(statement)
     first = evaluations["evaluated"]
-    transaction_classifier.classify_statement_transactions(statement)
+    transaction_classifier_statement.classify_statement_transactions(statement)
     assert evaluations["evaluated"] == 2 * first
 
 
@@ -143,7 +144,7 @@ def test_no_description_stays_behind_after_a_classification():
     indexes = [payee_matcher._DEFAULT_INDEX, payee_matcher._CREDIT_INDEX, payee_matcher._DEBT_RELIEF_INDEX]
     before = [dict(vars(index)) for index in indexes]
 
-    transaction_classifier.classify_statement_readings(fx.statement(fx.Z1))
+    transaction_classifier_statement.classify_statement_readings(fx.statement(fx.Z1))
 
     assert payee_matcher._MATCH_MEMO.get() is None
     for index, attributes in zip(indexes, before):
@@ -158,9 +159,9 @@ def test_the_memo_changes_no_record_of_either_reading(monkeypatch, name):
     rows, holder, title = fx.CASES[name]
     statement = fx.statement(rows, holder=holder, title=title)
 
-    remembered = transaction_classifier.classify_statement_readings(statement)
-    monkeypatch.setattr(transaction_classifier, "match_memo", nullcontext)
-    asked = transaction_classifier.classify_statement_readings(statement)
+    remembered = transaction_classifier_statement.classify_statement_readings(statement)
+    monkeypatch.setattr(transaction_classifier_statement, "match_memo", nullcontext)
+    asked = transaction_classifier_statement.classify_statement_readings(statement)
 
     for left, right in zip(remembered, asked):
         assert (left is None) == (right is None)
@@ -170,7 +171,7 @@ def test_the_memo_changes_no_record_of_either_reading(monkeypatch, name):
 
 def test_the_memo_changes_no_record_of_the_fabricated_ledger(monkeypatch):
     statement = fabricated_statement(150)
-    remembered = transaction_classifier.classify_statement_transactions(statement)
-    monkeypatch.setattr(transaction_classifier, "match_memo", nullcontext)
-    asked = transaction_classifier.classify_statement_transactions(statement)
+    remembered = transaction_classifier_statement.classify_statement_transactions(statement)
+    monkeypatch.setattr(transaction_classifier_statement, "match_memo", nullcontext)
+    asked = transaction_classifier_statement.classify_statement_transactions(statement)
     assert [asdict(record) for record in remembered] == [asdict(record) for record in asked]

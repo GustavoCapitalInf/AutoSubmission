@@ -15,7 +15,7 @@ from dataclasses import asdict
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import statement
 from analysis.transaction_classifier import credit_decision
 from analysis.transaction_classifier import obligations
 from analysis.transaction_classifier import row
@@ -51,7 +51,7 @@ def test_the_classifier_matches_through_the_compiled_registry_index(monkeypatch)
     monkeypatch.setattr(obligations, "registry_match", spy)
     monkeypatch.setattr(operating_context, "registry_match", spy)
     monkeypatch.setattr(row, "registry_match", spy)
-    transaction_classifier.classify_statement_transactions(fabricated_statement(3))
+    statement.classify_statement_transactions(fabricated_statement(3))
     assert calls
 
 

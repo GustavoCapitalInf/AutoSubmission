@@ -828,7 +828,7 @@ def _credits_with_block(label: str, block: str) -> str:
 
 
 def _tier(statement):
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     credit = next(record for record in classify_statement_transactions(statement) if record.amount > 0)
     return credit.revenue_tier, credit.revenue_tier_reason

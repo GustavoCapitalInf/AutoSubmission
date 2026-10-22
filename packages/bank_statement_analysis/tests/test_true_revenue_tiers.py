@@ -8,7 +8,7 @@ import pytest
 from analysis.true_revenue import tiers as true_revenue_tiers
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.classification.counter_debit_reading import _debit_first_distinctive_word
 from tests.zelle_reading import rules_reading
 

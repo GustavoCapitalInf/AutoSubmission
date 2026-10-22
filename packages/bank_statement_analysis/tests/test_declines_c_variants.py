@@ -65,7 +65,7 @@ import pytest
 from analysis.bluevine import parse_bluevine_statement
 from analysis.navy_federal import parse_navy_federal_statement
 from analysis.relay import _restore_glyphs, parse_relay_statement
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from ocr import native_text
 from tests.zelle_reading import rules_reading
 

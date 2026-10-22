@@ -23,7 +23,7 @@ import json
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
 from tests.webapp_js_harness import NODE, run_dashboard
@@ -56,7 +56,7 @@ def _weekly(extra, *, month=3):
 
 
 def _records(rows, **kwargs):
-    return tc.classify_statement_transactions(_statement(rows, **kwargs))
+    return transaction_classifier_statement.classify_statement_transactions(_statement(rows, **kwargs))
 
 
 def _by_text(records, rows, text):
@@ -154,7 +154,7 @@ def test_a_payoff_attempt_the_bank_returned_stays_in_the_rate():
 def test_the_metrics_keep_it_in_paid_and_out_of_the_numerator():
     rows = _weekly([(20, "KAPITUS PAYOFF", -15000.0)])
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     metrics = compute_metrics(statement, classifications=records)
     assert metrics.lender_debits == 17000.0 and metrics.lender_debit_count == 5
     assert metrics.withholding_numerator == 2000.0
@@ -175,7 +175,7 @@ def test_the_detection_lists_one_item_per_lump_sum():
     prepay = "KAPITUS DES:DEBIT ID:0001 PMT INFO:PrePay:[A1B2C3D4]"
     rows = _weekly([(20, prepay, -15000.0)])
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     detection = detect(statement, classifications=records)
     (item,) = detection.lump_sum_payoffs
     assert item == {"funder": "KAPITUS", "amount": 15000.0, "date": "2054-03-20",

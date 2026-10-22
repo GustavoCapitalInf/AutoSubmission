@@ -19,7 +19,8 @@ from collections.abc import Mapping, Sequence
 
 import pytest
 
-from analysis import classification_registry, payee_matcher, transaction_classifier
+from analysis import classification_registry, payee_matcher
+from analysis.transaction_classifier import statement
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.payee_matcher import AliasIndex
 from tests.classifier_modules import classifier_modules
@@ -182,7 +183,7 @@ def test_the_sweep_covers_every_live_index(monkeypatch):
     from tools.bench_classifier import fabricated_statement
 
     monkeypatch.setattr(payee_matcher, "_REGISTRY_INDEXES", {})
-    transaction_classifier.classify_statement_readings(fabricated_statement(90))
+    statement.classify_statement_readings(fabricated_statement(90))
     live = [registry for registry, _index in payee_matcher._REGISTRY_INDEXES.values()]
     swept = _registries()
     assert live

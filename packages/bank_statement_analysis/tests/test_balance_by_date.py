@@ -895,7 +895,7 @@ def test_r3_91_a_debit_section_wire_label_is_never_marked():
 
 
 def test_r3_91_the_held_wire_keeps_its_hold():
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     stmt = parse(document(credits=_credits("03/02 100.00 WIRE TRANSFER IN 03/05 200.00 SYNTHETIC CREDIT TWO",
                                            "REF 0001 CONTOSO TITLE LLC REF 0002")))

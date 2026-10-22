@@ -7,7 +7,7 @@ import pytest
 
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.classification.payees import _canonical_unknown_entity, _unknown_payee_tokens
 from analysis.classification.record import UNIDENTIFIED_LENDER_OBLIGATION as UNIDENTIFIED
 from tests.flag_group_fixtures import txn

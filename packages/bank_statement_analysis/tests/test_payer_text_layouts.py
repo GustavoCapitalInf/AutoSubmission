@@ -27,7 +27,7 @@ from analysis.first_citizens import parse_first_citizens_statement
 from analysis.metrics import compute_metrics
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from analysis.true_revenue.tiers import PAYER_TEXT_NOT_READ
 from analysis.us_bank import parse_us_bank_statement
 from tests import test_balance_by_date as bbd_fixture

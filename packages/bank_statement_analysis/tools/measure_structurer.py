@@ -38,7 +38,7 @@ from analysis.metrics import compute_metrics  # noqa: E402
 from analysis.pipeline import normalize_statement  # noqa: E402
 from analysis.reconcile import reconcile  # noqa: E402
 from analysis.structurer import geometry_from_pdf, structure_document  # noqa: E402
-from analysis.transaction_classifier import classify_statement_transactions  # noqa: E402
+from analysis.transaction_classifier.statement import classify_statement_transactions  # noqa: E402
 from bank_statements import ENV_VAR, bank_statements_dir_or_exit  # noqa: E402
 
 ARTIFACTS = Path("tests/corpus_cache")

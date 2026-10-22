@@ -670,7 +670,7 @@ def _analysed_payload() -> dict:
     from analysis.reconcile import reconcile
     from analysis.schema import Statement, Transaction
     from analysis.serialization import report_to_dict
-    from analysis.transaction_classifier import classify_statement_transactions
+    from analysis.transaction_classifier.statement import classify_statement_transactions
 
     def row(day, description, amount):
         return Transaction(date=day, description=description, amount=amount,

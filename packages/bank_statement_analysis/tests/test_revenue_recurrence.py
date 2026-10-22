@@ -8,7 +8,7 @@ import pytest
 from analysis.descriptor import credit_words
 from analysis.classification_registry import OPERATING_REVENUE_SOURCE_TYPES
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from tests.zelle_reading import rules_reading
 
 

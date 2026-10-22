@@ -26,7 +26,7 @@ from analysis.true_revenue import financing_roots
 from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import sender as true_revenue_sender
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.statement import classify_statement_transactions
 from tests.zelle_reading import rules_reading
 
 HOLDER = "NORTHWIND LABS INC"

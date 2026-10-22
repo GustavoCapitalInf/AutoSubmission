@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import statement as transaction_classifier_statement
 from analysis.transaction_classifier import funder_returns
 from analysis.transaction_classifier import reversals
 from analysis.descriptor import rails
@@ -43,7 +43,7 @@ def test_f2a_a_named_return_never_pairs_with_a_payment_dated_after_it():
     # The return prints on the 2nd; the funder's payments on the 3rd and the 10th (the statement starts after the
     # payment it returns, which sits in the previous statement).
     statement = _statement([(1, SALE, 10000.0), (2, NAMED_RETURN, 850.0), (3, KAPITUS, -850.0), (10, KAPITUS, -850.0)])
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _pairs(records) == {}
     credit = records[1]
     for debit in (records[2], records[3]):
@@ -63,7 +63,7 @@ def test_f2a_a_named_return_never_pairs_with_a_payment_dated_after_it():
 def test_f2a_a_named_return_pairs_with_the_payment_on_or_before_it():
     # The payment two days before the return, and another the day after it (nearer): the earlier one is returned.
     statement = _statement([(1, SALE, 10000.0), (3, KAPITUS, -850.0), (5, NAMED_RETURN, 850.0), (6, KAPITUS, -850.0)])
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     assert _pairs(records) == {"transaction:2": "transaction:3"}
     assert records[1].reversed_by == "transaction:3" and records[3].reversed_by is None
     assert records[3].contributes_to_lender_totals is True
@@ -108,7 +108,7 @@ def _revenue_readings(records):
 
 def _potential(rows):
     statement = _statement(rows)
-    records = tc.classify_statement_transactions(statement)
+    records = transaction_classifier_statement.classify_statement_transactions(statement)
     return records, compute_metrics(statement, classifications=records)
 
 

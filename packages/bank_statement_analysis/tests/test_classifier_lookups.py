@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import statement
 from analysis.transaction_classifier import obligations
 from analysis.transaction_classifier import row
 from analysis.true_revenue import self_originated_credits
@@ -48,7 +48,7 @@ def test_each_row_is_normalized_exactly_once(monkeypatch):
     monkeypatch.setattr(row, "normalize_transaction_description", counting)
     monkeypatch.setattr(self_originated_credits, "normalize_transaction_description", counting)
     monkeypatch.setattr(sender, "normalize_transaction_description", counting)
-    records = transaction_classifier.classify_statement_transactions(synthetic_statement())
+    records = statement.classify_statement_transactions(synthetic_statement())
     assert len(records) == 300
     assert len(calls) == len(records)
 
