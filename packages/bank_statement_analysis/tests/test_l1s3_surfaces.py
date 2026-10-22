@@ -101,7 +101,7 @@ def test_package_membership_requires_each_accounts_own_validation():
 
     job = _Job("job-1", document_payload(outcomes=("validated", "withheld")))
     members, excluded = package_members([job])
-    assert [index for _job, _analysis, index, _count in members] == [1]
+    assert [member.key.account_index for member in members] == [1]
     # Audit round 2, R2-B15 (R15): each excluded account names its statement's file, for the package's notice.
     assert excluded == [{
         "job_id": "job-1", "filename": "synthetic.pdf", "account_index": 2, "account_count": 2,
@@ -208,7 +208,7 @@ def test_the_duplicate_digest_refusal_does_not_catch_this_and_never_could():
 
     members, excluded = package_members([_two_accounts_one_period()])
     assert len(members) == 2 and excluded == []
-    shas = {member[0].content_sha256 for member in members}
+    shas = {member.job.content_sha256 for member in members}
     assert shas == {"SYNTHETIC-JOB-1"}  # one document identity, two members
 
 

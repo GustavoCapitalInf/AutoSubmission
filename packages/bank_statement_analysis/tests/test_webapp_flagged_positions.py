@@ -139,10 +139,10 @@ def test_package_members_carry_the_displayed_checkboxes(settings_file, done_job,
     from analysis.package.members import package_members
 
     members, _ = package_members([done_job])
-    assert group.key in _groups(members[0][1])
+    assert group.key in _groups(members[0].account)
     save_settings(settings_file.parent, {group.setting: False})
     members, _ = package_members([done_job], settings=load_settings(settings_file.parent))
-    assert group.key not in _groups(members[0][1]) and _flags(members[0][1])[group.key] is False
+    assert group.key not in _groups(members[0].account) and _flags(members[0].account)[group.key] is False
 
 
 @EACH_GROUP
@@ -152,9 +152,9 @@ def test_every_published_account_of_a_document_member_follows_the_checkbox(setti
     job = Job(id="doc", filename="doc.pdf", status="done", analysis=flagged_document_payload(), content_sha256="doc")
     save_settings(settings_file.parent, {group.setting: False})
     members, excluded = package_members([job], settings=load_settings(settings_file.parent))
-    assert [member[2] for member in members] == [1, 2] and excluded == []
-    for _job, account, _index, _count in members:
-        assert group.key not in _groups(account) and _flags(account)[group.key] is False
+    assert [member.key.account_index for member in members] == [1, 2] and excluded == []
+    for member in members:
+        assert group.key not in _groups(member.account) and _flags(member.account)[group.key] is False
 
 
 def test_the_checkboxes_never_change_which_accounts_a_package_leaves_out(settings_file):
@@ -176,7 +176,7 @@ def test_the_checkboxes_never_change_which_accounts_a_package_leaves_out(setting
 
     def decided():
         members, excluded = package_members(jobs)
-        return sorted((member[0].id, member[2]) for member in members), excluded
+        return sorted(member.key for member in members), excluded
 
     ticked = decided()
     save_settings(settings_file.parent, {key: False for key in FLAG_SETTING_KEYS})

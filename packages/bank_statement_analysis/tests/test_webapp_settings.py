@@ -184,10 +184,10 @@ def test_the_served_analysis_and_its_exports_follow_the_zelle_choice(settings_fi
 def test_package_members_follow_the_zelle_choice(settings_file, zelle_job):
     from analysis.package.members import package_members
     members, _ = package_members([zelle_job])
-    assert members[0][1]["metrics"]["true_revenue_total"] == 11534.56
+    assert members[0].account["metrics"]["true_revenue_total"] == 11534.56
     save_settings(store.storage.data_dir, {"zelle_true_revenue": False})
     members, _ = package_members([zelle_job], settings=load_settings(store.storage.data_dir))
-    assert members[0][1]["metrics"]["true_revenue_total"] == 10300.0
+    assert members[0].account["metrics"]["true_revenue_total"] == 10300.0
 
 
 # --- every served surface follows the toggle -----------------------------------------------------------------
@@ -217,10 +217,10 @@ def test_the_analysis_and_its_exports_follow_the_toggle(settings_file, done_job)
 def test_package_members_carry_the_displayed_basis(settings_file, done_job):
     from analysis.package.members import package_members
     members, _ = package_members([done_job])
-    assert members[0][1]["metrics"]["effective_nsf_count"] == 1
+    assert members[0].account["metrics"]["effective_nsf_count"] == 1
     save_settings(store.storage.data_dir, {"nsf_carry_over": True})
     members, _ = package_members([done_job], settings=load_settings(store.storage.data_dir))
-    assert members[0][1]["metrics"]["effective_nsf_count"] == 2
+    assert members[0].account["metrics"]["effective_nsf_count"] == 2
 
 
 def test_a_save_that_cannot_be_written_is_a_fixed_json_503_and_changes_nothing(settings_file, monkeypatch):
@@ -344,7 +344,7 @@ def test_the_basis_never_changes_which_accounts_a_package_leaves_out(settings_fi
 
     def decided():
         members, excluded = package_members(jobs)
-        return sorted((member[0].id, member[2]) for member in members), excluded
+        return sorted(member.key for member in members), excluded
 
     printed = decided()
     save_settings(settings_file.parent, {"nsf_carry_over": True})

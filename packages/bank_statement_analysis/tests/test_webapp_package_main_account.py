@@ -82,7 +82,7 @@ def test_a_statement_whose_business_checking_account_is_verified_or_that_prints_
     from analysis.package.members import package_members
     verified = {**account_payload(), "document": _roster("published")}
     members, excluded = package_members([_Job("job-1", verified), _Job("job-2", account_payload())])
-    assert [member[0].id for member in members] == ["job-1", "job-2"] and excluded == []
+    assert [member.job.id for member in members] == ["job-1", "job-2"] and excluded == []
 
 
 # test_each_published_account_takes_its_own_verification_score pinned webapp/worker.py's _attach_account_confidence,

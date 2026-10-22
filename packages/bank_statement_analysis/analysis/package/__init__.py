@@ -2,6 +2,7 @@
 serves and downloads for it. `settings` is a display settings snapshot; None applies the defaults."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from decimal import Decimal, ROUND_HALF_UP
 from math import isfinite
@@ -13,9 +14,11 @@ from analysis.package.calendar import covered_days, iso_day, months_covered, sta
 from analysis.package.duplicates import duplicate_row, package_duplicates
 from analysis.package.figures import add_flagged_rows, contributes_to_potential_totals, counts_as_flagged
 from analysis.package.lender import package_active_positions, package_lender_payment_changes
-from analysis.package.members import internal_transfer_positions, package_members, ratified_omissions
+from analysis.package.members import package_members, ratified_omissions
 from analysis.package.model import (
     is_count,
+    JobLike,
+    MemberKey,
     months_linked,
     num,
     package_bank,
@@ -56,7 +59,7 @@ from analysis.zelle_view import ZELLE_DEPOSITS_KEY
 _PENDING_JOB_STATUSES = frozenset({"queued", "processing"})
 
 
-def package_analysis(jobs, *, settings: dict | None = None) -> dict:
+def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -> dict:
     # The one settings snapshot this package is built on: its members are displayed with it, and its flag roll-up
     # keeps the groups it ticks.
     if settings is None:
@@ -65,16 +68,13 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # A repeated statement is left out before any member is expanded, listed and never summed.
     listed_jobs = list(jobs)
     jobs, dropped_duplicates, repeated_accounts, duplicate_groups = package_duplicates(listed_jobs)
-    #: §12: job id -> whether it was analysed with older classification rules, from its displayed copy.
-    outdated_jobs: dict[str, bool] = {}
-    members, excluded_accounts = package_members(jobs, settings=settings, outdated=outdated_jobs,
-                                                 repeated_accounts=repeated_accounts)
+    members, excluded_accounts = package_members(jobs, settings=settings, repeated_accounts=repeated_accounts)
     # After the exact repeats, a shorter printout of days another statement of its account covers is left out the way a
     # repeat is, and any other overlap that shares credits is named, never netted. Only the statements the package
     # counts (its members) are compared; when one is left out, the members are read again without it, so every figure
     # below is computed without it.
     kept_jobs, superseded_jobs, superseded_accounts, overlapping_statements = package_superseded(
-        jobs, repeated_accounts, members={(member[0].id, member[2]) for member in members})
+        jobs, repeated_accounts, members={member.key for member in members})
     if superseded_jobs or superseded_accounts:
         first_place: dict[str, int] = {}
         for place, job in enumerate(listed_jobs):
@@ -87,9 +87,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             repeated_accounts.setdefault(job_id, {}).update(
                 {index: covering for index, (covering, _reason) in accounts.items()})
         jobs = kept_jobs
-        outdated_jobs = {}
-        members, excluded_accounts = package_members(jobs, settings=settings, outdated=outdated_jobs,
-                                                     repeated_accounts=repeated_accounts)
+        members, excluded_accounts = package_members(jobs, settings=settings, repeated_accounts=repeated_accounts)
         for entry in excluded_accounts:
             superseded = superseded_accounts.get(entry.get("job_id"), {}).get(entry.get("account_index"))
             if entry.get("is_duplicate") is True and superseded is not None:
@@ -98,10 +96,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # §6.2: the package passes over the final members, after the repeats and the shorter printouts are left out and
     # before the member loop, which reads their overlay on its copies of the members' rows. R-d's positions are never
     # matched.
-    package_matched = package_matches(members, {
-        (member_job.id, member_index): internal_transfer_positions(member_job.analysis, member_index)
-        for member_job, _member_analysis, member_index, _member_count in members
-    })
+    package_matched = package_matches(members)
     #: Q10. Every ratified sibling omission any member document published. The
     #: package says so rather than demoting anything: an omission admitted on
     #: printed evidence beside an independently validated account is a
@@ -262,12 +257,13 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
     #: each declared currency has, and how many declared none at all.
     currency_documents: dict[str, int] = {}
     undeclared_currency_documents = 0
-    for job, analysis, account_index, account_count in members:
-        statement = analysis.get("statement") or {}
-        metrics = analysis.get("metrics") or {}
-        quality = analysis.get("quality") or {}
-        integrity = analysis.get("integrity") or {}
-        detection = analysis.get("detection") or {}
+    for member in members:
+        job, account_index = member.job, member.key.account_index
+        statement = member.account.get("statement") or {}
+        metrics = member.account.get("metrics") or {}
+        quality = member.account.get("quality") or {}
+        integrity = member.account.get("integrity") or {}
+        detection = member.account.get("detection") or {}
         corporate_use = quality.get("corporate_use") or ""
         integrity_risk = integrity.get("risk_level") or ""
         # `totals["documents"]` counts JOBS and the counters below count
@@ -275,7 +271,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # accounts and different on purpose after that: a package sums, counts
         # and days-weights ACCOUNTS, and one document contributing two of them
         # is two contributions.
-        ready = job.status == "done" and job.analysis is not None
+        ready = member.ready
 
         # CURRENCY DOCTRINE §F. A member with no analysis at all contributes
         # exactly zero to every money total below — each `num` call falls back
@@ -283,8 +279,8 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # make a package multi-currency. A member that DOES contribute money has
         # to declare the unit it contributed in; one that does not is an unknown
         # and fails the package closed rather than joining a pool as if proven.
-        statement_currency = _statement_currency(analysis)
-        if analysis:
+        statement_currency = _statement_currency(member.account)
+        if member.account:
             if statement_currency is None:
                 undeclared_currency_documents += 1
             else:
@@ -336,20 +332,14 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # the stored job are never touched), before R-d's positions are left out, so every reader below sees it: the
         # tiers and their reasons, the revenue rows and evidence, the member's gate, the ledger and the document
         # row.
-        member_key = (job.id, account_index)
-        member_overlay = package_matched["overlays"].get(member_key) or {}
+        member_overlay = package_matched["overlays"].get(member.key) or {}
         if member_overlay:
             raw_transactions = [
                 {**transaction, "classification": {**transaction["classification"], **member_overlay[position]}}
                 if position in member_overlay else transaction
                 for position, transaction in enumerate(raw_transactions)
             ]
-        # `analysis` here is this MEMBER's account payload — `package_members`
-        # hands one account at a time — and the transfer record is a DOCUMENT
-        # fact, so it is read off the job's own payload. Getting this wrong is
-        # silent: the account payload carries no `document` block, the position
-        # set comes back empty, and the exclusion never fires.
-        excluded_positions = internal_transfer_positions(job.analysis, account_index)
+        excluded_positions = member.internal_transfer_positions
         statement_transactions = [
             transaction
             for position, transaction in enumerate(raw_transactions)
@@ -681,7 +671,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # loses the moved credits stored verified or counted, the Verified mode those stored as verified revenue; the
         # legacy basis and the numerator are untouched. Pass 2's held deposits (stored counted) are moved credits too;
         # its annotated held deposits never are.
-        moved_credits = package_matched["moved"].get(member_key) or []
+        moved_credits = package_matched["moved"].get(member.key) or []
         if moved_credits and denominator_mode in ("true_revenue", "verified_revenue"):
             moved_total = round(sum(
                 item["amount"] for item in moved_credits
@@ -777,9 +767,9 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             package_zelle["count"] += int(num(slot.get("count")))
             package_zelle["total"] = round(package_zelle["total"] + num(slot.get("total")), 2)
         if ready and not verified_revenue_established:
-            unestablished_verified.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
+            unestablished_verified.append(member.key.id)
         if ready and not revenue_established:
-            unestablished_revenue.append(job.id if account_index is None else f"{job.id}#account_{account_index}")
+            unestablished_revenue.append(member.key.id)
         # §9.2, §11: the member's own basis is not established (its served copy already says so, or the package's reading
         # of its rows does); its row publishes no rate and its potential lenders no exposure, as the statement viewed
         # alone (analysis/revenue_view.py).
@@ -901,7 +891,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
                     "source_currency": statement_currency,
                     **({"source_account": account_index} if account_index is not None else {}),
                     # A payment the funder re-debited in the next statement.
-                    **package_matched["represented"].get((member_key, returned_item.get("debit_location")), {}),
+                    **package_matched["represented"].get((member.key, returned_item.get("debit_location")), {}),
                 })
         # §9.2, §17.1: a ready, tiered member whose revenue is established lists its large unsourced deposits as the
         # package counts its rows (R-d's pairs left out, the package passes' holds applied, so a deposit the package holds
@@ -1122,7 +1112,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # never by the document alone, which would give two members one id
             # and let the second overwrite the first everywhere a package row
             # is looked up by id.
-            "id": job.id if account_index is None else f"{job.id}#account_{account_index}",
+            "id": member.key.id,
             "filename": job.filename,
             "status": job.status,
             # D-3: the content identity of this member. A member never repeats
@@ -1149,7 +1139,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "quality": quality.get("level"),
             "corporate_use": corporate_use,
             "integrity_risk": integrity_risk,
-            "reconciles": (analysis.get("reconciliation") or {}).get("ok"),
+            "reconciles": (member.account.get("reconciliation") or {}).get("ok"),
             "credits": credits,
             "deposit_count": deposit_count,
             "total_posted_credits": posted_credit_total,
@@ -1159,7 +1149,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             "verified_revenue_established": verified_revenue_established,
             # §12: its statement was analysed with older classification rules, so re-analysis computes its true
             # revenue (a member not established for another reason, a summary-only one, is not outdated).
-            "analysis_rules_outdated": outdated_jobs.get(job.id, False),
+            "analysis_rules_outdated": member.analysis_rules_outdated,
             # §9.2: True revenue and its parts; None for a member whose revenue is not established.
             "revenue_established": revenue_established,
             "true_revenue_total": (
@@ -1254,7 +1244,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # Only a multi-account document has these to say, so a package of
             # today's payloads carries neither key and is byte-identical.
             doc_row["account_index"] = account_index
-            doc_row["account_count"] = account_count
+            doc_row["account_count"] = member.account_count
         # The member's lump-sum payoffs (in its `lender_debits`, out of its `withholding_numerator`), only where it
         # has one.
         if lump_sum_payoff_count:
@@ -1274,8 +1264,8 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
         # ('no_currency', 'older_rules'), each only where there is one.
         if member_overlay:
             doc_row["package_match_count"] = len(member_overlay)
-        if member_key in package_matched["unchecked"]:
-            doc_row["package_match_unchecked"] = package_matched["unchecked"][member_key]
+        if member.key in package_matched["unchecked"]:
+            doc_row["package_match_unchecked"] = package_matched["unchecked"][member.key]
         documents.append(doc_row)
         if ready:
             monthly.append(doc_row)
@@ -1296,13 +1286,13 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             # (`months_linked`).
             months_members.append({
                 "job_id": job.id, "account_index": account_index,
-                "bank": package_bank(statement), "digits": printed_account_digits(analysis),
+                "bank": package_bank(statement), "digits": printed_account_digits(member.account),
                 "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
                 "start": iso_day(statement.get("period_start")), "end": iso_day(statement.get("period_end")),
                 "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
                 "days": covered_days(statement.get("period_start"), statement.get("period_end")),
             })
-            if (analysis.get("reconciliation") or {}).get("ok") is not True:
+            if (member.account.get("reconciliation") or {}).get("ok") is not True:
                 unreconciled_members.append(doc_row["id"])
             if doc_row["holder_unscreened"]:
                 holder_unscreened_members.append(doc_row["id"])
@@ -1344,10 +1334,10 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
     # read a null as missing data. The refusal covers the per-month True and
     # Verified too (distinct calendar months, below).
     members_by_document: dict[str, int] = {}
-    for member_job, _member_analysis, member_index, _member_count in members:
-        if member_index is None:
+    for member in members:
+        if member.key.account_index is None:
             continue  # a single-account job is one member and one document
-        identity = getattr(member_job, "content_sha256", None) or member_job.id
+        identity = getattr(member.job, "content_sha256", None) or member.job.id
         members_by_document[identity] = members_by_document.get(identity, 0) + 1
     documents_with_several_members = sorted(
         identity for identity, count in members_by_document.items() if count > 1
@@ -1428,7 +1418,7 @@ def package_analysis(jobs, *, settings: dict | None = None) -> dict:
             **({"credit_account": credit["account_index"]} if credit.get("account_index") is not None else {}),
             "cross_statement": True,
             # The funder re-debited it (the re-debit's statement named).
-            **package_matched["represented"].get(((debit.get("job"), debit.get("account_index")),
+            **package_matched["represented"].get((MemberKey(debit.get("job"), debit.get("account_index")),
                                                   debit.get("source_location")), {}),
         })
     totals["lenders_detected"] = len(funders)

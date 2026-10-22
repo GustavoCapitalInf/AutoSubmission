@@ -390,7 +390,7 @@ def _without_passes(monkeypatch, *members):
     import analysis.package
 
     with monkeypatch.context() as patched:
-        patched.setattr(analysis.package, "package_matches", lambda members, rd_positions: {
+        patched.setattr(analysis.package, "package_matches", lambda members: {
             "overlays": {}, "matches": [], "debit_flags": [], "unchecked": {}, "moved": {}})
         return _package(*members)
 
