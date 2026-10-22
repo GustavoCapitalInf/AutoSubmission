@@ -11,7 +11,8 @@ from __future__ import annotations
 import pytest
 
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 
 HOLDER = "NORTHWIND PLUMBING LLC"
 TD_PANEL = ("CALL 1 800 000 0000 FOR 24 HOUR BANK BY PHONE HOW TO BALANCE YOUR ACCOUNT SUBTRACT ANY SERVICES CHARGES "

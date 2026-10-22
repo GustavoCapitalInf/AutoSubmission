@@ -8,7 +8,7 @@ from analysis.metrics import compute_metrics
 from analysis.pipeline import analyze_markdown
 from analysis.schema import Statement, Transaction
 from analysis.serialization import report_to_dict
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 from ocr.native_text import parse_native_navy_federal, parse_native_pdf_text
 from analysis.package import package_analysis
 from webapp.jobs import Job

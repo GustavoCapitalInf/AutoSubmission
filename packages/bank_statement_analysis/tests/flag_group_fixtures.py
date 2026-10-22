@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import credit_decision
+from analysis.transaction_classifier import row
 from analysis.transaction_classifier import funder_returns
 from analysis.classification import credit_predicates
 from analysis.classification import payees
@@ -55,9 +56,10 @@ def fake_match(normalized_text: str, *, credit: bool = False) -> PayeeMatch | No
 @pytest.fixture
 def fake_payees(monkeypatch):
     """Route the classifier's known-payee lookups to FAKE_PAYEES for one test."""
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", fake_match)
     monkeypatch.setattr(credit_predicates, "match_known_payee", fake_match)
+    monkeypatch.setattr(credit_decision, "match_known_payee", fake_match)
     monkeypatch.setattr(funder_returns, "match_known_payee", fake_match)
+    monkeypatch.setattr(row, "match_known_payee", fake_match)
     return FAKE_PAYEES
 
 

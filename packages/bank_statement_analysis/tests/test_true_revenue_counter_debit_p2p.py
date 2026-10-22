@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import row
 from analysis.classification import counter_debit_reading
 from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
@@ -78,7 +78,7 @@ def test_a_wallet_cash_out_is_counted_beside_the_holder_s_wallet_debits(rows, ba
 @pytest.mark.parametrize("region", ["VENMO", "VENMO NEW YORK CITY 01", "CASH APP", "CASHAPP", "SQUARE CASH",
                                     "APPLE CASH"])
 def test_a_wallet_s_name_is_no_sender_the_counter_debit_holds_read(region):
-    record = tc.classify_transaction("RTP CREDIT CONTOSO", 500.0, direction="credit")
+    record = row.classify_transaction("RTP CREDIT CONTOSO", 500.0, direction="credit")
     counter = counter_debit_pairing.counter_credit(record, "RTP CREDIT CONTOSO", region)
     assert counter.reading.legacy is None and not counter.reading.keys
 
@@ -98,7 +98,7 @@ def test_the_payer_reading_skips_them_and_the_receiver_originators_keep_theirs()
     assert reading.legacy == "CONTOSO" and "TEXAS" not in reading.keys
     # The receiver-originator grouping reads the payer's first distinctive word unchanged.
     assert counter_debit_reading._payer_first_distinctive_word("TEXAS CONTOSO LLC") == "TEXAS"
-    debit = tc.classify_transaction("ZELLE PAYMENT TO PRIYA SAMPLE CONF ABC123", -400.0, direction="debit")
+    debit = row.classify_transaction("ZELLE PAYMENT TO PRIYA SAMPLE CONF ABC123", -400.0, direction="debit")
     reading, _ = counter_debit_reading.counter_debit_debit_reading(debit)
     assert reading.legacy == "PRIYA" and "PRIYASAMPLE" in reading.keys and "ZELLE" not in reading.keys
 
@@ -279,10 +279,10 @@ def test_a_person_s_push_beside_another_amount_to_the_given_name_alone_is_still_
 
 
 def test_the_whole_name_key_is_a_person_s_never_a_company_s():
-    company = tc.classify_transaction(COMPANY_ZELLE, 9000.0, direction="credit")
+    company = row.classify_transaction(COMPANY_ZELLE, 9000.0, direction="credit")
     revenue = lexical.revenue_text(company.normalized_description)
     assert counter_debit_pairing.counter_credit(company, revenue, descriptor_payer.payer_region(revenue)).person_key is None
-    person = tc.classify_transaction("ZELLE PAYMENT FROM QUILLAN SAMPLE CONF 1234567890", 900.0, direction="credit")
+    person = row.classify_transaction("ZELLE PAYMENT FROM QUILLAN SAMPLE CONF 1234567890", 900.0, direction="credit")
     revenue = lexical.revenue_text(person.normalized_description)
     assert counter_debit_pairing.counter_credit(person, revenue, descriptor_payer.payer_region(revenue)).person_key == "QUILLANSAMPLE"
 
@@ -326,7 +326,7 @@ def test_a_branch_deposit_is_counted_beside_a_cash_withdrawal_in_its_town():
     ("ATM CONTOSO GROUP LLC", True),
 ])
 def test_the_counter_debits_leave_out_atm_abm_and_cash_withdrawals(text, kept):
-    record = tc.classify_transaction(text, -200.0, direction="debit")
+    record = row.classify_transaction(text, -200.0, direction="debit")
     debits = counter_debit_pairing.counter_debits([record], set())
     assert bool(debits.other) is kept
 

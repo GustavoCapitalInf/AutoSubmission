@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from analysis import transaction_classifier
+from analysis.transaction_classifier import obligations
+from analysis.transaction_classifier import row
 from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import sender
 from analysis.classification import counter_debit_reading
@@ -36,13 +38,14 @@ def test_each_row_is_normalized_exactly_once(monkeypatch):
         calls.append(value)
         return original(value)
 
-    monkeypatch.setattr(transaction_classifier, "normalize_transaction_description", counting)
     monkeypatch.setattr(counter_debit_reading, "normalize_transaction_description", counting)
     monkeypatch.setattr(credit_predicates, "normalize_transaction_description", counting)
     monkeypatch.setattr(operating_sources, "normalize_transaction_description", counting)
     monkeypatch.setattr(financing, "normalize_transaction_description", counting)
     monkeypatch.setattr(holder, "normalize_transaction_description", counting)
     monkeypatch.setattr(rails, "normalize_transaction_description", counting)
+    monkeypatch.setattr(obligations, "normalize_transaction_description", counting)
+    monkeypatch.setattr(row, "normalize_transaction_description", counting)
     monkeypatch.setattr(self_originated_credits, "normalize_transaction_description", counting)
     monkeypatch.setattr(sender, "normalize_transaction_description", counting)
     records = transaction_classifier.classify_statement_transactions(synthetic_statement())
@@ -51,5 +54,5 @@ def test_each_row_is_normalized_exactly_once(monkeypatch):
 
 
 def test_the_ach_flag_needs_the_ach_token_on_its_own():
-    assert transaction_classifier.classify_transaction("ACH DEBIT FABRICATED VENDOR", -50.0).is_ach
-    assert not transaction_classifier.classify_transaction("CACHE FABRICATED VENDOR", -50.0).is_ach
+    assert row.classify_transaction("ACH DEBIT FABRICATED VENDOR", -50.0).is_ach
+    assert not row.classify_transaction("CACHE FABRICATED VENDOR", -50.0).is_ach

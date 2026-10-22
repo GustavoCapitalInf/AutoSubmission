@@ -14,7 +14,7 @@ from analysis.classification_registry import (
     PROCESSORS_WITHOUT_ADVANCE_PRODUCT,
 )
 from analysis.payee_matcher import match_known_payee
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 
 LEDGER = json.loads((Path(__file__).resolve().parents[1] / "docs/lender-registry-ledger.json").read_text(
     encoding="utf-8"))

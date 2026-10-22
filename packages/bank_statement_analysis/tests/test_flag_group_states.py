@@ -6,7 +6,9 @@ import pytest
 
 from analysis.flag_groups import FLAG_GROUPS
 from analysis.schema import Statement
-from analysis.transaction_classifier import _build_record, classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.record_builders import _build_record
+from analysis.transaction_classifier.row import classify_transaction
 from analysis.classification.record import CLASSIFICATION_STATES, CLASSIFICATION_VERSION, ClassificationState
 from tests.flag_group_fixtures import txn
 from webapp.artifact_cache import ANALYSIS_STAGE_VERSION

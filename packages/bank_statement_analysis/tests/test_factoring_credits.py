@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import credit_decision
+from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.transaction_classifier import funder_returns
 from analysis.classification import credit_predicates
 from analysis.metrics import compute_metrics
 from analysis.payee_matcher import PayeeMatch
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import FAKE_PAYEES, fake_payees, flagged_statement, txn  # noqa: F401  (fixture)
 
 #: One factor paid twice by credit and once by debit, one lender debit and one customer deposit.
@@ -130,9 +132,10 @@ def two_factors(monkeypatch):
                 return PayeeMatch(entity=entity, state=state, alias=alias)
         return None
 
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", match)
     monkeypatch.setattr(credit_predicates, "match_known_payee", match)
+    monkeypatch.setattr(credit_decision, "match_known_payee", match)
     monkeypatch.setattr(funder_returns, "match_known_payee", match)
+    monkeypatch.setattr(transaction_classifier_row, "match_known_payee", match)
 
 
 def test_positions_rank_by_debited_plus_credited_within_a_group(two_factors):

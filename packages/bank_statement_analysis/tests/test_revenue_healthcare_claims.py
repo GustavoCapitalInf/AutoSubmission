@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier import credit_decision
+from analysis.transaction_classifier.row import classify_transaction
 
 
 def _credit(printed: str):
@@ -38,9 +38,9 @@ def test_a_token_that_is_not_the_nacha_entry_stays_unverified(printed):
 
 def test_a_blue_plan_claim_verifies_with_claim_first_on(monkeypatch):
     printed = "Orig CO Name:BCBSM Orig ID:1234567890 Desc Date:540102 CO Entry Descr:Hcclaimpmtsec:CCD Trace#:1"
-    monkeypatch.setattr(transaction_classifier, "HCCLAIMPMT_CLAIM_FIRST", True)
+    monkeypatch.setattr(credit_decision, "HCCLAIMPMT_CLAIM_FIRST", True)
     assert _credit(printed).revenue_classification == "verified_revenue"
-    monkeypatch.setattr(transaction_classifier, "HCCLAIMPMT_CLAIM_FIRST", False)
+    monkeypatch.setattr(credit_decision, "HCCLAIMPMT_CLAIM_FIRST", False)
     held = _credit(printed)
     assert (held.revenue_classification, held.revenue_match_method) == (
         "unverified_deposit", "insurer_customer_payment")

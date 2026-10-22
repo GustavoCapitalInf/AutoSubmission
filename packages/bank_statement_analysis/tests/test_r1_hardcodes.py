@@ -27,7 +27,7 @@ from analysis.td_can import (
     normalize_mojibake,
     parse_td_canada_statement,
 )
-from analysis.transaction_classifier import classify_transaction
+from analysis.transaction_classifier.row import classify_transaction
 from analysis.wells import _infer_year, parse_wells_statement
 from analysis.wilson_muir import parse_wilson_muir_statement
 

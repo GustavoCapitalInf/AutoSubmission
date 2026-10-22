@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier
+from analysis.transaction_classifier import credit_decision
+from analysis.transaction_classifier import row
 from analysis.true_revenue import dealer
 from analysis.classification import credit_predicates
 from analysis.classification import payees
@@ -12,7 +13,8 @@ from analysis.detect import find_flagged_positions
 from analysis.flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY
 from analysis.payee_matcher import AliasIndex
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import fake_payees, txn  # noqa: F401  (fixture)
 
 FABRICATED_RELIEF = {"Fabrikam Settlement Payments": ("FABRIKAM SETTLE PMT", "FABRIKAM DEBT RELIEF")}
@@ -27,7 +29,7 @@ def test_the_group_is_a_flag_and_never_financing():
 @pytest.fixture
 def relief_payees(monkeypatch):
     index = AliasIndex({"debt_relief": FABRICATED_RELIEF}, run_together=True)
-    monkeypatch.setattr(transaction_classifier, "match_debt_relief_payee", index.match)
+    monkeypatch.setattr(row, "match_debt_relief_payee", index.match)
 
 
 @pytest.mark.parametrize(
@@ -83,12 +85,12 @@ def test_debt_relief_rows_are_a_flagged_position_and_never_a_d6_payee(relief_pay
 
 def test_a_review_debt_relief_payee_takes_the_flag_marked_unconfirmed(monkeypatch):
     patched_potential_lender_aliases = {"FABRIKAM NEGOTIATORS (unconfirmed)": ("FABRIKAM NEGOTIATORS",)}
-    monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
     monkeypatch.setattr(credit_predicates, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
     monkeypatch.setattr(payees, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
+    monkeypatch.setattr(credit_decision, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
+    monkeypatch.setattr(row, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
     monkeypatch.setattr(dealer, "POTENTIAL_LENDER_ALIASES", patched_potential_lender_aliases)
-    monkeypatch.setattr(transaction_classifier, "REVIEW_FLAG_ENTITIES",
-                        {"FABRIKAM NEGOTIATORS (unconfirmed)": "debt_relief"})
+    monkeypatch.setattr(row, "REVIEW_FLAG_ENTITIES", {"FABRIKAM NEGOTIATORS (unconfirmed)": "debt_relief"})
     record = classify_transaction("ACH DEBIT FABRIKAM NEGOTIATORS 0001", -900.0)
     assert (record.classification, record.flagged_group, record.review_required, record.match_method) == (
         "debt_relief", "debt_relief", True, "unconfirmed_flag_payee_alias")

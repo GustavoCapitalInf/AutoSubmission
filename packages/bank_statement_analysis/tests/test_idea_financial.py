@@ -9,7 +9,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import txn
 
 IDEA = "IDEA FINANCIAL"

@@ -1166,7 +1166,8 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     """An integration pin (Task 11 of the S5 plan): the analysis stage is fabricated, and the payloads it answers with
     are built here by S2's real classifier: first with registries that know none of these payees (the rules the
     statement was analysed under), then with S2's fabricated payees and premium financier (the current rules)."""
-    from analysis import transaction_classifier
+    from analysis.transaction_classifier import credit_decision
+    from analysis.transaction_classifier import row
     from analysis.transaction_classifier import funder_returns
     from analysis.classification import credit_predicates
     from analysis.classification import payees
@@ -1177,17 +1178,19 @@ def test_a_reanalysis_under_the_5_0_rules_saves_and_serves_every_flag_group(pipe
     keys = {group.key for group in FLAG_GROUPS}
     rows, deposits = _every_group_rows()
     patched_match_known_payee = lambda normalized_text, *, credit=False: None
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", patched_match_known_payee)
     monkeypatch.setattr(credit_predicates, "match_known_payee", patched_match_known_payee)
+    monkeypatch.setattr(credit_decision, "match_known_payee", patched_match_known_payee)
     monkeypatch.setattr(funder_returns, "match_known_payee", patched_match_known_payee)
+    monkeypatch.setattr(row, "match_known_payee", patched_match_known_payee)
     monkeypatch.setattr(payees, "PREMIUM_FINANCE_ALIASES", {})
     job_id = pipeline.upload(_saved_under_old_rules(_payload(rows)))
     for location in deposits:
         _review(job_id, location, "confirm")
     assert app.test_client().get(f"/analysis/{job_id}").get_json()["analysis"]["analysis_rules_outdated"] is True
-    monkeypatch.setattr(transaction_classifier, "match_known_payee", fake_match)
     monkeypatch.setattr(credit_predicates, "match_known_payee", fake_match)
+    monkeypatch.setattr(credit_decision, "match_known_payee", fake_match)
     monkeypatch.setattr(funder_returns, "match_known_payee", fake_match)
+    monkeypatch.setattr(row, "match_known_payee", fake_match)
     monkeypatch.setattr(payees, "PREMIUM_FINANCE_ALIASES", {"Fabricated Premium Finance": (PREMIUM_FINANCE_PAYEE,)})
     pipeline.new_rules(_payload(rows))
 

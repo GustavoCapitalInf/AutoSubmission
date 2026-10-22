@@ -11,7 +11,8 @@ from analysis.pipeline import DocumentIntegrity, Quality, Report, analyze_markdo
 from analysis.reconcile import reconcile
 from analysis.schema import Statement, Transaction
 from analysis.serialization import report_to_dict
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from analysis.classification.record import CLASSIFICATION_STATES
 from ocr.native_text import parse_native_td_canada
 from analysis.package import package_analysis

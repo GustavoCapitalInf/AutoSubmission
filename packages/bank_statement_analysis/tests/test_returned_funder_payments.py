@@ -31,6 +31,7 @@ from dataclasses import asdict, fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.transaction_classifier import funder_returns
 from analysis.classification import record as classification_record
 from analysis.descriptor import credit_words
@@ -141,7 +142,7 @@ def test_the_record_carries_the_two_fields_after_settlement_reversal():
     names = [field.name for field in fields(classification_record.TransactionClassification)]
     position = names.index("settlement_reversal")
     assert names[position + 1:position + 3] == ["returned_funder_payment_by", "returns_funder_payment"]
-    record = tc.classify_transaction(KAPITUS, -850.0)
+    record = transaction_classifier_row.classify_transaction(KAPITUS, -850.0)
     assert (record.returned_funder_payment_by, record.returns_funder_payment) == (None, None)
 
 

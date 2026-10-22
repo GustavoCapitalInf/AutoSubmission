@@ -12,7 +12,8 @@ from analysis.classification_registry import (
     REVIEW_FLAG_ENTITIES,
 )
 from analysis.schema import Statement
-from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.transaction_classifier.row import classify_transaction
 from tests.flag_group_fixtures import txn
 
 WEEKLY = (2, 9, 16, 23)

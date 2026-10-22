@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.classification import counter_debit_reading
 from analysis.classification import record as classification_record
 from analysis.descriptor import payer as descriptor_payer
@@ -888,7 +888,7 @@ def test_r01_intuit_canada_payroll_stays_pay():
 def test_r01_the_credit_s_payout_forms(text, settlement):
     from analysis.true_revenue.counter_debit_pairing import counter_credit
 
-    record = tc.classify_transaction(text, 500.0, direction="credit")
+    record = transaction_classifier_row.classify_transaction(text, 500.0, direction="credit")
     revenue = lexical.revenue_text(record.normalized_description)
     assert counter_credit(record, revenue, descriptor_payer.payer_region(revenue)).settlement is settlement
 
@@ -918,7 +918,7 @@ def test_r01_the_credit_s_payout_forms(text, settlement):
 def test_r01_a_card_purchase_in_another_bank_s_form_is_marked_a_card_charge(text, kind, card):
     from analysis.true_revenue.counter_debit_pairing import counter_debits
 
-    record = tc.classify_transaction(text, -60.0, direction="debit")
+    record = transaction_classifier_row.classify_transaction(text, -60.0, direction="debit")
     debits = counter_debits([record], set())
     assert [(debit.kind, debit.card) for debit in debits.other] == [(kind, card)]
 
@@ -926,7 +926,7 @@ def test_r01_a_card_purchase_in_another_bank_s_form_is_marked_a_card_charge(text
 def test_r01_a_card_charge_recurs_with_the_other_debits():
     from analysis.true_revenue.counter_debit_pairing import counter_debits
 
-    records = [tc.classify_transaction(text, -125.0, direction="debit")
+    records = [transaction_classifier_row.classify_transaction(text, -125.0, direction="debit")
                for text in ("FABRIKAMCARE NEW YORK NY USA", "FABRIKAMCARE NEW YORK NY USA")]
     assert [(debit.kind, debit.card, debit.recurring) for debit in counter_debits(records, set()).other] == [
         ("other", True, True)] * 2
@@ -1227,14 +1227,14 @@ def test_r3_03_each_non_lender_debit_records_a_premium_or_retry_word(text, kind,
     # The premium is a flag, never a kind: the kinds are unchanged.
     from analysis.true_revenue.counter_debit_pairing import counter_debits
 
-    record = tc.classify_transaction(text, -8.0, direction="debit")
+    record = transaction_classifier_row.classify_transaction(text, -8.0, direction="debit")
     assert [(debit.kind, debit.premium) for debit in counter_debits([record], set()).other] == [(kind, premium)]
 
 
 def test_r3_03_a_lender_debit_never_records_a_premium():
     from analysis.true_revenue.counter_debit_pairing import counter_debits
 
-    record = tc.classify_transaction("FORWARD FINANCING DES:PREM ID:2 INDN:NORTHWIND LABS CO ID:0000000001 CCD", -500.0,
+    record = transaction_classifier_row.classify_transaction("FORWARD FINANCING DES:PREM ID:2 INDN:NORTHWIND LABS CO ID:0000000001 CCD", -500.0,
                                      direction="debit")
     debits = counter_debits([record], set())
     assert [debit.premium for debit in debits.lender] == [False] and not debits.other
@@ -1581,7 +1581,7 @@ def test_r3_15_a_numbered_company_s_debits_are_kept_and_recur_by_their_number():
 
     # Each row read alone (no statement's lender reading), so they are the holder's other debits.
     rows = ["ONLINE BILL PAYMENT 1234567 ONTARIO INC"] * 2 + ["ONLINE BILL PAYMENT 7654321 ONTARIO INC"]
-    debits = counter_debits([tc.classify_transaction(text, -450.0, direction="debit") for text in rows], set())
+    debits = counter_debits([transaction_classifier_row.classify_transaction(text, -450.0, direction="debit") for text in rows], set())
     assert not debits.lender
     assert [(debit.reading.number, debit.recurring) for debit in debits.other] == [
         ("1234567", True), ("1234567", True), ("7654321", False)]

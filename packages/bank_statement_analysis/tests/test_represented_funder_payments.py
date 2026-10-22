@@ -20,6 +20,7 @@ from dataclasses import fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import row as transaction_classifier_row
 from analysis.transaction_classifier import funder_returns
 from analysis.classification import record as classification_record
 from analysis.detect import detect
@@ -456,7 +457,7 @@ def test_the_record_carries_represented_by_after_the_two_returned_fields():
     names = [field.name for field in fields(classification_record.TransactionClassification)]
     position = names.index("returns_funder_payment")
     assert names[position + 1] == "represented_by"
-    assert getattr(tc.classify_transaction(KAPITUS, -850.0), "represented_by") is None
+    assert getattr(transaction_classifier_row.classify_transaction(KAPITUS, -850.0), "represented_by") is None
 
 
 @pytest.mark.parametrize("name", ["re_presented", "daily_catch_up", "bounced_again"])
