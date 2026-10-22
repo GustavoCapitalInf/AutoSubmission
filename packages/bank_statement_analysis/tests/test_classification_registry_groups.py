@@ -89,8 +89,8 @@ def test_premium_finance_payees_share_no_entity_with_a_group_table():
 
 def test_the_legacy_lists_are_read_only_by_the_pre_s2_classifier():
     readers = set()
-    for path in sorted((ROOT / "analysis").glob("*.py")):
+    for path in sorted((ROOT / "analysis").rglob("*.py")):
         text = path.read_text(encoding="utf-8")
         if any(re.search(rf"\b{name}\b", text) for name in LEGACY_NAMES):
-            readers.add(path.name)
-    assert readers <= {"classification_registry.py", "transaction_classifier.py"}
+            readers.add(path.relative_to(ROOT / "analysis").as_posix())
+    assert readers <= {"classification_registry.py", "transaction_classifier/__init__.py"}, readers
