@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue
+from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 from analysis.descriptor.rails import prints_internal_transfer_designation
@@ -871,7 +872,7 @@ def test_r09_a_td_e_transfer_code_is_no_round_repeat_key():
     records = _td([("E-TRANSFER ***BFD", 3000.0)] * 3)
     assert [_tier(record) for record in records] == [P2P] * 3
     facts = true_revenue.credit_facts(
-        records[0], true_revenue.without_transfer_code(records[0], revenue_text(records[0].normalized_description)),
+        records[0], channel.without_transfer_code(records[0], revenue_text(records[0].normalized_description)),
         debits=true_revenue.counter_debits(records, set()),
     )
     assert (facts.region, facts.key, facts.channel) == ("", (), "person_to_person")

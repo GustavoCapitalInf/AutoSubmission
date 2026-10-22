@@ -20,6 +20,7 @@ from analysis import description_text
 from analysis.descriptor import lexical
 from analysis.descriptor import words as descriptor_words
 from analysis import true_revenue as tr
+from analysis.true_revenue import words as true_revenue_words
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 
@@ -255,7 +256,7 @@ def test_r32_a_wire_that_prints_only_its_labels_is_held_with_no_sender(text):
 
 
 def test_r32_the_label_words_are_every_wire_layout_word_and_cr():
-    assert tr._WIRE_LAYOUT_WORDS <= tr._WIRE_LABEL_ONLY_WORDS
+    assert true_revenue_words._WIRE_LAYOUT_WORDS <= tr._WIRE_LABEL_ONLY_WORDS
     assert tr._BARE_CHANNEL_WORDS <= tr._WIRE_LABEL_ONLY_WORDS
     assert {"BANK", "DEPOSIT", "DEP", "IN", "RECEIVED", "CR"} <= tr._WIRE_LABEL_ONLY_WORDS
 

@@ -2035,7 +2035,7 @@ def test_narrowing_9_holds_a_named_transfer_after_an_own_account_designation(tex
      "possible_return", "6_card_credit_release", False),
 ])
 def test_narrowing_10_counts_a_processor_s_card_payout(text, state, method, tier, reason, narrowing, fails):
-    from analysis.true_revenue import PROCESSOR_CARD_PAYOUT_METHOD
+    from analysis.true_revenue.words import PROCESSOR_CARD_PAYOUT_METHOD
 
     base = _snap("5.6", {"a": _account([_credit(0, 5000, "non_revenue", "reversal_cancellation_exclusion",
                                                 tier="non_revenue", text=text)])})

@@ -95,6 +95,7 @@ from analysis.transaction_classifier.potential_lenders import (
     _record_payee_tokens,
 )
 from analysis.transaction_classifier.reversals import _apply_reversal_pair_context
+from analysis.true_revenue.holder_names import without_receiver_and_holder
 # The true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
 from analysis.true_revenue import (
     also_debited,
@@ -106,20 +107,18 @@ from analysis.true_revenue import (
     payer_text_unread_indexes,
     payer_text_unread_texts,
     premium_trust_title,
-    without_receiver_and_holder,
     zelle_credits_present,
 )
 
 # True revenue reads these through _classifier() until its readers leave analysis/true_revenue/.
 from analysis.classification.counter_debit_reading import (
     _counter_debit_head,
-    _payer_first_distinctive_word,
     _payer_key,
     _split_glued_digits,
     counter_debit_debit_reading,
     counter_debit_payer_reading,
 )
-from analysis.classification.credit_predicates import _wire_originator_run, wire_sender_is_beneficiary
+from analysis.classification.credit_predicates import wire_sender_is_beneficiary
 from analysis.classification.operating_sources import _recurrence_vetoed
 from analysis.classification.tax_forms import government_form_payer
 from analysis.description_text import _TRANSFER_WORDING
@@ -144,9 +143,7 @@ from analysis.descriptor.credit_words import (
     _TREASURY_BOILERPLATE,
 )
 from analysis.descriptor.holder import (
-    _summary_grid_header,
     account_name_text,
-    account_product,
     holder_named,
     holder_receiver_block,
     holder_words,
@@ -157,8 +154,6 @@ from analysis.descriptor.lexical import (
     _distinctive_words,
     _is_payer_word,
     _is_reference_token,
-    _leading_name_words,
-    _originator_payer_words,
     _originator_segment,
     _payee_region,
     _skip_numbered_leading_date,
@@ -173,12 +168,9 @@ from analysis.descriptor.lexical import (
 from analysis.descriptor.payer import (
     _is_bare_row,
     _is_transfer_or_p2p_row,
-    _sender_payer_region,
-    credit_transfer_wording,
     entry_fields,
     numbered_company,
     payer_label_layout,
-    relayed_customer_text,
     wire_relayed_customer,
 )
 from analysis.descriptor.rails import _bare_incoming_wire, _is_wire_row, _loose_wire_originator
@@ -187,34 +179,22 @@ from analysis.descriptor.words import (
     HOLDER_NOISE,
     IRS_TREASURY_FORM,
     REVENUE_GENERIC_WORDS,
-    _ACH_ORIGINATOR_FIELD,
     _AMEX_ACH_CREDIT,
     _BANK_COMPANY_FORM,
-    _BOFA_ENTRY_FIELD,
     _BRANCH_DEPOSIT_TRANSIT,
     _CARD_FORM_DEBIT_PREFIX,
     _CASH_BRANCH_ATM_FORM,
-    _CHASE_ENTRY_FIELD,
     _CHECK_DEPOSIT_FORM,
     _CONSUMER_P2P_RAIL,
     _CREDIT_WIRE_BENEFICIARY_VALUE,
     _ELECTRONIC_PAYMENT_FORM,
     _GLUED_SEC_CODE,
-    _HOLDER_TEST_NOISE,
     _HOLDER_TRADE_NAME,
-    _INTERNAL_ACCOUNT_SOURCE_WORDS,
-    _MEMO_ENTRY_FIELD,
     _NUMBERED_COMPANY_REGION,
     _NUMBERED_PROVINCE_START,
-    _OWN_ACCOUNT_PRODUCT_WORDS,
-    _PROVINCE,
     _PUSH_RAIL,
-    _QUEBEC,
     _REVENUE_TEMPLATE_PREFIX,
-    _SANTANDER_WIRE,
     _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS,
-    _SENDER_END,
-    _WIRE_FIELD_END,
     _WIRE_ORIGINATOR_LABEL,
     _WIRE_SENDER_AFTER_LABEL,
     _WIRE_SENDER_AFTER_LABEL_END,

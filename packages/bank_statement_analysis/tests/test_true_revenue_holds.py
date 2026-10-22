@@ -13,6 +13,10 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue as tr
+from analysis.true_revenue import channel as true_revenue_channel
+from analysis.true_revenue import hold_text
+from analysis.true_revenue import holder_names
+from analysis.true_revenue import words as true_revenue_words
 from analysis import revenue as analysis_revenue
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -333,12 +337,12 @@ def test_a_named_funder_is_still_held():
 
 def test_the_root_readers_strip_only_what_names_no_payer():
     # Unit: the root reading of a person-to-person sender (the sending bank and the person's name removed).
-    assert tr._p2p_person_name("PAT LENDSAMPLE")
-    assert not tr._p2p_person_name("FABRIKAM FUNDING")
-    assert not tr._p2p_person_name("CONTOSO FINANCE")
-    assert not tr._p2p_person_name("CONTOSO CAPITALCO")
-    assert not tr._p2p_person_name("FABRIKAM LLC")
-    assert not tr._p2p_person_name("LENDSAMPLE")
+    assert holder_names._p2p_person_name("PAT LENDSAMPLE")
+    assert not holder_names._p2p_person_name("FABRIKAM FUNDING")
+    assert not holder_names._p2p_person_name("CONTOSO FINANCE")
+    assert not holder_names._p2p_person_name("CONTOSO CAPITALCO")
+    assert not holder_names._p2p_person_name("FABRIKAM LLC")
+    assert not holder_names._p2p_person_name("LENDSAMPLE")
     assert "CAPITAL ONE" not in tr._root_reading("PAT SAMPLE CAPITAL ONE", None, None, p2p=True)
     assert "CAPITAL ONE" in tr._root_reading("PAT SAMPLE CAPITAL ONE", None, None, p2p=False)
 
@@ -661,11 +665,11 @@ def test_a_builder_s_progress_draw_a_remittance_descriptor_verified_is_counted_n
     record, = _q11_records([(_q11_bofa("CONTOSO BUILDERS INC", entry), 9000.0)])
     assert rules_reading(record, method=True) == DRAW_COUNTED
     assert record.revenue_classification == "unverified_deposit" and record.contributes_to_true_revenue
-    assert record.revenue_match_method == tr.CONSTRUCTION_PROGRESS_DRAW_REASON
+    assert record.revenue_match_method == true_revenue_words.CONSTRUCTION_PROGRESS_DRAW_REASON
     assert record.revenue_matched_rule == "construction_progress_draw_never_verified"
     assert record.revenue_confidence_score == 0.50 and not record.revenue_review_required
     assert "payer_remittance_descriptor" in record.revenue_reason and "Q11" in record.revenue_reason
-    assert tr.CONSTRUCTION_PROGRESS_DRAW_REASON in record.revenue_context_signals
+    assert true_revenue_words.CONSTRUCTION_PROGRESS_DRAW_REASON in record.revenue_context_signals
 
 
 def test_a_non_builder_s_remittance_descriptor_draw_keeps_its_verification():
@@ -1096,13 +1100,13 @@ def test_the_holder_s_name_printed_without_a_label_holds_nothing(name):
 
 def test_the_holder_s_name_removal_never_reads_a_product_name():
     # An account name that is a product name names no holder: a bank's rewards credit stays held.
-    assert tr._without_holder_name("BUSINESS REWARDS REDEMPTION", "BUSINESS REWARDS CHECKING") == (
+    assert holder_names._without_holder_name("BUSINESS REWARDS REDEMPTION", "BUSINESS REWARDS CHECKING") == (
         "BUSINESS REWARDS REDEMPTION")
     assert _one("REWARDS REDEMPTION CREDIT", 25.0, holder="BUSINESS REWARDS CHECKING")[0] == "excluded_pending_review"
     # The run and its prefixes of two words or more, the legal form printed or not.
-    assert tr._without_holder_name("PAY NORTHWIND DISTRIBUTION LLC X", "NORTHWIND DISTRIBUTION LLC").split() == [
+    assert holder_names._without_holder_name("PAY NORTHWIND DISTRIBUTION LLC X", "NORTHWIND DISTRIBUTION LLC").split() == [
         "PAY", "X"]
-    assert tr._without_holder_name("PAY NORTHWIND X", "NORTHWIND DISTRIBUTION LLC").split() == ["PAY", "NORTHWIND", "X"]
+    assert holder_names._without_holder_name("PAY NORTHWIND X", "NORTHWIND DISTRIBUTION LLC").split() == ["PAY", "NORTHWIND", "X"]
 
 
 def test_a_payer_s_own_distribution_still_holds_beside_the_holder_s_name():
@@ -1233,9 +1237,9 @@ def test_a_glued_credit_union_acronym_is_a_credit_union():
     assert _tiers(rows, holder=_TRUCKS) == [DEALER] * 3
     assert _tiers([(_cu("BECU", "VHCL PURCH", "DL0004CD"), 3200.0)], holder=_TRUCKS) == [FINANCING]
     for acronym in ("BECU", "SECU", "PSECU", "GECU", "DCU", "ABFCU"):
-        assert tr._CREDIT_UNION_PAYER.search(acronym)
+        assert true_revenue_words._CREDIT_UNION_PAYER.search(acronym)
     for word in ("CUSTOM", "CUBE", "ACCUPAY"):
-        assert not tr._CREDIT_UNION_PAYER.search(word)
+        assert not true_revenue_words._CREDIT_UNION_PAYER.search(word)
 
 
 _FEDWIRE = ("FEDWIRE CREDIT VIA CONTOSO CREDIT UNION/123456789 B/O: {sender} SAMPLEVILLE CA 12345 REF: CHASE NYC/CTR/"
@@ -1475,7 +1479,7 @@ def test_r40_the_strip_names_are_the_holder_s_business_names(account_name, holde
         account_name=account_name, holder_name=holder_name, bank="Truist",
         transactions=[Transaction(date="2054-03-02", description="CONTOSO DINER", amount=100.0, direction="credit")],
     ))
-    assert tr._holder_strip_names(record) == names
+    assert holder_names._holder_strip_names(record) == names
 
 
 # Audit round 2, R2-B12 (R42): RETIRE... inside a payer's own name is no personal income when an operator's word follows
@@ -1632,17 +1636,17 @@ def test_r34_the_payer_s_name_proper(text, proper):
     from analysis.descriptor import payer
 
     region = payer.payer_region(text)
-    assert tr._payer_name_proper(text, region) == (region if proper is None else proper)
+    assert hold_text._payer_name_proper(text, region) == (region if proper is None else proper)
 
 
 def test_r34_the_formed_name_s_word_before_and_the_numbered_street():
     for word in ("EARNINGS", "EARNING", "LIQUIDATING", "LIQUIDATION", "PRORATA"):
-        assert word in tr._NOT_A_NAME_WORD_BEFORE
+        assert word in hold_text._NOT_A_NAME_WORD_BEFORE
     for code in ("JAN54", "SEP2054", "SEPT54", "DEC54", "15JAN", "1JAN54", "2054MAR", "Q4", "K1", "2054Q4", "4TH"):
-        assert tr._PERIOD_CODE.fullmatch(code), code
+        assert hold_text._PERIOD_CODE.fullmatch(code), code
     for word in ("A1", "H2O", "JANE", "MAYO", "DECK1", "JAN", "J4N"):
-        assert not tr._PERIOD_CODE.fullmatch(word), word
-    street = tr._NUMBERED_STREET_NAME
+        assert not hold_text._PERIOD_CODE.fullmatch(word), word
+    street = hold_text._NUMBERED_STREET_NAME
     assert street.sub(r"\g<number> ", "ATM CHECK DEPOSIT 1 GRANT AVE SAMPLEVILLE").split() == [
         "ATM", "CHECK", "DEPOSIT", "1", "AVE", "SAMPLEVILLE"]
     assert street.sub(r"\g<number> ", "ATM DEPOSIT 123 N GRANT ST").split() == ["ATM", "DEPOSIT", "123", "N", "ST"]
@@ -1651,7 +1655,7 @@ def test_r34_the_formed_name_s_word_before_and_the_numbered_street():
                  "1 OLD SAMPLE GRANT AVE"):
         assert street.sub(r"\g<number> ", text) == text, text
     # B7's street name (no number needed) is unchanged: the deposit reading still removes it.
-    assert tr._STREET_NAME.sub(" ", "ATM DEPOSIT SAMPLE ST SAMPLEVILLE").split() == ["ATM", "DEPOSIT", "ST",
+    assert true_revenue_words._STREET_NAME.sub(" ", "ATM DEPOSIT SAMPLE ST SAMPLEVILLE").split() == ["ATM", "DEPOSIT", "ST",
                                                                                       "SAMPLEVILLE"]
     assert tr._deposit_location_reading("ATM CASH DEPOSIT CAPITAL BLVD", HOLDER, "Wells Fargo") == ""
 
@@ -1725,7 +1729,7 @@ def test_r35_the_guarded_location_removal():
     for word in ("DEPOSIT", "ATM", "ABM", "BRANCH", "COUNTER", "CREDIT", "TELLER", "MOBILE", "REMOTE", "IN", "AT"):
         assert word in tr._DEPOSIT_LEAD_WORDS
     # The numbered street's suffixes are B7's street name's, kept in step.
-    assert tr._STREET_NAME.pattern == (r"(?<![A-Z])[A-Z]+(?= (?:" + tr._STREET_SUFFIXES + r")\b)")
+    assert true_revenue_words._STREET_NAME.pattern == (r"(?<![A-Z])[A-Z]+(?= (?:" + true_revenue_words._STREET_SUFFIXES + r")\b)")
 
 
 # Audit round 2, R2-B13 (R39; B7 review round 3, minor 3): a floor-plan lender's name is a floor-plan form or WHOLESALE
@@ -2108,7 +2112,7 @@ def _pass_facts(rows, *, holder: str | None = HOLDER, bank: str | None = None):
     found = []
     for index in credits:
         record = records[index]
-        text = tr.without_transfer_code(record, revenue_text(record.normalized_description))
+        text = true_revenue_channel.without_transfer_code(record, revenue_text(record.normalized_description))
         facts = tr.credit_facts(record, text, debits=debits, lessor=lessor)
         found.append((facts, tr._tier_reason(record, text, replace(facts, q9=None), False)))
     return found
@@ -2453,7 +2457,7 @@ def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
 
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
-        channel = tr._channel(text, bank)
+        channel = true_revenue_channel._channel(text, bank)
         return tr._rent_payer_name(text, tr._facts_region(text, channel, bank))
 
     # A payer-name field: the name proper (an ACH originator's or a wire's whole region).
@@ -2557,7 +2561,7 @@ def test_r3_b14_r1_a_payer_named_rentals_with_no_form_still_makes_no_lessor(row,
 def test_r3_b14_r1_the_rent_reading_names_only_the_payer_s_name_proper():
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
-        return tr._rent_payer_name(text, tr._facts_region(text, tr._channel(text, bank), bank))
+        return tr._rent_payer_name(text, tr._facts_region(text, true_revenue_channel._channel(text, bank), bank))
 
     # A leading rent word is the entry description a label-less layout printed first (Truist's), never the name.
     assert name("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "FABRIKAM DELI LLC"

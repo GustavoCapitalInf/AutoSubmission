@@ -21,6 +21,7 @@ from analysis.descriptor import payer
 from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import true_revenue as tr
+from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
 
 HOLDER = "CONTOSO PLUMBING LLC"
@@ -52,6 +53,7 @@ def _today(bank, rows, monkeypatch, holder=HOLDER):
         patch.setattr(payer, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(words, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(reversals, "_CASH_BRANCH_ATM_FORM", BEFORE)
+        patch.setattr(channel, "_CASH_BRANCH_ATM_FORM", BEFORE)
         return _read(bank, rows, holder)
 
 
@@ -193,7 +195,7 @@ def test_a_retail_cash_load_counts_flagged_beside_a_purchase_at_the_same_place(m
     assert [_tier(record) for record in records[:2]] == [NO_PAYER] * 2
     assert [record.revenue_classification for record in records[:2]] == ["unverified_deposit"] * 2
     assert all(record.contributes_to_true_revenue for record in records[:2])
-    assert tr._channel(lexical.revenue_text(BLUEVINE_LOAD), "Bluevine") == "cash_branch_atm"
+    assert channel._channel(lexical.revenue_text(BLUEVINE_LOAD), "Bluevine") == "cash_branch_atm"
     assert payer.channel_gate(lexical.revenue_text(BLUEVINE_LOAD)) == "closed"
     assert payer.payer_region(lexical.revenue_text(BLUEVINE_LOAD)) == ""
 
@@ -236,7 +238,7 @@ def test_a_branch_deposit_counts_flagged_beside_a_withdrawal_at_the_same_branch(
     record = _read("Scotiabank", rows)[0]
     assert _tier(record) == NO_PAYER
     assert record.revenue_classification == "unverified_deposit"
-    assert tr._channel(lexical.revenue_text(BRANCH_DEPOSIT), "Scotiabank") == "cash_branch_atm"
+    assert channel._channel(lexical.revenue_text(BRANCH_DEPOSIT), "Scotiabank") == "cash_branch_atm"
 
 
 def test_a_branch_deposit_three_times_never_verifies():
