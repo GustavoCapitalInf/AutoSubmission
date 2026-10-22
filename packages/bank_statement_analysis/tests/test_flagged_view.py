@@ -152,20 +152,20 @@ def test_anything_that_is_not_a_published_shape_is_returned_unchanged(payload):
 @pytest.fixture
 def running_5_1(monkeypatch):
     """The running classifier is 5.1, whatever it is later: the tables below read against it."""
-    from analysis import transaction_classifier
+    from analysis.classification import record
 
-    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "5.1")
+    monkeypatch.setattr(record, "CLASSIFICATION_VERSION", "5.1")
 
 
 def _outdated_with_one_record(version) -> bool:
     # Every other record carries the running version, so the one record under test decides. A null version is no
     # version.
-    from analysis import transaction_classifier
+    from analysis.classification import record
 
     payload = with_flagged_rows(flagged_account_payload(groups=()), [flagged_row(None)])
     rows = payload["statement"]["transactions"]
     for row in rows:
-        row["classification"]["classification_version"] = transaction_classifier.CLASSIFICATION_VERSION
+        row["classification"]["classification_version"] = record.CLASSIFICATION_VERSION
     rows[-1]["classification"]["classification_version"] = version
     return apply_flagged_groups_to_payload(payload, enabled=ALL_TICKED)["analysis_rules_outdated"]
 
@@ -183,19 +183,19 @@ def test_rows_classified_by_older_rules_mark_the_analysis_outdated(running_5_1, 
 
 
 def test_the_running_version_is_read_at_each_call_and_compared_as_numbers(monkeypatch):
-    from analysis import transaction_classifier
+    from analysis.classification import record
 
-    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "5.10")
+    monkeypatch.setattr(record, "CLASSIFICATION_VERSION", "5.10")
     assert [_outdated_with_one_record(version) for version in ("5.9", "5.10", "5.11", "6.0")] == [
         True, False, False, False]
-    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "5.9")
+    monkeypatch.setattr(record, "CLASSIFICATION_VERSION", "5.9")
     assert [_outdated_with_one_record(version) for version in ("5.9", "5.10")] == [False, False]
 
 
 def test_a_5_0_analysis_is_outdated_under_the_running_rules_and_a_current_one_is_not():
     # The D6 clarification made the running rules 5.1: an analysis stored by the 5.0 rules gets the notice and the
     # Re-analyze button, and one the running classifier wrote does not.
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+    from analysis.classification.record import CLASSIFICATION_VERSION
 
     assert _outdated_with_one_record("5.0") is True
     assert _outdated_with_one_record(CLASSIFICATION_VERSION) is False
@@ -203,9 +203,9 @@ def test_a_5_0_analysis_is_outdated_under_the_running_rules_and_a_current_one_is
 
 def test_a_running_version_that_cannot_be_read_compares_nothing(monkeypatch):
     # Never raises: only a record without a version still marks the analysis outdated.
-    from analysis import transaction_classifier
+    from analysis.classification import record
 
-    monkeypatch.setattr(transaction_classifier, "CLASSIFICATION_VERSION", "unknown")
+    monkeypatch.setattr(record, "CLASSIFICATION_VERSION", "unknown")
     assert [_outdated_with_one_record(version) for version in ("4.1", "5.0", None)] == [False, False, True]
 
 

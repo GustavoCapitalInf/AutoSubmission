@@ -27,7 +27,8 @@ from analysis.revenue import (
     record_serialized_revenue_review,
 )
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import TransactionClassification, classify_statement_transactions
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.classification.record import TransactionClassification
 from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 

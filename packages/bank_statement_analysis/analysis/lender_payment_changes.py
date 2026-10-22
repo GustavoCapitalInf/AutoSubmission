@@ -54,7 +54,7 @@ from typing import Any, Iterable, Mapping, NamedTuple, Sequence
 
 from .adb import federal_bank_holidays, nth_weekday
 from .dates import parse_date
-from .transaction_classifier import UNIDENTIFIED_LENDER_OBLIGATION, UNIDENTIFIED_MCA_SERVICER
+from .classification.record import UNIDENTIFIED_LENDER_OBLIGATION, UNIDENTIFIED_MCA_SERVICER
 
 # ------------------------------------------------------------------------------------------------------- constants
 #: A decrease or an increase moves the compared amount by this many percent or more.

@@ -1268,7 +1268,7 @@ def _tiers(payload):
 def test_a_5_6_analysis_is_served_with_the_re_analyze_notice():
     """R56 T1, T5: the versions moved (classification 5.7, stage 33; since audit round 3, R3-B25, 5.8 and 36), so a
     statement analysed at 5.6 is served with the notice; its rows tier as the rules tier them today."""
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+    from analysis.classification.record import CLASSIFICATION_VERSION
     from webapp import artifact_cache
     from analysis.served_view import displayed
 
@@ -1350,7 +1350,7 @@ def test_a_5_7_analysis_is_served_with_the_re_analyze_notice():
     """Audit round 3, R3-B25 T1 (the twin of R56 T1): the round-3 fix batches moved tiers, reasons and lender readings
     under 5.7, so the versions move (classification 5.8, stage 36) and a statement analysed at 5.7 is served with the
     re-analyze notice."""
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+    from analysis.classification.record import CLASSIFICATION_VERSION
     from webapp import artifact_cache
     from analysis.served_view import displayed
 
@@ -1419,7 +1419,7 @@ def test_a_5_8_analysis_is_served_with_the_re_analyze_notice():
     """The owner's Amerifi Capital ruling (2026-10-11; the twin of R3-B25 T1): Amerifi Capital's debits move from
     potential lender to counted lender, so the versions move (classification 5.9, stage 38) and a statement analysed
     at 5.8 is served with the re-analyze notice. Control: no other rule moves, so its rows tier as before."""
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION
+    from analysis.classification.record import CLASSIFICATION_VERSION
     from webapp import artifact_cache
     from analysis.served_view import displayed
 

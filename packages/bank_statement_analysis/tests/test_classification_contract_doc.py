@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from analysis import transaction_classifier, true_revenue
+from analysis.classification import record as classification_record
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.revenue import REVENUE_TIER_REASONS, REVENUE_TIERS, WITHHOLDING_DENOMINATOR_MODES
 from analysis.schema import Statement, Transaction
@@ -216,7 +217,7 @@ def test_a_builders_draw_and_an_auction_seller_payout_get_their_reason_codes(tex
 
 
 def test_the_contract_and_the_readme_name_the_current_classification_version():
-    version = re.escape(transaction_classifier.CLASSIFICATION_VERSION)
+    version = re.escape(classification_record.CLASSIFICATION_VERSION)
     assert re.search(rf"\bVersion {version} \(", _flat(CONTRACT)), version
     assert re.search(rf"\bclassification version {version}\b", _flat(README)), version
 

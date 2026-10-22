@@ -19,7 +19,7 @@ import pytest
 from analysis import lender_payment_changes as lpc
 from analysis.reconcile import reconcile
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import TransactionClassification
+from analysis.classification.record import TransactionClassification
 from tests.helpers import bdays, every
 
 HOLDER = "CONTOSO PLUMBING LLC"

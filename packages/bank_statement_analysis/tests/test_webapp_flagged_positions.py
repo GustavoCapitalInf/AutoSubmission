@@ -779,7 +779,7 @@ def test_the_classifiers_payload_is_served_and_packaged_by_the_checkboxes(settin
 def test_the_fixture_records_use_only_fields_the_classifier_writes():
     from dataclasses import fields
 
-    from analysis.transaction_classifier import CLASSIFICATION_VERSION, TransactionClassification
+    from analysis.classification.record import CLASSIFICATION_VERSION, TransactionClassification
 
     names = {field.name for field in fields(TransactionClassification)}
     assert set(flagged_row("mortgages")["classification"]) <= names

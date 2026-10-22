@@ -10,11 +10,8 @@ from analysis.detect import find_potential_lenders
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement
 from analysis.serialization import report_to_dict
-from analysis.transaction_classifier import (
-    UNIDENTIFIED_MCA_SERVICER,
-    classify_statement_transactions,
-    classify_transaction,
-)
+from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.classification.record import UNIDENTIFIED_MCA_SERVICER
 from tests.flag_group_fixtures import txn
 from tests.webapp_js_harness import NODE, run_dashboard
 

@@ -21,11 +21,12 @@ from dataclasses import asdict, fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.classification import record as classification_record
 from analysis import true_revenue as tr
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
-from analysis.true_revenue import FundingSeries
+from analysis.classification.record import FundingSeries
 
 HOLDER = "CONTOSO GRILL LLC"
 BANK = "Fifth Third Bank"
@@ -282,8 +283,8 @@ def test_the_aid_is_frozen_and_hashable_and_last_on_the_record():
     assert hash(record) == hash(replace(record))
     with pytest.raises(AttributeError):
         record.revenue_funding_series[0].payee = "FABRICATED"  # type: ignore[misc]
-    assert [field.name for field in fields(tc.TransactionClassification)][-1] == "revenue_funding_series"
-    assert tc.TransactionClassification("X", "X", "other").revenue_funding_series == ()
+    assert [field.name for field in fields(classification_record.TransactionClassification)][-1] == "revenue_funding_series"
+    assert classification_record.TransactionClassification("X", "X", "other").revenue_funding_series == ()
     assert [field.name for field in fields(FundingSeries)] == [
         "payee", "lender_state", "amount", "cadence", "average_gap_days", "first_date", "days_after", "payments",
         "start_observed", "source_locations"]
