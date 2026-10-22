@@ -8,7 +8,7 @@ analysis back from its JSON (reloaded). The two differ wherever a payload holds 
 in archive order, with `docProps/core.xml`'s creation time masked: the writer stamps the clock there.
 
 Each case folder under `tests/data/output_characterization/` holds `fingerprints.txt`, the SHA-256 of every served
-body (or its HTTP status when it is not 200) for the fresh read and, where it differs, the reloaded read, and
+body (prefixed with its HTTP status when it is not 200) for the fresh read and, where it differs, the reloaded read, and
 `package.csv`, the package CSV download as served, for a reviewer to read. A default run never writes. To rewrite the
 pins on purpose, run
 
@@ -35,15 +35,18 @@ from types import SimpleNamespace
 
 import pytest
 
+from analysis.display_settings import DEFAULTS
 from tests import test_active_positions as active
 from tests import test_large_unsourced_deposits as large_deposits
 from tests import test_lender_payment_changes_package as lender_changes
 from tests import test_lump_sum_payoffs as payoffs
 from tests import test_package_matching as matching
 from tests import test_represented_funder_payments as represented
+from tests import test_returned_funder_payment_boundaries as boundaries
 from tests import test_webapp_app as webapp_cases
 from tests import test_webapp_true_revenue as true_revenue
 from tests import zelle_setting_fixtures as zelle
+from tests.flagged_payloads import flagged_account_payload
 from tests.helpers import every
 from webapp import app as webapp_app
 from webapp import jobs
@@ -222,6 +225,17 @@ def _returned_funder_payment_re_debited():
     return _uploads(mar=march, apr=april)
 
 
+def _funder_payment_returned_in_the_next_statement():
+    march, april = boundaries._months(boundaries._april())
+    return _uploads(mar=march, apr=april)
+
+
+def _every_flag_group_zelle_and_negative_days():
+    (negative_days,) = _lines_of_credit_and_negative_days()
+    return [Upload("flagged", flagged_account_payload()), *_zelle_deposits(),
+            Upload("negative", negative_days.analysis)]
+
+
 CASES = {
     "one_account_two_months": Case(_one_account_two_months),
     "detection_and_reason_maps": Case(_detection_and_reason_maps),
@@ -248,13 +262,16 @@ CASES = {
     "lump_sum_payoff": Case(_lump_sum_payoff),
     "large_unsourced_deposits": Case(_large_unsourced_deposits),
     "returned_funder_payment_re_debited": Case(_returned_funder_payment_re_debited),
+    "funder_payment_returned_in_the_next_statement": Case(_funder_payment_returned_in_the_next_statement),
+    "every_setting_opposite_its_default": Case(_every_flag_group_zelle_and_negative_days,
+                                               {key: not default for key, default in DEFAULTS.items()}),
 }
 
 
 @dataclass(frozen=True)
 class Response:
     """One request's answer. `files` maps a path in the case's dump folder to the bytes served: the body, or for an
-    XLSX each zip part plus `parts.txt`, the part list with each part's compression. A non-200 answer has no files."""
+    XLSX served with 200 each zip part plus `parts.txt`, the part list with each part's compression."""
     url: str
     name: str
     status: int
@@ -263,8 +280,8 @@ class Response:
 
 @dataclass(frozen=True)
 class Fingerprint:
-    """`fresh` is a SHA-256, or `http-<status>` for a route that does not answer 200. `reloaded` is `same` when the
-    reloaded read serves the fresh bytes."""
+    """`fresh` is a SHA-256, prefixed `http-<status>:` for a route that does not answer 200. `reloaded` is `same` when
+    the reloaded read serves the fresh bytes."""
     path: str
     url: str
     fresh: str
@@ -309,7 +326,7 @@ def _requested(uploads: list[Upload]) -> list[Response]:
     responses = []
     for url, name in routes:
         response = client.get(url)
-        files = _files(name, response.data) if response.status_code == 200 else {}
+        files = _files(name, response.data) if response.status_code == 200 else {name: response.data}
         responses.append(Response(url, name, response.status_code, files))
     return responses
 
@@ -332,15 +349,16 @@ def _served(case: Case, folder: Path) -> dict[str, list[Response]]:
 
 
 def _digest(response: Response, path: str) -> str:
-    if response.status != 200:
-        return f"http-{response.status}"
-    return hashlib.sha256(response.files[path]).hexdigest() if path in response.files else "absent"
+    if path not in response.files:
+        return "absent"
+    digest = hashlib.sha256(response.files[path]).hexdigest()
+    return digest if response.status == 200 else f"http-{response.status}:{digest}"
 
 
 def _fingerprints(served: dict[str, list[Response]]) -> list[Fingerprint]:
     prints = []
     for fresh, reloaded in zip(served["fresh"], served["reloaded"], strict=True):
-        for path in dict.fromkeys([*fresh.files, *reloaded.files]) or [fresh.name]:
+        for path in dict.fromkeys([*fresh.files, *reloaded.files]):
             digest = _digest(fresh, path)
             again = _digest(reloaded, path)
             prints.append(Fingerprint(path, fresh.url, digest, "same" if again == digest else again))
@@ -391,18 +409,21 @@ def _dump_root() -> Path:
 def _dump(name: str, served: dict[str, list[Response]]) -> None:
     folder = _dump_root() / name
     shutil.rmtree(folder, ignore_errors=True)
-    reads = {}
+    fresh = {}
     for read, responses in served.items():
-        reads[read] = {path: body for response in responses for path, body in response.files.items()}
-        reads[read]["routes.txt"] = "".join(f"{response.status} {response.url}\n" for response in responses).encode()
-    reads["reloaded"] = {path: body for path, body in reads["reloaded"].items() if reads["fresh"].get(path) != body}
-    for read, files in reads.items():
+        files = {path: body for response in responses for path, body in response.files.items()}
+        files["routes.txt"] = "".join(f"{response.status} {response.url}\n" for response in responses).encode()
+        errors = {response.name for response in responses if response.status != 200}
         for path, body in files.items():
-            readable = _readable(path, body)
-            assert _exact(path, readable) == body, f"{name} {read} {path}: the readable form loses bytes"
+            if read == "reloaded" and fresh.get(path) == body:
+                continue
+            readable = body if path in errors else _readable(path, body)
+            exact = path in errors or _exact(path, readable) == body
+            assert exact, f"{name} {read} {path}: the readable form loses bytes"
             target = folder / read / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(readable)
+        fresh = files
 
 
 def _differences(pinned: dict[str, tuple[str, str]], prints: list[Fingerprint]) -> list[str]:
@@ -414,8 +435,8 @@ def _differences(pinned: dict[str, tuple[str, str]], prints: list[Fingerprint]) 
         for read, expected, served in zip(("fresh", "reloaded"), pinned[fingerprint.path],
                                           (fingerprint.fresh, fingerprint.reloaded)):
             if expected != served:
-                found.append(f"{fingerprint.path} from {fingerprint.url}, {read} read: pinned {expected[:16]}, "
-                             f"served {served[:16]}")
+                found.append(f"{fingerprint.path} from {fingerprint.url}, {read} read: pinned {expected[:25]}, "
+                             f"served {served[:25]}")
     paths = [fingerprint.path for fingerprint in prints]
     found += [f"{path}: pinned, no longer served" for path in pinned.keys() - set(paths)]
     if not found and list(pinned) != paths:
