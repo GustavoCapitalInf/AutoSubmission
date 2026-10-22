@@ -4,16 +4,29 @@ Each side uploads every planned statement through one checkout's web API, in-pro
 folder, so the analysis runs with that checkout's code. Per statement it captures the served analysis and the JSON,
 CSV and XLSX downloads; per package the package analysis and its three downloads; each under the default display
 settings and under every setting flipped. Both sides mint the same job and package ids, because a package orders its
-documents by id. A response is kept as its status, content type, disposition and body, with those ids replaced by
-plan positions and an XLSX read part by part with its creation stamp masked. Responses hold statement data: every
-output must sit outside any repository, files are written mode 600, and the commands print counts only.
+documents by id. A response is kept as its status, content type, disposition and body, with the job and package ids
+the tool minted replaced by plan positions and an XLSX read part by part with its creation stamp masked; every other
+uuid stays as it is. Responses hold statement data: the tool refuses an output path inside any repository, writes
+its files mode 600 and prints counts only.
 
   plan    --corpus DIR --out PLAN [--shards N]       one statement per PDF; packages of 2 to 6 from each bank folder
   run     --plan PLAN --code PKG --work DIR [--ocr-from DIR]
                                                      ingest and capture every shard in parallel, one process each;
-                                                     --ocr-from reuses another side's OCR readings only
-  compare A B                                        counts by response kind, then each difference as its key
+                                                     --ocr-from reuses another side's OCR readings only. The run
+                                                     writes DIR/complete.json once each shard holds the eight
+                                                     responses of every accepted upload and package; a shard that
+                                                     captured none fails it
+  compare A B                                        counts by response kind, then each difference as its key; exit
+                                                     0 when identical, 1 when a response differs, 2 when a side has
+                                                     no complete.json, ran another plan, or lost or changed a
+                                                     manifest or a capture since its run
   diff    A B --index KEY [KEY ...] --out FILE       the differing paths of those responses, every digit masked
+
+What an identical compare does not cover: settings other than the defaults and all 14 flipped (2 of 2^14 mixes);
+requests it does not capture (upload, status and settings responses, pages, markdown, md and html downloads,
+package `?ids=` queries, the revenue review and reanalyze actions) and what a browser renders; OCR code, when a side
+reuses another's readings with --ocr-from; and modes the environment sets, such as WITHHOLDING_DENOMINATOR_MODE and
+RECONSTRUCTION_MODE, which the tool neither varies nor records.
 
 Recipe, base checkout against your worktree (O a private folder outside every repository, PKG paths absolute):
 
@@ -36,17 +49,21 @@ import threading
 import time
 import uuid
 import zipfile
+import zlib
 from collections import Counter
 from difflib import SequenceMatcher
 from pathlib import Path
+from typing import NoReturn
 
 PROFILES = ("default", "flipped")
 FORMATS = ("json", "csv", "xlsx")
+KINDS = ("analysis", *FORMATS)
 NO_PARSER = "no deterministic parser matched this statement"
 UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 XLSX_STAMP = re.compile(r"<dcterms:created>[^<]*</dcterms:created>")
 ABSENT = "<absent>"
 DIFF_PATHS_PER_RESPONSE = 200
+DIFFERENT, INCOMPLETE = 1, 2
 
 
 def repository_of(path: Path) -> Path | None:
@@ -58,8 +75,14 @@ def repository_of(path: Path) -> Path | None:
     return None
 
 
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
 def write_private(path: Path, data: bytes) -> None:
+    """Write `data` to `path` with mode 600, an existing file's mode included."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "wb") as stream:
         stream.write(data)
 
@@ -107,12 +130,12 @@ def xlsx_parts(data: bytes) -> list[list[str]]:
 
 
 def canonical(status: int, content_type: str, disposition: str, body: bytes, ids: dict[bytes, bytes]) -> bytes:
-    """A response as compared: a head line, the disposition line, then the body (an XLSX as its parts), with each
-    known id replaced by its placeholder and any other uuid by `uuid`."""
+    """A response as compared: a head line, the disposition line, then the body (an XLSX as its parts), with each id
+    in `ids` (the job and package ids the tool minted) replaced by its plan position. Every other uuid stays."""
     if body.startswith(b"PK\x03\x04"):
         body = json.dumps(xlsx_parts(body)).encode()
     text = f"{status} {content_type}\n{disposition}\n".encode() + body
-    return UUID.sub(lambda match: ids.get(match.group(), b"uuid"), text)
+    return UUID.sub(lambda match: ids.get(match.group(), match.group()), text)
 
 
 def response_kind(key: str) -> str:
@@ -296,7 +319,7 @@ def shard(args) -> None:
                                        response.headers.get("Content-Disposition", ""), response.get_data(), ids)
                 key = f"{name}.{profile}.{kind}"
                 write_private(out / f"{key}.gz", gzip.compress(data_bytes, mtime=0))
-                manifest[key] = hashlib.sha256(data_bytes).hexdigest()
+                manifest[key] = digest(data_bytes)
     record = {"responses": manifest, "statements": outcomes, "packages": analysed_members}
     write_private(out / "manifest.json", json.dumps(record, sort_keys=True).encode())
     stages = {stage: f"{row['entries']} entries, {row['hits']} hits" for stage, row in sorted(cache.stats().items())}
@@ -311,7 +334,8 @@ def run(args) -> None:
     if any(work.iterdir()):
         raise SystemExit(f"refused: {work} is not empty; name a new folder")
     (work / "logs").mkdir(mode=0o700)
-    shards = json.loads(Path(args.plan).read_text())["shards"]
+    plan_bytes = Path(args.plan).read_bytes()
+    shards = json.loads(plan_bytes)["shards"]
     started = time.monotonic()
     command = [sys.executable, "-I", "-B", str(Path(__file__).resolve()), "shard", "--plan", str(Path(args.plan)),
                "--code", str(Path(args.code).resolve()), "--work", str(work.resolve())]
@@ -329,18 +353,70 @@ def run(args) -> None:
     print(f"wall {time.monotonic() - started:.0f} s; shards failed {failed} (their stderr is in {work / 'logs'})")
     if failed:
         raise SystemExit(1)
+    print(f"complete: {seal(work, plan_bytes)} responses")
+
+
+def seal(work: Path, plan_bytes: bytes) -> int:
+    """Write `complete.json`, which compare requires: the plan's digest and, per planned shard, its counts and its
+    manifest's digest. Refuses a shard whose responses are not the eight of each accepted upload and each package its
+    outcomes record, or that captured none. Returns the number of responses."""
+    shards = []
+    for k in range(json.loads(plan_bytes)["shards"]):
+        manifest = (work / "capture" / f"shard{k}" / "manifest.json").read_bytes()
+        record = json.loads(manifest)
+        names = [f"s{int(i):04d}" for i, done in record["statements"].items() if done != "upload refused"]
+        names += [f"p{int(i):04d}" for i in record["packages"]]
+        expected = {f"{name}.{profile}.{kind}" for name in names for profile in PROFILES for kind in KINDS}
+        if not expected:
+            raise SystemExit(f"refused: shard {k} captured no responses; no upload was accepted")
+        if record["responses"].keys() != expected:
+            raise SystemExit(f"refused: shard {k} holds {len(record['responses'])} responses, its outcomes call for "
+                             f"{len(expected)}")
+        shards.append({"manifest": digest(manifest), "statements": len(record["statements"]),
+                       "packages": len(record["packages"]), "responses": len(expected)})
+    write_private(work / "complete.json", json.dumps({"plan": digest(plan_bytes), "shards": shards}).encode())
+    return sum(shard["responses"] for shard in shards)
+
+
+def incomplete(reason: str) -> NoReturn:
+    print(f"incomplete: {reason}", file=sys.stderr)
+    raise SystemExit(INCOMPLETE)
+
+
+def unpacked(capture: Path) -> bytes | None:
+    """A capture's canonical bytes; None when the file is missing or not one whole gzip stream."""
+    try:
+        return gzip.decompress(capture.read_bytes())
+    except (OSError, EOFError, zlib.error):
+        return None
 
 
 def load_side(work: Path) -> dict:
-    side: dict = {"responses": {}, "statements": {}, "packages": {}}
-    for path in sorted((work / "capture").glob("shard*/manifest.json")):
-        for part, values in json.loads(path.read_text()).items():
-            side[part].update(values)
+    """A finished run's manifests, merged, once its completion marker vouches for each shard's manifest and each
+    capture's bytes match their manifest hash. Anything less exits INCOMPLETE."""
+    try:
+        marker = json.loads((work / "complete.json").read_bytes())
+    except (OSError, ValueError):
+        incomplete(f"{work} holds no readable complete.json; its run did not finish")
+    side: dict = {"plan": marker["plan"], "responses": {}, "statements": {}, "packages": {}}
+    for k, sealed in enumerate(marker["shards"]):
+        folder = work / "capture" / f"shard{k}"
+        manifest = (folder / "manifest.json").read_bytes() if (folder / "manifest.json").is_file() else b""
+        if digest(manifest) != sealed["manifest"]:
+            incomplete(f"{folder} lost its manifest or it changed since its run")
+        record = json.loads(manifest)
+        for key, expected in record["responses"].items():
+            if (data := unpacked(folder / f"{key}.gz")) is None or digest(data) != expected:
+                incomplete(f"{folder} lost the capture {key} or it no longer matches its manifest")
+        for part in ("responses", "statements", "packages"):
+            side[part].update(record[part])
     return side
 
 
 def compare(args) -> None:
     sides = {"A": load_side(Path(args.a)), "B": load_side(Path(args.b))}
+    if sides["A"]["plan"] != sides["B"]["plan"]:
+        incomplete("the two sides ran different plans")
     for name, side in sides.items():
         outcomes = Counter(side["statements"].values())
         analysed = sum(count >= 2 for count in side["packages"].values())
@@ -352,6 +428,8 @@ def compare(args) -> None:
         print(f"  {kind:26s} {dict(sorted(kinds[kind].items()))}")
     for verdict, key in found:
         print(f"{verdict} {key}")
+    if found:
+        raise SystemExit(DIFFERENT)
 
 
 def stored(work: str, key: str) -> bytes:
