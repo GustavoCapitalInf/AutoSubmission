@@ -16,6 +16,7 @@ from analysis.package.figures import (
     add_flagged_rows,
     contributes_to_potential_totals,
     counts_as_flagged,
+    member_lender,
     member_revenue,
 )
 from analysis.package.lender import package_active_positions, package_lender_payment_changes
@@ -359,38 +360,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         ]
         # Paid to lenders reads the lender-total flag; the withholding numerator reads the withholding flag, which
         # also holds the funder payments returned unpaid.
-        lender_rows = [
-            transaction
-            for transaction in authoritative_rows
-            if transaction["classification"].get("contributes_to_lender_totals") is True
-        ]
-        withholding_rows = [
-            transaction
-            for transaction in authoritative_rows
-            if transaction["classification"].get("contributes_to_withholding_rate") is True
-        ]
-        returned_rows = [
-            transaction
-            for transaction in authoritative_rows
-            if transaction["classification"].get("returned_funder_payment_by")
-        ]
-        # The paid payoff-worded debits, in paid to lenders and out of the withholding rows above.
-        lump_sum_rows = [
-            transaction
-            for transaction in authoritative_rows
-            if transaction["classification"].get("lump_sum_payoff")
-            and transaction["classification"].get("contributes_to_lender_totals") is True
-        ]
-        potential_lender_rows = [
-            transaction
-            for transaction in authoritative_rows
-            if contributes_to_potential_totals(transaction["classification"])
-        ]
-        insurance_rows = [
-            transaction
-            for transaction in authoritative_rows
-            if transaction["classification"].get("contributes_to_insurance_totals") is True
-        ]
+        lender = member_lender(authoritative_rows)
         flagged_rows = [
             transaction
             for transaction in authoritative_rows
@@ -465,20 +435,12 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
             for row in posted_credit_rows
         )
         if authoritative_rows:
-            lender_debits = round(sum(abs(num(row.get("amount"))) for row in lender_rows), 2)
-            lender_debit_count = len(lender_rows)
-            withholding_numerator = round(sum(abs(num(row.get("amount"))) for row in withholding_rows), 2)
-            returned_funder_payment_total = round(sum(abs(num(row.get("amount"))) for row in returned_rows), 2)
-            returned_funder_payment_count = len(returned_rows)
-            lump_sum_payoff_total = round(sum(abs(num(row.get("amount"))) for row in lump_sum_rows), 2)
-            lump_sum_payoff_count = len(lump_sum_rows)
-            potential_lender_debit_total = round(
-                sum(abs(num(row.get("amount"))) for row in potential_lender_rows),
-                2,
-            )
-            potential_lender_debit_count = len(potential_lender_rows)
-            insurance_count = len(insurance_rows)
-            insurance_total = round(sum(abs(num(row.get("amount"))) for row in insurance_rows), 2)
+            lender_debits, lender_debit_count = lender.paid.total, lender.paid.count
+            withholding_numerator = lender.withholding.total
+            returned_funder_payment_total, returned_funder_payment_count = lender.returned.total, lender.returned.count
+            lump_sum_payoff_total, lump_sum_payoff_count = lender.payoff.total, lender.payoff.count
+            potential_lender_debit_total, potential_lender_debit_count = lender.potential.total, lender.potential.count
+            insurance_total, insurance_count = lender.insurance.total, lender.insurance.count
         else:
             # Compatibility for already-completed in-memory jobs created before classification records were added.
             # New reports always take the path above. Paid to lenders is the stored lender_debits, and the numerator
@@ -818,7 +780,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # The member's lump-sum payoffs, each naming its statement, its account (a statement of several) and its unit; a
         # payment the package's pass 4 matched to a return in the next statement is out of paid there and no lump sum
         # (its overlay row says so).
-        paid_lump_sums = {row["classification"].get("source_location") for row in lump_sum_rows}
+        paid_lump_sums = {row["classification"].get("source_location") for row in lender.payoff.records}
         for lump_sum_item in detection.get("lump_sum_payoffs") or []:
             if isinstance(lump_sum_item, dict) and (not authoritative_rows
                                                     or lump_sum_item.get("location") in paid_lump_sums):
@@ -833,7 +795,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
             for match in detection.get("potential_lenders") or []
         }
         potential_rows_by_entity: dict[str, list[dict]] = {}
-        for row in potential_lender_rows:
+        for row in lender.potential.records:
             classification = row["classification"]
             name = (classification.get("potential_payee_label") or classification.get("canonical_entity")
                     or "Unknown candidate")
