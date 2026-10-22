@@ -5,7 +5,9 @@ import gzip
 import hashlib
 import io
 import json
+import os
 import shutil
+import subprocess
 import sys
 import uuid
 import zipfile
@@ -13,6 +15,7 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from werkzeug.wrappers import Response
 
 from tools import golden
 
@@ -355,6 +358,96 @@ def test_compare_holds_each_side_to_its_plan_not_to_its_marker(tmp_path, monkeyp
     assert _exit(monkeypatch, "compare", a, b) == 2
     assert _exit(monkeypatch, "compare", b, a) == 2
     assert _exit(monkeypatch, "compare", b, b) == 2
+
+
+MALFORMED_HEADS = {
+    "a status of negative zero": b"-0 application/json\n\n{}",
+    "a status of 5,000 digits": b"9" * 5000 + b" application/json\n\n{}",
+    "a carriage return in the content type": b"200 application/\rjson\n\n{}",
+    "a content type ended by a carriage return": b"200 application/json\r\n\n{}",
+    "a carriage return in the disposition": b"200 application/json\nSAMPLE\rSAMPLE\n{}",
+    "a disposition ended by a carriage return": b"200 application/json\nSAMPLE\r\n{}",
+    "CRLF line ends": b"200 application/json\r\nSAMPLE\r\n{}",
+}
+UNWRITABLE_HEADS = {
+    "status 0": (0, "application/json", ""),
+    "status 99": (99, "application/json", ""),
+    "status 1000": (1000, "application/json", ""),
+    "status -1": (-1, "application/json", ""),
+    "a tab in the content type": (200, "application/\tjson", ""),
+    "a NUL in the disposition": (200, "application/json", "SAMPLE\0"),
+    "a C1 control in the disposition": (200, "application/json", "SAMPLE\x85"),
+}
+
+
+def test_the_reader_accepts_exactly_the_heads_the_writer_writes():
+    served = [Response(b"{}", status=status, mimetype="application/json") for status in range(100, 1000)] + [
+        Response(b"", status=404, mimetype="text/html"),
+        Response(b"a,b\r\n", mimetype="text/csv", headers={"Content-Disposition": f'attachment; filename="{JOB}.csv"'}),
+        Response(_xlsx("SAMPLE", "stamp", (2024, 1, 1, 0, 0, 0)),
+                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                 headers={"Content-Disposition": "attachment; filename*=UTF-8''SAMPLE%20%C3%A9.xlsx"}),
+        Response(b"SAMPLE", mimetype="text/plain", headers={"Content-Disposition": 'attachment; filename="SAMPLE é"'}),
+    ]
+    for response in served:
+        written = golden.canonical(response.status_code, response.content_type,
+                                   response.headers.get("Content-Disposition", ""), response.get_data(),
+                                   {JOB.encode(): b"job-0000"})
+        assert golden.response_of(gzip.compress(written)) == written
+
+    for status, content_type, disposition in UNWRITABLE_HEADS.values():
+        with pytest.raises(SystemExit):
+            golden.canonical(status, content_type, disposition, b"{}", {})
+        with pytest.raises(golden.Incomplete):
+            golden.response_of(gzip.compress(f"{status} {content_type}\n{disposition}\n{{}}".encode()))
+    for head in MALFORMED_HEADS.values():
+        with pytest.raises(golden.Incomplete):
+            golden.response_of(gzip.compress(head))
+
+
+@pytest.mark.parametrize("head", MALFORMED_HEADS)
+def test_a_capture_whose_head_the_writer_cannot_write_is_neither_sealed_nor_compared(tmp_path, monkeypatch, head):
+    a, b = _two(tmp_path / "a"), _two(tmp_path / "b")
+    golden.seal(a, TWO)
+    manifest = b / "capture/shard0/manifest.json"
+    record = json.loads(manifest.read_text())
+    record["responses"]["s0000.default.json"] = hashlib.sha256(MALFORMED_HEADS[head]).hexdigest()
+    manifest.write_text(json.dumps(record))
+    (b / CAPTURE).write_bytes(gzip.compress(MALFORMED_HEADS[head]))
+
+    assert _seal(b, TWO) == "refused"
+    shutil.copy(a / "plan.json", b / "plan.json")
+    shutil.copy(a / "complete.json", b / "complete.json")
+    _forge_manifest(b, manifest.read_bytes())
+    assert _exit(monkeypatch, "compare", a, b) == 2
+    assert _exit(monkeypatch, "compare", b, a) == 2
+    assert _exit(monkeypatch, "compare", b, b) == 2
+
+
+def _fifo(side: Path, target: str) -> None:
+    (side / target).unlink()
+    os.mkfifo(side / target, 0o600)
+
+
+def _symlink(side: Path, target: str) -> None:
+    """Move the file out of the side and leave a symlink to it in its place."""
+    kept = side.parent / "kept"
+    (side / target).rename(kept)
+    (side / target).symlink_to(kept)
+
+
+@pytest.mark.parametrize("replace", [_fifo, _symlink], ids=["a FIFO", "a symlink"])
+@pytest.mark.parametrize("target", ["complete.json", "plan.json", "capture/shard0/manifest.json", CAPTURE])
+def test_an_evidence_file_that_is_not_a_regular_file_is_refused_without_waiting(tmp_path, replace, target):
+    a, b = _two(tmp_path / "a"), _two(tmp_path / "b")
+    golden.seal(a, TWO)
+    golden.seal(b, TWO)
+    replace(b, target)
+
+    for sides in ((a, b), (b, a), (b, b)):
+        done = subprocess.run([sys.executable, "-I", "-B", golden.__file__, "compare", *map(str, sides)],
+                              capture_output=True, text=True, timeout=10)
+        assert (done.returncode, done.stderr) == (2, f"incomplete: {b / target}: it is not a regular file\n")
 
 
 class _Pairs(list):

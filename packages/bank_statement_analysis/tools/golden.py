@@ -23,15 +23,18 @@ the tool refuses an output path inside any repository, writes its files mode 600
                                                      not sealed evidence of its plan or the two ran different plans
   diff    A B --index KEY [KEY ...] --out FILE       the differing paths of those responses, every digit masked
 
-Seal and compare check a side against its plan with one function, `validate`. The capture folder holds a folder for
-each planned shard and nothing else, and each of those holds its manifest and the capture of each response the
-manifest lists and nothing else. Each manifest records one outcome for each planned statement of its shard, the
-packages of its shard with two or more accepted uploads, each with its count of analysed members, and the eight
-responses of each accepted upload and package. Each capture is a response as the tool writes it (a status and content
-type line, a disposition line, then the body), and its bytes match the manifest. Each file the tool reads back is
-parsed whole before any check uses it. A repeated key, NaN or Infinity, a missing or unknown field, or a value of
-another type or outside what the tool writes makes the file incomplete, as a missing one does. Seal then writes
-nothing, and compare exits 2 naming the file.
+Seal and compare check a side against its plan with one function, `validate`. The capture folder holds a folder for each
+planned shard and nothing else, and each of those holds its manifest and the capture of each response the manifest lists
+and nothing else. Each manifest records one outcome for each planned statement of its shard, the packages of its shard
+with two or more accepted uploads, each with its count of analysed members, and the eight responses of each accepted
+upload and package. Each capture is a response as `canonical` writes it, with bytes that match the manifest. Its head is
+a line of a three-digit status and the content type, then a disposition line; each line is UTF-8 with no control
+character and ends in a lone LF. The body after it stays opaque. `canonical` refuses to write any other head, so the
+reader accepts exactly what the writer can produce. Each file the tool reads back must be a regular file, not a symlink;
+its type is checked before an open that cannot wait for a writer and again on the open file, so a FIFO, device or socket
+is refused without blocking. Each file is parsed whole before any check uses it. A repeated key, NaN or Infinity, a
+missing or unknown field, or a value of another type or outside what the tool writes makes the file incomplete, as a
+missing one does. Seal then writes nothing, and compare exits 2 naming the file.
 
 Compare exits 2 on a side that is incomplete, corrupt, unsealed, inconsistent with its plan, or edited after its seal
 in any way its plan can expose; it holds each side to the plan copy its complete.json pins, and to the other side's
@@ -61,6 +64,7 @@ import itertools
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -82,7 +86,7 @@ RESPONSE_KEY = re.compile(r"[sp][0-9]{4,}\.(default|flipped)\.(analysis|json|csv
 INDEX = re.compile(r"0|[1-9][0-9]*")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 UUID = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-ENVELOPE = re.compile(r"-?(0|[1-9][0-9]*) .*\n.*")
+HEAD = re.compile(r"[1-9][0-9]{2} [^\x00-\x1f\x7f-\x9f]*\n[^\x00-\x1f\x7f-\x9f]*")
 XLSX_STAMP = re.compile(r"<dcterms:created>[^<]*</dcterms:created>")
 ABSENT = "<absent>"
 DIFF_PATHS_PER_RESPONSE = 200
@@ -157,12 +161,25 @@ def incomplete(reason: str) -> NoReturn:
     raise SystemExit(INCOMPLETE)
 
 
+def regular_bytes(path: Path) -> bytes:
+    """The bytes of `path` when it is a regular file. The open neither follows a symlink nor waits for a FIFO's
+    writer, so a file swapped for another type after the `lstat` is refused by the `fstat`, not read."""
+    if stat.S_ISREG(os.lstat(path).st_mode):
+        with open(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as stream:
+            if stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                return stream.read()
+    raise Incomplete("it is not a regular file")
+
+
 def evidence(path: Path, parse: Callable[[bytes], T]) -> tuple[T, bytes]:
-    """The file parsed, with its bytes; exits INCOMPLETE naming the file when it cannot be read or parsed."""
+    """The file parsed, with its bytes; exits INCOMPLETE naming the file when it is not a regular file or cannot be
+    read or parsed."""
     try:
-        data = path.read_bytes()
+        data = regular_bytes(path)
     except OSError as error:
         incomplete(f"cannot read {path}: {error.strerror or type(error).__name__}")
+    except Incomplete as error:
+        incomplete(f"{path}: {error}")
     try:
         return parse(data), data
     except Exception as error:
@@ -281,11 +298,11 @@ def marker_of(data: bytes) -> Marker:
 
 
 def response_of(data: bytes) -> bytes:
-    """A capture's response as `canonical` writes it, out of its gzip: a UTF-8 line of an int status and a content
-    type, a UTF-8 disposition line, then the body. The body stays opaque, so a changed output is a difference."""
+    """A capture's response as `canonical` writes it, out of its gzip: the two UTF-8 head lines HEAD matches, each
+    ended by LF, then the body. The body stays opaque, so a changed output is a difference."""
     response = gzip.decompress(data)
     lines = response.split(b"\n", 2)
-    if len(lines) != 3 or not ENVELOPE.fullmatch(b"\n".join(lines[:2]).decode()):
+    if len(lines) != 3 or not HEAD.fullmatch(b"\n".join(lines[:2]).decode()):
         raise Incomplete("it is not a response as the tool writes it")
     return response
 
@@ -340,10 +357,15 @@ def xlsx_parts(data: bytes) -> list[list[str]]:
 
 def canonical(status: int, content_type: str, disposition: str, body: bytes, ids: dict[bytes, bytes]) -> bytes:
     """A response as compared: a head line, the disposition line, then the body (an XLSX as its parts), with each id
-    in `ids` (the job and package ids the tool minted) replaced by its plan position. Every other uuid stays."""
+    in `ids` (the job and package ids the tool minted) replaced by its plan position. Every other uuid stays. Werkzeug
+    keeps CR and LF out of a header and gives an int status. A head that HEAD does not match would not read back, so
+    it stops the shard."""
+    head = f"{status} {content_type}\n{disposition}"
+    if not HEAD.fullmatch(head):
+        raise SystemExit("refused: a response whose status is not three digits or whose head holds a control character")
     if body.startswith(b"PK\x03\x04"):
         body = json.dumps(xlsx_parts(body)).encode()
-    text = f"{status} {content_type}\n{disposition}\n".encode() + body
+    text = f"{head}\n".encode() + body
     return UUID.sub(lambda match: ids.get(match.group(), match.group()), text)
 
 
