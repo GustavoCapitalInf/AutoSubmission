@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import operating_context
 from analysis.classification import credit_predicates
 from analysis.classification import operating_sources
 from analysis.descriptor import credit_words
@@ -283,8 +283,8 @@ def test_a_waiting_processor_s_bare_alias_still_refuses_an_alias_read_inside_it(
     patched_operating_revenue_read_aliases = {
 entity: aliases for entity, aliases in classification_registry.OPERATING_REVENUE_READ_ALIASES.items() if entity != "Jobber Payments"
 }
-    monkeypatch.setattr(tc, "OPERATING_REVENUE_READ_ALIASES", patched_operating_revenue_read_aliases)
     monkeypatch.setattr(operating_sources, "OPERATING_REVENUE_READ_ALIASES", patched_operating_revenue_read_aliases)
+    monkeypatch.setattr(operating_context, "OPERATING_REVENUE_READ_ALIASES", patched_operating_revenue_read_aliases)
     jobber = _text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")
     assert operating_sources._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is True
     assert operating_sources._operating_source(jobber) is None
@@ -314,7 +314,7 @@ def test_a_wire_from_a_title_or_escrow_firm_is_vetoed():
 ])
 def test_the_auction_veto(printed, vetoed):
     # §7.8, §14.1, review C2.
-    assert (tc._AUCTION_VETO.search(_text(printed)) is not None) is vetoed
+    assert (operating_context._AUCTION_VETO.search(_text(printed)) is not None) is vetoed
 
 
 #: S2.2 review (item A): in the 5.5 veto patterns a veto word of four letters or more reads through digits glued on
@@ -358,11 +358,11 @@ VETO_PATTERNS = {
     "_OPERATING_P2P_VETO": operating_sources._OPERATING_P2P_VETO,
     "_EMPLOYER_PAY_WORDS": operating_sources._EMPLOYER_PAY_WORDS,
     "_TRANSPORT_EXTRA_VETO": operating_sources._TRANSPORT_EXTRA_VETO,
-    "_AUCTION_VETO": tc._AUCTION_VETO,
-    "_AUCTION_BUYER_PAYMENT": tc._AUCTION_BUYER_PAYMENT,
-    "_PROPERTY_PLATFORM_GUARD": tc._PROPERTY_PLATFORM_GUARD,
-    "_PROPERTY_MICRO_DEPOSIT": tc._PROPERTY_MICRO_DEPOSIT,
-    "_PROPERTY_PUSH_SHAPE": tc._PROPERTY_PUSH_SHAPE,
+    "_AUCTION_VETO": operating_context._AUCTION_VETO,
+    "_AUCTION_BUYER_PAYMENT": operating_context._AUCTION_BUYER_PAYMENT,
+    "_PROPERTY_PLATFORM_GUARD": operating_context._PROPERTY_PLATFORM_GUARD,
+    "_PROPERTY_MICRO_DEPOSIT": operating_context._PROPERTY_MICRO_DEPOSIT,
+    "_PROPERTY_PUSH_SHAPE": operating_context._PROPERTY_PUSH_SHAPE,
     "_PAYER_REMITTANCE_VETO": credit_predicates._PAYER_REMITTANCE_VETO,
     "_PUBLIC_PAYER_NAME_VETO": credit_words._PUBLIC_PAYER_NAME_VETO,
     "_PUBLIC_PAYER_NON_SALE_WORDS": credit_words._PUBLIC_PAYER_NON_SALE_WORDS,

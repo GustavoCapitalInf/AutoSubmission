@@ -20,6 +20,7 @@ from dataclasses import fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import funder_returns
 from analysis.classification import record as classification_record
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
@@ -462,7 +463,9 @@ def test_the_record_carries_represented_by_after_the_two_returned_fields():
 def test_pass_7c_moves_no_revenue_reading_and_nothing_but_the_returned_debit(monkeypatch, name):
     rows = CASES[name][0]
     after = tc.classify_statement_transactions(_statement(rows))
-    monkeypatch.setattr(tc, "_apply_represented_funder_payments", lambda records, duplicates, calendar="US": records)
+    patched_apply_represented_funder_payments = lambda records, duplicates, calendar="US": records
+    monkeypatch.setattr(tc, "_apply_represented_funder_payments", patched_apply_represented_funder_payments)
+    monkeypatch.setattr(funder_returns, "_apply_represented_funder_payments", patched_apply_represented_funder_payments)
     before = tc.classify_statement_transactions(_statement(rows))
     for old, new in zip(before, after):
         if new.represented_by:

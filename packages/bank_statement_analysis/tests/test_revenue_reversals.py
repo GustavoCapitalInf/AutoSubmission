@@ -1114,13 +1114,13 @@ def test_r22_a_deposit_correction_still_undoes_the_first_of_two_equal_deposits()
     ("ZELLE PAYMENT TO PAT SAMPLE CHARGE BACK ITEM", False),
 ])
 def test_r22_the_undo_debit_reads_the_new_bank_forms_only(text, undoes):
-    from analysis import transaction_classifier as tc
+    from analysis.transaction_classifier import reversals
 
-    assert tc._deposit_return_debit(text) is undoes
+    assert reversals._deposit_return_debit(text) is undoes
     # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): a returned deposited item reads first, so the flag's
     # processor chargeback reader never takes one.
     if undoes:
-        assert tc.processor_chargeback_debit(text) is None
+        assert reversals.processor_chargeback_debit(text) is None
 
 
 @pytest.mark.parametrize(("rows", "kind", "deposit_counted"), [

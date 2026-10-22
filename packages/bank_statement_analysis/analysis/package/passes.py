@@ -20,15 +20,17 @@ from analysis.package.model import (
 from analysis.payee_matcher import match_known_payee
 from analysis.revenue import revenue_contribution_flags, REVENUE_STATES
 from analysis.revenue_view import DEBIT_FLAG_KINDS, debit_side_flags
-from analysis.transaction_classifier import (
-    _deposit_channel_credit,
-    _deposit_return_debit,
+from analysis.transaction_classifier.funder_returns import (
     _received_on_day,
     _RETURN_CREDIT_TIERS,
     _returned_payment_credit,
+    RETURNED_FUNDER_PAYMENT_WINDOW_DAYS,
+)
+from analysis.transaction_classifier.reversals import (
+    _deposit_channel_credit,
+    _deposit_return_debit,
     _undo_debit_names_a_credit,
     paper_or_cash_deposit,
-    RETURNED_FUNDER_PAYMENT_WINDOW_DAYS,
 )
 from analysis.description_text import _TRANSFER_WORDING
 from analysis.descriptor.lexical import is_round_sum

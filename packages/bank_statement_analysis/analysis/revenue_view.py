@@ -43,7 +43,7 @@ from analysis.revenue import (
     TIER_METRIC_KEYS,
     normalize_withholding_denominator_mode,
 )
-from analysis.transaction_classifier import _deposit_return_debit, processor_chargeback_debit
+from analysis.transaction_classifier.reversals import _deposit_return_debit, processor_chargeback_debit
 
 _SURFACE = "analysis/revenue_view.py::apply_revenue_view"
 

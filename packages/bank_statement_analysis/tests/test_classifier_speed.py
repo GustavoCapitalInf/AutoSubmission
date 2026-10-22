@@ -16,6 +16,7 @@ from dataclasses import asdict
 import pytest
 
 from analysis import transaction_classifier
+from analysis.transaction_classifier import operating_context
 from analysis.classification import operating_sources
 from analysis.classification import payees
 from analysis.classification import tax_forms
@@ -44,6 +45,7 @@ def test_the_classifier_matches_through_the_compiled_registry_index(monkeypatch)
     monkeypatch.setattr(payees, "registry_match", spy)
     monkeypatch.setattr(tax_forms, "registry_match", spy)
     monkeypatch.setattr(financing, "registry_match", spy)
+    monkeypatch.setattr(operating_context, "registry_match", spy)
     transaction_classifier.classify_statement_transactions(fabricated_statement(3))
     assert calls
 

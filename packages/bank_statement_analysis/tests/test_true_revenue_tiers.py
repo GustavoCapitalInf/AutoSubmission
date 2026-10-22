@@ -1523,7 +1523,7 @@ def test_the_credit_union_arm_names_its_credit_union():
 
 def test_a_q7_lender_never_joins_an_operating_pool():
     from analysis.classification_registry import DEALER_FUNDING_PAYERS, OPERATING_REVENUE_SOURCE_TYPES
-    from analysis.transaction_classifier import _in_operating_pool
+    from analysis.transaction_classifier.operating_context import _in_operating_pool
 
     rows = _records([(f"WESTLAKE FINANCI DES:PAYABLES ID:{n}", 15000.0 + n) for n in range(1, 5)]
                     + [(UNION.format(n=n), 18000.0 + n) for n in range(1, 4)], holder=DEALER)

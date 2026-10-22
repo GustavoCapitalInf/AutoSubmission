@@ -17,6 +17,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from analysis import transaction_classifier  # noqa: E402
+from analysis.transaction_classifier import funder_returns  # noqa: E402
+from analysis.transaction_classifier import operating_context  # noqa: E402
 from analysis.classification import credit_predicates  # noqa: E402
 from analysis.classification import operating_sources  # noqa: E402
 from analysis.classification import payees  # noqa: E402
@@ -74,6 +76,8 @@ MATCHER_BINDINGS = (
     (payees, "registry_match"),
     (tax_forms, "registry_match"),
     (financing, "registry_match"),
+    (funder_returns, "match_known_payee"),
+    (operating_context, "registry_match"),
 )
 
 

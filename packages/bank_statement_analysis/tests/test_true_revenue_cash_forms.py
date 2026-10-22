@@ -16,6 +16,7 @@ import re
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import reversals
 from analysis.descriptor import payer
 from analysis.descriptor import lexical
 from analysis.descriptor import words
@@ -50,6 +51,7 @@ def _today(bank, rows, monkeypatch, holder=HOLDER):
         patch.setattr(tc, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(payer, "_CASH_BRANCH_ATM_FORM", BEFORE)
         patch.setattr(words, "_CASH_BRANCH_ATM_FORM", BEFORE)
+        patch.setattr(reversals, "_CASH_BRANCH_ATM_FORM", BEFORE)
         return _read(bank, rows, holder)
 
 

@@ -24,6 +24,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.transaction_classifier import funder_returns
+from analysis.transaction_classifier import reversals
 from analysis.descriptor import rails
 from analysis.descriptor import words as descriptor_words
 from analysis import dates
@@ -88,7 +90,7 @@ POTENTIAL_RETURN = "NORTHWIND FUNDING RETURNED ITEM"
 def _old_lender_refusal(records, credit_index, debit_index):
     """F2(a) as the final review of round 2 left it: only a confirmed funder's paid payment looks back."""
     credit, debit = records[credit_index], records[debit_index]
-    if not tc._is_paid_funder_debit(debit):
+    if not funder_returns._is_paid_funder_debit(debit):
         return False
     if not (rails._matches_any(credit.normalized_description, descriptor_words._SETTLEMENT_REVERSAL_PATTERNS)
             or rails._matches_any(debit.normalized_description, descriptor_words._SETTLEMENT_REVERSAL_PATTERNS)):
@@ -166,7 +168,8 @@ R3_71_CASES = {
 def test_r3_71_moves_no_revenue_reading(monkeypatch, name):
     rows = R3_71_CASES[name]
     after = _run(rows)
-    monkeypatch.setattr(tc, "_returns_a_later_lender_payment", _old_lender_refusal)
+    monkeypatch.setattr(funder_returns, "_returns_a_later_lender_payment", _old_lender_refusal)
+    monkeypatch.setattr(reversals, "_returns_a_later_lender_payment", _old_lender_refusal)
     before = _run(rows)
     assert _revenue_readings(after) == _revenue_readings(before)
 
