@@ -11,10 +11,10 @@ from analysis.display_settings import DEFAULTS as SETTINGS_DEFAULTS
 from analysis.flagged_view import enabled_group_keys
 from analysis.metrics import POTENTIAL_WITHHOLDING_FORMULA, WITHHOLDING_FORMULA
 from analysis.package.calendar import covered_days, months_covered, statement_month
-from analysis.package.duplicates import duplicate_row, package_duplicates
+from analysis.package.duplicates import duplicate_row
 from analysis.package.figures import add_flagged_rows, contributes_to_potential_totals, counts_as_flagged
 from analysis.package.lender import package_active_positions, package_lender_payment_changes
-from analysis.package.members import package_members, ratified_omissions
+from analysis.package.members import select_members
 from analysis.package.model import (
     is_count,
     JobLike,
@@ -33,7 +33,6 @@ from analysis.package.publish import (
     TIER_REASON_KEYS,
     WITHHOLDING_BASIS_LABELS,
 )
-from analysis.package.supersede import package_superseded
 from analysis.revenue import (
     non_revenue_reason,
     normalize_withholding_denominator_mode,
@@ -63,47 +62,12 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     if settings is None:
         settings = dict(SETTINGS_DEFAULTS)
     shown_groups = enabled_group_keys(settings)
-    # A repeated statement is left out before any member is expanded, listed and never summed.
-    listed_jobs = list(jobs)
-    jobs, dropped_duplicates, repeated_accounts, duplicate_groups = package_duplicates(listed_jobs)
-    members, excluded_accounts = package_members(jobs, settings=settings, repeated_accounts=repeated_accounts)
-    # After the exact repeats, a shorter printout of days another statement of its account covers is left out the way a
-    # repeat is, and any other overlap that shares credits is named, never netted. Only the statements the package
-    # counts (its members) are compared; when one is left out, the members are read again without it, so every figure
-    # below is computed without it.
-    kept_jobs, superseded_jobs, superseded_accounts, overlapping_statements = package_superseded(
-        jobs, repeated_accounts, members={member.key for member in members})
-    if superseded_jobs or superseded_accounts:
-        first_place: dict[str, int] = {}
-        for place, job in enumerate(listed_jobs):
-            first_place.setdefault(job.id, place)
-        dropped_duplicates = sorted(
-            [*dropped_duplicates, *({**entry, "position": first_place[entry["job"].id]} for entry in superseded_jobs)],
-            key=lambda entry: entry["position"],
-        )
-        for job_id, accounts in superseded_accounts.items():
-            repeated_accounts.setdefault(job_id, {}).update(
-                {index: covering for index, (covering, _reason) in accounts.items()})
-        jobs = kept_jobs
-        members, excluded_accounts = package_members(jobs, settings=settings, repeated_accounts=repeated_accounts)
-        for entry in excluded_accounts:
-            superseded = superseded_accounts.get(entry.get("job_id"), {}).get(entry.get("account_index"))
-            if entry.get("is_duplicate") is True and superseded is not None:
-                entry["reason"] = superseded[1]
-    duplicate_accounts = sum(len(accounts) for accounts in repeated_accounts.values())
-    # §6.2: the package passes over the final members, after the repeats and the shorter printouts are left out and
-    # before the member loop, which reads their overlay on its copies of the members' rows. R-d's positions are never
-    # matched.
-    package_matched = package_matches(members)
-    #: Q10. Every ratified sibling omission any member document published. The
-    #: package says so rather than demoting anything: an omission admitted on
-    #: printed evidence beside an independently validated account is a
-    #: COMPLETENESS fact about the paper, not a fault in the account's figures.
-    omitted_sections = [
-        omission
-        for job in jobs
-        for omission in ratified_omissions(job.analysis or {})
-    ]
+    # The repeats and the shorter printouts other statements print are left out before any figure, listed and never
+    # summed; any other overlap that shares credits is named, never netted.
+    selected = select_members(jobs, settings)
+    # §6.2: the package passes over the final members, before the member loop, which reads their overlay on its copies
+    # of the members' rows. R-d's positions are never matched.
+    package_matched = package_matches(selected.members)
     documents = []
     monthly = []
     #: `(job, period start, period end)` for every member that contributed — the
@@ -128,11 +92,11 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     adb_weight = 0
     totals = {
         # Every job the package lists, its repeats included.
-        "documents": len(listed_jobs),
+        "documents": len(selected.listed),
         # D-3, the repeated statements, left out of every figure below.
-        "duplicate_documents": len(dropped_duplicates),
-        "distinct_documents": len(listed_jobs) - len(dropped_duplicates),
-        "has_duplicate_documents": bool(dropped_duplicates) or bool(duplicate_accounts),
+        "duplicate_documents": len(selected.dropped),
+        "distinct_documents": len(selected.listed) - len(selected.dropped),
+        "has_duplicate_documents": bool(selected.dropped) or bool(selected.duplicate_accounts),
         "completed": 0,
         "failed": 0,
         "approved": 0,
@@ -255,7 +219,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     #: each declared currency has, and how many declared none at all.
     currency_documents: dict[str, int] = {}
     undeclared_currency_documents = 0
-    for member in members:
+    for member in selected.members:
         job, account_index = member.job, member.key.account_index
         statement = member.account.get("statement") or {}
         metrics = member.account.get("metrics") or {}
@@ -1300,7 +1264,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     # displayed copies (information only).
     lender_reading: dict = {}
     lender_payment_changes, lender_payment_unchecked = package_lender_payment_changes(
-        members, package_matched.overlays, reading=lender_reading)
+        selected.members, package_matched.overlays, reading=lender_reading)
     # §9.2, §10: each member row's active and possible positions, read from the same chains, and the package's
     # months.
     active_positions_by_month = package_active_positions(documents, lender_reading)
@@ -1325,7 +1289,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     # read a null as missing data. The refusal covers the per-month True and
     # Verified too (distinct calendar months, below).
     members_by_document: dict[str, int] = {}
-    for member in members:
+    for member in selected.members:
         if member.key.account_index is None:
             continue  # a single-account job is one member and one document
         identity = getattr(member.job, "content_sha256", None) or member.job.id
@@ -1586,7 +1550,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
     # be paired (Q2) or that left a section out without proof (L1-C17). Membership and every figure stay as they are;
     # the package says so (completeness partial, the count, the download section and the dashboard's notice) and needs
     # an analyst, as the same account uploaded alone does.
-    left_out_accounts = [entry for entry in excluded_accounts if entry.get("is_duplicate") is not True]
+    left_out_accounts = [entry for entry in selected.excluded if entry.get("is_duplicate") is not True]
     decision = "approved"
     # The four-tier identity is not read here: it holds by construction on every tiered member, and a member whose
     # tiers do not sum already gates through `revenue_review_required` (its T7 term, or §12's for an older member). A
@@ -1607,7 +1571,7 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         or mixed_basis
         or totals["has_duplicate_documents"]
         # Two statements of one account that share credits in the days both cover.
-        or overlapping_statements
+        or selected.overlapping
         # An account left out for another reason than a repeat, and a job still queued or processing.
         or left_out_accounts
         or totals.get("pending")
@@ -1701,8 +1665,8 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         **({
             "sibling_account_omission_detected": True,
             "completeness": "partial",
-            "omitted_section_count": len(omitted_sections),
-        } if omitted_sections else {}),
+            "omitted_section_count": len(selected.omitted_sections),
+        } if selected.omitted_sections else {}),
         # The accounts left out for another reason than a repeat, published only when there is one.
         # `sibling_account_omission_detected` stays Q10's.
         **({
@@ -1715,10 +1679,10 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
            if statement_periods != months else {}),
         # The accounts of kept documents left out because an earlier job published them; only when there is one, so
         # a package without one carries no new key.
-        **({"duplicate_accounts": duplicate_accounts} if duplicate_accounts else {}),
+        **({"duplicate_accounts": selected.duplicate_accounts} if selected.duplicate_accounts else {}),
         # The overlapping statements of one account that share credits, each pair named with what it shares, counted
         # in both (never netted); only when there is one.
-        **({"overlapping_statements": overlapping_statements} if overlapping_statements else {}),
+        **({"overlapping_statements": selected.overlapping} if selected.overlapping else {}),
         # The package passes' counts and totals, each only where a pass found a row (package_match_totals), so a package
         # without one carries no new key.
         **package_match_totals(package_matched),
@@ -1858,14 +1822,14 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         # and why, and no figure (`duplicate_row`). A job listed twice is the same job: it is listed once, and only
         # its group below names the repeat.
         "documents": documents + [
-            duplicate_row(entry) for entry in dropped_duplicates if entry["reason"] != "same_job"
+            duplicate_row(entry) for entry in selected.dropped if entry["reason"] != "same_job"
         ],
         # §12: a member was analysed with older classification rules (its row says which), as a statement's
         # served copy says of itself.
         "analysis_rules_outdated": any(row["analysis_rules_outdated"] for row in documents),
         # D-3: one entry per statement present more than once, listing the first job and every job that
         # repeats it.
-        "duplicates": duplicate_groups,
+        "duplicates": selected.duplicate_groups,
         "monthly": sorted(monthly, key=lambda r: (r.get("period_end") or "", r.get("filename") or "")),
         "funders": package_funders,
         "potential_lenders": package_potential_lenders,
@@ -1926,11 +1890,11 @@ def package_analysis(jobs: Iterable[JobLike], *, settings: dict | None = None) -
         #
         # The key exists only when there is something to say, so a package of
         # today's single-account payloads is byte-identical to what it was.
-        **({"excluded_accounts": excluded_accounts} if excluded_accounts else {}),
+        **({"excluded_accounts": selected.excluded} if selected.excluded else {}),
         # Q10: the omissions themselves, so a reader of the package can see
         # WHICH sections were established and not published rather than only
         # that some were. Conditional for the same reason as the totals above.
-        **({"omitted_sections": omitted_sections} if omitted_sections else {}),
+        **({"omitted_sections": selected.omitted_sections} if selected.omitted_sections else {}),
         # §9.2: each match the package passes made across its statements, each leg naming its statement, account and
         # unit, and each debit they flag (never deducted); only where there is one.
         **({"package_matches": package_matched.matches} if package_matched.matches else {}),
