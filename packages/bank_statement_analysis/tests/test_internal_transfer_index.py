@@ -25,7 +25,7 @@ import pytest
 
 from analysis import pipeline
 from analysis.pipeline import AMBIGUOUS_INTERNAL_TRANSFER, InternalTransfer, identify_internal_transfers
-from analysis.transaction_classifier import prints_internal_transfer_designation
+from analysis.descriptor.rails import prints_internal_transfer_designation
 
 INTERNAL_CREDIT = "Deposit Transfer From Savings"
 INTERNAL_DEBIT = "Withdrawal Home Banking Transfer To Share"

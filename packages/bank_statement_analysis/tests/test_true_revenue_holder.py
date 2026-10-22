@@ -12,6 +12,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import holder as descriptor_holder
+from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
 from analysis import true_revenue as tr
@@ -90,8 +92,8 @@ def test_an_account_title_never_reaches_the_holder_s_names_or_any_reading():
     assert compute_metrics(titled) == compute_metrics(plain)
     trust = plain.model_copy(update={"account_title": "PREMIUM TRUST ACCOUNT"})
     for statement in (titled, trust):
-        assert tc.holder_reading(statement.account_name, statement.holder_name) == "NORTHWIND FISH LLC"
-        assert "PREMIUM" not in tc.holder_words(tc.holder_reading(statement.account_name, statement.holder_name))
+        assert descriptor_holder.holder_reading(statement.account_name, statement.holder_name) == "NORTHWIND FISH LLC"
+        assert "PREMIUM" not in descriptor_holder.holder_words(descriptor_holder.holder_reading(statement.account_name, statement.holder_name))
     for old, new in zip(classify_statement_transactions(plain), classify_statement_transactions(trust)):
         if old.revenue_tier in {"verified", "counted_flagged"} and old.amount > 0:
             assert (new.revenue_tier, new.revenue_tier_reason) == ("excluded_pending_review", "premium_trust_account")
@@ -111,10 +113,10 @@ def test_the_holder_s_name_field_holds_the_holder_s_own_wire_and_transfer():
 
 
 def test_the_holder_reading_prefers_the_printed_holder_name():
-    assert tc.holder_reading("Business Complete Checking", "NORTHWIND FISH LLC") == "NORTHWIND FISH LLC"
-    assert tc.holder_reading("NORTHWIND FISH LLC", None) == "NORTHWIND FISH LLC"
-    assert tc.holder_reading(None, "  ") is None
-    assert tc.holder_reading(None, None) is None
+    assert descriptor_holder.holder_reading("Business Complete Checking", "NORTHWIND FISH LLC") == "NORTHWIND FISH LLC"
+    assert descriptor_holder.holder_reading("NORTHWIND FISH LLC", None) == "NORTHWIND FISH LLC"
+    assert descriptor_holder.holder_reading(None, "  ") is None
+    assert descriptor_holder.holder_reading(None, None) is None
 
 
 @pytest.mark.parametrize("name", [
@@ -123,7 +125,7 @@ def test_the_holder_reading_prefers_the_printed_holder_name():
 ])
 def test_a_grid_header_or_a_product_never_names_the_holder(name):
     assert not tr._usable_holder_name(name)
-    assert tc.holder_words(name) == ()
+    assert descriptor_holder.holder_words(name) == ()
 
 
 @pytest.mark.parametrize(("name", "usable", "names_the_holder"), [
@@ -196,10 +198,10 @@ def test_a_wire_to_the_holder_from_another_company_is_q5_s():
 
 def test_the_wire_veto_and_the_hold_read_one_beneficiary_test():
     text = lexical.revenue_text(description_text.normalize_transaction_description(FEDWIRE.format(bnf="NORTHWIND MARINE LLC")))
-    region = tc.payer_region(text)
+    region = descriptor_payer.payer_region(text)
     assert tc.wire_sender_is_beneficiary(text, region)
     other = lexical.revenue_text(description_text.normalize_transaction_description(FEDWIRE.format(bnf="CONTOSO DINER LLC")))
-    assert not tc.wire_sender_is_beneficiary(other, tc.payer_region(other))
+    assert not tc.wire_sender_is_beneficiary(other, descriptor_payer.payer_region(other))
 
 
 def test_capital_one_s_trailing_receiver_names_the_holder_s_own_deposit():
@@ -258,7 +260,7 @@ def test_a_processor_s_payout_under_the_merchant_s_descriptor_is_never_held_as_t
 ])
 def test_the_self_test_reads_the_row_alone(text, own):
     revenue = lexical.revenue_text(description_text.normalize_transaction_description(text))
-    assert tr.self_originated(revenue, tc.payer_region(revenue)) is own
+    assert tr.self_originated(revenue, descriptor_payer.payer_region(revenue)) is own
 
 
 # --- I13: a statement that names no holder says so ----------------------------------------------------------------
@@ -296,14 +298,14 @@ def test_the_holder_s_name_printed_after_another_payer_is_its_unlabelled_receive
     holder = "CONTOSO LLC DBA NORTHWIND HARBOR AGENCY, LLC"
     text = "FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC"
     assert _tiers([(text, 900.0)], holder_name=holder) != [HOLDER_NAME]
-    assert not tc.holder_named(text, holder)
+    assert not descriptor_holder.holder_named(text, holder)
     # The holder's own name alone, or leading the row, is still the holder's.
-    assert tc.holder_named("NORTHWIND HARBOR", holder)
-    assert tc.holder_named("NORTHWIND HARBOR AGENCY LLC FABRIKAM BANK", holder)
+    assert descriptor_holder.holder_named("NORTHWIND HARBOR", holder)
+    assert descriptor_holder.holder_named("NORTHWIND HARBOR AGENCY LLC FABRIKAM BANK", holder)
     # A holding company leading with the holder's brand word stays the holder's.
-    assert tc.holder_named("CONTOSO HOLDINGS LLC CONTOSO BAKERY", "CONTOSO BAKERY LLC")
+    assert descriptor_holder.holder_named("CONTOSO HOLDINGS LLC CONTOSO BAKERY", "CONTOSO BAKERY LLC")
     # A layout's labels before the holder's own name name no other payer.
-    assert tc.holder_named("DEPOSIT ACH PAID FROM 1234 NORTHWIND HARBOR AGENCY", holder)
+    assert descriptor_holder.holder_named("DEPOSIT ACH PAID FROM 1234 NORTHWIND HARBOR AGENCY", holder)
 
 
 @pytest.mark.parametrize("region", [
@@ -313,8 +315,8 @@ def test_the_holder_s_name_printed_after_another_payer_is_its_unlabelled_receive
     "INS PREM FABRIKAM MUTUAL NORTHWIND HARBOR CORPORATI",
 ])
 def test_the_holder_s_name_inside_another_payer_s_receiver_block_is_never_the_payer(region):
-    assert not tc.holder_named(region, "NORTHWIND HARBOR CORP")
-    assert tc.holder_named("NORTHWIND HARBOR CORP PAYMENT", "NORTHWIND HARBOR CORP")
+    assert not descriptor_holder.holder_named(region, "NORTHWIND HARBOR CORP")
+    assert descriptor_holder.holder_named("NORTHWIND HARBOR CORP PAYMENT", "NORTHWIND HARBOR CORP")
 
 
 def test_the_receiver_fields_name_the_holder_of_a_statement_that_prints_none():
@@ -332,7 +334,7 @@ FIRST_CITIZENS_HOLDER = "CONTOSO LLC DBA NORTHWIND AGENCY, LLC"
 
 
 def test_a_dba_holder_s_words_include_its_trade_name():
-    assert "NORTHWIND" in tc.holder_words(FIRST_CITIZENS_HOLDER)
+    assert "NORTHWIND" in descriptor_holder.holder_words(FIRST_CITIZENS_HOLDER)
 
 
 @pytest.mark.parametrize("text", [
@@ -400,7 +402,7 @@ def test_a_product_word_left_alone_in_the_account_name_holds_no_customer():
     ("DEL NORTHWIND FARMS LLC", "DEL CONTOSO FOODS INC", False),
 ])
 def test_the_holder_test_reads_names_not_industry_words(holder, payer, named):
-    assert tc.holder_named(payer, holder) is named
+    assert descriptor_holder.holder_named(payer, holder) is named
 
 
 # --- Audit B9 review round 1 ----------------------------------------------------------------------------------------
@@ -502,7 +504,7 @@ def test_r3_90_a_settlement_pushed_under_its_own_name_is_no_own_push_on_the_row_
     tiers = _tiers(rows)
     assert len(tiers) == 2 and _in_true_never_verified(tiers)
     revenue = _revenue(R3_90_ALONE.format(n=1))
-    assert not tr.self_originated(revenue, tc.payer_region(revenue))
+    assert not tr.self_originated(revenue, descriptor_payer.payer_region(revenue))
 
 
 @pytest.mark.parametrize("text", [
@@ -786,7 +788,7 @@ def test_the_one_word_receiver_slot_is_truist_s_alone(bank):
     # Review round 2: another layout printing CUSTOMER ID keeps the two-word reading of a receiver block.
     text = "TRANSFER FABRIKAM INC CONTOSO GAMES CUSTOMER ID SAMPLEPAY1"
     assert _tiers([(text, 300.0)], holder_name=TRUIST_HOLDER, bank=bank) == [HOLDER_NAME]
-    assert tc.holder_receiver_block(_revenue(text), bank) == 2
+    assert descriptor_holder.holder_receiver_block(_revenue(text), bank) == 2
 
 
 @pytest.mark.parametrize(("text", "block"), [
@@ -798,7 +800,7 @@ def test_the_one_word_receiver_slot_is_truist_s_alone(bank):
     ("FABRIKAM INSURANCE MISC NORTHWIND HARBOR AGENC", 2),
 ])
 def test_the_layout_says_where_a_receiver_block_can_print(text, block):
-    assert tc.holder_receiver_block(_revenue(text), "Truist") == block
+    assert descriptor_holder.holder_receiver_block(_revenue(text), "Truist") == block
 
 
 # A labelled sender (a sender after FROM, a wire's originator field) prints the sender alone: the owner's name printed
@@ -832,7 +834,7 @@ def test_two_companies_sharing_two_first_words_are_never_one_wire_sender(bo, bnf
     assert HOLDER_NAME not in tiers
     # Q5's own-account veto still refuses them as proof.
     assert all(tier[0] == "counted_flagged" for tier in tiers)
-    assert not tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)))
+    assert not tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
 
 
 def test_the_holder_s_own_wire_is_held_whatever_town_its_beneficiary_prints():
@@ -847,7 +849,7 @@ def test_the_holder_s_own_wire_with_no_legal_form_is_held_whatever_town_its_bene
     # Review round 2: a name with no legal form is read without the town and state its address prints after it.
     text = LOOKALIKE_WIRE.format(bo=name, bnf=name, city="OTHERTOWN")
     assert _twice(text, 6000.0) == [HOLDER_NAME, HOLDER_NAME]
-    assert tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)))
+    assert tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
 
 
 def test_two_names_with_no_legal_form_sharing_two_first_words_are_never_one_wire_sender():
@@ -913,8 +915,8 @@ def test_the_holder_hold_never_reads_a_product_as_a_second_holder_name():
         bank="PNC Bank",
     ))[0]
     assert tr._holder_names(record) == (PNC_HOLDER,)
-    assert tc.holder_words(PNC_PRODUCT) == ()
-    assert not tc.holder_named("US TREASURY", PNC_PRODUCT)
+    assert descriptor_holder.holder_words(PNC_PRODUCT) == ()
+    assert not descriptor_holder.holder_named("US TREASURY", PNC_PRODUCT)
     # The holder's own money is still held beside the product.
     own = "ZELLE PAYMENT FROM CONTOSO TRADING LLC CONF 1234567890"
     assert _tiers([(own, 900.0)], account_name=PNC_PRODUCT, holder_name=PNC_HOLDER, bank="PNC Bank") == [HOLDER_NAME]
@@ -923,7 +925,7 @@ def test_the_holder_hold_never_reads_a_product_as_a_second_holder_name():
 def test_a_company_whose_name_prints_product_words_still_names_the_holder():
     for holder in ("TREASURY SAMPLE PLAN LLC", "TREASURY ENTERPRISE PLAN LLC"):
         assert tr._usable_holder_name(holder)
-        assert tc.holder_words(holder) != ()
+        assert descriptor_holder.holder_words(holder) != ()
     text = "ZELLE PAYMENT FROM TREASURY SAMPLE PLAN LLC CONF 1234567890"
     assert _tiers([(text, 900.0)], holder_name="TREASURY SAMPLE PLAN LLC") == [HOLDER_NAME]
     assert _tiers([(text, 900.0)], account_name="TREASURY SAMPLE PLAN LLC") == [HOLDER_NAME]
@@ -938,7 +940,7 @@ def test_no_product_a_holder_reader_publishes_names_a_holder():
     for product in published:
         assert not tr._usable_holder_name(product), product
     for product in pnc._PRODUCTS:
-        assert tc.holder_words(product) == (), product
+        assert descriptor_holder.holder_words(product) == (), product
 
 
 # A one-word holder left by a dropped lead word (GENERAL, a two-letter initialism) is read with that word.
@@ -953,7 +955,7 @@ def test_no_product_a_holder_reader_publishes_names_a_holder():
     ("LANDSCAPING SERVICES LLC", "LANDSCAPING SERVICES", True),
 ])
 def test_a_one_word_holder_left_by_a_dropped_lead_word_must_print_with_it(holder, payer, named):
-    assert tc.holder_named(payer, holder) is named
+    assert descriptor_holder.holder_named(payer, holder) is named
 
 
 def test_a_customer_leading_with_the_holder_s_industry_word_is_counted():
@@ -991,8 +993,8 @@ def test_r18_a_payout_under_the_merchant_s_descriptor_verifies_beside_the_holder
     records = classify_statement_transactions(_statement(rows, holder_name=BAKERY))
     for record in records:
         revenue = _revenue(record.normalized_description)
-        assert not tr.region_names_holder(record, revenue, tc.payer_region(revenue))
-        assert not tr.self_originated(revenue, tc.payer_region(revenue))
+        assert not tr.region_names_holder(record, revenue, descriptor_payer.payer_region(revenue))
+        assert not tr.self_originated(revenue, descriptor_payer.payer_region(revenue))
 
 
 def test_r18_a_payout_whose_descriptor_prints_another_entry_is_not_held_as_the_holder():
@@ -1009,7 +1011,7 @@ def test_r18_the_holder_s_own_push_echoing_its_name_is_held_on_the_row_alone(lay
     text = layout.format(orig="NORTHWIND MARINE", entry=entry, payout="0000000001",
                          receiver="NORTHWIND MARINE LLC").replace("ST-0000000001", "0000000001")
     assert _twice(text, 900.0) == [HOLDER_NAME, HOLDER_NAME]
-    assert tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)))
+    assert tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)))
 
 
 @pytest.mark.parametrize(("text", "payout"), [
@@ -1254,7 +1256,7 @@ def test_r20_the_holder_s_own_name_words_still_hold(text, bank, holder):
     ("JORDAN", False),
 ])
 def test_r20_the_person_name_reading(text, person):
-    assert tc._person_name_reading(text) is person
+    assert descriptor_holder._person_name_reading(text) is person
 
 
 # Audit round 3, R3-B10 (R3-38): two shared trade words name the holder only when the payer's own printed lead word (a
@@ -1310,15 +1312,15 @@ def test_r3_38_the_narrowed_arm_never_newly_holds():
 
 
 def test_r3_38_the_printed_lead_and_the_holder_s_abbreviation():
-    assert tc._printed_lead(["ACH", "CREDIT", "JB", "YACHT"]) == "JB"
-    assert tc._printed_lead(["THE", "GOLDEN", "YACHT"]) == "GOLDEN"
-    assert tc._printed_lead(["DEL", "NORTHWIND"]) == "NORTHWIND"
-    assert tc._printed_lead(["ACH", "CREDIT"]) is None
+    assert descriptor_holder._printed_lead(["ACH", "CREDIT", "JB", "YACHT"]) == "JB"
+    assert descriptor_holder._printed_lead(["THE", "GOLDEN", "YACHT"]) == "GOLDEN"
+    assert descriptor_holder._printed_lead(["DEL", "NORTHWIND"]) == "NORTHWIND"
+    assert descriptor_holder._printed_lead(["ACH", "CREDIT"]) is None
     holder = ["NORTHWIND", "YACHT", "SERVICE"]
     for word in ("NW", "NWD", "NYS", "NY"):
-        assert tc._holder_abbreviation(word, holder), word
+        assert descriptor_holder._holder_abbreviation(word, holder), word
     for word in ("ACE", "AAA", "JB", "NORTHWIND", "NORTH", "WN"):
-        assert not tc._holder_abbreviation(word, holder), word
+        assert not descriptor_holder._holder_abbreviation(word, holder), word
 
 
 # Audit round 3, R3-B10 (R3-39): a DBA holder whose name leads with a person ('<owner> DBA <trade>') is read whole as
@@ -1367,7 +1369,7 @@ R04_HOLDER = "CONTOSO TRADING LLC"
 def test_r04_capital_one_s_mercury_tails_never_hide_the_holder_s_own_push():
     text = "ACH DEPOSIT CONTOSO TRADING LLC MERCURYACH 000000 CONTOSO TRADING LLC MRCR G0ABC0"
     assert _tiers([(text, 1500.0)], bank="Capital One") == [HOLDER_NAME]
-    assert tr.self_originated(_revenue(text), tc.payer_region(_revenue(text)), "Capital One")
+    assert tr.self_originated(_revenue(text), descriptor_payer.payer_region(_revenue(text)), "Capital One")
     other = "ACH DEPOSIT FABRIKAM SUPPLY LLC MERCURYACH 000000 CONTOSO TRADING LLC MRCR G0ABC0"
     assert _tiers([(other, 1500.0)], bank="Capital One") != [HOLDER_NAME]
 
@@ -1387,7 +1389,7 @@ def test_r04_a_processor_s_or_a_franchisor_s_credit_printing_the_holder_s_name_k
     assert tiers != [HOLDER_NAME]
     records = classify_statement_transactions(_statement([(text, 1500.0)], bank=bank, holder_name=R04_HOLDER))
     revenue = _revenue(records[0].normalized_description)
-    assert not tr.region_names_holder(records[0], revenue, tc.payer_region(revenue))
+    assert not tr.region_names_holder(records[0], revenue, descriptor_payer.payer_region(revenue))
 
 
 @pytest.mark.parametrize("text", [
@@ -1405,7 +1407,7 @@ def test_r04_a_platform_s_word_inside_the_holder_s_own_name_is_the_holder_s():
     text = "NORTHWIND INTUIT GROUP LLC DES:TRANSFER ID:0001 INDN:SAMPLE OWNER CO ID:0000000000 CCD"
     assert _tiers([(text, 1500.0)], bank="Bank of America", holder_name=holder) == [HOLDER_NAME]
     revenue = _revenue(text)
-    assert not tr.platform_credit(revenue, tc.payer_region(revenue), (holder,))
+    assert not tr.platform_credit(revenue, descriptor_payer.payer_region(revenue), (holder,))
 
 
 @pytest.mark.parametrize(("text", "named"), [
@@ -1424,7 +1426,7 @@ def test_r04_a_platform_s_word_inside_the_holder_s_own_name_is_the_holder_s():
 ])
 def test_r04_platform_credit_reads_the_originator_and_the_fee_words_outside_the_holder_s_names(text, named):
     revenue = _revenue(text)
-    assert tr.platform_credit(revenue, tc.payer_region(revenue), (R04_HOLDER,)) is named
+    assert tr.platform_credit(revenue, descriptor_payer.payer_region(revenue), (R04_HOLDER,)) is named
 
 
 # --- Audit round 2, R2-B05 (R04 part 2): the holder's name read from page 1 on the banks that printed none ---------
@@ -1552,7 +1554,7 @@ def test_r3_17_a_possessive_holder_printed_after_another_payer_is_the_receiver()
     tiers = _tiers([(R3_17_FIFTH_THIRD, 600.0)], holder_name="CONTOSO'S FLOWER SHOP LLC", bank="Fifth Third")
     assert tiers == [ONE_OFF]
     assert tiers == _tiers([(R3_17_FIFTH_THIRD, 600.0)], holder_name="CONTOSOS FLOWER SHOP LLC", bank="Fifth Third")
-    assert tc._without_trailing_holder_run(
+    assert descriptor_holder._without_trailing_holder_run(
         "NORTHWIND SUPPLY PAYMENT CONTOSO FLOWER SHOP", ["CONTOSO S FLOWER SHOP LLC"]
     ) == "NORTHWIND SUPPLY PAYMENT"
 
@@ -1573,8 +1575,8 @@ def test_r3_17_a_two_letter_possessive_holder_s_own_rows_are_held(holder):
 def test_r3_17_a_customer_leading_with_the_industry_word_is_never_the_possessive_holder():
     text = "TRUCKING PARTNERS INC DES:PAYMENT ID:0001 INDN:JB S TRUCKING LLC CO ID:0000000001 CCD"
     assert HOLDER_NAME not in _twice(text, holder_name="JB'S TRUCKING LLC", bank="Bank of America")
-    assert tc.holder_named("TRUCKING PARTNERS INC", "JB'S TRUCKING LLC") is False
-    assert tc.holder_named("JB TRUCKING LLC", "JB'S TRUCKING LLC") is True
+    assert descriptor_holder.holder_named("TRUCKING PARTNERS INC", "JB'S TRUCKING LLC") is False
+    assert descriptor_holder.holder_named("JB TRUCKING LLC", "JB'S TRUCKING LLC") is True
 
 
 @pytest.mark.parametrize(("name", "words"), [
@@ -1584,7 +1586,7 @@ def test_r3_17_a_customer_leading_with_the_industry_word_is_never_the_possessive
     ("NORTHWIND HARBOR AGENCY INC", ["NORTHWIND", "HARBOR", "AGENCY"]),
 ])
 def test_r3_17_the_holder_s_run_words_are_the_payer_reading_s(name, words):
-    assert tc._holder_run_words(name) == words
+    assert descriptor_holder._holder_run_words(name) == words
 
 
 @pytest.mark.parametrize(("holder", "receiver"), [
@@ -1593,12 +1595,12 @@ def test_r3_17_the_holder_s_run_words_are_the_payer_reading_s(name, words):
 ])
 def test_r3_17_a_middle_initial_or_a_digit_token_never_stops_the_strip(holder, receiver):
     payer = lexical.payer_name(f"FABRIKAM SUPPLY PAYMENT {receiver}")
-    assert tc._without_trailing_holder_run(payer, [holder]) == "FABRIKAM SUPPLY PAYMENT"
+    assert descriptor_holder._without_trailing_holder_run(payer, [holder]) == "FABRIKAM SUPPLY PAYMENT"
 
 
 def test_r3_17_the_dropped_lead_run_skips_a_single_letter():
-    assert tc._dropped_lead_run("JB S TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
-    assert tc._dropped_lead_run("JB TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
+    assert descriptor_holder._dropped_lead_run("JB S TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
+    assert descriptor_holder._dropped_lead_run("JB TRUCKING LLC", ["TRUCKING"]) == ("JB", "TRUCKING")
 
 
 # --- Audit round 3, R3-B10 review round 1 (finding 2): the classifier readers of the holder test ------------------
@@ -1711,7 +1713,7 @@ NUMBERED = ("counted_flagged", "numbered_company_payer")
 def test_r3_15_the_holder_s_own_number_after_an_accounts_payable_label_is_held(text, bank):
     # Today the region was the label alone ('ACCOUNT PAYABLE PMT'), so the credit was counted numbered_company_payer.
     assert _tiers([(text, 12000.0)], holder_name=NUMBERED_HOLDER, bank=bank) == [HOLDER_NAME]
-    assert tc.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(text))).startswith("1234567 ONTARIO")
+    assert descriptor_payer.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(text))).startswith("1234567 ONTARIO")
 
 
 def test_r3_15_another_numbered_company_after_the_label_stays_counted():
@@ -1724,5 +1726,5 @@ def test_r3_15_another_numbered_company_after_the_label_stays_counted():
     ("ACCOUNTS PAYABLE 123456 NORTH MOUNTAIN PAVING", "ACCOUNTS PAYABLE NORTH MOUNTAIN PAVING"),
 ])
 def test_r3_15_a_word_named_payer_after_the_label_keeps_its_region_and_reading(text, region):
-    assert tc.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(text))) == region
+    assert descriptor_payer.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(text))) == region
     assert _tiers([(text, 12000.0)], holder_name="NORTHWIND BAKERY LTD", bank="Scotiabank") == [REMITTANCE]

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import transaction_classifier as tc
+from analysis.descriptor import payer
+from analysis.descriptor import rails
 from analysis import description_text
 from analysis.descriptor import lexical
 from analysis.descriptor import words as descriptor_words
@@ -54,8 +55,8 @@ def test_navy_federal_bank_wire_deposit_is_a_wire_with_no_sender():
 
 def test_navy_federal_bank_wire_deposit_is_an_incoming_wire_label_and_never_a_bank_s_own_wire():
     text = "BANK WIRE DEPOSIT"
-    assert tc._is_wire_row(text)
-    assert tc.payer_region(text) == ""
+    assert rails._is_wire_row(text)
+    assert payer.payer_region(text) == ""
     assert not tr._bank_originated_wire(text, "BANK WIRE DEPOSIT", wire=True)
 
 
@@ -108,8 +109,8 @@ COLUMBIA = "WIRE DEPOSIT WIRE IN 1234567890123456 ORG {sender}"
 
 def test_columbia_wire_deposit_wire_in_is_an_incoming_wire_label():
     text = COLUMBIA.format(sender="CONTOSO PAVING LLC")
-    assert tc._is_wire_row(text)
-    assert tc.payer_region(text) == "CONTOSO PAVING LLC"
+    assert rails._is_wire_row(text)
+    assert payer.payer_region(text) == "CONTOSO PAVING LLC"
 
 
 @pytest.mark.parametrize(("sender", "expected"), [
@@ -123,7 +124,7 @@ def test_columbia_reads_the_org_sender_for_every_hold(sender, expected):
 
 
 def test_columbia_without_org_reads_the_sender_after_its_label():
-    assert tc.payer_region("WIRE DEPOSIT WIRE IN 1234567890123456 CONTOSO PAVING LLC") == "CONTOSO PAVING LLC"
+    assert payer.payer_region("WIRE DEPOSIT WIRE IN 1234567890123456 CONTOSO PAVING LLC") == "CONTOSO PAVING LLC"
 
 
 def test_columbia_company_wiring_twice_verifies_by_q5():
@@ -141,8 +142,8 @@ def test_columbia_company_wiring_twice_verifies_by_q5():
 ])
 def test_a_loose_wire_s_originator_label_names_its_sender(sender, expected):
     text = f"DEPOSIT WIRE IN 1234 ORG {sender}"
-    assert not tc._is_wire_row(text)
-    assert tc.payer_region(text) == sender
+    assert not rails._is_wire_row(text)
+    assert payer.payer_region(text) == sender
     assert _tiers([(text, 5000.0)]) == [expected]
 
 
@@ -150,13 +151,13 @@ def test_a_loose_wire_s_originator_label_names_its_sender(sender, expected):
 
 def test_us_bank_wire_credit_with_no_org_line_stays_a_wire_with_no_sender():
     text = "WIRE CREDIT REF001234 SAMPLE BANK NYC 260302B1234"
-    assert tc._is_wire_row(text)
+    assert rails._is_wire_row(text)
     assert _tiers([(text, 18000.0)], bank="U.S. Bank") == [NO_SENDER]
 
 
 def test_us_bank_wire_credit_reads_the_org_sender_when_printed():
     text = "WIRE CREDIT REF001234 JPMCHASE NYC 1 ORG FABRIKAM SUPPLY INC"
-    assert tc.payer_region(text) == "FABRIKAM SUPPLY INC"
+    assert payer.payer_region(text) == "FABRIKAM SUPPLY INC"
     assert _tiers([(text, 18000.0)], bank="U.S. Bank") == [NAMED]
 
 
@@ -266,7 +267,7 @@ def test_r32_the_label_words_are_every_wire_layout_word_and_cr():
     "INCOMING CHIPS ORG FABRIKAM TRADING LLC",
 ])
 def test_r32_a_company_wiring_twice_after_the_new_labels_verifies(text):
-    assert tc._is_wire_row(text)
+    assert rails._is_wire_row(text)
     assert _tiers([(text, 5000.0), (text, 5000.0)]) == [REPEAT_WIRE, REPEAT_WIRE]
 
 
@@ -278,7 +279,7 @@ def test_r32_the_fedwire_transfer_label_now_reads_its_originator_as_a_wire_s():
     # The wanted side effect: the row was a person-to-person transfer (held as a round repeat), now a wire whose
     # originator Q5 reads.
     text = "INCOMING FEDWIRE TRANSFER ORG CONTOSO BUILDERS LLC"
-    assert tc.payer_region(text) == "CONTOSO BUILDERS LLC"
+    assert payer.payer_region(text) == "CONTOSO BUILDERS LLC"
     assert _tiers([(text, 5000.0), (text, 5000.0)]) == [REPEAT_WIRE, REPEAT_WIRE]
 
 
@@ -294,7 +295,7 @@ def test_r32_control_huntington_s_bare_fedwire_transfer_stays_held_and_class_oth
     [record] = _records([("INCOMING FEDWIRE TRANSFER", 5000.0)], bank="Huntington National Bank")
     assert (record.revenue_tier, record.revenue_tier_reason) == NO_SENDER
     assert record.classification == "other"
-    assert tc.payer_region("INCOMING FEDWIRE TRANSFER") == ""
+    assert payer.payer_region("INCOMING FEDWIRE TRANSFER") == ""
 
 
 def test_r32_controls_bank_wire_deposit_and_the_holder_s_own_fedwire():
@@ -314,7 +315,7 @@ def test_r32_recorded_residual_a_sender_after_an_old_label_with_no_from_is_not_r
 
 
 def test_r32_control_chips_alone_is_no_wire_label():
-    assert not tc._is_wire_row("CHIPS")
+    assert not rails._is_wire_row("CHIPS")
     assert _tiers([("CHIPS", 5000.0)]) == [("counted_flagged", "named_payer_unlabelled")]
 
 
@@ -322,7 +323,7 @@ def test_r32_control_debits_keep_their_reading():
     records = _records([("OUTGOING FEDWIRE TRANSFER", -5000.0), ("INBOUND WIRE FEE", -15.0),
                         ("CONTOSO SUPPLY LLC", 10.0)])
     assert [(record.classification, record.revenue_tier) for record in records[:2]] == [("other", None), ("fee", None)]
-    assert not tc._is_wire_row("OUTGOING FEDWIRE TRANSFER")
+    assert not rails._is_wire_row("OUTGOING FEDWIRE TRANSFER")
 
 
 # Audit round 2, R2-B10 (R21 part C): the plural WIRE TRANSFERS label is a wire label, and WIRE TRANSFER IN reads the
@@ -330,8 +331,8 @@ def test_r32_control_debits_keep_their_reading():
 
 def test_r21_three_plural_wire_transfers_from_one_company_verify():
     rows = [(f"WIRE TRANSFERS FROM FABRIKAM TRADING LLC REF {n}", 5000.0) for n in (1, 2, 3)]
-    assert tc._is_wire_row(rows[0][0])
-    assert tc.payer_region(rows[0][0]) == "FABRIKAM TRADING LLC"
+    assert rails._is_wire_row(rows[0][0])
+    assert payer.payer_region(rows[0][0]) == "FABRIKAM TRADING LLC"
     assert _tiers(rows) == [REPEAT_WIRE] * 3
 
 
@@ -341,7 +342,7 @@ def test_r21_plural_wire_transfers_incoming_verify_on_repeat():
 
 def test_r21_wire_transfer_in_reads_the_sender_printed_after_it():
     rows = [(f"WIRE TRANSFER IN CONTOSO SUPPLY LLC REF {n}", 5000.0) for n in (1, 2)]
-    assert tc.payer_region(rows[0][0]) == "CONTOSO SUPPLY LLC"
+    assert payer.payer_region(rows[0][0]) == "CONTOSO SUPPLY LLC"
     assert _tiers(rows) == [REPEAT_WIRE] * 2
 
 
@@ -375,7 +376,7 @@ def test_r21_control_a_loan_s_transfers_stay_non_revenue_and_transfers_stays_tra
     ("CONTOSO FOODS ORG WIRE", "CONTOSO FOODS ORG", "Mercury"),
 ])
 def test_r26_a_holder_whose_name_prints_an_originator_word_is_held(text, holder, bank):
-    assert not tc._loose_wire_originator(text)
+    assert not rails._loose_wire_originator(text)
     assert _tiers([(text, 2500.0)], holder=holder, bank=bank) == [HOLDER_HELD]
 
 
@@ -390,14 +391,14 @@ def test_r26_a_funder_whose_financing_word_precedes_the_originator_word_is_held(
 
 
 def test_r26_the_payer_region_of_a_sender_wire_row_keeps_the_whole_name():
-    assert tc.payer_region("SAMPLE ORG SOLUTIONS LLC WIRE") == "SAMPLE ORG SOLUTIONS LLC WIRE"
+    assert payer.payer_region("SAMPLE ORG SOLUTIONS LLC WIRE") == "SAMPLE ORG SOLUTIONS LLC WIRE"
 
 
 def test_r26_a_loose_label_after_the_wire_word_is_still_read_from_its_own_position():
     text = "CONTOSO ORG DEPOSIT WIRE IN 1234 ORG FABRIKAM PAVING LLC"
-    label = tc._loose_wire_label(text)
+    label = rails._loose_wire_label(text)
     assert label is not None and text[label.start():].startswith("ORG FABRIKAM")
-    assert tc.payer_region(text) == "FABRIKAM PAVING LLC"
+    assert payer.payer_region(text) == "FABRIKAM PAVING LLC"
     assert _tiers([(text, 2500.0)], bank="Mercury") == [NAMED]
 
 
@@ -407,7 +408,7 @@ def test_r26_a_loose_label_after_the_wire_word_is_still_read_from_its_own_positi
     "ORIGINATOR MEDIA LLC WIRE",
 ])
 def test_r26_a_label_before_the_row_s_first_wire_word_is_never_a_loose_label(text):
-    assert tc._loose_wire_label(text) is None
+    assert rails._loose_wire_label(text) is None
 
 
 @pytest.mark.parametrize(("text", "holder", "bank", "expected"), [
@@ -426,8 +427,8 @@ def test_r26_control_a_sender_wire_row_never_verifies_on_repeat():
 
 
 def test_r26_control_the_chase_reversal_still_reads_its_b_o_sender():
-    assert tc._loose_wire_originator("WIRE REVERSAL B O CONTOSO PAVING LLC")
-    assert tc.payer_region("WIRE REVERSAL B O CONTOSO PAVING LLC") == "CONTOSO PAVING LLC"
+    assert rails._loose_wire_originator("WIRE REVERSAL B O CONTOSO PAVING LLC")
+    assert payer.payer_region("WIRE REVERSAL B O CONTOSO PAVING LLC") == "CONTOSO PAVING LLC"
 
 
 # Audit round 2, R2-B10 (R11's cross-card rows): a bare incoming-wire label of the widened list reaches Q5's hold, never
@@ -435,7 +436,7 @@ def test_r26_control_the_chase_reversal_still_reads_its_b_o_sender():
 
 @pytest.mark.parametrize("text", ["WIRE TRANSFER IN 1234", "INCOMING FEDWIRE 1234", "INBOUND WIRE 1234"])
 def test_r11_a_bare_incoming_wire_label_is_held_never_non_revenue(text):
-    assert tc._bare_incoming_wire(text)
+    assert rails._bare_incoming_wire(text)
     assert _tiers([(text, 2500.0)], holder="FABRIKAM TRADING LTD", bank="Royal Bank of Canada") == [NO_SENDER]
 
 
@@ -452,7 +453,7 @@ def test_r11_a_bare_incoming_wire_label_is_held_never_non_revenue(text):
     ("FUNDS TRANSFER WIRE FROM 1234 USD", ("non_revenue", "strong_non_revenue_rule")),
 ])
 def test_r11_review_a_word_besides_a_reference_is_no_bare_incoming_wire(text, expected):
-    assert not tc._bare_incoming_wire(text)
+    assert not rails._bare_incoming_wire(text)
     assert _tiers([(text, 2500.0)], holder="FABRIKAM TRADING LTD", bank="Royal Bank of Canada") == [expected]
 
 
@@ -705,7 +706,7 @@ def test_ff_r1_the_holder_noise_name_words_are_r3_40_s():
     "INCOMING WIRE TRANSFER FROM CONTOSO BUILDERS LLC",
 ])
 def test_r3_42_a_sender_printed_after_the_new_labels_is_read(text):
-    assert tc.payer_region(text) == "CONTOSO BUILDERS LLC"
+    assert payer.payer_region(text) == "CONTOSO BUILDERS LLC"
     assert _tiers([(text, 2345.67)]) == [NAMED]
     assert _tiers([(text, 2345.67), (text, 3456.78)]) == [REPEAT_WIRE, REPEAT_WIRE]
 
@@ -737,7 +738,7 @@ def test_r3_42_the_statement_s_own_bank_after_a_new_label_names_no_sender():
 
 def test_r3_42_control_an_originator_label_keeps_the_labelled_reading():
     text = "INCOMING FEDWIRE ORG CONTOSO BUILDERS LLC"
-    assert tc.payer_region(text) == "CONTOSO BUILDERS LLC"
+    assert payer.payer_region(text) == "CONTOSO BUILDERS LLC"
     assert _tiers([(text, 2345.67)]) == [NAMED]
     # Huntington's bare label reads its label word only, and no sender.
-    assert tc._wire_sender_after_label("INCOMING FEDWIRE TRANSFER") == ""
+    assert payer._wire_sender_after_label("INCOMING FEDWIRE TRANSFER") == ""

@@ -24,6 +24,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import rails
 from analysis.descriptor import words as descriptor_words
 from analysis import dates
 from analysis.detect import detect
@@ -89,8 +90,8 @@ def _old_lender_refusal(records, credit_index, debit_index):
     credit, debit = records[credit_index], records[debit_index]
     if not tc._is_paid_funder_debit(debit):
         return False
-    if not (tc._matches_any(credit.normalized_description, descriptor_words._SETTLEMENT_REVERSAL_PATTERNS)
-            or tc._matches_any(debit.normalized_description, descriptor_words._SETTLEMENT_REVERSAL_PATTERNS)):
+    if not (rails._matches_any(credit.normalized_description, descriptor_words._SETTLEMENT_REVERSAL_PATTERNS)
+            or rails._matches_any(debit.normalized_description, descriptor_words._SETTLEMENT_REVERSAL_PATTERNS)):
         return False
     credit_date, debit_date = dates.parse_date(credit.date), dates.parse_date(debit.date)
     if credit_date is None or debit_date is None:

@@ -25,6 +25,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import transaction_classifier as classifier
+from analysis.descriptor import credit_words
 from analysis.descriptor import lexical
 from analysis.descriptor import words
 from analysis import payee_matcher
@@ -236,9 +237,9 @@ def test_a_verified_financier_payout_held_as_a_lump_names_the_overruled_rule():
 
 
 def test_the_thresholds_are_whole_unit_integers():
-    assert (classifier.CUSTOMER_FINANCING_LUMP_FLOOR, classifier.CUSTOMER_FINANCING_LUMP_ROUND,
-            classifier.CUSTOMER_FINANCING_LUMP_SHARE, classifier.CUSTOMER_FINANCING_SERIES_MIN,
-            classifier.CUSTOMER_FINANCING_SERIES_SHARE) == (10_000, 1_000, 50, 3, 50)
+    assert (credit_words.CUSTOMER_FINANCING_LUMP_FLOOR, credit_words.CUSTOMER_FINANCING_LUMP_ROUND,
+            credit_words.CUSTOMER_FINANCING_LUMP_SHARE, credit_words.CUSTOMER_FINANCING_SERIES_MIN,
+            credit_words.CUSTOMER_FINANCING_SERIES_SHARE) == (10_000, 1_000, 50, 3, 50)
 
 
 # --- the controls: unchanged ---------------------------------------------------------------------------------------

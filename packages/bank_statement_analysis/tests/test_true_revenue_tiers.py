@@ -424,10 +424,10 @@ def test_a_leading_date_never_hides_a_numbered_company(text):
 
 def test_the_numbered_guard_reads_past_a_date_only_before_the_number():
     # A spaced pair before a name (Fifth Third's 5/3 brand prints so) never makes the name a numbered company.
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import payer
 
-    assert classifier.numbered_company("03 02 DIRECT DEPOSIT 7654321 CANA AP CC")
-    assert not classifier.numbered_company("5 3 FABRIKAM SUPPLY LLC DES PAYMENT ID 1")
+    assert payer.numbered_company("03 02 DIRECT DEPOSIT 7654321 CANA AP CC")
+    assert not payer.numbered_company("5 3 FABRIKAM SUPPLY LLC DES PAYMENT ID 1")
     assert _one("5/3 FABRIKAM SUPPLY LLC DES:PAYMENT ID:1", 700.0).revenue_match_method == "named_payer_company_form"
 
 
@@ -864,19 +864,19 @@ def test_a_leading_date_never_hides_the_accounts_payable_pmt_numbered_template()
     # §5.2, T11 (re-review fix 3): 'ACC(OUN)TS PAYABLE PMT <digits>' after a leading date reads as its undated twin.
     # Audit B5 (I59): the template reads a number that nothing, a province (or a cut of one) or BMO's code tail
     # follows; a reference before a named payer ('... PMT 1234567 NORTHWIND LTD') is no numbered company, dated or not.
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import payer
     from analysis.descriptor import lexical
     from analysis.description_text import normalize_transaction_description
 
     for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567", "ACCOUNTS PAYABLE PMT 1234567", "0302 ACCTS PAYABLE PMT 1234567",
                  "03/02 ACCOUNTS PAYABLE PMT 1234567 ONTA", "0302 ACCTS PAYABLE PMT 1234567 ONTA"):
-        assert classifier.numbered_company(lexical.revenue_text(normalize_transaction_description(text)))
+        assert payer.numbered_company(lexical.revenue_text(normalize_transaction_description(text)))
         record = _one(text, 700.0)
         assert record.revenue_classification == "unverified_deposit"
         assert _tier(record) == ("counted_flagged", "numbered_company_payer")
     for text in ("03/02 ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD", "ACCOUNTS PAYABLE PMT 1234567 NORTHWIND LTD",
                  "0302 ACCTS PAYABLE PMT 1234567 NORTHWIND LTD"):
-        assert not classifier.numbered_company(lexical.revenue_text(normalize_transaction_description(text)))
+        assert not payer.numbered_company(lexical.revenue_text(normalize_transaction_description(text)))
 
 
 @pytest.mark.parametrize("text", [
@@ -919,16 +919,16 @@ def test_a_credit_wire_s_beneficiary_never_names_a_source():
 
 def test_the_beneficiary_is_removed_only_from_an_incoming_wire():
     # Chase's real-time layout prints 'From: Bnf-<originator>': there the field names the payer, not the holder.
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import rails
 
     wire = "WIRE TYPE WIRE IN DATE 540102 TRN 1 ORIG NORTHWIND EXPORTS LLC ID 99 BNF SQUARE ONE BAKERY OBI INV 12"
-    assert "SQUARE" not in classifier._without_receiver_value(wire)
-    assert "NORTHWIND" in classifier._without_receiver_value(wire)
-    assert "OBI INV 12" in classifier._without_receiver_value(wire)
+    assert "SQUARE" not in rails._without_receiver_value(wire)
+    assert "NORTHWIND" in rails._without_receiver_value(wire)
+    assert "OBI INV 12" in rails._without_receiver_value(wire)
     rtp = "REAL TIME TRANSFER RECD FROM ABA CONTR BNK 021000021 FROM BNF INTUIT PAYMENTS INC REF 1234 INFO SAMPLE"
-    assert classifier._without_receiver_value(rtp) == rtp
+    assert rails._without_receiver_value(rtp) == rtp
     remittance = "WIRE IN FROM NORTHWIND EXPORTS LLC ORIG TO BNF INFO SQUARE PAYOUT"
-    assert "SQUARE PAYOUT" in classifier._without_receiver_value(remittance)
+    assert "SQUARE PAYOUT" in rails._without_receiver_value(remittance)
     record = _one("REAL TIME TRANSFER RECD FROM ABA/CONTR BNK-021000021 FROM: BNF-INTUIT PAYMENTS INC REF: 1234 "
                   "INFO: SAMPLE", 700.0)
     assert record.revenue_canonical_entity == "QuickBooks Payments"
@@ -1014,13 +1014,13 @@ def test_an_interac_virement_s_round_repeat_is_unchanged(name):
 def test_the_5_5_channel_gate_of_a_virement_is_unchanged(text):
     # The 5.5 census was accepted on _CONSUMER_P2P_RAIL: every VIREMENT row is still a closed person-to-person row
     # there, never verified; only pass 7's tiering reads the Interac forms.
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import payer
     from analysis.descriptor import lexical
     from analysis.descriptor import words
     from analysis.description_text import normalize_transaction_description
 
     normalized = lexical.revenue_text(normalize_transaction_description(text))
-    assert classifier.channel_gate(normalized) == "closed"
+    assert payer.channel_gate(normalized) == "closed"
     assert words._CONSUMER_P2P_RAIL.search(normalized) is not None
     assert _one(text, 250.0).revenue_classification == "unverified_deposit"
 
@@ -1182,13 +1182,13 @@ def test_a_french_month_or_a_bank_branch_is_never_a_transfer_s_counterparty(text
 ])
 def test_a_credit_wire_s_beneficiary_value_ends_at_the_originator_label(text):
     # §5.2 (fix 6): the beneficiary field's value ends at an originator label, so the originator still names a source.
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import rails
 
-    assert classifier._is_wire_row(text)
-    stripped = classifier._without_receiver_value(text)
+    assert rails._is_wire_row(text)
+    stripped = rails._without_receiver_value(text)
     assert "STRIPE INC" in stripped and "SQUARE" not in stripped
     for label in ("B O", "ORIGINATOR", "ORG"):
-        assert "NORTHWIND" in classifier._without_receiver_value(
+        assert "NORTHWIND" in rails._without_receiver_value(
             f"INCOMING WIRE BNF SQUARE ONE BAKERY {label} NORTHWIND EXPORTS LLC")
     rows = _records([(text, 9000.0), (text, 9100.0)], holder="SQUARE ONE BAKERY LLC")
     assert {record.revenue_canonical_entity for record in rows} == {"Stripe"}
@@ -1925,7 +1925,7 @@ def test_a3_a_wire_that_prints_its_sender_after_the_label_is_never_held_as_no_se
 
 
 def test_a3_a_numbered_company_after_bmo_s_country_code_keeps_its_number():
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     record = _one("INCOMING WIRE PAYMENT INCOMING WIRE PAYMENT CA 1234567 ONTARIO INC", 24950.0)
@@ -2123,7 +2123,7 @@ _A3G_RELAY = ("BOOK TRANSFER CREDIT B O SAMPLE COMMERCIAL BANK LTD SAMPLE CITY C
 ])
 def test_a3g_refinement_a_relaying_bank_s_customer_is_the_wire_s_sender(text):
     # A3-G refinement: a correspondent bank that names the ultimate originator only relays: that customer is read.
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     record = _one(text, 13000.0)
@@ -2163,7 +2163,7 @@ def test_a3g_review_a_b_o_company_that_ends_in_co_keeps_its_wrap_split_root():
 
 def test_a3g_review_a_digit_without_its_slash_is_part_of_the_name():
     # A3-G review: a SWIFT 50F line number prints with its slash ('1/'); a name that starts with a number keeps it.
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     record = _one(_A3_WIRE.format(n=1, orig="2 NORTHWIND BAKERS LLC"), 1234.0)
@@ -2177,7 +2177,7 @@ _A3G_BOOK_IN = ("WIRE TYPE:BOOK IN DATE:540102 TIME:1200 ET TRN:20540102000012{n
 def test_a3g_refinement_bofa_s_book_in_wire_reads_its_originator():
     # A3-G refinement: WIRE TYPE BOOK IN is the WIRE TYPE WIRE IN layout: its ORIG is read, the SWIFT 50F prefix
     # stripped.
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     record = _one(_A3G_BOOK_IN.format(n=34, orig="1/NORTHWIND SUPPLY LLC"), 16000.0)
@@ -2291,7 +2291,7 @@ def test_a3g_a_bank_s_ach_credit_is_no_wire_and_keeps_its_reading():
 
 
 def test_a3g_a_swift_50f_line_number_never_starts_the_originator():
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     record = _one(_A3_WIRE.format(n=1, orig="1/NORTHWIND SUPPLY LLC"), 24950.0)
@@ -2416,7 +2416,7 @@ def test_a3g_re_review_an_address_s_state_is_never_a_company_form(place):
 
 
 def test_a3g_re_review_a_bank_with_a_state_address_relays_its_customer():
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     text = ("FEDWIRE CREDIT VIA SAMPLE BANK N A 123456789 B/O NORTHWIND BANK DENVER CO ORIGINATOR FABRIKAM TRADING "
@@ -2505,7 +2505,7 @@ def test_a3g_re_review_3_initials_that_spell_no_company_form_keep_a_personal_tru
 @pytest.mark.parametrize("phrase", ["ORG TO BNF", "ORIGINATOR TO BENEFICIARY"])
 def test_a3g_re_review_the_originator_label_skips_the_originator_to_beneficiary_phrase(phrase):
     # A3-G re-review: _WIRE_ORIGINATOR_LABEL takes the same TO BNF / TO BENEFICIARY guards as the relay label.
-    from analysis.transaction_classifier import payer_region
+    from analysis.descriptor.payer import payer_region
     from analysis.descriptor.lexical import revenue_text
 
     record = _one(f"WIRE TRANSFER INCOMING NORTHWIND SUPPLY LLC {phrase} INFO 1234", 9000.0)
@@ -2794,14 +2794,14 @@ def test_recv_name_is_a_receiver_field_so_the_holder_never_names_an_operating_so
     records = _records(rows, holder=holder)
     assert {record.revenue_canonical_entity for record in records} == {None}
     assert "recurring_operating_source" not in {record.revenue_match_method for record in records}
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import rails
     from analysis.descriptor import lexical
     from analysis.description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS
 
     assert "RECV NAME" in RECEIVER_NAME_LABELS and set(RECEIVER_NAME_LABELS) <= set(RECEIVER_FIELD_LABELS)
     text = "NORTHWIND PAYMENTS DES DEPOSIT ID 1 RECV NAME SQUARE ONE BAKERY CO ID 1234567890 CCD"
     assert lexical._before_receiver(text) == "NORTHWIND PAYMENTS DES DEPOSIT ID 1"
-    assert "SQUARE" not in tc._without_receiver_value(text)
+    assert "SQUARE" not in rails._without_receiver_value(text)
 
 
 _FW_ACH = "{payer} DES:PAYMENT ID:1234 INDN:CONTOSO BAKERY LLC CO ID:1234567890 CCD"

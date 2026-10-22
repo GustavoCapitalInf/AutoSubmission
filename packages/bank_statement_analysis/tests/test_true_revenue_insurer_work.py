@@ -24,7 +24,8 @@ from analysis import classification_registry as registry
 from analysis import true_revenue
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions, entry_fields, payer_region
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.descriptor.payer import entry_fields, payer_region
 from analysis.descriptor.lexical import revenue_text
 from tests.zelle_reading import rules_reading
 
@@ -195,7 +196,7 @@ def test_t33_a_listed_insurer_printed_beside_the_holder_s_name_is_released_where
     before the release). The holder test reads the holder's name printed after GEICO as GEICO's unlabelled receiver,
     never the payer (audit B9, I13), so the row is released on the agency's trade and counted; where the holder test
     does read the holder's name as the payer, the row is held holder_name and never counted (the control)."""
-    from analysis.transaction_classifier import holder_named
+    from analysis.descriptor.holder import holder_named
 
     text = "EFT GEICO INSURANCE FABRIKAM INSURANCE AGEN CUSTOMER ID 1234"
     record = _records([(text, 2400.0)], holder=TRUIST_AGENCY, bank="Truist")[0]
@@ -1098,9 +1099,9 @@ def test_r3_11_the_reader_keys_a_county_mutual_by_its_carrier():
     ("SAMPLE COUNTY MUTUAL AIDE INS", False),
 ])
 def test_r3_11_the_public_payer_name_vetoes_an_insurer_word_after_county(name, public):
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import credit_words
 
-    assert (classifier._PUBLIC_PAYER_NAME.match(name) is not None) is public
+    assert (credit_words._PUBLIC_PAYER_NAME.match(name) is not None) is public
 
 
 ONE_OFF = 1875.0

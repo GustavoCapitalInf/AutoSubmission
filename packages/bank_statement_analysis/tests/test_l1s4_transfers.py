@@ -20,7 +20,7 @@ from analysis.pipeline import (
 )
 from analysis.schema import Statement, Transaction
 from analysis.serialization import document_report_to_dict
-from analysis.transaction_classifier import prints_internal_transfer_designation
+from analysis.descriptor.rails import prints_internal_transfer_designation
 from tests.l1s4_pages import Account, Posting, document, idle_account, posting_account
 
 #: A printed designation the INTERNAL vocabulary reads, and one only the

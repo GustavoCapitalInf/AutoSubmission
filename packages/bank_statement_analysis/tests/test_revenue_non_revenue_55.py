@@ -5,11 +5,8 @@ from __future__ import annotations
 import pytest
 
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import (
-    classify_statement_transactions,
-    classify_transaction,
-    prints_internal_transfer_designation,
-)
+from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
+from analysis.descriptor.rails import prints_internal_transfer_designation
 
 
 def _credit(printed: str, *, holder: str | None = None):
@@ -148,7 +145,7 @@ def test_r11_a_funds_transfer_wire_label_with_only_a_reference_is_held_with_no_s
 
 @pytest.mark.parametrize("printed", BARE_WIRE_LABELS)
 def test_r11_the_bare_incoming_wire_reader(printed):
-    from analysis.transaction_classifier import _bare_incoming_wire
+    from analysis.descriptor.rails import _bare_incoming_wire
     from analysis.description_text import normalize_transaction_description
 
     assert _bare_incoming_wire(normalize_transaction_description(printed))
@@ -226,7 +223,7 @@ def _revenue_text(printed: str) -> str:
 
 @pytest.mark.parametrize("printed", NOT_ONLY_A_REFERENCE)
 def test_r11_review_a_word_besides_a_reference_keeps_the_own_account_reading(printed):
-    from analysis.transaction_classifier import _bare_incoming_wire
+    from analysis.descriptor.rails import _bare_incoming_wire
 
     assert not _bare_incoming_wire(_revenue_text(printed))
     assert _tier(printed) == ("non_revenue", "strong_non_revenue_rule")
@@ -246,7 +243,7 @@ def test_r11_review_a_word_besides_a_reference_keeps_the_own_account_reading(pri
     "INCOMING FUNDS TRANSFER FROM 1234",
 ])
 def test_r11_review_a_row_of_references_and_labels_is_held_never_counted(printed):
-    from analysis.transaction_classifier import _bare_incoming_wire
+    from analysis.descriptor.rails import _bare_incoming_wire
 
     assert _bare_incoming_wire(_revenue_text(printed))
     assert _tier(printed) == NO_SENDER
@@ -256,7 +253,7 @@ def test_r11_review_a_row_of_references_and_labels_is_held_never_counted(printed
 def test_r11_review_recorded_residual_a_numbered_company_after_the_tt_label_keeps_the_own_account_reading():
     # The funds-transfer originator reader drops a numbered company's words, so the row reads as before R11; reading it
     # as a counted sender (OQ3) belongs to that reader. No corpus row prints one.
-    from analysis.transaction_classifier import _bare_incoming_wire
+    from analysis.descriptor.rails import _bare_incoming_wire
 
     printed = "FUNDS TRANSFER CREDIT TT 1234567 ONTARIO INC"
     assert not _bare_incoming_wire(_revenue_text(printed))
@@ -264,10 +261,10 @@ def test_r11_review_recorded_residual_a_numbered_company_after_the_tt_label_keep
 
 
 def test_r11_review_the_reader_s_label_words_are_the_wire_label_list_and_the_originator_labels():
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import rails
     from analysis import true_revenue as tr
 
-    assert tc._BARE_WIRE_LABEL_WORDS == tr._WIRE_LABEL_ONLY_WORDS | {"TT", "FROM"}
+    assert rails._BARE_WIRE_LABEL_WORDS == tr._WIRE_LABEL_ONLY_WORDS | {"TT", "FROM"}
 
 
 @pytest.mark.parametrize(("printed", "state"), [

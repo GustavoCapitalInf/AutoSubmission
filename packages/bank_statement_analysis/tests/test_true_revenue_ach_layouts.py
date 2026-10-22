@@ -14,6 +14,8 @@ from dataclasses import replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import payer as descriptor_payer
+from analysis.descriptor import rails
 from analysis.descriptor import financing
 from analysis.descriptor import lexical
 from analysis.descriptor import words
@@ -58,7 +60,7 @@ def _rtp(sender: str) -> str:
 
 
 def test_chase_real_time_reads_the_sender_after_the_contra_bank_label():
-    assert tc.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(
+    assert descriptor_payer.payer_region(lexical.revenue_text(description_text.normalize_transaction_description(
         _rtp("FABRIKAM CAPITAL FUNDING LLC")))) == "FABRIKAM CAPITAL FUNDING LLC"
 
 
@@ -88,17 +90,17 @@ def _pnc(entry: str, payer: str, n: int = 1) -> str:
 
 
 def test_pnc_reads_the_payer_after_the_reference():
-    assert tc.payer_region(_pnc("PAYMENTS", "CONTOSO PAVING")) == "CONTOSO PAVING"
-    assert tc.payer_region(_pnc("EDI PAYMNT", "CONTOSO PAVING")) == "CONTOSO PAVING"
-    assert tc.payer_region("CORPORATE ACH TLR 123456 00026001000000001 CONTOSO PAVING 1A2B") == "CONTOSO PAVING"
+    assert descriptor_payer.payer_region(_pnc("PAYMENTS", "CONTOSO PAVING")) == "CONTOSO PAVING"
+    assert descriptor_payer.payer_region(_pnc("EDI PAYMNT", "CONTOSO PAVING")) == "CONTOSO PAVING"
+    assert descriptor_payer.payer_region("CORPORATE ACH TLR 123456 00026001000000001 CONTOSO PAVING 1A2B") == "CONTOSO PAVING"
     # PNC's entry stays an entry field the holds and Q6 read.
-    assert tc.entry_fields(_pnc("BILL PAY", "CONTOSO PAVING")) == "BILL PAY"
+    assert descriptor_payer.entry_fields(_pnc("BILL PAY", "CONTOSO PAVING")) == "BILL PAY"
 
 
 def test_pnc_reads_an_entry_of_ten_characters_at_most():
     # A payer printed first, longer than PNC's entry field, keeps its reading: its words are no entry.
-    assert tc.payer_region("CORPORATE ACH CONTOSO PAVING 00026001000000001 SAMPLE 12345") == "CONTOSO PAVING"
-    assert tc.pnc_corporate_ach("CORPORATE ACH CONTOSO PAVING 00026001000000001 SAMPLE 12345") is None
+    assert descriptor_payer.payer_region("CORPORATE ACH CONTOSO PAVING 00026001000000001 SAMPLE 12345") == "CONTOSO PAVING"
+    assert descriptor_payer.pnc_corporate_ach("CORPORATE ACH CONTOSO PAVING 00026001000000001 SAMPLE 12345") is None
 
 
 def test_pnc_four_different_payers_are_never_pooled():
@@ -131,7 +133,7 @@ def test_pnc_holds_read_the_payer_and_the_entry(entry, payer, expected):
 
 def test_pnc_layout_with_no_reference_after_its_entry_keeps_its_reading():
     text = "CORPORATE ACH PAYROLL CONTOSO PAVING 00026001000000001"
-    assert tc.payer_region(text) == "PAYROLL CONTOSO PAVING"
+    assert descriptor_payer.payer_region(text) == "PAYROLL CONTOSO PAVING"
     assert _tiers([(text, 1000.0)], bank="PNC Bank") == [("excluded_pending_review", "payroll_or_salary")]
 
 
@@ -183,7 +185,7 @@ def test_an_empty_ach_field_label_names_no_payer(rows):
 
 
 def test_an_orig_co_label_is_never_part_of_the_payer():
-    assert tc.payer_region("ORIG CO CONTOSO PAVING LLC ACH CREDIT") == tc.payer_region(
+    assert descriptor_payer.payer_region("ORIG CO CONTOSO PAVING LLC ACH CREDIT") == descriptor_payer.payer_region(
         "CONTOSO PAVING LLC ACH CREDIT")
 
 
@@ -206,7 +208,7 @@ SCOTIA_HOLDER = "CONTOSO BAKERY LLC"
 def test_scotiabank_bill_payment_reference_then_a_repeating_named_payer_verifies():
     rows = [(f"BILL PAYMENT 012345678{n} NORTHWIND SUPPLY INC", 1000.0 + n) for n in range(3)]
     assert _tiers(rows, holder=SCOTIA_HOLDER, bank="Scotiabank") == [REPEATS] * 3
-    assert tc.payer_region("BILL PAYMENT 0123456789 NORTHWIND SUPPLY INC") == "NORTHWIND SUPPLY INC"
+    assert descriptor_payer.payer_region("BILL PAYMENT 0123456789 NORTHWIND SUPPLY INC") == "NORTHWIND SUPPLY INC"
 
 
 def test_a_town_after_a_misc_payment_reference_is_a_one_off_payer():
@@ -244,9 +246,9 @@ def test_bmo_s_fifteen_digit_reference_before_its_code_names_no_payer():
 
 
 def test_the_numbered_company_number_is_capped_at_ten_digits():
-    assert not tc.numbered_company("DIRECT DEPOSIT 12345678901 MSP DIV")
-    assert not tc.numbered_company("12345678901 ONTARIO INC", "12345678901 ONTARIO INC")
-    assert tc.numbered_company("1234567890 ONTARIO INC", "1234567890 ONTARIO INC")
+    assert not descriptor_payer.numbered_company("DIRECT DEPOSIT 12345678901 MSP DIV")
+    assert not descriptor_payer.numbered_company("12345678901 ONTARIO INC", "12345678901 ONTARIO INC")
+    assert descriptor_payer.numbered_company("1234567890 ONTARIO INC", "1234567890 ONTARIO INC")
 
 
 # Audit round 2, R2-B11 (R33; §5.2 numbered company, T11, OQ3; amends B5's I59 line): a province word, its cut or a
@@ -275,7 +277,7 @@ def test_r33_an_accounts_payable_payer_named_with_a_province_s_cut_verifies_by_i
 def test_r33_a_payer_named_with_a_province_word_after_a_reference_verifies_on_repeat(text):
     rows = [(text, 1234.56), (text, 1234.57)]
     assert _tiers(rows, holder=R33_HOLDER, bank="Scotiabank") == [REPEATS] * 2
-    assert not tc.numbered_company(text)
+    assert not descriptor_payer.numbered_company(text)
 
 
 @pytest.mark.parametrize(("text", "bank"), [
@@ -304,7 +306,7 @@ def test_r33_a_payer_named_with_a_province_word_after_a_reference_verifies_on_re
 def test_r33_a_genuine_numbered_company_keeps_its_number(text, bank):
     rows = [(text, 1234.56), (text, 1234.57)]
     assert _tiers(rows, holder=R33_HOLDER, bank=bank) == [NUMBERED] * 2
-    assert tc.numbered_company(text)
+    assert descriptor_payer.numbered_company(text)
 
 
 @pytest.mark.parametrize(("text", "keeps"), [
@@ -332,7 +334,7 @@ def test_r33_a_genuine_numbered_company_keeps_its_number(text, bank):
     ("ONTARIO CAPITAL GROUP", False),
 ])
 def test_r33_the_guard_reads_the_token_after_the_province(text, keeps):
-    assert (tc._KEEPS_ITS_NUMBER.match(text) is not None) is keeps
+    assert (descriptor_payer._KEEPS_ITS_NUMBER.match(text) is not None) is keeps
 
 
 # Audit round 3, R3-B08 (R3-88 (n); §5.2 numbered company, T11, OQ3; amends R2-B11's R33 line): BMO prints a two-word
@@ -354,7 +356,7 @@ def test_r3_88_bmo_s_code_pair_after_a_numbered_company_keeps_its_number(text):
     bank = "BMO Bank of Montreal"
     assert _tiers([(text, 1234.56), (text, 1234.57)], bank=bank) == [NUMBERED] * 2
     assert _tiers([(text, 1234.56)], bank=bank) == [NUMBERED]
-    assert tc.numbered_company(text)
+    assert descriptor_payer.numbered_company(text)
 
 
 @pytest.mark.parametrize("text", ["MISC PAYMENT 1234567 ONTARIO BPY", "BILL PAYMENT 1234567 ONTARIO PAY"])
@@ -402,7 +404,7 @@ def _amex(originator: str, entry: str, receiver: str = "XXXX5678 NORTHWIND DISTR
 
 def test_amex_template_reads_the_originator_and_cuts_the_receiver():
     text = _amex("CONTOSO SRE INC", "EFT")
-    assert tc.payer_region(text) == "CONTOSO SRE INC EFT"
+    assert descriptor_payer.payer_region(text) == "CONTOSO SRE INC EFT"
     assert "NORTHWIND" not in lexical._before_receiver(text)
 
 
@@ -439,7 +441,7 @@ def test_amex_originator_s_transfer_entry_reads_as_the_same_entry_in_an_ach_des_
     text = lexical.revenue_text(records[0].normalized_description)
     assert not tr.guard_facts(records[0], text)["transfer_no_counterparty"]
     # The payer region still reads the originator and its entry, never the transfer reader's FROM sender (none).
-    assert tc.payer_region(text) == "CONTOSO PAVING TRANSFER"
+    assert descriptor_payer.payer_region(text) == "CONTOSO PAVING TRANSFER"
 
 
 @pytest.mark.parametrize(("text", "transfer"), [
@@ -495,12 +497,12 @@ def test_a_us_bank_s_trailing_words_are_no_cpa_code(rows, expected):
 ])
 def test_the_payer_after_a_digit_block_is_read(text, bank, payer, expected):
     row = text.format(payer=payer)
-    assert payer in tc.payer_region(row)
+    assert payer in descriptor_payer.payer_region(row)
     assert _tiers([(row, 2500.0)], bank=bank) == [expected]
 
 
 def test_navy_federal_payer_printed_without_a_digit_block_keeps_its_region():
-    assert tc.payer_region("DEPOSIT ACH PAID FROM CONTOSO PAVING LLC 030254") == (
+    assert descriptor_payer.payer_region("DEPOSIT ACH PAID FROM CONTOSO PAVING LLC 030254") == (
         "DEPOSIT ACH PAID FROM CONTOSO PAVING LLC")
 
 
@@ -523,7 +525,7 @@ def test_navy_federal_payer_printed_without_a_digit_block_keeps_its_region():
     ("CORPORATE ACH PAYROLL CONTOSO PAVING 00026001000000001", False),
 ])
 def test_payer_label_layout(text, layout):
-    assert tc.payer_label_layout(lexical.revenue_text(description_text.normalize_transaction_description(text))) is layout
+    assert descriptor_payer.payer_label_layout(lexical.revenue_text(description_text.normalize_transaction_description(text))) is layout
 
 
 # Audit round 2, R2-B03 (R05; I01, Q2, the registry's note: a bank's name is never the payer's name): a payer region
@@ -742,7 +744,7 @@ def test_r3_31_every_own_spelling_is_a_listed_sending_bank_name():
 def test_a_claimed_or_verified_row_never_takes_the_bank_only_pull():
     [record] = _records([("ACH CREDIT SAMPLE STATE BANK", 2600.0)], bank=RELAY)
     text = lexical.revenue_text(record.normalized_description)
-    region = tc.payer_region(text)
+    region = descriptor_payer.payer_region(text)
     assert tr._bank_only_pull(record, text, region)
     assert not tr._bank_only_pull(replace(record, revenue_match_method="recurring_operating_source"), text, region)
     assert not tr._bank_only_pull(replace(record, revenue_classification="verified_revenue"), text, region)
@@ -798,7 +800,7 @@ def test_r41_the_holder_s_own_accounts_payable_push_is_never_verified(text):
 def test_r41_the_holder_funding_its_american_express_account_is_held(text):
     assert _tiers([(text, 1000.0)], holder=PRODUCT, bank="American Express") == [HOLDER_HELD]
     assert _tiers([(text, 1000.0), (text, 1250.0)], holder=PRODUCT, bank="American Express") == [HOLDER_HELD] * 2
-    assert tr.self_originated(text, tc.payer_region(text), "American Express")
+    assert tr.self_originated(text, descriptor_payer.payer_region(text), "American Express")
 
 
 def test_r41_an_own_push_never_makes_another_row_a_repeat():
@@ -924,7 +926,7 @@ def test_r06_the_other_readings_beside_the_labels_are_unchanged(bank, text, expe
     ("PREAUTH CREDIT", ""),
 ])
 def test_r06_the_payer_region_starts_after_the_label(text, region):
-    assert tc.payer_region(text) == region
+    assert descriptor_payer.payer_region(text) == region
 
 
 @pytest.mark.parametrize("text", [
@@ -937,8 +939,8 @@ def test_r06_the_payer_region_starts_after_the_label(text, region):
 def test_r06_a_wire_credit_label_is_no_financing_root_and_the_row_stays_a_wire(text):
     assert not financing._names_financing(tc._wire_financing_text(text))
     # The label is removed from the veto's text only: the row still reads as a wire, its sender after ORG.
-    assert tc._is_wire_row(text)
-    assert tc.payer_region(text) == "FABRIKAM SUPPLY INC"
+    assert rails._is_wire_row(text)
+    assert descriptor_payer.payer_region(text) == "FABRIKAM SUPPLY INC"
     # A lender's name after the label still vetoes.
     assert financing._names_financing(tc._wire_financing_text(text.replace("FABRIKAM SUPPLY INC", "SAMPLE CREDIT CORP")))
 
@@ -1135,7 +1137,7 @@ def test_r3_41_the_row_before_the_receiver_block_keeps_the_template_s_external(t
     else:
         assert row == text
     assert lexical._before_receiver(row) == row
-    assert "EXTERNAL" not in tc.payer_region(text)
+    assert "EXTERNAL" not in descriptor_payer.payer_region(text)
 
 
 @pytest.mark.parametrize("text", [

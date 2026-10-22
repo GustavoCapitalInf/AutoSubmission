@@ -232,10 +232,10 @@ def test_r38_the_controls_keep_their_readings(text, bank, expected):
 
 
 def test_r38_the_sender_ends_at_the_payment_id_label():
-    from analysis import transaction_classifier as tc
+    from analysis.descriptor import payer
 
-    assert tc.payer_region(R38_TRUIST.format(sender="PAT SAMPLELENDEZ TRANSPORT")) == "PAT SAMPLELENDEZ TRANSPORT"
-    assert tc.payer_region("ZELLE PAYMENT FROM PAT SAMPLE PAYMENT INFO RENT") == "PAT SAMPLE"
+    assert payer.payer_region(R38_TRUIST.format(sender="PAT SAMPLELENDEZ TRANSPORT")) == "PAT SAMPLELENDEZ TRANSPORT"
+    assert payer.payer_region("ZELLE PAYMENT FROM PAT SAMPLE PAYMENT INFO RENT") == "PAT SAMPLE"
 
 
 def test_a_layout_s_entry_word_after_a_cut_name_is_no_credit_root():
@@ -1629,9 +1629,9 @@ def test_r34_a_distributor_with_no_form_on_an_open_ended_sender_is_held():
     ("TRANSFER IN FROM CONTOSO DISTRIBUTION", ""),
 ])
 def test_r34_the_payer_s_name_proper(text, proper):
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import payer
 
-    region = classifier.payer_region(text)
+    region = payer.payer_region(text)
     assert tr._payer_name_proper(text, region) == (region if proper is None else proper)
 
 
@@ -2330,10 +2330,10 @@ def test_q9_the_relabel_follows_the_unread_branch(monkeypatch):
 # Units: where the roots fire (_financing_root_places), the label-less refusal, the rent readings, the lessor.
 
 def _places(raw: str, *, holder: str | None = HOLDER, bank: str | None = None):
-    from analysis import transaction_classifier as classifier
+    from analysis.descriptor import payer
 
     text = revenue_text(normalize_transaction_description(raw))
-    region, entry = classifier.payer_region(text), classifier.entry_fields(text)
+    region, entry = payer.payer_region(text), payer.entry_fields(text)
     places = tr._financing_root_places(text, region, entry, holder, bank=bank)
     assert bool(places) == tr.financing_named(text, region, entry, holder, bank=bank)
     return places

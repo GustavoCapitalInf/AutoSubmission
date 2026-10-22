@@ -8,6 +8,9 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import credit_words
+from analysis.descriptor import payer
+from analysis.descriptor import rails
 from analysis.descriptor import lexical
 from analysis.descriptor import words as descriptor_words
 from analysis import classification_registry
@@ -21,7 +24,7 @@ def _text(printed: str) -> str:
 
 
 def _region(printed: str) -> str:
-    return tc.payer_region(_text(printed))
+    return payer.payer_region(_text(printed))
 
 
 @pytest.mark.parametrize(("printed", "entity", "form"), [
@@ -79,13 +82,13 @@ def test_the_operating_alias_never_reads_a_receiver_value(printed, entity):
 
 
 def test_the_receiver_value_goes_and_the_fields_after_it_stay():
-    bofa = tc._without_receiver_value(_text(
+    bofa = rails._without_receiver_value(_text(
         "BANKCARD SYS DES:MERCH DEP ID:1 INDN:FABRIKAM BAKERY CO ID:1 CCD PMT INFO:WORLDPAY MERCH DEP"))
     assert "FABRIKAM" not in bofa and "INDN" not in bofa
     assert bofa.split() == "BANKCARD SYS DES MERCH DEP ID 1 CO ID 1 CCD PMT INFO WORLDPAY MERCH DEP".split()
-    chase = tc._without_receiver_value(_text(f"ORIG CO NAME:SQUARE INC {_CHASE_FIELDS} IND NAME:FABRIKAM TRN: 1TC"))
+    chase = rails._without_receiver_value(_text(f"ORIG CO NAME:SQUARE INC {_CHASE_FIELDS} IND NAME:FABRIKAM TRN: 1TC"))
     assert "FABRIKAM" not in chase and "IND" not in chase.split() and chase.split()[-2:] == ["TRN", "1TC"]
-    assert tc._without_receiver_value(_text("SQUARE INC DES:TRANSFER ID:1")) == _text("SQUARE INC DES:TRANSFER ID:1")
+    assert rails._without_receiver_value(_text("SQUARE INC DES:TRANSFER ID:1")) == _text("SQUARE INC DES:TRANSFER ID:1")
 
 
 
@@ -160,7 +163,7 @@ def test_the_reversal_rule_and_the_card_credit_release(printed, reversal):
 def test_a_processor_card_credit_with_a_payout_word_is_released(printed, released):
     # §7.11: the second release of _card_credit_released (a merchant-processor or invoice source and a payout word).
     text = _text(printed)
-    assert tc._CARD_CREDIT_PUSH_WORD.search(text) is None
+    assert credit_words._CARD_CREDIT_PUSH_WORD.search(text) is None
     assert tc._operating_source(text).source_type == "merchant_processor"
     assert tc._card_credit_released(text) is released
     assert tc._reversal_credit(text) is not released
@@ -173,8 +176,8 @@ def test_a_processor_card_credit_with_a_payout_word_is_released(printed, release
 def test_the_return_codes_decide_a_row_on_their_own(printed, reversal):
     # §7.11: _RETURN_CODE_CREDIT_PATTERNS, on a row no reversal or cancellation pattern reads.
     text = _text(printed)
-    assert not tc._matches_any(text, descriptor_words._REVERSAL_CANCELLATION_CREDIT_PATTERNS)
-    assert tc._matches_any(text, tc._RETURN_CODE_CREDIT_PATTERNS) is reversal
+    assert not rails._matches_any(text, descriptor_words._REVERSAL_CANCELLATION_CREDIT_PATTERNS)
+    assert rails._matches_any(text, credit_words._RETURN_CODE_CREDIT_PATTERNS) is reversal
     assert tc._reversal_credit(text) is reversal
 
 
@@ -194,11 +197,11 @@ def test_a_glued_claim_entry_is_split_for_the_lookups():
 
 def test_the_payer_guards():
     text = _text("CONTOSO BAKERY LLC DES:VENDOR PAY ID:1")
-    assert tc._refused_by_payer_guards(text, tc.payer_region(text), "CONTOSO BAKERY LLC") == "holder"
+    assert tc._refused_by_payer_guards(text, payer.payer_region(text), "CONTOSO BAKERY LLC") == "holder"
     numbered = _text("1234567 NOVA SCOTIA LTD DES:VENDOR PAY ID:1")
-    assert tc._refused_by_payer_guards(numbered, tc.payer_region(numbered), "SAMPLE CAFE LLC") == "numbered"
+    assert tc._refused_by_payer_guards(numbered, payer.payer_region(numbered), "SAMPLE CAFE LLC") == "numbered"
     clean = _text("FABRIKAM SUPPLY DES:VENDOR PAY ID:1")
-    assert tc._refused_by_payer_guards(clean, tc.payer_region(clean), "SAMPLE CAFE LLC") is None
+    assert tc._refused_by_payer_guards(clean, payer.payer_region(clean), "SAMPLE CAFE LLC") is None
 
 
 @pytest.mark.parametrize(("printed", "remittance"), [
@@ -211,7 +214,7 @@ def test_the_payer_guards():
 ])
 def test_the_payer_remittance(printed, remittance):
     text = _text(printed)
-    assert tc._payer_remittance(text, tc.payer_region(text), "SAMPLE CAFE LLC") is remittance
+    assert tc._payer_remittance(text, payer.payer_region(text), "SAMPLE CAFE LLC") is remittance
 
 
 @pytest.mark.parametrize(("printed", "rule"), [
@@ -237,7 +240,7 @@ BOFA = ("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:20540102001234 SEQ:1234/
 ])
 def test_the_invoice_wire(orig, purpose, verifies):
     text = _text(BOFA.format(orig=orig, purpose=purpose))
-    assert tc._wire_remittance_purpose(text, tc.payer_region(text), "CONTOSO TRADING LLC") is verifies
+    assert tc._wire_remittance_purpose(text, payer.payer_region(text), "CONTOSO TRADING LLC") is verifies
 
 
 @pytest.mark.parametrize(("region", "cut"), [
@@ -294,7 +297,7 @@ def test_a_wire_from_a_title_or_escrow_firm_is_vetoed():
     # Review I6 (§8.5's senders): a title or escrow firm's wire carries sale, closing or escrow money.
     text = _text("WIRE TYPE:WIRE IN DATE:540102 TIME:1200 ET TRN:1 ORIG:CONTOSO TITLE AGENCY LLC ID:1 "
                  "SND BK:SAMPLE BANK ID:1 PMT DET:INVOICE 1042")
-    assert tc._wire_vetoed(text, tc.payer_region(text), "NORTHWIND LABS LLC")
+    assert tc._wire_vetoed(text, payer.payer_region(text), "NORTHWIND LABS LLC")
 
 
 @pytest.mark.parametrize(("printed", "vetoed"), [
@@ -357,5 +360,5 @@ def test_a_glued_card_veto_word(printed, label):
 
 
 def test_the_counter_debit_skip_words_hold_the_channel_vocabulary():
-    words = tc._counter_debit_skip_words()
+    words = rails._counter_debit_skip_words()
     assert {"CHECKCARD", "OVERDRAFT", "WITHDRAW", "PURCHASES"} <= words

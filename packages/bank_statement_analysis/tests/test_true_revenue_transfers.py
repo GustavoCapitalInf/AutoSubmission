@@ -11,7 +11,8 @@ import pytest
 
 from analysis import true_revenue
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions, prints_internal_transfer_designation
+from analysis.transaction_classifier import classify_statement_transactions
+from analysis.descriptor.rails import prints_internal_transfer_designation
 from analysis.descriptor.lexical import revenue_text
 from analysis.description_text import normalize_transaction_description
 
@@ -430,22 +431,22 @@ def test_r28_the_controls_keep_their_readings(layout, name, entry, reading):
 
 @pytest.mark.parametrize("text", ["INTERNET XFR FRM CHECKG 1234", "TRF CT INTERNET D123"])
 def test_r28_rows_with_no_originator_field_keep_their_transfer_wording(text):
-    from analysis import transaction_classifier
+    from analysis.descriptor import payer
     from analysis import description_text
 
-    found = transaction_classifier.credit_transfer_wording(text)
+    found = payer.credit_transfer_wording(text)
     assert found is not None and found.span() == description_text._TRANSFER_WORDING.search(text).span()
 
 
 def test_r28_the_helper_blanks_only_the_originator_name_s_transfer_tokens():
-    from analysis import transaction_classifier
+    from analysis.descriptor import payer
 
-    assert transaction_classifier.credit_transfer_wording("CONTOSO TRF LLC DES PAYMENT ID 1") is None
+    assert payer.credit_transfer_wording("CONTOSO TRF LLC DES PAYMENT ID 1") is None
     row = "CONTOSO TRF LLC DES TRANSFER ID 1"
-    found = transaction_classifier.credit_transfer_wording(row)
+    found = payer.credit_transfer_wording(row)
     assert found is not None and found.group(0) == "TRANSFER" and found.start() == row.index("DES TRANSFER") + 4
     # No company form once the token is out: the name's own word is read.
-    assert transaction_classifier.credit_transfer_wording("SAMPLE BANK XFER DES PAYMENT ID 1").group(0) == "XFER"
+    assert payer.credit_transfer_wording("SAMPLE BANK XFER DES PAYMENT ID 1").group(0) == "XFER"
 
 
 # Audit round 2, R2-B09 review round 1 (R28): a transfer's phrase (FROM, FRM, FR, TO, BETWEEN) is never a company's own
@@ -494,9 +495,9 @@ def test_r28_a_named_transfer_s_round_repeats_printing_a_town_stay_held():
     ("CONTOSO TRF LLC DES CORP PAY INDN NORTHWIND PLUMBING LLC", None),
 ])
 def test_r28_the_helper_reads_a_phrase_or_a_town_s_des_as_transfer_wording(row, wording):
-    from analysis import transaction_classifier
+    from analysis.descriptor import payer
 
-    found = transaction_classifier.credit_transfer_wording(row)
+    found = payer.credit_transfer_wording(row)
     assert (found.group(0) if found is not None else None) == wording
 
 
@@ -531,9 +532,9 @@ def test_r3_88_a_town_s_des_before_a_field_word_keeps_the_transfer_reading(text)
     ("CONTOSO TRF LLC DES MOINESCO PAYMENT ID 1", True),
 ])
 def test_r3_88_the_originator_field_never_opens_on_a_town_s_des(row, field):
-    from analysis import transaction_classifier
+    from analysis.descriptor import payer
 
-    assert (transaction_classifier._ORIGINATOR_NAME_FIELD.search(row) is not None) is field
+    assert (payer._ORIGINATOR_NAME_FIELD.search(row) is not None) is field
 
 
 @pytest.mark.parametrize(("text", "reading"), [

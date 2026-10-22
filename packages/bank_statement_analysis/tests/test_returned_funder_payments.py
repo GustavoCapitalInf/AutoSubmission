@@ -31,6 +31,7 @@ from dataclasses import asdict, fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import credit_words
 from analysis import description_text
 from analysis.detect import detect
 from analysis.metrics import WITHHOLDING_FORMULA, compute_metrics
@@ -343,7 +344,7 @@ def test_the_bounce_forms(text, bounce):
 
 def test_the_french_arms_are_r2_b08_s_arms_a_and_c():
     patterns = [pattern.pattern for pattern in tc._RETURNED_PAYMENT_CREDIT_PATTERNS]
-    assert patterns[-2:] == [tc._RETURN_REFUND_R2_B08_ARMS[0], tc._RETURN_REFUND_R2_B08_ARMS[2]]
+    assert patterns[-2:] == [credit_words._RETURN_REFUND_R2_B08_ARMS[0], credit_words._RETURN_REFUND_R2_B08_ARMS[2]]
     assert tc.RETURNED_FUNDER_PAYMENT_WINDOW_DAYS == 7
 
 

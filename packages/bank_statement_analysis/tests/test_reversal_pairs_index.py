@@ -20,6 +20,7 @@ from dataclasses import asdict
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import rails
 from analysis import dates
 from analysis.transaction_classifier import TransactionClassification
 
@@ -32,7 +33,7 @@ def _reference_reversal_pairs(records, duplicate_indexes, markers, marked=None, 
     def has_marker(index):
         if index not in marked:
             text = records[index].normalized_description
-            marked[index] = tc._matches_any(text, markers) or (
+            marked[index] = rails._matches_any(text, markers) or (
                 records[index].amount > 0 and tc._credit_pair_marker(text, credit_markers)
             )
         return marked[index]

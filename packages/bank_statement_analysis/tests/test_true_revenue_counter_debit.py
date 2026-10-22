@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
 from analysis.schema import Statement, Transaction
@@ -573,7 +574,7 @@ def test_the_payroll_tax_word_is_read_on_the_payer_region_and_the_entry_fields(t
     from analysis.true_revenue import payroll_tax_credit
 
     revenue = lexical.revenue_text(description_text.normalize_transaction_description(text))
-    assert payroll_tax_credit(revenue, tc.payer_region(revenue)) is expected
+    assert payroll_tax_credit(revenue, descriptor_payer.payer_region(revenue)) is expected
 
 
 def test_a_three_letter_word_other_than_a_payroll_provider_is_still_no_counter_debit_word():
@@ -887,7 +888,7 @@ def test_r01_the_credit_s_payout_forms(text, settlement):
 
     record = tc.classify_transaction(text, 500.0, direction="credit")
     revenue = lexical.revenue_text(record.normalized_description)
-    assert counter_credit(record, revenue, tc.payer_region(revenue)).settlement is settlement
+    assert counter_credit(record, revenue, descriptor_payer.payer_region(revenue)).settlement is settlement
 
 
 @pytest.mark.parametrize(("text", "kind", "card"), [
@@ -1093,7 +1094,7 @@ def test_ow05_payer_collects_on_the_statement_s_own_debits():
     def collects(debit, holder="NORTHWIND LABS INC"):
         records = _records([("NORTHWIND FINANCIAL GROUP DES:PAYABLES ID:1", 4200.0), debit], holder=holder)
         text = lexical.revenue_text(records[0].normalized_description)
-        return _payer_collects(counter_credit(records[0], text, tc.payer_region(text)), counter_debits(records, set()))
+        return _payer_collects(counter_credit(records[0], text, descriptor_payer.payer_region(text)), counter_debits(records, set()))
 
     # A same-payer debit the classifier reads as no lender ('other'), and a lender's debit.
     assert collects(("NORTHWIND FINANCIAL DES:ACH DEBIT ID:2", -500.0))
@@ -1130,7 +1131,7 @@ def test_ow09_the_release_reads_the_hidden_loan_guard_last(debit, released):
 
     records = _records(rows)
     text = lexical.revenue_text(records[0].normalized_description)
-    region, entry = tc.payer_region(text), tc.entry_fields(text)
+    region, entry = descriptor_payer.payer_region(text), descriptor_payer.entry_fields(text)
     reason = tr.finance_named_release(records[0], text, region=region, entry=entry,
                                       debits=tr.counter_debits(records, set()))
     assert reason == ("finance_named_customer" if released else None)
@@ -1269,7 +1270,7 @@ def test_r3_03_the_released_insurer_fact():
                     holder="CONTOSO BAKERY LLC")[0]
     for record, flags in ((released, (False, True)), (held, (True, False))):
         text = lexical.revenue_text(record.normalized_description)
-        credit = counter_credit(record, text, tc.payer_region(text))
+        credit = counter_credit(record, text, descriptor_payer.payer_region(text))
         assert (credit.insurer, credit.released_insurer) == flags
 
 
@@ -1400,7 +1401,7 @@ def test_r3_77_a_chase_credit_named_insurance_keeps_its_word():
 
     record = _credits(_records([("INSURANCE AUTO AUCTIONS DES:SELLER PMT ID:0001", 2400.0)], bank="Chase"))[0]
     text = lexical.revenue_text(record.normalized_description)
-    credit = counter_credit(record, text, tc.payer_region(text))
+    credit = counter_credit(record, text, descriptor_payer.payer_region(text))
     assert credit.reading.legacy == "INSURANCE" and "INSURANCE" in credit.reading.keys
 
 
