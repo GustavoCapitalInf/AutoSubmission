@@ -565,10 +565,10 @@ def test_the_withholding_basis_loses_the_moved_deposit_in_the_true_revenue_mode_
 
 
 def test_the_package_downloads_list_each_match_and_each_flag():
-    from webapp.app import _package_csv
+    from webapp.package_export import package_csv
 
     march, april = _owners_example([*APRIL, *CHARGEBACK_ROWS[1:2]])
-    rows = list(csv.reader(io.StringIO(_package_csv(_package(("mar", march), ("apr", april))))))
+    rows = list(csv.reader(io.StringIO(package_csv(_package(("mar", march), ("apr", april))))))
     cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
     assert cells[("package_match_1", "kind")] == "returned_deposit"
     assert json.loads(cells[("package_match_1", "credit")])["source_location"] == "transaction:2"
@@ -1077,10 +1077,10 @@ def test_q4_never_moves_a_debit_or_a_gross_figure(monkeypatch):
 
 
 def test_q4_s_matches_download_with_the_package():
-    from webapp.app import _package_csv
+    from webapp.package_export import package_csv
 
     package = _owners_transfer()
-    rows = list(csv.reader(io.StringIO(_package_csv(package))))
+    rows = list(csv.reader(io.StringIO(package_csv(package))))
     cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
     assert cells[("package_match_1", "kind")] == "own_account_transfer"
     assert cells[("package_match_1", "moved")] == "True"
@@ -1165,14 +1165,14 @@ def test_r3_72_the_legacy_r_d_deduction_recomputes_the_row(monkeypatch):
 def test_r3_72_the_downloads_carry_the_recomputed_rate():
     import zipfile
 
-    from webapp.app import _package_csv, _package_xlsx
+    from webapp.package_export import package_csv, package_xlsx
 
     february, march = _r3_72_pass_1()
     package = _package(("feb", february), ("mar", march))
-    rows = list(csv.reader(io.StringIO(_package_csv(package))))
+    rows = list(csv.reader(io.StringIO(package_csv(package))))
     cells = {(row[0], row[1]): row[2] for row in rows[1:] if len(row) == 3}
     assert float(cells[("document_1", "withholding_rate")]) == pytest.approx(20.0)
     assert float(cells[("document_1", "potential_withholding_exposure")]) == pytest.approx(10.0)
-    with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as archive:
+    with zipfile.ZipFile(io.BytesIO(package_xlsx(package))) as archive:
         sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
     assert "<v>20.0</v>" in sheet and "<v>10.0</v>" in sheet

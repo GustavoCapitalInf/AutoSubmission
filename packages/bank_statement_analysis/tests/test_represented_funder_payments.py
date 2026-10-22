@@ -532,7 +532,7 @@ def test_ff_f2_a_member_row_s_rate_is_its_own_numerator_over_its_own_basis():
     3,400.00 over 30,000.00, beside a numerator of 2,550.00. A member row divides the numerator it prints by the basis
     it prints (R3-72's ruling), whichever of the two the package moved."""
     from tests.test_package_matching import _package
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     march, april = _months([*MARCH, (28, BARE_BOUNCE, 850.0)],
                            [(2, NW_APRIL, 30000.0), (3, KAPITUS_BAKERY, -850.0)]

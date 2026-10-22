@@ -23,15 +23,14 @@ from webapp.app import (
     MAX_UPLOAD_BYTES,
     MAX_UPLOAD_FILES,
     MAX_UPLOAD_PAGES,
-    _escape_formula,
-    _mask_account,
-    _masked,
     _safe_download_name,
     _server_config,
     app,
     main,
     store,
 )
+from webapp.export_view import _mask_account, masked
+from webapp.spreadsheet import _escape_formula
 
 
 ACCOUNT = "XXXXXX987654321"
@@ -439,9 +438,9 @@ _XML_FORBIDDEN = ["\x00", "\x01", "\x08", "\x0b", "\x0c", "\x0e", "\x1f", "￾",
 def test_xlsx_sheet_stays_well_formed_with_a_forbidden_character(char):
     from xml.etree import ElementTree
 
-    from webapp.app import _rows_xlsx
+    from webapp.spreadsheet import rows_xlsx
 
-    blob = _rows_xlsx([("posted_credit", "description", f"SAMPLE DEPOSIT{char}REF")])
+    blob = rows_xlsx([("posted_credit", "description", f"SAMPLE DEPOSIT{char}REF")])
     sheet = _sheet_xml(blob)
     ElementTree.fromstring(sheet)  # raises ParseError when the sheet is ill-formed
     assert "<t>SAMPLE DEPOSIT�REF</t>" in sheet
@@ -450,9 +449,9 @@ def test_xlsx_sheet_stays_well_formed_with_a_forbidden_character(char):
 @pytest.mark.parametrize("char", _XML_FORBIDDEN, ids=lambda c: f"U+{ord(c):04X}")
 def test_xlsx_with_a_forbidden_character_opens_in_a_spreadsheet_reader(char):
     openpyxl = pytest.importorskip("openpyxl")
-    from webapp.app import _rows_xlsx
+    from webapp.spreadsheet import rows_xlsx
 
-    blob = _rows_xlsx([("posted_credit", "description", f"SAMPLE{char}")])
+    blob = rows_xlsx([("posted_credit", "description", f"SAMPLE{char}")])
     workbook = openpyxl.load_workbook(io.BytesIO(blob))
     values = [cell.value for row in workbook.active.iter_rows() for cell in row]
     assert "SAMPLE�" in values
@@ -460,13 +459,13 @@ def test_xlsx_with_a_forbidden_character_opens_in_a_spreadsheet_reader(char):
 
 @pytest.mark.parametrize("char", ["\t", "\n", "\r", "\x7f", "\x85", "é", "\U0001f600"])
 def test_xlsx_keeps_the_characters_xml_allows(char):
-    from webapp.app import _xml_escape
+    from webapp.spreadsheet import _xml_escape
 
     assert _xml_escape(f"A{char}B") == f"A{char}B"
 
 
 def test_xml_escape_still_escapes_markup_exactly_as_before():
-    from webapp.app import _xml_escape
+    from webapp.spreadsheet import _xml_escape
 
     assert _xml_escape('CONTOSO & <FABRIKAM> "SAMPLE"') == "CONTOSO &amp; &lt;FABRIKAM&gt; &quot;SAMPLE&quot;"
     assert _xml_escape(-12.5) == "-12.5"
@@ -475,9 +474,9 @@ def test_xml_escape_still_escapes_markup_exactly_as_before():
 def test_a_leading_control_never_lets_a_formula_lead_start_the_cell():
     """Substitute, never delete: `_escape_formula` does not see a leading U+0001 as a formula lead, so deleting it would
     leave "=HYPERLINK(...)" at the start of the cell with no apostrophe."""
-    from webapp.app import _rows_xlsx
+    from webapp.spreadsheet import rows_xlsx
 
-    sheet = _sheet_xml(_rows_xlsx([("statement", "bank", '\x01=HYPERLINK("http://example.invalid")')]))
+    sheet = _sheet_xml(rows_xlsx([("statement", "bank", '\x01=HYPERLINK("http://example.invalid")')]))
     assert '<t>�=HYPERLINK(&quot;http://example.invalid&quot;)</t>' in sheet
     assert "<t>=" not in sheet
     assert "<f>" not in sheet
@@ -529,16 +528,16 @@ def test_mask_account_preserves_absent_values():
 
 
 def test_masked_rewrites_every_account_field_at_any_depth():
-    masked = _masked(_analysis_payload())
-    assert masked["statement"]["account_number"] == MASKED
-    assert masked["statement"]["transactions"][0]["classification"]["account"] == MASKED
-    assert masked["classifications"][0]["account"] == MASKED
-    assert ACCOUNT not in json.dumps(masked)
+    served = masked(_analysis_payload())
+    assert served["statement"]["account_number"] == MASKED
+    assert served["statement"]["transactions"][0]["classification"]["account"] == MASKED
+    assert served["classifications"][0]["account"] == MASKED
+    assert ACCOUNT not in json.dumps(served)
 
 
 def test_masked_does_not_mutate_the_stored_analysis():
     payload = _analysis_payload()
-    _masked(payload)
+    masked(payload)
     assert payload["statement"]["account_number"] == ACCOUNT
     assert payload["classifications"][0]["account"] == ACCOUNT
 

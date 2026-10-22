@@ -147,15 +147,16 @@ def _csv_rows(text):
 
 
 def test_the_statement_downloads_carry_both_figures():
-    from webapp.app import _analysis_csv, _analysis_xlsx, _masked
+    from webapp.export_view import masked
+    from webapp.statement_export import analysis_csv, analysis_xlsx
     from analysis.served_view import displayed
 
     (_march, _april, may), _built = _three_months_package()
-    exported = _masked(displayed(may, settings={}, export=True))
+    exported = masked(displayed(may, settings={}, export=True))
     assert (exported["metrics"]["active_positions"], exported["metrics"]["possible_positions"]) == (2, 1)
-    rows = _csv_rows(_analysis_csv(exported))
+    rows = _csv_rows(analysis_csv(exported))
     assert ["metrics", "active_positions", "2"] in rows and ["metrics", "possible_positions", "1"] in rows
-    with zipfile.ZipFile(io.BytesIO(_analysis_xlsx(exported))) as book:
+    with zipfile.ZipFile(io.BytesIO(analysis_xlsx(exported))) as book:
         sheet = book.read("xl/worksheets/sheet1.xml").decode("utf-8")
     assert "active_positions" in sheet and "possible_positions" in sheet
     # N/A is an empty cell, as the downloads write every figure that is not available.
@@ -163,16 +164,17 @@ def test_the_statement_downloads_carry_both_figures():
     from tests.test_lender_payment_changes_package import _account
 
     del _account(older)["detection"]["lender_payment_changes"]
-    rows = _csv_rows(_analysis_csv(_masked(displayed(older, settings={}, export=True))))
+    rows = _csv_rows(analysis_csv(masked(displayed(older, settings={}, export=True))))
     assert ["metrics", "active_positions", ""] in rows and ["metrics", "possible_positions", ""] in rows
 
 
 def test_the_package_downloads_carry_each_row_s_figures_and_the_months():
-    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+    from webapp.export_view import masked, package_for_export
+    from webapp.package_export import package_csv, package_xlsx
 
     _payloads, built = _three_months_package()
-    exported = _masked(_package_for_export(built))
-    rows = _csv_rows(_package_csv(exported))
+    exported = masked(package_for_export(built))
+    rows = _csv_rows(package_csv(exported))
     found = {(section, field): value for section, field, value in (row[:3] for row in rows if len(row) >= 3)}
     names = {found[(f"document_{index}", "id")]: index for index in (1, 2, 3)}
     assert [(found[(f"document_{names[job]}", "active_positions")],
@@ -182,7 +184,7 @@ def test_the_package_downloads_carry_each_row_s_figures_and_the_months():
              found[(f"active_positions_month_{index}", "active_positions")],
              found[(f"active_positions_month_{index}", "possible_positions")]) for index in (1, 2, 3)] == [
         ("2054-03", "1", "0"), ("2054-04", "2", "0"), ("2054-05", "2", "1")]
-    with zipfile.ZipFile(io.BytesIO(_package_xlsx(exported))) as book:
+    with zipfile.ZipFile(io.BytesIO(package_xlsx(exported))) as book:
         sheet = book.read("xl/worksheets/sheet1.xml").decode("utf-8")
     assert "active_positions_month_1" in sheet
 

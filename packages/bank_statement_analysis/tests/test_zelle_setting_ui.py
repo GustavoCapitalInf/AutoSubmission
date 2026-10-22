@@ -372,7 +372,7 @@ def test_a_package_with_a_member_analysed_before_the_setting_prints_every_part(t
 def test_r3_19_a_package_of_members_analysed_before_the_setting_under_yes(tmp_path, monkeypatch):
     """Audit round 3, R3-B20 (R3-19): under Yes, every member served as analysed: the package's Zelle deposits are
     excluded, as each member serves them; the Non-Revenue note keeps them; the memo never says $0.00 counted."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     analyses = {"mar": _older("Z1"), "apr": _older("Z2", month=4)}
     package, yes = _package_copy(analyses, tmp_path, monkeypatch, True)
@@ -392,7 +392,7 @@ def test_r3_19_a_package_of_legacy_members_under_no(tmp_path, monkeypatch):
     """Audit round 3, R3-B20 (R3-19): under No, every member analysed before the Zelle policy (its Zelle counted, served
     as stored): the package's Zelle deposits count, as its members serve them; the Non-Revenue note drops them; the memo
     says where they sit, with the notice; the download's setting reads No."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     analyses = {"mar": _legacy("Z1"), "apr": _legacy("Z2", month=4)}
     package, no = _package_copy(analyses, tmp_path, monkeypatch, False)

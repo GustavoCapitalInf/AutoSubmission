@@ -1400,7 +1400,7 @@ def test_a_statement_the_package_does_not_count_never_covers_an_interim():
 
 
 def test_the_package_rows_name_an_interim_and_an_overlap_in_words():
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     mtd = _period("mtd", _APRIL[:2], "2031-04-01", "2031-04-20", opening=21000.0)
@@ -1420,15 +1420,16 @@ def test_the_package_rows_name_an_interim_and_an_overlap_in_words():
 
 
 def test_the_interim_and_overlap_words_reach_the_package_downloads():
-    from webapp.app import _package_for_export, _package_csv, _package_xlsx
+    from webapp.export_view import package_for_export
+    from webapp.package_export import package_csv, package_xlsx
     from analysis.package import package_analysis
 
     interim = _period("int", [_APRIL[2], ("2031-05-02", "NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 6000.0)],
                       "2031-04-15", "2031-05-10", opening=30000.0)
-    package = _package_for_export(package_analysis([_april(), interim]))
+    package = package_for_export(package_analysis([_april(), interim]))
     words = "int.pdf and apr.pdf share 1 credit (5,000.00 USD) in the days both cover, counted in both"
-    assert f'overlapping_statement_1,words,"{words}"' in _package_csv(package)
-    with zipfile.ZipFile(io.BytesIO(_package_xlsx(package))) as book:
+    assert f'overlapping_statement_1,words,"{words}"' in package_csv(package)
+    with zipfile.ZipFile(io.BytesIO(package_xlsx(package))) as book:
         assert words in "".join(book.read(name).decode("utf-8") for name in book.namelist() if name.endswith(".xml"))
 
 
@@ -1522,7 +1523,7 @@ def test_a_document_account_printing_more_than_a_month_of_kept_statements_is_lef
 
 
 def test_the_package_rows_name_a_longer_printout_in_words():
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     quarter = _period("q1", _JAN + _FEB + _MAR_Q1, "2031-01-01", "2031-03-31")
@@ -2228,7 +2229,7 @@ def test_a_printout_with_no_posted_row_never_keeps_an_activity_printout_in_the_p
 
 
 def test_the_package_rows_name_a_pair_sharing_no_credit_by_its_days():
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     other = _period("other", [("2031-04-06", "FABRIKAM INC DES:PAYMENT ID:1", 3000.0)], "2031-04-01", "2031-04-20",
@@ -2321,7 +2322,7 @@ def _r15(package):
 def test_a_statement_withheld_for_its_main_account_sends_the_package_to_review(main, reason):
     """R15 T1, T2: January, a February whose main account is held (or idle), March. February stays out of every figure
     (the 2026-09-23 ruling); the package says so and needs review."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     package = package_analysis([_r15_month(1), _r15_document(2, main=main), _r15_month(3)])
@@ -2356,7 +2357,7 @@ def test_an_account_of_a_document_that_did_not_validate_gates_as_it_does_alone()
 
 def test_a_document_whose_transfers_could_not_be_paired_names_both_accounts():
     """R15 T4: the aggregation is refused (Q2) and stays refused; the package needs review and names each account."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     package = package_analysis([_r15_month(1), _r15_document(2, notes=("ambiguous_internal_transfer",))])
@@ -2393,7 +2394,7 @@ def test_a_package_none_of_whose_accounts_counted_needs_review_and_reads_no_figu
 def test_a_package_with_no_exclusion_carries_no_new_key():
     """R15 C1, C2, C4: three clean months, a repeated statement (B11's path) and a document of two validated accounts
     publish no completeness, no excluded_account_count and no excluded_account section; their decisions stand."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     clean = package_analysis([_r15_month(1), _r15_month(2), _r15_month(3)])
@@ -2449,7 +2450,7 @@ _R54_NULLED = ("true_revenue_total", "true_revenue_count", "counted_flagged_tota
 def test_a_package_with_no_analysed_statement_reads_no_revenue_figure(status, failed, pending):
     import csv
 
-    from webapp.app import _package_csv
+    from webapp.package_export import package_csv
     from analysis.package import package_analysis
 
     package = package_analysis([_listed("sample", status=status, filename="sample.pdf")])
@@ -2462,7 +2463,7 @@ def test_a_package_with_no_analysed_statement_reads_no_revenue_figure(status, fa
     # Unchanged: the structural zeros of the currency layer (test_package_currency) and the non-revenue figure.
     assert (totals["total_credits"], totals["avg_monthly_credits"], totals["non_revenue_total"]) == (0.0, 0.0, 0.0)
     assert totals["currency_resolution"] == "no_analyzed_documents"
-    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(package))) if len(row) == 3}
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(package_csv(package))) if len(row) == 3}
     assert cells[("totals", "true_revenue_total")] == "" and cells[("totals", "avg_monthly_true_revenue")] == ""
 
 
@@ -2510,17 +2511,18 @@ _R3_49_PACKAGES = {
 
 
 def _r3_49_downloads(package):
-    """The package's totals as the download route writes them (`_masked(_package_for_export(...))`): the JSON
+    """The package's totals as the download route writes them (`masked(package_for_export(...))`): the JSON
     download's, then the CSV's and the XLSX's `totals` cells."""
     import csv
 
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+    from webapp.export_view import masked, package_for_export
+    from webapp.package_export import package_csv, package_xlsx
 
-    exported = _masked(_package_for_export(package))
-    csv_cells = {row[1]: row[2] for row in csv.reader(io.StringIO(_package_csv(exported)))
+    exported = masked(package_for_export(package))
+    csv_cells = {row[1]: row[2] for row in csv.reader(io.StringIO(package_csv(exported)))
                  if len(row) == 3 and row[0] == "totals"}
-    xlsx_cells = {row[1]: row[2] for row in _sheet_rows(_package_xlsx(exported)) if len(row) == 3 and row[0] == "totals"}
+    xlsx_cells = {row[1]: row[2] for row in _sheet_rows(package_xlsx(exported)) if len(row) == 3 and row[0] == "totals"}
     return exported["totals"], csv_cells, xlsx_cells
 
 
@@ -2613,7 +2615,7 @@ def _r3_47_long_printout():
 
 
 def test_r3_47_the_package_rows_name_a_document_account_left_out_as_a_longer_printout():
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     rows = _package_rows(_r3_47_long_printout())
     assert _repeated_account(rows) == [
@@ -2627,7 +2629,7 @@ def test_r3_47_the_package_rows_name_a_document_account_left_out_as_a_longer_pri
 
 
 def test_r3_47_the_package_rows_name_a_document_account_left_out_as_an_interim():
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     document = _document_with(_ACCOUNT, _APRIL[:2], start="2031-04-01", end="2031-04-20", opening=21000.0)
@@ -2639,7 +2641,7 @@ def test_r3_47_the_package_rows_name_a_document_account_left_out_as_an_interim()
 
 def test_r3_47_the_package_rows_name_a_document_account_repeating_another_statement():
     from analysis.serialization import document_report_to_dict
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
     from analysis.package import package_analysis
 
     alone = _listed("chk", document_report_to_dict(_r15_checking(3)), content="chk")
@@ -2673,18 +2675,19 @@ def test_r3_47_a_whole_repeated_job_keeps_its_document_row_and_duplicate_group()
 
 
 def test_r3_47_the_section_and_its_words_reach_the_package_csv_and_xlsx():
-    """D5: through the download route's chain (`_masked(_package_for_export(...))`, then the writers)."""
+    """D5: through the download route's chain (`masked(package_for_export(...))`, then the writers)."""
     import csv
 
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+    from webapp.export_view import masked, package_for_export
+    from webapp.package_export import package_csv, package_xlsx
 
-    exported = _masked(_package_for_export(_r3_47_long_printout()))
+    exported = masked(package_for_export(_r3_47_long_printout()))
     words = "account 2 of doc.pdf repeats jan.pdf (" + _LONG_PRINTOUT_WORDS + ")"
-    csv_rows = [row for row in csv.reader(io.StringIO(_package_csv(exported))) if row[:1] == ["repeated_account_1"]]
+    csv_rows = [row for row in csv.reader(io.StringIO(package_csv(exported))) if row[:1] == ["repeated_account_1"]]
     assert ["repeated_account_1", "reason", "superseded_long_printout"] in csv_rows
     assert ["repeated_account_1", "words", words] in csv_rows
-    xlsx_rows = [row for row in _sheet_rows(_package_xlsx(exported)) if row[:1] == ["repeated_account_1"]]
+    xlsx_rows = [row for row in _sheet_rows(package_xlsx(exported)) if row[:1] == ["repeated_account_1"]]
     assert ["repeated_account_1", "account_index", 2.0] in xlsx_rows
     assert ["repeated_account_1", "words", words] in xlsx_rows
 
@@ -2733,11 +2736,12 @@ def _r3_62_flat(payload):
     import csv
 
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _analysis_csv, _analysis_xlsx, _masked
+    from webapp.export_view import masked
+    from webapp.statement_export import analysis_csv, analysis_xlsx
     from analysis.served_view import displayed
 
-    exported = _masked(displayed(payload, settings={}, export=True))
-    return (list(csv.reader(io.StringIO(_analysis_csv(exported)))), _sheet_rows(_analysis_xlsx(exported)),
+    exported = masked(displayed(payload, settings={}, export=True))
+    return (list(csv.reader(io.StringIO(analysis_csv(exported)))), _sheet_rows(analysis_xlsx(exported)),
             exported)
 
 
@@ -2773,7 +2777,7 @@ def test_r3_62_a_designation_title_is_written_as_before():
     ("LIABILITY W1", False), ("BILLS", False), ("SAMPLE", False), ("JANE SAMPLE", False), ("JOHN Q EXAMPLE", False),
     ("", False), (None, False)])
 def test_r3_62_a_title_reads_as_a_designation(title, designation):
-    from webapp.app import _designation_title
+    from webapp.statement_export import _designation_title
 
     assert _designation_title(title) is designation
 
@@ -2781,7 +2785,7 @@ def test_r3_62_a_title_reads_as_a_designation(title, designation):
 def test_r3_62_the_export_designation_words_hold_holder_name_s():
     """G3: the export's word list never drifts from the reader's own designation words."""
     from analysis import holder_name
-    from webapp.app import _EXPORT_DESIGNATION_WORDS
+    from webapp.statement_export import _EXPORT_DESIGNATION_WORDS
 
     assert holder_name._DESIGNATION_WORDS <= _EXPORT_DESIGNATION_WORDS
     assert {"ACCOUNT", "ACCT", "CHECKING", "CHEQUING", "SAVINGS", "RECEIVABLE", "RECEIVABLES"} <= (

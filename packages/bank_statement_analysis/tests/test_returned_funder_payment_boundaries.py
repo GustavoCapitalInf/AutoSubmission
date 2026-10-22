@@ -307,7 +307,7 @@ def test_f2b_controls_match_nothing(name):
 
 def test_f2b_the_package_download_lists_the_match():
     from tests.test_package_matching import _package
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     package = _package(*zip(("mar", "apr"), _months(_april())))
     rows = {(section, field): value for section, field, value in _package_rows(package)}
@@ -389,7 +389,7 @@ RETURNED_SECTION_FIELDS = (
 
 def _returned_sections(package):
     """Each `returned_funder_payment_<n>` section of the package rows, {n: {field: value}}, and the fields' order."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     sections, order = {}, {}
     for section, field, value in _package_rows(package):
@@ -479,7 +479,8 @@ def test_r3_67_a_refused_package_keeps_each_returned_payment_in_its_own_unit():
     import io
 
     from tests.test_package_matching import ACCOUNT_B, _package, _payload
-    from webapp.app import _masked, _package_csv, _package_for_export
+    from webapp.export_view import masked, package_for_export
+    from webapp.package_export import package_csv
 
     cad = _payload([(2, NW_MARCH, 30000.0), (5, KAPITUS_BAKERY, -850.0), (6, BARE_BOUNCE, 850.0)], month=3,
                    opening=5000.0, currency="CAD")
@@ -496,32 +497,33 @@ def test_r3_67_a_refused_package_keeps_each_returned_payment_in_its_own_unit():
     # voice), which R3-67's rule carries into the section; every fact of the old words stays.
     assert sections[1]["words"].startswith("KAPITUS: a payment was returned. The 850.00 CAD payment on Mar 5, 2031 ")
     assert sections[2]["words"].startswith("KAPITUS: a payment was returned. The 850.00 USD payment on Mar 7, 2031 ")
-    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(_package_csv(_masked(_package_for_export(
+    cells = {(row[0], row[1]): row[2] for row in csv.reader(io.StringIO(package_csv(masked(package_for_export(
         package))))) if len(row) == 3}
     assert cells[("totals", "returned_funder_payment_total")] == ""
     assert cells[("returned_funder_payment_2", "words")] == sections[2]["words"]
 
 
 def test_r3_67_the_section_reaches_the_package_csv_and_xlsx():
-    """Through the download route's chain (`_masked(_package_for_export(...))`, then the writers), every cell through
+    """Through the download route's chain (`masked(package_for_export(...))`, then the writers), every cell through
     the escaped-row path."""
     import csv
     import io
 
     from tests.test_package_matching import _package
     from tests.test_webapp_true_revenue import _sheet_rows
-    from webapp.app import _masked, _package_csv, _package_for_export, _package_xlsx
+    from webapp.export_view import masked, package_for_export
+    from webapp.package_export import package_csv, package_xlsx
 
-    exported = _masked(_package_for_export(_package(*zip(("mar", "apr"), _months(_april())))))
+    exported = masked(package_for_export(_package(*zip(("mar", "apr"), _months(_april())))))
     # Audit round 3, R3-MERGE: the dashboard's words since the owner's request of 2026-10-07 (the hosting line's plain
     # voice), which R3-67's rule carries into the section; every fact of the old words stays.
     words = ('KAPITUS: a payment was returned. The 850.00 USD payment on Mar 27, 2031 was returned unpaid on Apr 2, 2031 '
              '(the bank printed: "ACH RETURN ITEM NSF"). It isn\'t counted as paid, but it still counts in the withholding '
              'rate. From: mar.pdf → apr.pdf.')
-    csv_rows = list(csv.reader(io.StringIO(_package_csv(exported))))
+    csv_rows = list(csv.reader(io.StringIO(package_csv(exported))))
     assert ["returned_funder_payment_1", "words", words] in csv_rows
     assert ["returned_funder_payment_1", "cross_statement", "True"] in csv_rows
-    xlsx_rows = _sheet_rows(_package_xlsx(exported))
+    xlsx_rows = _sheet_rows(package_xlsx(exported))
     assert ["returned_funder_payment_1", "words", words] in xlsx_rows
     assert ["returned_funder_payment_1", "amount", 850.0] in xlsx_rows
     # The section follows the funder sections.
@@ -555,7 +557,7 @@ def test_r3_67_the_section_s_words_are_the_dashboard_s_warning():
     downloads write money (`850.00 USD`, no unit when the item has none) in place of the dashboard's formatted money."""
     import json
 
-    from webapp.app import _returned_funder_payment_words
+    from webapp.package_export import _returned_funder_payment_words
 
     result = run_dashboard(f"""
 const items = {json.dumps(WARNING_ITEMS)};

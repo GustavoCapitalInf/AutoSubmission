@@ -110,7 +110,7 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
     import zipfile
 
     from analysis.serialization import report_to_dict
-    from webapp.app import _analysis_csv, _analysis_rows, _analysis_xlsx
+    from webapp.statement_export import _analysis_rows, analysis_csv, analysis_xlsx
     from analysis.package import package_analysis
     from webapp.jobs import Job
 
@@ -134,11 +134,11 @@ def _assert_withheld_adb_is_not_public(report, filename: str) -> None:
         section == "adb" and field in {"average_daily_balance", "daily_balance_sum"}
         for section, field, _ in rows
     )
-    csv_export = _analysis_csv(payload)
+    csv_export = analysis_csv(payload)
     assert "adb_daily_balance" not in csv_export
     assert "adb,average_daily_balance" not in csv_export
 
-    workbook = _analysis_xlsx(payload)
+    workbook = analysis_xlsx(payload)
     with zipfile.ZipFile(io.BytesIO(workbook)) as archive:
         sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
     assert "adb_daily_balance" not in sheet

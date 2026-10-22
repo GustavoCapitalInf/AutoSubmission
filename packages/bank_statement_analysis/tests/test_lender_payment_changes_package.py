@@ -302,15 +302,16 @@ def test_r3_83_inside_the_grace_window_the_funder_continues_from_another_account
 
 
 def test_r3_83_the_package_download_carries_the_reappearance():
-    from webapp.app import _lender_payment_change_rows, _package_rows
+    from webapp.package_export import _package_rows
+    from webapp.statement_export import lender_payment_change_rows
 
     built = r3_83(every(date(2054, 7, 2), date(2054, 7, 30)))
     rows = {(section, name): value for section, name, value in _package_rows(built)}
     assert tuple(rows[("lender_payment_change_1", f"reappears_in_other_account.{name}")] for name in (
         "source_document", "first_date", "amount", "covered_business_days")) == ("b-july.pdf", "2054-07-02", 1700.0, 38)
     assert rows[("lender_payment_change_1", "continues_in_other_account.source_document")] == ""
-    names = [name for _section, name, _value in _lender_payment_change_rows(built["lender_payment_changes"],
-                                                                            package=True)]
+    names = [name for _section, name, _value in lender_payment_change_rows(built["lender_payment_changes"],
+                                                                           package=True)]
     start = names.index("continues_in_other_account.source_document")
     assert names[start:start + 7] == [
         "continues_in_other_account.source_document", "continues_in_other_account.first_date",
@@ -319,7 +320,7 @@ def test_r3_83_the_package_download_carries_the_reappearance():
         "reappears_in_other_account.covered_business_days"]
     # A statement's own download carries no package note.
     assert not any(name.startswith("reappears_in_other_account") for _section, name, _value in
-                   _lender_payment_change_rows(built["lender_payment_changes"]))
+                   lender_payment_change_rows(built["lender_payment_changes"]))
 
 
 def test_r3_83_covered_business_days():
@@ -430,7 +431,8 @@ def test_p14_a_one_member_chain_equals_its_statement_but_for_its_scope_and_sourc
 
 # ------------------------------------------------------------------------------------------------- P13: exports
 def test_p13_the_statement_and_package_downloads():
-    from webapp.app import _analysis_csv, _analysis_rows, _package_csv, _package_rows
+    from webapp.package_export import _package_rows, package_csv
+    from webapp.statement_export import _analysis_rows, analysis_csv
 
     march, april = p1()
     two_months = statement_payload(debits(bdays(M(2), M(13)), 850) + debits(bdays(M(16), M(25)), 600), month=3)
@@ -440,7 +442,7 @@ def test_p13_the_statement_and_package_downloads():
     assert sections[("lender_payment_change_1", "change_percent")] == -29
     assert sections[("lender_payment_change_1", "after_funding.date")] == ""
     assert not any(section == "detection" and field == "lender_payment_changes" for section, field, _ in rows)
-    assert "lender_payment_change_1" in _analysis_csv(two_months)
+    assert "lender_payment_change_1" in analysis_csv(two_months)
     built = package(job("march", march), job("april", _strip(april)))
     built["lender_payment_changes"] = package(job("march", march), job("april", april))["lender_payment_changes"]
     package_rows = {(section, field): value for section, field, value in _package_rows(built)}
@@ -453,7 +455,7 @@ def test_p13_the_statement_and_package_downloads():
         assert package_rows[("lender_payment_change_1", f"reappears_in_other_account.{name}")] == ""
     assert package_rows[("lender_payment_unchecked_1", "source_document")] == "april.pdf"
     assert package_rows[("lender_payment_unchecked_1", "reason")] == "analysed_before_check"
-    assert "lender_payment_unchecked_1" in _package_csv(built)
+    assert "lender_payment_unchecked_1" in package_csv(built)
     exported = [field for section, field, _ in _package_rows(built) if section.startswith("lender_payment_")]
     assert "account" not in exported and "account_number" not in exported
 
@@ -462,13 +464,13 @@ def test_r1_the_downloads_carry_each_step_and_what_ended_a_pause():
     """R2-OW18 review round 1: a change's unreported levels with the step into each and the last step, and a pause's
     resuming presence and the date payments resumed, in the download sections (fabricated module items)."""
     from tests import test_lender_payment_changes as pure
-    from webapp.app import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, _lender_payment_change_rows
+    from webapp.statement_export import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, lender_payment_change_rows
 
     steps = pure.only(pure._rows(pure.every(M(2), M(16)), 1000) + pure._rows(pure.every(M(23), A(6)), 950)
                       + pure._rows(pure.every(A(13), A(27)), 650), end=A(30))
     pause = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31)), 850)
                       + pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99"))
-    rows = {(section, name): value for section, name, value in _lender_payment_change_rows([steps, pause])}
+    rows = {(section, name): value for section, name, value in lender_payment_change_rows([steps, pause])}
     assert rows[("lender_payment_change_1", "via")] == "weekly 950.0 (-5%)"
     assert rows[("lender_payment_change_1", "last_step_percent")] == -32
     assert rows[("lender_payment_change_2", "first_after_kind")] == "attempt"
@@ -485,7 +487,7 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
     a stop's catch-up count and earlier large debits, a Caught up item and the same-amount note, as cells, empty where
     an item carries none (fabricated module items)."""
     from tests import test_lender_payment_changes as pure
-    from webapp.app import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, _lender_payment_change_rows
+    from webapp.statement_export import LENDER_PAYMENT_CHANGE_EXPORT_FIELDS, lender_payment_change_rows
 
     pause_rows = pure.bdays(M(2), M(6)) + pure.bdays(M(23), M(31))
     catch_up = pure.only(pure._rows(pause_rows, 300) + pure._rows([M(16)], 1800))
@@ -496,7 +498,7 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
                        + pure._rows([A(20)], 5000), start=pure.F(1), end=pure.J(30))
     caught = pure.only(pure._rows(pure.bdays(M(2), M(13)) + pure.bdays(M(19), M(31)), 850) + pure._rows([M(18)], 1700))
     noted = pure.only(pure._rows(pure.bdays(M(2), M(13)), 850) + pure._other(pure.bdays(M(16), M(31)), 850))
-    rows = {(section, name): value for section, name, value in _lender_payment_change_rows(
+    rows = {(section, name): value for section, name, value in lender_payment_change_rows(
         [catch_up, larger, stop, payoff, caught, noted])}
 
     def cells(number, *names):
@@ -520,7 +522,7 @@ def test_r3_b05_the_downloads_carry_catch_ups_larger_debits_and_same_amount_debi
     attempt = pure._rows([M(16)], 850, returned_funder_payment_by="transaction:99")
     inside = pure.only(pure._rows(pure.bdays(M(2), M(6)) + pure.bdays(M(18), M(31)), 850) + attempt
                        + pure._rows([M(17)], 1700))
-    [cell] = [value for _section, name, value in _lender_payment_change_rows([inside]) if name == "catch_ups_inside"]
+    [cell] = [value for _section, name, value in lender_payment_change_rows([inside]) if name == "catch_ups_inside"]
     assert cell == "2054-03-17 1700.0 2x"
     fields = list(LENDER_PAYMENT_CHANGE_EXPORT_FIELDS)
     assert fields[fields.index("resumed_date") + 1:fields.index("resumed_date") + 5] == [
@@ -567,7 +569,7 @@ def test_r3_b05_r1_a_package_stop_whose_last_presence_is_a_catch_up_in_an_earlie
     """Audit round 3, R3-B05, review round 1 (finding 1): KAPITUS weekly 1,000.00 on 03-03, 03-10 and 03-17, then
     2,000.00 on 03-27 (the 03-24 payment missed), and an April statement with no KAPITUS debit. The package view and
     its downloads build: the stop confirms on April, names the catch-up, and no Caught up line repeats it."""
-    from webapp.app import _package_rows
+    from webapp.package_export import _package_rows
 
     march = statement_payload(debits([M(3), M(10), M(17)], 1000) + debits([M(27)], 2000), month=3)
     april = statement_payload([], month=4, opening=closing(march))
@@ -582,9 +584,9 @@ def test_r3_b05_r1_a_package_stop_whose_last_presence_is_a_catch_up_in_an_earlie
 
 
 def test_p13_the_package_json_download_carries_both_keys():
-    from webapp.app import _package_for_export
+    from webapp.export_view import package_for_export
 
     march, april = p1()
     built = package(job("march", march), job("april", _strip(april)))
-    exported = _package_for_export(built)
+    exported = package_for_export(built)
     assert "lender_payment_changes" in exported and "lender_payment_changes_unchecked" in exported

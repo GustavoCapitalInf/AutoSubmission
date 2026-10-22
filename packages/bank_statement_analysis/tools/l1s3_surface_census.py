@@ -117,11 +117,11 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
      "one observation per account; a count has no document-level meaning"),
     ("analysis/revenue.py", "rebuild_serialized_revenue_views", "per_account",
      "revenue is a property of a ledger; it rebuilt every view over an empty one"),
-    ("webapp/app.py", "_analysis_rows", "per_account",
+    ("webapp/statement_export.py", "_analysis_rows", "per_account",
      "the CSV/XLSX sheet; it returned zero rows for a document that reconciled"),
-    ("webapp/app.py", "_adb_rows", "agnostic",
+    ("webapp/statement_export.py", "_adb_rows", "agnostic",
      "reads a metrics block, never the statement key; reached per account"),
-    ("webapp/app.py", "_masked", "agnostic",
+    ("webapp/export_view.py", "masked", "agnostic",
      "key-name based and already account-count agnostic"),
     ("analysis/package/members.py", "package_members", "per_account",
      "package membership: each account on its OWN validation, no duplicate digest"),
@@ -157,12 +157,12 @@ READERS: tuple[tuple[str, str, str, str], ...] = (
     # Audit B11 (true revenue §9.2, §10.4, §10.8).
     ("analysis/package/model.py", "stored_accounts", "per_account",
      "a package job's accounts for its duplicate test (I06): every account of a document, through payload_accounts"),
-    ("webapp/app.py", "_posted_credit_table", "per_account",
+    ("webapp/statement_export.py", "_posted_credit_table", "per_account",
      "the downloads' posted-credit table (I32): one block per account, under its section prefix"),
     ("analysis/served_view.py", "_export_revenue_view", "per_account",
      "the downloads' N/A rule (I51): every account's figures follow its own revenue flags"),
     # Audit round 2, R2-B16 (R53; true revenue §10.8).
-    ("webapp/app.py", "_posted_debit_table", "per_account",
+    ("webapp/statement_export.py", "_posted_debit_table", "per_account",
      "the downloads' posted-debit table (R53): one block per account, under its section prefix"),
     # The owner's amendment of 2026-10-06 to the underwriter's Q3 (true revenue R2-OW17): the Zelle setting's readings.
     ("analysis/zelle_view.py", "reading", "per_account",
@@ -232,7 +232,7 @@ EXCUSED: dict[str, str] = {
     # Audit round 3, final review (R3-FF), F1: R3-B23's title filter (R3-62) compares a section NAME of the flat sheet
     # with "statement" inside one ACCOUNT's rows; the taught `_analysis_rows` hands it each account from
     # `payload_accounts` (a single-account payload is that account).
-    "webapp/app.py::_account_analysis_rows": "one ACCOUNT's rows of the flat sheet; `_analysis_rows` hands it each account from `payload_accounts`",
+    "webapp/statement_export.py::_account_analysis_rows": "one ACCOUNT's rows of the flat sheet; `_analysis_rows` hands it each account from `payload_accounts`",
     # A developer utility that publishes nothing. Handed a document payload it
     # falls back to the payload itself and `Statement.model_validate` refuses
     # it loudly, which is the fail-closed answer this census asks for.

@@ -325,7 +325,7 @@ def test_the_export_prints_the_bank_figure_once_per_section_not_three_times():
     """The alias stays in the JSON payload, where a consumer of the old name
     would otherwise break, and is suppressed from the flat analyst exports,
     where three identical numbers read as an extraction fault."""
-    from webapp.app import _analysis_rows
+    from webapp.statement_export import _analysis_rows
 
     stmt = _statement(
         [("2054-01-02", "DEP", 300.0)],

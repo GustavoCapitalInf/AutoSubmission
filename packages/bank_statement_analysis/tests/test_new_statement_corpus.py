@@ -38,7 +38,9 @@ from corpus_artifacts import cached_markdown, manifest_entries, sha256_hex
 from ocr.local_tesseract import parse_local_tesseract
 from ocr.native_text import parse_native_pdf_text
 from ocr.rasterize import pdf_page_count
-from webapp.app import _analysis_csv, _analysis_xlsx, _package_csv, _package_xlsx, app, store
+from webapp.app import app, store
+from webapp.package_export import package_csv, package_xlsx
+from webapp.statement_export import analysis_csv, analysis_xlsx
 from analysis.package import package_analysis
 from webapp.jobs import Job
 from tests.statements import statements_dir
@@ -435,11 +437,11 @@ def test_new_statement_api_and_exports_preserve_authoritative_values():
         assert "average_daily_balance" not in payload["metrics"]["adb"]
         assert payload["metrics"]["revenue_reconciles"] is True
 
-        csv_text = _analysis_csv(payload)
+        csv_text = analysis_csv(payload)
         assert f"metrics,average_daily_balance,{expected_adb}" in csv_text
         assert f"adb,daily_balance_sum,{EXPECTED[name]['daily_sum']}" in csv_text
 
-        xlsx = _analysis_xlsx(payload)
+        xlsx = analysis_xlsx(payload)
         assert xlsx[:2] == b"PK"
         with zipfile.ZipFile(BytesIO(xlsx)) as archive:
             sheet = archive.read("xl/worksheets/sheet1.xml").decode("utf-8")
@@ -481,8 +483,8 @@ def test_new_statement_api_and_exports_preserve_authoritative_values():
         2770.02,
         122.62,
     ]
-    assert "totals,average_daily_balance,1957.43" in _package_csv(package)
-    assert _package_xlsx(package)[:2] == b"PK"
+    assert "totals,average_daily_balance,1957.43" in package_csv(package)
+    assert package_xlsx(package)[:2] == b"PK"
 
 
 def test_dashboard_uses_backend_adb_without_frontend_recalculation():
