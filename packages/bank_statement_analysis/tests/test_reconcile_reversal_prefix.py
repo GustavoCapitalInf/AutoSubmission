@@ -155,7 +155,7 @@ def test_only_pass_four_writes_the_reversal_fields():
         tree = ast.parse(path.read_text(encoding="utf-8"))
         writers += [(path.relative_to(ROOT).as_posix(), function, line) for function, line in _writers(tree)]
     assert writers and all(
-        path == "analysis/transaction_classifier.py" and function == _PASS_FOUR for path, function, _line in writers
+        path == "analysis/transaction_classifier/__init__.py" and function == _PASS_FOUR for path, function, _line in writers
     ), writers
 
 

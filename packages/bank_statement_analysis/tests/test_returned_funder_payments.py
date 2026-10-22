@@ -31,6 +31,7 @@ from dataclasses import asdict, fields, replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import description_text
 from analysis.detect import detect
 from analysis.metrics import WITHHOLDING_FORMULA, compute_metrics
 from analysis.reconcile import reconcile
@@ -337,7 +338,7 @@ def test_the_tier_filter_reads_no_credit_the_revenue_side_counts():
     ("UNPAIDCONTOSO", False), ("BRTN 1234", False),
 ])
 def test_the_bounce_forms(text, bounce):
-    assert tc._returned_payment_credit(tc.normalize_transaction_description(text)) is bounce
+    assert tc._returned_payment_credit(description_text.normalize_transaction_description(text)) is bounce
 
 
 def test_the_french_arms_are_r2_b08_s_arms_a_and_c():

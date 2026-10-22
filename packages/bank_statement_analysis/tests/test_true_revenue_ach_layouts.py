@@ -14,6 +14,7 @@ from dataclasses import replace
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import description_text
 from analysis import true_revenue as tr
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -54,7 +55,7 @@ def _rtp(sender: str) -> str:
 
 
 def test_chase_real_time_reads_the_sender_after_the_contra_bank_label():
-    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(
+    assert tc.payer_region(tc.revenue_text(description_text.normalize_transaction_description(
         _rtp("FABRIKAM CAPITAL FUNDING LLC")))) == "FABRIKAM CAPITAL FUNDING LLC"
 
 
@@ -519,7 +520,7 @@ def test_navy_federal_payer_printed_without_a_digit_block_keeps_its_region():
     ("CORPORATE ACH PAYROLL CONTOSO PAVING 00026001000000001", False),
 ])
 def test_payer_label_layout(text, layout):
-    assert tc.payer_label_layout(tc.revenue_text(tc.normalize_transaction_description(text))) is layout
+    assert tc.payer_label_layout(tc.revenue_text(description_text.normalize_transaction_description(text))) is layout
 
 
 # Audit round 2, R2-B03 (R05; I01, Q2, the registry's note: a bank's name is never the payer's name): a payer region

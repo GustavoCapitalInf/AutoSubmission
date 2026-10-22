@@ -24,6 +24,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import dates
 from analysis.detect import detect
 from analysis.metrics import compute_metrics
 from tests.test_returned_funder_payments import KAPITUS, NAMED_RETURN, SALE, _pairs, _run, _statement
@@ -90,7 +91,7 @@ def _old_lender_refusal(records, credit_index, debit_index):
     if not (tc._matches_any(credit.normalized_description, tc._SETTLEMENT_REVERSAL_PATTERNS)
             or tc._matches_any(debit.normalized_description, tc._SETTLEMENT_REVERSAL_PATTERNS)):
         return False
-    credit_date, debit_date = tc.parse_date(credit.date), tc.parse_date(debit.date)
+    credit_date, debit_date = dates.parse_date(credit.date), dates.parse_date(debit.date)
     if credit_date is None or debit_date is None:
         return debit_index > credit_index
     return debit_date > credit_date

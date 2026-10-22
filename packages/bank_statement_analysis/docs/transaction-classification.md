@@ -256,7 +256,7 @@ duplicates, the lender recurrence and the labels for unnamed potential payees
 sources verify by recurrence; the pool never shrinks and a veto word keeps a
 row out) with the auction and property branches, the payer-remittance
 counter-debit guard (pass 6), and the true-revenue pass (pass 7,
-`analysis/true_revenue.py`), which tiers every posted credit, then the funding
+`analysis/true_revenue/`), which tiers every posted credit, then the funding
 aid, before duplicate finalisation. Between pass 7 and the duplicate
 finalisation the returned funder payments pass (pass 7b, R2-OW13) and the
 re-presented returned payments pass (pass 7c, audit round 3, R3-B02: the

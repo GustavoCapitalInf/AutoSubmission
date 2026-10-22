@@ -12,6 +12,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import description_text
 from analysis import true_revenue as tr
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
@@ -193,10 +194,10 @@ def test_a_wire_to_the_holder_from_another_company_is_q5_s():
 
 
 def test_the_wire_veto_and_the_hold_read_one_beneficiary_test():
-    text = tc.revenue_text(tc.normalize_transaction_description(FEDWIRE.format(bnf="NORTHWIND MARINE LLC")))
+    text = tc.revenue_text(description_text.normalize_transaction_description(FEDWIRE.format(bnf="NORTHWIND MARINE LLC")))
     region = tc.payer_region(text)
     assert tc.wire_sender_is_beneficiary(text, region)
-    other = tc.revenue_text(tc.normalize_transaction_description(FEDWIRE.format(bnf="CONTOSO DINER LLC")))
+    other = tc.revenue_text(description_text.normalize_transaction_description(FEDWIRE.format(bnf="CONTOSO DINER LLC")))
     assert not tc.wire_sender_is_beneficiary(other, tc.payer_region(other))
 
 
@@ -255,7 +256,7 @@ def test_a_processor_s_payout_under_the_merchant_s_descriptor_is_never_held_as_t
     ("NORTHWIND DES:TRANSFER ID:1 INDN:NORTHWIND MARINE LLC CO ID:1 CCD", False),
 ])
 def test_the_self_test_reads_the_row_alone(text, own):
-    revenue = tc.revenue_text(tc.normalize_transaction_description(text))
+    revenue = tc.revenue_text(description_text.normalize_transaction_description(text))
     assert tr.self_originated(revenue, tc.payer_region(revenue)) is own
 
 
@@ -404,7 +405,7 @@ def test_the_holder_test_reads_names_not_industry_words(holder, payer, named):
 # --- Audit B9 review round 1 ----------------------------------------------------------------------------------------
 
 def _revenue(text):
-    return tc.revenue_text(tc.normalize_transaction_description(text))
+    return tc.revenue_text(description_text.normalize_transaction_description(text))
 
 
 def _own_rows(holder):
@@ -1709,7 +1710,7 @@ NUMBERED = ("counted_flagged", "numbered_company_payer")
 def test_r3_15_the_holder_s_own_number_after_an_accounts_payable_label_is_held(text, bank):
     # Today the region was the label alone ('ACCOUNT PAYABLE PMT'), so the credit was counted numbered_company_payer.
     assert _tiers([(text, 12000.0)], holder_name=NUMBERED_HOLDER, bank=bank) == [HOLDER_NAME]
-    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))).startswith("1234567 ONTARIO")
+    assert tc.payer_region(tc.revenue_text(description_text.normalize_transaction_description(text))).startswith("1234567 ONTARIO")
 
 
 def test_r3_15_another_numbered_company_after_the_label_stays_counted():
@@ -1722,5 +1723,5 @@ def test_r3_15_another_numbered_company_after_the_label_stays_counted():
     ("ACCOUNTS PAYABLE 123456 NORTH MOUNTAIN PAVING", "ACCOUNTS PAYABLE NORTH MOUNTAIN PAVING"),
 ])
 def test_r3_15_a_word_named_payer_after_the_label_keeps_its_region_and_reading(text, region):
-    assert tc.payer_region(tc.revenue_text(tc.normalize_transaction_description(text))) == region
+    assert tc.payer_region(tc.revenue_text(description_text.normalize_transaction_description(text))) == region
     assert _tiers([(text, 12000.0)], holder_name="NORTHWIND BAKERY LTD", bank="Scotiabank") == [REMITTANCE]

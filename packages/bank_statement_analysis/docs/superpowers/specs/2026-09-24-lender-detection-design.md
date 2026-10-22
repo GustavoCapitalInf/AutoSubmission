@@ -218,7 +218,7 @@ The code forced these choices, and the rulings above did not settle them.
 
 ### 4.1 States
 
-`ClassificationState` and `CLASSIFICATION_STATES` (`analysis/transaction_classifier.py`) gain:
+`ClassificationState` and `CLASSIFICATION_STATES` (`analysis/transaction_classifier/`) gain:
 - `alternative_position`
 - `line_of_credit`
 - `vehicle_financing`

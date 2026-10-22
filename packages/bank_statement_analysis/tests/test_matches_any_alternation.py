@@ -22,6 +22,7 @@ import re._parser as sre_parse
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import description_text
 from analysis import true_revenue as tr
 from tests import zelle_setting_fixtures as fx
 from tools.bench_classifier import fabricated_statement
@@ -108,7 +109,7 @@ def _witnesses(pattern: re.Pattern, count: int, seed: int) -> list[str]:
 
 def _fabricated_texts() -> list[str]:
     statements = [fabricated_statement(30)] + [fx.statement(rows) for rows, _holder, _title in fx.CASES.values()]
-    texts = [tc.normalize_transaction_description(t.description) for s in statements for t in s.transactions]
+    texts = [description_text.normalize_transaction_description(t.description) for s in statements for t in s.transactions]
     return sorted(set(texts)) + ["", "SAMPLE", "CONTOSO NORTHWIND FABRIKAM", "ACH CREDIT SAMPLE PAYROLL 0001"]
 
 

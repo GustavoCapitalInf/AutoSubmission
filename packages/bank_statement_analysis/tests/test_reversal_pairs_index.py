@@ -20,6 +20,7 @@ from dataclasses import asdict
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import dates
 from analysis.transaction_classifier import TransactionClassification
 
 
@@ -49,7 +50,7 @@ def _reference_reversal_pairs(records, duplicate_indexes, markers, marked=None, 
             continue
         credit_has_marker = has_marker(credit_index)
         candidates = []
-        credit_date = tc.parse_date(credit.date)
+        credit_date = dates.parse_date(credit.date)
         for debit_index, debit in enumerate(records):
             if (
                 debit_index in duplicate_indexes
@@ -63,7 +64,7 @@ def _reference_reversal_pairs(records, duplicate_indexes, markers, marked=None, 
                 continue
             if refuse is not None and refuse(credit_index, debit_index):
                 continue
-            debit_date = tc.parse_date(debit.date)
+            debit_date = dates.parse_date(debit.date)
             day_gap = (
                 abs((credit_date - debit_date).days)
                 if credit_date is not None and debit_date is not None

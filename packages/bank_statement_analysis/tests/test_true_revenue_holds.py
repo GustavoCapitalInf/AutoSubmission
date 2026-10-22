@@ -13,8 +13,10 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue as tr
+from analysis import revenue as analysis_revenue
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import classify_statement_transactions, normalize_transaction_description, revenue_text
+from analysis.transaction_classifier import classify_statement_transactions, revenue_text
+from analysis.description_text import normalize_transaction_description
 from tests.zelle_reading import rules_reading
 
 HOLDER = "NORTHWIND BAKERY LLC"
@@ -719,7 +721,7 @@ def test_a_builder_s_progress_draw_spares_draw_alone_in_the_non_sale_test():
     # Every other non-sale word still holds the row.
     refund = revenue_text(normalize_transaction_description(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3 REFUND")))
     assert tr.non_sale_purpose(refund, "CONTOSO BUILDERS INC", progress_draw=True)
-    assert tr.REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
+    assert analysis_revenue.REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
 
 
 # Audit round 3, R3-B15 (R3-08; the underwriter's Q11 (a) of 2026-10-02, "a builder's progress draw (ACME BUILDERS DRAW

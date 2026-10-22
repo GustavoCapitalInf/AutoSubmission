@@ -285,7 +285,7 @@ DECLARED_DEMOTIONS = (
 #: Owner ruling 2026-10-02 (the underwriter's Q10), R2-OW11: the method pass 7 gives a verified credit it holds on a
 #: premium trust account (analysis/true_revenue.py PREMIUM_TRUST_METHOD, copied: the census reads other checkouts).
 PREMIUM_TRUST_METHOD = "premium_trust_account"
-#: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue.py
+#: R2-OW06 review round 1: the method and reason of a builder's progress draw the pass overrules (analysis/true_revenue/
 #: CONSTRUCTION_PROGRESS_DRAW_REASON, copied: the census reads other checkouts), and the Q5 and Q6 methods that rest on
 #: a repeat (a company form or a public or healthcare payer verifies alone).
 CONSTRUCTION_PROGRESS_DRAW = "construction_progress_draw"
@@ -375,7 +375,7 @@ POOL_54_METHODS = RECURRENCE_LIFT_METHODS | {"operating_source_requires_context"
 STEPS_12_TO_14_METHODS = frozenset({"payer_remittance_descriptor", "public_payer_remittance", "wire_remittance_purpose"})
 #: §7.0: the absolute micro-deposit floor, in cents.
 MICRO_DEPOSIT_FLOOR_CENTS = 100
-#: 5.6 (§8.10, S4.2 review I3): the reason pass 7 holds a credit under the floor with (analysis/true_revenue.py
+#: 5.6 (§8.10, S4.2 review I3): the reason pass 7 holds a credit under the floor with (analysis/true_revenue/
 #: _MICRO_DEPOSIT_REASON; §5.3's table has no micro-deposit code).
 MICRO_DEPOSIT_FLOOR_REASON = "non_sale_purpose"
 #: The demotion causes that read the account (the row's recurrence pool), not the row alone.
@@ -514,7 +514,7 @@ _RETURN_CODES_55 = _on_masked(r"\b(?:RTN|RETN|RFND|REFND|RFD|RVSL|RVRSL|REVSL|RE
 #: S4.2 fix round 4: CANCELLED's French words, which joined the reversal rule's credit markers
 #: (_REVERSAL_CANCELLATION_CREDIT_PATTERNS, verbatim; 5.4 never read them). S4.2 fix round 5: their plurals too.
 _FRENCH_REVERSAL_WORDS_55 = _on_masked(r"(?<![A-Z])(?:ANNUL|ANNULE|ANNULEE|ANNULES|ANNULEES|ANNULATION)\b")
-#: Audit B3 (I04, §20): step 3's 5.6 return, correction and refund spellings (analysis/transaction_classifier.py
+#: Audit B3 (I04, §20): step 3's 5.6 return, correction and refund spellings (analysis/transaction_classifier/
 #: _RETURN_REFUND_CREDIT_PATTERNS, copied: the census reads other checkouts), on the masked text, which keeps a glued or
 #: spaced leading date the classifier's revenue text drops before the forms printed first. REMBOURSEMENT's provider
 #: carve-out only keeps rows out of the rule, so the word alone declares the rule's own demotion.

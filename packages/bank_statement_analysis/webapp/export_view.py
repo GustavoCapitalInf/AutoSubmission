@@ -167,7 +167,7 @@ _SENTENCE_REWRITES = (
     ("is never verified and never counted", "is never counted in True revenue"),
     (" and never verified;", ";"),
 )
-#: Q3's sentence on a Zelle deposit the policy excluded ends on the rules' reading (analysis/true_revenue.py
+#: Q3's sentence on a Zelle deposit the policy excluded ends on the rules' reading (analysis/true_revenue/
 #: `_zelle_excluded`): "...; the rules read it as: <label>." A reading in a hidden tier ("Verified revenue", a counted
 #: reason's label) is written "True revenue.", as the page says it (app.js zellePriorSentence); a held one keeps its
 #: label.
@@ -176,7 +176,7 @@ _ZELLE_READING = "the rules read it as: "
 #: on a credit counted in True revenue, on one a reviewer confirmed and on one a reviewer rejected (which keeps it).
 _COUNTED_REASONS = frozenset(code for code, (tier, _label) in REVENUE_TIER_REASONS.items() if tier == "counted_flagged")
 #: The lender classifier's sentence on a row no lender, insurance or category rule read (most credits,
-#: analysis/transaction_classifier.py), whose "verified" is a lender's, never a revenue tier, written without the word.
+#: analysis/transaction_classifier/), whose "verified" is a lender's, never a revenue tier, written without the word.
 _UNMATCHED_ROW_REASONS = {
     "No verified lender, insurance, or operational-category rule matched.":
         "No lender, insurance, or operational-category rule matched.",

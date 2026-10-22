@@ -561,7 +561,7 @@ def test_the_brand_table_is_credit_only():
         for path in (ROOT / folder).rglob("*.py")
         if "INSURER_CREDIT_BRANDS" in path.read_text(encoding="utf-8", errors="ignore")
     )
-    assert readers == ["analysis/classification_registry.py", "analysis/true_revenue.py"]
+    assert readers == ["analysis/classification_registry.py", "analysis/true_revenue/__init__.py"]
     assert not set(registry.INSURER_CREDIT_BRANDS) & {
         name for name in registry.INSURANCE_PROVIDER_ALIASES if name != "Travelers"
     }

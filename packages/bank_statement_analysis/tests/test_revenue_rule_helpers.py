@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import classification_registry
+from analysis import payee_matcher
 from analysis.classification_registry import PROCESSOR_ADVANCE_PRODUCTS, PROCESSORS_WITHOUT_ADVANCE_PRODUCT
 from analysis.description_text import normalize_transaction_description as normalize
 
@@ -118,7 +120,7 @@ def test_the_card_issuer_refusal_is_its_own_branch():
     # words without an issuer read generic_card_sales.
     for printed in ("BK OF AMER VISA CREDIT CARD DEPOSIT 1234", "ALLY CC CREDIT CARD DEPOSIT 1234"):
         assert tc._CARD_VETO.search(tc._before_receiver(_text(printed))) is None
-        assert tc.registry_match(_text(printed), tc.CARD_ISSUER_CONTEXT_ALIASES) is not None
+        assert payee_matcher.registry_match(_text(printed), classification_registry.CARD_ISSUER_CONTEXT_ALIASES) is not None
     assert tc._card_settlement_form(_text("FABRIKAM CREDIT CARD DEPOSIT 1234"), bank=None).label == "generic_card_sales"
 
 
@@ -268,7 +270,7 @@ def test_a_waiting_processor_s_bare_alias_still_refuses_an_alias_read_inside_it(
         "Jobber Payments": re.compile(r"\b(?:JOBBER BY STRIPE|JOBBER BY STRI|JOBBER BY STR)\b"),
     })
     monkeypatch.setattr(tc, "OPERATING_REVENUE_READ_ALIASES", {
-        entity: aliases for entity, aliases in tc.OPERATING_REVENUE_READ_ALIASES.items() if entity != "Jobber Payments"
+        entity: aliases for entity, aliases in classification_registry.OPERATING_REVENUE_READ_ALIASES.items() if entity != "Jobber Payments"
     })
     jobber = _text("JOBBER BY STRI DES:TRANSFER ID:ST-A1B2C3")
     assert tc._read_inside_a_waiting_processor(jobber, "Stripe", "BY STRI") is True

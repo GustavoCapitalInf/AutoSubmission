@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier as tc
+from analysis import description_text
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
 from tests.zelle_reading import rules_reading
@@ -570,7 +571,7 @@ def test_a_payroll_provider_paying_a_holder_named_for_taxes_on_a_label_less_row_
 def test_the_payroll_tax_word_is_read_on_the_payer_region_and_the_entry_fields(text, expected):
     from analysis.true_revenue import payroll_tax_credit
 
-    revenue = tc.revenue_text(tc.normalize_transaction_description(text))
+    revenue = tc.revenue_text(description_text.normalize_transaction_description(text))
     assert payroll_tax_credit(revenue, tc.payer_region(revenue)) is expected
 
 
@@ -1011,7 +1012,7 @@ def test_r48_a_wire_from_a_sender_named_with_to_verifies_beside_the_fee_from_it(
 def test_r48_the_receiving_fee_reads_its_outgoing_words_before_the_sender(text, kind):
     from analysis.true_revenue import _counter_debit_kind
 
-    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == kind
+    assert _counter_debit_kind(description_text.normalize_transaction_description(text)) == kind
 
 
 def test_r48_the_fee_for_the_holder_s_wire_from_its_account_still_holds_the_payer():
@@ -1172,7 +1173,7 @@ CHASE_ENTRY = ("ORIG CO NAME:CONTOSO MERCHANT SERVICES ORIG ID:0000000001 DESC D
 def test_r3_35_chase_s_glued_fee_and_bill_entries_read_their_kind(entry, kind):
     from analysis.true_revenue import _counter_debit_kind
 
-    assert _counter_debit_kind(tc.normalize_transaction_description(CHASE_ENTRY.format(entry=entry))) == kind
+    assert _counter_debit_kind(description_text.normalize_transaction_description(CHASE_ENTRY.format(entry=entry))) == kind
 
 
 R3_35_SETTLEMENTS = [(CHASE_ENTRY.format(entry="DEPOSITSEC CCD"), amount) for amount in (2215.0, 1985.0, 2415.0)]
@@ -1284,7 +1285,7 @@ def test_r3_03_the_released_insurer_fact():
 def test_r3_33_the_fee_for_the_holder_s_wire_from_a_named_account_is_circular(text):
     from analysis.true_revenue import _counter_debit_kind
 
-    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == "circular"
+    assert _counter_debit_kind(description_text.normalize_transaction_description(text)) == "circular"
 
 
 @pytest.mark.parametrize("text", [
@@ -1299,7 +1300,7 @@ def test_r3_33_the_fee_for_the_holder_s_wire_from_a_named_account_is_circular(te
 def test_r3_33_a_sender_named_after_from_still_reads_a_receiving_fee(text):
     from analysis.true_revenue import _counter_debit_kind
 
-    assert _counter_debit_kind(tc.normalize_transaction_description(text)) == "receiving_fee"
+    assert _counter_debit_kind(description_text.normalize_transaction_description(text)) == "receiving_fee"
 
 
 def test_r3_33_the_fee_for_the_holder_s_wire_from_its_checking_still_holds_the_payer_s_wires():
@@ -1380,7 +1381,7 @@ def test_r3_77_the_label_table_is_normalized():
     for markers, labels in BANK_POSTING_TYPE_LABELS:
         assert markers and labels
         for word in (*markers, *labels):
-            assert tc.normalize_transaction_description(word) == word, word
+            assert description_text.normalize_transaction_description(word) == word, word
         assert len(set(labels)) == len(labels)
 
 

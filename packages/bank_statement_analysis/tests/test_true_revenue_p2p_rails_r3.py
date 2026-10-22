@@ -22,12 +22,8 @@ import pytest
 
 from analysis import true_revenue, zelle_view
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import (
-    classify_statement_readings,
-    classify_statement_transactions,
-    normalize_transaction_description,
-    revenue_text,
-)
+from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions, revenue_text
+from analysis.description_text import normalize_transaction_description
 from tests import zelle_setting_fixtures as fx
 
 HELD = "excluded_pending_review"

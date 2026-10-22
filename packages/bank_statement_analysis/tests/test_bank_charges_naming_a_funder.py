@@ -1,7 +1,7 @@
 """Audit round 3, R3-B01 (R3-80; the owner's rule of 2026-09-25, "the bank's overdraft charge for an item is a fee, even
 when it prints the item's payee", completed): a bank's charge that names a funder is a charge, never a funder payment.
 
-Two DEBIT-ONLY word tuples beside the NSF and fee words (analysis/transaction_classifier.py), read before the registry:
+Two DEBIT-ONLY word tuples beside the NSF and fee words (analysis/transaction_classifier/), read before the registry:
 `_DEBIT_ITEM_CHARGE_NSF_PATTERNS` (step 2: a returned or unpaid item's CHARGE/CHG, `nsf_or_return`) and
 `_DEBIT_BANK_CHARGE_FEE_PATTERNS` (step 6: a stop-payment charge, an OD item charge and a bare stop-payment instruction at
 the row's start, `fee`). A credit keeps today's reading, so no revenue reading moves. The forms that may be the funder's

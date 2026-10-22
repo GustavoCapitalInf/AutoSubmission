@@ -1,6 +1,6 @@
 """The true-revenue pass (docs/superpowers/specs/2026-09-28-true-revenue-design.md §5, §8).
 
-Statement pass 7 (§6.2) runs after every verifying rule of `analysis/transaction_classifier.py`. It reads each posted
+Statement pass 7 (§6.2) runs after every verifying rule of `analysis/transaction_classifier/`. It reads each posted
 credit's payer facts (channel family, payer region, payer name and key, entry fields, the holds of §8.1), then runs
 Q7's credit-union arm (§8.7) and the Q5 and Q6 verifications (§8.5, §8.6), which refuse any row a hold names, and last
 gives every posted credit its tier and reason (§5.3), in the order of §8.10.
@@ -26,7 +26,7 @@ from datetime import date as _date
 from functools import cache
 from typing import TYPE_CHECKING, Sequence
 
-from .classification_registry import (
+from analysis.classification_registry import (
     ASSET_SALE_PAYERS,
     ASSET_SALE_SELLER_WORD_ONLY,
     BARE_PLATFORM_NAMES,
@@ -52,24 +52,24 @@ from .classification_registry import (
     WHOLESALE_AUCTION_PAYOUT_FORMS,
     WHOLESALE_AUCTION_REFUND_NAMES,
 )
-from .dates import parse_date
-from .description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
-from .flag_groups import FINANCING_STATES
+from analysis.dates import parse_date
+from analysis.description_text import RECEIVER_FIELD_LABELS, RECEIVER_NAME_LABELS, normalize_transaction_description
+from analysis.flag_groups import FINANCING_STATES
 # The premium-trust words and the legal forms the holder readers read (holder_name imports nothing of the analysis
 # package, so this import is never circular). The title grammar's adjective, kind words and reference live there too,
 # so a holder line's contact designation reads exactly the title the rule reads.
-from .holder_name import (
+from analysis.holder_name import (
     LEGAL_FORMS as _HOLDER_LEGAL_FORMS,
     PREMIUM_TRUST_ADJECTIVE as _PREMIUM_TRUST_ADJECTIVE,
     PREMIUM_TRUST_KIND as _PREMIUM_TRUST_KIND,
     PREMIUM_TRUST_REFERENCE as _PREMIUM_TRUST_REFERENCE,
     PREMIUM_TRUST_WORDS,
 )
-from .payee_matcher import PayeeMatch, match_known_payee, registry_match
-from .revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
+from analysis.payee_matcher import PayeeMatch, match_known_payee, registry_match
+from analysis.revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
 
 if TYPE_CHECKING:
-    from .transaction_classifier import CounterDebitReading, TransactionClassification
+    from analysis.transaction_classifier import CounterDebitReading, TransactionClassification
 
 #: §8.1: the posting labels removed before a hold reads a row: §7.5's credit posting labels, the branch, card and batch
 #: CREDIT labels, and the channel phrases. The plural FUNDS TRANSFERS too, transfer wording since B8 (a bank's channel
@@ -1396,7 +1396,7 @@ class CreditFacts:
 
 
 def _classifier():
-    from . import transaction_classifier
+    from analysis import transaction_classifier
 
     return transaction_classifier
 
