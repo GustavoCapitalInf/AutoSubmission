@@ -348,10 +348,34 @@ GLUED_VETO_WORDS = [
     ("_TITLE_OR_ESCROW_ORIGINATOR", "ESCROW", True),
 ]
 
+VETO_PATTERNS = {
+    "_CARD_VETO": operating_sources._CARD_VETO,
+    "_RECURRENCE_VETO": credit_words._RECURRENCE_VETO,
+    "_FUNDING_WORD": credit_words._FUNDING_WORD,
+    "_OPERATING_PAY_VETO": operating_sources._OPERATING_PAY_VETO,
+    "_OPERATING_FINANCING_VETO": operating_sources._OPERATING_FINANCING_VETO,
+    "_OPERATING_REVERSAL_VETO": operating_sources._OPERATING_REVERSAL_VETO,
+    "_OPERATING_P2P_VETO": operating_sources._OPERATING_P2P_VETO,
+    "_EMPLOYER_PAY_WORDS": operating_sources._EMPLOYER_PAY_WORDS,
+    "_TRANSPORT_EXTRA_VETO": operating_sources._TRANSPORT_EXTRA_VETO,
+    "_AUCTION_VETO": tc._AUCTION_VETO,
+    "_AUCTION_BUYER_PAYMENT": tc._AUCTION_BUYER_PAYMENT,
+    "_PROPERTY_PLATFORM_GUARD": tc._PROPERTY_PLATFORM_GUARD,
+    "_PROPERTY_MICRO_DEPOSIT": tc._PROPERTY_MICRO_DEPOSIT,
+    "_PROPERTY_PUSH_SHAPE": tc._PROPERTY_PUSH_SHAPE,
+    "_PAYER_REMITTANCE_VETO": credit_predicates._PAYER_REMITTANCE_VETO,
+    "_PUBLIC_PAYER_NAME_VETO": credit_words._PUBLIC_PAYER_NAME_VETO,
+    "_PUBLIC_PAYER_NON_SALE_WORDS": credit_words._PUBLIC_PAYER_NON_SALE_WORDS,
+    "_PUBLIC_PAYER_OTHER_VETO": credit_predicates._PUBLIC_PAYER_OTHER_VETO,
+    "_PUBLIC_PAYER_ARM_B_TRANSFER": credit_predicates._PUBLIC_PAYER_ARM_B_TRANSFER,
+    "_WIRE_NON_SALE_PURPOSE": credit_predicates._WIRE_NON_SALE_PURPOSE,
+    "_TITLE_OR_ESCROW_ORIGINATOR": credit_predicates._TITLE_OR_ESCROW_ORIGINATOR,
+}
+
 
 @pytest.mark.parametrize(("name", "word", "glued"), GLUED_VETO_WORDS)
 def test_a_long_veto_word_reads_through_a_glued_digit(name, word, glued):
-    pattern = getattr(tc, name)
+    pattern = VETO_PATTERNS[name]
     assert pattern.search("FABRIKAM ID " + word) is not None
     assert (pattern.search("FABRIKAM ID 0102" + word) is not None) is glued
     assert pattern.search("FABRIKAM ID X" + word) is None
