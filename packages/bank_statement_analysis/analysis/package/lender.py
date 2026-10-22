@@ -4,9 +4,10 @@ from __future__ import annotations
 from analysis import active_positions as active_positions_module, lender_payment_changes as payment_changes_module
 from analysis.dates import parse_date
 from analysis.package.calendar import iso_day, statement_month
-from analysis.package.members import internal_transfer_positions
 from analysis.package.model import (
     bank_key,
+    Member,
+    MemberKey,
     PACKAGE_CONSECUTIVE_DAYS,
     printed_account_digits,
     same_account,
@@ -19,7 +20,7 @@ from analysis.package.model import (
 LENDER_CHAIN_OVERLAP_DAYS = 5
 
 
-def package_lender_payment_changes(members: list[tuple], overlays: dict | None = None, *,
+def package_lender_payment_changes(members: list[Member], overlays: dict[MemberKey, dict[int, dict]] | None = None, *,
                                    reading: dict | None = None) -> tuple[list[dict] | None, list[dict]]:
     """True revenue spec §9.2: each lender payment series read across the package's consecutive statements of ONE
     account, recomputed on every call from the kept members' displayed copies (with the package passes' overlay:
@@ -52,19 +53,20 @@ def package_lender_payment_changes(members: list[tuple], overlays: dict | None =
     if reading is not None:
         reading["chains"] = []
         reading["links"] = links
-    for job, analysis, account_index, _count in members:
+    for member in members:
+        job, analysis, account_index = member.job, member.account, member.key.account_index
         source = {"source_job": job.id, "source_document": getattr(job, "filename", None),
                   **({"source_account": account_index} if account_index is not None else {})}
         statement = analysis.get("statement") if isinstance(analysis, dict) else None
-        if not (job.status == "done" and job.analysis is not None and isinstance(statement, dict)):
+        if not (member.ready and isinstance(statement, dict)):
             unchecked.append({**source, "reason": "not_ready"})
             continue
         detection = analysis.get("detection")
         if not isinstance(detection, dict) or not isinstance(detection.get("lender_payment_changes"), list):
             unchecked.append({**source, "reason": "analysed_before_check"})
             continue
-        member_overlay = (overlays or {}).get((job.id, account_index)) or {}
-        excluded = internal_transfer_positions(job.analysis, account_index)
+        member_overlay = (overlays or {}).get(member.key) or {}
+        excluded = member.internal_transfer_positions
         rows = []
         for position, transaction in enumerate(statement.get("transactions") or []):
             record = transaction.get("classification") if isinstance(transaction, dict) else None
@@ -76,7 +78,8 @@ def package_lender_payment_changes(members: list[tuple], overlays: dict | None =
                 continue
             rows.append(record)
         entries.append({
-            **source, "job_id": job.id, "currency": statement_currency(analysis), "bank": bank_key(statement),
+            **source, "key": member.key, "job_id": job.id, "currency": statement_currency(analysis),
+            "bank": bank_key(statement),
             "digits": printed_account_digits(analysis),
             "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
             "start": iso_day(statement.get("period_start")), "end": iso_day(statement.get("period_end")),
@@ -192,11 +195,7 @@ def package_active_positions(rows: list[dict], reading: dict) -> list[dict]:
     changes continue in another account counts once where it is handed over. Information only: nothing stored or summed
     reads it."""
     chains = reading.get("chains") or []
-
-    def member_id(entry: dict) -> str:
-        return entry["job_id"] if "source_account" not in entry else f"{entry['job_id']}#account_{entry['source_account']}"
-
-    held = {member_id(entry) for chain in chains for entry in chain if entry.get("has_rows", True)}
+    held = {entry["key"].id for chain in chains for entry in chain if entry.get("has_rows", True)}
     unread = {month for row in rows if row.get("id") not in held
               if (month := statement_month(row.get("period_start"), row.get("period_end"))) is not None}
     per_statement, by_month = active_positions_module.package_active_positions(
@@ -204,7 +203,7 @@ def package_active_positions(rows: list[dict], reading: dict) -> list[dict]:
         months=[[statement_month(entry["start"], entry["end"]) if entry.get("has_rows", True) else None
                  for entry in chain] for chain in chains],
         links=reading.get("links") or (), unread_months=unread)
-    counts = {member_id(entry): per_statement[chain_index][index]
+    counts = {entry["key"].id: per_statement[chain_index][index]
               for chain_index, chain in enumerate(chains) for index, entry in enumerate(chain)
               if entry.get("has_rows", True)}
     for row in rows:

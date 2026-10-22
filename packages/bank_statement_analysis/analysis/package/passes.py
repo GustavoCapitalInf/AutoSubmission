@@ -9,7 +9,10 @@ from analysis.package.model import (
     bank_key,
     consecutive,
     different_accounts,
+    Member,
+    MemberKey,
     num,
+    PackagePasses,
     printed_account_digits,
     REVIEW_DECISIONS,
     row_cents,
@@ -111,17 +114,17 @@ def _match_side(entry: dict, position: int, row: dict) -> dict:
     }
 
 
-def package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) -> dict:
+def package_matches(members: list[Member]) -> PackagePasses:
     """True revenue spec §6.2's package passes, §9.2, §11: the package passes over the members `package_members`
     admitted, recomputed on every call from their displayed copies and never written back (no job, stored analysis,
     review row or package record changes; a statement viewed alone keeps its own figures).
 
-    `rd_positions` holds each member's R-d internal-transfer positions (`internal_transfer_positions`), which no pass
-    reads. A member enters the passes when its job is done, its rows are tiered (`member_tiered`, the member loop's
-    test) and it declares a currency; in a package of two members or more, a member that does not is marked
-    (`unchecked`: 'no_currency', else 'older_rules'), unless it prints no row (nothing to match), and a member that
-    enters but prints fewer than four account digits is marked 'no_account_number' (pass 1 still reaches it through
-    the balance chain). A row enters when it is posted and no proven duplicate.
+    No pass reads a member's R-d internal-transfer positions (`Member.internal_transfer_positions`). A member enters
+    the passes when its job is done, its rows are tiered (`member_tiered`, the member loop's test) and it declares a
+    currency; in a package of two members or more, a member that does not is marked (`unchecked`: 'no_currency', else
+    'older_rules'), unless it prints no row (nothing to match), and a member that enters but prints fewer than four
+    account digits is marked 'no_account_number' (pass 1 still reaches it through the balance chain). A row enters
+    when it is posted and no proven duplicate.
 
     Pass 1, returned deposits across statements: a debit that undoes a deposit (`_deposit_return_debit`, its French
     wordings included) that no credit of its statement pairs (pass 4's `matched_reversal_pair` naming its location)
@@ -158,22 +161,24 @@ def package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) -
     neither its statement nor pass 1 matched (`unmatched_deposit_return`, with `candidate_decided` when the nearest
     candidate but for the decision carries one) and its processor chargebacks and adjustments (`processor_chargeback`).
 
-    Returns `{"overlays": {member: {position: fields}}, "matches": [...], "debit_flags": [...], "unchecked": {member:
-    marker}, "moved": {member: [{"tier", "state", "amount"}]}}`, deterministic and independent of the listing order."""
+    Returns `PackagePasses`: `overlays` ({member: {position: fields}}), `matches`, `debit_flags`, `unchecked` ({member:
+    marker}), `moved` ({member: [{"tier", "state", "amount"}]}) and `represented`, deterministic and independent of the
+    listing order."""
     from types import SimpleNamespace
 
     entries: list[dict] = []
-    for job, analysis, account_index, _count in members:
+    for member in members:
+        job, analysis = member.job, member.account
         statement = analysis.get("statement") if isinstance(analysis, dict) else None
-        if not (job.status == "done" and job.analysis is not None and isinstance(statement, dict)):
+        if not (member.ready and isinstance(statement, dict)):
             continue
         raw = statement.get("transactions") if isinstance(statement.get("transactions"), list) else []
-        excluded = rd_positions.get((job.id, account_index)) or set()
+        excluded = member.internal_transfer_positions
         kept = [row if isinstance(row, dict) and position not in excluded else None for position, row in enumerate(raw)]
         entries.append({
-            "key": (job.id, account_index), "job_id": job.id, "filename": getattr(job, "filename", None),
-            "account": account_index,
-            "order": (str(statement.get("period_start") or ""), str(job.id), account_index or 0),
+            "key": member.key, "job_id": job.id, "filename": getattr(job, "filename", None),
+            "account": member.key.account_index,
+            "order": (str(statement.get("period_start") or ""), str(job.id), member.key.account_index or 0),
             "currency": statement_currency(analysis), "bank": bank_key(statement), "bank_printed": statement.get("bank"),
             "digits": printed_account_digits(analysis),
             "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
@@ -187,7 +192,7 @@ def package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) -
             "tiered": member_tiered([row for row in kept if row is not None]),
         })
     entries.sort(key=lambda entry: entry["order"])
-    unchecked: dict[tuple, str] = {}
+    unchecked: dict[MemberKey, str] = {}
     if len(members) >= 2:
         for entry in entries:
             if not any(row is not None for row in entry["kept"]):
@@ -242,9 +247,9 @@ def package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) -
             returns.append(((day is None, day.toordinal() if day else 0, entry["order"], position),
                             entry, position, row, location, day, guarded))
 
-    overlays: dict[tuple, dict[int, dict]] = {}
+    overlays: dict[MemberKey, dict[int, dict]] = {}
     matches: list[dict] = []
-    moved: dict[tuple, list[dict]] = {}
+    moved: dict[MemberKey, list[dict]] = {}
     matched_locations: dict[tuple, set[str]] = {}
     decided_candidates: dict[tuple, dict] = {}
     taken: set[tuple] = set()
@@ -438,8 +443,8 @@ def package_matches(members: list[tuple], rd_positions: dict[tuple, set[int]]) -
     # Pass 4's re-debits: a returned payment the same funder re-debits in the account's next statement leaves
     # the package's numerator.
     represented = _represented_funder_payments_across(matchable, overlays, location_of)
-    return {"overlays": overlays, "matches": matches, "debit_flags": debit_flags, "unchecked": unchecked,
-            "moved": moved, "represented": represented}
+    return PackagePasses(overlays=overlays, matches=matches, debit_flags=debit_flags, unchecked=unchecked, moved=moved,
+                         represented=represented)
 
 
 def _represented_funder_payments_across(matchable: list[dict], overlays: dict, location_of) -> dict:
@@ -670,30 +675,30 @@ def _returned_funder_payments_across(matchable: list[dict], overlays: dict, matc
         })
 
 
-def package_match_totals(matched: dict) -> dict:
+def package_match_totals(matched: PackagePasses) -> dict:
     """§9.2: the package passes' totals, each count and total only where a pass found a row:
     `returned_deposit_cross_statement_count` / `_total` (the deposits pass 1 took out of True), 
     `own_account_transfer_held_count` / `_total` (the deposits pass 2 held) and
     `own_account_transfer_already_held_count` / `_total` (the held deposits it annotated), the debit flags'
     `<kind>_count` / `<kind>_total` (their magnitude) and `package_match_unchecked_count`."""
     totals: dict = {}
-    returned = [match for match in matched["matches"] if match["kind"] == "returned_deposit" and match["moved"]]
+    returned = [match for match in matched.matches if match["kind"] == "returned_deposit" and match["moved"]]
     if returned:
         totals["returned_deposit_cross_statement_count"] = len(returned)
         totals["returned_deposit_cross_statement_total"] = round(
             sum(abs(num(match["credit"]["amount"])) for match in returned), 2)
     # The deposits pass 2 held, and the already-held deposits it only annotated.
     for key, moved in (("own_account_transfer_held", True), ("own_account_transfer_already_held", False)):
-        transfers = [match for match in matched["matches"]
+        transfers = [match for match in matched.matches
                      if match["kind"] == "own_account_transfer" and match["moved"] is moved]
         if transfers:
             totals[f"{key}_count"] = len(transfers)
             totals[f"{key}_total"] = round(sum(abs(num(match["credit"]["amount"])) for match in transfers), 2)
     for kind in DEBIT_FLAG_KINDS:
-        flags = [flag for flag in matched["debit_flags"] if flag["kind"] == kind]
+        flags = [flag for flag in matched.debit_flags if flag["kind"] == kind]
         if flags:
             totals[f"{kind}_count"] = len(flags)
             totals[f"{kind}_total"] = round(sum(abs(num(flag["amount"])) for flag in flags), 2)
-    if matched["unchecked"]:
-        totals["package_match_unchecked_count"] = len(matched["unchecked"])
+    if matched.unchecked:
+        totals["package_match_unchecked_count"] = len(matched.unchecked)
     return totals

@@ -1,12 +1,70 @@
-"""What the package reads off each member account: values, currency, printed account digits, bank, and
-whether two statements are one account."""
+"""A package's members and its passes' result, and what the package reads off each member account: values, currency,
+printed account digits, bank, and whether two statements are one account."""
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from math import isfinite
+from typing import NamedTuple, Protocol
 
 from analysis.package.calendar import iso_day
 from analysis.payload_shape import is_document_payload, payload_accounts
+
+
+class JobLike(Protocol):
+    """A job the package lists: a stored `webapp.jobs.Job`, or a stand-in with the same fields. `content_sha256` is
+    read where a job carries one."""
+
+    id: str
+    filename: str | None
+    status: str
+    analysis: dict | None
+    analysis_error: str | None
+    error: str | None
+
+
+class MemberKey(NamedTuple):
+    """A member's job and its account's 1-based place in the document's printed order (None for a job publishing one
+    account's payload). A tuple, so a `(job id, account index)` pair finds it in a map."""
+
+    job_id: str
+    account_index: int | None
+
+    @property
+    def id(self) -> str:
+        """The id the package publishes for the member."""
+        return self.job_id if self.account_index is None else f"{self.job_id}#account_{self.account_index}"
+
+
+@dataclass(frozen=True)
+class Member:
+    """One account `package_members` admitted. `account` is its displayed account payload. An account of a document
+    carries neither the document's R-d transfers nor the statement's `analysis_rules_outdated`, so
+    `internal_transfer_positions` is read off the job's stored document and `analysis_rules_outdated` off the job's
+    displayed copy."""
+
+    key: MemberKey
+    job: JobLike
+    account: dict
+    account_count: int
+    internal_transfer_positions: set[int]
+    analysis_rules_outdated: bool
+
+    @property
+    def ready(self) -> bool:
+        return self.job.status == "done" and self.job.analysis is not None
+
+
+@dataclass(frozen=True)
+class PackagePasses:
+    """What `package_matches` found. Each map is keyed by member, and an overlay by the row's original position."""
+
+    overlays: dict[MemberKey, dict[int, dict]]
+    matches: list[dict]
+    debit_flags: list[dict]
+    unchecked: dict[MemberKey, str]
+    moved: dict[MemberKey, list[dict]]
+    represented: dict[tuple[MemberKey, str], dict]
 
 
 def is_count(value: object) -> bool:
