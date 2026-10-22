@@ -1,0 +1,2 @@
+# The test compares these files byte for byte, so checkout must not convert line endings (the CSV files use CRLF).
+* -text
