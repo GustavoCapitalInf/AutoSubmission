@@ -35,7 +35,7 @@ from analysis.transaction_classifier.reversals import (
 from analysis.description_text import _TRANSFER_WORDING
 from analysis.descriptor.lexical import is_round_sum
 from analysis.descriptor.words import _CONSUMER_P2P_RAIL, _PUSH_RAIL
-from analysis.true_revenue import zelle_deposit
+from analysis.true_revenue.zelle import zelle_deposit
 
 
 #: True revenue spec §6.2's package passes: the most days a matched deposit posts after the transfer out.
@@ -354,7 +354,7 @@ def package_matches(members: list[Member]) -> PackagePasses:
                     eligible = (record.get("revenue_tier") == "counted_flagged"
                                 and record.get("revenue_tier_reason") == "no_payer_printed")
                 # Nor a Zelle deposit, which the counted reading may hold as the holder's own name: PNC's 'ZEL FROM'
-                # escapes the consumer rail, and Q4 never matches P2P (true_revenue.zelle_deposit).
+                # escapes the consumer rail, and Q4 never matches P2P (true_revenue.zelle.zelle_deposit).
                 if (not eligible or num(row.get("amount")) <= 0 or day is None
                         or (entry["key"], position) in taken or (entry["key"], position) in noted
                         or record.get("revenue_review_status") in REVIEW_DECISIONS

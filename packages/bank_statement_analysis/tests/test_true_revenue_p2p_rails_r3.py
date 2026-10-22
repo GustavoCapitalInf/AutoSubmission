@@ -3,13 +3,13 @@ banks print them.
 
 * R3-12 (the owner's amendment of 2026-10-06 to the underwriter's Q3, R2-OW17: "holds as for other P2P"): PNC prints
   the Zelle rail as 'ZEL FROM <sender>', which pass 7 reads as its 'ZELLE FROM' twin on its own text
-  (`true_revenue.pass_text`): the person-to-person channel, the sender's key pooled with the same sender's ZELLE rows,
+  (`true_revenue.zelle.pass_text`): the person-to-person channel, the sender's key pooled with the same sender's ZELLE rows,
   the round-sum repeat and R2-B02's (R02) person match of the counter-debit hold. The classifier's consumer rail, the
   legacy classes and the debits are unchanged.
 * R3-29 (Q3 of 2026-10-02: "Other P2P rails (Interac e-Transfer, ...) are unchanged"): Banque Royale prints its Interac
   autodeposit in French, 'DEPOT AUTO VIREMENTS PAR COURRIEL <sender> <reference>' (Interac's French name, virement par
   courriel), which pass 7 reads as the e-Transfer rail, plural or singular, never as a cash or branch DEPOT.
-* R3-56: a wire is never a Zelle deposit (`true_revenue.zelle_deposit`): the word ZELLE inside a wire's memo is no rail.
+* R3-56: a wire is never a Zelle deposit (`true_revenue.zelle.zelle_deposit`): the word ZELLE inside a wire's memo is no rail.
 
 Fabricated rows only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE; neutral amounts; March 2054)."""
 from __future__ import annotations
@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 from analysis import true_revenue, zelle_view
+from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
@@ -95,7 +96,7 @@ def test_r3_12_p1_the_no_reading_keeps_the_exclusion_and_names_the_p2p_reading()
     records = [record for record in _no(P1) if record.amount > 0]
     assert [_tier(record) for record in records] == [EXCLUDED, EXCLUDED]
     # Before the batch: ('counted_flagged', 'named_payer_unlabelled').
-    assert [true_revenue.zelle_prior_reading(record) for record in records] == [REPEAT, REPEAT]
+    assert [true_revenue_zelle.zelle_prior_reading(record) for record in records] == [REPEAT, REPEAT]
 
 
 #: (rows, the Yes reading of each ZEL credit). The binding assertion is the twin parity; the expected readings are
@@ -129,8 +130,8 @@ def test_r3_12_p2_the_no_reading_s_prior_is_the_zelle_twin_s(case):
     zel = [record for record in _no(rows) if record.amount > 0]
     zelle = [record for record in _no(_zelle_twin(rows)) if record.amount > 0]
     assert [_tier(record) for record in zel] == [EXCLUDED] * len(expected)
-    assert [true_revenue.zelle_prior_reading(record) for record in zel] == [
-        true_revenue.zelle_prior_reading(record) for record in zelle] == expected
+    assert [true_revenue_zelle.zelle_prior_reading(record) for record in zel] == [
+        true_revenue_zelle.zelle_prior_reading(record) for record in zelle] == expected
 
 
 def test_r3_12_p2_the_debits_keep_the_classifier_s_reading():
@@ -220,12 +221,12 @@ def _holder(bank, original):
     ("ZELLE FROM PAT SAMPLE", "ZELLE FROM PAT SAMPLE"),
 ])
 def test_r3_12_p4_pass_text_spells_pnc_s_zel_as_zelle(text, expected):
-    assert true_revenue.pass_text(_holder(PNC, text), text) == expected
+    assert true_revenue_zelle.pass_text(_holder(PNC, text), text) == expected
 
 
 def test_r3_12_p4_pass_text_drops_td_s_transfer_code_as_before():
     record = _holder("TD Canada Trust", "E-TRANSFER ***PAY")
-    assert true_revenue.pass_text(record, "E TRANSFER PAY") == channel.without_transfer_code(
+    assert true_revenue_zelle.pass_text(record, "E TRANSFER PAY") == channel.without_transfer_code(
         record, "E TRANSFER PAY") == "E TRANSFER"
 
 
@@ -337,7 +338,7 @@ def test_r3_29_a_bare_depot_stays_a_branch_deposit():
 
 @pytest.mark.parametrize("text", [row[0] for row in (*F1, *F2, *F3, *F4)])
 def test_r3_29_a_french_autodeposit_is_no_zelle_deposit(text):
-    assert true_revenue.zelle_deposit(_text(text)) is False
+    assert true_revenue_zelle.zelle_deposit(_text(text)) is False
 
 
 def test_r3_29_the_classifier_s_rail_is_unchanged():
@@ -360,7 +361,7 @@ W2 = "DEPOSIT WIRE IN 000123 ORG NORTHWIND TRADING INC OBI INVOICE 1234 NOT VIA 
 
 @pytest.mark.parametrize("text", [W1, W2])
 def test_r3_56_a_wire_s_memo_is_no_zelle_rail(text):
-    assert true_revenue.zelle_deposit(_text(text)) is False
+    assert true_revenue_zelle.zelle_deposit(_text(text)) is False
 
 
 def test_r3_56_w1_a_wire_printing_zelle_has_one_reading_never_excluded():
@@ -368,10 +369,10 @@ def test_r3_56_w1_a_wire_printing_zelle_has_one_reading_never_excluded():
     statement = _statement([(W1, 6400.0, 3)], bank=BOFA, holder=BAKERY)
     no, yes = classify_statement_readings(statement)
     assert yes is None
-    assert true_revenue.zelle_credits_present(no, set()) is False
+    assert true_revenue_zelle.zelle_credits_present(no, set()) is False
     [w1] = no
     assert _tier(w1) == (COUNTED, "wire_named_sender")
-    assert true_revenue.zelle_prior_reading(w1) is None
+    assert true_revenue_zelle.zelle_prior_reading(w1) is None
     assert w1.contributes_to_true_revenue
 
 
@@ -410,7 +411,7 @@ STILL_ZELLE = [
 
 @pytest.mark.parametrize("text", STILL_ZELLE)
 def test_r3_56_the_rail_rows_stay_zelle_deposits(text):
-    assert true_revenue.zelle_deposit(_text(text)) is True
+    assert true_revenue_zelle.zelle_deposit(_text(text)) is True
 
 
 #: §8.4's recorded residuals (R3-B12 review round 1, finding 3; 0 corpus rows): wire layouts neither wire gate reads
@@ -425,10 +426,10 @@ WIRES_STILL_READ = [
 
 @pytest.mark.parametrize("text", WIRES_STILL_READ)
 def test_r3_56_residual_a_wire_layout_no_wire_gate_reads_keeps_the_memo_s_rail(text):
-    assert true_revenue.zelle_deposit(_text(text)) is True
+    assert true_revenue_zelle.zelle_deposit(_text(text)) is True
 
 
 def test_r3_56_residual_a_zelle_row_printing_a_wire_originator_label_before_its_rail_is_refused():
     # §8.4's recorded residual (R3-B12 review round 1, finding 3; 0 corpus rows): the up-to-the-rail arm reads WIRE and
     # an originator label printed before the rail word as a loose wire's originator row.
-    assert true_revenue.zelle_deposit(_text("MOBILE WIRE ORG ZELLE PAT SAMPLE")) is False
+    assert true_revenue_zelle.zelle_deposit(_text("MOBILE WIRE ORG ZELLE PAT SAMPLE")) is False

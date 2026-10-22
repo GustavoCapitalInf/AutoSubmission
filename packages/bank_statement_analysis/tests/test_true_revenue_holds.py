@@ -13,6 +13,10 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue as tr
+from analysis.true_revenue import dealer as true_revenue_dealer
+from analysis.true_revenue import finance_release
+from analysis.true_revenue import purpose as true_revenue_purpose
+from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import tiers
 from analysis.true_revenue import financing_roots
@@ -722,16 +726,16 @@ def test_a_zelle_draw_from_a_builder_is_q3_s_never_a_progress_draw():
     (_q11_bofa("CONTOSO HOMES INC", "COMMISSIONS DRAW"), "CONTOSO HOMES INC", False),
 ])
 def test_the_progress_draw_reader(text, region, expected):
-    assert tr.construction_progress_draw(revenue_text(normalize_transaction_description(text)), region) is expected
+    assert true_revenue_purpose.construction_progress_draw(revenue_text(normalize_transaction_description(text)), region) is expected
 
 
 def test_a_builder_s_progress_draw_spares_draw_alone_in_the_non_sale_test():
     text = revenue_text(normalize_transaction_description(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3")))
-    assert tr.non_sale_purpose(text, "CONTOSO BUILDERS INC")
-    assert not tr.non_sale_purpose(text, "CONTOSO BUILDERS INC", progress_draw=True)
+    assert true_revenue_purpose.non_sale_purpose(text, "CONTOSO BUILDERS INC")
+    assert not true_revenue_purpose.non_sale_purpose(text, "CONTOSO BUILDERS INC", progress_draw=True)
     # Every other non-sale word still holds the row.
     refund = revenue_text(normalize_transaction_description(_q11_bofa("CONTOSO BUILDERS INC", "DRAW 3 REFUND")))
-    assert tr.non_sale_purpose(refund, "CONTOSO BUILDERS INC", progress_draw=True)
+    assert true_revenue_purpose.non_sale_purpose(refund, "CONTOSO BUILDERS INC", progress_draw=True)
     assert analysis_revenue.REVENUE_TIER_REASONS["construction_progress_draw"] == ("counted_flagged", "Builder's progress draw")
 
 
@@ -783,7 +787,7 @@ def test_r3_08_the_holder_s_own_builder_word_is_never_the_payer_s():
     # Truist prints the entry, the originator and the receiver in one run: the holder's CONSTRUCTION names no builder.
     text = "DRAW FABRIKAM AMERICA NORTHWIND CONSTRUCTION LLC CUSTOMER ID 0000"
     assert _q11([(text, R3_08_AMOUNT)], "NORTHWIND CONSTRUCTION LLC", bank="Truist") == [NON_SALE]
-    assert not tr.construction_progress_draw(
+    assert not true_revenue_purpose.construction_progress_draw(
         revenue_text(normalize_transaction_description(text)), "DRAW FABRIKAM AMERICA NORTHWIND CONSTRUCTION LLC",
         "NORTHWIND CONSTRUCTION LLC")
 
@@ -875,7 +879,7 @@ def test_r3_08_review_round_1_a_label_less_build_draw_names_no_builder(text, ban
     ("CONST DRAW CONTOSO BUILDERS INC", "BUILDERS"),
 ])
 def test_r3_08_the_label_less_builder_word(region, builder):
-    found = tr._label_less_builder_word(region)
+    found = true_revenue_purpose._label_less_builder_word(region)
     assert (found.group(0) if found is not None else None) == builder
 
 
@@ -896,8 +900,8 @@ def test_r3_08_the_label_less_builder_word(region, builder):
     ("FABRIKAM AMERICA BUILD DRAW CONTRACTOR", False),
 ])
 def test_r3_08_the_label_less_draw_purpose(row, draw):
-    builder = tr._label_less_builder_word(row)
-    assert (tr._DRAW_WORD.search(tr._label_less_draw_purpose(row, row, builder)) is not None) is draw
+    builder = true_revenue_purpose._label_less_builder_word(row)
+    assert (true_revenue_purpose._DRAW_WORD.search(true_revenue_purpose._label_less_draw_purpose(row, row, builder)) is not None) is draw
 
 
 # R3-B15 review round 2 (finding 2; R3-08's own target payers): the entry-first reading of review round 1 reads only a
@@ -1777,7 +1781,7 @@ def test_r39_the_same_sender_s_invoice_wire_and_the_wells_fargo_layout():
 
 
 def test_r39_the_floor_plan_lender_name_reads_whole_words():
-    name = tr._FLOOR_PLAN_LENDER_NAME
+    name = true_revenue_dealer._FLOOR_PLAN_LENDER_NAME
     for text in ("CONTOSO FINE WHOLESALE LLC", "CAPE WHOLESALE FOODS INC", "FABRIKAM WHOLESALE FINCH LLC",
                  "SAMPLE AUTOMATION WHOLESALE LLC", "CAPTAIN WHOLESALE SEAFOOD", "CONTOSO DEALERSHIP WHOLESALE INC",
                  "CONTOSO WHOLESALE GROCERS INC", "CONTOSO FLOORING LLC"):
@@ -1787,7 +1791,7 @@ def test_r39_the_floor_plan_lender_name_reads_whole_words():
                  "CONTOSO WHOLESALE CREDIT LLC"):
         assert name.search(text), text
     # The Q7 veto's floor-plan words are unchanged.
-    assert tr._DEALER_FLOOR_PLAN_WORDS.pattern == r"(?<![A-Z])(?:FLOOR\w*|WHOLESALE\w*)"
+    assert true_revenue_dealer._DEALER_FLOOR_PLAN_WORDS.pattern == r"(?<![A-Z])(?:FLOOR\w*|WHOLESALE\w*)"
 
 
 # Audit round 2, R2-B13 (R23): a company's direct deposit on a consumer (PPD or WEB) entry is pay only when its receiver
@@ -2063,7 +2067,7 @@ def test_r35_review_the_branch_store_form_leads_a_place(text, expected):
 ])
 def test_r39_review_a_finance_company_s_glued_spelling_stays_held(sender):
     assert _one(_FEDWIRE.format(sender=sender), 1000.0, holder=_TRUCKS) == FINANCING
-    assert tr._FLOOR_PLAN_LENDER_NAME.search(sender), sender
+    assert true_revenue_dealer._FLOOR_PLAN_LENDER_NAME.search(sender), sender
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -2114,7 +2118,7 @@ def _pass_facts(rows, *, holder: str | None = HOLDER, bank: str | None = None):
     records = _records(rows, holder=holder, bank=bank)
     credits = [index for index, record in enumerate(records) if record.amount > 0 and record.revenue_classification]
     debits = counter_debit_pairing.counter_debits(records, set())
-    lessor = tr._lessor_business(records, set(), credits)
+    lessor = finance_release._lessor_business(records, set(), credits)
     found = []
     for index in credits:
         record = records[index]
@@ -2294,7 +2298,7 @@ def test_q9_a_zelle_row_the_release_lifted_is_still_excluded():
     # The underwriter's Q3 (R2-OW02, CR7): the Zelle step runs after the tiers; the rules' reading is the release's.
     record = _q9_credits([("ZELLE FROM FABRIKAM FINANCIAL LLC ON 03/02 INVOICE 1234", 900.0)])[0]
     assert (record.revenue_tier, record.revenue_tier_reason) == ("non_revenue", "zelle_excluded")
-    assert tr.zelle_prior_reading(record) == FINANCE_NAMED
+    assert true_revenue_zelle.zelle_prior_reading(record) == FINANCE_NAMED
     assert rules_reading(record) == FINANCE_NAMED
 
 
@@ -2388,24 +2392,24 @@ def test_q9_financing_named_is_whether_any_place_fired(raw, bank, named):
 
 
 def test_q9_the_label_less_refusal_and_the_rent_readings():
-    assert tr._labelless_root_refusal("FABRIKAM CAPITAL ADVANCE VENDOR PMT 123456")
-    assert tr._labelless_root_refusal("FABRIKAM LLC FUNDING PAYABLES 123456")
-    assert not tr._labelless_root_refusal("FABRIKAM FUNDING PAYABLES 123456 F WFI1234567")
-    assert not tr._labelless_root_refusal("NORTHWIND SUPPLY FUNDING PAYABLES 123456")
-    assert not tr._labelless_root_refusal("COMMISSION FABRIKAM FIN")
-    assert tr._rent_only("LEASE PMT") and tr._rent_only("POOL LEASE MARCH") and tr._rent_only("LEASE")
+    assert finance_release._labelless_root_refusal("FABRIKAM CAPITAL ADVANCE VENDOR PMT 123456")
+    assert finance_release._labelless_root_refusal("FABRIKAM LLC FUNDING PAYABLES 123456")
+    assert not finance_release._labelless_root_refusal("FABRIKAM FUNDING PAYABLES 123456 F WFI1234567")
+    assert not finance_release._labelless_root_refusal("NORTHWIND SUPPLY FUNDING PAYABLES 123456")
+    assert not finance_release._labelless_root_refusal("COMMISSION FABRIKAM FIN")
+    assert finance_release._rent_only("LEASE PMT") and finance_release._rent_only("POOL LEASE MARCH") and finance_release._rent_only("LEASE")
     for words in ("LEASE FUNDING", "LEASE FUND", "LEASE PROCEEDS", "LEASE TO OWN", "LEASE PURCHASE", "LEASE BUYOUT",
                   "LEASING PMT", "LEASE PMT ADVANCE", "RENT"):
-        assert not tr._rent_only(words), words
-    assert tr._rent_memo_payer("CONTOSO CAFE LLC LEASE PMT")
-    assert not tr._rent_memo_payer("LEASE HOLDINGS LLC")
-    assert not tr._rent_memo_payer("CONTOSO CAFE LEASE PMT")
-    assert not tr._rent_memo_payer("FABRIKAM CAPITAL LLC LEASE PMT")
-    assert tr._RENT_RECEIVED.search("RENT UNIT 2") and tr._RENT_RECEIVED.search("RENTALS")
-    assert not tr._RENT_RECEIVED.search("CONTOSO RENT A CAR") and not tr._RENT_RECEIVED.search("RENTACAR")
-    assert tr._LENDER_NAME_WORD.search("FABRIKAM FUNDING") and tr._LENDER_NAME_WORD.search("FABRICREDIT")
-    assert not tr._LENDER_NAME_WORD.search("FABRIKAM FINANCIAL GROUP")
-    assert not tr._LENDER_NAME_WORD.search("ADVANCED CONTOSO SUPPLY")
+        assert not finance_release._rent_only(words), words
+    assert finance_release._rent_memo_payer("CONTOSO CAFE LLC LEASE PMT")
+    assert not finance_release._rent_memo_payer("LEASE HOLDINGS LLC")
+    assert not finance_release._rent_memo_payer("CONTOSO CAFE LEASE PMT")
+    assert not finance_release._rent_memo_payer("FABRIKAM CAPITAL LLC LEASE PMT")
+    assert finance_release._RENT_RECEIVED.search("RENT UNIT 2") and finance_release._RENT_RECEIVED.search("RENTALS")
+    assert not finance_release._RENT_RECEIVED.search("CONTOSO RENT A CAR") and not finance_release._RENT_RECEIVED.search("RENTACAR")
+    assert finance_release._LENDER_NAME_WORD.search("FABRIKAM FUNDING") and finance_release._LENDER_NAME_WORD.search("FABRICREDIT")
+    assert not finance_release._LENDER_NAME_WORD.search("FABRIKAM FINANCIAL GROUP")
+    assert not finance_release._LENDER_NAME_WORD.search("ADVANCED CONTOSO SUPPLY")
 
 
 def _lessor(rows, *, holder: str | None = HOLDER, bank: str | None = None, unverify: tuple[int, ...] = ()):
@@ -2415,7 +2419,7 @@ def _lessor(rows, *, holder: str | None = HOLDER, bank: str | None = None, unver
     records = [replace(record, revenue_classification="unverified_deposit") if index in unverify else record
                for index, record in enumerate(records)]
     credits = [index for index, record in enumerate(records) if record.amount > 0 and record.revenue_classification]
-    return tr._lessor_business(records, set(), credits)
+    return finance_release._lessor_business(records, set(), credits)
 
 
 def test_q9_b_the_lessor_reading_arm_by_arm():
@@ -2464,7 +2468,7 @@ def test_r3_60_the_rent_reading_names_the_payer_s_own_name():
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
         channel = true_revenue_channel._channel(text, bank)
-        return tr._rent_payer_name(text, self_originated_credits._facts_region(text, channel, bank))
+        return finance_release._rent_payer_name(text, self_originated_credits._facts_region(text, channel, bank))
 
     # A payer-name field: the name proper (an ACH originator's or a wire's whole region).
     assert name("BLUEJAY PARTY RENTALS INC DES:VENDOR PMT ID:1") == "BLUEJAY PARTY RENTALS INC"
@@ -2567,7 +2571,7 @@ def test_r3_b14_r1_a_payer_named_rentals_with_no_form_still_makes_no_lessor(row,
 def test_r3_b14_r1_the_rent_reading_names_only_the_payer_s_name_proper():
     def name(raw, bank=None):
         text = revenue_text(normalize_transaction_description(raw))
-        return tr._rent_payer_name(text, self_originated_credits._facts_region(text, true_revenue_channel._channel(text, bank), bank))
+        return finance_release._rent_payer_name(text, self_originated_credits._facts_region(text, true_revenue_channel._channel(text, bank), bank))
 
     # A leading rent word is the entry description a label-less layout printed first (Truist's), never the name.
     assert name("RENT FABRIKAM DELI LLC 0000AMI CUSTOMER ID 000000000", "Truist") == "FABRIKAM DELI LLC"

@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue
+from analysis.true_revenue import zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import public_payers
 from analysis.true_revenue import channel
@@ -645,7 +646,7 @@ def test_r44_a_glued_zelle_reference_is_split_on_every_bank():
     rows = [("ZELLE1234567 PAYMENT FROM JANE SAMPLE", 5000.0)] * 2
     records = _statement(rows, bank="Chase")
     # The owner's ruling of 2026-10-02 (the underwriter's Q3): the rules' reading is kept beside the Zelle policy's.
-    assert [true_revenue.zelle_prior_reading(record) for record in records] == [ROUND_REPEAT] * 2
+    assert [zelle.zelle_prior_reading(record) for record in records] == [ROUND_REPEAT] * 2
     assert [_tier(record) for record in records] == [ZELLE_EXCLUDED] * 2
 
 
@@ -717,7 +718,7 @@ def test_r24_a_zelle_transfer_from_a_company_named_with_a_short_source_s_letters
     # The rules read a named counterparty (p2p); the owner's Zelle policy of 2026-10-02 (the underwriter's Q3) then
     # excludes the Zelle deposit, the rules' reading kept.
     record = _one("ZELLE TRANSFER FROM CL CONTOSO LLC", holder=R24_HOLDER)
-    assert true_revenue.zelle_prior_reading(record) == P2P
+    assert zelle.zelle_prior_reading(record) == P2P
     assert _tier(record) == ZELLE_EXCLUDED
 
 

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from analysis import true_revenue, zelle_view
+from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.metrics import compute_metrics
 from analysis.revenue import rebuild_serialized_revenue_views
 from analysis.schema import Statement, Transaction
@@ -62,7 +63,7 @@ def test_z1_the_stored_reading_is_today_s():
     no, _yes = _readings("Z1")
     zelle = [record for record in _credits(no) if "ZELLE" in record.original_description]
     assert [_tier(record) for record in zelle] == [EXCLUDED] * 4
-    assert [true_revenue.zelle_prior_reading(record) for record in zelle] == [
+    assert [true_revenue_zelle.zelle_prior_reading(record) for record in zelle] == [
         (COUNTED, "p2p"), (HELD, "p2p_round_repeat"), (HELD, "p2p_round_repeat"), (HELD, "holder_name")]
     metrics = _metrics("Z1", no)
     assert metrics.true_revenue_total == 10300.00
@@ -78,8 +79,8 @@ def test_z1_the_counted_reading_counts_zelle_with_the_person_to_person_holds():
     assert [_tier(record) for record in zelle] == [
         (COUNTED, "p2p"), (HELD, "p2p_round_repeat"), (HELD, "p2p_round_repeat"), (HELD, "holder_name")]
     assert zelle[0].revenue_review_status == "pending"
-    assert all(record.revenue_match_method != true_revenue.ZELLE_POLICY_METHOD for record in zelle)
-    assert all(true_revenue.zelle_prior_reading(record) is None for record in zelle)
+    assert all(record.revenue_match_method != true_revenue_zelle.ZELLE_POLICY_METHOD for record in zelle)
+    assert all(true_revenue_zelle.zelle_prior_reading(record) is None for record in zelle)
     metrics = _metrics("Z1", yes)
     assert metrics.true_revenue_total == 11534.56
     assert metrics.excluded_pending_review_total == 6500.00
@@ -133,7 +134,7 @@ def test_z2_yes_lifts_true_off_zero_and_the_rate_returns():
 def test_z3_a_premium_trust_account_holds_the_counted_zelle_deposit():
     no, yes = _readings("Z3")
     assert _tier(no[0]) == EXCLUDED
-    assert true_revenue.zelle_prior_reading(no[0]) == (COUNTED, "p2p")
+    assert true_revenue_zelle.zelle_prior_reading(no[0]) == (COUNTED, "p2p")
     # The counted reading is NOT the prior: the premium-trust hold runs after the Zelle step.
     assert _tier(yes[0]) == (HELD, "premium_trust_account")
     assert _metrics("Z3", yes).excluded_pending_review_total == 3245.67
@@ -152,7 +153,7 @@ def test_z4_a_zelle_truck_sale_is_an_asset_sale_in_the_counted_reading():
 def test_z4_a_builder_s_zelle_draw_counts_in_the_counted_reading():
     no, yes = _readings("Z4_DRAW")
     assert _tier(no[0]) == EXCLUDED
-    assert true_revenue.zelle_prior_reading(no[0]) == (HELD, "non_sale_purpose")
+    assert true_revenue_zelle.zelle_prior_reading(no[0]) == (HELD, "non_sale_purpose")
     assert _tier(yes[0]) == (COUNTED, "construction_progress_draw")
     text = revenue_text(no[0].normalized_description)
     assert true_revenue.guard_facts(yes[0], text, zelle_true_revenue=True)["progress_draw"] is True
@@ -374,7 +375,7 @@ def test_z9_i_rules_the_counted_reading_is_the_prior_but_where_declared(name):
     no, yes = _readings(name)
     declared = {"Z3": {0}, "Z4_TRUCK": {0}, "Z4_DRAW": {0}, "Z4_PARTNER": {0}}.get(name, set())
     for index, record in enumerate(no):
-        prior = true_revenue.zelle_prior_reading(record)
+        prior = true_revenue_zelle.zelle_prior_reading(record)
         if prior is None:
             continue
         if index in declared:

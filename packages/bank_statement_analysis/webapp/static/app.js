@@ -2227,11 +2227,11 @@ function revenueReviewControls(tx, fallbackJobId = null, fallbackAccount = null,
 }
 
 // True revenue spec §10.6, §10.7: the context signal that keeps the rules' own reading of a Zelle deposit the
-// policy excluded ('zelle_prior:<tier>:<reason>'); analysis/true_revenue.py `_ZELLE_PRIOR`.
+// policy excluded ('zelle_prior:<tier>:<reason>'); analysis/true_revenue/zelle.py `_ZELLE_PRIOR`.
 const ZELLE_PRIOR_SIGNAL = "zelle_prior:";
 
 // The tier and reason the rules gave a Zelle deposit the policy excluded, {tier, reason} (reason null where none was
-// recorded), or null for any other row. It mirrors analysis/true_revenue.py `zelle_prior_reading`: the first signal
+// recorded), or null for any other row. It mirrors analysis/true_revenue/zelle.py `zelle_prior_reading`: the first signal
 // with the prefix, split at its first colon.
 function zellePriorReading(record) {
   const signals = record && Array.isArray(record.revenue_context_signals) ? record.revenue_context_signals : [];

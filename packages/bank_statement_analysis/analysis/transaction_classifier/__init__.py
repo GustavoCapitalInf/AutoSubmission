@@ -99,30 +99,20 @@ from analysis.true_revenue.holder_names import without_receiver_and_holder
 from analysis.true_revenue.counter_debit_pairing import also_debited, counter_credit, counter_debits, debited_as_lender
 from analysis.true_revenue.tiers import payer_text_unread_indexes, payer_text_unread_texts
 from analysis.true_revenue.trust import premium_trust_title
+from analysis.true_revenue.dealer import dealer_funding_reading
+from analysis.true_revenue.zelle import zelle_credits_present
 # The true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from analysis.true_revenue import apply_true_revenue_pass, dealer_funding_reading, zelle_credits_present
+from analysis.true_revenue import apply_true_revenue_pass
 
 # True revenue reads these through _classifier() until its readers leave analysis/true_revenue/.
 from analysis.classification.counter_debit_reading import _payer_key
 from analysis.classification.operating_sources import _recurrence_vetoed
-from analysis.descriptor.credit_words import (
-    _FUNDING_SETTLEMENT_ENTITIES,
-    _PUBLIC_PAYER_NON_SALE_WORDS,
-    _TREASURY_BOILERPLATE,
-)
+from analysis.descriptor.credit_words import _FUNDING_SETTLEMENT_ENTITIES
 from analysis.descriptor.holder import account_name_text, holder_named, holder_receiver_block
-from analysis.descriptor.lexical import (
-    _originator_segment,
-    _skip_numbered_leading_date,
-    company_form,
-    is_round_sum,
-    payer_name,
-)
+from analysis.descriptor.lexical import _skip_numbered_leading_date, company_form, is_round_sum, payer_name
 from analysis.descriptor.payer import entry_fields, numbered_company, payer_label_layout, wire_relayed_customer
-from analysis.descriptor.rails import _is_wire_row, _loose_wire_originator
+from analysis.descriptor.rails import _is_wire_row
 from analysis.descriptor.words import (
-    REVENUE_GENERIC_WORDS,
-    _CARD_FORM_DEBIT_PREFIX,
     _ELECTRONIC_PAYMENT_FORM,
     _NUMBERED_COMPANY_REGION,
     _SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS,

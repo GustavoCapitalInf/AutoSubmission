@@ -22,6 +22,9 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue
+from analysis.true_revenue import insurer as true_revenue_insurer
+from analysis.true_revenue import purpose as true_revenue_purpose
+from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import eligibility
 from analysis.true_revenue import claimed
@@ -66,7 +69,7 @@ def _reader(text: str, *, holder: str = BAKERY, bank: str | None = None, amount:
     """The insurer reading of a one-row statement's credit, as (key, kind, for_work), or None."""
     record = _records([(text, amount)], holder=holder, bank=bank)[0]
     row = revenue_text(record.normalized_description)
-    reading = true_revenue.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
+    reading = true_revenue_insurer.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
     return None if reading is None else (reading.key, reading.kind, reading.for_work)
 
 
@@ -75,7 +78,7 @@ def _expected(key: str, kind: str, for_work: bool) -> tuple[str, str, bool]:
 
 
 def insurer_credit_brand(text: str) -> str | None:
-    return true_revenue.insurer_credit_brand(text)
+    return true_revenue_insurer.insurer_credit_brand(text)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -271,7 +274,7 @@ def test_a_government_payer_named_by_the_spelled_out_insurer_words_stays_held(ro
     assert [rules_reading(record) for record in records] == [HELD] * len(rows)
     for record in records:
         row = revenue_text(record.normalized_description)
-        reading = true_revenue.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
+        reading = true_revenue_insurer.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
         assert reading is not None and reading.kind == "named" and reading.for_work is False
 
 
@@ -452,6 +455,7 @@ def test_a_claimed_row_is_never_the_insurer_name_hold(monkeypatch):
     patched_claimed = lambda record, text: True
     monkeypatch.setattr(true_revenue, "_claimed", patched_claimed)
     monkeypatch.setattr(claimed, "_claimed", patched_claimed)
+    monkeypatch.setattr(true_revenue_insurer, "_claimed", patched_claimed)
     assert _readings([("SAMPLE INS CO DES:PAYMENT ID:1", 1234.0)]) != [HELD]
 
 
@@ -567,7 +571,7 @@ def test_the_brand_table_is_credit_only():
     )
     assert readers == [
         "analysis/classification_registry.py",
-        "analysis/true_revenue/__init__.py",
+        "analysis/true_revenue/insurer.py",
         "analysis/true_revenue/model.py",
     ]
     assert not set(registry.INSURER_CREDIT_BRANDS) & {
@@ -580,8 +584,8 @@ def test_each_brand_pattern_compiles_as_a_whole_name():
         assert patterns, entity
         for pattern in patterns:
             re.compile(pattern)
-    assert [entity for entity, _ in true_revenue._INSURER_CREDIT_BRANDS] == list(registry.INSURER_CREDIT_BRANDS)
-    for _, patterns in true_revenue._INSURER_CREDIT_BRANDS:
+    assert [entity for entity, _ in true_revenue_insurer._INSURER_CREDIT_BRANDS] == list(registry.INSURER_CREDIT_BRANDS)
+    for _, patterns in true_revenue_insurer._INSURER_CREDIT_BRANDS:
         for pattern in patterns:
             assert pattern.pattern.startswith("(?<![A-Z])(?:") and pattern.pattern.endswith(")(?![A-Z])")
 
@@ -711,9 +715,9 @@ def test_the_statement_arm_switch_on_counts_another_insurer_s_one_off(monkeypatc
     """T5-ON: with the owner's switch on, T4's frequent insurer makes a fourth insurer's one-off claim count
     ('insurer_service_statement'); T5: off (the default, the literal reading), the one-off stays held."""
     rows = [*_t4(), ("FABRIKAM CASUALTY CO DES:CLAIM PMT ID:9", 455.0, "03-25")]
-    assert true_revenue.INSURER_FOR_WORK_STATEMENT_ARM is False
+    assert true_revenue_insurer.INSURER_FOR_WORK_STATEMENT_ARM is False
     assert [rules_reading(record) for record in _dated(rows)] == [COUNTED, COUNTED, COUNTED, HELD]
-    monkeypatch.setattr(true_revenue, "INSURER_FOR_WORK_STATEMENT_ARM", True)
+    monkeypatch.setattr(true_revenue_insurer, "INSURER_FOR_WORK_STATEMENT_ARM", True)
     records = _dated(rows)
     assert [rules_reading(record) for record in records] == [COUNTED] * 4
     assert f"({GROUND_WORDS['insurer_service_statement']})" in records[3].revenue_reason
@@ -854,7 +858,7 @@ def test_a_zelle_credit_from_an_insurer_at_an_agency_is_excluded_with_the_releas
     (counted, insurer_paid_for_services) is kept on the record."""
     record = _dated([("ZELLE PAYMENT FROM SAMPLE INSURANCE CO CONF 99", 400.0, "03-02")], holder=AGENCY)[0]
     assert (record.revenue_tier, record.revenue_tier_reason) == ("non_revenue", "zelle_excluded")
-    assert true_revenue.zelle_prior_reading(record) == COUNTED
+    assert true_revenue_zelle.zelle_prior_reading(record) == COUNTED
     assert rules_reading(record) == COUNTED
 
 
@@ -873,6 +877,7 @@ def test_a_claimed_row_is_never_released(monkeypatch):
     patched_claimed = lambda record, text: True
     monkeypatch.setattr(true_revenue, "_claimed", patched_claimed)
     monkeypatch.setattr(claimed, "_claimed", patched_claimed)
+    monkeypatch.setattr(true_revenue_insurer, "_claimed", patched_claimed)
     records = _dated(_t4())
     assert all(record.revenue_match_method != METHOD for record in records)
     assert all(record.revenue_tier_reason != "insurer_paid_for_services" for record in records)
@@ -943,8 +948,8 @@ def test_the_frequency_reads_an_inclusive_31_day_span(days, frequent):
     from datetime import date
 
     found = [None if day is None else date.fromisoformat(day) for day in days]
-    assert true_revenue._insurer_key_frequent(found) is frequent
-    assert (true_revenue.INSURER_FOR_WORK_MIN_CREDITS, true_revenue.INSURER_FOR_WORK_WINDOW_DAYS) == (3, 31)
+    assert true_revenue_insurer._insurer_key_frequent(found) is frequent
+    assert (true_revenue_insurer.INSURER_FOR_WORK_MIN_CREDITS, true_revenue_insurer.INSURER_FOR_WORK_WINDOW_DAYS) == (3, 31)
 
 
 @pytest.mark.parametrize(("holder", "count", "expected"), [
@@ -970,8 +975,8 @@ def test_the_frequency_reads_an_inclusive_31_day_span(days, frequent):
 ])
 def test_the_holder_s_trade(holder, count, expected):
     record = _dated([("NORTHWIND SUPPLY DES:PAYMENT ID:1", 100.0, "03-02")], holder=holder)[0]
-    assert true_revenue._holder_service_trade(record, (), count) == expected
-    assert true_revenue.INSURER_FOR_WORK_LOOSE_MIN_CREDITS == 2
+    assert true_revenue_insurer._holder_service_trade(record, (), count) == expected
+    assert true_revenue_insurer.INSURER_FOR_WORK_LOOSE_MIN_CREDITS == 2
 
 
 @pytest.mark.parametrize(("words", "form", "commission", "not_for_work"), [
@@ -1001,9 +1006,9 @@ def test_the_holder_s_trade(holder, count, expected):
     ("CLAIM PMT", False, False, False),
 ])
 def test_the_service_and_not_for_work_forms(words, form, commission, not_for_work):
-    assert (true_revenue._INSURER_SERVICE_FORM.search(words) is not None) is form
-    assert (true_revenue._INSURER_COMMISSION_FORM.search(words) is not None) is commission
-    assert (true_revenue._INSURER_NOT_FOR_WORK.search(words) is not None) is not_for_work
+    assert (true_revenue_insurer._INSURER_SERVICE_FORM.search(words) is not None) is form
+    assert (true_revenue_insurer._INSURER_COMMISSION_FORM.search(words) is not None) is commission
+    assert (true_revenue_insurer._INSURER_NOT_FOR_WORK.search(words) is not None) is not_for_work
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -1085,16 +1090,16 @@ def test_r3_11_a_texas_county_mutual_is_an_insurer_never_a_county(rows, statemen
 def test_r3_11_a_released_insurer_s_claim_is_no_public_payer_s_claim():
     """The non-sale hold's public-payer arm reads no CLAIM on a released row (as its CLAIM arm already did)."""
     text, region = "ALLSTATE COUNTY DES:CLAIM PMT ID:1", "ALLSTATE COUNTY"
-    assert true_revenue.non_sale_purpose(text, region) is True
-    assert true_revenue.non_sale_purpose(text, region, insurer_work=True) is False
-    assert true_revenue.non_sale_purpose("ALLSTATE COUNTY DES:AWARD ID:1", region, insurer_work=True) is True
+    assert true_revenue_purpose.non_sale_purpose(text, region) is True
+    assert true_revenue_purpose.non_sale_purpose(text, region, insurer_work=True) is False
+    assert true_revenue_purpose.non_sale_purpose("ALLSTATE COUNTY DES:AWARD ID:1", region, insurer_work=True) is True
 
 
 def test_r3_11_the_reader_keys_a_county_mutual_by_its_carrier():
     for rows, key in ((GEICO_COUNTY, "GEICO"), (ALLSTATE_COUNTY, "Allstate")):
         for record in _dated(rows):
             row = revenue_text(record.normalized_description)
-            reading = true_revenue.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
+            reading = true_revenue_insurer.insurer_payer_reading(record, row, payer_region(row), entry_fields(row))
             assert (reading.key, reading.kind, reading.for_work) == (key, "registry", True)
     # The self-insurance fund keeps the government arm's reading.
     assert _reader("SAMPLE COUNTY SELF INSURANCE FUND DES:PAYMENT ID:0001", holder=NORTHWIND_BAKERY) == _expected(
@@ -1253,8 +1258,8 @@ def test_r3_10_a_personal_benefit_is_never_paid_for_work(rows, statement, expect
 ])
 def test_r3_10_the_holder_is_a_provider(holder, provider):
     record = _dated([("NORTHWIND SUPPLY DES:PAYMENT ID:1", 100.0, "03-02")], holder=holder)[0]
-    assert true_revenue._holder_provider(record) is provider
-    trade = true_revenue._holder_service_trade(record, (), true_revenue.INSURER_FOR_WORK_LOOSE_MIN_CREDITS)
+    assert true_revenue_insurer._holder_provider(record) is provider
+    trade = true_revenue_insurer._holder_service_trade(record, (), true_revenue_insurer.INSURER_FOR_WORK_LOOSE_MIN_CREDITS)
     assert (trade is not None and trade[0] in {"clinic", "pharmacy"}) is provider
 
 
@@ -1272,9 +1277,9 @@ def test_r3_10_the_holder_is_a_provider(holder, provider):
     ("LIFE", False, False, False), ("CLAIM PMT", False, False, False), ("STANDARD", False, False, False),
 ])
 def test_r3_10_the_personal_benefit_forms(words, personal, ltd, non_provider):
-    assert (true_revenue._INSURER_PERSONAL_BENEFIT.search(words) is not None) is personal
-    assert (true_revenue._INSURER_LTD_BENEFIT.search(words) is not None) is ltd
-    assert (true_revenue._INSURER_NON_PROVIDER_BENEFIT.search(words) is not None) is non_provider
+    assert (true_revenue_insurer._INSURER_PERSONAL_BENEFIT.search(words) is not None) is personal
+    assert (true_revenue_insurer._INSURER_LTD_BENEFIT.search(words) is not None) is ltd
+    assert (true_revenue_insurer._INSURER_NON_PROVIDER_BENEFIT.search(words) is not None) is non_provider
 
 
 def _one_off(entry: str, holder: str, payer: str = "SAMPLE MUTUAL INS"):
@@ -1360,7 +1365,7 @@ def test_r3_b13_r1_a_benefit_word_in_the_carrier_s_name_is_no_benefit(rows, hold
     ("SAMPLE INS CO", "PAYMENT", False),
 ])
 def test_r3_b13_r1_the_non_provider_benefit_reading(own, purpose, read):
-    assert true_revenue._non_provider_benefit(own, purpose) is read
+    assert true_revenue_insurer._non_provider_benefit(own, purpose) is read
 
 
 ROUND_ZELLE = [(f"Zelle payment from SAMPLE INSURANCE CO Conf# 000000000{n}", 1000.0, day)

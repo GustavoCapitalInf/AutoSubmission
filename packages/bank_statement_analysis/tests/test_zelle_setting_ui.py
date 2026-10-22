@@ -574,9 +574,9 @@ console.log(JSON.stringify({{reasons: review({json.dumps(rows)}).map((row) => ro
 
 
 def test_r3_51_the_prior_reader_mirrors_the_analysis():
-    """zellePriorReading reads the signal analysis/true_revenue.py zelle_prior_reading reads: its prefix, and the tier
+    """zellePriorReading reads the signal analysis/true_revenue/zelle.py zelle_prior_reading reads: its prefix, and the tier
     and reason split at the first colon."""
-    from analysis.true_revenue import _ZELLE_PRIOR
+    from analysis.true_revenue.zelle import _ZELLE_PRIOR
 
     source = (ROOT / "webapp/static/app.js").read_text(encoding="utf-8")
     assert f'const ZELLE_PRIOR_SIGNAL = "{_ZELLE_PRIOR}";' in source

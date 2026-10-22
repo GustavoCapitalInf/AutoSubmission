@@ -168,7 +168,7 @@ def cached_accounts(
 
 
 #: The owner's amendment of 2026-10-06 to the underwriter's Q3 (R2-OW17, J3): the method pass 7 gives a Zelle deposit the
-#: Zelle policy excluded (analysis/true_revenue.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
+#: Zelle policy excluded (analysis/true_revenue/zelle.py ZELLE_POLICY_METHOD, copied: the census reads other checkouts).
 ZELLE_POLICY_METHOD = "zelle_deposit_excluded"
 
 

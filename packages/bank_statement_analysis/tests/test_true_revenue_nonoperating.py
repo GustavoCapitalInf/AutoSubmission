@@ -19,6 +19,8 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import true_revenue as tr
+from analysis.true_revenue import purpose as true_revenue_purpose
+from analysis.true_revenue import zelle
 from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import eligibility
 from analysis.true_revenue import hold_text
@@ -192,7 +194,7 @@ def test_a_custodian_s_or_a_bare_fidelity_credit_is_not_owner_money(text, bank):
 
 
 def test_the_owner_money_platforms_name_the_new_exchanges_and_no_custodian():
-    found = tr._OWNER_MONEY_PLATFORMS
+    found = true_revenue_purpose._OWNER_MONEY_PLATFORMS
     for name in ("KRAKEN", "PAYWARD", "FBO PAYWARD INTERACTIVE", "BINANCE", "BAM TRADING", "BITSTAMP", "UPHOLD",
                  "BLOCKFI", "BAKKT", "PAXOS", "APEX CLEARING", "M1 FINANCE", "COINBA SE", "P FIDELITY"):
         assert found.search(name), name
@@ -526,7 +528,7 @@ def test_a_zelle_truck_sale_is_q3_s_never_an_asset_sale():
     # D14 (CR7): the rules count it as a person-to-person payment; Q3's policy excludes it, never Q11.
     record, = _q11_records([("ZELLE PAYMENT FROM PAT SAMPLE FOR TRUCK SALE CONF ABC123", 9000.0)])
     assert rules_reading(record, method=True) == P2P
-    assert record.revenue_match_method == tr.ZELLE_POLICY_METHOD
+    assert record.revenue_match_method == zelle.ZELLE_POLICY_METHOD
 
 
 @pytest.mark.parametrize(("region", "entity"), [
@@ -981,13 +983,13 @@ def test_r37_the_trade_name_reader(text, words, keep, trade):
     from analysis.descriptor.payer import payer_region
 
     tables = {
-        "LEGAL": (tr._LEGAL_NAME_WORDS, tr._LEGAL_NAME_KEEP),
-        "GAMBLING": (tr._GAMBLING_NAME_WORDS, tr._GAMBLING_CONTEXT),
-        "PLATFORM": (tr._PLATFORM_NAME_WORDS, tr._PLATFORM_NAME_KEEP),
+        "LEGAL": (true_revenue_purpose._LEGAL_NAME_WORDS, true_revenue_purpose._LEGAL_NAME_KEEP),
+        "GAMBLING": (true_revenue_purpose._GAMBLING_NAME_WORDS, true_revenue_purpose._GAMBLING_CONTEXT),
+        "PLATFORM": (true_revenue_purpose._PLATFORM_NAME_WORDS, true_revenue_purpose._PLATFORM_NAME_KEEP),
     }
     revenue = revenue_text(normalize_transaction_description(text))
     row = hold_text._hold_text(revenue)
-    assert tr._trade_name(revenue, row, payer_region(revenue), tables[words][0], tables[keep][1]) is trade
+    assert true_revenue_purpose._trade_name(revenue, row, payer_region(revenue), tables[words][0], tables[keep][1]) is trade
 
 
 def test_r37_the_title_firm_s_settlement_services_arm_spares_a_processor_s_and_a_carrier_s_word():
@@ -1029,9 +1031,9 @@ def test_r37_the_hold_rule_fact_reads_the_guarded_readers(text, rule):
 
 
 def test_r37_the_owner_money_platforms_table_is_unchanged():
-    assert tr._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
+    assert true_revenue_purpose._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
     for name in ("KRAKEN", "UPHOLD", "PAXOS"):
-        assert tr._PLATFORM_NAME_WORDS.fullmatch(name) and tr._OWNER_MONEY_PLATFORMS.fullmatch(name), name
+        assert true_revenue_purpose._PLATFORM_NAME_WORDS.fullmatch(name) and true_revenue_purpose._OWNER_MONEY_PLATFORMS.fullmatch(name), name
 
 
 # Audit round 2, R2-B12 review round 1 (R37): a purpose noun, a function word or a word a hold reads, right after the
@@ -1094,12 +1096,12 @@ def test_r37_review_a_name_word_after_the_hold_word_is_still_a_trade_name(rows, 
     "ACCOUNT", "ACCT", "BTC", "BITCOIN", "FROM", "TO", "ON", "MY", "LAST", "TONIGHT",
 ])
 def test_r37_review_the_purpose_words_are_no_name_words(word):
-    assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
+    assert true_revenue_purpose._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
 
 
 @pytest.mark.parametrize("word", ["CANDLES", "SUPPORT", "RESPONSE", "HEALTH", "PLUMBING", "ROBOTICS", "CLEANING"])
 def test_r37_review_a_name_word_is_no_purpose_word(word):
-    assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word) is None, word
+    assert true_revenue_purpose._TRADE_NAME_PURPOSE_WORD.fullmatch(word) is None, word
 
 
 @pytest.mark.parametrize(("text", "words", "trade"), [
@@ -1118,13 +1120,13 @@ def test_r37_review_the_trade_name_reader_reads_a_purpose_word_as_the_purpose_s(
     from analysis.descriptor.payer import payer_region
 
     tables = {
-        "LEGAL": (tr._LEGAL_NAME_WORDS, tr._LEGAL_NAME_KEEP),
-        "GAMBLING": (tr._GAMBLING_NAME_WORDS, tr._GAMBLING_CONTEXT),
-        "PLATFORM": (tr._PLATFORM_NAME_WORDS, tr._PLATFORM_NAME_KEEP),
+        "LEGAL": (true_revenue_purpose._LEGAL_NAME_WORDS, true_revenue_purpose._LEGAL_NAME_KEEP),
+        "GAMBLING": (true_revenue_purpose._GAMBLING_NAME_WORDS, true_revenue_purpose._GAMBLING_CONTEXT),
+        "PLATFORM": (true_revenue_purpose._PLATFORM_NAME_WORDS, true_revenue_purpose._PLATFORM_NAME_KEEP),
     }
     revenue = revenue_text(normalize_transaction_description(text))
     row = hold_text._hold_text(revenue)
-    assert tr._trade_name(revenue, row, payer_region(revenue), *tables[words]) is trade
+    assert true_revenue_purpose._trade_name(revenue, row, payer_region(revenue), *tables[words]) is trade
 
 
 @pytest.mark.parametrize(("rows", "expected"), [
@@ -1236,13 +1238,13 @@ def test_r37_review_2_a_row_only_the_purpose_arm_spares_counts_never_proves(rows
     "WIRE", "USD", "REWARDS", "STAKING",
 ])
 def test_r37_review_2_the_abbreviated_purpose_words_are_no_name_words(word):
-    assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
+    assert true_revenue_purpose._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
 
 
 @pytest.mark.parametrize("word", ["SETTLE", "SETTLEMENT", "SETTLMT", "SETLMT", "STLMT", "STLMNT", "SETL", "CLAIM", "AWARDS"])
 def test_r37_review_2_the_legal_context_reads_every_settlement_spelling(word):
-    assert tr._LEGAL_CONTEXT.fullmatch(word), word
-    assert tr._LEGAL_NAME_KEEP.fullmatch(word), word
+    assert true_revenue_purpose._LEGAL_CONTEXT.fullmatch(word), word
+    assert true_revenue_purpose._LEGAL_NAME_KEEP.fullmatch(word), word
 
 
 def test_r37_review_2_the_legal_reader_reads_the_classifier_s_settlement_spellings():
@@ -1250,8 +1252,8 @@ def test_r37_review_2_the_legal_reader_reads_the_classifier_s_settlement_spellin
     (_SETTLEMENT_CREDIT), so the two lists stay in step."""
     for word in ("SETTLE", "SETTLED", "SETTLEMENT", "SETTLEMENTS", "SETTLMT", "SETLMT", "STLMT", "STLMNT"):
         assert counter_debit_pairing._SETTLEMENT_CREDIT.fullmatch(word), word
-        assert tr._LEGAL_CONTEXT.fullmatch(word), word
-        assert tr._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
+        assert true_revenue_purpose._LEGAL_CONTEXT.fullmatch(word), word
+        assert true_revenue_purpose._TRADE_NAME_PURPOSE_WORD.fullmatch(word), word
 
 
 @pytest.mark.parametrize(("text", "spared"), [
@@ -1274,7 +1276,7 @@ def test_r37_review_2_the_purpose_trade_name_reader(text, spared):
 
     revenue = revenue_text(normalize_transaction_description(text))
     row = hold_text._hold_text(revenue)
-    assert tr.purpose_trade_name(revenue, row, payer_region(revenue)) is spared
+    assert true_revenue_purpose.purpose_trade_name(revenue, row, payer_region(revenue)) is spared
 
 
 @pytest.mark.parametrize(("text", "fact"), [
@@ -1364,7 +1366,7 @@ def test_r36_controls_keep_their_readings(rows, expected):
 ])
 def test_r36_the_gambling_reader(text, held):
     revenue = revenue_text(normalize_transaction_description(text))
-    assert tr.gambling_payout(revenue, hold_text._hold_text(revenue)) is held
+    assert true_revenue_purpose.gambling_payout(revenue, hold_text._hold_text(revenue)) is held
 
 
 @pytest.mark.parametrize(("text", "expected"), [

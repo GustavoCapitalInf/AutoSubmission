@@ -16,6 +16,9 @@ from dataclasses import asdict, fields
 import pytest
 
 from analysis import true_revenue
+from analysis.true_revenue import finance_release
+from analysis.true_revenue import purpose
+from analysis.true_revenue import zelle as true_revenue_zelle
 from analysis.metrics import compute_metrics
 from analysis.revenue import (
     NON_REVENUE_REASONS,
@@ -63,7 +66,11 @@ def _run(rows, bank, *, holder=HOLDER, days=None):
 def _both(monkeypatch, rows, bank, **kwargs):
     """The rows read with the Zelle policy, then without it (zelle_deposit reading no row)."""
     on = _run(rows, bank, **kwargs)
-    monkeypatch.setattr(true_revenue, "zelle_deposit", lambda text: False)
+    patched_zelle_deposit = lambda text: False
+    monkeypatch.setattr(true_revenue, "zelle_deposit", patched_zelle_deposit)
+    monkeypatch.setattr(finance_release, "zelle_deposit", patched_zelle_deposit)
+    monkeypatch.setattr(purpose, "zelle_deposit", patched_zelle_deposit)
+    monkeypatch.setattr(true_revenue_zelle, "zelle_deposit", patched_zelle_deposit)
     off = _run(rows, bank, **kwargs)
     monkeypatch.undo()
     return on, off
@@ -84,7 +91,7 @@ MOVES = [
                          ("ZELLE PAYMENT FROM FABRIKAM LANDSCAPING LLC CONF# B1B2C3D4E", 2000.0)], None,
      [(HELD, "p2p_round_repeat")] * 2),
     # PNC prints the rail as ZEL, which the classifier's rail does not read. Audit round 3, R3-12 (R3-B12): pass 7 reads
-    # it as its ZELLE twin (true_revenue.pass_text), a person-to-person credit (it was named_payer_unlabelled).
+    # it as its ZELLE twin (true_revenue.zelle.pass_text), a person-to-person credit (it was named_payer_unlabelled).
     ("PNC Bank", [("Zel From Pat Sample WFCT0ABCDE12", 500.0)], None, [(COUNTED, "p2p")]),
     ("Wells Fargo", [("ZELLE FROM NORTHWIND SUPPLY LLC ON 03/02 REF # BAC0A1B2C3D4", 750.0)], None, [(COUNTED, "p2p")]),
     ("U.S. Bank", [("ZELLE INSTANT PMT FROM PAT SAMPLE", 300.0)], None, [(COUNTED, "p2p")]),
@@ -125,7 +132,7 @@ def test_q3_every_zelle_deposit_is_excluded_with_the_rules_reading_kept(monkeypa
     assert [_tier(old) for _new, old in credits] == prior
     for new, old in credits:
         assert _tier(new) == EXCLUDED
-        assert true_revenue.zelle_prior_reading(new) == _tier(old)
+        assert true_revenue_zelle.zelle_prior_reading(new) == _tier(old)
         assert (new.revenue_classification, new.revenue_initial_classification, new.revenue_initial_tier) == (
             "non_revenue", "non_revenue", "non_revenue")
         assert (new.revenue_match_method, new.revenue_matched_rule) == ("zelle_deposit_excluded",) * 2
@@ -150,7 +157,7 @@ def test_q3_amended_the_counted_reading_of_every_move_is_its_prior(bank, rows, d
     stored = classify_statement_transactions(statement)
     counted = classify_statement_transactions(statement, zelle_true_revenue=True)
     credits = [(old, new) for old, new in zip(stored, counted) if old.amount > 0]
-    assert [true_revenue.zelle_prior_reading(old) for old, _new in credits] == prior
+    assert [true_revenue_zelle.zelle_prior_reading(old) for old, _new in credits] == prior
     assert [_tier(new) for _old, new in credits] == prior
     assert [old for old in stored if old.amount <= 0] == [new for new in counted if new.amount <= 0]
 
@@ -190,7 +197,7 @@ def test_q3_a_lender_debited_payer_s_debits_keep_their_lender_reading(monkeypatc
 def test_q3_a_non_revenue_rule_and_a_direction_conflict_keep_their_reading(bank, row, reading):
     [record] = _run([row], bank)
     assert (record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method) == reading
-    assert true_revenue.zelle_prior_reading(record) is None
+    assert true_revenue_zelle.zelle_prior_reading(record) is None
 
 
 @pytest.mark.parametrize("text", [
@@ -203,7 +210,7 @@ def test_q3_a_listed_funder_s_zelle_credit_stays_financing_proceeds(text):
     assert (record.revenue_tier, record.revenue_tier_reason, record.revenue_match_method) == (
         "non_revenue", None, "financing_proceeds_credit")
     assert record.contributes_to_lender_credit_exclusion is True
-    assert true_revenue.zelle_prior_reading(record) is None
+    assert true_revenue_zelle.zelle_prior_reading(record) is None
 
 
 # Q3 CONTROLS: a name holding the rail's letters, and the other person-to-person rails.
@@ -214,7 +221,7 @@ def test_q3_a_listed_funder_s_zelle_credit_stays_financing_proceeds(text):
 def test_q3_a_payer_whose_name_holds_the_letters_is_no_zelle_deposit(text):
     [record] = _run([(text, 800.0)], "Bank of America")
     assert (record.revenue_tier, record.revenue_match_method) == ("verified", "named_payer_company_form")
-    assert not true_revenue.zelle_deposit(revenue_text(normalize_transaction_description(text)))
+    assert not true_revenue_zelle.zelle_deposit(revenue_text(normalize_transaction_description(text)))
 
 
 @pytest.mark.parametrize("text", [
@@ -228,7 +235,7 @@ def test_q3_the_other_person_to_person_rails_stay_counted(text):
 def test_q3_a_sender_s_zelle_round_sum_still_completes_its_named_group():
     zelle, venmo = _run([("ZELLE PAYMENT FROM PAT SAMPLE CONF 1", 500.0), ("VENMO FROM PAT SAMPLE", 500.0)], "Chase")
     assert _tier(zelle) == EXCLUDED
-    assert true_revenue.zelle_prior_reading(zelle) == (HELD, "p2p_round_repeat")
+    assert true_revenue_zelle.zelle_prior_reading(zelle) == (HELD, "p2p_round_repeat")
     assert _tier(venmo) == (HELD, "p2p_round_repeat")
 
 
@@ -255,7 +262,7 @@ def test_q3_a_sender_s_zelle_round_sum_still_completes_its_named_group():
     ("NORTHWIND TRADING INC DES:ZELLE PMT ID:0001 INDN:CONTOSO BAKERY LLC", True),
 ])
 def test_q3_the_zelle_reader(text, zelle):
-    assert true_revenue.zelle_deposit(revenue_text(normalize_transaction_description(text))) is zelle
+    assert true_revenue_zelle.zelle_deposit(revenue_text(normalize_transaction_description(text))) is zelle
 
 
 def test_q3_the_consumer_rail_is_unchanged():
@@ -269,25 +276,25 @@ def test_q3_the_consumer_rail_is_unchanged():
 def test_q3_an_unregistered_reason_code_names_itself():
     """A reason another batch adds without a table row never raises: the code is its own label."""
     [record] = _run([("MOBILE DEPOSIT", 300.0)], "Chase")
-    excluded = true_revenue._zelle_excluded(
+    excluded = true_revenue_zelle._zelle_excluded(
         TransactionClassification(**{**asdict(record), "revenue_tier_reason": "fabricated_new_reason"})
     )
     assert _tier(excluded) == EXCLUDED
     assert excluded.revenue_reason.endswith("the rules read it as: fabricated_new_reason.")
-    assert true_revenue.zelle_prior_reading(excluded) == (COUNTED, "fabricated_new_reason")
+    assert true_revenue_zelle.zelle_prior_reading(excluded) == (COUNTED, "fabricated_new_reason")
 
 
 def test_q3_a_verified_row_reads_as_verified_revenue():
     [record] = _run([("NORTHWIND SUPPLY LLC DES:PAYMENT ID:1", 700.0)], "Bank of America")
     assert _tier(record) == ("verified", None)
-    excluded = true_revenue._zelle_excluded(record)
+    excluded = true_revenue_zelle._zelle_excluded(record)
     assert _tier(excluded) == EXCLUDED
     assert excluded.revenue_reason.endswith("the rules read it as: Verified revenue.")
-    assert true_revenue.zelle_prior_reading(excluded) == ("verified", None)
+    assert true_revenue_zelle.zelle_prior_reading(excluded) == ("verified", None)
 
 
 def test_q3_the_prior_reading_of_any_other_row_is_none():
-    assert [true_revenue.zelle_prior_reading(record) for record in _run(
+    assert [true_revenue_zelle.zelle_prior_reading(record) for record in _run(
         [("MOBILE DEPOSIT", 300.0), ("VENMO FROM PAT SAMPLE", 230.0)], "Chase")] == [None, None]
 
 
@@ -304,8 +311,8 @@ def test_q3_the_reason_table_ends_with_its_non_revenue_codes():
                                                   "p2p_round_repeat", None, "")] == [
         True, True, False, False, False, False]
     assert REVIEWABLE_NON_REVENUE_REASONS == frozenset({"zelle_excluded"}) <= NON_REVENUE_REASONS
-    assert true_revenue.ZELLE_EXCLUDED == "zelle_excluded"
-    assert true_revenue.ZELLE_POLICY_METHOD == "zelle_deposit_excluded"
+    assert true_revenue_zelle.ZELLE_EXCLUDED == "zelle_excluded"
+    assert true_revenue_zelle.ZELLE_POLICY_METHOD == "zelle_deposit_excluded"
 
 
 # Owner ruling 2026-10-02, R2-OW03 (the underwriter's Q3; spec §9.1, §9.2, §10.1, §10.7): the figures state the

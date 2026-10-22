@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis.true_revenue import dealer
 from analysis.classification import credit_predicates
 from analysis.classification import payees
 from analysis.classification_registry import POTENTIAL_LENDER_ALIASES, REVIEW_FLAG_ENTITIES
@@ -36,6 +37,7 @@ def review_payees(monkeypatch):
     monkeypatch.setattr(transaction_classifier, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(credit_predicates, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(payees, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
+    monkeypatch.setattr(dealer, "POTENTIAL_LENDER_ALIASES", FABRICATED_REVIEW)
     monkeypatch.setattr(transaction_classifier, "REVIEW_FLAG_ENTITIES", FABRICATED_ROUTES)
 
 
