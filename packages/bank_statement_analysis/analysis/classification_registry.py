@@ -2048,7 +2048,7 @@ DEALER_FUNDING_PAYERS: dict[str, tuple[str, ...]] = {
 }
 
 #: 5.6 (A3-H, §8.9; lender-scope ruling 2026-09-24: factoring payouts are revenue, counted and flagged, never
-#: verified): freight-factoring payers whose credits the true-revenue pass alone reads (analysis/true_revenue.py), in
+#: verified): freight-factoring payers whose credits the true-revenue pass alone reads (analysis/true_revenue/), in
 #: the spelling the statements print. Not lender-ledger entities (the ledger's factoring group renders
 #: FACTORING_ALIASES, whose payee group reads debits and flags too): a credit from one is counted and flagged as a
 #: factoring payout (factoring_payout), never verified by any rule nor counted toward a repeat, and the alias is read
@@ -2117,7 +2117,7 @@ CUSTOMER_FINANCING_PAYERS: dict[str, str] = {
 }
 
 #: Owner ruling 2026-10-02 (Q8): the names of CUSTOMER_FINANCING_PAYERS' financiers, read with the receiver field's
-#: value removed (analysis/true_revenue.py compiles it): a row that names one of them is never verified by Q5 or Q6 and
+#: value removed (analysis/true_revenue/ compiles it): a row that names one of them is never verified by Q5 or Q6 and
 #: never counts toward a Q5 or Q6 repeat, wherever the name prints (KATAPULT with the same namesake lookahead, the cut
 #: KATAPULT ENG... forms included: audit round 3, R3-B14, R3-54).
 #: SECTION_15_DEFERRED_PAYERS' ACIMA|KATAPULT|KOALAFI line overlaps it and is left as it is.
@@ -2128,7 +2128,7 @@ CUSTOMER_FINANCING_NAMES: str = (
 )
 
 #: 5.6 (§7.5, the standing rule; S4.2 review I6b): brokerage, investing and crypto-exchange platforms, as a regular
-#: expression read on the row before its receiver fields (analysis/true_revenue.py compiles it). A credit from one is
+#: expression read on the row before its receiver fields (analysis/true_revenue/ compiles it). A credit from one is
 #: the owner's own money coming back (owner money never becomes revenue): held as non_sale_purpose. Audit B8 (I28;
 #: standard G2): and the crypto exchanges and retail brokerages it did not name, each public: Kraken and its operator
 #: Payward, Inc. (kraken.com/legal: 'Payward Interactive, Inc.', printed after FBO on its wires), Binance.US and its
@@ -2147,7 +2147,7 @@ OWNER_MONEY_PLATFORMS: str = (
 
 #: Audit B6 (I23; §8.1 T4, Q6 "lenders never count", standard C2): banks that lend to small businesses on their own
 #: account or as a fintech's lender of record, as a regular expression read on a credit's payer region
-#: (analysis/true_revenue.py compiles it). Their credit is more often loan proceeds or the holder's own funds than a
+#: (analysis/true_revenue/ compiles it). Their credit is more often loan proceeds or the holder's own funds than a
 #: customer's payment: held as financing_named_payer, which a person may review. Credits only: no debit alias (the
 #: delegated decision of 2026-09-25 keeps a bare CELTIC BANK out of the debit tables). Celtic Bank (Salt Lake City, an
 #: SBA lender and the issuing bank of OnDeck's loans and of Bluevine's line of credit, celticbank.com; the ledger's
@@ -2159,14 +2159,14 @@ LENDING_BANK_CREDIT_PAYERS: str = r"(?<![A-Z])(?:CELTIC BANK|NEWTEK BANK|NORTHEA
 
 #: Audit B6 (I49; Q8, §8.1 payroll_or_salary): earned-wage access providers, whose push to an account is a worker's
 #: wages from another company paid early, as a regular expression read on the row before its receiver fields
-#: (analysis/true_revenue.py compiles it): held as payroll_or_salary. PayActiv (payactiv.com) and DailyPay
+#: (analysis/true_revenue/ compiles it): held as payroll_or_salary. PayActiv (payactiv.com) and DailyPay
 #: (dailypay.com) are employer-sponsored earned-wage access providers. Glued as they print; a spaced 'DAILY PAY' is
 #: a payer's own words.
 EARNED_WAGE_ACCESS_PAYERS: str = r"(?<![A-Z])(?:PAYACTIV|DAILYPAY)\b"
 
 #: 5.6 (§15, §19 OQ4; S4.2 review I6a): the payers of the deferred family items, which stay counted and flagged until
 #: the owner rules on each, as a regular expression read with the receiver field's value removed
-#: (analysis/true_revenue.py compiles it): Q5 and Q6 never verify them, and they never count toward a Q5 or Q6 repeat.
+#: (analysis/true_revenue/ compiles it): Q5 and Q6 never verify them, and they never count toward a Q5 or Q6 repeat.
 #: The registry's own deferred sources (PayPal, TikTok creator payouts, Super Dispatch's quick-pay, Outdoorsy and
 #: RepeatMD, AppFolio, the auctions' vendor payments) are left to the operating registry.
 SECTION_15_DEFERRED_PAYERS: str = (

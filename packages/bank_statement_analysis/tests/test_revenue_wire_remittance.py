@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import transaction_classifier
+from analysis import description_text
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions, classify_transaction
 
@@ -444,7 +445,7 @@ def _r314(rows, *, bank="Chase", holder=R314_HOLDER):
 
 
 def _r314_text(printed: str) -> str:
-    return transaction_classifier.revenue_text(transaction_classifier.normalize_transaction_description(printed))
+    return transaction_classifier.revenue_text(description_text.normalize_transaction_description(printed))
 
 
 def _banking_relay(customer: str, n: int = 1) -> str:

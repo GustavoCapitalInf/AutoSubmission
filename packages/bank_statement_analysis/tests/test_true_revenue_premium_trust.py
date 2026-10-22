@@ -25,6 +25,7 @@ import pytest
 from analysis import holder_name as hn
 from analysis import transaction_classifier as tc
 from analysis import true_revenue as tr
+from analysis import revenue
 from analysis.metrics import compute_metrics
 from analysis.schema import Statement, Transaction
 from tests.zelle_reading import rules_reading
@@ -340,7 +341,7 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
                 assert getattr(new, field) == getattr(old, field), field
             assert new.revenue_reason == old.revenue_reason.replace(
                 "counted and flagged, never verified",
-                f"never verified, and held for review ({tr.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]})")
+                f"never verified, and held for review ({revenue.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]})")
         # Nothing but the revenue reading moves: the classification and its lender flags are the same.
         for field in ("classification", "match_method", "canonical_entity", "contributes_to_lender_count",
                       "contributes_to_lender_totals", "contributes_to_withholding_rate",
@@ -519,7 +520,7 @@ def test_r3_53_a_counted_re_statement_held_on_a_trust_account_says_it_is_held(mo
         assert "counted and flagged, never verified" in record.revenue_reason
     trust = tc.classify_statement_transactions(_statement(rows, TRUST_LINE, account_name="Business Banking"))
     assert _reading(trust) == [PT] * 4
-    label = tr.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]
+    label = revenue.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]
     for counted, held in zip(operating[:3], trust[:3]):
         assert "counted and flagged" not in held.revenue_reason
         assert held.revenue_reason == counted.revenue_reason.replace(

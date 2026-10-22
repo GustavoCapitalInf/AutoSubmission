@@ -25,6 +25,7 @@ import pytest
 
 from analysis import classification_registry as registry
 from analysis import transaction_classifier as classifier
+from analysis import payee_matcher
 from analysis import true_revenue
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
@@ -578,7 +579,7 @@ def test_r3_b14_r1_cherry_s_own_loan_or_advance_word_still_keeps_d1_on_those_lay
 
 
 def test_r3_b14_r1_the_classifier_s_cherry_veto_reads_the_holder_s_names_out():
-    match = classifier.match_known_payee("CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL", credit=True)
+    match = payee_matcher.match_known_payee("CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL", credit=True)
     assert match is not None and match.entity == "Cherry Technologies, Inc."
     row = "CHERRY TECHNOLOG FUNDING 540301 123456 CAPITAL CONTOSO DENTAL"
     assert classifier._is_payout_credit(row, match, account_name="CAPITAL CONTOSO DENTAL LLC")

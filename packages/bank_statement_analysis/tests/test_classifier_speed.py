@@ -16,6 +16,7 @@ from dataclasses import asdict
 import pytest
 
 from analysis import transaction_classifier
+from analysis import payee_matcher
 from tools.bench_classifier import REQUIRED_SPEEDUP, fabricated_statement, measure
 
 
@@ -28,7 +29,7 @@ def sixty_rows() -> dict:
 
 def test_the_classifier_matches_through_the_compiled_registry_index(monkeypatch):
     calls = []
-    compiled = transaction_classifier.registry_match
+    compiled = payee_matcher.registry_match
 
     def spy(text, registry, **options):
         calls.append(text)

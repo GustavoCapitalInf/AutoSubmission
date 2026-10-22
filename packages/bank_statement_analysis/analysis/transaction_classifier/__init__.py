@@ -8,7 +8,7 @@ from datetime import date
 from statistics import mean, pstdev
 from typing import Callable, Literal, Sequence, TYPE_CHECKING
 
-from .classification_registry import (
+from analysis.classification_registry import (
     BANK_NAME_ALIASES,
     BANK_POSTING_TYPE_LABELS,
     BLUE_PLAN_CLAIM_PAYERS,
@@ -37,19 +37,19 @@ from .classification_registry import (
     WHOLESALE_AUCTION_REFUND_NAMES,
     _operating_alias_cut,
 )
-from .dates import parse_date
-from .flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
-from .revenue import RevenueState, revenue_contribution_flags, tier_of_state
+from analysis.dates import parse_date
+from analysis.flag_groups import FINANCING_STATES, FLAG_GROUP_BY_KEY, FLAG_GROUP_BY_STATE
+from analysis.revenue import RevenueState, revenue_contribution_flags, tier_of_state
 # Imported after the registry and revenue imports on purpose: a rewrite of that block must not drop them.
-from .description_text import (
+from analysis.description_text import (
     RECEIVER_FIELD_LABELS,
     RECEIVER_NAME_LABELS,
     ln_name_spans,
     normalize_transaction_description,
 )
-from .payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, match_memo, registry_match
+from analysis.payee_matcher import PayeeMatch, match_debt_relief_payee, match_known_payee, match_memo, registry_match
 # The true-revenue pass reads this module's readers at call time, so it imports nothing from here at load.
-from .true_revenue import (
+from analysis.true_revenue import (
     DealerFunding,
     FundingSeries,
     also_debited,
@@ -66,7 +66,7 @@ from .true_revenue import (
 )
 
 if TYPE_CHECKING:
-    from .schema import Statement
+    from analysis.schema import Statement
 
 
 ClassificationState = Literal[
@@ -6384,7 +6384,7 @@ def _apply_represented_funder_payments(
     leaves out (`out_of_rate_payment`: a worded lump-sum payoff) is never the re-debit, since the returned attempt would
     then leave the numerator beside it and the obligation would count zero times; it stays in the series the schedule
     and the 2x level are read from."""
-    from .represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
+    from analysis.represented_payments import Attempt, Returned, out_of_rate_payment, re_debits
 
     def location(index: int) -> str:
         return records[index].source_location or f"transaction:{index + 1}"

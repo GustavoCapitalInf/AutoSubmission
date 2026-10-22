@@ -148,7 +148,8 @@ def test_r11_a_funds_transfer_wire_label_with_only_a_reference_is_held_with_no_s
 
 @pytest.mark.parametrize("printed", BARE_WIRE_LABELS)
 def test_r11_the_bare_incoming_wire_reader(printed):
-    from analysis.transaction_classifier import _bare_incoming_wire, normalize_transaction_description
+    from analysis.transaction_classifier import _bare_incoming_wire
+    from analysis.description_text import normalize_transaction_description
 
     assert _bare_incoming_wire(normalize_transaction_description(printed))
 
@@ -217,7 +218,8 @@ NOT_ONLY_A_REFERENCE = [
 
 
 def _revenue_text(printed: str) -> str:
-    from analysis.transaction_classifier import normalize_transaction_description, revenue_text
+    from analysis.transaction_classifier import revenue_text
+    from analysis.description_text import normalize_transaction_description
 
     return revenue_text(normalize_transaction_description(printed))
 

@@ -27,12 +27,8 @@ from analysis.revenue import (
     record_serialized_revenue_review,
 )
 from analysis.schema import Statement, Transaction
-from analysis.transaction_classifier import (
-    TransactionClassification,
-    classify_statement_transactions,
-    normalize_transaction_description,
-    revenue_text,
-)
+from analysis.transaction_classifier import TransactionClassification, classify_statement_transactions, revenue_text
+from analysis.description_text import normalize_transaction_description
 
 HOLDER = "CONTOSO BAKERY LLC"
 HELD = "excluded_pending_review"

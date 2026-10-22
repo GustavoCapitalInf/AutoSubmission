@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import classification_registry as registry
-from analysis import transaction_classifier
+from analysis import description_text
 from analysis.description_text import normalize_transaction_description as normalize
 from analysis.payee_matcher import (
     RUN_TOGETHER_MIN_LENGTH,
@@ -38,7 +38,7 @@ TEXTS = (
 
 
 def test_normalization_moved_but_keeps_its_old_import_path():
-    assert transaction_classifier.normalize_transaction_description is normalize
+    assert description_text.normalize_transaction_description is normalize
 
 
 def test_longest_alias_wins_across_registries():

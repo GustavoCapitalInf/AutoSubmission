@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from analysis import transaction_classifier
+from analysis import description_text
 from analysis.schema import Statement
 from tests.flag_group_fixtures import txn
 
@@ -21,7 +22,7 @@ def test_each_row_is_normalized_exactly_once(monkeypatch):
     re-normalizes an alias. No row here matches an operating-revenue alias, so no
     account name is normalized either."""
     calls: list[str] = []
-    original = transaction_classifier.normalize_transaction_description
+    original = description_text.normalize_transaction_description
 
     def counting(value: str) -> str:
         calls.append(value)

@@ -412,7 +412,7 @@ def member_figures(member: Member, passes: PackagePasses, settings: dict) -> Mem
         #
         # The verified-revenue mode needs no deduction and must not get
         # one: an internal-transfer credit is already `non_revenue` by
-        # `analysis/transaction_classifier.py`'s own vocabulary, so
+        # `analysis/transaction_classifier/`'s own vocabulary, so
         # `verified_revenue_total` never carried it and subtracting again
         # would remove money the denominator never held.
         eligible_deposits = round(max(eligible_deposits - excluded_credits, 0.0), 2)

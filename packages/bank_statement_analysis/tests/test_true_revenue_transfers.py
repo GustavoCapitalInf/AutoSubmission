@@ -13,10 +13,10 @@ from analysis import true_revenue
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import (
     classify_statement_transactions,
-    normalize_transaction_description,
     prints_internal_transfer_designation,
     revenue_text,
 )
+from analysis.description_text import normalize_transaction_description
 
 HOLDER = "NORTHWIND PLUMBING LLC"
 HELD = "excluded_pending_review"
