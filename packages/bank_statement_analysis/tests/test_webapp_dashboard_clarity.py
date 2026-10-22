@@ -654,7 +654,7 @@ def test_the_page_s_default_hero_label_and_table_header():
     # Rate", and app.js asked for as true-revenue-12. The owner's own design (2026-10-11, display only): -13. His
     # request of 2026-10-11 to hide Verified revenue and "Counted, not verified": -14. The code audit of 2026-10-13
     # (its dashboard fixes): -15. The model-code removal (no Force visual OCR control, the advice texts rewritten): -16.
-    assert '<script src="/static/app.js?v=true-revenue-17"></script>' in html
+    assert '<script src="/static/app.js?v=true-revenue-18"></script>' in html
 
 
 # ---------------------------------------------------------------------------------- C: the Monthly Statements
