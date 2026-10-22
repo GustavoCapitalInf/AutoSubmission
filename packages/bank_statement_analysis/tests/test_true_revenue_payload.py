@@ -4,7 +4,7 @@ True-revenue withholding mode. Fabricated rows only."""
 from __future__ import annotations
 
 import copy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 import pytest
 
@@ -42,7 +42,10 @@ def _statement(rows=ROWS):
 
 def _payload(rows=ROWS) -> dict:
     statement = _statement(rows)
-    records = classify_statement_transactions(statement)
+    return _rebuilt(statement, classify_statement_transactions(statement))
+
+
+def _rebuilt(statement, records) -> dict:
     return rebuild_serialized_revenue_views({
         "statement": {"currency": "USD", "transactions": [
             {**transaction.model_dump(), "classification": asdict(record)}
@@ -185,10 +188,64 @@ def test_the_non_revenue_breakdown_names_a_non_dealer_s_asset_sales():
 def test_a_record_whose_tier_disagrees_with_its_state_is_refused():
     statement = _statement()
     records = classify_statement_transactions(statement)
-    from dataclasses import replace
     records[1] = replace(records[1], revenue_tier="verified")
     with pytest.raises(ValueError, match="agree with its tier"):
         compute_metrics(statement, classifications=records)
+
+
+def test_the_metrics_file_a_credit_by_its_flag_and_the_rebuild_by_its_state():
+    # The counted check deposit carries the verified flag while its state stays unverified_deposit.
+    statement = _statement()
+    records = classify_statement_transactions(statement)
+    records[1] = replace(records[1], contributes_to_verified_revenue=True, contributes_to_unverified_deposit=False)
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.verified_revenue_total, metrics.unverified_deposit_total, metrics.counted_flagged_total) == (
+        1000.0, 900.0, 300.0)
+    assert (metrics.true_revenue_total, metrics.revenue_classified_total, metrics.revenue_reconciles) == (
+        1300.0, 2300.0, False)
+    rebuilt = _rebuilt(statement, records)["metrics"]
+    assert (rebuilt["verified_revenue_total"], rebuilt["unverified_deposit_total"], rebuilt["true_revenue_total"]) == (
+        700.0, 1200.0, 1000.0)
+    assert rebuilt["revenue_reconciles"]
+
+
+def test_the_metrics_file_a_credit_with_no_state_and_an_unknown_tier_in_no_tier():
+    statement = _statement()
+    records = classify_statement_transactions(statement)
+    records[1] = replace(records[1], revenue_classification=None, revenue_tier="unknown")
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.unverified_deposit_total, metrics.counted_flagged_total, metrics.counted_flagged_by_reason) == (
+        1200.0, 0.0, {})
+    assert (metrics.true_revenue_total, metrics.revenue_classified_total, metrics.revenue_reconciles) == (
+        700.0, 1700.0, False)
+
+
+def test_true_revenue_evidence_reads_every_record_and_state_evidence_only_posted_credits():
+    # The verified credit is unposted but keeps its verified and True flags.
+    statement = _statement()
+    records = classify_statement_transactions(statement)
+    records[0] = replace(records[0], is_posted=False)
+    metrics = compute_metrics(statement, classifications=records)
+    assert (metrics.verified_revenue_total, metrics.true_revenue_total, metrics.verified_revenue_evidence) == (
+        0.0, 300.0, [])
+    assert [record.source_location for record in metrics.true_revenue_evidence] == ["transaction:1", "transaction:2"]
+    rebuilt = _rebuilt(statement, records)
+    assert (rebuilt["metrics"]["true_revenue_total"], rebuilt["metrics"]["verified_revenue_evidence"]) == (300.0, [])
+    assert [record["source_location"] for record in rebuilt["detection"]["true_revenue_evidence"]] == [
+        "transaction:1", "transaction:2"]
+
+
+def test_the_revenue_figures_add_the_credits_one_by_one_in_ledger_order():
+    # Builtin sum() compensates float error and gives 100000000000002.02 for these three amounts.
+    rows = [("2054-03-02", "MOBILE DEPOSIT", 1e14), ("2054-03-03", "MOBILE DEPOSIT", 1.01),
+            ("2054-03-04", "MOBILE DEPOSIT", 1.01)]
+    statement = _statement(rows)
+    metrics = compute_metrics(statement, classifications=classify_statement_transactions(statement))
+    rebuilt = _payload(rows)["metrics"]
+    assert (metrics.total_posted_credits, metrics.unverified_deposit_total, metrics.counted_flagged_total,
+            metrics.counted_flagged_by_reason["check_deposit"]["total"]) == (100000000000002.03,) * 4
+    assert (rebuilt["total_posted_credits"], rebuilt["unverified_deposit_total"], rebuilt["counted_flagged_total"],
+            rebuilt["counted_flagged_by_reason"]["check_deposit"]["total"]) == (100000000000002.03,) * 4
 
 
 @pytest.mark.parametrize(("held", "posted", "gated"), [
