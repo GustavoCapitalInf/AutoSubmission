@@ -201,7 +201,7 @@ EXCUSED: dict[str, str] = {
     "analysis/revenue.py::_rebuild_account_revenue_views": "one account's body, reached only through the taught head",
     "benchmark/ourside.py::statement": "one account's view, reached only through the taught `_account`",
     "analysis/package/model.py::statement_currency": "one MEMBER's currency; members come from the taught `package_members`",
-    "analysis/package/__init__.py::package_analysis": "reads one MEMBER's account payload, supplied by `package_members`",
+    "analysis/package/figures.py::member_figures": "reads one MEMBER's account payload, supplied by `package_members`",
     # Owner ruling 2026-10-02 (the underwriter's Q6; R2-OW15): the package passes read the same members.
     "analysis/package/passes.py::package_matches": "reads each MEMBER's account payload, supplied by `package_members`",
     # The owner's request of 2026-10-06 (lender payment changes; R2-OW18): the package's chains read the same members.

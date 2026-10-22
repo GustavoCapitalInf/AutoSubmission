@@ -582,11 +582,13 @@ def test_the_package_downloads_list_each_match_and_each_flag():
 
 
 def test_the_member_loop_reads_the_passes_one_tiering_helper():
-    """The passes and the member loop decide 'tiered' by one helper (`member_tiered`), so a member the passes read is
-    never one the loop publishes without its tier figures."""
+    """The passes and the member figures decide 'tiered' by one helper (`member_tiered`), so a member the passes read
+    is never one the package publishes without its tier figures."""
     import inspect
 
-    loop = inspect.getsource(package_analysis)
+    from analysis.package.figures import member_figures
+
+    loop = inspect.getsource(member_figures)
     assert "tiered = member_tiered(statement_transactions)" in loop
     assert "member_tiered(" in inspect.getsource(package_matches)
 
