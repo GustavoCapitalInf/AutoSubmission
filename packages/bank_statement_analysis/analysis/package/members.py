@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable
 
 from analysis.display_settings import DEFAULTS as SETTINGS_DEFAULTS
-from analysis.package.model import JobLike, Member, MemberKey
+from analysis.package.model import AccountFacts, JobLike, Member, MemberKey
 from analysis.payload_shape import (
     account_content_digest,
     DOCUMENT_KEY as _DOCUMENT_KEY,
@@ -233,6 +233,7 @@ def package_members(
         if not is_document_payload(analysis):
             members.append(Member(
                 key=MemberKey(job.id, None), job=job, account=analysis, account_count=1,
+                facts=AccountFacts.of(analysis),
                 internal_transfer_positions=internal_transfer_positions(job.analysis, None),
                 analysis_rules_outdated=outdated,
             ))
@@ -309,6 +310,7 @@ def package_members(
                 continue
             members.append(Member(
                 key=MemberKey(job.id, index), job=job, account=account, account_count=count,
+                facts=AccountFacts.of(account),
                 internal_transfer_positions=internal_transfer_positions(job.analysis, index),
                 analysis_rules_outdated=outdated,
             ))

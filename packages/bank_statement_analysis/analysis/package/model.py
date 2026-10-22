@@ -1,9 +1,10 @@
-"""A package's members and its passes' result, and what the package reads off each member account: values, currency,
-printed account digits, bank, and whether two statements are one account."""
+"""A package's members and its passes' result, what the package reads off each member account (`AccountFacts`), and
+whether two statements are one account."""
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from math import isfinite
 from typing import NamedTuple, Protocol
 
@@ -37,16 +38,50 @@ class MemberKey(NamedTuple):
 
 
 @dataclass(frozen=True)
+class AccountFacts:
+    """What one account payload's statement prints that the package reads an account by, read off ONE payload: a
+    member's displayed account (`Member.facts`) or a job's stored account (`package_superseded`). The bank is kept
+    three ways, because the relations read different ones: `printed_bank` as printed (a match leg names it),
+    `bank_key` (`same_account`) and `package_bank` (`months_linked` and the shorter-printout pass)."""
+
+    printed_bank: object
+    bank_key: str
+    package_bank: str
+    digits: str
+    name: str
+    currency: str | None
+    start: date | None
+    end: date | None
+    opening: object
+    closing: object
+
+    @classmethod
+    def of(cls, account: dict) -> AccountFacts:
+        statement = account.get("statement")
+        if not isinstance(statement, dict):
+            statement = {}
+        return cls(
+            printed_bank=statement.get("bank"), bank_key=bank_key(statement), package_bank=package_bank(statement),
+            digits=printed_account_digits(account),
+            name=" ".join(str(statement.get("account_name") or "").split()).casefold(),
+            currency=statement_currency(account),
+            start=iso_day(statement.get("period_start")), end=iso_day(statement.get("period_end")),
+            opening=statement.get("beginning_balance"), closing=statement.get("ending_balance"),
+        )
+
+
+@dataclass(frozen=True)
 class Member:
-    """One account `package_members` admitted. `account` is its displayed account payload. An account of a document
-    carries neither the document's R-d transfers nor the statement's `analysis_rules_outdated`, so
-    `internal_transfer_positions` is read off the job's stored document and `analysis_rules_outdated` off the job's
-    displayed copy."""
+    """One account `package_members` admitted. `account` is its displayed account payload and `facts` that payload's
+    facts. An account of a document carries neither the document's R-d transfers nor the statement's
+    `analysis_rules_outdated`, so `internal_transfer_positions` is read off the job's stored document and
+    `analysis_rules_outdated` off the job's displayed copy."""
 
     key: MemberKey
     job: JobLike
     account: dict
     account_count: int
+    facts: AccountFacts
     internal_transfer_positions: set[int]
     analysis_rules_outdated: bool
 
@@ -65,6 +100,15 @@ class PackagePasses:
     unchecked: dict[MemberKey, str]
     moved: dict[MemberKey, list[dict]]
     represented: dict[tuple[MemberKey, str], dict]
+
+
+def overlaid_row(row: dict, overlay: dict[int, dict], position: int) -> dict:
+    """The row at original `position` of a member's statement with the package passes' patch for that position merged
+    into its classification record (`overlay`: one member's patches by original position). A patched row is a new row
+    holding a new record; any other row is returned as it is, so the displayed copy is never written."""
+    if position not in overlay:
+        return row
+    return {**row, "classification": {**row["classification"], **overlay[position]}}
 
 
 def is_count(value: object) -> bool:
@@ -188,62 +232,67 @@ def package_bank(statement: object) -> str:
     return _PACKAGE_BANK_ALIASES.get(bank, bank)
 
 
-def consecutive(earlier: dict, later: dict) -> bool:
+def consecutive(earlier: AccountFacts, later: AccountFacts) -> bool:
     """`later` is the statement that follows `earlier`: both period days read, and `later` starts 0 to
     PACKAGE_CONSECUTIVE_DAYS days after `earlier` ends. Two overlapping statements never are."""
-    if earlier["end"] is None or later["start"] is None:
+    if earlier.end is None or later.start is None:
         return False
-    return 0 <= (later["start"] - earlier["end"]).days <= PACKAGE_CONSECUTIVE_DAYS
+    return 0 <= (later.start - earlier.end).days <= PACKAGE_CONSECUTIVE_DAYS
 
 
-def _chained(earlier: dict, later: dict) -> bool:
+def _chained(earlier: AccountFacts, later: AccountFacts) -> bool:
     """`later` follows `earlier` (consecutive) and opens on its closing balance, to the cent."""
     return (
-        consecutive(earlier, later) and is_money_value(earlier["closing"]) and is_money_value(later["opening"])
-        and round(float(earlier["closing"]) * 100) == round(float(later["opening"]) * 100)
+        consecutive(earlier, later) and is_money_value(earlier.closing) and is_money_value(later.opening)
+        and round(float(earlier.closing) * 100) == round(float(later.opening) * 100)
     )
 
 
 def same_account(first: dict, second: dict) -> bool:
-    """Two package members are statements of ONE account: two jobs, one declared currency and one printed bank
-    (`bank_key`), and either both print four digits or more, with an equal last four and no conflict, or one prints
-    fewer: then the account names do not differ where both print one, and the balance chains (one follows the other
-    and opens on its closing balance, `_chained`). A member with no declared currency is never one."""
-    if first["job_id"] == second["job_id"] or not first["currency"] or first["currency"] != second["currency"]:
+    """Two package members (their entries' `job_id` and `facts`) are statements of ONE account: two jobs, one declared
+    currency and one printed bank (`bank_key`), and either both print four digits or more, with an equal last four
+    and no conflict, or one prints fewer: then the account names do not differ where both print one, and the balance
+    chains (one follows the other and opens on its closing balance, `_chained`). A member with no declared currency is
+    never one."""
+    one, two = first["facts"], second["facts"]
+    if first["job_id"] == second["job_id"] or not one.currency or one.currency != two.currency:
         return False
-    if not first["bank"] or first["bank"] != second["bank"]:
+    if not one.bank_key or one.bank_key != two.bank_key:
         return False
-    if len(first["digits"]) >= 4 and len(second["digits"]) >= 4:
-        return first["digits"][-4:] == second["digits"][-4:] and not numbers_conflict(first["digits"],
-                                                                                        second["digits"])
-    if first["name"] and second["name"] and first["name"] != second["name"]:
+    if len(one.digits) >= 4 and len(two.digits) >= 4:
+        return one.digits[-4:] == two.digits[-4:] and not numbers_conflict(one.digits, two.digits)
+    if one.name and two.name and one.name != two.name:
         return False
-    return _chained(first, second) or _chained(second, first)
+    return _chained(one, two) or _chained(two, one)
 
 
 def months_linked(first: dict, second: dict) -> bool:
-    """Two counted members are statements of one account for the months' floor. Never two accounts of one document
-    (one job). Two keyed members (each a bank, `package_bank`, and four digits or more) are one account when the bank
-    and the last four are equal, chained or not. Otherwise the banks agree where both print one, the account names do
-    not differ where both print one, and the balance chains. A member linked to none is its own account."""
+    """Two counted members (their entries' `job_id` and `facts`) are statements of one account for the months' floor.
+    Never two accounts of one document (one job). Two keyed members (each a bank, `package_bank`, and four digits or
+    more) are one account when the bank and the last four are equal, chained or not. Otherwise the banks agree where
+    both print one, the account names do not differ where both print one, and the balance chains. A member linked to
+    none is its own account."""
     if first["job_id"] == second["job_id"]:
         return False
-    if first["bank"] and second["bank"] and len(first["digits"]) >= 4 and len(second["digits"]) >= 4:
-        return first["bank"] == second["bank"] and first["digits"][-4:] == second["digits"][-4:]
-    if first["bank"] and second["bank"] and first["bank"] != second["bank"]:
+    one, two = first["facts"], second["facts"]
+    if one.package_bank and two.package_bank and len(one.digits) >= 4 and len(two.digits) >= 4:
+        return one.package_bank == two.package_bank and one.digits[-4:] == two.digits[-4:]
+    if one.package_bank and two.package_bank and one.package_bank != two.package_bank:
         return False
-    if first["name"] and second["name"] and first["name"] != second["name"]:
+    if one.name and two.name and one.name != two.name:
         return False
-    return _chained(first, second) or _chained(second, first)
+    return _chained(one, two) or _chained(two, one)
 
 
 def different_accounts(first: dict, second: dict) -> bool:
-    """Two package members are two of the business's accounts: two members (two jobs, or one document's two
-    accounts), one declared currency, both print four digits or more, and the last fours differ or the full numbers
-    conflict. There is no bank-name arm: one account read under two bank spellings is never two accounts, and a
-    member that prints fewer than four digits is never paired (it is marked `no_account_number`)."""
-    if first["key"] == second["key"] or not first["currency"] or first["currency"] != second["currency"]:
+    """Two package members (their entries' `key` and `facts`) are two of the business's accounts: two members (two
+    jobs, or one document's two accounts), one declared currency, both print four digits or more, and the last fours
+    differ or the full numbers conflict. There is no bank-name arm: one account read under two bank spellings is
+    never two accounts, and a member that prints fewer than four digits is never paired (it is marked
+    `no_account_number`)."""
+    one, two = first["facts"], second["facts"]
+    if first["key"] == second["key"] or not one.currency or one.currency != two.currency:
         return False
-    if len(first["digits"]) < 4 or len(second["digits"]) < 4:
+    if len(one.digits) < 4 or len(two.digits) < 4:
         return False
-    return first["digits"][-4:] != second["digits"][-4:] or numbers_conflict(first["digits"], second["digits"])
+    return one.digits[-4:] != two.digits[-4:] or numbers_conflict(one.digits, two.digits)

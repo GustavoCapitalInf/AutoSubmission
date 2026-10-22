@@ -226,6 +226,7 @@ EXCUSED: dict[str, str] = {
     # `stored_accounts`.
     "analysis/package/duplicates.py::_copy_rank": "a copy's accounts, read through the taught `stored_accounts` in both Zelle readings (R2-OW17)",
     "analysis/package/model.py::printed_account_digits": "one ACCOUNT's printed number; its callers hand it accounts `stored_accounts` lists or members `package_members` publishes",
+    "analysis/package/model.py::of": "one ACCOUNT's facts (`AccountFacts.of`); `package_members` hands it each member's displayed account and `package_superseded` each account `stored_accounts` lists",
     "analysis/package/supersede.py::_statement_span": "one ACCOUNT's period; `package_superseded` hands it accounts `stored_accounts` lists",
     "analysis/package/supersede.py::_posted_rows": "one ACCOUNT's posted rows; `package_superseded` hands it accounts `stored_accounts` lists",
     "analysis/package/supersede.py::package_superseded": "reads each kept job's accounts through the taught `stored_accounts`; its `accounts` key is its own entry's account count, not a payload",

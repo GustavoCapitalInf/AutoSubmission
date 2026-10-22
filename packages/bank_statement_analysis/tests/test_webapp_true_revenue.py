@@ -1332,27 +1332,29 @@ def test_two_unkeyed_accounts_of_one_bank_each_chained_read_three_months():
 
 
 def test_the_months_link_never_joins_two_accounts_of_one_document_or_two_keyed_accounts():
-    from datetime import date
+    from analysis.package.model import AccountFacts, months_linked
 
-    from analysis.package.model import months_linked
+    def member(job_id, start, end, opening, closing, *, bank="CONTOSO BANK", number=None,
+               name="CONTOSO BAKERY LLC"):
+        statement = {"bank": bank, "account_number": number, "account_name": name, "period_start": start,
+                     "period_end": end, "beginning_balance": opening, "ending_balance": closing}
+        return {"job_id": job_id, "facts": AccountFacts.of({"statement": statement})}
 
-    def member(job_id, bank, digits, start, end, opening, closing, name="contoso bakery llc"):
-        return {"job_id": job_id, "bank": bank, "digits": digits, "name": name, "start": start, "end": end,
-                "opening": opening, "closing": closing}
+    def february(job_id="b", opening=11500.0, **printed):
+        return member(job_id, "2031-02-16", "2031-03-15", opening, 21500.0, **printed)
 
-    january = member("a", "contoso bank", "", date(2031, 1, 16), date(2031, 2, 15), 1500.0, 11500.0)
-    february = member("b", "contoso bank", "", date(2031, 2, 16), date(2031, 3, 15), 11500.0, 21500.0)
-    assert months_linked(january, february) and months_linked(february, january)
-    assert not months_linked(january, {**february, "job_id": "a"})  # one document's two accounts
-    assert not months_linked(january, {**february, "bank": "fabrikam bank"})
-    assert months_linked(january, {**february, "bank": ""})  # a bankless statement reads its chain
-    assert not months_linked(january, {**february, "name": "fabrikam tools llc"})
-    assert months_linked(january, {**february, "name": ""})
-    assert not months_linked(january, {**february, "opening": 11500.01})
+    january = member("a", "2031-01-16", "2031-02-15", 1500.0, 11500.0)
+    assert months_linked(january, february()) and months_linked(february(), january)
+    assert not months_linked(january, february("a"))  # one document's two accounts
+    assert not months_linked(january, february(bank="FABRIKAM BANK"))
+    assert months_linked(january, february(bank=None))  # a bankless statement reads its chain
+    assert not months_linked(january, february(name="FABRIKAM TOOLS LLC"))
+    assert months_linked(january, february(name=None))
+    assert not months_linked(january, february(opening=11500.01))
     # Two keyed statements: the bank and the last four, chained or not, as R2-B15's key reads them.
-    keyed = {**january, "digits": "000000001010"}
-    assert months_linked(keyed, {**february, "digits": "1010", "opening": 1.0})
-    assert not months_linked(keyed, {**february, "digits": "000000002020"})
+    keyed = member("a", "2031-01-16", "2031-02-15", 1500.0, 11500.0, number="000000001010")
+    assert months_linked(keyed, february(number="1010", opening=1.0))
+    assert not months_linked(keyed, february(number="000000002020"))
 
 
 # ---------------------------------------------------------------- Owner ruling 2026-10-02, R2-OW03: the non-revenue

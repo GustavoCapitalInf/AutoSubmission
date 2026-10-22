@@ -6,14 +6,12 @@ from collections import Counter
 
 from analysis.package.calendar import iso_day
 from analysis.package.model import (
+    AccountFacts,
     is_money_value,
     num,
     numbers_conflict,
-    package_bank,
-    printed_account_digits,
     row_cents,
     row_day,
-    statement_currency,
     stored_accounts,
 )
 from analysis.payload_shape import is_document_payload
@@ -158,7 +156,6 @@ def package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | None
                 continue
             if members is not None and (job.id, index if document else None) not in members:
                 continue
-            statement = account.get("statement") or {}
             rows = _posted_rows(account)
             span = _statement_span(account, rows)
             if span is None:
@@ -166,13 +163,8 @@ def package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | None
             days = (span[1] - span[0]).days + 1
             statements.append({
                 "job": job, "order": order, "index": index if document else None, "accounts": len(accounts),
-                # What `_pair_kind` reads the account by, whatever is printed.
-                "bank": package_bank(statement), "digits": printed_account_digits(account),
-                "name": " ".join(str(statement.get("account_name") or "").split()).casefold(),
-                "currency": statement_currency(account),
-                "opening": statement.get("beginning_balance"), "closing": statement.get("ending_balance"),
-                "start_printed": iso_day(statement.get("period_start")),
-                "end_printed": iso_day(statement.get("period_end")),
+                # What `_pair_kind` reads the account by, whatever is printed: the stored account's facts.
+                "facts": AccountFacts.of(account),
                 "span": span, "days": days,
                 "rows": Counter((row_day(row), row_cents(row)) for row in rows),
                 "credits": [row for row in rows if num(row.get("amount")) > 0],
@@ -327,7 +319,8 @@ def package_superseded(kept, repeated_accounts: dict[str, dict[int, str]] | None
                 "shared_credit_total": round(cents / 100, 2),
                 # The unit of the shared money, the account's; unknown when the two statements declare different
                 # ones.
-                "currency": later["currency"] if later["currency"] == earlier["currency"] else None,
+                "currency": (later["facts"].currency if later["facts"].currency == earlier["facts"].currency
+                             else None),
                 # The days both cover.
                 "days_shared": days_shared,
             }
@@ -367,17 +360,17 @@ def _pair_kind(statement: dict, other: dict) -> str | None:
     and the declared currencies (`statement_currency`) are equal where both declare one; else None."""
     if statement["job"] is other["job"]:
         return None
-    digits, other_digits = statement["digits"], other["digits"]
-    if len(digits) >= 4 and len(other_digits) >= 4:
-        if digits[-4:] != other_digits[-4:] or numbers_conflict(digits, other_digits):
+    one, two = statement["facts"], other["facts"]
+    if len(one.digits) >= 4 and len(two.digits) >= 4:
+        if one.digits[-4:] != two.digits[-4:] or numbers_conflict(one.digits, two.digits):
             return None
-        if statement["bank"] and other["bank"] and statement["bank"] == other["bank"]:
+        if one.package_bank and two.package_bank and one.package_bank == two.package_bank:
             return "printed"
-    if statement["bank"] and other["bank"] and statement["bank"] != other["bank"]:
+    if one.package_bank and two.package_bank and one.package_bank != two.package_bank:
         return None
-    if statement["name"] and other["name"] and statement["name"] != other["name"]:
+    if one.name and two.name and one.name != two.name:
         return None
-    if statement["currency"] and other["currency"] and statement["currency"] != other["currency"]:
+    if one.currency and two.currency and one.currency != two.currency:
         return None
     return "possible"
 
@@ -391,11 +384,12 @@ def _possible_pair_named(earlier: dict, later: dict, first, last, count: int) ->
     account of the holder at the bank whose number is not read, printing rows of its own, never reads as one beside the
     first."""
     fewer = min(len(_dated_credits(earlier, first, last)), len(_dated_credits(later, first, last)))
+    one, two = earlier["facts"], later["facts"]
     one_period = (
-        earlier["start_printed"] is not None and earlier["end_printed"] is not None
-        and (earlier["start_printed"], earlier["end_printed"]) == (later["start_printed"], later["end_printed"])
-        and all(is_money_value(entry[side]) for entry in (earlier, later) for side in ("opening", "closing"))
-        and all(round(float(earlier[side]) * 100) == round(float(later[side]) * 100) for side in ("opening", "closing"))
+        one.start is not None and one.end is not None and (one.start, one.end) == (two.start, two.end)
+        and all(is_money_value(balance) for balance in (one.opening, one.closing, two.opening, two.closing))
+        and round(float(one.opening) * 100) == round(float(two.opening) * 100)
+        and round(float(one.closing) * 100) == round(float(two.closing) * 100)
     )
     return (last - first).days + 1 > _OVERLAP_BOUNDARY_DAYS and ((count >= 1 and 2 * count >= fewer) or one_period)
 
