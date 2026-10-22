@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from analysis import true_revenue as tr
+from analysis.true_revenue import tiers as true_revenue_tiers
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
@@ -902,9 +902,10 @@ def test_the_owner_money_and_deferred_payer_tables_live_in_the_registry():
     # §7.0 "Where vocabulary lives" (re-review fix 5): the tables that name companies are the registry's.
     from analysis import classification_registry as registry
     from analysis import true_revenue
+    from analysis.true_revenue import eligibility
 
     assert true_revenue._OWNER_MONEY_PLATFORMS.pattern == registry.OWNER_MONEY_PLATFORMS
-    assert true_revenue._SECTION_15_DEFERRED_PAYERS.pattern == registry.SECTION_15_DEFERRED_PAYERS
+    assert eligibility._SECTION_15_DEFERRED_PAYERS.pattern == registry.SECTION_15_DEFERRED_PAYERS
     assert "BANK OF AMERICA" in registry.P2P_SENDING_BANK_NAMES
 
 
@@ -3323,7 +3324,7 @@ def test_r3_87_a_lender_block_holding_a_class_code_word_alone_under_its_row_is_f
      ["CONTOSO INC PAYABLES 1 NORTHWIND BAKERY CCD", "KAPITUS LLC FUNDING 2 NORTHWIND BAKERY CCD"]),
 ])
 def test_r3_87_an_unread_run_splits_after_a_class_code_never_before_a_legal_form(text, blocks):
-    assert tr.unread_run_blocks(text) == blocks
+    assert true_revenue_tiers.unread_run_blocks(text) == blocks
 
 
 @pytest.mark.parametrize(("line", "expected"), [
@@ -3370,12 +3371,12 @@ def test_r3_87_review_a_weld_whose_next_block_opens_on_a_legal_form_word_keeps_i
 def test_r3_87_review_the_run_split_joins_a_code_only_to_the_llc_family(text, blocks):
     """The run split reads the counted template's narrowed rule: only LLC, L L C, LLP or PLLC after a class-code word
     makes it a name word (the last case is the disclosed residual: no ACH originator name opens on the LLC family)."""
-    assert tr.unread_run_blocks(text) == blocks
+    assert true_revenue_tiers.unread_run_blocks(text) == blocks
 
 
 def test_r3_87_a_run_naming_casharc_names_financing_and_a_customer_s_arc_entry_does_not():
-    assert tr.unread_run_names_financing("CONTOSO INC PAYABLES 1 NORTHWIND CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND CCD")
-    assert not tr.unread_run_names_financing("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD FABRIKAM INC 2 NORTHWIND CCD")
+    assert true_revenue_tiers.unread_run_names_financing("CONTOSO INC PAYABLES 1 NORTHWIND CCD CASH ARC LLC EDI PYMNTS 2 NORTHWIND CCD")
+    assert not true_revenue_tiers.unread_run_names_financing("CONTOSO SUPPLY ARC 0001 NORTHWIND CCD FABRIKAM INC 2 NORTHWIND CCD")
 
 
 def _marked(text: str, unread_text: str, *, marked: bool = True):

@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue
+from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import public_payers
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
@@ -874,7 +875,7 @@ def test_r09_a_td_e_transfer_code_is_no_round_repeat_key():
     assert [_tier(record) for record in records] == [P2P] * 3
     facts = true_revenue.credit_facts(
         records[0], channel.without_transfer_code(records[0], revenue_text(records[0].normalized_description)),
-        debits=true_revenue.counter_debits(records, set()),
+        debits=counter_debit_pairing.counter_debits(records, set()),
     )
     assert (facts.region, facts.key, facts.channel) == ("", (), "person_to_person")
 

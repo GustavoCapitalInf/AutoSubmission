@@ -637,7 +637,7 @@ def _rows(runs: list[str], *, category: _Category,
 #: `CASH-ARC LLC`), whatever the case of the form and the separator before it,
 #: so a lone block of such a name is one block and is attributed. The
 #: true-revenue pass splits an unread run by the same rule
-#: (`true_revenue._UNREAD_BLOCK_END`).
+#: (`true_revenue.tiers._UNREAD_BLOCK_END`).
 #:
 #: R3-B09 review round 1: only the LLC family (LLC, L.L.C., L L C, LLP,
 #: PLLC), the forms no ACH originator's name opens on. A code closing one

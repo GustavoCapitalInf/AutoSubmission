@@ -1910,9 +1910,9 @@ def test_q10_guard_g20_fails_a_counted_or_verified_credit_of_a_premium_trust_acc
 
 
 def test_q10_the_compare_declares_a_verified_credit_held_on_a_premium_trust_account():
-    from analysis import true_revenue
+    from analysis.true_revenue import trust
 
-    assert census.PREMIUM_TRUST_METHOD == true_revenue.PREMIUM_TRUST_METHOD
+    assert census.PREMIUM_TRUST_METHOD == trust.PREMIUM_TRUST_METHOD
     assert "premium_trust_account" in census.DECLARED_DEMOTIONS
     text = census.mask("WIRE TRANSFER IN REF 123456 ORG: FABRIKAM MARINE LLC")
     causes, run = _cause56(

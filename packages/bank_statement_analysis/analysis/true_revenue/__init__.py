@@ -28,37 +28,20 @@ from typing import TYPE_CHECKING, Sequence
 from analysis.classification_registry import (
     ASSET_SALE_PAYERS,
     ASSET_SALE_SELLER_WORD_ONLY,
-    CARD_PAYOUT_PROCESSOR_NAMES,
-    CARD_SETTLEMENT_CREDIT_FORMS,
-    CUSTOMER_FINANCING_NAMES,
     DEALER_FUNDING_PAYERS,
-    FACTORING_PAYOUT_PAYERS,
     FLOOR_PLAN_ALIASES,
     HEALTHCARE_PAYER_ALIASES,
     INSURER_CREDIT_BRANDS,
-    OPERATING_REVENUE_READ_ALIASES,
     OPERATING_REVENUE_SOURCE_TYPES,
     OWNER_MONEY_PLATFORMS,
     PAYOUT_CREDIT_ENTITIES,
-    SECTION_15_DEFERRED_PAYERS,
     WHOLESALE_AUCTION_PAYOUT_FORMS,
     WHOLESALE_AUCTION_REFUND_NAMES,
 )
 from analysis.dates import parse_date
-from analysis.description_text import normalize_transaction_description
 from analysis.flag_groups import FINANCING_STATES
-# The premium-trust words and the legal forms the holder readers read (holder_name imports nothing of the analysis
-# package, so this import is never circular). The title grammar's adjective, kind words and reference live there too,
-# so a holder line's contact designation reads exactly the title the rule reads.
-from analysis.holder_name import (
-    LEGAL_FORMS as _HOLDER_LEGAL_FORMS,
-    PREMIUM_TRUST_ADJECTIVE as _PREMIUM_TRUST_ADJECTIVE,
-    PREMIUM_TRUST_KIND as _PREMIUM_TRUST_KIND,
-    PREMIUM_TRUST_REFERENCE as _PREMIUM_TRUST_REFERENCE,
-    PREMIUM_TRUST_WORDS,
-)
 from analysis.payee_matcher import match_known_payee, registry_match
-from analysis.revenue import REVENUE_TIER_REASONS, revenue_contribution_flags
+from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.classification.record import DealerFunding, FundingSeries
 from analysis.true_revenue.channel import (
     _channel,
@@ -92,18 +75,10 @@ from analysis.true_revenue.holder_names import (
     _receiver_alias_reads,
     _receiver_holder_named,
     _receiver_holder_names,
-    _usable_holder_name,
     _without_holder_name,
     without_receiver_and_holder,
 )
-from analysis.true_revenue.model import (
-    CounterCredit,
-    CounterDebits,
-    CreditFacts,
-    InsurerReading,
-    _CounterDebit,
-    _under_micro_floor,
-)
+from analysis.true_revenue.model import CounterDebits, CreditFacts, InsurerReading, _under_micro_floor
 from analysis.true_revenue.sender import (
     _bank_account_payer,
     _bank_only_payer,
@@ -111,7 +86,6 @@ from analysis.true_revenue.sender import (
     _p2p_sender_region,
     _sender_key,
     _statement_bank_before_conversion,
-    _wire_originator_text,
 )
 from analysis.true_revenue.words import (
     ASSET_SALE_METHOD,
@@ -119,7 +93,6 @@ from analysis.true_revenue.words import (
     CUSTOMER_FINANCING_PAYOUT,
     DEALER_FUNDING_WORDS,
     INSURER_FOR_WORK_METHOD,
-    LENDER_DEBIT_STATES,
     LENDER_PAID_FOR_SERVICES,
     PROCESSOR_CARD_PAYOUT_METHOD,
     _BANK_OR_TITLE_SENDER,
@@ -142,33 +115,18 @@ from analysis.true_revenue.words import (
     _IAA,
     _INSURER_NAME,
     _INSURER_SPELLINGS,
-    _INTERAC_COURRIEL,
     _INVESTMENT_PURPOSE,
-    _LENDING_BANK_PAYER,
     _MICRO_DEPOSIT_REASON,
     _NOT_A_NAME_ALONE,
     _PAY_WORDS,
     _POSSIBLE_RETURN,
     _PREMIUM_CODED,
-    _REGISTRY_METHODS,
     _TITLE_FEE_WORDING,
     _TITLE_FIRM,
-    _TRUST_ADDRESS_MAX_WORDS,
-    _TRUST_BUSINESS_WORDS,
     _TRUST_LAWYER_WORDS,
-    _US_STATE_TAIL,
     _VEHICLE_PURCHASE_ENTRY,
-    _WIRE_PARTY_LEGAL_FORMS,
 )
-from analysis.true_revenue.claimed import (
-    _claimed,
-    _customer_financier,
-    _own_word,
-    _own_words,
-    _payout_entity,
-    _payout_non_sale,
-    registry_financing,
-)
+from analysis.true_revenue.claimed import _claimed, _customer_financier, _own_word, _own_words, registry_financing
 from analysis.true_revenue.financing_roots import (
     _RootPlaces,
     _accounts_payable_wording,
@@ -195,7 +153,6 @@ from analysis.true_revenue.public_payers import (
 )
 from analysis.true_revenue.self_originated_credits import (
     _bank_originated_wire,
-    _cut_wire_legal_form,
     _facts_region,
     merchant_settlement,
     platform_credit,
@@ -203,9 +160,42 @@ from analysis.true_revenue.self_originated_credits import (
     region_names_holder,
     self_originated,
 )
+from analysis.true_revenue.counter_debit_pairing import (
+    _cents,
+    _payer_collects,
+    also_debited,
+    counter_credit,
+    counter_debits,
+    debited_as_lender,
+)
+from analysis.true_revenue.demotions import (
+    _customer_financing_lump,
+    _factor_never_verified,
+    _financier_never_verified,
+    _holder_never_verified,
+    _leading_card_credit,
+    _lender_service_never_verified,
+    _processor_card_payouts,
+    _progress_draw_never_verified,
+    _settlement_never_verified,
+)
+from analysis.true_revenue.eligibility import (
+    _b_o_field,
+    _deferred_reading,
+    _deferred_source,
+    _factor_tail,
+    _factoring_payout_payer,
+    _never_q5_or_q6,
+    _q6_eligible,
+    _q6_method,
+    _vetoed_financier,
+    _wire_verifies,
+)
+from analysis.true_revenue.tiers import _held_by_the_floor, _tier_reason, _verify, _with_tier
+from analysis.true_revenue.trust import _held_in_premium_trust, _held_personal_trust
 
 if TYPE_CHECKING:
-    from analysis.classification.record import CounterDebitReading, TransactionClassification
+    from analysis.classification.record import TransactionClassification
 
 
 #: §8.7: the dealer-payables words a listed auto lender prints on its dealer funding (Westlake's DES:PAYABLES).
@@ -230,23 +220,11 @@ _FLOOR_PLAN_LENDER_NAME = re.compile(
     rf"|(?<![A-Z])WHOLESALE\w* {_FLOOR_PLAN_LENDER_WORDS}(?![A-Z])"
     rf"|(?<![A-Z]){_FLOOR_PLAN_LENDER_WORDS} WHOLESALE\w*"
 )
-#: §8.1: a card credit printed first, BMO's and Regions' 'CARD CREDIT ...': a refund to the card, or a push the parser
-#: cut from its payer (BMO prints the merchant on a line the parser drops), held as a possible return unless a push or
-#: person-to-person rail is printed (Regions' 'CARD CREDIT CASH APP ...' and '... APPLE CASH ...' stay Q4's counted
-#: pushes).
-_LEADING_CARD_CREDIT = re.compile(r"^(?:\d{1,2} \d{1,2} )?CARD CREDIT\b")
 #: The release stays off by spec §19.1: a processor's payout printed as a bare card credit stays a card refund. The code
 #: stays as the declined option's record; turning it on needs the owner's word again (and re-pins the Relay fixture of
 #: tests/test_new_statement_corpus.py).
 PROCESSOR_CARD_PAYOUT_RELEASE = False
 _PROCESSOR_CARD_PAYOUT_RULE = "processor_card_credit_beside_its_ach_activity"
-_CARD_PAYOUT_LABEL = re.compile(r"(?<![A-Z])(?:DEBIT CARD CREDIT?|POS CREDIT)\b")
-_CARD_PAYOUT_NAMES = {
-    entity: re.compile(
-        r"(?<![A-Z])(?:" + "|".join(re.escape(name) for name in sorted(names, key=len, reverse=True)) + r")(?![A-Z])"
-    )
-    for entity, names in CARD_PAYOUT_PROCESSOR_NAMES.items()
-}
 #: §8.1: a non-sale purpose. OWNER is no owner money in the ordering platform's name OWNER COM, and neither OWNER nor
 #: OWNERS in an owners' or homeowners' association's name ('<NAME> OWNERS ASSOC', cut to 'OWNERS A' by a
 #: sixteen-character originator field); the other words read only as a purpose (_non_sale_reading).
@@ -275,16 +253,6 @@ _OWNER_SHAPED_PAYER = re.compile(
     r"(?<![A-Z])(?:HOLDINGS?|PARTNERS|PARTNERSHIP|VENTURES?|FAMILY|TRUST)\b|(?<![A-Z])(?<!REAL )ESTATES?\b"
     r"|\b(?:LP|LLP|LLLP)\b"
 )
-#: §8.1: a personal trust's payment whose purpose cites the holder's service, a school's tuition or a student's ID, is a
-#: customer's payment, not owner money; it is read on the payment's purpose (_title_purpose_text) with a line wrap's
-#: split joined ('TUITIO N'). A trust's invoice or PO payment is already verified by §7.9 before the holds read it. The
-#: ruling names TUITION and STUDENT ID only: TUITION is read on the space-stripped purpose (a wrap's split joined, glued
-#: after a word as in FORTUITION) but never after IN (INTUITION, a cross-word join INTUIT ION...), and STUDENT ID on the
-#: printed purpose as whole words (STUDENT ID 12345, STUDENTID12345; never STUDENT IDEAS). IN TUITION is held, the safe
-#: side. A line wrap's split inside STUDENT or ID is joined, as TUITION's reader joins one (STUDEN T ID, STUDENT I D),
-#: the two ends staying whole words (never STUDENT I DEAS, STUDENT IDENTIFICATION or STUDENTS ID).
-_TRUST_SERVICE_PURPOSE = re.compile(r"(?<!IN)TUITION")
-_TRUST_STUDENT_ID_PURPOSE = re.compile(r"(?<![A-Z])S ?T ?U ?D ?E ?N ?T ?I ?D(?![A-Z])")
 #: §8.1 non_sale_purpose (the MCA principle, standard G3): a gambling or prediction-market payout is no money the
 #: business earned from its operations, held for review (the owner may make it non_revenue). Read on the row before its
 #: receiver fields: the sportsbooks', casinos' and prediction markets' names, each public (DraftKings and its
@@ -433,18 +401,6 @@ _TIER_OF_STATE = {"verified_revenue": "verified", "non_revenue": "non_revenue"}
 #: money never becomes revenue): held as non_sale_purpose. The classifier's consumer savings and investing
 #: originators (_SAVINGS_INVESTMENT_ORIGINATOR_PATTERNS) are read too.
 _OWNER_MONEY_PLATFORMS = re.compile(OWNER_MONEY_PLATFORMS)
-#: §8.1: the instant-payment rail labels a layout prints before the payer's name, never the payer: PNC's INSTPMNTIN at
-#: the start of the payer region, and the RTP network's RTP CREDIT at the start of a row whose payer region is empty
-#: (not RTP CREDIT FROM, whose sender the person-to-person readers read). The counter-debit holds read the name after
-#: them (_counter_region), so an app's advance no alias lists is read against the app's debits.
-_INSTANT_PAYMENT_LABEL = re.compile(r"^INSTPMNTIN\s+")
-_RTP_CREDIT_NAME = re.compile(r"^RTP CREDIT\s+(?!FROM\b)(\S.*)$")
-#: §15, §19 OQ4: the payers of the deferred family items (the registry's SECTION_15_DEFERRED_PAYERS), which stay
-#: counted and flagged until the owner rules on each: Q5 and Q6 never verify them, they never count toward a Q5 or Q6
-#: repeat, and on a wire or an ACH or EFT row their reason is named_payer_purpose_refused (never "One-off payer", as
-#: a deferred source often repeats). The registry's own deferred sources are left to the registry by
-#: _left_to_its_family.
-_SECTION_15_DEFERRED_PAYERS = re.compile(SECTION_15_DEFERRED_PAYERS)
 #: Q11 (a): DRAW or DRAWS as _NON_SALE_PURPOSE reads it (DRAWDOWN keeps its financing reading).
 _DRAW_WORD = re.compile(r"(?<![A-Z])DRAWS?\b")
 #: Q11 (a): a builder named as the payer: a builder, a homebuilder, a construction firm or a contractor (BUILD alone is
@@ -480,7 +436,6 @@ _OWN_LOAN_DRAW = re.compile(
 #: HOMES REALTY' or '<NAME> BUILDERS REALTY' is no builder (the brief's non-builders), so its DRAW keeps today's
 #: non-sale hold.
 _REALTY_PAYER = re.compile(r"(?<![A-Z])(?:REALTY|REALTORS?|REAL ESTATE)\b")
-_CUSTOMER_FINANCING_NAMES = re.compile(CUSTOMER_FINANCING_NAMES)
 CUSTOMER_FINANCING_LUMP_SUM = "customer_financing_lump_sum"
 #: §5.3, §8.1: the reasons of T4's financing-root hold lifted (finance_named_release): (a) a customer whose own name
 #: carries a finance word, paying on a line that prints invoice, accounts-payable or vendor-payment wording, and (b) a
@@ -516,12 +471,6 @@ _PROPERTY_TRADE = re.compile(
 #: Q9: a payer's company form; finance_named_release reads its FIRST match on the payer reading (a root after it, on a
 #: layout with no entry label, is a purpose, never the name; (b)'s rent memo stands after it).
 _Q9_FORM_WORD = re.compile(r"\b(?:LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LIMITED|LP|LLP|PLLC)\b")
-#: Q9: the counted reasons a released row keeps (the relabel never renames them): the owner batches' specific counted
-#: reasons and the platform, payout, numbered-company and unread-payer readings.
-_Q9_KEEPS = frozenset({
-    "numbered_company_payer", "factoring_payout", "payout_credit_entity", "platform_unconfirmed", "payer_text_not_read",
-    "customer_financing_payout", "construction_progress_draw", "insurer_paid_for_services", LENDER_PAID_FOR_SERVICES,
-})
 #: §8.7: dealer evidence on a statement's rows: a floor-plan form printed anywhere (FLOORPLAN, FLOOR PLAN), beside
 #: the registry's floor-plan financiers (FLOOR_PLAN_ALIASES). The form's own words only, FLOORPLAN(S) and FLOOR
 #: PLANNING, never FLOORPLANNER (a planning tool's subscription) or FLOOR PLANKS (flooring). And the glued words a
@@ -649,43 +598,6 @@ _ASSET_SALE_REFUND = re.compile(r"[A-Z]*REFUND\w*|(?<![A-Z])(?:RFND|REFND)\w*")
 #: Q11 (b): the dealer-only wholesale auctions of §7.8, whose payout credit is dealer evidence for Q11 (never for Q9's
 #: payables, _dealer_activity).
 _WHOLESALE_AUCTION_ENTITIES = frozenset(WHOLESALE_AUCTION_PAYOUT_FORMS)
-#: §7.7: a bare X12 TRN*1* with no entry description, from a healthcare payer, is deferred too.
-_BARE_X12_TRACE = re.compile(r"\bTRN 1\b")
-#: §7.1: the NET SETTLE card form, read whether or not its refusal or the card veto matches: such a row is decided
-#: by §7.1's own rule alone (its refusal and its three-credit count), never by Q5 or Q6.
-_NET_SETTLE_FORM = re.compile(next(form.pattern for form in CARD_SETTLEMENT_CREDIT_FORMS if form.label == "net_settle"))
-#: §8.1: a personal trust's words: the trust word, the trustee's TTEE, and the adjectives a personal trust prints
-#: before its trust word.
-_PERSONAL_TRUST_WORDS = frozenset({"TRUST", "TRST", "TR", "TTEE"})
-_PERSONAL_TRUST_ADJECTIVES = frozenset({"REVOCABLE", "REV", "LIVING", "FAMILY", "FAM", "IRREVOCABLE", "IRREV"})
-_PERSONAL_TRUST_FILLERS = frozenset({"THE", "AND", "OF"})
-_PERSONAL_TRUST_MAX_NAME_WORDS = 5
-#: §8.1: the words a trust form may print after it: its agreement and date words (DTD, DATED, U A, UA, UAD, UTA), a
-#: date or a number, a PO box and the country; on a wire's originator field, which prints the sender's address
-#: after the name, an address that ends in a US state code.
-_TRUST_TAIL_WORDS = frozenset({"DTD", "DATED", "U", "A", "UA", "UAD", "UTA", "PO", "BOX", "US", "USA"})
-#: §8.1: the words a trust's address never prints before its state: account, service, department and office words,
-#: and the trades a business names itself by ('... TRUST ROOFING <city> <state>' is a company).
-_TRUST_NOT_PLACE_WORDS = frozenset({
-    "ACCOUNT", "ACCT", "ACCOUNTS", "SERVICES", "SERVICE", "SVCS", "SVC", "DEPT", "DEPARTMENT", "DIV", "DIVISION",
-    "OFFICE", "OPERATING", "OPERATIONS", "ADMIN", "ADMINISTRATION",
-    # A trust company's custody and administration words.
-    "CUSTODY", "CUSTODIAN", "CUSTODIANS", "ADMINISTRATOR", "ADMINISTRATORS",
-    "ROOFING", "LANDSCAPE", "CONSTRUCTION", "CONTRACTING", "CONTRACTORS", "PLUMBING", "ELECTRIC", "ELECTRICAL", "HVAC",
-    "LANDSCAPING", "TRUCKING", "TRANSPORT", "LOGISTICS", "CLEANING", "SUPPLY", "SALES", "MARKETING", "CONSULTING",
-    "DESIGN", "AUTO", "MOTORS", "RESTAURANT", "BAKERY", "CAFE", "GRILL", "DELI", "DENTAL", "MEDICAL", "CLINIC",
-    "PHARMACY", "SALON", "SPA", "FITNESS", "STUDIO", "MEDIA", "PRODUCTIONS", "TECHNOLOGIES", "TECH", "SYSTEMS",
-    "ENTERPRISES", "INDUSTRIES", "MANUFACTURING", "FARMS", "RANCH", "TRAVEL", "HOMES", "BUILDERS", "REMODELING",
-    "PAINTING", "FLOORING", "STORE", "SHOP", "MARKET", "WHOLESALE", "DISTRIBUTION", "IMPORTS", "EXPORTS", "TRADING",
-})
-#: A street type right after the trust word makes it a street's name ('12 TRUST RD'), never a trust form.
-_STREET_WORDS = frozenset({
-    "RD", "ROAD", "ST", "STREET", "AVE", "AVENUE", "DR", "DRIVE", "LN", "LANE", "BLVD", "WAY", "CT", "COURT", "PL",
-    "PLACE", "HWY", "PKWY", "CIR", "TER", "TRL",
-})
-#: §8.1: a bank's or a trust company's form right after the trust word, and a lawyer's or a client trust account
-#: anywhere in the sender.
-_TRUST_COMPANY_SUFFIX = re.compile(r"^(?:TRUST|TRST|TR) (?:N A|NA|FSB|BANK|COMPANY|CO)\b")
 
 
 def _classifier():
@@ -1053,161 +965,6 @@ def _disbursement_entry(text: str, region: str) -> bool:
     return _DISBURSEMENT_WORD.search(row) is not None and _DISBURSEMENT_KEEP.search(row) is None
 
 
-def _held_personal_trust(text: str, region: str) -> bool:
-    """§8.1: a personal trust that the hold names (_personal_trust), unless the payment's purpose
-    (_title_purpose_text, a line wrap's split joined) cites the holder's service: a school's tuition or a student's ID
-    (_TRUST_SERVICE_PURPOSE, _TRUST_STUDENT_ID_PURPOSE). A trust's payment with no purpose stays held. TUITION never
-    read after IN, STUDENT ID only as whole words on the printed purpose (a line wrap's split inside it joined)."""
-    if not _personal_trust(text, region):
-        return False
-    purpose = _title_purpose_text(text)
-    return (
-        _TRUST_SERVICE_PURPOSE.search(purpose.replace(" ", "")) is None
-        and _TRUST_STUDENT_ID_PURPOSE.search(purpose) is None
-    )
-
-
-def _personal_trust(text: str, region: str) -> bool:
-    """§8.1: the named sender is a personal trust, held as non_sale_purpose (owner money: a family's
-    money, an investment or a loan far more often than a customer's purchase). Read on a wire's originator field before
-    its digit cut (_wire_originator_text: 'JANE Q SAMPLE 1234 TRUST <city> <state> ...', or the sender printed right
-    after the label), and on any other row's payer region. The sender prints a trust form (_PERSONAL_TRUST_WORDS) after
-    one to _PERSONAL_TRUST_MAX_NAME_WORDS name words (digits, fillers and the trust adjectives aside); a plain TRUST or
-    TRST with no adjective needs two name words and never reads a person-to-person row (whose sender field also prints
-    the sending bank), and a bare TR needs an adjective. And all of these hold:
-    (a) the trust form ends the sender's name (_trust_form_ends_the_name: 'IN GOD WE TRUST ROOFING' is no trust);
-    (b) the words before it read as a person's name: no business, institutional or benefit word (_TRUST_BUSINESS_WORDS,
-        the classifier's holder-noise words) and no company form;
-    (c) no bank's or trust company's form after the trust word (_TRUST_COMPANY_SUFFIX: TRUST NA, FSB, BANK, COMPANY,
-        CO) and no lawyer's or client trust account (_TRUST_LAWYER_WORDS: ESQ, ATTORNEY, LAW, LEGAL, IOLTA, IOTA, IOLA)."""
-    classifier = _classifier()
-    wire = classifier._is_wire_row(text)
-    sender = (_wire_originator_text(text) or _wire_sender_after_label_text(text)) if wire else region
-    tokens = sender.split()
-    index = next((at for at, token in enumerate(tokens) if token in _PERSONAL_TRUST_WORDS), None)
-    if index is None:
-        return False
-    before = [token for token in tokens[:index] if not any(ch.isdigit() for ch in token)]
-    adjectives = [token for token in before if token in _PERSONAL_TRUST_ADJECTIVES]
-    names = [token for token in before if token not in _PERSONAL_TRUST_ADJECTIVES and token not in _PERSONAL_TRUST_FILLERS]
-    if not 1 <= len(names) <= _PERSONAL_TRUST_MAX_NAME_WORDS:
-        return False
-    if tokens[index] != "TTEE" and not adjectives:
-        if tokens[index] == "TR" or len(names) < 2 or _channel(text) == "person_to_person":
-            return False
-    # (c) a trust company's or a bank's form after the trust word; a lawyer's or a client trust account.
-    # The lawyer and client-trust words read across the whole sender.
-    if _TRUST_COMPANY_SUFFIX.search(" ".join(tokens[index:])) or _TRUST_LAWYER_WORDS.search(" ".join(tokens)):
-        return False
-    # (a) the trust form ends the sender's name.
-    if not _trust_form_ends_the_name(tokens[index + 1:], address=wire):
-        return False
-    # (b) the words before the form read as a person's name.
-    return not (
-        classifier.company_form(" ".join([*before, tokens[index]]))
-        or any(_TRUST_BUSINESS_WORDS.search(name) or name in classifier.HOLDER_NOISE for name in names)
-    )
-
-
-def _trust_form_ends_the_name(tail: Sequence[str], *, address: bool) -> bool:
-    """§8.1: the words after a trust form add nothing to the sender's name: only its agreement and date words, dates,
-    numbers, a PO box and the country (_TRUST_TAIL_WORDS), or, on a wire's originator field (which prints the
-    sender's address after its name), an address that ends in a US state code ('... TRUST SAMPLEVILLE WA 12345 US')."""
-    classifier = _classifier()
-    words = list(tail)
-    if words and words[0] in _STREET_WORDS:
-        # A street named TRUST ('12 TRUST RD'): the trust word is the address's, not a trust form.
-        return False
-    if "FBO" in words:
-        # The trust's beneficiary ('... FAMILY TRUST FBO <name>') names no other sender.
-        words = words[: words.index("FBO")]
-    while words and (classifier._is_reference_token(words[-1]) or words[-1] in {"US", "USA"}):
-        words.pop()
-    if all(word in _TRUST_TAIL_WORDS or classifier._is_reference_token(word) for word in words):
-        return True
-    if not address or words[-1] not in _US_STATE_TAIL:
-        return False
-    # The address holds only place words before its state: city words (and a street or PO box), never a business,
-    # lawyer, company-form, account, service, department or institution word. The list is finite, so the address is
-    # also at most _TRUST_ADDRESS_MAX_WORDS words (_address_words). A dotted company form ('L.L.C.', 'P.A.') prints
-    # as single letters, which the cap skips: joined, they are a form.
-    if len(_address_words(words[:-1])) > _TRUST_ADDRESS_MAX_WORDS or _joined_letters_company_form(words[:-1]):
-        return False
-    return not any(_not_a_place_word(word) for word in words[:-1])
-
-
-#: §8.1: the company forms a dotted spelling joins into besides the classifier's (_BANK_COMPANY_FORM has LLC, LP, INC,
-#: CO ...): a professional association and a professional corporation. Read on joined letters only: a lone PA is
-#: Pennsylvania.
-_DOTTED_COMPANY_FORMS = frozenset({"LP", "PA", "PC"})
-
-
-def _joined_letters_company_form(words: Sequence[str]) -> bool:
-    """§8.1: two or more single letters in a row that join into a company form (a dotted 'L.L.C.', 'L.P.', 'P.A.' or
-    'P.C.', which the normalizer prints 'L L C'). Initials that join into none keep their skip (the agreement's 'U
-    A', a middle initial)."""
-    classifier = _classifier()
-    run: list[str] = []
-    for word in [*words, ""]:
-        if len(word) == 1 and word.isalpha():
-            run.append(word)
-            continue
-        joined = "".join(run)
-        if len(run) >= 2 and (joined in _DOTTED_COMPANY_FORMS or classifier._BANK_COMPANY_FORM.fullmatch(joined)):
-            return True
-        run = []
-    return False
-
-
-def _address_words(words: Sequence[str]) -> list[str]:
-    """§8.1: the address's own words before its state, the words the cap counts: never the agreement, date, PO box
-    and country words (_TRUST_TAIL_WORDS: '... TRUST U A DTD PO BOX <n> <city>'), a number or a reference token (a
-    street number, a name glued to it), a street type (_STREET_WORDS) or an initial."""
-    classifier = _classifier()
-    return [
-        word for word in words
-        if not (
-            classifier._is_reference_token(word) or word in _TRUST_TAIL_WORDS or word in _STREET_WORDS
-            or len(word) == 1
-        )
-    ]
-
-
-def _not_a_place_word(word: str) -> bool:
-    """§8.1: a word no address prints before its state: a business, trade, lawyer, company-form, account,
-    service, department or institution word (_TRUST_NOT_PLACE_WORDS, _TRUST_BUSINESS_WORDS, _TRUST_LAWYER_WORDS,
-    the classifier's company forms). Numbers (a street or a PO box) and the agreement words (_TRUST_TAIL_WORDS)
-    are place words here; the generic words are not read (a city prints NEW, as NEW YORK)."""
-    classifier = _classifier()
-    if (
-        classifier._is_reference_token(word) or word in _TRUST_TAIL_WORDS or word in _US_STATE_TAIL
-        or word in {"CITY", "COUNTY", "STATE"}
-    ):
-        return False
-    return (
-        word in _TRUST_NOT_PLACE_WORDS
-        or _TRUST_BUSINESS_WORDS.search(word) is not None or _TRUST_LAWYER_WORDS.search(word) is not None
-        or classifier._BANK_COMPANY_FORM.fullmatch(word) is not None
-    )
-
-
-def _wire_sender_after_label_text(text: str) -> str:
-    """§5.2: the sender a wire prints right after its label (the classifier's _WIRE_SENDER_AFTER_LABEL layouts), up to
-    its end (a wire field, NOTPROVIDED or WIRE PAYMENT), before the digit cut the payer region makes; '' on any other
-    layout."""
-    classifier = _classifier()
-    found = classifier._WIRE_SENDER_AFTER_LABEL.match(text)
-    if found is None:
-        return ""
-    rest = text[found.end():]
-    end = classifier._WIRE_SENDER_AFTER_LABEL_END.search(rest)
-    return (rest[: end.start()] if end is not None else rest).strip()
-
-
-#: §8.2, §8.10: the reason of a counted credit whose payer text the parser could not read (the parser's own mark,
-#: Transaction.payer_text_unread). Q2's no_payer_printed is for a row whose statement prints no payer; this one is for a
-#: row whose statement printed one the parser lost. Counted and flagged, never Verified.
-PAYER_TEXT_NOT_READ = "payer_text_not_read"
 #: Spec §8.4, §8.10 step 26, §19.1: every posted Zelle deposit is non_revenue with this reason, whoever sent it, a
 #: lender or a processor paying through Zelle included (_zelle_excluded). A row a non-revenue rule already decided keeps
 #: that rule, and a direction conflict keeps its hold.
@@ -1319,119 +1076,6 @@ def zelle_credits_present(records: Sequence[TransactionClassification], duplicat
         and zelle_deposit(pass_text(record, classifier.revenue_text(record.normalized_description)))
         for index, record in enumerate(records)
     )
-
-
-#: The share of a statement's posted credit rows whose payer text was not read above which the statement carries
-#: the payer_text_unread fact (metrics.payer_text_unread): its True rests on rows nobody read.
-PAYER_TEXT_UNREAD_SHARE = 0.30
-
-
-def payer_text_unread_indexes(transactions: Sequence) -> frozenset[int]:
-    """The ledger indexes of the credits the parser marked as read only by their label
-    (Transaction.payer_text_unread)."""
-    return frozenset(
-        index for index, transaction in enumerate(transactions)
-        if getattr(transaction, "payer_text_unread", False) and transaction.amount > 0
-    )
-
-
-#: The reason of a credit the parser marked unread whose unread run of payer blocks prints a lender's or a lending
-#: bank's block (unread_run_names_financing): held, never counted, since one row of the run is that lender's money and
-#: the text cannot say which.
-UNREAD_RUN_NAMES_FINANCING = "unread_run_names_financing"
-#: The ACH standard entry class code an ACH block closes on (`<originator> <entry> <id> <receiver> CCD`), read on the
-#: normalized text: layout grammar, where a run of welded blocks splits into its blocks. A class-code word followed by
-#: a legal form is part of a name, never a block's end (CashArc's ACH company name 'CASH-ARC LLC', normalized 'CASH
-#: ARC LLC', the registry's alias), as the counted template's one-block count reads it
-#: (core_processor_counted._ACH_CLASS_CODE). The LLC family only (LLC, L L C, LLP, PLLC), as that count reads it: INC,
-#: CO, COMPANY, CORP, LTD, LP and the rest open real originator names, so a code before them closes its block and the
-#: next block opens on them.
-_UNREAD_BLOCK_END = re.compile(
-    r"\b(?:CCD|CTX|PPD|WEB|IAT|TEL|POP|ARC|BOC|RCK|CIE)\b"
-    r"(?! (?:LLC|L L C|LLP|PLLC)\b)"
-)
-#: The registry states whose block in an unread run holds its rows: the lender and financing states
-#: (LENDER_DEBIT_STATES) without an alternative position (a platform's own settlement of the merchant's sales)
-#: and a factor (whose payout is counted and flagged, never held).
-_UNREAD_RUN_LENDER_STATES = LENDER_DEBIT_STATES - {"alternative_position", "factoring"}
-
-
-def payer_text_unread_texts(transactions: Sequence) -> dict[int, str]:
-    """The unread payer text (Transaction.unread_payer_text) of each credit the parser marked as read only by its
-    label, by ledger index."""
-    return {
-        index: text for index, transaction in enumerate(transactions)
-        if getattr(transaction, "payer_text_unread", False) and transaction.amount > 0
-        and (text := getattr(transaction, "unread_payer_text", "") or "")
-    }
-
-
-def unread_run_blocks(text: str) -> list[str]:
-    """An unread run of welded payer blocks, normalized and split after each ACH class code (_UNREAD_BLOCK_END);
-    words after the last code are one more block."""
-    normalized = normalize_transaction_description(text)
-    blocks: list[str] = []
-    start = 0
-    for found in _UNREAD_BLOCK_END.finditer(normalized):
-        blocks.append(normalized[start:found.end()].strip())
-        start = found.end()
-    blocks.append(normalized[start:].strip())
-    return [block for block in blocks if block]
-
-
-def unread_run_names_financing(text: str) -> bool:
-    """One block of an unread run (unread_run_blocks) names a registry lender of _UNREAD_RUN_LENDER_STATES
-    (match_known_payee, read as a credit) or a lending bank (_LENDING_BANK_PAYER). The bare financing root is never
-    read: a customer named CAPITAL is no lender."""
-    for block in unread_run_blocks(text):
-        known = match_known_payee(block, credit=True)
-        if known is not None and known.state in _UNREAD_RUN_LENDER_STATES:
-            return True
-        if _LENDING_BANK_PAYER.search(block):
-            return True
-    return False
-
-
-def payer_text_unread(
-    transactions: Sequence, records: Sequence[TransactionClassification],
-) -> tuple[bool, int]:
-    """(the statement's payer text is mostly unread, the count of its unread posted credits): more than
-    PAYER_TEXT_UNREAD_SHARE of its posted credit rows (duplicates aside) carry the parser's mark. Published as
-    metrics.payer_text_unread and metrics.payer_text_unread_count."""
-    unread = payer_text_unread_indexes(transactions)
-    posted = [
-        index for index, record in enumerate(records)
-        if record.amount > 0 and record.is_posted and record.duplicate_of is None
-    ]
-    count = sum(1 for index in posted if index in unread)
-    return (bool(posted) and count / len(posted) > PAYER_TEXT_UNREAD_SHARE), count
-
-
-def holder_unscreened(
-    records: Sequence[TransactionClassification], *, holder_name: str | None = None, account_name: str | None = None,
-) -> bool:
-    """§8.1: no holder's name is known for the statement, so no holder test can see the holder's own money: the
-    holder's name (_holder) names nobody (_usable_holder_name) and the statement's receiver fields name no holder
-    (_receiver_holder_names). Published as metrics.holder_unscreened. The names are the statement's (its first
-    record's, or `holder_name` and `account_name` for a statement with no transaction); a holder's name the parser read
-    is known whenever the holder test reads a word of it (classifier.holder_words, which the holder hold reads with no
-    usability test), whatever its shape, and an account-name field is known when it names a holder (_usable_holder_name
-    on holder_reading's name)."""
-    classifier = _classifier()
-    if records:
-        holder_name, account_name = records[0].holder_name, records[0].account_name
-    if holder_name and holder_name.strip() and classifier.holder_words(holder_name):
-        return False
-    if _usable_holder_name(classifier.holder_reading(account_name, holder_name)):
-        return False
-    credits = [index for index, record in enumerate(records) if record.amount > 0 and record.is_posted]
-    return not _receiver_holder_names(records, credits)
-
-
-#: §8.1: the method and the matched rule pass 7 gives a settlement under the merchant's own name that an earlier rule
-#: verified and that only the bare settlement word lifted from the own-push guard (_settlement_never_verified).
-HOLDER_NAMED_SETTLEMENT_METHOD = "holder_named_settlement"
-HOLDER_NAMED_SETTLEMENT_RULE = "holder_named_settlement_never_verified"
 
 
 def _listed_auto_lender(text: str) -> tuple[str, str] | None:
@@ -1683,102 +1327,11 @@ def _dealer_contract_evidence(
     return False
 
 
-#: The bank's own fee for an incoming wire or funds transfer, which reprints the sender's name (RBC's 'FUNDS TRANSFER
-#: FEE TT <sender>', 'WIRE TRANSFER FEE [FROM] <sender>', '[DOMESTIC] INCOMING WIRE FEE', 'WIRE FEE'): never circular
-#: money, so it never holds the wire (_COUNTER_DEBIT_KINDS).
-_RECEIVING_FEE_DEBIT = re.compile(
-    r"(?<![A-Z])(?:FUNDS TRANSFER|WIRE(?: TRANSFER| TRANS| TFR| IN)?) (?:FEES?|CHG|CHARGE|SVC CHARGE)\b"
-    r"|(?<![A-Z])INCOMING (?:FUNDS TRANSFER |WIRE (?:TRANSFER )?)?(?:FEES?|CHG|CHARGE)\b"
-)
-#: The fee for the holder's own outgoing wire names its beneficiary: it still holds the payer (the holder sent
-#: that payer money).
-_OUTGOING_WIRE_FEE = re.compile(r"(?<![A-Z])(?:OUTGOING|OUT|TO|BNF|BENEFICIARY)\b")
-#: The receiving fee prints the sender it reprints after TT or FROM ('FUNDS TRANSFER FEE TT <sender>', 'WIRE TRANSFER
-#: FEE FROM <sender>'): the outgoing words are read before it, never inside the sender's name ('CONTOSO TO GO INC').
-#: FROM before the holder's own account (an account word or a masked account number: 'WIRE TRANSFER FEE FROM CHECKING TO
-#: <payee>') or before TO is the wire's source, never a sender, so the words after it are the fee's own. The holder's
-#: own account is also an account product's name (up to two product words, BUSINESS, BUS, OPERATING, PAYROLL, PRIMARY,
-#: COMMERCIAL, ANALYZED, ANALYSIS or PERSONAL, before an account word: 'FROM BUSINESS CHECKING TO <payee>', 'FROM BUS
-#: CHK'), MONEY MARKET, OPERATING alone (the holder's operating account) or a digit run of three or more (the account
-#: number a bank prints after '*' or '...'); every other word after FROM still starts a sender ('FROM CONTOSO TO GO
-#: INC', 'FROM OPERATING ENGINEERS LOCAL ...'), so the lookahead is widened only, never every FROM ... TO read as the
-#: source (which would read a sender named with TO).
-_FEE_SOURCE_ACCOUNT = (
-    r"(?:(?:BUSINESS|BUS|OPERATING|PAYROLL|PRIMARY|COMMERCIAL|ANALYZED|ANALYSIS|PERSONAL) ){0,2}"
-    r"(?:CHECKING|CHKG|CHK|CKG|SAVINGS|SAV|SVGS|ACCOUNT|ACCT|DDA|MMA)"
-    r"|MONEY MARKET"
-)
-_FEE_SENDER_RUN = re.compile(
-    r"(?<![A-Z])(?:TT|FROM)\b"
-    rf"(?! (?:TO|OPERATING|{_FEE_SOURCE_ACCOUNT})\b| X{{2,}}\d*\b| \d{{3,}}\b)"
-)
-#: The outgoing words no sender's name prints, read after the sender too ('... TT <sender> BNF <payee>').
-_OUTGOING_WIRE_FEE_AFTER_SENDER = re.compile(r"(?<![A-Z])(?:OUTGOING|BNF|BENEFICIARY)\b")
-#: §4.2: a processor's own debit beside its settlements: its fee, discount, chargeback, adjustment or
-#: returns. A monthly-discount processor posts one such debit a month.
-_PROCESSOR_FEE_DEBIT = re.compile(
-    r"(?<![A-Z])(?:FEES?|DISCOUNT|DISC|CHBK|CHGBK|CHRGBACK|CHARGEBACKS?|CHG BACK|ADJ|ADJUSTMENTS?|RETURNS?)\b"
-)
-#: §4.2, §20: a processor's fee word glued after another word at the end of the entry that Chase's SEC code follows,
-#: once _counter_debit_kind_text splits the code off ('MONTHLYFEE SEC CCD', 'PAYCORFEES SEC CCD', 'SERVICEFEE SEC WEB'),
-#: never COFFEE.
-_GLUED_FEE_ENTRY = re.compile(
-    r"(?<![A-Z])[A-Z]{3,}?(?<!COF)(?:FEES?|DISCOUNT|DISC|CHARGEBACKS?|CHGBK|CHBK)"
-    r"(?= SEC (?:CCD|CTX|PPD|WEB|IAT|COR|TEL|POP|BOC|ARC|RCK|CIE)\b)"
-)
-#: A credit printing settlement, payout, MID or merchant-services wording is a processor's settlement,
-#: which its own fee debits never hold.
-_SETTLEMENT_CREDIT = re.compile(
-    r"(?<![A-Z])(?:SETTLE\w*|SETTLMT|SETLMT|STLMT|STLMNT|PAYOUTS?|MERCHANT SERVI\w*)\b|(?<![A-Z])MID(?=\d|\b)"
-)
-#: §4.2: a processor's or a platform's payout forms the settlement words miss, read before the receiver fields as they
-#: are: a merchant-services deposit glued or cut (RBC's MRCHNTSVCS, MRCH SVCS), a combined deposit (COMB DEP), Payment
-#: Brands' originator in its printed cuts (PAYMNTBRAND, PYMNTBRDMIN: a card payment facilitator, a registered ISO of
-#: Fifth Third Bank, whose settlement account takes its card sales and pays its refunds, chargebacks and processing
-#: fees), QuickBooks Payments in Canada (INTUIT CANADA PAYMENTS and its cut INTUIT CANADA P, never its PAYROLL), a
-#: bank's merchant deposit ('DEPOSIT <bank> MERCHANT ...') and a platform's twelve-character payout id of letters and
-#: digits after ST (Stripe's 'ST-<id>').
-_PAYOUT_FORMS = re.compile(
-    r"(?<![A-Z])(?:MRCHNT ?SVCS?|MRCH SVCS?|COMB(?:INED)? DEP(?:OSIT)?|PA?YM?NTBR(?:A?NDS?|D)\w*"
-    r"|INTUIT CANADA P(?:AYMENTS)?)\b"
-    r"|^DEPOSIT [A-Z]+ MERCHANT\b"
-    r"|(?<![A-Z0-9])ST (?=[A-Z0-9]{12}(?![A-Z0-9]))(?=[A-Z0-9]*\d)(?=[A-Z0-9]*[A-Z])[A-Z0-9]{12}(?![A-Z0-9])"
-)
-#: A processor's merchant-ID field, read anywhere on the row: Chase and Truist print it after the receiver ('IND
-#: NAME:<merchant> MID:<digits>-<processor>').
-_MERCHANT_ID_FIELD = re.compile(r"(?<![A-Z])MID \d{6,}\b")
 #: _CARD_FORM_DEBIT's tail arm, the '<ST> USA|CAN' ending, which a wire, ACH or check debit printing its
 #: beneficiary's state and country prints too (_NON_CARD_DEBIT_FORM); read by _card_purchase_debit alone (the
 #: counter-debit reader keeps _CARD_FORM_DEBIT whole).
 _CARD_FORM_TAIL = re.compile(r"(?<![A-Z])[A-Z]{2} (?:USA|CAN)$")
 _NON_CARD_DEBIT_FORM = re.compile(r"(?<![A-Z])(?:WIRE|ACH|CHECK|CHK|CHEQUE)\b")
-#: An ATM, ABM or cash withdrawal: the holder taking cash out names a place, never a payer, so it never holds a
-#: deposit (a transfer made at an ATM stays circular money).
-_CASH_WITHDRAWAL_DEBIT = re.compile(
-    r"(?<![A-Z])(?:ATM|ABM)\b|(?<![A-Z])CASH (?:WITHDRAWAL|WITHDRWL|WDL|WD)\b|(?<![A-Z])WITHDRAWAL CASH\b"
-)
-#: A company whose name leads with ATM or ABM (a legal form within its next two words; never CO, a state's code after an
-#: ATM's town), or an ACH entry printing one (Bank of America's DES ... ID field, Chase's ORIG CO NAME and CO ENTRY DESCR,
-#: a receiver or company id field), is a payee the holder pays, never a cash withdrawal. None of those two words is a
-#: cash or posting word (WITHDRAWAL, WITHDRAW, WITHDRWL, WTHDRWL, WDL, WD, DEBIT, CASH, FEE, PURCHASE, TRANSACTION, TXN),
-#: so 'ATM WITHDRAWAL <name> INC' and 'ATM DEBIT <name> LLC' stay cash withdrawals.
-_ATM_NAMED_COMPANY = re.compile(
-    r"(?<![A-Z])(?:ATM|ABM)"
-    r"(?: (?!(?:WITHDRAWALS?|WITHDRAW|WITHDRWL|WTHDRWL|WDL|WD|DEBIT|CASH|FEE|PURCHASE|TRANSACTION|TXN)\b)[A-Z&]+){0,2}"
-    r" (?:INC|LLC|CORP|CORPORATION|LTD|LIMITED|COMPANY|INDUSTRIES|GROUP)\b"
-)
-_ACH_ENTRY_LABEL = re.compile(
-    r"(?<![A-Z])(?:INDN|IND NAME|ORIG CO NAME|CO ENTRY DESCR|CO ID|DES(?: [A-Z0-9]+){1,4} ID)\b"
-)
-#: §5.2: a wallet's cash-out names no sender (Venmo, Cash App, Square Cash, Apple Cash): a counter-debit reading
-#: that leads with the wallet's name reads nothing.
-_WALLET_CASH_OUT = re.compile(r"^(?:VENMO|CASH ?APP|SQUARE CASH|APPLE CASH)\b")
-#: The e-Transfer rails, whose sender RBC and TD print without FROM (e-Transfer received <sender>, AUTODEPOSIT
-#: <sender>, VIREMENT RECU <sender>): the counter-debit holds read that sender (_counter_region). And Interac's French
-#: form, plural included (Banque Royale's 'DEPOT AUTO VIREMENTS PAR COURRIEL <sender>', _INTERAC_COURRIEL).
-_E_TRANSFER_RAIL = re.compile(
-    r"(?<![A-Z])(?:INTERAC|E ?TRANSFER|ETRANSFER|E ?TFR|AUTODEPOSIT|VIREMENT|VIREMENTS? PAR COURRIEL)\b"
-)
 #: RBC's French 'Paiement divers' label before the holder's own chequing or savings account and its number: the
 #: holder's own account, held as transfer_account_designation.
 _FRENCH_OWN_ACCOUNT_PAYMENT = re.compile(r"^PAIEMENT DIVERS COMPTE (?:CHEQUE|EPARGNE) \d+")
@@ -1788,420 +1341,10 @@ _FRENCH_OWN_ACCOUNT_PAYMENT = re.compile(r"^PAIEMENT DIVERS COMPTE (?:CHEQUE|EPA
 _FROM_ACCOUNT_ABBREVIATION = re.compile(
     r"(?<![A-Z])FR (?:SAV|SAVINGS|SVGS|CHKG|CHK|CKG|CHECKING|DDA|MMA)\b"
 )
-#: A bill the holder pays: bill pay, an electronic bill (EBPP), autopay, a utility, a telecom, cable or wireless
-#: service, a subscription.
-_BILL_DEBIT = re.compile(
-    r"(?<![A-Z])(?:BILL ?PAY(?:MENTS?|MT|MNT)?|BILL PAID|BILL PMT|EBPP|AUTOPAY\w*|AUTO PAY|UTILIT\w*|UTIL"
-    r"|TELECOM\w*|WIRELESS|CABLE|VOIP|SUBSCRIPTIONS?|SUBSCR)\b"
-)
-#: A payer that reads as an insurer keeps the bill exclusion off: an insurer's credit beside the holder's premium or
-#: bill to it stays held (insurers never count).
-_INSURER_CREDIT = re.compile(r"(?<![A-Z])(?:INS|INSUR\w*|ASSUR\w*)\b")
-#: A premium, or the bank's retry of a returned premium (a re-presentment of the same obligation, never a second one),
-#: read on a non-lender debit's kind text with Chase's glued SEC code split off ('INS PREMSEC PPD' reads 'INS PREM SEC
-#: PPD'): the flag that lets a debit naming a credit the Q2 release counted recur at one amount without holding it
-#: (also_debited). A flag, never a kind: the debit keeps its kind.
-_PREMIUM_DEBIT = re.compile(r"(?<![A-Z])(?:PREM|PREMS|PREMIUMS?|PREMSEC|RETRY)(?![A-Z])")
-#: A transfer, wire or person-to-person debit, or an own-account move ('TO CHKG', 'DDA TO DDA'): it can be
-#: circular money, so it also matches a payer as 5.6 read it (CounterDebitReading.legacy).
-_OWN_ACCOUNT_DEBIT = re.compile(
-    r"(?<![A-Z])(?:FR|FROM|TO) (?:CHKG|CHK|CHECKING|SAV|SAVINGS|SHARES?|DDA)\b|(?<![A-Z])ZEL\b"
-)
-#: Payer_debited_as_lender compares a cut or glued funder name by prefix, five letters or more ...
-_PREFIX_MIN_LETTERS = 5
-#: ... when the longer word runs on into a financing root ('CONTOSOFUNDING' after 'CONTOSO') or into the shorter side's
-#: next word ('FABRIKAMVENTUREHO' after 'FABRIKAM VENTURE'), never into anything else (a customer named like a funder:
-#: 'FABRIK EVENTS' against 'FABRIKAM').
-_FINANCING_REMAINDER = re.compile(r"^(?:FUND|FIN|CAP|LEND|LOAN|ADV|CRED|MCA)")
 #: A payroll provider's tax-service credit (ADP TAX, PAYCHEX TPS TAX[ES], GUSTO TAX, INTUIT TAX), read with its tax
 #: word on the payer region and the entry fields: the holder's own tax impound coming back, never a sale.
 _PAYROLL_PROVIDER_WORD = re.compile(r"(?<![A-Z])(?:ADP|PAYCHEX|GUSTO|INTUIT)\b")
 _PAYROLL_TAX_WORD = re.compile(r"(?<![A-Z])TAX(?:ES)?\b")
-
-
-def _cents(amount: float) -> int:
-    return round(abs(amount) * 100)
-
-
-def _lender_entity(text: str, *, credit: bool = False) -> str | None:
-    """The registry lender or financing entity a text names (its glued digit runs split off). A credit's (`credit`) is
-    read with the credit index, as the classifier reads the credit."""
-    known = match_known_payee(_classifier()._split_glued_digits(text), credit=credit)
-    return known.entity if known is not None and known.state in LENDER_DEBIT_STATES else None
-
-
-def _counter_debit_kind(text: str) -> str:
-    """A posted non-lender debit's kind. The bank's receiving fee first (it prints transfer or wire wording, never
-    circular money), then a transfer, wire, person-to-person or own-account debit (circular), a processor's fee, a
-    bill, or another debit (an ACH payment, a purchase...).
-
-    Read without the receiver fields' values (§5.2: INDN, IND NAME, RECEIVER NAME, RECV NAME, IND ID print the
-    holder's own name), as _lender_entity reads a lender debit, every field after them kept (an addenda's PMT INFO): a
-    holder named for a bill or fee word ('<NAME> CABLE LLC', '<NAME> RETURNS LLC') never turns an affiliate's or a
-    collector's debit into a bill or a processor's fee.
-
-    Read without the statement furniture a parser glued onto the debit
-    (classifier.without_statement_furniture), so a footer's words (TD's back panel prints 'ELECTRONIC FUNDS
-    TRANSFERS') never make a fee or a bill circular money.
-
-    The receiving fee's outgoing words (_OUTGOING_WIRE_FEE) are read on its label and the words after it up to the
-    sender it reprints after TT or FROM (_FEE_SENDER_RUN), never inside that sender's name ('FUNDS TRANSFER FEE TT
-    CONTOSO TO G' is the bank's fee for a wire from CONTOSO TO GO INC). A fee whose own words name an outgoing wire
-    falls through to the kinds after it, as before. FROM before the holder's own account or before TO starts no sender
-    ('WIRE TRANSFER FEE FROM CHECKING TO <payee>' is the fee for the holder's own wire), and OUTGOING, BNF and
-    BENEFICIARY, which no sender's name prints, are read after the sender too.
-
-    §4.2, §20: the processor's fee and the bill are read on the kind text with Chase's glued SEC code split off
-    (_counter_debit_kind_text: 'CO ENTRY DESCR FEESSEC CCD' reads 'FEES SEC CCD', 'BILL PAYMTSEC' reads 'BILL PAYMT
-    SEC'), and a fee word glued after another word at the entry's end is the processor's fee too (_GLUED_FEE_ENTRY:
-    'MONTHLYFEESEC', never 'COFFEESEC'); the receiving fee and circular money keep reading the row as printed (a glued
-    'TRANSFERSEC' keeps its kind). The kind order is unchanged. FROM before an account product's name, MONEY MARKET,
-    OPERATING or an account number starts no sender either (_FEE_SOURCE_ACCOUNT: 'WIRE TRANSFER FEE FROM BUSINESS
-    CHECKING TO <payee>' is circular)."""
-    return _counter_debit_kind_of(*_counter_debit_kind_text(text))
-
-
-def _counter_debit_kind_text(text: str) -> tuple[str, str]:
-    """A non-lender debit's kind text, read without the receiver fields' values and the statement furniture, and the
-    same text with Chase's glued SEC code split off (classifier._GLUED_SEC_CODE, which classifier.revenue_text applies
-    to credits only): (text, split)."""
-    classifier = _classifier()
-    text = classifier.without_statement_furniture(classifier._without_receiver_value(text))
-    return text, classifier._GLUED_SEC_CODE.sub(r"\1 SEC \2", text)
-
-
-def _counter_debit_kind_of(text: str, split: str) -> str:
-    """The kind of a debit's kind text and its split (_counter_debit_kind_text), in the order _counter_debit_kind
-    gives: the receiving fee and circular money on `text`, the processor's fee and the bill on `split`."""
-    classifier = _classifier()
-    fee = _RECEIVING_FEE_DEBIT.search(text)
-    if fee is not None:
-        tail = text[fee.end():]
-        sender = _FEE_SENDER_RUN.search(tail)
-        own = tail if sender is None else tail[:sender.start()]
-        if not (
-            _OUTGOING_WIRE_FEE.search(f"{text[:fee.end()]} {own}")
-            or (sender is not None and _OUTGOING_WIRE_FEE_AFTER_SENDER.search(tail[sender.start():]))
-        ):
-            return "receiving_fee"
-    if (
-        classifier._TRANSFER_WORDING.search(text) or classifier._WIRE_WORD.search(text)
-        or classifier._CONSUMER_P2P_RAIL.search(text) or classifier._PUSH_RAIL.search(text)
-        or _OWN_ACCOUNT_DEBIT.search(text)
-    ):
-        return "circular"
-    if _PROCESSOR_FEE_DEBIT.search(split) or _GLUED_FEE_ENTRY.search(split):
-        return "processor_fee"
-    if _BILL_DEBIT.search(split):
-        return "bill"
-    return "other"
-
-
-def counter_debits(records: Sequence[TransactionClassification], duplicates: set[int]) -> CounterDebits:
-    """§8.1: the statement's posted debits that may hold a payer, with their counter-debit readings
-    (CounterDebitReading). A card purchase the classifier names as no lender or financing payee is left out (A1
-    census: buying at a merchant that shares the payer's word is spending, never circular money); a card-form debit
-    it names as a lender (D8) is still a lender debit.
-
-    A card purchase in another bank's form, or one the classifier classes 'pos', that the card-form prefix misses keeps
-    its place among the other debits (and counts for recurrence), marked `card` where it reads other, processor_fee or
-    bill, never circular or receiving_fee (_CARD_FORM_DEBIT; it keeps that kind); an ATM, ABM or cash withdrawal that
-    is no lender's and no circular money is left out (_cash_withdrawal: never a company named ATM or ABM, nor an ACH
-    entry); each debit records whether it prints a platform's payout id (processor_payout); a lender debit is read with
-    the place words kept, and a person-to-person or push debit to a named recipient records its person_key. Each
-    non-lender debit, a card-marked one included, records whether it prints a premium or a retry of one
-    (_PREMIUM_DEBIT, on its kind text with Chase's glued SEC code split off); a lender debit never does. A debit whose
-    reading names no word is kept when it names a numbered company's number (CounterDebitReading.number), and recurs by
-    that number (_head_word); each debit is read without its bank's posting-type label and a leading
-    pre-authorized-debit label (classifier._counter_debit_text)."""
-    classifier = _classifier()
-    lender: list[_CounterDebit] = []
-    other: list[tuple[CounterDebitReading, str, int, bool, str | None, bool, bool]] = []
-    for index, record in enumerate(records):
-        if index in duplicates or record.amount >= 0 or not record.is_posted:
-            continue
-        lender_debit = record.classification in LENDER_DEBIT_STATES
-        reading, card_purchase = classifier.counter_debit_debit_reading(record, keep_places=lender_debit)
-        # A debit to a numbered company is kept by its number.
-        if reading.legacy is None and not reading.keys and reading.number is None:
-            continue
-        text = record.normalized_description
-        payout = processor_payout(text)
-        if lender_debit:
-            entity = _lender_entity(classifier._without_receiver_value(text))
-            lender.append(_CounterDebit(reading, "lender", _cents(record.amount), entity, False, payout))
-        elif not card_purchase:
-            kind_text, split = _counter_debit_kind_text(text)
-            kind = _counter_debit_kind_of(kind_text, split)
-            if kind != "circular" and _cash_withdrawal(text):
-                continue
-            card = kind in _CARD_KIND_FROM and bool(
-                record.classification == "pos" or _CARD_FORM_DEBIT.search(text.strip())
-            )
-            person_key = None
-            if (
-                (classifier._CONSUMER_P2P_RAIL.search(text) or classifier._PUSH_RAIL.search(text))
-                and reading.heads and reading.heads[0][1]
-            ):
-                person_key = reading.heads[0][0] + reading.heads[0][1][0]
-            premium = _PREMIUM_DEBIT.search(split) is not None
-            other.append((reading, kind, _cents(record.amount), payout, person_key, card, premium))
-    # "Recurring same-amount debits keep holding": two or more debits of one payer word at one amount (a bill's;
-    # never a processor's fee beside its settlement, also_debited).
-    amounts = Counter((_head_word(reading), cents) for reading, _, cents, _, _, _, _ in other)
-    return CounterDebits(
-        tuple(lender),
-        tuple(
-            _CounterDebit(
-                reading, kind, cents, None, amounts[(_head_word(reading), cents)] >= 2, payout, person_key, card,
-                premium,
-            )
-            for reading, kind, cents, payout, person_key, card, premium in other
-        ),
-    )
-
-
-#: The kinds a card purchase in another bank's form is marked a card charge on (never circular money or the bank's
-#: receiving fee).
-_CARD_KIND_FROM = frozenset({"other", "processor_fee", "bill"})
-
-
-def _cash_withdrawal(text: str) -> bool:
-    """An ATM, ABM or cash withdrawal (_CASH_WITHDRAWAL_DEBIT) that names no company leading with ATM or ABM and
-    prints no ACH entry field (_ATM_NAMED_COMPANY, _ACH_ENTRY_LABEL). The company's name never reads a cash or posting
-    word between ATM or ABM and its legal form, so 'ATM WITHDRAWAL <name> INC' is still a cash withdrawal."""
-    return (
-        _CASH_WITHDRAWAL_DEBIT.search(text) is not None
-        and _ATM_NAMED_COMPANY.search(text) is None and _ACH_ENTRY_LABEL.search(text) is None
-    )
-
-
-def _head_word(reading: CounterDebitReading) -> str | None:
-    """The word a debit's recurrence is keyed by. A numbered company's number where the debit reads no word, so a
-    numbered funder's daily debits at one amount recur by their number and two numbered payees never share a key."""
-    return reading.heads[0][0] if reading.heads else (reading.legacy or reading.number)
-
-
-def _counter_region(text: str, region: str) -> str:
-    """The payer words the counter-debit reading reads: the payer region without PNC's leading INSTPMNTIN
-    label, or, where the payer region is empty, the words after a leading RTP CREDIT label
-    (_INSTANT_PAYMENT_LABEL, _RTP_CREDIT_NAME).
-
-    Where neither prints, on an e-Transfer row (_E_TRANSFER_RAIL), the sender the rail prints without FROM (RBC's
-    and TD's e-Transfer, _p2p_sender_readings), so the same person's round trip can be matched; and a wallet's name
-    leading the words (_WALLET_CASH_OUT: a Venmo, Cash App, Square Cash or Apple Cash cash-out, which names no
-    sender, §5.2) reads nothing."""
-    if region:
-        found = _INSTANT_PAYMENT_LABEL.sub("", region)
-    else:
-        row = _classifier()._before_receiver(text)
-        named = _RTP_CREDIT_NAME.match(row)
-        if named is not None:
-            found = named.group(1)
-        elif _E_TRANSFER_RAIL.search(row):
-            found = _p2p_sender_readings(text)[0]
-        else:
-            found = ""
-    return "" if _WALLET_CASH_OUT.match(found) else found
-
-
-def _sender_name_key(region: str) -> str | None:
-    """A person-to-person or push credit's sender as the counter-debit holds match it: the first head word of its payer
-    name (classifier._counter_debit_head) glued to the word after it, when the name has one. The name ends at its legal
-    form, so the town a payout prints after a company's name is no part of it ('<company> INC <town> <ST>' is a
-    one-word name, matched as before)."""
-    classifier = _classifier()
-    name: list[str] = []
-    for word in classifier.payer_name(region).split() if region else ():
-        if word in _WIRE_PARTY_LEGAL_FORMS:
-            break
-        name.append(word)
-    head = classifier._counter_debit_head(name)
-    return head[0] + head[1][0] if head is not None and head[1] else None
-
-
-def counter_credit(record: TransactionClassification, text: str, region: str) -> CounterCredit:
-    """A posted credit's counter-debit reading, on its payer region, and the facts the debit kinds read. The
-    reading reads past an instant-payment rail label (_counter_region).
-
-    A processor's payout is its settlement wording or a payout form before the receiver fields, or a merchant-ID field
-    anywhere on the row (_SETTLEMENT_CREDIT, _PAYOUT_FORMS, _MERCHANT_ID_FIELD); `payout` is a platform's payout id
-    (processor_payout); `person_key` is set on a credit printing a person-to-person or push rail whose first head word
-    has a next word (the glued first two words of the sender's name), and whose sender prints no company form: a
-    company's push is compared by the B4 forms as before. `insurer` is False on a credit pass 7 released as an insurer
-    paying for the business's work (INSURER_FOR_WORK_METHOD), so a bill to that insurer holds it only as a bill to any
-    payer does. Interac's French form (_INTERAC_COURRIEL, whose plural the classifier's rail never reads) is such a rail
-    too, so a French autodeposit's sender names a debit as its English twin's does. `released_insurer` is True on that
-    released credit, which also_debited holds by a debit naming its carrier only when the debit is circular money, is
-    for its own amount, or recurs at one amount printing no premium or retry word. Both readings are read with the
-    statement's bank (`record.bank`), so its posting-type label names no payer (classifier._without_posting_type_label:
-    RBC's `INSURANCE <insurer>`); a numbered company's reading carries its number."""
-    classifier = _classifier()
-    row = classifier._before_receiver(text)
-    # TD Canada Trust's e-Transfer code is no sender, so never a counter-debit key.
-    words = _counter_region(text, region) if _transfer_code(record) is None else region
-    # Read without the statement's bank's posting-type label.
-    reading = classifier.counter_debit_payer_reading(words, bank=record.bank)
-    person_key = None
-    if (
-        (
-            classifier._CONSUMER_P2P_RAIL.search(row) or classifier._PUSH_RAIL.search(row)
-            or _INTERAC_COURRIEL.search(row)
-        )
-        and not classifier.company_form(classifier.payer_name(words))
-    ):
-        person_key = _sender_name_key(words)
-    return CounterCredit(
-        reading=reading,
-        cents=_cents(record.amount),
-        entity=_lender_entity(region, credit=True) if region else None,
-        settlement=(
-            _SETTLEMENT_CREDIT.search(row) is not None or _PAYOUT_FORMS.search(row) is not None
-            or _MERCHANT_ID_FIELD.search(text) is not None
-        ),
-        # A credit the insurer-for-work release re-stated is
-        # the business's work, no insurer to the bill clause of also_debited.
-        insurer=_INSURER_CREDIT.search(row) is not None and record.revenue_match_method != INSURER_FOR_WORK_METHOD,
-        payout=processor_payout(text),
-        person_key=person_key,
-        lender_reading=classifier.counter_debit_payer_reading(words, keep_places=True, bank=record.bank),
-        # The credit the Q2 release counted as the business's work.
-        released_insurer=record.revenue_match_method == INSURER_FOR_WORK_METHOD,
-    )
-
-
-def _same_payer(credit: CounterDebitReading, debit: CounterDebitReading, *, legacy: bool) -> bool:
-    """The payer and the debit name one payer: by the B4 forms (their glued forms included), or, where 5.6's reading
-    still governs (`legacy`), by 5.6's first distinctive word. First, by a numbered company's number, read on both
-    sides only where the numbered-company form prints (CounterDebitReading.number), so debited_as_lender,
-    _names_the_payer and _payer_collects read a numbered funder, affiliate or own account as they read a named one."""
-    if credit.number is not None and credit.number == debit.number:
-        return True
-    if legacy and credit.legacy is not None and credit.legacy == debit.legacy:
-        return True
-    return not credit.keys.isdisjoint(debit.keys)
-
-
-def _prefix_payer(credit: CounterDebitReading, debit: CounterDebitReading) -> bool:
-    """One side's first word, five letters or more, starts the other's, and the longer word runs on into a
-    financing root or into the shorter side's next word (_FINANCING_REMAINDER)."""
-    for credit_word, credit_next in credit.heads:
-        for debit_word, debit_next in debit.heads:
-            if credit_word == debit_word:
-                continue
-            short, long, following = (
-                (credit_word, debit_word, credit_next) if len(credit_word) < len(debit_word)
-                else (debit_word, credit_word, debit_next)
-            )
-            if len(short) < _PREFIX_MIN_LETTERS or not long.startswith(short):
-                continue
-            rest = long[len(short):]
-            if _FINANCING_REMAINDER.match(rest) or (
-                following and (rest.startswith(following[0]) or (len(rest) >= 3 and following[0].startswith(rest)))
-            ):
-                return True
-    return False
-
-
-def debited_as_lender(credit: CounterCredit, debits: CounterDebits, *, prefix: bool) -> bool:
-    """§8.1 payer_debited_as_lender: a lender or financing debit names the payer. When both name a registry entity,
-    they match when it is one entity; 5.6's first-word match still holds either way. Otherwise the B4 forms match, and
-    with `prefix` (pass 7, an unverified credit) a cut or glued spelling (_prefix_payer). Both sides are read with the
-    place words kept (a funder may carry a state's name), and a person-to-person or push credit from a named person
-    (its person_key) also matches a lender debit printing that whole name. The whole name is one more arm, never the
-    only one: the first word, the B4 forms and the prefix still read such a credit, since this hold never lets a
-    funder's money into True (a funder printing no legal form, pushing by a real-time or Zelle rail and pulling under a
-    glued or one-word name)."""
-    reading = credit.lender_reading if credit.lender_reading is not None else credit.reading
-    for debit in debits.lender:
-        if credit.person_key is not None and credit.person_key in debit.reading.keys:
-            return True
-        if reading.legacy is not None and reading.legacy == debit.reading.legacy:
-            return True
-        if credit.entity is not None and debit.entity is not None:
-            if credit.entity == debit.entity:
-                return True
-            continue
-        if _same_payer(reading, debit.reading, legacy=False):
-            return True
-        if prefix and _prefix_payer(reading, debit.reading):
-            return True
-    return False
-
-
-def also_debited(credit: CounterCredit, debits: CounterDebits) -> bool:
-    """§8.1 payer_also_debited: a debit that can be circular money names the payer (an own
-    account, an affiliate, a funder that collects).
-    - The bank's receiving fee never holds the payer.
-    - A transfer, wire, person-to-person or own-account debit matches as 5.6 read it too (the guard: no such match is
-      ever lost).
-    - Any other debit matches by the B4 forms; one for the credit's own amount matches as 5.6 read it too (the credit
-      undoes it).
-    - A processor's fee beside a settlement never holds unless the debit is for the credit's own amount; a bill to a
-      payer that is no insurer never holds unless the debit is for the credit's own amount or recurs at one amount.
-      §4.2: a processor's fixed monthly or per-batch fee posts at one amount,
-      so its recurrence is the processor's shape, never a collector's; a bill recurring at one amount can be a
-      collector's draw and keeps holding.
-
-    In this order: a platform's payout and the platform's own pull, each printing a payout id,
-    never hold unless the pull is for the payout's own amount; a person-to-person or push credit from a named person
-    matches by its person_key, or by its first word on a debit for its own amount (_names_the_payer); after the bill
-    rule, a processor's payout (its settlement wording, payout forms or merchant-ID field) is never held by a card
-    charge or by a one-off other debit of the processor's own unless the debit is for its own amount (standard A1,
-    §4.2: its fee, subscription or card charge is the processor's shape, never circular money). A card charge keeps its
-    own kind, so beside a credit with no payout form a card-form bill reads the bill rule and any other card charge
-    holds as its kind does.
-
-    After the bill rule (the MCA principle; standard A11, B6): a credit the Q2 release counted
-    as an insurer paying for the business's work (CounterCredit.released_insurer) is held by a debit naming its
-    carrier only when that debit is circular money, is for the credit's own amount, or recurs at one amount printing
-    no premium or retry word (_CounterDebit.premium). A premium the business pays the carrier that pays it for its
-    work is an ordinary expense, never money going round, and it recurs at one amount by nature, as a processor's
-    fixed fee does, so it never holds the credit, recurring or not. An insurer the release did not count keeps B4's
-    hold beside its premium or bill."""
-    for debit in debits.other:
-        same_amount = debit.cents == credit.cents
-        if credit.payout and debit.payout and not same_amount:
-            continue
-        if debit.kind == "receiving_fee":
-            continue
-        if not _names_the_payer(
-            credit, debit, legacy=debit.kind == "circular" or same_amount, same_amount=same_amount,
-        ):
-            continue
-        if debit.kind == "processor_fee" and credit.settlement and not same_amount:
-            continue
-        if debit.kind == "bill" and not credit.insurer and not same_amount and not debit.recurring:
-            continue
-        # A released insurer's carrier debits.
-        if (
-            credit.released_insurer and not same_amount and debit.kind != "circular"
-            and (debit.premium or not debit.recurring)
-        ):
-            continue
-        if credit.settlement and not same_amount and (
-            debit.card or (debit.kind == "other" and not debit.recurring)
-        ):
-            continue
-        return True
-    return False
-
-
-def _payer_collects(credit: CounterCredit, debits: CounterDebits) -> bool:
-    """§8.1, §8.7: the payer also collects from the account. True when a lender or financing debit names it
-    (debited_as_lender, with the pass-7 prefix), or any other posted debit names it by the B4 forms, 5.6's first
-    distinctive word (legacy) or a cut or glued spelling (_prefix_payer), the bank's receiving fee and a card charge
-    aside; a card purchase the classifier names is never among the debits (counter_debits). Deliberately stricter than
-    also_debited: no bill, processor-fee, settlement or payout-pair exemption, and no amount or recurrence test (a
-    documented over-hold of the owner's "collecting loan payments")."""
-    if debited_as_lender(credit, debits, prefix=True):
-        return True
-    for debit in debits.other:
-        if debit.kind == "receiving_fee" or debit.card:
-            continue
-        if _same_payer(credit.reading, debit.reading, legacy=True) or _prefix_payer(credit.reading, debit.reading):
-            return True
-    return False
 
 
 def finance_named_release(
@@ -2401,25 +1544,6 @@ def _rent_trade_noun_name(words: Sequence[str]) -> str:
     return ""
 
 
-def _names_the_payer(credit: CounterCredit, debit: _CounterDebit, *, legacy: bool, same_amount: bool) -> bool:
-    """A person-to-person or push credit whose sender prints a name of two words or more and no company form names the
-    debit's payer by that whole name (its person_key, the glued first two words, in the debit's keys); and a
-    person-to-person or push debit to a recipient printing such a name (now that the rail's own word no longer reads as
-    the debit's) is named by a credit only by that whole name (its person_key in the credit's keys): a given name, a
-    rail's name or a town alone never does. A debit for the credit's own amount that is no such person-to-person debit
-    still names the credit's payer by 5.6's first word, as B4 read it (the credit undoes it)."""
-    if credit.person_key is not None:
-        if (
-            same_amount and debit.person_key is None and credit.reading.legacy is not None
-            and credit.reading.legacy == debit.reading.legacy
-        ):
-            return True
-        return credit.person_key in debit.reading.keys
-    if debit.person_key is not None:
-        return debit.person_key in credit.reading.keys
-    return _same_payer(credit.reading, debit.reading, legacy=legacy)
-
-
 def payroll_tax_credit(text: str, region: str) -> bool:
     """§8.1 non_sale_purpose: a payroll provider's tax-service credit: _PAYROLL_PROVIDER_WORD on the row before its
     receiver fields, with a TAX or TAXES word. The tax word is read on the payer region (`region`, payer_region) and
@@ -2467,99 +1591,6 @@ def _bank_only_pull(record: TransactionClassification, text: str, region: str) -
     if _bank_only_payer(region, "", record.bank, row=classifier._before_receiver(text)) not in {"sending", "form"}:
         return False
     return not (_claimed(record, text) or _factoring_payout_payer(region, text))
-
-
-def _leading_card_credit(text: str) -> bool:
-    """§8.1: a card credit printed first ('CARD CREDIT', BMO's with its merchant line dropped, or Regions' 'CARD
-    CREDIT <merchant>'), with no push word (§7.11's) and no person-to-person or push rail (Cash App and Apple Cash are
-    person-to-person rails, so Regions' pushes stay counted): held as a possible return."""
-    classifier = _classifier()
-    row = classifier._before_receiver(text)
-    return _LEADING_CARD_CREDIT.match(row) is not None and not (
-        classifier._CARD_CREDIT_PUSH_WORD.search(row)
-        or classifier._CONSUMER_P2P_RAIL.search(row)
-        or classifier._PUSH_RAIL.search(row)
-    )
-
-
-def _card_payout_processor(row: str) -> str | None:
-    """The processor (CARD_PAYOUT_PROCESSOR_NAMES) a row names, as a whole word; None for none."""
-    for entity, pattern in _CARD_PAYOUT_NAMES.items():
-        if pattern.search(row):
-            return entity
-    return None
-
-
-def _card_payout_credit_processor(text: str) -> str | None:
-    """The processor a card credit names as its whole payer, when step 3 read the card label alone: the row prints
-    DEBIT CARD CREDIT (or Citibank's cut CREDI) or POS CREDIT, after it only the processor's name with reference tokens
-    and generic words (never a financing or other word: 'STRIPE CAPITAL' is not the processor's payout), and no other
-    reversal marker once the label is removed. None otherwise."""
-    classifier = _classifier()
-    row = classifier._before_receiver(text)
-    label = _CARD_PAYOUT_LABEL.search(row)
-    if label is None or classifier._reversal_credit(_CARD_PAYOUT_LABEL.sub(" ", text)):
-        return None
-    rest = row[label.end():]
-    for entity, pattern in _CARD_PAYOUT_NAMES.items():
-        found = pattern.search(rest)
-        if found is None:
-            continue
-        others = (rest[:found.start()] + " " + rest[found.end():]).split()
-        if not any(classifier._is_payer_word(word) for word in others):
-            return entity
-    return None
-
-
-def _processor_card_payouts(
-    records: Sequence[TransactionClassification], duplicate_indexes: set[int],
-) -> dict[int, str]:
-    """§7.11, §6.3 narrowing 9 (MCA principle and standard A1/A2: a processor's payout is sales): the card credits the
-    reversal rule (step 3) took as a card refund, or a push word released and §8.1 would hold, that name a merchant
-    processor as their whole payer (_card_payout_credit_processor) on a statement that also prints that processor's own
-    ACH activity (its ACH payout, its ACH pull or a returned pull: any posted row naming it with an electronic-payment
-    form, never another card credit) and no card purchase at it (a posted debit naming it that is a card purchase: a
-    refund of that purchase cannot be told from a payout). {credit index: processor}. Never a row a rule verified, a
-    pair pass 4 made, a duplicate or a direction conflict. A marketplace or a retailer (Uber, DoorDash, Amazon) names no
-    processor of the table, so its card credits keep the refund reading."""
-    classifier = _classifier()
-    candidates: dict[int, str] = {}
-    activity: set[str] = set()
-    purchases: set[str] = set()
-    for index, record in enumerate(records):
-        if (
-            index in duplicate_indexes or not record.is_posted or record.amount == 0
-            or _card_payout_processor(record.normalized_description) is None
-        ):
-            continue
-        text = classifier.revenue_text(record.normalized_description)
-        row = classifier._before_receiver(text)
-        entity = _card_payout_processor(row)
-        if entity is None:
-            continue
-        if record.amount < 0:
-            if record.classification == "pos" or classifier._matches_any(row, classifier._POS_PATTERNS):
-                purchases.add(entity)
-            elif classifier._ELECTRONIC_PAYMENT_FORM.search(row):
-                activity.add(entity)
-            continue
-        if _CARD_PAYOUT_LABEL.search(row) or _CARD_CREDIT_LABEL.search(text) or _LEADING_CARD_CREDIT.match(row):
-            if (
-                record.direction_consistent
-                and record.revenue_classification != "verified_revenue"
-                and record.revenue_match_method not in {"matched_reversal_pair", "direction_conflict"}
-                and (
-                    record.revenue_match_method == "reversal_cancellation_exclusion"
-                    or record.revenue_classification == "unverified_deposit"
-                )
-            ):
-                processor = _card_payout_credit_processor(text)
-                if processor is not None:
-                    candidates[index] = processor
-            continue
-        if classifier._ELECTRONIC_PAYMENT_FORM.search(row):
-            activity.add(entity)
-    return {index: entity for index, entity in candidates.items() if entity in activity and entity not in purchases}
 
 
 def _currency_conversion(text: str, *, bank: str | None = None) -> bool:
@@ -3279,307 +2310,6 @@ def _first_hold(
     return None
 
 
-def _held_by_the_floor(record: TransactionClassification) -> TransactionClassification:
-    """§7.0, §7.8, §8.10: a tiered credit under the $1 floor that a rule verified or counted, held for review with
-    the floor's reason (_MICRO_DEPOSIT_REASON). A verified one leaves verification as a new first state
-    (unverified_deposit, method micro_deposit_floor, pending review, so the analyst may confirm it); its reason names
-    the rule the floor overruled, for the audit."""
-    if record.revenue_classification == "verified_revenue":
-        record = _classifier()._replace_revenue_state(
-            record,
-            "unverified_deposit",
-            match_method="micro_deposit_floor",
-            matched_rule="credit_under_micro_deposit_floor",
-            confidence_score=0.40,
-            reason=(
-                "A credit under $1 is never verified and never counted (the absolute micro-deposit floor): the rule "
-                f"that read it ({record.revenue_match_method}) is overruled, and it is held for review."
-            ),
-            context_signals=(*record.revenue_context_signals, "micro_deposit_floor"),
-            related_transaction=record.revenue_related_transaction,
-        )
-    return _with_tier(record, "excluded_pending_review", _MICRO_DEPOSIT_REASON)
-
-
-#: §5.3, §8.10: the held reason of a credit into an account whose printed title reads PREMIUM TRUST, and the method and
-#: rule a verified one leaves verification with.
-PREMIUM_TRUST_REASON = "premium_trust_account"
-PREMIUM_TRUST_METHOD = "premium_trust_account"
-_PREMIUM_TRUST_RULE = "premium_trust_account_title"
-#: The kind words a title may print after the premium-trust words (an account, a fund, a product:
-#: holder_name.PREMIUM_TRUST_KIND, imported above as _PREMIUM_TRUST_KIND), and the account and product words alone (no
-#: FUND or FUNDS), which the separator form needs. A product adjective may print before a kind word ('PREMIUM TRUST
-#: BUSINESS CHECKING'; holder_name.PREMIUM_TRUST_ADJECTIVE); an adjective alone is never a kind word ('PREMIUM TRUST
-#: BUSINESS' is no title). The reference a title may print is holder_name.PREMIUM_TRUST_REFERENCE (imported as
-#: _PREMIUM_TRUST_REFERENCE): an account number, masked or not, after #, NO, NUMBER, ACCOUNT, ACCT or A/C, in or out of
-#: parentheses; a roman numeral; or a parenthesised code of up to four letters or digits. The three
-#: live in holder_name, so a holder line's contact designation reads the same title.
-_PREMIUM_TRUST_ACCOUNT_KIND = (
-    rf"{_PREMIUM_TRUST_ADJECTIVE}"
-    r"(?:ACCOUNT|ACCT|ACCNT|A/C|CHECKING|CHK|DDA|SAVINGS|SAV|SHARE|MMA|MONEY\s+MARKET)\.?"
-)
-_PREMIUM_TRUST_TITLE = rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_KIND})*)"
-#: The three title forms. The title at the field's end (kind words, a reference and punctuation may follow); the words
-#: followed by an account word; the words and one or more account or product words, a reference allowed, then a
-#: separator (' - ', an en or em dash, ':' or '(') and anything ('PREMIUM TRUST ACCOUNT - NORTHWIND AGENCY LLC').
-_PREMIUM_TRUST_AT_END = re.compile(rf"{_PREMIUM_TRUST_TITLE}(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?[\s.,;:\-)]*$")
-_PREMIUM_TRUST_WITH_ACCOUNT = re.compile(
-    rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+{_PREMIUM_TRUST_ADJECTIVE}(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)(?![A-Z])"
-)
-#: The for-benefit form, the words and an account word before FBO, F/B/O, OF or FOR and a name ('PREMIUM TRUST ACCOUNT
-#: FBO NORTHWIND AGENCY LLC'), read on an account name or a holder name even when the field ends in a legal form (the
-#: form is the beneficiary's). A product adjective may print before the account word, as in the account-word form
-#: ('PREMIUM TRUST BUSINESS ACCOUNT FBO NORTHWIND LLC').
-_PREMIUM_TRUST_FOR_BENEFIT = re.compile(
-    rf"(?P<title>{PREMIUM_TRUST_WORDS}\s+{_PREMIUM_TRUST_ADJECTIVE}(?:ACCOUNT|ACCT|ACCNT|A/C)\.?)"
-    r"\s+(?:FBO|F/B/O|F B O|OF|FOR)\s+[A-Z]"
-)
-_PREMIUM_TRUST_SEPARATED = re.compile(
-    rf"(?P<title>{PREMIUM_TRUST_WORDS}(?:\s+{_PREMIUM_TRUST_ACCOUNT_KIND})+)(?:[\s\-:#,]*{_PREMIUM_TRUST_REFERENCE})?"
-    r"\s*(?:\s-\s|\s?[–—]\s?|:|\()\s*\S"
-)
-#: A field that ends in a legal form (the holder readers' LEGAL_FORMS), which refuses the account-word form on an
-#: account name or a holder name ('PREMIUM TRUST ACCOUNT LLC' is a company).
-_PREMIUM_TRUST_LEGAL_LAST = re.compile(r"\b(?:" + "|".join(sorted(_HOLDER_LEGAL_FORMS)) + r")\.?\s*$")
-
-
-def _premium_trust_field(field: str | None) -> str:
-    """A statement field as the premium-trust rule reads it: upper case, its whitespace runs collapsed, L.L.C. read as
-    LLC."""
-    return " ".join(str(field or "").upper().replace("L.L.C.", "LLC").split())
-
-
-def _premium_trust_words(match: re.Match[str]) -> str:
-    """The title words a form matched, its dots dropped and its blanks collapsed."""
-    return " ".join(match.group("title").replace(".", " ").split())
-
-
-def premium_trust_title(account_title: str | None, account_name: str | None, holder_name: str | None) -> str | None:
-    """§8.10, §9.1: the premium-trust title a statement prints, or None. Read on the statement's own fields, never on a
-    row (a payer that prints the words makes no title). The bank's designation (`Statement.account_title`) reads in any
-    of the three title forms: the title at the field's end, the words followed by an account word, or the words and an
-    account or product word before a separator; never the words anywhere ('PREMIUM TRUST ROOFING', a trade name the
-    holder reader dropped after a legal form, is no title). Then the account name, then the holder's name: the title at
-    the end, the account-word form only when the field does not end in a legal form ('PREMIUM TRUST ACCOUNT LLC' is a
-    company), the for-benefit form even when it does ('PREMIUM TRUST ACCOUNT FBO NORTHWIND AGENCY LLC'), and the
-    separator form even when it does ('PREMIUM TRUST ACCOUNT - NORTHWIND INSURANCE AGENCY LLC'). A product adjective
-    (BUSINESS, ANALYZED, COMMERCIAL) may print before a kind word or the account word, and FUND or FUNDS between the
-    words ('PREMIUM FUND TRUST ACCOUNT'). Returns the matched title words, dots dropped. Recorded false negatives (each
-    overstates True: the trust account's deposits stay counted): 'PREM. TR. ACCT.', a bare title before a separator
-    ('PREMIUM TRUST - CONTOSO AGENCY LLC'), 'PREMIUM TRUST OPERATING', and a title only a statement whose parser reads
-    no holder line prints (no account title is published there); a holder line's contact that prints a name before the
-    words ('CARE OF NORTHWIND PREMIUM TRUST ACCOUNT') or any other word after the designation ('ATTN: PREMIUM TRUST
-    ACCOUNT - NORTHWIND'), which the holder readers publish as no title. Recorded over-reads (each understates True,
-    held and reviewable): a trade name that prints the words and an account word."""
-    text = _premium_trust_field(account_title)
-    if text:
-        for form in (_PREMIUM_TRUST_AT_END, _PREMIUM_TRUST_WITH_ACCOUNT, _PREMIUM_TRUST_SEPARATED):
-            if (found := form.search(text)) is not None:
-                return _premium_trust_words(found)
-    for field in (account_name, holder_name):
-        text = _premium_trust_field(field)
-        if not text:
-            continue
-        if (found := _PREMIUM_TRUST_AT_END.search(text)) is not None:
-            return _premium_trust_words(found)
-        if not _PREMIUM_TRUST_LEGAL_LAST.search(text) and (found := _PREMIUM_TRUST_WITH_ACCOUNT.search(text)):
-            return _premium_trust_words(found)
-        if (found := _PREMIUM_TRUST_FOR_BENEFIT.search(text)) is not None:
-            return _premium_trust_words(found)
-        if (found := _PREMIUM_TRUST_SEPARATED.search(text)) is not None:
-            return _premium_trust_words(found)
-    return None
-
-
-def _held_in_premium_trust(record: TransactionClassification, title: str) -> TransactionClassification:
-    """§8.10, as _held_by_the_floor holds: a credit a rule verified or counted, on a
-    statement whose title reads PREMIUM TRUST, held for review as PREMIUM_TRUST_REASON. A verified one first leaves
-    verification as a new first state (unverified_deposit, method PREMIUM_TRUST_METHOD, pending review, so the
-    analyst may confirm it), its reason naming the rule it overruled; a counted one keeps its state, method and
-    rule, and only its tier and reason change."""
-    if record.revenue_classification == "verified_revenue":
-        # The ruling is named without its date: no year literal outside date parsing (test_no_statement_hardcodes).
-        record = _classifier()._replace_revenue_state(
-            record,
-            "unverified_deposit",
-            match_method=PREMIUM_TRUST_METHOD,
-            matched_rule=_PREMIUM_TRUST_RULE,
-            confidence_score=0.40,
-            reason=(
-                f"A deposit into an account titled {title}: an insurance agency's premium trust account holds its "
-                "insureds' premiums, not the agency's revenue (the owner's ruling on the underwriter's Q10). The rule "
-                f"that read it ({record.revenue_match_method}) is overruled, and it is held for review."
-            ),
-            context_signals=(*record.revenue_context_signals, PREMIUM_TRUST_METHOD),
-            related_transaction=record.revenue_related_transaction,
-        )
-    return _with_tier(record, "excluded_pending_review", PREMIUM_TRUST_REASON)
-
-
-def _left_to_its_family(text: str) -> bool:
-    """§7.1 to §7.3, §7.8: a row a family rule decides alone, which Q5 and Q6 never verify: the operating registry
-    names an entity on it (an alias or its cut, read with the receiver field's value removed, or a payout form;
-    whether or not the registry's read was vetoed or named a source, so an auction wire, a transport marketplace's
-    wallet or wire credit and a TikTok row that is not ACH-shaped stay with their own rules), or it prints the NET
-    SETTLE card form (§7.1: its refusal on law, trust, escrow, title and claims firms, and its three-credit count). A
-    waiting processor's bare word (BRAINTREE, SMARTTAB) is no operating-registry alias, so it never takes a row from
-    Q5 or Q6."""
-    classifier = _classifier()
-    alias_text = classifier._without_receiver_value(text)
-    if registry_match(alias_text, OPERATING_REVENUE_READ_ALIASES) is not None:
-        return True
-    row = classifier._before_receiver(text)
-    joined = classifier._joined_text(row)
-    if any(pattern.search(row) or pattern.search(joined) for _, _, pattern in classifier._PAYOUT_FORMS):
-        return True
-    return _NET_SETTLE_FORM.search(row) is not None or _NET_SETTLE_FORM.search(joined) is not None
-
-
-def _deferred_source(text: str, facts: CreditFacts) -> bool:
-    """§15, §19 OQ4: a payer of the deferred family items, counted and flagged until the owner rules: read with
-    the receiver field's value removed, and a healthcare payer's bare X12 trace with no entry (an ACH or EFT
-    shape: a wire's own TRN field is no X12 trace)."""
-    return _deferred_reading(text, facts.channel, facts.region, facts.entry)
-
-
-def _deferred_reading(text: str, channel: str, region: str, entry: str) -> bool:
-    """§15 (_deferred_source) on the row's channel, payer region and entry fields."""
-    classifier = _classifier()
-    if _SECTION_15_DEFERRED_PAYERS.search(classifier._without_receiver_value(text)):
-        return True
-    return (
-        channel != "wire" and healthcare_payer(region) and not entry
-        and _BARE_X12_TRACE.search(text) is not None
-    )
-
-
-def _never_q5_or_q6(record: TransactionClassification, text: str, facts: CreditFacts) -> bool:
-    """The rows Q5 and Q6 never verify and never count toward a repeat, whatever their holds: a direction conflict (§6.1
-    step 2, §7.0: never lifted by any pass), a credit under $1, a row a family rule decides alone, a deferred source and
-    a factoring payer's payout. And a processor's instant payout released from a card credit (counted, never verified).
-    And a lease-to-own or patient financier's merchant payout, or any row that names one of them
-    (CUSTOMER_FINANCING_NAMES, read without the receiver field's value). And a builder's progress draw (counted and
-    flagged, never verified). And an insurer's credit released as the business's work (INSURER_FOR_WORK_METHOD). And a
-    credit the financing-root release lifted (CreditFacts.q9). And a settlement the bare settlement word alone released
-    from the holder hold or the own-push guard (CreditFacts.settlement_released), which never counted toward a repeat
-    while held. And a payout entity's or a financier's credit whose claim the non-sale or financing veto lifted
-    (_payout_claim_vetoed), so the holds read it: such a credit is counted, never verified, and where no hold reads its
-    word (an abbreviated advance, ADVNC) a payout entity's is counted as payout_credit_entity, as before."""
-    return (
-        record.revenue_match_method == "direction_conflict"
-        or record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD
-        or record.revenue_match_method == INSURER_FOR_WORK_METHOD
-        or not record.direction_consistent
-        or _under_micro_floor(record)
-        or _left_to_its_family(text)
-        or _deferred_source(text, facts)
-        or facts.factor
-        or facts.financier is not None
-        or _CUSTOMER_FINANCING_NAMES.search(_classifier()._without_receiver_value(text)) is not None
-        or facts.progress_draw
-        or facts.q9 is not None
-        or facts.settlement_released
-        or (not facts.claimed and _payout_claim_vetoed(record, text))
-    )
-
-
-def _payout_claim_vetoed(record: TransactionClassification, text: str) -> bool:
-    """A payout entity (_payout_entity) or a lease-to-own or patient financier (_customer_financier, read without the
-    veto) names the row, whose claim the non-sale or financing veto lifted (_payout_non_sale). Such a credit is never
-    verified by Q5 or Q6 and never counts toward a repeat: the holds read it as any payer's row, and where none reads
-    its word (an abbreviated advance: ADVNC, ADVN, ADVC) it is counted, a payout entity's as payout_credit_entity, as
-    before the batch."""
-    classifier = _classifier()
-    if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
-        return False
-    if not _payout_non_sale(record, text):
-        return False
-    return _payout_entity(text) is not None or _customer_financier(record, text, non_sale=False) is not None
-
-
-def _vetoed_financier(record: TransactionClassification, text: str) -> str | None:
-    """The lease-to-own or patient financier (_customer_financier, read without the veto) whose claim the non-sale or
-    financing veto lifted (_payout_non_sale), or None. The lump-sum test reads such a counted credit as that financier's
-    payout, as before the veto, so an abbreviated advance (ADVNC, ADVN, ADVC), which no hold reads, is never a way into
-    True for a large one-off sum; a payout entity's credit, which no lump-sum test reads, is not one."""
-    classifier = _classifier()
-    if classifier._PAYOUT_NON_SALE_CREDIT.search(classifier._without_receiver_value(text)) is None:
-        return None
-    if not _payout_non_sale(record, text):
-        return None
-    return _customer_financier(record, text, non_sale=False)
-
-
-def _factoring_payout_payer(region: str, text: str = "") -> bool:
-    """§8.9: a freight-factoring payer the registry names for this pass alone (FACTORING_PAYOUT_PAYERS). Its credit is
-    the carrier's own invoices paid by the factor: counted and flagged as factoring_payout, never verified by any path.
-    Read only as the payer region (the ACH originator or the wire sender), which is the alias, followed only by company
-    forms: a longer name that starts with it ('<alias> FOR PETS LLC') or another payer's purpose citing it names
-    another payer. The words after the alias (_factor_tail) may also be a company form glued to its last word
-    ('<alias>LLC'), a DBA tail, an entry word, a date or a number that falls into the region, and on a B/O field
-    (`text`'s originator label) the sender's address: its city, state, ZIP and country (the trust rule's place
-    reading)."""
-    words = (region or "").split()
-    for aliases in FACTORING_PAYOUT_PAYERS.values():
-        for alias in aliases:
-            head = alias.split()
-            if not words or len(words) < len(head) or words[: len(head) - 1] != head[:-1]:
-                continue
-            last = words[len(head) - 1]
-            if last == head[-1]:
-                tail = words[len(head):]
-            elif last.startswith(head[-1]) and _classifier()._BANK_COMPANY_FORM.fullmatch(last[len(head[-1]):]):
-                # A company form glued to the alias's last word ('SOLUTIONSLLC').
-                tail = [last[len(head[-1]):], *words[len(head):]]
-            else:
-                continue
-            if _factor_tail(tail, b_o=_b_o_field(text)):
-                return True
-    return False
-
-
-#: §8.9: the entry words a layout with no entry field prints into the payer region after its name.
-_FACTOR_ENTRY_WORDS = frozenset({"PAYMENT", "PAYMENTS", "PMT", "PMTS", "PYMT"})
-
-
-def _b_o_field(text: str) -> bool:
-    """The wire's originator label is B/O (Fedwire, CHIPS, Chase's book transfer), a field that prints the
-    sender's address after its name."""
-    found = _classifier()._WIRE_ORIGINATOR_LABEL.search(text or "")
-    return found is not None and found.group(0).strip() == "B O"
-
-
-def _factor_tail(tail: Sequence[str], *, b_o: bool) -> bool:
-    """§8.9: the words after a factor's alias add nothing to its name: company forms (glued or spaced), entry words
-    (_FACTOR_ENTRY_WORDS), dates and numbers (reference tokens), then either nothing, a DBA tail (the factor's trade
-    name, any words), or, on a B/O field, an address: place words ending in a US state code, at most
-    _TRUST_ADDRESS_MAX_WORDS of the address's own, as the personal-trust rule reads one, and never a connector word
-    (_FACTOR_CONNECTOR_WORDS: FOR, OF, AND, THE; [A3H-m1])."""
-    classifier = _classifier()
-    words = list(tail)
-    while words and (
-        classifier._BANK_COMPANY_FORM.fullmatch(words[0]) or words[0] in _FACTOR_ENTRY_WORDS
-        or classifier._is_reference_token(words[0])
-    ):
-        words.pop(0)
-    if not words or words[0] == "DBA":
-        return True
-    if not b_o:
-        return False
-    while words and words[-1] in {"US", "USA"}:
-        words.pop()
-    return (
-        bool(words) and words[-1] in _US_STATE_TAIL
-        and len(_address_words(words[:-1])) <= _TRUST_ADDRESS_MAX_WORDS
-        and not any(_not_a_place_word(word) or word in _FACTOR_CONNECTOR_WORDS for word in words[:-1])
-    )
-
-
-#: [A3H-m1]: a connector word after a factor's alias joins a longer name ('<alias> FOR PETS <city>
-#: <state>'), never the sender's address.
-_FACTOR_CONNECTOR_WORDS = frozenset({"FOR", "OF", "AND", "THE"})
-
-
 def asset_sale_platform(region: str, text: str = "") -> str | None:
     """§8.1: the equipment auction or car buyer (ASSET_SALE_PAYERS) the payer region names as its whole payer name, or
     None: the alias's words start the region and the words after it, a seller's words aside (_ASSET_SALE_TAIL_WORDS:
@@ -3733,381 +2463,6 @@ def _asset_sale_record(record: TransactionClassification, arm: str) -> Transacti
         ),
         context_signals=(*record.revenue_context_signals, ASSET_SALE_METHOD),
         related_transaction=record.revenue_related_transaction,
-    )
-
-
-def _progress_draw_never_verified(record: TransactionClassification) -> TransactionClassification:
-    """§8.1, §8.10: a builder's progress draw that an earlier rule verified (§7.5's accounts-payable remittance, 'A P PMT
-    DRAW 3') leaves verification as a new first state (unverified_deposit, method construction_progress_draw), as
-    _financier_never_verified does; its reason names the rule it overruled, for the audit. The pass tiers it
-    counted_flagged / construction_progress_draw."""
-    return _classifier()._replace_revenue_state(
-        record,
-        "unverified_deposit",
-        match_method=CONSTRUCTION_PROGRESS_DRAW_REASON,
-        matched_rule="construction_progress_draw_never_verified",
-        confidence_score=0.50,
-        reason=(
-            "A builder pays the business a progress draw for its work: counted and flagged, never verified, by the "
-            "owner's ruling on the underwriter's Q11 (a); the rule that read it "
-            f"({record.revenue_match_method}) is overruled."
-        ),
-        context_signals=(*record.revenue_context_signals, CONSTRUCTION_PROGRESS_DRAW_REASON),
-        related_transaction=record.revenue_related_transaction,
-    )
-
-
-def _factor_never_verified(record: TransactionClassification) -> TransactionClassification:
-    """§8.9: a factoring payer's credit that an earlier rule verified (an invoice-purpose wire, an accounts-payable
-    remittance descriptor) leaves verification as a new first state (unverified_deposit, method
-    factoring_payout_payer); its reason names the rule it overruled, for the audit. The pass tiers it counted_flagged /
-    factoring_payout."""
-    return _classifier()._replace_revenue_state(
-        record,
-        "unverified_deposit",
-        match_method="factoring_payout_payer",
-        matched_rule="factoring_payer_never_verified",
-        confidence_score=0.50,
-        reason=(
-            "A factor pays the business's own invoices: its payout is counted and flagged, never verified; the rule "
-            f"that read it ({record.revenue_match_method}) is overruled."
-        ),
-        context_signals=(*record.revenue_context_signals, "factoring_payout"),
-        related_transaction=record.revenue_related_transaction,
-    )
-
-
-def _financier_never_verified(record: TransactionClassification) -> TransactionClassification:
-    """§8.9: a lease-to-own or patient financier's merchant payout that an earlier rule verified (a repeat, a company
-    form, an operating-income descriptor) leaves verification as a new first state (unverified_deposit, method
-    customer_financing_payer), as _factor_never_verified does; its reason names the rule it overruled, for the audit.
-    The pass tiers it counted_flagged / customer_financing_payout."""
-    return _classifier()._replace_revenue_state(
-        record,
-        "unverified_deposit",
-        match_method="customer_financing_payer",
-        matched_rule="customer_financing_never_verified",
-        confidence_score=0.50,
-        reason=(
-            "A lease-to-own or patient-financing company pays the merchant for a customer's financed purchase: counted "
-            f"and flagged, never verified; the rule that read it ({record.revenue_match_method}) is overruled."
-        ),
-        context_signals=(*record.revenue_context_signals, CUSTOMER_FINANCING_PAYOUT),
-        related_transaction=record.revenue_related_transaction,
-    )
-
-
-def _lender_service_never_verified(record: TransactionClassification) -> TransactionClassification:
-    """§8.7: a listed auto lender's payables-only credit Q7 verified, on a statement with no dealer evidence, is a
-    lender paying the business for its services (a repossession agency's recoveries), never dealer funding: it leaves
-    verification as a new first state (unverified_deposit, method lender_paid_for_services, no source type), as
-    _factor_never_verified does; its reason names the lender and its alias, says the statement shows no dealer evidence
-    and that the owner's ruling overrules auto_lender_dealer_funding. The pass tiers it counted_flagged /
-    lender_paid_for_services, or holds it as financing_named_payer when the lender also collects from the account
-    (_payer_collects). The transaction side (classification, match_method, canonical_entity and every lender flag) is
-    untouched."""
-    lender = record.revenue_canonical_entity or "the lender"
-    alias = f" ({record.revenue_matched_alias})" if record.revenue_matched_alias else ""
-    return replace(
-        _classifier()._replace_revenue_state(
-            record,
-            "unverified_deposit",
-            match_method=LENDER_PAID_FOR_SERVICES,
-            matched_rule="q7_payables_without_dealer_evidence",
-            confidence_score=0.50,
-            reason=(
-                f"Listed auto lender '{lender}'{alias} pays the business on a payables word alone, and the statement "
-                "shows no dealer evidence (no dealer-funding credit, floor-plan financier, dealer-only auction purchase "
-                "or dealer's name): a lender paying the business for its services (a repair, a recovery, a commission), "
-                "counted and flagged, never verified. The owner's ruling on the underwriter's Q9 overrules "
-                f"{record.revenue_match_method}."
-            ),
-            context_signals=(*record.revenue_context_signals, LENDER_PAID_FOR_SERVICES),
-            related_transaction=record.revenue_related_transaction,
-        ),
-        revenue_source_type=None,
-    )
-
-
-def _customer_financing_lump(
-    index: int,
-    payouts: dict[int, str],
-    records: Sequence[TransactionClassification],
-    channel: str,
-    posted_cents: int,
-) -> bool:
-    """§8.9: a financier's payout (`payouts`: the statement's customer_financing_payout rows, index -> financier) that
-    is large and one-off. Large: CUSTOMER_FINANCING_LUMP_FLOOR dollars or more, and an incoming wire, a whole multiple
-    of CUSTOMER_FINANCING_LUMP_ROUND dollars or at least CUSTOMER_FINANCING_LUMP_SHARE percent of the statement's
-    posted credits (`posted_cents`, non-revenue included, the T7 base). One-off: the same financier makes fewer than
-    CUSTOMER_FINANCING_SERIES_MIN payouts in the statement, the row included, of at least
-    CUSTOMER_FINANCING_SERIES_SHARE percent of its amount. Read over every payout at once, so the hold never depends on
-    the rows' order (a pair of lumps holds both); compared in integer cents."""
-    classifier = _classifier()
-    cents = _cents(records[index].amount)
-    if cents < classifier.CUSTOMER_FINANCING_LUMP_FLOOR * 100:
-        return False
-    if not (
-        channel == "wire" or cents % (classifier.CUSTOMER_FINANCING_LUMP_ROUND * 100) == 0
-        or cents * 100 >= classifier.CUSTOMER_FINANCING_LUMP_SHARE * posted_cents
-    ):
-        return False
-    series = sum(
-        1 for other, entity in payouts.items()
-        if entity == payouts[index] and _cents(records[other].amount) * 100 >= classifier.CUSTOMER_FINANCING_SERIES_SHARE * cents
-    )
-    return series < classifier.CUSTOMER_FINANCING_SERIES_MIN
-
-
-def _holder_never_verified(record: TransactionClassification) -> TransactionClassification:
-    """§8.1: the holder's own push (self_originated) that an earlier rule verified (an accounts-payable entry read by
-    step 11, whose holder guard reads only a known holder's name) leaves verification as a new first state
-    (unverified_deposit, method self_originated_holder), as _factor_never_verified does; its reason names the rule it
-    overruled, for the audit. The pass tiers it excluded_pending_review / holder_name."""
-    return _classifier()._replace_revenue_state(
-        record,
-        "unverified_deposit",
-        match_method="self_originated_holder",
-        matched_rule="holder_own_push_never_verified",
-        confidence_score=0.40,
-        reason=(
-            "The row's originator is its own receiver: the holder moves its own money in, which is never revenue and "
-            f"never verified; the rule that read it ({record.revenue_match_method}) is overruled, and it is held for "
-            "review."
-        ),
-        context_signals=(*record.revenue_context_signals, "self_originated_holder"),
-        related_transaction=record.revenue_related_transaction,
-    )
-
-
-def _settlement_never_verified(record: TransactionClassification) -> TransactionClassification:
-    """§8.1: a settlement under the merchant's own name that an earlier rule verified (an operating-income or a
-    claim-payment descriptor) and that only the bare settlement word lifted from the own-push guard
-    (CreditFacts.settlement_released) leaves verification as a new first state (unverified_deposit, method
-    HOLDER_NAMED_SETTLEMENT_METHOD), as _holder_never_verified does; its reason names the rule it overruled, for the
-    audit. The pass reads it as an unverified credit: a later hold still names it, and where none does it is counted
-    and flagged, named_payer_purpose_refused."""
-    return _classifier()._replace_revenue_state(
-        record,
-        "unverified_deposit",
-        match_method=HOLDER_NAMED_SETTLEMENT_METHOD,
-        matched_rule=HOLDER_NAMED_SETTLEMENT_RULE,
-        confidence_score=0.50,
-        reason=(
-            "A settlement printed under the merchant's own name (a processor's, a carrier's or an operating "
-            "settlement) is no holder's own push: counted and flagged, never verified; the rule that read it "
-            f"({record.revenue_match_method}) is overruled."
-        ),
-        context_signals=(*record.revenue_context_signals, HOLDER_NAMED_SETTLEMENT_METHOD),
-        related_transaction=record.revenue_related_transaction,
-    )
-
-
-def _wire_verifies(record: TransactionClassification, text: str, facts: CreditFacts, repeats: int) -> bool:
-    """§8.5 (Q5): the same company wires twice or more, and the row passes every veto of §7.9 (the 5.5 reader,
-    _wire_vetoed: a non-sale purpose, a financing root, any known payee, the own account, a brand-word affiliate, a cut
-    financing originator, a title or escrow firm). The holder test is read here too, so a row the holds skip (one the
-    registry claimed) never verifies from the holder's name (§6 precedence: Q5 never verifies a row the holder test
-    or the numbered-company guard matches)."""
-    classifier = _classifier()
-    if not facts.wire_n1 or facts.hold is not None or not facts.region or facts.numbered:
-        return False
-    if classifier.holder_named(facts.region, _holder(record)):
-        return False
-    if classifier.channel_gate(text) is not None:
-        return False
-    # An LLC the originator field cut and glued to the address counts as the company form here only.
-    if not (facts.company_form or facts.public_or_healthcare or _cut_wire_legal_form(facts.region)) or repeats < 2:
-        return False
-    if _BANK_OR_TITLE_SENDER.search(facts.name) or facts.refused_word:
-        return False
-    return not classifier._wire_vetoed(text, facts.region, _holder(record))
-
-
-def _q6_method(facts: CreditFacts, repeats: int, all_consumer: bool) -> str | None:
-    """§8.6 (Q6): the verifying method of an eligible named ACH or EFT payer, or None. A PPD or WEB entry never
-    verifies by repetition alone (a) or by its company form, and neither does a bank or a title or escrow firm's
-    company form (§8.5's senders)."""
-    if repeats >= 2 and not all_consumer:
-        return "named_payer_repeats"
-    if facts.company_form and not facts.consumer_entry and not _BANK_OR_TITLE_SENDER.search(facts.name):
-        return "named_payer_company_form"
-    if facts.public_or_healthcare:
-        return "public_or_healthcare_payer"
-    return None
-
-
-def _q6_eligible(record: TransactionClassification, text: str, facts: CreditFacts) -> bool:
-    """§8.6: an unverified posted credit with an electronic-payment form and a payer region, which the channel gate
-    leaves open, no transfer wording in its entry fields, no wire, no registry, payout or factoring claim, no hold, and
-    no numbered company. Nor a payer region that names only a bank (_bank_only_payer): a bank's name, or the
-    statement's own bank's channel ('CHASE ONLINE'), is no customer, so its repetition proves nothing (Q6 refused a
-    bank on its company-form arm only before)."""
-    classifier = _classifier()
-    return (
-        facts.electronic and bool(facts.region) and facts.channel == "ach_eft"
-        and classifier.channel_gate(text) is None
-        and not classifier._TRANSFER_WORDING.search(facts.entry)
-        and not facts.wire_n1 and not facts.claimed and facts.hold is None and not facts.numbered
-        # A payer region that is only a bank's name and an account description names no payer.
-        and not facts.transfer_no_counterparty
-        and not facts.bank_only
-    )
-
-
-def _tier_reason(
-    record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool, deferred: bool = False,
-    unread: bool = False, unread_text: str = "",
-) -> tuple[str, str]:
-    """§8.10: the tier and reason of an unverified posted credit, in order. A deferred source (§15, `deferred`) on a
-    wire or an ACH or EFT row is a named payer Q5 and Q6 refuse as proof, as a verification-only word refuses one:
-    named_payer_purpose_refused, never "One-off payer" (a deferred source often repeats). On a row with no
-    electronic-payment form it keeps named_payer_unlabelled: Q6 never reads such a row, deferred or not. A row the
-    parser marked as read only by its label (`unread`) that would be counted as Q2's no_payer_printed at the bare-row
-    fall-through is counted as payer_text_not_read instead: the statement printed a payer the parser did not read.
-    Every hold before it still applies (a bare transfer label stays transfer_no_counterparty). B10 review (round 1):
-    a cash, branch, teller or ATM row (the cash_branch_atm channel) keeps no_payer_printed, marked or not: its own
-    label says the statement printed no payer (Q2). Such a marked row whose unread run of payer blocks
-    (`unread_text`, Transaction.unread_payer_text) prints a lender's or a lending bank's block
-    (unread_run_names_financing) is held as unread_run_names_financing instead: one row of the run is that lender's
-    money and the text cannot say which (Q6: lenders never count). It is never a lender credit and names no payer.
-
-    §8.10: last, after the unread branch, a credit the financing-root release lifted (CreditFacts.q9) that the tiers
-    count takes the release's reason, unless its counted reason is one a released row keeps (_Q9_KEEPS:
-    payer_text_not_read, the platform, payout, numbered-company and factoring readings, and the owner batches'
-    specific counted reasons). A held reason is never overridden."""
-    tier, reason = _tier_reason_read(record, text, facts, round_repeat, deferred)
-    if unread and reason == "no_payer_printed" and facts.channel != "cash_branch_atm":
-        if unread_text and unread_run_names_financing(unread_text):
-            return "excluded_pending_review", UNREAD_RUN_NAMES_FINANCING
-        reason = PAYER_TEXT_NOT_READ
-    if facts.q9 is not None and tier == "counted_flagged" and reason not in _Q9_KEEPS:
-        reason = facts.q9
-    return tier, reason
-
-
-def _tier_reason_read(
-    record: TransactionClassification, text: str, facts: CreditFacts, round_repeat: bool, deferred: bool,
-) -> tuple[str, str]:
-    """§8.10's order (_tier_reason), on the row's text alone."""
-    classifier = _classifier()
-    if record.revenue_match_method == "direction_conflict":
-        return "excluded_pending_review", "direction_conflict"
-    if facts.hold is not None:
-        return "excluded_pending_review", facts.hold
-    # §6.3: a named sender after an own-account designation left the strong non-revenue rule only to be held (T13),
-    # on any channel and whoever the sender is: it never enters True.
-    if classifier._named_sender_after_designation(text, _holder(record)):
-        return "excluded_pending_review", "transfer_account_designation"
-    # §8.10: an insurer paying the business for its work, which the release before the facts re-stated
-    # (_insurer_for_work); every hold before it still wins. On a person-to-person row §8.4's round-sum repeat still
-    # wins, as for the progress draw: the released row falls through to the person-to-person arm below, held
-    # p2p_round_repeat, its method still the release's.
-    if record.revenue_match_method == INSURER_FOR_WORK_METHOD and not (
-        facts.channel == "person_to_person" and round_repeat
-    ):
-        return "counted_flagged", INSURER_FOR_WORK_METHOD
-    # §6.3: a processor's instant payout printed as a card credit, released beside the processor's own ACH
-    # activity: a platform payout no form confirms.
-    if record.revenue_match_method == PROCESSOR_CARD_PAYOUT_METHOD:
-        return "counted_flagged", "platform_unconfirmed"
-    # A3-H: a factoring payer's payout, on any channel (FACTORING_PAYOUT_PAYERS).
-    if facts.factor:
-        return "counted_flagged", "factoring_payout"
-    # A lease-to-own or patient financier's merchant payout (CUSTOMER_FINANCING_PAYERS), on a wire, an ACH or EFT row
-    # or an unlabelled one; a one-off lump sum is held after the tiers.
-    if facts.financier:
-        return "counted_flagged", CUSTOMER_FINANCING_PAYOUT
-    # A builder's progress draw, on any channel but Zelle (Q3's); a bare transfer's and an account designation's holds
-    # and Q4's round-sum repeat still win (any hold wins above).
-    if (
-        facts.progress_draw and not facts.transfer_no_counterparty and not facts.account_designation
-        and not (facts.channel == "person_to_person" and round_repeat)
-    ):
-        return "counted_flagged", CONSTRUCTION_PROGRESS_DRAW_REASON
-    if facts.channel == "wire" and not facts.claimed:
-        if not facts.region:
-            return "excluded_pending_review", "wire_no_sender"
-        if facts.refused_word or deferred:
-            return "counted_flagged", "named_payer_purpose_refused"
-        return "counted_flagged", "wire_named_sender"
-    if facts.transfer_no_counterparty and not facts.claimed:
-        return "excluded_pending_review", "transfer_no_counterparty"
-    if facts.account_designation and not facts.claimed:
-        return "excluded_pending_review", "transfer_account_designation"
-    if facts.channel == "check":
-        return "counted_flagged", "check_deposit"
-    if facts.channel == "cash_branch_atm":
-        return "counted_flagged", "no_payer_printed"
-    if facts.channel == "person_to_person" and not facts.claimed:
-        return ("excluded_pending_review", "p2p_round_repeat") if round_repeat else ("counted_flagged", "p2p")
-    if record.revenue_match_method in _REGISTRY_METHODS:
-        return "counted_flagged", "platform_unconfirmed"
-    if record.classification == "factoring":
-        return "counted_flagged", "factoring_payout"
-    if _payout_entity(text) is not None:
-        return "counted_flagged", "payout_credit_entity"
-    if facts.numbered:
-        return "counted_flagged", "numbered_company_payer"
-    if facts.region and (facts.refused_word or (deferred and facts.electronic)):
-        return "counted_flagged", "named_payer_purpose_refused"
-    # A payer region that names only a bank names no customer (Q2): counted as no_payer_printed, never as a
-    # named payer.
-    if facts.region and facts.bank_only:
-        return "counted_flagged", "no_payer_printed"
-    if facts.region and facts.electronic:
-        return "counted_flagged", "named_payer_one_off"
-    if facts.region and not classifier._is_bare_row(text):
-        return "counted_flagged", "named_payer_unlabelled"
-    return "counted_flagged", "no_payer_printed"
-
-
-#: §5.3: the words a counted re-statement's reason sentence says it is counted with (the insurer-for-work release, the
-#: factoring, financier, payables, progress-draw and settlement demotions, the processor card payout), which a hold
-#: that re-tiers the row replaces (_held_reason).
-_COUNTED_SENTENCE = "counted and flagged, never verified"
-
-
-def _with_tier(record: TransactionClassification, tier: str, reason: str | None) -> TransactionClassification:
-    """A record with its 5.6 tier, initial tier, reason and contribution flags. The review flag is set for a held row
-    only; a counted row is reviewable, not required. §5.3: a held row's reason sentence never says it is counted
-    (_held_reason); every other field, and a counted row's sentence, is as before."""
-    return replace(
-        record,
-        revenue_tier=tier,
-        revenue_initial_tier=tier,
-        revenue_tier_reason=reason,
-        revenue_review_required=tier == "excluded_pending_review",
-        revenue_reason=_held_reason(record.revenue_reason, reason) if tier == "excluded_pending_review" else (
-            record.revenue_reason),
-        **revenue_contribution_flags(record.revenue_classification, tier),
-    )
-
-
-def _held_reason(sentence: str | None, reason: str | None) -> str | None:
-    """§5.3: the reason sentence of a row a hold re-tiers (`reason`, the held reason code): where an earlier counted
-    re-statement wrote "counted and flagged, never verified" (_COUNTED_SENTENCE), that phrase becomes "never verified,
-    and held for review (<label>)", the label the held reason's own (REVENUE_TIER_REASONS; the code itself when the
-    table lists none). The wording follows _zelle_excluded, which names the rules' reading inside its own sentence. It
-    covers every hold of the owner batches: the Q2 release a later hold names, Q8's lump sum, Q9 (c')'s hidden-loan
-    guard, Q10's premium-trust hold and the $1 floor on a counted or demoted unverified row (a Verified row the floor
-    or the premium-trust hold re-states gets its own sentence first). Any other sentence is returned unchanged."""
-    if not sentence or _COUNTED_SENTENCE not in sentence:
-        return sentence
-    label = REVENUE_TIER_REASONS.get(reason or "", (None, reason or "excluded_pending_review"))[1]
-    return sentence.replace(_COUNTED_SENTENCE, f"never verified, and held for review ({label})")
-
-
-def _verify(record: TransactionClassification, method: str, reason: str, confidence: float) -> TransactionClassification:
-    classifier = _classifier()
-    return classifier._replace_revenue_state(
-        record,
-        "verified_revenue",
-        match_method=method,
-        matched_rule=f"verified_{method}",
-        confidence_score=confidence,
-        reason=reason,
-        context_signals=(*record.revenue_context_signals, method),
     )
 
 

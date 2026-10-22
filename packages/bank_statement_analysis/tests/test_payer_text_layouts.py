@@ -28,7 +28,7 @@ from analysis.metrics import compute_metrics
 from analysis.revenue import REVENUE_TIER_REASONS
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_transactions
-from analysis.true_revenue import PAYER_TEXT_NOT_READ
+from analysis.true_revenue.tiers import PAYER_TEXT_NOT_READ
 from analysis.us_bank import parse_us_bank_statement
 from tests import test_balance_by_date as bbd_fixture
 from tests import test_core_processor_counted as cpc_fixture

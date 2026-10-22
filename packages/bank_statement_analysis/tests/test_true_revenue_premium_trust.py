@@ -25,6 +25,7 @@ import pytest
 from analysis import holder_name as hn
 from analysis import transaction_classifier as tc
 from analysis import true_revenue as tr
+from analysis.true_revenue import trust as true_revenue_trust
 from analysis.true_revenue import words
 from analysis import revenue
 from analysis.metrics import compute_metrics
@@ -100,7 +101,7 @@ def test_the_rule_cases_are_the_cards_seventy_eight():
 def test_premium_trust_title_reads_only_the_title_forms(field, text, expected):
     fields = {T: None, A: None, H: None}
     fields[field] = text
-    assert tr.premium_trust_title(**fields) == expected
+    assert true_revenue_trust.premium_trust_title(**fields) == expected
 
 
 #: Audit round 3, R3-B11 (R3-65): a missed title keeps the insureds' premiums counted, so it overstates True; the rule
@@ -143,7 +144,7 @@ R3_CASES = [
 def test_r3_65_the_rule_reads_the_product_fund_and_for_benefit_forms(field, text, expected):
     fields = {T: None, A: None, H: None}
     fields[field] = text
-    assert tr.premium_trust_title(**fields) == expected
+    assert true_revenue_trust.premium_trust_title(**fields) == expected
 
 
 #: Audit round 3, R3-B11, review round 1 (finding 3): the for-benefit form reads a product adjective before its account
@@ -162,7 +163,7 @@ R3_B11_R1_CASES = [
 def test_r3_b11_r1_the_for_benefit_form_reads_a_product_adjective(field, text, expected):
     fields = {T: None, A: None, H: None}
     fields[field] = text
-    assert tr.premium_trust_title(**fields) == expected
+    assert true_revenue_trust.premium_trust_title(**fields) == expected
 
 
 #: Audit round 3, R3-B11, review round 1 (finding 2): every contact the holder readers publish as a title is one the
@@ -185,9 +186,9 @@ def test_r3_b11_r1_the_for_benefit_form_reads_a_product_adjective(field, text, e
 def test_r3_b11_r1_a_contact_s_title_is_one_the_rule_reads(contact, title, rule):
     reading = hn.read_name(f"CONTOSO INSURANCE AGENCY INC {contact}")
     assert reading == ("CONTOSO INSURANCE AGENCY INC", title)
-    assert tr.premium_trust_title(reading.title, None, reading.name) == rule
+    assert true_revenue_trust.premium_trust_title(reading.title, None, reading.name) == rule
     if title is None:
-        assert tr.premium_trust_title(contact.split(None, 1)[1], None, None) is None
+        assert true_revenue_trust.premium_trust_title(contact.split(None, 1)[1], None, None) is None
 
 
 def test_r3_65_the_holder_reader_s_title_line_sees_a_premium_fund_trust_line():
@@ -195,18 +196,18 @@ def test_r3_65_the_holder_reader_s_title_line_sees_a_premium_fund_trust_line():
     reading = hn.read_address_block(["NORTHWIND INSURANCE AGENCY LLC", "PREMIUM FUND TRUST", "100 SAMPLE ST",
                                       "SAMPLEVILLE SC 29000-0001"])
     assert reading == ("NORTHWIND INSURANCE AGENCY LLC", "PREMIUM FUND TRUST")
-    assert tr.premium_trust_title(reading.title, None, reading.name) == "PREMIUM FUND TRUST"
+    assert true_revenue_trust.premium_trust_title(reading.title, None, reading.name) == "PREMIUM FUND TRUST"
 
 
 def test_the_rule_reads_the_title_then_the_account_name_then_the_holder_name():
     # The first field that reads wins; a field that does not read passes to the next.
-    assert tr.premium_trust_title("OPERATING ACCOUNT", "Premium Trust", None) == "PREMIUM TRUST"
-    assert tr.premium_trust_title(None, "Business Checking", "NORTHWIND AGENCY PREMIUM TRUST") == "PREMIUM TRUST"
-    assert tr.premium_trust_title("PREMIUM TRUST ACCT", "Premium Trust Checking", None) == "PREMIUM TRUST ACCT"
-    assert tr.premium_trust_title(None, None, None) is None
-    assert tr.premium_trust_title("", "  ", "") is None
+    assert true_revenue_trust.premium_trust_title("OPERATING ACCOUNT", "Premium Trust", None) == "PREMIUM TRUST"
+    assert true_revenue_trust.premium_trust_title(None, "Business Checking", "NORTHWIND AGENCY PREMIUM TRUST") == "PREMIUM TRUST"
+    assert true_revenue_trust.premium_trust_title("PREMIUM TRUST ACCT", "Premium Trust Checking", None) == "PREMIUM TRUST ACCT"
+    assert true_revenue_trust.premium_trust_title(None, None, None) is None
+    assert true_revenue_trust.premium_trust_title("", "  ", "") is None
     # L.L.C. reads as LLC, so the account-word form is refused on a field that ends in it.
-    assert tr.premium_trust_title(None, None, "PREMIUM TRUST ACCOUNT L.L.C.") is None
+    assert true_revenue_trust.premium_trust_title(None, None, "PREMIUM TRUST ACCOUNT L.L.C.") is None
 
 
 @pytest.mark.parametrize(("line", "holder", "title", "rule"), [
@@ -235,7 +236,7 @@ def test_the_rule_reads_the_title_then_the_account_name_then_the_holder_name():
 def test_the_rule_on_the_holder_line_readings(line, holder, title, rule):
     reading = hn.read_address_line(line)
     assert reading == (holder, title)
-    assert tr.premium_trust_title(reading.title, None, reading.name) == rule
+    assert true_revenue_trust.premium_trust_title(reading.title, None, reading.name) == rule
 
 
 # --- the statements -------------------------------------------------------------------------------------------------
@@ -342,7 +343,7 @@ def test_t1_a_trust_account_holds_every_credit_a_rule_verified_or_counted(monkey
                 assert getattr(new, field) == getattr(old, field), field
             assert new.revenue_reason == old.revenue_reason.replace(
                 "counted and flagged, never verified",
-                f"never verified, and held for review ({revenue.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]})")
+                f"never verified, and held for review ({revenue.REVENUE_TIER_REASONS[true_revenue_trust.PREMIUM_TRUST_REASON][1]})")
         # Nothing but the revenue reading moves: the classification and its lender flags are the same.
         for field in ("classification", "match_method", "canonical_entity", "contributes_to_lender_count",
                       "contributes_to_lender_totals", "contributes_to_withholding_rate",
@@ -521,7 +522,7 @@ def test_r3_53_a_counted_re_statement_held_on_a_trust_account_says_it_is_held(mo
         assert "counted and flagged, never verified" in record.revenue_reason
     trust = tc.classify_statement_transactions(_statement(rows, TRUST_LINE, account_name="Business Banking"))
     assert _reading(trust) == [PT] * 4
-    label = revenue.REVENUE_TIER_REASONS[tr.PREMIUM_TRUST_REASON][1]
+    label = revenue.REVENUE_TIER_REASONS[true_revenue_trust.PREMIUM_TRUST_REASON][1]
     for counted, held in zip(operating[:3], trust[:3]):
         assert "counted and flagged" not in held.revenue_reason
         assert held.revenue_reason == counted.revenue_reason.replace(
@@ -590,7 +591,7 @@ CONTROLS = [
 def test_a_control_account_reads_as_today(spec, true_total, monkeypatch):
     spec = dict(spec)
     statement = _statement(spec.pop("rows"), spec.pop("line", None), **spec)
-    assert tr.premium_trust_title(statement.account_title, statement.account_name, statement.holder_name) is None
+    assert true_revenue_trust.premium_trust_title(statement.account_title, statement.account_name, statement.holder_name) is None
     records = tc.classify_statement_transactions(statement)
     assert records == _today(statement, monkeypatch)
     assert all(record.revenue_tier_reason != "premium_trust_account" for record in records)

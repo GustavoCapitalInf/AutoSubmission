@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 from analysis import true_revenue, zelle_view
+from analysis.true_revenue import counter_debit_pairing
 from analysis.true_revenue import channel
 from analysis.schema import Statement, Transaction
 from analysis.transaction_classifier import classify_statement_readings, classify_statement_transactions
@@ -147,7 +148,7 @@ def _zelle_to(rows):
 def _debit_reading(records):
     """The statement's one debit: its normalized text, its legacy class, and the counter-debit hold's kind and key."""
     [debit] = [record for record in records if record.amount < 0]
-    [reading] = true_revenue.counter_debits(records, set()).other
+    [reading] = counter_debit_pairing.counter_debits(records, set()).other
     return debit.normalized_description, debit.classification, reading.kind, reading.person_key
 
 

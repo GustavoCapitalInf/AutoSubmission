@@ -17,6 +17,7 @@ from analysis.descriptor import payer as descriptor_payer
 from analysis.descriptor import lexical
 from analysis import description_text
 from analysis import true_revenue as tr
+from analysis.true_revenue import tiers as true_revenue_tiers
 from analysis.true_revenue import self_originated_credits
 from analysis.true_revenue import holder_names
 from analysis.true_revenue import words as true_revenue_words
@@ -280,7 +281,7 @@ def test_holder_unscreened_says_when_no_holder_name_is_known(account_name, holde
     statement = _statement([("ZELLE PAYMENT FROM CONTOSO DINER LLC CONF 1", 500.0)],
                            account_name=account_name, holder_name=holder_name)
     records = classify_statement_transactions(statement)
-    assert tr.holder_unscreened(records) is unscreened
+    assert true_revenue_tiers.holder_unscreened(records) is unscreened
     assert compute_metrics(statement, classifications=records).holder_unscreened is unscreened
 
 
@@ -328,7 +329,7 @@ def test_the_receiver_fields_name_the_holder_of_a_statement_that_prints_none():
         ("CONTOSO DINER DES PAYMENT ID 2 INDN NORTHWIND FISH LLC CO ID 1234567891 CCD", 800.0),
     ])
     records = classify_statement_transactions(statement)
-    assert tr.holder_unscreened(records) is False
+    assert true_revenue_tiers.holder_unscreened(records) is False
 
 
 # --- I38: First Citizens' DBA lump sums are the holder's ----------------------------------------------------------
@@ -1080,7 +1081,7 @@ def _pnc_zelles(own):
 def _unscreened(rows, **kwargs):
     statement = _statement(rows, **kwargs)
     records = classify_statement_transactions(statement)
-    return tr.holder_unscreened(records), compute_metrics(statement, classifications=records).holder_unscreened
+    return true_revenue_tiers.holder_unscreened(records), compute_metrics(statement, classifications=records).holder_unscreened
 
 
 @pytest.mark.parametrize(("account_name", "holder_name", "own"), [
@@ -1104,9 +1105,9 @@ def test_r19_a_holder_s_name_of_any_shape_is_known(account_name, holder_name, ow
 def test_r19_a_zero_transaction_statement_with_a_holder_s_name_is_screened():
     statement = Statement(account_name="Business Checking", holder_name="NORTHWIND PLUMBING LLC", bank="PNC")
     assert compute_metrics(statement, classifications=[]).holder_unscreened is False
-    assert tr.holder_unscreened([], holder_name="NORTHWIND PLUMBING LLC", account_name="Business Checking") is False
-    assert tr.holder_unscreened([], account_name="NORTHWIND PLUMBING LLC") is False
-    assert tr.holder_unscreened([], account_name="Business Checking") is True
+    assert true_revenue_tiers.holder_unscreened([], holder_name="NORTHWIND PLUMBING LLC", account_name="Business Checking") is False
+    assert true_revenue_tiers.holder_unscreened([], account_name="NORTHWIND PLUMBING LLC") is False
+    assert true_revenue_tiers.holder_unscreened([], account_name="Business Checking") is True
 
 
 @pytest.mark.parametrize("account_name", [

@@ -13,6 +13,8 @@ from __future__ import annotations
 import pytest
 
 from analysis import true_revenue as tr
+from analysis.true_revenue import counter_debit_pairing
+from analysis.true_revenue import tiers
 from analysis.true_revenue import financing_roots
 from analysis.true_revenue import payroll
 from analysis.true_revenue import public_payers
@@ -2111,14 +2113,14 @@ def _pass_facts(rows, *, holder: str | None = HOLDER, bank: str | None = None):
 
     records = _records(rows, holder=holder, bank=bank)
     credits = [index for index, record in enumerate(records) if record.amount > 0 and record.revenue_classification]
-    debits = tr.counter_debits(records, set())
+    debits = counter_debit_pairing.counter_debits(records, set())
     lessor = tr._lessor_business(records, set(), credits)
     found = []
     for index in credits:
         record = records[index]
         text = true_revenue_channel.without_transfer_code(record, revenue_text(record.normalized_description))
         facts = tr.credit_facts(record, text, debits=debits, lessor=lessor)
-        found.append((facts, tr._tier_reason(record, text, replace(facts, q9=None), False)))
+        found.append((facts, tiers._tier_reason(record, text, replace(facts, q9=None), False)))
     return found
 
 
@@ -2309,15 +2311,15 @@ def test_q9_the_relabel_is_last_and_keeps_the_specific_counted_reasons(monkeypat
 
     [(facts, _base)] = _pass_facts([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])
     record = _q9_credits([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])[0]
-    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("counted_flagged", reason))
-    assert tr._tier_reason(record, "", facts, False) == (
+    monkeypatch.setattr(tiers, "_tier_reason_read", lambda *args: ("counted_flagged", reason))
+    assert tiers._tier_reason(record, "", facts, False) == (
         "counted_flagged", "finance_named_customer" if relabelled else reason)
     # A held reason is never overridden.
-    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("excluded_pending_review", "payer_also_debited"))
-    assert tr._tier_reason(record, "", facts, False) == ("excluded_pending_review", "payer_also_debited")
+    monkeypatch.setattr(tiers, "_tier_reason_read", lambda *args: ("excluded_pending_review", "payer_also_debited"))
+    assert tiers._tier_reason(record, "", facts, False) == ("excluded_pending_review", "payer_also_debited")
     # With no release nothing is relabelled.
-    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("counted_flagged", reason))
-    assert tr._tier_reason(record, "", replace(facts, q9=None), False) == ("counted_flagged", reason)
+    monkeypatch.setattr(tiers, "_tier_reason_read", lambda *args: ("counted_flagged", reason))
+    assert tiers._tier_reason(record, "", replace(facts, q9=None), False) == ("counted_flagged", reason)
 
 
 def test_q9_the_relabel_follows_the_unread_branch(monkeypatch):
@@ -2326,13 +2328,13 @@ def test_q9_the_relabel_follows_the_unread_branch(monkeypatch):
     [(facts, _base)] = _pass_facts([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])
     record = _q9_credits([("FABRIKAM FINANCIAL DES:INV PMT ID:1", 2500.0)])[0]
     facts = replace(facts, channel="other")
-    monkeypatch.setattr(tr, "_tier_reason_read", lambda *args: ("counted_flagged", "no_payer_printed"))
+    monkeypatch.setattr(tiers, "_tier_reason_read", lambda *args: ("counted_flagged", "no_payer_printed"))
     # R2-B07's unread branch keeps precedence: payer_text_not_read is kept, a lender in the unread run holds.
-    assert tr._tier_reason(record, "", facts, False, unread=True) == ("counted_flagged", "payer_text_not_read")
-    assert tr._tier_reason(record, "", facts, False, unread=True, unread_text="ONDECK CAPITAL") == (
+    assert tiers._tier_reason(record, "", facts, False, unread=True) == ("counted_flagged", "payer_text_not_read")
+    assert tiers._tier_reason(record, "", facts, False, unread=True, unread_text="ONDECK CAPITAL") == (
         "excluded_pending_review", "unread_run_names_financing")
     # Off the unread branch the counted reason takes the release's.
-    assert tr._tier_reason(record, "", facts, False) == ("counted_flagged", "finance_named_customer")
+    assert tiers._tier_reason(record, "", facts, False) == ("counted_flagged", "finance_named_customer")
 
 
 # Units: where the roots fire (_financing_root_places), the label-less refusal, the rent readings, the lessor.

@@ -332,7 +332,7 @@ def test_a_holder_named_for_a_fee_word_never_turns_an_affiliate_s_debit_into_a_p
     ("NORTHWIND HOLDINGS DES:TRANSFER ID:2 INDN:CONTOSO BAKERY CO ID:1 CCD", "circular"),
 ])
 def test_the_debit_kind_is_read_without_the_receiver_s_value(text, kind):
-    from analysis.true_revenue import _counter_debit_kind
+    from analysis.true_revenue.counter_debit_pairing import _counter_debit_kind
 
     assert _counter_debit_kind(text) == kind
 
@@ -629,7 +629,7 @@ def test_the_payer_reading_keeps_5_6_s_word_and_adds_the_glued_forms():
     ("FABRIKAM LIFE DES:INS PREM ID:2", "other"),
 ])
 def test_the_debit_kinds(text, kind):
-    from analysis.true_revenue import _counter_debit_kind
+    from analysis.true_revenue.counter_debit_pairing import _counter_debit_kind
 
     assert _counter_debit_kind(text) == kind
 
@@ -657,7 +657,7 @@ def _debits(*, lender=(), other=()):
 
 
 def test_a_lender_debit_is_compared_by_registry_entity_when_both_sides_name_one():
-    from analysis.true_revenue import debited_as_lender
+    from analysis.true_revenue.counter_debit_pairing import debited_as_lender
 
     # One entity, two spellings that share no word: held.
     same = _debits(lender=[("FABFUND", ["FABFUND", "CAPITAL"], "Sample Lender")])
@@ -673,7 +673,7 @@ def test_a_lender_debit_is_compared_by_registry_entity_when_both_sides_name_one(
 
 
 def test_the_prefix_reads_only_with_the_pass_7_switch():
-    from analysis.true_revenue import debited_as_lender
+    from analysis.true_revenue.counter_debit_pairing import debited_as_lender
 
     debits = _debits(lender=[("CONTOSOFUNDING", ["CONTOSOFUNDING"], None)])
     assert debited_as_lender(_counter("CONTOSO", ["CONTOSO"]), debits, prefix=True)
@@ -684,7 +684,7 @@ def test_the_prefix_reads_only_with_the_pass_7_switch():
 
 
 def test_also_debited_reads_each_kind():
-    from analysis.true_revenue import also_debited
+    from analysis.true_revenue.counter_debit_pairing import also_debited
 
     def held(kind, *, cents=2500, recurring=False, **credit):
         return also_debited(_counter("CONTOSO", ["CONTOSO"], **credit),
@@ -886,7 +886,7 @@ def test_r01_intuit_canada_payroll_stays_pay():
     ("CONTOSO PAYMENT DES E SERVICE ID 0001", False),
 ])
 def test_r01_the_credit_s_payout_forms(text, settlement):
-    from analysis.true_revenue import counter_credit
+    from analysis.true_revenue.counter_debit_pairing import counter_credit
 
     record = tc.classify_transaction(text, 500.0, direction="credit")
     revenue = lexical.revenue_text(record.normalized_description)
@@ -916,7 +916,7 @@ def test_r01_the_credit_s_payout_forms(text, settlement):
     ("FABRIKAMMERCHANT FEES 123456", "processor_fee", False),
 ])
 def test_r01_a_card_purchase_in_another_bank_s_form_is_marked_a_card_charge(text, kind, card):
-    from analysis.true_revenue import counter_debits
+    from analysis.true_revenue.counter_debit_pairing import counter_debits
 
     record = tc.classify_transaction(text, -60.0, direction="debit")
     debits = counter_debits([record], set())
@@ -924,7 +924,7 @@ def test_r01_a_card_purchase_in_another_bank_s_form_is_marked_a_card_charge(text
 
 
 def test_r01_a_card_charge_recurs_with_the_other_debits():
-    from analysis.true_revenue import counter_debits
+    from analysis.true_revenue.counter_debit_pairing import counter_debits
 
     records = [tc.classify_transaction(text, -125.0, direction="debit")
                for text in ("FABRIKAMCARE NEW YORK NY USA", "FABRIKAMCARE NEW YORK NY USA")]
@@ -933,7 +933,7 @@ def test_r01_a_card_charge_recurs_with_the_other_debits():
 
 
 def test_r01_also_debited_reads_a_card_charge_and_a_settlement():
-    from analysis.true_revenue import also_debited
+    from analysis.true_revenue.counter_debit_pairing import also_debited
     from analysis.true_revenue.model import CounterDebits, _CounterDebit
 
     def held(kind, *, settlement, card=False, cents=2500, recurring=False, insurer=False):
@@ -1015,7 +1015,7 @@ def test_r48_a_wire_from_a_sender_named_with_to_verifies_beside_the_fee_from_it(
     ("FUNDS TRANSFER FEE TT CONTOSO BNF FABRIKAM", "circular"),
 ])
 def test_r48_the_receiving_fee_reads_its_outgoing_words_before_the_sender(text, kind):
-    from analysis.true_revenue import _counter_debit_kind
+    from analysis.true_revenue.counter_debit_pairing import _counter_debit_kind
 
     assert _counter_debit_kind(description_text.normalize_transaction_description(text)) == kind
 
@@ -1042,7 +1042,7 @@ def test_r48_a_lead_bank_fee_for_the_holder_s_wire_to_the_payer_still_holds_its_
 # processor-fee, settlement or payout-pair exemption, and no amount or recurrence test.
 
 def test_ow05_payer_collects_on_a_lender_debit_naming_the_payer():
-    from analysis.true_revenue import _payer_collects
+    from analysis.true_revenue.counter_debit_pairing import _payer_collects
 
     assert _payer_collects(_counter("CONTOSO", ["CONTOSO"]), _debits(lender=[("CONTOSO", ["CONTOSO"], None)]))
     # A cut or glued spelling of the payer on a lender debit (the pass-7 prefix).
@@ -1054,7 +1054,7 @@ def test_ow05_payer_collects_on_a_lender_debit_naming_the_payer():
 
 @pytest.mark.parametrize("kind", ["other", "circular", "bill", "processor_fee"])
 def test_ow05_payer_collects_on_any_other_debit_naming_the_payer_whatever_its_amount(kind):
-    from analysis.true_revenue import _payer_collects, also_debited
+    from analysis.true_revenue.counter_debit_pairing import _payer_collects, also_debited
 
     debits = _debits(other=[("CONTOSO", ["CONTOSO"], kind, 2500, False)])
     assert _payer_collects(_counter("CONTOSO", ["CONTOSO"], settlement=True), debits)
@@ -1065,7 +1065,7 @@ def test_ow05_payer_collects_on_any_other_debit_naming_the_payer_whatever_its_am
 
 
 def test_ow05_payer_collects_reads_5_6_s_first_word_and_a_cut_spelling_on_another_debit():
-    from analysis.true_revenue import _payer_collects
+    from analysis.true_revenue.counter_debit_pairing import _payer_collects
 
     # 5.6's first distinctive word alone (legacy), whatever the other words.
     assert _payer_collects(_counter("CONTOSO", ["CONTOSO", "GROUP"]),
@@ -1078,7 +1078,7 @@ def test_ow05_payer_collects_reads_5_6_s_first_word_and_a_cut_spelling_on_anothe
 
 
 def test_ow05_payer_collects_never_reads_the_bank_s_receiving_fee_or_a_card_charge():
-    from analysis.true_revenue import _payer_collects
+    from analysis.true_revenue.counter_debit_pairing import _payer_collects
     from analysis.true_revenue.model import CounterDebits, _CounterDebit
 
     reading = counter_debit_reading._counter_debit_reading("CONTOSO", [["CONTOSO"]])
@@ -1093,7 +1093,7 @@ def test_ow05_payer_collects_never_reads_the_bank_s_receiving_fee_or_a_card_char
 
 
 def test_ow05_payer_collects_on_the_statement_s_own_debits():
-    from analysis.true_revenue import _payer_collects, counter_credit, counter_debits
+    from analysis.true_revenue.counter_debit_pairing import _payer_collects, counter_credit, counter_debits
 
     def collects(debit, holder="NORTHWIND LABS INC"):
         records = _records([("NORTHWIND FINANCIAL GROUP DES:PAYABLES ID:1", 4200.0), debit], holder=holder)
@@ -1132,14 +1132,15 @@ def test_ow09_the_release_reads_the_hidden_loan_guard_last(debit, released):
         ("counted_flagged", "finance_named_customer") if released else ("excluded_pending_review", "financing_named_payer"))
     # The guard is the release's last step: the credit's reading (a customer's name, payables wording) is the same.
     from analysis import true_revenue as tr
+    from analysis.true_revenue import counter_debit_pairing
 
     records = _records(rows)
     text = lexical.revenue_text(records[0].normalized_description)
     region, entry = descriptor_payer.payer_region(text), descriptor_payer.entry_fields(text)
     reason = tr.finance_named_release(records[0], text, region=region, entry=entry,
-                                      debits=tr.counter_debits(records, set()))
+                                      debits=counter_debit_pairing.counter_debits(records, set()))
     assert reason == ("finance_named_customer" if released else None)
-    assert tr._payer_collects(tr.counter_credit(records[0], text, region), tr.counter_debits(records, set())) is (
+    assert counter_debit_pairing._payer_collects(counter_debit_pairing.counter_credit(records[0], text, region), counter_debit_pairing.counter_debits(records, set())) is (
         not released)
 
 
@@ -1177,7 +1178,7 @@ CHASE_ENTRY = ("ORIG CO NAME:CONTOSO MERCHANT SERVICES ORIG ID:0000000001 DESC D
     ("FEES SEC CCD", "processor_fee"),
 ])
 def test_r3_35_chase_s_glued_fee_and_bill_entries_read_their_kind(entry, kind):
-    from analysis.true_revenue import _counter_debit_kind
+    from analysis.true_revenue.counter_debit_pairing import _counter_debit_kind
 
     assert _counter_debit_kind(description_text.normalize_transaction_description(CHASE_ENTRY.format(entry=entry))) == kind
 
@@ -1224,14 +1225,14 @@ AIL_ENTRY = ("ORIG CO NAME:AM INCOME LIFE ORIG ID:0000000001 DESC DATE:540305 CO
 ])
 def test_r3_03_each_non_lender_debit_records_a_premium_or_retry_word(text, kind, premium):
     # The premium is a flag, never a kind: the kinds are unchanged.
-    from analysis.true_revenue import counter_debits
+    from analysis.true_revenue.counter_debit_pairing import counter_debits
 
     record = tc.classify_transaction(text, -8.0, direction="debit")
     assert [(debit.kind, debit.premium) for debit in counter_debits([record], set()).other] == [(kind, premium)]
 
 
 def test_r3_03_a_lender_debit_never_records_a_premium():
-    from analysis.true_revenue import counter_debits
+    from analysis.true_revenue.counter_debit_pairing import counter_debits
 
     record = tc.classify_transaction("FORWARD FINANCING DES:PREM ID:2 INDN:NORTHWIND LABS CO ID:0000000001 CCD", -500.0,
                                      direction="debit")
@@ -1240,7 +1241,7 @@ def test_r3_03_a_lender_debit_never_records_a_premium():
 
 
 def test_r3_03_also_debited_reads_a_released_insurer_s_carrier_debits():
-    from analysis.true_revenue import also_debited
+    from analysis.true_revenue.counter_debit_pairing import also_debited
 
     def held(kind, *, cents=2500, recurring=False, premium=False, released=True):
         return also_debited(_counter("CONTOSO", ["CONTOSO"], released_insurer=released),
@@ -1265,7 +1266,7 @@ def test_r3_03_also_debited_reads_a_released_insurer_s_carrier_debits():
 
 
 def test_r3_03_the_released_insurer_fact():
-    from analysis.true_revenue import counter_credit
+    from analysis.true_revenue.counter_debit_pairing import counter_credit
     from analysis.true_revenue.model import CounterCredit
 
     assert CounterCredit.__dataclass_fields__["released_insurer"].default is False
@@ -1290,7 +1291,7 @@ def test_r3_03_the_released_insurer_fact():
     "WIRE TRANSFER FEE FROM COMMERCIAL ANALYZED CHECKING TO CONTOSO LLC",
 ])
 def test_r3_33_the_fee_for_the_holder_s_wire_from_a_named_account_is_circular(text):
-    from analysis.true_revenue import _counter_debit_kind
+    from analysis.true_revenue.counter_debit_pairing import _counter_debit_kind
 
     assert _counter_debit_kind(description_text.normalize_transaction_description(text)) == "circular"
 
@@ -1305,7 +1306,7 @@ def test_r3_33_the_fee_for_the_holder_s_wire_from_a_named_account_is_circular(te
     "WIRE TRANSFER FEE FROM NORTHWIND LABS LLC TO CONTOSO LLC",
 ])
 def test_r3_33_a_sender_named_after_from_still_reads_a_receiving_fee(text):
-    from analysis.true_revenue import _counter_debit_kind
+    from analysis.true_revenue.counter_debit_pairing import _counter_debit_kind
 
     assert _counter_debit_kind(description_text.normalize_transaction_description(text)) == "receiving_fee"
 
@@ -1402,7 +1403,7 @@ def test_r3_77_rbc_s_debit_reads_the_party_after_its_label():
 
 
 def test_r3_77_a_chase_credit_named_insurance_keeps_its_word():
-    from analysis.true_revenue import counter_credit
+    from analysis.true_revenue.counter_debit_pairing import counter_credit
 
     record = _credits(_records([("INSURANCE AUTO AUCTIONS DES:SELLER PMT ID:0001", 2400.0)], bank="Chase"))[0]
     text = lexical.revenue_text(record.normalized_description)
@@ -1522,7 +1523,7 @@ def test_r3_15_the_debit_s_word_readings_are_unchanged():
 
 
 def test_r3_15_same_payer_reads_equal_numbers():
-    from analysis.true_revenue import _same_payer
+    from analysis.true_revenue.counter_debit_pairing import _same_payer
 
     def reading(number, words=()):
         return counter_debit_reading._counter_debit_reading(words[0] if words else None, [list(words)], number=number)
@@ -1576,7 +1577,7 @@ def test_r3_15_bmo_s_cut_numbered_credit_is_compared_by_its_number(debit, expect
 
 
 def test_r3_15_a_numbered_company_s_debits_are_kept_and_recur_by_their_number():
-    from analysis.true_revenue import _head_word, counter_debits
+    from analysis.true_revenue.counter_debit_pairing import _head_word, counter_debits
 
     # Each row read alone (no statement's lender reading), so they are the holder's other debits.
     rows = ["ONLINE BILL PAYMENT 1234567 ONTARIO INC"] * 2 + ["ONLINE BILL PAYMENT 7654321 ONTARIO INC"]

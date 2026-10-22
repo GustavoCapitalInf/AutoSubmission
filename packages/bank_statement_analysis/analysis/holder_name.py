@@ -107,7 +107,7 @@ _LEGAL_FORMS = frozenset({
     "LLC", "INC", "CORP", "CORPORATION", "COMPANY", "CO", "LTD", "LIMITED", "LP", "LLP", "LLLP", "PLLC", "PLC", "ULC",
     "INCORPORATED",
 })
-#: The same legal forms, public, for the premium-trust rule (true_revenue.premium_trust_title refuses the
+#: The same legal forms, public, for the premium-trust rule (true_revenue.trust.premium_trust_title refuses the
 #: account-word form on a field that ends in one).
 LEGAL_FORMS = _LEGAL_FORMS
 #: The words of an account designation printed before ACCOUNT on a name with no legal form.
@@ -159,7 +159,7 @@ PREMIUM_TRUST_REFERENCE = (
 _TITLE_LINE = re.compile(r"(?<![A-Z])(?:ACCOUNT|ACCT)\b|" + PREMIUM_TRUST_WORDS)
 #: A contact's text that is exactly the premium-trust designation: such a contact names the account itself, so it is
 #: the account's title. Any other contact (a person, a department, any other word after the designation) is never a
-#: title. The designation is the title rule's own title at a field's end (true_revenue._PREMIUM_TRUST_AT_END), read
+#: title. The designation is the title rule's own title at a field's end (true_revenue.trust._PREMIUM_TRUST_AT_END), read
 #: from the contact's first word: the words, any kind words (PREMIUM_TRUST_KIND: an account, a fund or a product word,
 #: a product adjective before one), then a reference (PREMIUM_TRUST_REFERENCE) and closing punctuation, so 'PREMIUM
 #: TRUST CHECKING', the bare 'PREMIUM TRUST' and 'PREMIUM TRUST ACCOUNT (1234)' read as the rule reads them as a title.
