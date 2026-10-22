@@ -23,8 +23,8 @@ import pytest
 
 from analysis import transaction_classifier as tc
 from analysis import description_text
-from analysis import true_revenue as tr
 from tests import zelle_setting_fixtures as fx
+from tests.classifier_modules import classifier_modules
 from tools.bench_classifier import fabricated_statement
 
 
@@ -34,21 +34,18 @@ def _loop(text, patterns) -> bool:
 
 def _collections() -> list[tuple[str, tuple]]:
     found: dict[int, tuple[str, tuple]] = {}
-    for module in (tc, tr):
-        for name, value in vars(module).items():
+    for module in classifier_modules():
+        for name, value in sorted(vars(module).items()):
             if isinstance(value, tuple) and value and any(isinstance(item, re.Pattern) for item in value):
-                found.setdefault(id(value), (f"{module.__name__.rsplit('.', 1)[-1]}.{name}", value))
-    return sorted(found.values())
+                found.setdefault(id(value), (name, value))
+    return sorted(found.values(), key=lambda item: item[0])
 
 
 COLLECTIONS = _collections()
 #: The tuples that keep the loop: the one that holds duck-typed form objects beside its patterns, and one whose two
 #: patterns name the same group (one alternation does not compile; it is read pattern by pattern for that group, and
 #: never passed to _matches_any).
-LOOP_KEPT = {
-    "transaction_classifier._NON_REVENUE_CREDIT_PATTERNS",
-    "transaction_classifier._NAMED_DESIGNATION_TRANSFERS",
-}
+LOOP_KEPT = {"_NON_REVENUE_CREDIT_PATTERNS", "_NAMED_DESIGNATION_TRANSFERS"}
 
 
 _CATEGORY_SAMPLES = {
@@ -120,7 +117,7 @@ def test_the_census_found_the_rule_tuples():
     names = {name for name, _ in COLLECTIONS}
     assert len(COLLECTIONS) >= 60
     assert LOOP_KEPT <= names
-    assert "transaction_classifier._POS_PATTERNS" in names
+    assert "_POS_PATTERNS" in names
 
 
 @pytest.mark.parametrize("name, patterns", COLLECTIONS, ids=[name for name, _ in COLLECTIONS])
