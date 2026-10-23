@@ -1,0 +1,238 @@
+{
+  "api_version": "1.0",
+  "package_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "created_at": "2026-10-20T15:00:00Z",
+  "status": "ready",
+  "revision": "9c1d0000000000000000000000000000000000000000000000000000000000e4",
+  "review": {
+    "required": false,
+    "decision": "approved",
+    "analysis_rules_outdated": false
+  },
+  "complete": true,
+  "figures": {
+    "currency": "USD",
+    "currency_refusal": null,
+    "months": 4,
+    "statement_periods": 4,
+    "deposits_cents": 12700000,
+    "monthly_deposits_cents": 3175000,
+    "withdrawals_cents": 12620000,
+    "monthly_withdrawals_cents": 3155000,
+    "true_revenue_cents": 12500000,
+    "true_revenue_count": 68,
+    "monthly_true_revenue_cents": 3125000,
+    "held_for_review_cents": 0,
+    "non_revenue_cents": 200000,
+    "average_daily_balance_cents": 110000,
+    "negative_days": 3,
+    "lender_payments_cents": 160000,
+    "lender_payment_count": 16,
+    "monthly_lender_payments_cents": 40000,
+    "returned_funder_payments_cents": 0,
+    "withholding_rate_bps": 128,
+    "funders": [
+      {
+        "name": "SAMPLE FUNDING",
+        "account_periods": 4,
+        "payment_count": 16,
+        "paid_cents": 160000,
+        "returned_payment_count": 0,
+        "returned_cents": 0
+      }
+    ],
+    "potential_lenders": [],
+    "active_positions_by_month": [
+      {
+        "month": "2026-06",
+        "active_positions": 1,
+        "possible_positions": 0
+      },
+      {
+        "month": "2026-07",
+        "active_positions": 1,
+        "possible_positions": 0
+      },
+      {
+        "month": "2026-08",
+        "active_positions": 1,
+        "possible_positions": 0
+      },
+      {
+        "month": "2026-09",
+        "active_positions": 1,
+        "possible_positions": 0
+      }
+    ]
+  },
+  "documents": [
+    {
+      "document_id": "doc-1",
+      "filename": "sample-statement-1.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "status": "analysed",
+      "accounts": [
+        {
+          "status": "included",
+          "account_index": null,
+          "bank": "SAMPLE BANK",
+          "account_masked": "****0000",
+          "currency": "USD",
+          "period_start": "2026-06-01",
+          "period_end": "2026-06-30",
+          "opening_balance_cents": 100000,
+          "closing_balance_cents": 120000,
+          "deposits_cents": 3250000,
+          "deposit_count": 21,
+          "withdrawals_cents": 3230000,
+          "true_revenue_cents": 3200000,
+          "true_revenue_count": 19,
+          "held_for_review_cents": 0,
+          "non_revenue_cents": 50000,
+          "average_daily_balance_cents": 110000,
+          "average_daily_balance_days": 30,
+          "negative_days": 0,
+          "lender_payments_cents": 40000,
+          "lender_payment_count": 4,
+          "returned_funder_payments_cents": 0,
+          "active_positions": 1,
+          "possible_positions": 0,
+          "withholding_rate_bps": 857,
+          "quality": "transaction_level",
+          "corporate_use": "approved",
+          "integrity_risk": "clear",
+          "reconciles": true,
+          "revenue_review_required": false
+        }
+      ]
+    },
+    {
+      "document_id": "doc-2",
+      "filename": "sample-statement-2.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "status": "analysed",
+      "accounts": [
+        {
+          "status": "included",
+          "account_index": null,
+          "bank": "SAMPLE BANK",
+          "account_masked": "****0000",
+          "currency": "USD",
+          "period_start": "2026-07-01",
+          "period_end": "2026-07-31",
+          "opening_balance_cents": 100000,
+          "closing_balance_cents": 120000,
+          "deposits_cents": 2950000,
+          "deposit_count": 15,
+          "withdrawals_cents": 2930000,
+          "true_revenue_cents": 2900000,
+          "true_revenue_count": 14,
+          "held_for_review_cents": 0,
+          "non_revenue_cents": 50000,
+          "average_daily_balance_cents": 110000,
+          "average_daily_balance_days": 30,
+          "negative_days": 2,
+          "lender_payments_cents": 40000,
+          "lender_payment_count": 4,
+          "returned_funder_payments_cents": 0,
+          "active_positions": 1,
+          "possible_positions": 0,
+          "withholding_rate_bps": 857,
+          "quality": "transaction_level",
+          "corporate_use": "approved",
+          "integrity_risk": "clear",
+          "reconciles": true,
+          "revenue_review_required": false
+        }
+      ]
+    },
+    {
+      "document_id": "doc-3",
+      "filename": "sample-statement-3.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000003",
+      "status": "analysed",
+      "accounts": [
+        {
+          "status": "included",
+          "account_index": null,
+          "bank": "SAMPLE BANK",
+          "account_masked": "****0000",
+          "currency": "USD",
+          "period_start": "2026-08-01",
+          "period_end": "2026-08-31",
+          "opening_balance_cents": 100000,
+          "closing_balance_cents": 120000,
+          "deposits_cents": 3350000,
+          "deposit_count": 20,
+          "withdrawals_cents": 3330000,
+          "true_revenue_cents": 3300000,
+          "true_revenue_count": 18,
+          "held_for_review_cents": 0,
+          "non_revenue_cents": 50000,
+          "average_daily_balance_cents": 110000,
+          "average_daily_balance_days": 30,
+          "negative_days": 1,
+          "lender_payments_cents": 40000,
+          "lender_payment_count": 4,
+          "returned_funder_payments_cents": 0,
+          "active_positions": 1,
+          "possible_positions": 0,
+          "withholding_rate_bps": 857,
+          "quality": "transaction_level",
+          "corporate_use": "approved",
+          "integrity_risk": "clear",
+          "reconciles": true,
+          "revenue_review_required": false
+        }
+      ]
+    },
+    {
+      "document_id": "doc-4",
+      "filename": "sample-statement-4.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000004",
+      "status": "analysed",
+      "accounts": [
+        {
+          "status": "included",
+          "account_index": null,
+          "bank": "SAMPLE BANK",
+          "account_masked": "****0000",
+          "currency": "USD",
+          "period_start": "2026-09-01",
+          "period_end": "2026-09-30",
+          "opening_balance_cents": 100000,
+          "closing_balance_cents": 120000,
+          "deposits_cents": 3150000,
+          "deposit_count": 17,
+          "withdrawals_cents": 3130000,
+          "true_revenue_cents": 3100000,
+          "true_revenue_count": 17,
+          "held_for_review_cents": 0,
+          "non_revenue_cents": 50000,
+          "average_daily_balance_cents": 110000,
+          "average_daily_balance_days": 30,
+          "negative_days": 0,
+          "lender_payments_cents": 40000,
+          "lender_payment_count": 4,
+          "returned_funder_payments_cents": 0,
+          "active_positions": 1,
+          "possible_positions": 0,
+          "withholding_rate_bps": 857,
+          "quality": "transaction_level",
+          "corporate_use": "approved",
+          "integrity_risk": "clear",
+          "reconciles": true,
+          "revenue_review_required": false
+        }
+      ]
+    },
+    {
+      "document_id": "doc-5",
+      "filename": "sample-statement-4-copy.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000005",
+      "status": "duplicate",
+      "duplicate_of": "doc-4",
+      "reason": "same_content"
+    }
+  ]
+}
