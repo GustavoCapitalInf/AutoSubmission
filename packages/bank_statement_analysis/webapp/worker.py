@@ -72,7 +72,6 @@ _STUCK_JOB_FAILURE = (
     "(message withheld; an exception message can quote statement text)"
 )
 
-#: The pipeline's refusal of a statement no registered parser claims (`analysis/pipeline.py`).
 NO_PARSER_MATCHED = "no deterministic parser matched this statement"
 
 #: The analysis pipeline's DECLARED refusals.

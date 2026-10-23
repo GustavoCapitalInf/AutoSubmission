@@ -1,8 +1,3 @@
-"""The v1 API's wire contract. Every API body is one of these models: `python -m tools.api_contract --write` writes
-docs/api/v1.schema.json and the reference of docs/api/v1.md from them, and the API tests validate every response with
-them. Money is integer cents of the currency named beside it, rates are integer basis points, days are ISO dates and
-months `YYYY-MM`, so no body carries a fraction, NaN or Infinity. A null figure is one the analysis did not establish,
-never a zero. Each field's `x-source` names the builder key it is read from."""
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -12,8 +7,7 @@ from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
-#: The contract's version, sent in every body. A schema change fails the fingerprint pin in tests/test_api_contract.py
-#: until this and the pin change together.
+#: Sent in every body; a bump needs a SCHEMA_FINGERPRINTS pin (test_the_schema_is_pinned_to_its_api_version).
 API_VERSION = "1.0"
 
 IntakeRefusalCode = Literal[
@@ -40,7 +34,6 @@ class ErrorEntry(NamedTuple):
     message: str
 
 
-#: Each error code's HTTP status and its one message.
 ERRORS: Mapping[str, ErrorEntry] = MappingProxyType({
     "no_statements": ErrorEntry(400, "the request carries no statement; send 1 to 25 PDFs as multipart `files`"),
     "too_many_statements": ErrorEntry(400, "the request carries more than 25 statements"),
@@ -66,7 +59,6 @@ ERRORS: Mapping[str, ErrorEntry] = MappingProxyType({
     "storage_full": ErrorEntry(507, "the server's storage is nearly full; no statement was accepted"),
 })
 
-#: Each document failure code's one message.
 FAILURE_MESSAGES: Mapping[str, str] = MappingProxyType({
     "unreadable": "no usable text could be read from this PDF, natively or by OCR",
     "unsupported_statement": "no parser reads this statement's layout",

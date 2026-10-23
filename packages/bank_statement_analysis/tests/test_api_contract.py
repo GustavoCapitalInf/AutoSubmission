@@ -1,6 +1,3 @@
-"""The v1 contract itself: its generated artifacts are current, its schema carries no fractional number and is pinned
-to API_VERSION, its catalogs are exhaustive, its reading is the owner defaults, and webapp/api/ depends on neither the
-app nor the saved settings."""
 import ast
 import hashlib
 import json
@@ -16,8 +13,6 @@ from webapp.api.projection import API_READING, basis_points, cents
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: The schema's SHA-256 per contract version. A schema change fails here until API_VERSION and this pin change
-#: together; within 1.x a change may only add (docs/api/v1.md, Versioning).
 SCHEMA_FINGERPRINTS = {"1.0": "82aa9a0820d01ad80a3b7b072154a4f1ae314530c5ff7a4717af8d6215b1f30d"}
 
 
@@ -72,7 +67,6 @@ def test_money_and_rates_convert_once_to_integers_or_null():
 
 
 def _imports(path: Path) -> set[str]:
-    """Every module a file under webapp/api/ imports, and every name it imports from one, as dotted names."""
     package = ("webapp", "api")
     names = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):

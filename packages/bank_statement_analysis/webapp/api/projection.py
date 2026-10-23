@@ -1,5 +1,3 @@
-"""A package as v1 publishes it: one snapshot of its documents, read under the API's fixed reading and projected onto
-the contract. Pure: no Flask, no store, no saved setting."""
 from __future__ import annotations
 
 import hashlib
@@ -47,8 +45,6 @@ from .contract import (
     Review,
 )
 
-#: The one reading v1 serves: the owner's display defaults, never the settings saved in the browser
-#: (tests/test_api_contract.py pins it).
 API_READING: Mapping[str, bool] = MappingProxyType(dict(DISPLAY_DEFAULTS))
 
 _PENDING = frozenset({"queued", "processing"})
@@ -56,7 +52,6 @@ _ANALYSIS_REFUSALS: Mapping[str, FailureCode] = MappingProxyType({
     NO_USABLE_TEXT: "unreadable", NO_PARSER_MATCHED: "unsupported_statement",
 })
 _SURFACE = "webapp/api/projection.py::_reading_applied"
-#: The member a value outside each closed vocabulary reads as: its most conservative.
 _CONSERVATIVE: Mapping[Any, str] = MappingProxyType({
     Quality: "needs_review", CorporateUse: "manual_review_required", IntegrityRisk: "high",
     Decision: "review_required", CurrencyRefusal: "undetermined_statement_currency",
@@ -66,10 +61,8 @@ _CONSERVATIVE: Mapping[Any, str] = MappingProxyType({
 def package_resource(
     package_id: str, created_at: datetime, documents: Sequence[JobSnapshot]
 ) -> ProcessingPackage | ReadyPackage:
-    """The package read from one snapshot of its documents (`JobStore.snapshot`, in submitted order). A document still
-    queued or processing makes it a ProcessingPackage and no figure is computed. A document with no analysis under
-    API_READING is a FailedDocument, and one whose Zelle reading cannot be applied is left out of the figures. Raises
-    pydantic.ValidationError when the package holds a value the contract cannot carry."""
+    """`documents` is one `JobStore.snapshot` of the package, in submitted order. Raises pydantic.ValidationError when
+    the package holds a value the contract cannot carry."""
     head = {"api_version": API_VERSION, "package_id": package_id, "created_at": created_at}
     if any(document.status in _PENDING for document in documents):
         return ProcessingPackage(status="processing", documents=[_progress(document) for document in documents],
@@ -97,7 +90,6 @@ def package_resource(
 
 
 def _failure(document: JobSnapshot) -> FailureCode | None:
-    """Why a finished document has no analysis under API_READING; None when it has one."""
     if document.status == "interrupted":
         return "interrupted"
     if document.status != "done":
@@ -110,8 +102,6 @@ def _failure(document: JobSnapshot) -> FailureCode | None:
 
 
 def _reading_applied(shown: object) -> bool:
-    """False when an account of the displayed analysis is served in another Zelle reading than API_READING's
-    (`metrics.zelle_deposits.setting_applied`, analysis/zelle_view.py)."""
     try:
         accounts = payload_accounts(shown, surface=_SURFACE)
     except PayloadShapeError:
@@ -134,8 +124,6 @@ def _identity(document: JobSnapshot) -> dict:
 
 def _terminal_documents(documents: Sequence[JobSnapshot], failures: Mapping[str, FailureCode],
                         package: Mapping) -> list[FailedDocument | DuplicateDocument | AnalysedDocument]:
-    """Each document in submitted order: failed, else a repeat the package left out, else analysed with its accounts
-    (its member rows and its exclusions, a statement-wide exclusion first)."""
     rows = [row for row in package["documents"] if isinstance(row, dict)]
     repeats = {row["id"]: row for row in rows if row.get("is_duplicate") is True}
     published = []
@@ -269,18 +257,14 @@ def _scaled(value: object) -> Decimal | None:
 
 
 def _count(value: object) -> int | None:
-    """A count: a non-negative int, else None."""
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
 
 
 def _negative_days(nsf_count: object, source: object) -> int | None:
-    """The negative-day count on v1's basis only (printed days); a carried, legacy or unavailable basis gives None."""
     return _count(nsf_count) if source == nsf_days.PRINTED else None
 
 
 def _closed(value: object, vocabulary: Any) -> str:
-    """`value` when it is a member of the closed `vocabulary` (a Literal of the contract), else its most conservative
-    member."""
     return value if value in get_args(vocabulary) else _CONSERVATIVE[vocabulary]
 
 

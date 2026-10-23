@@ -1,5 +1,3 @@
-"""The v1 API under test: an isolated store, a fake worker, and a client that validates every API response against
-the contract models (`webapp.api.contract`). Fabricated statements and PDF bytes only."""
 from __future__ import annotations
 
 import io
@@ -16,8 +14,6 @@ from webapp.storage import Storage
 TOKEN = "fabricated-api-token-" + "a1b2c3d4" * 4
 PACKAGE = TypeAdapter(Package)
 
-#: What the fake worker does with a file of a given name: `outcome(store, job_id)`. A name it does not know stays
-#: queued.
 Outcome = Callable[[JobStore, str], None]
 
 
@@ -43,8 +39,6 @@ def _refuse_constant(name: str) -> None:
 
 
 def validated(response):
-    """`response` once it is checked: JSON without NaN or Infinity, never cached, and a Package (2xx) or an
-    ErrorResponse whose code's catalog status is the response's."""
     assert response.mimetype == "application/json"
     assert response.headers["Cache-Control"] == "no-store"
     text = response.get_data(as_text=True)
@@ -58,8 +52,6 @@ def validated(response):
 
 
 class Api:
-    """The test client, its bearer token and the store behind it. Every call returns a validated response."""
-
     def __init__(self, client, store: JobStore, outcomes: dict[str, Outcome]) -> None:
         self.client, self.store, self.outcomes = client, store, outcomes
 
@@ -84,8 +76,6 @@ def package_path() -> str:
 
 
 def make_api(tmp_path, monkeypatch) -> Api:
-    """The API on its own store, with the token set, no browser password and a fake worker that finishes each job
-    synchronously from `Api.outcomes`."""
     from webapp import app as webapp_app
 
     store = JobStore(Storage(tmp_path / "data"))

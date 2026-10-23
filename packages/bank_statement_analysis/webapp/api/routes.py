@@ -1,4 +1,3 @@
-"""The v1 routes. Authentication is not here: `webapp.auth.gate` runs before every request."""
 from __future__ import annotations
 
 import sqlite3
@@ -19,7 +18,6 @@ from .projection import package_resource
 from .wire import API_PREFIX, error_response, is_api_path, json_response
 
 BLUEPRINT_NAME = "api_v1"
-#: The endpoints a read-only start-up still serves; webapp/app.py adds them to its `_READ_ONLY_ENDPOINTS`.
 READ_ONLY_ENDPOINTS = frozenset({f"{BLUEPRINT_NAME}.get_package"})
 RETRY_AFTER_SECONDS = 10
 
@@ -27,16 +25,13 @@ Accept = Callable[[Sequence[Upload]], AbstractContextManager[list[Job]]]
 
 
 def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint:
-    """The v1 API under API_PREFIX. `store` and `accept` (the statement intake, `webapp.intake.accepted_statements`
-    bound to the process's queue) are read at each request. The one state held here is the submission lock: one
-    process serves the app."""
+    """`submitting` makes the replay check and the package's creation atomic within this process only: it holds while
+    one process serves the app."""
     api = Blueprint(BLUEPRINT_NAME, __name__, url_prefix=API_PREFIX)
     submitting = threading.Lock()
 
     @api.put("/packages/<package_id>", provide_automatic_options=False)
     def put_package(package_id: str) -> Response:
-        """Create the package `package_id` from the request's PDFs (201), or answer an identical earlier request again
-        (200: the same filenames and contents in the same order); other statements under a known id are a conflict."""
         if not _canonical_uuid(package_id):
             return error_response("invalid_package_id")
         uploads = [Upload(part.filename, part.read()) for part in request.files.getlist("files")]
@@ -74,7 +69,7 @@ def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint
 
     @api.errorhandler(HTTPException)
     def _http_error(exc: HTTPException) -> Response:
-        """A malformed request is invalid_request; anything else, an unhandled exception included, is internal_error."""
+        """Flask also hands an unhandled exception here, as InternalServerError."""
         return error_response("invalid_request" if exc.code is not None and exc.code < 500 else "internal_error")
 
     @api.app_errorhandler(NotFound)
@@ -101,7 +96,6 @@ def _package_response(jobs: JobStore, package_id: str, status: int) -> Response:
     stored = jobs.storage.package(package_id)
     if stored is None:
         return error_response("package_not_found")
-    # A package the dashboard stored can list one job twice; it is one document.
     documents = jobs.snapshot(list(dict.fromkeys(stored["job_ids"])))
     body = package_resource(package_id, datetime.fromisoformat(stored["created_at"]), documents)
     headers = {}

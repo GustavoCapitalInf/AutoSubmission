@@ -1,6 +1,3 @@
-"""PUT and GET /api/v1/packages/<id>: creation, replay and conflict, every intake refusal beside the browser's answer,
-and the ready package's documents, accounts and figures. Fabricated statements only; every API response is validated
-against the contract models (tests/api_client.py)."""
 import io
 import json
 import sqlite3
@@ -25,7 +22,6 @@ def api(tmp_path, monkeypatch):
 
 
 def _ready(api, analyses: dict[str, dict]):
-    """A package of one statement per name, each analysed as given; the PUT's answer."""
     for name, analysis in analyses.items():
         api.outcomes[name] = analysed(analysis)
     path = package_path()
@@ -139,8 +135,6 @@ def _storage_fails_on_the_second_file(api, monkeypatch):
     monkeypatch.setattr(api.store, "create", create)
 
 
-#: Each intake refusal, by its API code: the request's files (None: a fabricated PDF), the patch that provokes it,
-#: and the browser's answer to the same request.
 REFUSALS = {
     "no_statements": ([], None, (400, {"error": "no files uploaded"})),
     "too_many_statements": ([(f"s{n}.pdf", None) for n in range(26)], None,

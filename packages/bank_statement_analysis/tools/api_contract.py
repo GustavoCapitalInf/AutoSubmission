@@ -1,10 +1,4 @@
-"""Write, or check, the v1 API's generated contract artifacts from `webapp/api/contract.py`.
-
-    python -m tools.api_contract --write    write docs/api/v1.schema.json and the GENERATED block of docs/api/v1.md
-    python -m tools.api_contract --check    exit 1 when either is not what --write would write
-
-Imports the contract models only: no Flask app, no store.
-"""
+"""Write, or check, the v1 API's generated contract artifacts from `webapp/api/contract.py`."""
 from __future__ import annotations
 
 import argparse
@@ -25,7 +19,6 @@ DOC_PATH = ROOT / "docs" / "api" / "v1.md"
 BEGIN_MARKER = "<!-- BEGIN GENERATED: tools/api_contract.py -->"
 END_MARKER = "<!-- END GENERATED: tools/api_contract.py -->"
 
-#: The models the reference documents, in reading order.
 REFERENCE_MODELS: tuple[type[BaseModel], ...] = (
     contract.ProcessingPackage, contract.DocumentProgress, contract.ReadyPackage, contract.Review,
     contract.PackageFigures, contract.Funder, contract.PotentialLender, contract.MonthPositions,
@@ -35,7 +28,6 @@ REFERENCE_MODELS: tuple[type[BaseModel], ...] = (
 
 
 def schema_document() -> dict:
-    """The JSON Schema of every API body: a package (`#/$defs/Package`) or an error (`#/$defs/ErrorResponse`)."""
     roots, top = TypeAdapter.json_schemas(
         [("Package", "serialization", TypeAdapter(contract.Package)),
          ("ErrorResponse", "serialization", TypeAdapter(contract.ErrorResponse))],
@@ -56,7 +48,6 @@ def schema_text() -> str:
 
 
 def _type_text(schema: dict) -> str:
-    """A property's type as the reference prints it."""
     if "$ref" in schema:
         return f"`{schema['$ref'].rsplit('/', 1)[-1]}`"
     if "const" in schema:
@@ -84,7 +75,6 @@ def _cell(text: object) -> str:
 
 
 def reference_text() -> str:
-    """The GENERATED block of docs/api/v1.md: one table per model, then the error and failure catalogs."""
     definitions = schema_document()["$defs"]
     lines = [BEGIN_MARKER, "", "Generated from `webapp/api/contract.py` by `python -m tools.api_contract --write`; "
              "never edit it by hand.", ""]
@@ -108,7 +98,6 @@ def reference_text() -> str:
 
 
 def with_reference(document: str) -> str:
-    """`document` with its GENERATED block replaced by `reference_text()`."""
     start = document.index(BEGIN_MARKER)
     end = document.index(END_MARKER, start) + len(END_MARKER)
     return document[:start] + reference_text() + document[end:]

@@ -1,6 +1,3 @@
-"""Who may call what: the API's bearer token opens /api/v1 and nothing else, the browser's Basic password opens the
-browser routes and nothing else, and /healthz stays open. Fabricated data only; every API response is validated
-against the contract models (tests/api_client.py)."""
 import base64
 
 import pytest

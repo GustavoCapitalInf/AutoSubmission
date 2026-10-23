@@ -308,8 +308,6 @@ def _intake_refused(refusal):
 
 
 def _accepted(uploads):
-    """The statement intake (`webapp/intake.py`) on this process's store, worker queue and free-space floor, for both
-    upload surfaces. Read at each call, so whatever `store` and `_enqueue_job` are bound to is what both use."""
     return accepted_statements(store, uploads, enqueue=_enqueue_job, volume_nearly_full=_data_volume_nearly_full)
 
 
