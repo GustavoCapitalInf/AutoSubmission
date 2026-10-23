@@ -90,7 +90,7 @@ def test_an_upload_asking_for_force_visual_ocr_is_refused_before_anything_is_sto
     from webapp import app as webapp_app
 
     monkeypatch.setattr(webapp_app, "_enqueue_job", lambda *a: pytest.fail("a job was queued"))
-    monkeypatch.setattr(webapp_app, "inspect_pdf", lambda *a, **k: pytest.fail("the upload was read"))
+    monkeypatch.setattr("webapp.intake.inspect_pdf", lambda *a, **k: pytest.fail("the upload was read"))
     before = _stored(scratch_store)
     raw = _fabricated_pdf() if payload == "valid" else b"not a pdf"
     response = webapp_app.app.test_client().post(

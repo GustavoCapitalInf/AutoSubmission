@@ -27,6 +27,7 @@ from pathlib import Path
 import pytest
 
 from webapp import app as app_module
+from webapp import intake as intake_module
 from webapp.jobs import JobStore
 from webapp.storage import SCHEMA_VERSION, Storage
 
@@ -51,7 +52,7 @@ def floor(monkeypatch):
     free = {"bytes": 10**12}
     monkeypatch.setattr(app_module, "MIN_FREE_BYTES", 1000)
     monkeypatch.setattr(app_module.shutil, "disk_usage", lambda path: _Usage(10**13, 0, free["bytes"]))
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     queued: list[str] = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda job_id, *args: queued.append(job_id))
     free["queued"] = queued
@@ -74,7 +75,7 @@ def test_an_upload_below_the_floor_is_refused_before_anything_is_written(floor):
     before = _counts(app_module.store.storage)
     response = _upload(_sample_pdf(), _sample_pdf())
     assert response.status_code == 507
-    assert response.get_json() == {"error": app_module.STORAGE_NEARLY_FULL}
+    assert response.get_json() == {"error": intake_module.STORAGE_NEARLY_FULL}
     assert _counts(app_module.store.storage) == before
     assert floor["queued"] == []
 

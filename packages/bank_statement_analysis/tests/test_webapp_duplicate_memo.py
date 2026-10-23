@@ -159,7 +159,7 @@ def test_an_upload_and_its_polls_ask_storage_at_most_once(monkeypatch):
     from webapp import app as app_module
 
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     monkeypatch.setattr("webapp.worker.parse_statement", lambda *a, **k: _FakeDoc())
     monkeypatch.setattr("webapp.worker.analyze_document", lambda *a, **k: object())
     monkeypatch.setattr("webapp.worker.document_to_json", lambda document: {"quality": {"level": "transaction_level"}})
