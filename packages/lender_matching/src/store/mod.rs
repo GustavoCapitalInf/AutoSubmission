@@ -3,7 +3,7 @@
 
 pub mod auth;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Deref;
 use std::path::Path;
 use std::sync::Mutex;
@@ -12,9 +12,11 @@ use std::time::Duration;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use uuid::Uuid;
 
 use crate::criteria::{LenderId, LenderRecord, RECORD_FORMAT};
 use crate::facts::application::{Industries, IndustryId};
+use crate::matching::{LenderVerdict, MATCH_FORMAT, MatchRecord, Requester, VerdictResult};
 use auth::{AdminUser, MachineClient, NewSession, Role, Scope};
 
 const MIGRATIONS: [&str; 1] = [include_str!("schema.sql")];
@@ -138,6 +140,17 @@ pub enum SaveError {
     Store(#[from] StoreError),
 }
 
+pub struct MatchSummary {
+    pub id: Uuid,
+    pub created_at: OffsetDateTime,
+    /// The client name or username that made it.
+    pub by: String,
+    pub matched: u32,
+    pub review: u32,
+    pub no_match: u32,
+    pub superseded: bool,
+}
+
 pub struct ImportRun {
     pub id: i64,
     pub run_at: OffsetDateTime,
@@ -221,7 +234,7 @@ impl ReadTx<'_> {
     /// Every lender's head revision, by name.
     pub fn heads(&self) -> Result<Vec<Revision>, StoreError> {
         let mut heads = self.revisions("lender_heads r LEFT JOIN users u ON u.id = r.author_user_id", [])?;
-        heads.sort_by_key(|head| head.record.profile.name.to_lowercase());
+        heads.sort_by_key(|head| (head.record.profile.name.to_lowercase(), head.lender.clone()));
         Ok(heads)
     }
 
@@ -325,6 +338,129 @@ impl ReadTx<'_> {
         Ok(self.import_runs()?.into_iter().find(|run| run.id == id))
     }
 
+    pub fn match_record(&self, id: Uuid) -> Result<Option<MatchRecord>, StoreError> {
+        let row = self
+            .conn
+            .query_row(
+                "SELECT created_at, client_id, user_id, supersedes, engine_version, format, input, facts \
+                 FROM matches WHERE id = ?1",
+                [id.to_string()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, u32>(4)?,
+                        row.get::<_, u32>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((created_at, client, user, supersedes, engine_version, format, input, facts)) = row else {
+            return Ok(None);
+        };
+        if format != MATCH_FORMAT {
+            return Err(StoreError::Corrupt(format!("match {id} has format {format}, unreadable by this build")));
+        }
+        let corrupt = |what: &str| StoreError::Corrupt(format!("match {id}: {what}"));
+        let by = match (client, user, supersedes) {
+            (Some(client), None, None) => Requester::Client(client),
+            (None, Some(user), Some(supersedes)) => {
+                Requester::Person { user, supersedes: Uuid::parse_str(&supersedes).map_err(|_| corrupt("supersedes"))? }
+            }
+            _ => return Err(corrupt("who made it")),
+        };
+        let mut statement = self
+            .conn
+            .prepare("SELECT lender_id, revision, status, evaluation FROM match_verdicts WHERE match_id = ?1")?;
+        let rows = statement
+            .query_map([id.to_string()], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u32>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut verdicts = Vec::new();
+        let mut names = BTreeMap::new();
+        for (lender, revision, status, evaluation) in rows {
+            let lender = LenderId::parse(&lender).ok_or_else(|| corrupt("a lender id"))?;
+            let read = self.revision(&lender, revision)?.ok_or_else(|| corrupt("a verdict's revision"))?;
+            names.insert(lender.clone(), read.record.profile.name.to_lowercase());
+            let result = match (status.as_str(), evaluation) {
+                ("inactive", None) => VerdictResult::Inactive(read.record.policy.status()),
+                ("not_offered", None) => VerdictResult::NotOffered,
+                (_, Some(evaluation)) => VerdictResult::Evaluated(
+                    serde_json::from_str(&evaluation).map_err(|error| corrupt(&format!("an evaluation: {error}")))?,
+                ),
+                _ => return Err(corrupt("a verdict")),
+            };
+            verdicts.push(LenderVerdict { lender, revision, result });
+        }
+        verdicts.sort_by_key(|verdict| (names[&verdict.lender].clone(), verdict.lender.clone()));
+        Ok(Some(MatchRecord {
+            id,
+            created_at: parse_time(&created_at)?,
+            by,
+            input: serde_json::from_str(&input).map_err(|error| corrupt(&format!("its input: {error}")))?,
+            facts: serde_json::from_str(&facts).map_err(|error| corrupt(&format!("its facts: {error}")))?,
+            engine_version,
+            verdicts,
+        }))
+    }
+
+    pub fn superseded_by(&self, id: Uuid) -> Result<Option<Uuid>, StoreError> {
+        let newer: Option<String> = self
+            .conn
+            .query_row("SELECT id FROM matches WHERE supersedes = ?1", [id.to_string()], |row| row.get(0))
+            .optional()?;
+        newer
+            .map(|newer| Uuid::parse_str(&newer).map_err(|_| StoreError::Corrupt("a match id".to_string())))
+            .transpose()
+    }
+
+    /// Newest first: id, creation time, and how many verdicts are match, review and no match.
+    pub fn recent_matches(&self, limit: u32) -> Result<Vec<MatchSummary>, StoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT m.id, m.created_at, COALESCE(c.name, u.username, ''), \
+             (SELECT COUNT(*) FROM match_verdicts v WHERE v.match_id = m.id AND v.status = 'match'), \
+             (SELECT COUNT(*) FROM match_verdicts v WHERE v.match_id = m.id AND v.status = 'review'), \
+             (SELECT COUNT(*) FROM match_verdicts v WHERE v.match_id = m.id AND v.status = 'no_match'), \
+             (SELECT n.id FROM matches n WHERE n.supersedes = m.id) \
+             FROM matches m LEFT JOIN api_clients c ON c.id = m.client_id LEFT JOIN users u ON u.id = m.user_id \
+             ORDER BY m.created_at DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, u32>(3)?,
+                row.get::<_, u32>(4)?,
+                row.get::<_, u32>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let (id, created_at, by, matched, review, no_match, superseded_by) = row?;
+            Ok(MatchSummary {
+                id: Uuid::parse_str(&id).map_err(|_| StoreError::Corrupt("a match id".to_string()))?,
+                created_at: parse_time(&created_at)?,
+                by,
+                matched,
+                review,
+                no_match,
+                superseded: superseded_by.is_some(),
+            })
+        })
+        .collect()
+    }
+
     pub fn username(&self, user: i64) -> Result<Option<String>, StoreError> {
         Ok(self.conn.query_row("SELECT username FROM users WHERE id = ?1", [user], |row| row.get(0)).optional()?)
     }
@@ -420,6 +556,46 @@ impl WriteTx<'_> {
 
     pub fn set_import_report(&self, id: i64, report: &str) -> Result<(), StoreError> {
         self.conn.execute("UPDATE import_runs SET report = ?2 WHERE id = ?1", params![id, report])?;
+        Ok(())
+    }
+
+    pub fn insert_match(&self, record: &MatchRecord) -> Result<(), StoreError> {
+        let (client, user, supersedes) = match &record.by {
+            Requester::Client(client) => (Some(*client), None, None),
+            Requester::Person { user, supersedes } => (None, Some(*user), Some(supersedes.to_string())),
+        };
+        let analysis = record.facts.analysis.as_ref();
+        self.conn.execute(
+            "INSERT INTO matches (id, created_at, client_id, user_id, supersedes, as_of, engine_version, format, \
+             analysis_package_id, analysis_revision, input, facts) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                record.id.to_string(),
+                time_text(record.created_at),
+                client,
+                user,
+                supersedes,
+                record.facts.as_of.to_string(),
+                record.engine_version,
+                MATCH_FORMAT,
+                analysis.map(|analysis| analysis.package_id.to_string()),
+                analysis.map(|analysis| analysis.revision.clone()),
+                serde_json::to_string(&record.input).expect("a match input serializes"),
+                serde_json::to_string(&record.facts).expect("deal facts serialize"),
+            ],
+        )?;
+        for verdict in &record.verdicts {
+            let evaluation = match &verdict.result {
+                VerdictResult::Evaluated(evaluation) => {
+                    Some(serde_json::to_string(evaluation).expect("an evaluation serializes"))
+                }
+                VerdictResult::Inactive(_) | VerdictResult::NotOffered => None,
+            };
+            self.conn.execute(
+                "INSERT INTO match_verdicts (match_id, lender_id, revision, status, evaluation) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![record.id.to_string(), verdict.lender.as_str(), verdict.revision, verdict.result.key(), evaluation],
+            )?;
+        }
         Ok(())
     }
 
