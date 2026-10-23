@@ -2,6 +2,7 @@ import copy
 import json
 import sys
 import threading
+import time
 
 import pytest
 
@@ -52,9 +53,36 @@ def test_a_job_that_finishes_after_the_snapshot_is_pending_in_a_package_built_fr
     assert package_view.package_analysis(store.snapshot([march, april]))["totals"]["completed"] == 2
 
 
+def _read_while_writing(write, read):
+    """`read()` repeated from before a thread starts `write()` until it returns. Raises what `write` raised."""
+    failures = []
+
+    def run():
+        try:
+            write()
+        except BaseException as failure:
+            failures.append(failure)
+
+    # A short switch interval interleaves the two threads often, and keeps the writer from waiting on the reader.
+    previous = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        writer = threading.Thread(target=run, daemon=True)
+        deadline = time.monotonic() + 30
+        reads = [read()]
+        writer.start()
+        while writer.is_alive():
+            assert time.monotonic() < deadline, "the writer did not finish"
+            reads.append(read())
+    finally:
+        sys.setswitchinterval(previous)
+    if failures:
+        raise failures[0]
+    return reads
+
+
 def test_a_writer_alternating_results_never_yields_a_torn_snapshot(store):
     job_id = _done(store, "march.pdf", {"fabricated": -1})
-    finished = threading.Event()
 
     def write():
         for turn in range(200):
@@ -62,23 +90,25 @@ def test_a_writer_alternating_results_never_yields_a_torn_snapshot(store):
                 store.set_result(job_id, "#", "<p></p>", analysis=None, analysis_error="fabricated refusal")
             else:
                 store.set_result(job_id, "#", "<p></p>", analysis={"fabricated": turn})
-        finished.set()
 
-    # A short switch interval interleaves the two threads often, and keeps the writer from waiting on the reader.
-    previous = sys.getswitchinterval()
-    sys.setswitchinterval(1e-6)
-    try:
-        writer = threading.Thread(target=write)
-        writer.start()
-        taken = torn = 0
-        while not finished.is_set() or not taken:
-            job = store.snapshot([job_id])[0]
-            taken += 1
-            torn += (job.analysis is None) == (job.analysis_error is None)
-        writer.join()
-    finally:
-        sys.setswitchinterval(previous)
-    assert (taken > 1, torn) == (True, 0)
+    jobs = _read_while_writing(write, lambda: store.snapshot([job_id])[0])
+    torn = [job for job in jobs if (job.analysis is None) == (job.analysis_error is None)]
+    assert (len(jobs) > 2, torn) == (True, [])
+
+
+def test_two_jobs_written_under_one_hold_of_the_lock_are_never_read_apart(store):
+    ids = [_done(store, "march.pdf", {"generation": 0}), _done(store, "april.pdf", {"generation": 0})]
+    jobs = [store.get(job_id) for job_id in ids]
+
+    def write():
+        for generation in range(1, 20001):
+            with store._lock:
+                for job in jobs:
+                    job.analysis = {"generation": generation}
+
+    pairs = _read_while_writing(write, lambda: tuple(job.analysis["generation"] for job in store.snapshot(ids)))
+    assert len(set(pairs)) > 2
+    assert [pair for pair in pairs if pair[0] != pair[1]] == []
 
 
 def test_a_snapshot_names_every_job_the_store_does_not_hold(store):
