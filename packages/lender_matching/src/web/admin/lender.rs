@@ -568,7 +568,6 @@ impl LenderForm {
                     when: when(&format!("note.{i}")),
                     delete: fields.has(&format!("note.{i}.delete")),
                 })
-                .filter(|row| !(row.id.is_empty() && row.text.trim().is_empty() && row.when.is_empty()))
                 .collect(),
         }
     }
@@ -634,7 +633,7 @@ impl LenderForm {
         let mut notes = Vec::new();
         let mut pending = Vec::new();
         for row in &self.notes {
-            if row.delete {
+            if row.delete || (row.id.is_empty() && row.text.trim().is_empty() && row.when.is_empty()) {
                 continue;
             }
             let label = format!("Note {}", if row.id.is_empty() { "(new)".to_string() } else { row.id.clone() });
@@ -773,8 +772,9 @@ impl LenderForm {
         })
     }
 
-    /// Handles a button that changes the form instead of saving it; false for `save`. A note row
-    /// left blank is dropped on reading, so its "Add a rule from this note" only re-renders.
+    /// Handles a button that changes the form instead of saving it; false for `save`.
+    /// `rule_from_note.<i>` names a note row by its rendered position, so `read` keeps blank note
+    /// rows and `to_record` skips them.
     fn apply(&mut self, action: &str) -> bool {
         match action {
             "add_rule" => self.rules.push(RuleRow::default()),

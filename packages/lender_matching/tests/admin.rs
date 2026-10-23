@@ -98,6 +98,46 @@ async fn sign_in_needs_its_token_and_the_pages_take_only_a_session() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_rule_from_a_note_copies_the_note_pressed_past_a_blank_note() {
+    let data = TempDir::new();
+    cli_ok(data.path(), &["import-info-hub", seed_workbook(data.path()).to_str().unwrap(), "--apply"]);
+    add_user(data.path(), "sample.editor", "editor");
+    let server = Server::start(data.path(), &[]);
+    let editor = Browser::new(&server);
+    editor.sign_in("sample.editor").await;
+    let fabrikam = lender_id(&editor.get("/admin").await, "FABRIKAM FUNDING");
+    let edit_action = format!("/admin/lenders/{fabrikam}/edit");
+
+    let form = editor.get(&edit_action).await;
+    let one = editor.submit(&form, &edit_action, &[], Some(("action", "add_note"))).await;
+    let two = editor.submit(&one, &edit_action, &[], Some(("action", "add_note"))).await;
+    let typed = form_fields(&two.body, &edit_action)
+        .into_iter()
+        .filter_map(|(name, _)| {
+            name.strip_suffix(".text").and_then(|row| row.strip_prefix("note.")).map(str::to_string)
+        })
+        .next_back()
+        .unwrap();
+    let pressed = editor
+        .submit(
+            &two,
+            &edit_action,
+            &[(&format!("note.{typed}.text"), "SAMPLE weekly remittance only")],
+            Some(("action", &format!("rule_from_note.{typed}"))),
+        )
+        .await;
+    assert_eq!(pressed.status, StatusCode::OK, "{}", pressed.body);
+    let fields = form_fields(&pressed.body, &edit_action);
+    assert!(
+        fields.iter().any(|(name, value)| name.ends_with(".source") && value == "SAMPLE weekly remittance only"),
+        "the new rule row quotes the pressed note"
+    );
+    assert!(
+        fields.iter().any(|(name, value)| name.starts_with("note.") && name.ends_with(".text") && value.is_empty())
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn lenders_are_activated_edited_reviewed_and_paused_through_the_pages() {
     let package = Uuid::new_v4();
     let analysis = fake_analysis(vec![(package, "ready_clean")]).await;
