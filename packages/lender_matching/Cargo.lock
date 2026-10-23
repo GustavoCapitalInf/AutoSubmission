@@ -1086,6 +1086,7 @@ dependencies = [
  "form_urlencoded",
  "getrandom 0.4.3",
  "jsonschema",
+ "lender_matching_application",
  "lender_matching_wire",
  "maud",
  "reqwest",
@@ -1100,6 +1101,15 @@ dependencies = [
  "time",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "lender_matching_application"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "time",
 ]
 
 [[package]]
