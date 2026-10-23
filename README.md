@@ -9,6 +9,7 @@ dependencies. Run a project's commands from its folder.
 | [`apps/auto_submission/`](apps/auto_submission/README.md) | Auto-Submission platform (planning). |
 
 CI lives in `.github/workflows/`. The corpus gate runs for pull requests and pushes to `main` that change
-`packages/bank_statement_analysis/`, its own workflow file or `.gitattributes`. The Fly.io deploy runs for pushes
-to `cursor/intern-testing-host-d911` that change `packages/bank_statement_analysis/` or its own workflow file.
-You can also start either one by hand from the Actions tab.
+`packages/bank_statement_analysis/`, its own workflow file or `.gitattributes`. The Fly.io deploy runs from `main`
+after the corpus gate passes for a push to `main`. It builds the image and smoke-tests it before it deploys. You can
+also start either one by hand from the Actions tab. A deploy started by hand on another branch only builds and
+smoke-tests the image.

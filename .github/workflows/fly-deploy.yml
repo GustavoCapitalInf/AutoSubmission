@@ -1,34 +1,104 @@
 name: fly-deploy
 
-# Deploys the intern tryout (https://bank-statement-tryout.fly.dev) whenever the
-# hosting branch changes. The image is built on Fly's remote builder from
-# packages/bank_statement_analysis/Dockerfile; its .dockerignore keeps Bank
-# Statements/ out of it.
+# Deploys the intern tryout (https://bank-statement-tryout.fly.dev) from main. It runs when the Corpus gate passes
+# for a push to main (that workflow runs when the push changes packages/bank_statement_analysis/, its own workflow
+# file or .gitattributes), or by hand.
+# A run started by hand on another branch builds and smoke-tests the image but never deploys.
+# Before deploying, the image is built on the runner and started once: it must pass /healthz, refuse a request
+# without the login, and take a generated one-page PDF through the worker to `done`. Fly's remote builder then
+# builds the same Dockerfile for the release; its .dockerignore keeps Bank Statements/ out of it.
 # FLY_API_TOKEN is an app-scoped deploy token (fly tokens create deploy).
 
 on:
-  push:
-    branches:
-      - cursor/intern-testing-host-d911
-    paths:
-      - "packages/bank_statement_analysis/**"
-      - ".github/workflows/fly-deploy.yml"
+  workflow_run:
+    workflows: ["Corpus gate"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
+# queue: max keeps every pending run in order. With the default queue, a run arriving while one is pending cancels
+# it, so a newer package's deploy could be dropped and the older run would then skip itself as superseded.
 concurrency:
   group: fly-deploy-bank-statement-tryout
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # workflow_run fires for pull request runs too, and for runs that failed; only a green push to main deploys.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: packages/bank_statement_analysis
+    env:
+      IMAGE: bank-statement-tryout:smoke
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Skip a commit that main has moved past
+        # Corpus gate runs can finish out of order. When main's package folder no longer matches this commit's, a
+        # later push changed it, and that push's own run deploys; deploying this one could replace a newer release.
+        id: current
+        run: |
+          if [ "$GITHUB_EVENT_NAME" != workflow_run ] || git diff --quiet HEAD origin/main -- .; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=Deploy skipped::main has changed packages/bank_statement_analysis/ since this commit; the run for the newer commit deploys."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build the image
+        if: steps.current.outputs.deploy == 'true'
+        run: docker build -t "$IMAGE" .
+
+      - name: Smoke-test the image
+        if: steps.current.outputs.deploy == 'true'
+        run: |
+          set -euo pipefail
+          password="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+          docker run -d --name smoke -p 127.0.0.1:5000:5000 -e WEBAPP_AUTH_PASSWORD="$password" \
+            -v smoke-data:/data "$IMAGE" >/dev/null
+          trap 'docker logs smoke 2>&1 | tail -n 50; docker rm -f smoke >/dev/null' EXIT
+          base=http://127.0.0.1:5000
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          for _ in $(seq 60); do [ "$(code "$base/healthz")" = 200 ] && break; sleep 2; done
+          test "$(code "$base/healthz")" = 200
+          test "$(code "$base/")" = 401
+          test "$(code -u "intern:$password" "$base/")" = 200
+          docker run --rm "$IMAGE" python -c '
+          import sys, fitz
+          doc = fitz.open()
+          page = doc.new_page()
+          for i, line in enumerate(["Synthetic smoke test", "Not a real statement", "01/05 Deposit 500.00"]):
+              page.insert_text((72, 72 + 18 * i), line)
+          sys.stdout.buffer.write(doc.tobytes())
+          ' > "$RUNNER_TEMP/smoke.pdf"
+          job="$(curl -fsS -u "intern:$password" -F "files=@$RUNNER_TEMP/smoke.pdf;type=application/pdf" "$base/upload" \
+            | python3 -c 'import json, sys; print(json.load(sys.stdin)["jobs"][0]["id"])')"
+          for _ in $(seq 90); do
+            status="$(curl -fsS -u "intern:$password" "$base/status/$job" | python3 -c 'import json, sys; print(json.load(sys.stdin)["status"])')"
+            [ "$status" = done ] || [ "$status" = error ] && break
+            sleep 2
+          done
+          echo "smoke job status: $status"
+          test "$status" = done
+          test "$(code -u "intern:$password" "$base/analysis/$job")" = 200
+
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --app bank-statement-tryout
-        working-directory: packages/bank_statement_analysis
+        if: steps.current.outputs.deploy == 'true' && github.ref == 'refs/heads/main'
+
+      - name: Deploy
+        if: steps.current.outputs.deploy == 'true' && github.ref == 'refs/heads/main'
+        run: flyctl deploy --remote-only --app bank-statement-tryout
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
