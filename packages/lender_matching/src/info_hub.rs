@@ -327,7 +327,7 @@ impl Builder<'_> {
             Some(id) => id,
             None => {
                 self.new_industries.insert(label.to_string());
-                IndustryId::unsaved(self.industries.slug_for(label))
+                IndustryId::proposed(self.industries.slug_for(label))
             }
         }
     }

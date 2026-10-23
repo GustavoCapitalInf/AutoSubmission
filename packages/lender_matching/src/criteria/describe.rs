@@ -56,7 +56,7 @@ pub fn predicate(predicate: &Predicate, industries: &Industries) -> String {
             }
         }
         Predicate::State(set) => membership("State", set, |code| code.code().to_string()),
-        Predicate::Industry(set) => membership("Industry", set, |id| industries.label(id).to_string()),
+        Predicate::Industry(set) => membership("Industry", set, |id| industries.label(id.as_str()).to_string()),
         Predicate::Entity(set) => membership("Entity", set, |kind| kind.label().to_string()),
         Predicate::Flag { fact, is } => {
             let label = fact_label(FactKey::Flag(*fact));

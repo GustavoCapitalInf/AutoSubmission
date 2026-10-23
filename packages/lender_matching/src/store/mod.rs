@@ -777,7 +777,7 @@ mod tests {
         assert!(store.write(|tx| tx.set_industry_retired("transportation-trucking", true)).unwrap());
         let industries = store.read(|tx| tx.industries()).unwrap();
         assert!(industries.resolve("transportation-trucking").is_none());
-        assert_eq!(industries.label(&first), "Transportation / Trucking");
+        assert_eq!(industries.label(first.as_str()), "Transportation / Trucking");
         assert!(!store.write(|tx| tx.set_industry_retired("no-such-industry", true)).unwrap());
     }
 

@@ -102,7 +102,7 @@ impl PredicateRow {
                 (None, None) => unreachable!("a bound has a side"),
             },
             Predicate::State(set) => membership(set, |state| state.code().to_string()),
-            Predicate::Industry(set) => membership(set, |id| industries.label(id).to_string()),
+            Predicate::Industry(set) => membership(set, |id| industries.label(id.as_str()).to_string()),
             Predicate::Entity(set) => membership(set, |kind| kind.key().to_string()),
             Predicate::Flag { is, .. } => (if *is { "yes" } else { "no" }, String::new()),
         };
@@ -871,7 +871,7 @@ pub fn edit_form(
                         label { input type="checkbox" name="base.industry" value=(industry.id) checked[base.industries.contains(industry.id.as_str())]; " " (industry.label) } " "
                     }
                     @for slug in &selected_retired {
-                        label { input type="checkbox" name="base.industry" value=(slug) checked; " " (industries.label(&IndustryId::unsaved((*slug).clone()))) " (retired)" } " "
+                        label { input type="checkbox" name="base.industry" value=(slug) checked; " " (industries.label(slug)) " (retired)" } " "
                     }
                 }
                 (text_input("base.states", "Restricted states", &base.states, "postal codes, such as PR; QC"))

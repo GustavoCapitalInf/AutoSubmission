@@ -202,7 +202,7 @@ impl EntityKind {
 pub struct IndustryId(String);
 
 impl IndustryId {
-    pub fn unsaved(slug: String) -> IndustryId {
+    pub fn proposed(slug: String) -> IndustryId {
         IndustryId(slug)
     }
 
@@ -251,8 +251,8 @@ impl Industries {
             .map(|industry| industry.id.clone())
     }
 
-    pub fn label<'a>(&'a self, id: &'a IndustryId) -> &'a str {
-        self.by_slug.get(&id.0).map_or(id.as_str(), |industry| industry.label.as_str())
+    pub fn label<'a>(&'a self, slug: &'a str) -> &'a str {
+        self.by_slug.get(slug).map_or(slug, |industry| industry.label.as_str())
     }
 
     pub fn all(&self) -> impl Iterator<Item = &Industry> {

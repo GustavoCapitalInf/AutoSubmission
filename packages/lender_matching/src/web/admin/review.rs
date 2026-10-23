@@ -253,7 +253,7 @@ fn render(user: &AdminUser, view: &MatchView, industries: &Industries, problems:
                                     option value=(industry.id) selected[confirmations.industry.as_ref().is_some_and(|c| c.value == industry.id)] { (industry.label) }
                                 }
                             }
-                            @if let Some(suggested) = suggestion { " " span.note { "suggested: " (industries.label(suggested)) } }
+                            @if let Some(suggested) = suggestion { " " span.note { "suggested: " (industries.label(suggested.as_str())) } }
                         }
                         p { (describe::fact_label(FactKey::Flag(FlagFact::DefaultHistory))) ": " (flag_choice("confirm.default_history", confirmations.default_history.as_ref().map(|c| c.value))) }
                         p { (describe::fact_label(FactKey::Flag(FlagFact::HomeBased))) ": " (flag_choice("confirm.home_based", confirmations.home_based.as_ref().map(|c| c.value))) }
