@@ -7,6 +7,8 @@ __pycache__/
 node_modules/
 # Customer data, at any depth. Tools and tests read it from BANK_STATEMENTS_DIR.
 Bank Statements/
+# Merchant funding applications hold owners' SSNs and dates of birth. They live outside the repository.
+Applications/
 
 .claude/
 
