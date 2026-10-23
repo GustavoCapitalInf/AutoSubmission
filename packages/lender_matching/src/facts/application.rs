@@ -204,6 +204,12 @@ impl EntityKind {
 pub struct IndustryId(String);
 
 impl IndustryId {
+    /// A slug the Info Hub plan proposes for a label the picklist lacks; `info_hub::run` adds the
+    /// industry before it writes a rule naming it.
+    pub fn unsaved(slug: String) -> IndustryId {
+        IndustryId(slug)
+    }
+
     pub fn as_str(&self) -> &str {
         &self.0
     }

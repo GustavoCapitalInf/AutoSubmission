@@ -71,6 +71,13 @@ impl Store {
         f(&ReadTx { conn: &tx })
     }
 
+    /// Runs `f` like `write` and always rolls back: a dry run of a write.
+    pub fn rehearse<R, E: From<StoreError>>(&self, f: impl FnOnce(&WriteTx) -> Result<R, E>) -> Result<R, E> {
+        let mut conn = self.conn.lock().map_err(|_| StoreError::Poisoned)?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
+        f(&WriteTx { read: ReadTx { conn: &tx } })
+    }
+
     pub fn write<R, E: From<StoreError>>(&self, f: impl FnOnce(&WriteTx) -> Result<R, E>) -> Result<R, E> {
         let mut conn = self.conn.lock().map_err(|_| StoreError::Poisoned)?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(StoreError::from)?;
@@ -129,6 +136,13 @@ pub enum SaveError {
     NotFound,
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+pub struct ImportRun {
+    pub id: i64,
+    pub run_at: OffsetDateTime,
+    /// JSON `info_hub::ImportReport`.
+    pub report: String,
 }
 
 pub struct ReadTx<'a> {
@@ -296,6 +310,21 @@ impl ReadTx<'_> {
         Ok(Some(MachineClient { id, name, scopes }))
     }
 
+    /// Newest first.
+    pub fn import_runs(&self) -> Result<Vec<ImportRun>, StoreError> {
+        let mut statement = self.conn.prepare("SELECT id, run_at, report FROM import_runs ORDER BY id DESC")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?, row.get(2)?)))?;
+        rows.map(|row| {
+            let (id, run_at, report) = row?;
+            Ok(ImportRun { id, run_at: parse_time(&run_at)?, report })
+        })
+        .collect()
+    }
+
+    pub fn import_run(&self, id: i64) -> Result<Option<ImportRun>, StoreError> {
+        Ok(self.import_runs()?.into_iter().find(|run| run.id == id))
+    }
+
     pub fn username(&self, user: i64) -> Result<Option<String>, StoreError> {
         Ok(self.conn.query_row("SELECT username FROM users WHERE id = ?1", [user], |row| row.get(0)).optional()?)
     }
@@ -379,6 +408,19 @@ impl WriteTx<'_> {
     pub fn set_industry_retired(&self, slug: &str, retired: bool) -> Result<bool, StoreError> {
         let retired_at = retired.then(|| time_text(now()));
         Ok(self.conn.execute("UPDATE industries SET retired_at = ?2 WHERE slug = ?1", params![slug, retired_at])? == 1)
+    }
+
+    pub fn insert_import_run(&self, source_sha256: &[u8; 32], readings: &str, report: &str) -> Result<i64, StoreError> {
+        self.conn.execute(
+            "INSERT INTO import_runs (run_at, source_sha256, readings, report) VALUES (?1, ?2, ?3, ?4)",
+            params![time_text(now()), source_sha256.as_slice(), readings, report],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn set_import_report(&self, id: i64, report: &str) -> Result<(), StoreError> {
+        self.conn.execute("UPDATE import_runs SET report = ?2 WHERE id = ?1", params![id, report])?;
+        Ok(())
     }
 
     pub fn add_user(&self, username: &str, password: &str, role: Role) -> Result<i64, StoreError> {
