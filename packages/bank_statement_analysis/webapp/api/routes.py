@@ -57,6 +57,8 @@ def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint
 
     @api.get("/packages/<package_id>", provide_automatic_options=False, merge_slashes=False)
     def get_package(package_id: str) -> Response:
+        if not _canonical_uuid(package_id):
+            return error_response("invalid_package_id")
         return _package_response(store(), package_id, 200)
 
     @api.errorhandler(IntakeRefused)

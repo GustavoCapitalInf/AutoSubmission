@@ -111,8 +111,9 @@ def test_other_statements_under_a_known_id_are_a_conflict(api, change):
 
 @pytest.mark.parametrize("package_id", ["not-a-uuid", str(uuid.uuid4()).upper(), uuid.uuid4().hex])
 def test_a_package_id_must_be_a_lowercase_canonical_uuid(api, package_id):
-    response = api.put(f"/api/v1/packages/{package_id}", [("march.pdf", pdf())])
-    assert (response.status_code, response.get_json()["error"]["code"]) == (400, "invalid_package_id")
+    path = f"/api/v1/packages/{package_id}"
+    for response in (api.put(path, [("march.pdf", pdf())]), api.get(path)):
+        assert (response.status_code, response.get_json()["error"]["code"]) == (400, "invalid_package_id")
     assert _job_count(api) == 0
 
 
