@@ -103,8 +103,7 @@ These defaults are in the code and the import report labels each use of one.
 
 - Min Dep No. is the worst statement month, read like NSF Per Month. A month's deposits lie between its True revenue
   credits and all its credits, so a minimum between the two is `review`.
-- Positions `A-B+` match positions A to B and hold higher positions at review. `--open-positions unbounded` or
-  `capped` reads them as any position from A, or as A to B only.
+- Positions `A-B+` match positions A to B and hold higher positions at review.
 - "Accept Default History? No" stays `review` until a person confirms the deal has no default history.
 - A stated estimated FICO passes a credit-score minimum, labelled `stated`.
 - Negative days of several accounts in one month run from the largest account's count to their sum.

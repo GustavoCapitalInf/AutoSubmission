@@ -18,7 +18,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use analysis_api::AnalysisClient;
 use data_dir::DataDir;
-use info_hub::{ImportError, ImportMode, ImportReadings, OpenPositionReading};
+use info_hub::{ImportError, ImportMode};
 use matching::Matcher;
 use store::Store;
 use store::auth::{Role, Scope, acceptable_password};
@@ -46,9 +46,6 @@ enum Command {
         path: PathBuf,
         #[arg(long)]
         apply: bool,
-        /// How Positions `A-B+` reads.
-        #[arg(long, value_enum, default_value_t = OpenPositions::Review)]
-        open_positions: OpenPositions,
     },
     /// Manage admin accounts.
     User {
@@ -88,16 +85,6 @@ enum TokenCommand {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
-enum OpenPositions {
-    /// Positions above B hold the deal at review.
-    Review,
-    /// Any position from A up.
-    Unbounded,
-    /// Positions A to B only.
-    Capped,
-}
-
-#[derive(Clone, Copy, ValueEnum)]
 enum RoleArg {
     Viewer,
     Reviewer,
@@ -134,18 +121,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             let (dir, store) = open_store(cli.data_dir)?;
             serve(dir, store, bind)
         }
-        Command::ImportInfoHub { path, apply, open_positions } => {
+        Command::ImportInfoHub { path, apply } => {
             let (_, store) = open_store(cli.data_dir)?;
             let sheet = info_hub::read_sheet(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-            let readings = ImportReadings {
-                open_positions: match open_positions {
-                    OpenPositions::Review => OpenPositionReading::Review,
-                    OpenPositions::Unbounded => OpenPositionReading::Unbounded,
-                    OpenPositions::Capped => OpenPositionReading::CappedAtB,
-                },
-            };
             let mode = if apply { ImportMode::Apply } else { ImportMode::DryRun };
-            let report = match info_hub::run(&store, &sheet, readings, mode) {
+            let report = match info_hub::run(&store, &sheet, mode) {
                 Ok(report) => report,
                 Err(ImportError::Blocked(report)) => *report,
                 Err(ImportError::Store(error)) => return Err(error.to_string()),

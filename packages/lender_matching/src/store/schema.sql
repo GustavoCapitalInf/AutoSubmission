@@ -39,8 +39,7 @@ CREATE TABLE import_runs (
   id            INTEGER PRIMARY KEY,
   run_at        TEXT NOT NULL,
   source_sha256 BLOB NOT NULL CHECK (length(source_sha256) = 32),
-  readings      TEXT NOT NULL,                                   -- JSON ImportReadings
-  report        TEXT NOT NULL                                    -- JSON ImportReport
+  report       TEXT NOT NULL                                    -- JSON ImportReport
 );
 
 CREATE TABLE lenders (

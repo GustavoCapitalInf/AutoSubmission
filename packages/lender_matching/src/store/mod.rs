@@ -532,10 +532,10 @@ impl WriteTx<'_> {
         Ok(self.conn.execute("UPDATE industries SET retired_at = ?2 WHERE slug = ?1", params![slug, retired_at])? == 1)
     }
 
-    pub fn insert_import_run(&self, source_sha256: &[u8; 32], readings: &str, report: &str) -> Result<i64, StoreError> {
+    pub fn insert_import_run(&self, source_sha256: &[u8; 32], report: &str) -> Result<i64, StoreError> {
         self.conn.execute(
-            "INSERT INTO import_runs (run_at, source_sha256, readings, report) VALUES (?1, ?2, ?3, ?4)",
-            params![time_text(now()), source_sha256.as_slice(), readings, report],
+            "INSERT INTO import_runs (run_at, source_sha256, report) VALUES (?1, ?2, ?3)",
+            params![time_text(now()), source_sha256.as_slice(), report],
         )?;
         Ok(self.conn.last_insert_rowid())
     }

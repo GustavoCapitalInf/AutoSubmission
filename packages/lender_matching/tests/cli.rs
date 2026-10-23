@@ -23,8 +23,6 @@ fn the_import_is_a_dry_run_until_apply_and_a_rerun_changes_nothing() {
     assert!(applied.contains("4 create") && applied.contains("Applied."), "{applied}");
     let again = cli_ok(data.path(), &["import-info-hub", path, "--apply"]);
     assert!(again.contains("0 create, 0 update, 4 unchanged"), "{again}");
-    let capped = cli_ok(data.path(), &["import-info-hub", path, "--open-positions", "capped"]);
-    assert!(capped.contains("1 update"), "a new reading updates the 1-5+ lender: {capped}");
 }
 
 #[test]

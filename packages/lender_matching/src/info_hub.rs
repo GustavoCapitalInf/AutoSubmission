@@ -222,25 +222,6 @@ fn cell_text(cell: &Data) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// A rerun with another reading updates every lender the import still owns.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
-pub struct ImportReadings {
-    pub open_positions: OpenPositionReading,
-}
-
-/// How `A-B+` in Positions reads.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OpenPositionReading {
-    /// Positions `A` to `B` can match; above `B` holds the verdict at review.
-    #[default]
-    Review,
-    /// Any position from `A` up.
-    Unbounded,
-    /// Positions `A` to `B` only.
-    CappedAtB,
-}
-
 fn import_key(row: &SheetRow) -> Option<String> {
     match (row.cell(Column::RecordId), row.cell(Column::LenderName)) {
         (Some(record), _) => Some(format!("record:{record}")),
@@ -414,7 +395,7 @@ struct RowReading {
     new_industries: BTreeSet<String>,
 }
 
-fn read_row(row: &SheetRow, readings: &ImportReadings, industries: &Industries) -> RowReading {
+fn read_row(row: &SheetRow, industries: &Industries) -> RowReading {
     let mut builder = Builder { industries, rules: Vec::new(), notes: Vec::new(), new_industries: BTreeSet::new() };
     let mut terms = Terms::default();
     let mut cells = Vec::new();
@@ -422,7 +403,7 @@ fn read_row(row: &SheetRow, readings: &ImportReadings, industries: &Industries) 
         let raw = row.cell(column);
         let outcome = match raw {
             None => CellOutcome::Empty,
-            Some(raw) => read_cell(&mut builder, &mut terms, column, raw, readings),
+            Some(raw) => read_cell(&mut builder, &mut terms, column, raw),
         };
         cells.push(CellReport { column, raw: raw.map(str::to_string), outcome });
     }
@@ -447,13 +428,7 @@ fn read_row(row: &SheetRow, readings: &ImportReadings, industries: &Industries) 
     RowReading { record: LenderRecord { profile, policy }, cells, new_industries: builder.new_industries }
 }
 
-fn read_cell(
-    builder: &mut Builder,
-    terms: &mut Terms,
-    column: Column,
-    raw: &str,
-    readings: &ImportReadings,
-) -> CellOutcome {
+fn read_cell(builder: &mut Builder, terms: &mut Terms, column: Column, raw: &str) -> CellOutcome {
     let exact = || Reading::Exact;
     match column {
         Column::LenderName | Column::RecordId | Column::AccountManager | Column::ContactPhone => CellOutcome::Profile,
@@ -494,29 +469,15 @@ fn read_cell(
             }
             Some(PositionsCell::OpenRange(low, high)) => {
                 let low = low.max(1);
-                match readings.open_positions {
-                    OpenPositionReading::Review => {
-                        let id = builder.rule(vec![], num(NumFact::NewPosition, Bound::at_least(low)), raw);
-                        builder.note(
-                            NoteKind::Condition,
-                            vec![num(NumFact::NewPosition, Bound::at_least(high + 1))],
-                            format!("Positions {raw}: positions above {high} are case by case"),
-                        );
-                        CellOutcome::Rules {
-                            ids: vec![id],
-                            reading: Reading::Default(format!("positions above {high} hold the deal at review")),
-                        }
-                    }
-                    OpenPositionReading::Unbounded => builder.one_rule(
-                        num(NumFact::NewPosition, Bound::at_least(low)),
-                        raw,
-                        Reading::Mapped(format!("any position from {low}")),
-                    ),
-                    OpenPositionReading::CappedAtB => builder.one_rule(
-                        num(NumFact::NewPosition, Bound::new(Some(low), Some(high.max(low))).expect("low <= high")),
-                        raw,
-                        Reading::Mapped(format!("positions {low} to {high} only")),
-                    ),
+                let id = builder.rule(vec![], num(NumFact::NewPosition, Bound::at_least(low)), raw);
+                builder.note(
+                    NoteKind::Condition,
+                    vec![num(NumFact::NewPosition, Bound::at_least(high + 1))],
+                    format!("Positions {raw}: positions above {high} are case by case"),
+                );
+                CellOutcome::Rules {
+                    ids: vec![id],
+                    reading: Reading::Default(format!("positions above {high} hold the deal at review")),
                 }
             }
             None => builder.unread(column, raw),
@@ -633,20 +594,15 @@ pub struct ImportPlan {
     pub new_industries: Vec<String>,
 }
 
-/// Pure: the same sheet, readings, heads and industries give the same plan and the same rule and
-/// note ids. `heads` holds the head revision of every lender the import created, by import key.
-pub fn plan(
-    sheet: &Sheet,
-    readings: &ImportReadings,
-    heads: &BTreeMap<String, Revision>,
-    industries: &Industries,
-) -> ImportPlan {
+/// Pure: the same sheet, heads and industries give the same plan and the same rule and note ids.
+/// `heads` holds the head revision of every lender the import created, by import key.
+pub fn plan(sheet: &Sheet, heads: &BTreeMap<String, Revision>, industries: &Industries) -> ImportPlan {
     let mut blockers = Vec::new();
     let mut lines: BTreeMap<String, u32> = BTreeMap::new();
     let mut rows = Vec::new();
     let mut new_industries = BTreeSet::new();
     for row in &sheet.rows {
-        let reading = read_row(row, readings, industries);
+        let reading = read_row(row, industries);
         new_industries.extend(reading.new_industries);
         let (Some(key), Some(_)) = (import_key(row), row.cell(Column::LenderName)) else {
             blockers.push(format!("line {}: the row has no Lender Name", row.line));
@@ -696,7 +652,6 @@ pub struct ImportReport {
     #[serde(with = "time::serde::rfc3339")]
     pub run_at: OffsetDateTime,
     pub source_sha256: String,
-    pub readings: ImportReadings,
     pub applied: bool,
     pub blockers: Vec<String>,
     pub rows: Vec<RowReport>,
@@ -759,7 +714,7 @@ impl fmt::Display for ActionReport {
 }
 
 impl ImportReport {
-    fn of(plan: &ImportPlan, sheet: &Sheet, readings: ImportReadings) -> ImportReport {
+    fn of(plan: &ImportPlan, sheet: &Sheet) -> ImportReport {
         let rows = plan
             .rows
             .iter()
@@ -786,7 +741,6 @@ impl ImportReport {
         ImportReport {
             run_at: now(),
             source_sha256: sheet.sha256.iter().map(|byte| format!("{byte:02x}")).collect(),
-            readings,
             applied: false,
             blockers: plan.blockers.clone(),
             rows,
@@ -872,19 +826,14 @@ fn import_heads(tx: &WriteTx) -> Result<BTreeMap<String, Revision>, StoreError> 
 /// Plans and applies inside one `BEGIN IMMEDIATE` transaction. `DryRun` always rolls back.
 /// `Apply` writes every row and the run's report, then commits, so a crash leaves nothing
 /// half-done; blockers refuse it with nothing written.
-pub fn run(
-    store: &Store,
-    sheet: &Sheet,
-    readings: ImportReadings,
-    mode: ImportMode,
-) -> Result<ImportReport, ImportError> {
+pub fn run(store: &Store, sheet: &Sheet, mode: ImportMode) -> Result<ImportReport, ImportError> {
     let work = |tx: &WriteTx| -> Result<ImportReport, ImportError> {
-        let first = plan(sheet, &readings, &import_heads(tx)?, &tx.industries()?);
+        let first = plan(sheet, &import_heads(tx)?, &tx.industries()?);
         for label in &first.new_industries {
             tx.add_industry(label)?;
         }
-        let plan = plan(sheet, &readings, &import_heads(tx)?, &tx.industries()?);
-        let mut report = ImportReport::of(&plan, sheet, readings);
+        let plan = plan(sheet, &import_heads(tx)?, &tx.industries()?);
+        let mut report = ImportReport::of(&plan, sheet);
         report.new_industries = first.new_industries;
         if mode == ImportMode::DryRun {
             return Ok(report);
@@ -892,8 +841,7 @@ pub fn run(
         if !plan.blockers.is_empty() {
             return Err(ImportError::Blocked(Box::new(report)));
         }
-        let readings_json = serde_json::to_string(&readings).expect("readings serialize");
-        let run_id = tx.insert_import_run(&sheet.sha256, &readings_json, &report_json(&report))?;
+        let run_id = tx.insert_import_run(&sheet.sha256, &report_json(&report))?;
         let author = Author::Import(run_id);
         for (row, line) in plan.rows.iter().zip(report.rows.iter_mut()) {
             match &row.action {
@@ -992,7 +940,7 @@ mod tests {
     fn one_row(column: Column, value: Value) -> (Vec<String>, CellOutcome) {
         let industries = crate::facts::application::test_industries();
         let sheet = sheet(&[lender("CONTOSO CAPITAL", "REC-1", vec![(column, value)])]);
-        let plan = plan(&sheet, &ImportReadings::default(), &BTreeMap::new(), &industries);
+        let plan = plan(&sheet, &BTreeMap::new(), &industries);
         let RowAction::Create(record) = &plan.rows[0].action else { panic!("a new lender") };
         let mut texts: Vec<String> =
             record.policy.rules().iter().map(|rule| describe::rule(rule, &industries)).collect();
@@ -1115,7 +1063,7 @@ mod tests {
             .collect();
         let sparse = vec![(Column::LenderName, Text("SAMPLE FUNDING")), (Column::Tib, Number(2.0))];
         let industries = crate::facts::application::test_industries();
-        let plan = plan(&sheet(&[full, sparse]), &ImportReadings::default(), &BTreeMap::new(), &industries);
+        let plan = plan(&sheet(&[full, sparse]), &BTreeMap::new(), &industries);
         for row in &plan.rows {
             for cell in &row.cells {
                 assert_eq!(cell.raw.is_none(), cell.outcome == CellOutcome::Empty, "line {} {:?}", row.line, cell);
@@ -1188,7 +1136,7 @@ mod tests {
     #[test]
     fn a_dry_run_writes_nothing() {
         let store = Store::open_in_memory();
-        let report = run(&store, &sheet(&seed_rows()), ImportReadings::default(), ImportMode::DryRun).unwrap();
+        let report = run(&store, &sheet(&seed_rows()), ImportMode::DryRun).unwrap();
         assert!(!report.applied);
         assert_eq!(report.count(|a| matches!(a, ActionReport::Create)), 4);
         assert_eq!(report.new_industries, ["Cannabis", "Firearms / Weapons"]);
@@ -1200,7 +1148,7 @@ mod tests {
     fn apply_creates_drafts_and_a_rerun_writes_only_its_log_row() {
         let store = Store::open_in_memory();
         let sheet = sheet(&seed_rows());
-        let first = run(&store, &sheet, ImportReadings::default(), ImportMode::Apply).unwrap();
+        let first = run(&store, &sheet, ImportMode::Apply).unwrap();
         assert!(first.applied);
         let heads = store.read(|tx| tx.heads()).unwrap();
         assert_eq!(heads.len(), 4);
@@ -1211,7 +1159,7 @@ mod tests {
         let industries = store.read(|tx| tx.industries()).unwrap();
         assert!(industries.resolve("firearms-weapons").is_some());
 
-        let second = run(&store, &sheet, ImportReadings::default(), ImportMode::Apply).unwrap();
+        let second = run(&store, &sheet, ImportMode::Apply).unwrap();
         assert_eq!(second.count(|a| matches!(a, ActionReport::Unchanged)), 4);
         assert_eq!(revision_count(&store), 4);
         assert_eq!(store.read(|tx| tx.import_runs()).unwrap().len(), 2);
@@ -1220,7 +1168,7 @@ mod tests {
     #[test]
     fn a_changed_cell_updates_an_import_owned_lender_and_never_one_an_admin_edited() {
         let store = Store::open_in_memory();
-        run(&store, &sheet(&seed_rows()), ImportReadings::default(), ImportMode::Apply).unwrap();
+        run(&store, &sheet(&seed_rows()), ImportMode::Apply).unwrap();
         let author = editor(&store);
         let contoso =
             store.read(|tx| tx.heads()).unwrap().into_iter().find(|h| h.record.profile.name == "CONTOSO CAPITAL");
@@ -1232,7 +1180,7 @@ mod tests {
         let mut rows = seed_rows();
         rows[0].push((Column::CreditScore, Number(600.0)));
         rows[1].push((Column::CreditScore, Number(550.0)));
-        let report = run(&store, &sheet(&rows), ImportReadings::default(), ImportMode::Apply).unwrap();
+        let report = run(&store, &sheet(&rows), ImportMode::Apply).unwrap();
         let action = |name: &str| report.rows.iter().find(|row| row.name == name).unwrap().action.clone();
         assert_eq!(action("CONTOSO CAPITAL"), ActionReport::KeptAdminEdits { head: 2, differs: true });
         assert_eq!(action("FABRIKAM FUNDING"), ActionReport::Update { revision: Some(2) });
@@ -1242,23 +1190,10 @@ mod tests {
     }
 
     #[test]
-    fn a_new_reading_updates_every_lender_the_import_still_owns() {
-        let store = Store::open_in_memory();
-        let sheet = sheet(&seed_rows());
-        run(&store, &sheet, ImportReadings::default(), ImportMode::Apply).unwrap();
-        let readings = ImportReadings { open_positions: OpenPositionReading::CappedAtB };
-        let report = run(&store, &sheet, readings, ImportMode::Apply).unwrap();
-        let fabrikam = report.rows.iter().find(|row| row.name == "FABRIKAM FUNDING").unwrap();
-        assert_eq!(fabrikam.action, ActionReport::Update { revision: Some(2) });
-        let head = store.read(|tx| tx.head(fabrikam.lender.as_ref().unwrap())).unwrap().unwrap();
-        assert!(head.record.policy.notes().is_empty());
-    }
-
-    #[test]
     fn lenders_missing_from_the_sheet_are_reported_and_kept() {
         let store = Store::open_in_memory();
-        run(&store, &sheet(&seed_rows()), ImportReadings::default(), ImportMode::Apply).unwrap();
-        let report = run(&store, &sheet(&seed_rows()[..2]), ImportReadings::default(), ImportMode::Apply).unwrap();
+        run(&store, &sheet(&seed_rows()), ImportMode::Apply).unwrap();
+        let report = run(&store, &sheet(&seed_rows()[..2]), ImportMode::Apply).unwrap();
         let missing: Vec<&str> = report.not_in_sheet.iter().map(|missing| missing.name.as_str()).collect();
         assert_eq!(missing, ["NORTHWIND ADVANCE", "SAMPLE PARTNER LINK"]);
         assert_eq!(store.read(|tx| tx.heads()).unwrap().len(), 4);
@@ -1270,7 +1205,7 @@ mod tests {
         let mut rows = seed_rows();
         rows.push(lender("CONTOSO CAPITAL AGAIN", "REC-1", vec![(Column::RestrictedIndustries, Text("Crypto"))]));
         rows.push(vec![(Column::Tib, Number(2.0))]);
-        let result = run(&store, &sheet(&rows), ImportReadings::default(), ImportMode::Apply);
+        let result = run(&store, &sheet(&rows), ImportMode::Apply);
         let Err(ImportError::Blocked(report)) = result else { panic!("expected blockers") };
         assert_eq!(report.blockers.len(), 2, "{:?}", report.blockers);
         assert!(store.read(|tx| tx.heads()).unwrap().is_empty());
@@ -1280,7 +1215,7 @@ mod tests {
     #[test]
     fn an_imported_lender_evaluates_once_activated() {
         let store = Store::open_in_memory();
-        run(&store, &sheet(&seed_rows()), ImportReadings::default(), ImportMode::Apply).unwrap();
+        run(&store, &sheet(&seed_rows()), ImportMode::Apply).unwrap();
         let contoso =
             store.read(|tx| tx.heads()).unwrap().into_iter().find(|h| h.record.profile.name == "CONTOSO CAPITAL");
         let policy = contoso.unwrap().record.policy.with_status(LenderStatus::Active).unwrap();
@@ -1292,7 +1227,7 @@ mod tests {
     #[test]
     fn reports_round_trip_through_json() {
         let store = Store::open_in_memory();
-        let report = run(&store, &sheet(&seed_rows()), ImportReadings::default(), ImportMode::Apply).unwrap();
+        let report = run(&store, &sheet(&seed_rows()), ImportMode::Apply).unwrap();
         assert_eq!(parse_report(&report_json(&report)).unwrap(), report);
         assert!(report.lines().iter().any(|line| line.contains("default: positions above 5")));
     }
