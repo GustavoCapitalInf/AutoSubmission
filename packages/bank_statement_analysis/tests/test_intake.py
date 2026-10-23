@@ -1,5 +1,3 @@
-"""`webapp.intake.accepted_statements`: a batch is stored whole and queued only when the caller's block completes.
-Fabricated PDF bytes only."""
 import uuid
 
 import pytest

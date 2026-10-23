@@ -1,5 +1,3 @@
-"""How statements enter the store, for the dashboard's upload and the API's packages: a batch is checked whole,
-stored whole, and queued only when the caller's block completes."""
 from __future__ import annotations
 
 import json
@@ -18,11 +16,7 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_UPLOAD_FILES = 25
 MAX_UPLOAD_PAGES = 500
 
-#: The free-space floor's refusal (507): fixed text, never a measured figure or a path.
 STORAGE_NEARLY_FULL = "the server's storage is nearly full; no statement was accepted"
-
-#: The answer when the batch could not be stored: every job it created is marked failed with this text and none is
-#: queued. Fixed text, never an exception's.
 UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
 
 IntakeRefusalCode = Literal[
@@ -44,8 +38,8 @@ class CheckedUpload(NamedTuple):
 
 
 class IntakeRefused(Exception):
-    """A refused batch. Nothing was stored or queued, or (`not_stored`) every job the batch created is marked failed
-    and none is queued. `message` is the dashboard's text; `filename` names the refused file, when one was."""
+    """Raised with nothing queued: before anything is stored, or, for `not_stored`, after every job the batch created
+    is marked failed."""
 
     def __init__(self, status: int, code: IntakeRefusalCode, message: str, filename: str | None = None) -> None:
         super().__init__(code)
@@ -56,7 +50,6 @@ class IntakeRefused(Exception):
 
 
 def check_batch_size(count: int) -> None:
-    """Refuses (400) a batch of no file or of more than MAX_UPLOAD_FILES."""
     if not count:
         raise IntakeRefused(400, "no_statements", "no files uploaded")
     if count > MAX_UPLOAD_FILES:
@@ -64,12 +57,6 @@ def check_batch_size(count: int) -> None:
 
 
 def checked_upload(upload: Upload) -> CheckedUpload:
-    """One file, checked in this order: its name, its size, the `%PDF-` header, encryption, then its page count.
-    Raises IntakeRefused (400).
-
-    A name carrying CR, LF or `-->` is refused first, with the class name `ocr.document.StatementMarkdown` would
-    refuse it with (ProvenanceTokenError) and without the name: CR/LF is the multipart delimiter, so such a name is
-    never echoed. Every other refusal names the file, which is safe to echo."""
     filename, pdf_bytes = upload
     if "\r" in filename or "\n" in filename or "-->" in filename:
         raise IntakeRefused(400, "invalid_filename", "ProvenanceTokenError")
@@ -98,10 +85,9 @@ def accepted_statements(
     enqueue: Callable[[str, bytes, str, bool], None],
     volume_nearly_full: Callable[[int], bool],
 ) -> Iterator[list[Job]]:
-    """The batch's jobs, stored, one per upload in order. Entering checks the batch size, then every file
-    (`checked_upload`), then the free-space floor, then stores every job; any refusal raises IntakeRefused and
-    nothing is queued. When the block completes the jobs are queued; when it raises, every job is marked failed with
-    UPLOAD_NOT_STORED, none is queued, and the exception propagates."""
+    """The batch's stored jobs, one per upload in order, queued when the block completes. A refusal raises
+    IntakeRefused with nothing queued; when the block raises, every job is marked failed with UPLOAD_NOT_STORED, none
+    is queued, and the exception propagates."""
     check_batch_size(len(uploads))
     checked = [checked_upload(upload) for upload in uploads]
     if volume_nearly_full(sum(len(upload.pdf_bytes) for upload in checked)):
@@ -117,8 +103,6 @@ def accepted_statements(
 
 
 def _stored(store: JobStore, checked: list[CheckedUpload]) -> list[Job]:
-    """Every job of the batch, with its document row, PDF and preflight profile, before any is queued: a storage
-    failure on file k never leaves files 1..k-1 processed under ids the caller never received."""
     created: list[Job] = []
     try:
         for upload in checked:

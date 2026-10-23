@@ -69,7 +69,6 @@ def _min_free_bytes(raw: str | None) -> int:
 
 MIN_FREE_BYTES = _min_free_bytes(os.environ.get("WEBAPP_MIN_FREE_MB"))
 
-#: The reason the floor gives a refused re-analysis (507): fixed text, never a measured figure or a path.
 STORAGE_NEARLY_FULL_REASON = "the server's storage is nearly full"
 
 
@@ -284,8 +283,6 @@ FORCE_OCR_REMOVED = "Force visual OCR was removed: statements are read determini
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    """The dashboard's upload, on the statement intake (`webapp/intake.py`). `force_ocr=1` is refused after the
-    batch size and before any file is read."""
     files = request.files.getlist("files")
     check_batch_size(len(files))
     if request.form.get("force_ocr") == "1":
@@ -300,8 +297,6 @@ def upload():
             "force_ocr": False,
             "parse_mode": job.parse_mode,
             "content_sha256": job.content_sha256,
-            # A re-upload of identical bytes names the earliest prior job holding them, read in the transaction that
-            # created the job.
             "duplicate_of": job.duplicate_of,
         } for job in jobs]}
     return jsonify(body)

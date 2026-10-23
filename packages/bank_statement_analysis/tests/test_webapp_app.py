@@ -163,16 +163,8 @@ def test_upload_with_no_files_returns_400():
 
 
 def test_checked_upload_refuses_a_filename_with_a_line_break():
-    """MINOR-8: a multipart filename carrying a
-    raw CR/LF is refused at `checked_upload`, with a class-name-only
-    message — never the raw filename echoed back (unlike every other
-    `checked_upload` refusal, which safely echoes an ordinary
-    filename). Tested at the function level, not through the werkzeug test
-    client's multipart encoder: a raw `\\r\\n` inside a `Content-Disposition`
-    filename corrupts the multipart framing itself (the same two bytes are
-    the section delimiter), so the HTTP transport cannot reliably carry this
-    shape at all — `checked_upload` is exercised directly so the refusal is
-    proven regardless of what any given multipart parser does with it."""
+    """Called directly: a CR or LF in a multipart filename breaks werkzeug's multipart framing, so such a file never
+    reaches the view."""
     from webapp.intake import IntakeRefused, Upload, checked_upload
 
     for hostile in ("evil\r\nname.pdf", "evil\nname.pdf", "evil\rname.pdf"):
@@ -183,12 +175,6 @@ def test_checked_upload_refuses_a_filename_with_a_line_break():
 
 
 def test_checked_upload_refuses_a_filename_with_a_comment_close():
-    """NEW-4 (re-review, closure 1cc759e): `StatementMarkdown.__post_init__`
-    also refuses `-->` in `source_file` (the writer-side belt), but a raw
-    `-->` does not corrupt multipart framing the way CR/LF does, so a
-    filename like `a-->b.pdf` reached the view and then died as the same
-    opaque per-job failure MINOR-8 fixed for CR/LF. Refused at
-    `checked_upload` too now, with the identical class-name-only shape."""
     from webapp.intake import IntakeRefused, Upload, checked_upload
 
     with pytest.raises(IntakeRefused) as refused:
@@ -198,8 +184,6 @@ def test_checked_upload_refuses_a_filename_with_a_comment_close():
 
 
 def test_checked_upload_still_echoes_an_ordinary_filename():
-    """The refusal above is scoped to the line-break shape — every other
-    `checked_upload` refusal keeps echoing the (safe) filename it always did."""
     from webapp.intake import IntakeRefused, Upload, checked_upload
 
     with pytest.raises(IntakeRefused) as refused:
