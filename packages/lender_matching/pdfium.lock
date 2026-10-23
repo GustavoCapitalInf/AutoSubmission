@@ -1,0 +1,4 @@
+# The pinned pdfium build (bblanchon/pdfium-binaries), one line per target:
+# <build> <target> <archive URL> <archive SHA-256>
+chromium/7881 linux-x64 https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7881/pdfium-linux-x64.tgz 1470e21b8b4a3b4ad7f85684e2da11d94f3b69a86d81dee11b9b6709d927ac1d
+chromium/7881 win-x64 https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7881/pdfium-win-x64.tgz 73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08

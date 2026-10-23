@@ -55,7 +55,8 @@ pub struct Glyph {
     /// An index into `TextPage::fonts`.
     pub font: u16,
     pub size: f32,
-    /// The engine's loose box, from the font's ascent, descent and advance.
+    /// The engine's loose box: from the origin, the font's ascent and descent, and the drawn
+    /// glyph's width, which can exceed the advance to the next glyph.
     pub rect: Rect,
 }
 
@@ -150,7 +151,9 @@ impl<'a> ReadingOrder<'a> {
     }
 }
 
-/// Words from glyphs given in reading order: a space glyph, a new line or a wide gap ends a word.
+/// Words from glyphs given in reading order. A new line, a wide gap, or a space glyph between two
+/// of them in reading order ends a word, whether or not the space is among `positions`: a loose
+/// box can be wider than the glyph's advance, so a gap alone can hide a typed space.
 pub(crate) fn words(order: &ReadingOrder, positions: &[usize]) -> Vec<Word> {
     let mut words: Vec<Word> = Vec::new();
     let mut previous: Option<usize> = None;
@@ -162,7 +165,9 @@ pub(crate) fn words(order: &ReadingOrder, positions: &[usize]) -> Vec<Word> {
         }
         let joins = previous.is_some_and(|before| {
             let before_glyph = order.glyph(before);
-            order.line[before] == order.line[at] && glyph.rect.x0 - before_glyph.rect.x1 <= WORD_GAP * glyph.size
+            order.line[before] == order.line[at]
+                && (before + 1..at).all(|between| !order.glyph(between).ch.is_whitespace())
+                && glyph.rect.x0 - before_glyph.rect.x1 <= WORD_GAP * glyph.size
         });
         match words.last_mut() {
             Some(word) if joins => {
@@ -227,8 +232,10 @@ pub(crate) mod build {
         }
     }
 
-    pub(crate) fn width(size: f32, text: &str) -> f32 {
-        size / 2.0 * text.chars().count() as f32
+    impl crate::support::form::Canvas for PageBuilder {
+        fn text(self, font: &str, size: f32, x: f32, top: f32, text: &str) -> PageBuilder {
+            PageBuilder::text(self, font, size, x, top, text)
+        }
     }
 }
 
@@ -249,6 +256,18 @@ mod tests {
         let text: String = (0..order.order.len()).map(|at| order.glyph(at).ch).collect();
         assert_eq!(text, "NameCitySAMPLE");
         assert_eq!(order.lines().len(), 2);
+    }
+
+    #[test]
+    fn a_space_outside_the_chosen_glyphs_still_ends_a_word() {
+        let mut page = PageBuilder::new().text("ArialMT", 9.0, 100.0, 100.0, "AM PM").build();
+        for glyph in &mut page.glyphs {
+            glyph.rect.x1 += 3.0;
+        }
+        let order = ReadingOrder::new(&page);
+        let letters: Vec<usize> = (0..order.order.len()).filter(|at| !order.glyph(*at).ch.is_whitespace()).collect();
+        let found: Vec<String> = words(&order, &letters).into_iter().map(|word| word.text).collect();
+        assert_eq!(found, ["AM", "PM"]);
     }
 
     #[test]

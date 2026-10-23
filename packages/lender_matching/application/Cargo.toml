@@ -5,8 +5,10 @@ edition = "2024"
 publish = false
 
 [dependencies]
+pdfium-render = { version = "=0.9.4", default-features = false, features = ["pdfium_7881", "image_025"] }
 serde = { version = "1.0.229", features = ["derive"] }
 time = { version = "0.3.55", features = ["macros"] }
 
 [dev-dependencies]
+pdf-writer = "0.15.0"
 serde_json = "1.0.154"

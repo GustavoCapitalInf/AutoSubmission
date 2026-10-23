@@ -1,12 +1,21 @@
 //! Reads Capital Infusion's merchant application PDFs into typed field readings. It reaches no
-//! store, network or log.
+//! store, network or log. `pdf` is the only part that touches pdfium, and `worker` runs it in a
+//! child process; every other function is pure.
 
 pub mod certificate;
 pub mod extract;
 pub mod fields;
 pub mod page;
+pub mod pdf;
 mod template;
 pub mod values;
+pub mod worker;
+
+#[cfg(test)]
+extern crate self as lender_matching_application;
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
 
 pub use certificate::{Certificate, SignerCheck, compare_signer};
 pub use extract::{Document, FieldReading, Outcome, Reading, read};

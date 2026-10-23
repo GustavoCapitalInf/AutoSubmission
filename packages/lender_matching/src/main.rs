@@ -57,6 +57,9 @@ enum Command {
         #[command(subcommand)]
         command: TokenCommand,
     },
+    /// Read PDFs with pdfium for a supervising process: frames on stdin, page data on stdout.
+    #[command(hide = true)]
+    PdfWorker,
 }
 
 #[derive(Subcommand)]
@@ -117,6 +120,16 @@ fn open_store(data_dir: Option<PathBuf>) -> Result<(DataDir, Store), String> {
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::PdfWorker => {
+            let library = std::env::var_os("PDFIUM_LIBRARY").map(PathBuf::from);
+            lender_matching_application::worker::serve(
+                library.as_deref(),
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Serve { bind } => {
             let (dir, store) = open_store(cli.data_dir)?;
             serve(dir, store, bind)

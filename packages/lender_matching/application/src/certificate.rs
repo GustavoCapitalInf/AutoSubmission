@@ -186,43 +186,14 @@ pub fn compare_signer(name: Option<&str>, email: Option<&Email>, signers: &[Sign
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use crate::page::build::PageBuilder;
+    use crate::support::form::certificate;
     use time::macros::date;
 
-    /// A fabricated certificate in DocuSign's arrangement, with an originator block above the
-    /// signer rows.
-    pub(crate) fn certificate_page(signers: &[(&str, &str)]) -> TextPage {
-        let font = "ArialMT";
-        let mut page = PageBuilder::new()
-            .text(font, 12.0, 40.0, 40.0, "Certificate Of Completion")
-            .text(font, 9.0, 40.0, 60.0, "Envelope Id: 0F8FAD5BD9CB469FA16570867728950E")
-            .text(font, 9.0, 330.0, 60.0, "Status: Completed")
-            .text(font, 9.0, 40.0, 75.0, "Document Pages: 1")
-            .text(font, 9.0, 330.0, 75.0, "Envelope Originator:")
-            .text(font, 9.0, 330.0, 87.0, "SAMPLE ORIGINATOR")
-            .text(font, 9.0, 330.0, 99.0, "originator@example.com")
-            .text(font, 9.0, 40.0, 120.0, "Signer Events")
-            .text(font, 9.0, 250.0, 120.0, "Signature")
-            .text(font, 9.0, 420.0, 120.0, "Timestamp");
-        let mut top = 135.0;
-        for (name, email) in signers {
-            page = page
-                .text(font, 9.0, 40.0, top, name)
-                .text(font, 9.0, 250.0, top, name)
-                .text(font, 9.0, 420.0, top, "Sent: 10/20/2026 | 09:01 AM")
-                .text(font, 9.0, 40.0, top + 11.0, email)
-                .text(font, 9.0, 420.0, top + 11.0, "Signed: 10/20/2026 | 09:30 AM")
-                .text(font, 9.0, 40.0, top + 22.0, "Security Level: Email, Account Authentication (None)");
-            top += 40.0;
-        }
-        page.text(font, 9.0, 40.0, top, "In Person Signer Events")
-            .text(font, 9.0, 250.0, top, "Signature")
-            .text(font, 9.0, 40.0, top + 30.0, "Envelope Summary Events")
-            .text(font, 9.0, 40.0, top + 42.0, "Envelope Sent Hashed/Encrypted 10/19/2026 | 09:01 AM")
-            .text(font, 9.0, 40.0, top + 54.0, "Completed Security Checked 10/20/2026 | 09:30 AM")
-            .build()
+    fn certificate_page(signers: &[(&str, &str)]) -> TextPage {
+        certificate(PageBuilder::new(), signers).build()
     }
 
     fn other_page() -> TextPage {
