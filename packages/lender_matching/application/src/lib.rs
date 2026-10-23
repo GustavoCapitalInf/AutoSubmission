@@ -13,7 +13,7 @@ pub mod values;
 pub mod worker;
 
 /// Bumped when the same PDF would read differently; an evaluate report names it.
-pub const PARSER_VERSION: u32 = 1;
+pub const PARSER_VERSION: u32 = 2;
 
 #[cfg(test)]
 extern crate self as lender_matching_application;

@@ -218,8 +218,10 @@ impl Candidate {
 }
 
 /// Every occurrence of a heading (any font) or a label (in a label font) that starts a word and
-/// lies on one line. The label's end needs no boundary, so `City:SAMPLE` typed in one run splits
-/// after the label. Where occurrences overlap, the longer one wins.
+/// lies on one line. A label is matched among the line's label-font glyphs only, so a value typed
+/// over it in another font, whose glyphs interleave with the label's in reading order, does not
+/// hide it. The label's end needs no boundary, so `City:SAMPLE` typed in one run splits after the
+/// label. Where occurrences overlap, the longer one wins.
 fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
     let mut texts: Vec<(&'static str, bool)> = vec![(CONTRACT_TITLE, true)];
     for section in FORM.sections {
@@ -232,15 +234,22 @@ fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
             }
         }
     }
-    let label_font = |name: &str| FORM.label_fonts.iter().any(|prefix| name.starts_with(prefix));
+    let in_label_view = |at: usize| {
+        let glyph = order.glyph(at);
+        let name = order.page.font_name(glyph);
+        glyph.ch.is_whitespace() || FORM.label_fonts.iter().any(|prefix| name.starts_with(prefix))
+    };
     let mut found = Vec::new();
     for at in 0..order.order.len() {
-        if !order.starts_word(at) {
-            continue;
-        }
+        let heading_start = order.starts_word(at, |_| true);
+        let label_start = in_label_view(at) && order.starts_word(at, in_label_view);
         for (text, heading) in &texts {
-            let font_ok = |name: &str| *heading || label_font(name);
-            if let Some(positions) = match_at(order, at, text, font_ok) {
+            let found_here = match heading {
+                true if heading_start => match_at(order, at, text, |_| true),
+                false if label_start => match_at(order, at, text, in_label_view),
+                _ => None,
+            };
+            if let Some(positions) = found_here {
                 let first = order.glyph(positions[0]).rect;
                 let end_x = order.glyph(*positions.last().expect("a label has text")).rect.x1;
                 found.push(Candidate { text, heading: *heading, positions, first, end_x });
@@ -262,11 +271,12 @@ fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
     kept
 }
 
-fn match_at(order: &ReadingOrder, start: usize, text: &str, font_ok: impl Fn(&str) -> bool) -> Option<Vec<usize>> {
+/// `text` from `start` on its line, matched among the positions `seen` keeps, spacing aside.
+fn match_at(order: &ReadingOrder, start: usize, text: &str, seen: impl Fn(usize) -> bool) -> Option<Vec<usize>> {
     let line = order.line[start];
     let on_line = |at: usize| at < order.order.len() && order.line[at] == line;
-    let skip_spaces = |mut at: usize| {
-        while on_line(at) && order.glyph(at).ch.is_whitespace() {
+    let skip = |mut at: usize| {
+        while on_line(at) && (!seen(at) || order.glyph(at).ch.is_whitespace()) {
             at += 1;
         }
         at
@@ -274,18 +284,14 @@ fn match_at(order: &ReadingOrder, start: usize, text: &str, font_ok: impl Fn(&st
     let mut positions = Vec::new();
     let mut at = start;
     for ch in text.chars().filter(|c| !c.is_whitespace()) {
-        at = skip_spaces(at);
-        if !on_line(at) {
-            return None;
-        }
-        let glyph = order.glyph(at);
-        if glyph.ch != ch || !font_ok(order.page.font_name(glyph)) {
+        at = skip(at);
+        if !on_line(at) || order.glyph(at).ch != ch {
             return None;
         }
         positions.push(at);
         at += 1;
     }
-    let colon = skip_spaces(at);
+    let colon = skip(at);
     if on_line(colon) && order.glyph(colon).ch == ':' {
         positions.push(colon);
     }

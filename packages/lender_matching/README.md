@@ -144,7 +144,8 @@ A PDF reads by these rules:
   300 characters. A page with both kinds of heading, a scan-like page, or labels that fit no single known layout
   sends the document to manual entry.
 - Labels are found by their printed text in Calibri or AdobeDevanagari, character by character, so a value typed into
-  the label's own run splits after the label. In each section the labels bind in reading order. A label that two
+  the label's own run splits after the label. Characters of other fonts are skipped while a label is matched, so a
+  value that runs over the label to its right does not hide it. In each section the labels bind in reading order. A label that two
   equally long matchings place differently is out of place, never "the nearer one".
 - A value lies on its label's row, with its top within −10 to +8 pt of the label's top, from the label's end to the
   next label on the row. Prior/Current Loan Company also takes the next line.

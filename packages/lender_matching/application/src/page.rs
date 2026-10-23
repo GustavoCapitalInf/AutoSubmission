@@ -120,16 +120,19 @@ impl<'a> ReadingOrder<'a> {
         &self.page.glyphs[self.order[at]]
     }
 
-    /// Whether a word may start at `at`: a line start, or after a space, a gap or punctuation.
-    pub fn starts_word(&self, at: usize) -> bool {
+    /// Whether a word may start at `at` among the positions `seen` keeps: a line start, or after
+    /// a space, a gap or punctuation.
+    pub fn starts_word(&self, at: usize, seen: impl Fn(usize) -> bool) -> bool {
         let glyph = self.glyph(at);
         if glyph.ch.is_whitespace() {
             return false;
         }
-        if at == 0 || self.line[at - 1] != self.line[at] {
+        let line = self.line[at];
+        let Some(before) = (0..at).rev().take_while(|&before| self.line[before] == line).find(|&before| seen(before))
+        else {
             return true;
-        }
-        let previous = self.glyph(at - 1);
+        };
+        let previous = self.glyph(before);
         previous.ch.is_whitespace()
             || !previous.ch.is_alphanumeric()
             || glyph.rect.x0 - previous.rect.x1 > WORD_GAP * glyph.size

@@ -91,6 +91,17 @@ fn a_value_typed_into_its_labels_run_splits_after_the_label() {
     assert_eq!(canonical(form, FieldId::Business(B::Zip)).as_deref(), Some("78701"));
 }
 
+/// The legal name runs from its label's end at x 150.5 to x 353, over the start of the label
+/// "Doing Business As (DBA)" at x 330.
+const LONG_LEGAL_NAME: &str = "CONTOSO FABRIKAM NORTHWIND HOLDINGS OF SAMPLE";
+
+#[test]
+fn a_label_that_a_value_runs_over_is_still_found() {
+    let reading = read_form_page(&Form::word().set(FieldId::Business(B::LegalName), LONG_LEGAL_NAME));
+    let form = form(&reading);
+    assert_eq!(canonical(form, FieldId::Business(B::Dba)).as_deref(), Some("NORTHWIND"));
+}
+
 #[test]
 fn repeated_labels_belong_to_their_owner() {
     let reading = read_form_page(&Form::word());

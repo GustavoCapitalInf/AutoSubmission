@@ -63,7 +63,7 @@ fn evaluate_prints_counts_and_never_a_value_or_a_file_name() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(output.status.success(), "{stderr}");
     for expected in [
-        "parser 1, 9 PDF files, 1 other files skipped",
+        "parser 2, 9 PDF files, 1 other files skipped",
         "documents     application 6 · manual_entry.unknown_layout 1 · refused.contract 1",
         "failures      not_pdf 1",
         "layouts       pdfescape 1 · word 5",
