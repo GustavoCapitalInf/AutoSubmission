@@ -298,6 +298,27 @@ fn blank_and_not_applicable_answers() {
 }
 
 #[test]
+fn names_codes_and_identifiers_read_in_the_shapes_merchants_type() {
+    let p = OwnerSlot::Principal;
+    let typed = [
+        (FieldId::Business(B::State), "Texas", "TX"),
+        (FieldId::Owner(p, O::State), "TX.", "TX"),
+        (FieldId::Business(B::Zip), "78701.", "78701"),
+        (FieldId::Business(B::Phone), "512/555/0100", "512-555-0100"),
+        (FieldId::Owner(p, O::Phone), "512 555-0103", "512-555-0103"),
+        (FieldId::Business(B::TaxId), "12 3456789", "12-3456789"),
+        (FieldId::Owner(p, O::Ssn), "900 12 3456", "900-12-3456"),
+        (FieldId::Business(B::Entity), "GENERAL PARTNERSHIP (GP)", "PARTNERSHIP"),
+    ];
+    let form_with = typed.iter().fold(Form::word(), |form, (field, text, _)| form.set(*field, text));
+    let reading = read_form_page(&form_with);
+    let form = form(&reading);
+    for (field, _, canonical_text) in typed {
+        assert_eq!(canonical(form, field).as_deref(), Some(canonical_text), "{field}: {:?}", outcome(form, field));
+    }
+}
+
+#[test]
 fn a_canadian_business_refuses_dates_whose_month_and_day_could_swap() {
     let reading = read_form_page(
         &Form::word()

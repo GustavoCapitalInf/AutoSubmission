@@ -88,12 +88,78 @@ impl<'de> Deserialize<'de> for YearMonth {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Jurisdiction(&'static str);
 
-/// The US codes come first; `CANADA_FROM` is the index of the first Canadian one.
-const JURISDICTIONS: [&str; 69] = [
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME",
-    "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
-    "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC", "PR", "GU", "VI", "AS", "MP", "AB",
-    "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
+/// Each postal code with the full names that read as it, in upper case. The US codes come first;
+/// `CANADA_FROM` is the index of the first Canadian one.
+const JURISDICTIONS: [(&str, &[&str]); 69] = [
+    ("AL", &["ALABAMA"]),
+    ("AK", &["ALASKA"]),
+    ("AZ", &["ARIZONA"]),
+    ("AR", &["ARKANSAS"]),
+    ("CA", &["CALIFORNIA"]),
+    ("CO", &["COLORADO"]),
+    ("CT", &["CONNECTICUT"]),
+    ("DE", &["DELAWARE"]),
+    ("FL", &["FLORIDA"]),
+    ("GA", &["GEORGIA"]),
+    ("HI", &["HAWAII"]),
+    ("ID", &["IDAHO"]),
+    ("IL", &["ILLINOIS"]),
+    ("IN", &["INDIANA"]),
+    ("IA", &["IOWA"]),
+    ("KS", &["KANSAS"]),
+    ("KY", &["KENTUCKY"]),
+    ("LA", &["LOUISIANA"]),
+    ("ME", &["MAINE"]),
+    ("MD", &["MARYLAND"]),
+    ("MA", &["MASSACHUSETTS"]),
+    ("MI", &["MICHIGAN"]),
+    ("MN", &["MINNESOTA"]),
+    ("MS", &["MISSISSIPPI"]),
+    ("MO", &["MISSOURI"]),
+    ("MT", &["MONTANA"]),
+    ("NE", &["NEBRASKA"]),
+    ("NV", &["NEVADA"]),
+    ("NH", &["NEW HAMPSHIRE"]),
+    ("NJ", &["NEW JERSEY"]),
+    ("NM", &["NEW MEXICO"]),
+    ("NY", &["NEW YORK"]),
+    ("NC", &["NORTH CAROLINA"]),
+    ("ND", &["NORTH DAKOTA"]),
+    ("OH", &["OHIO"]),
+    ("OK", &["OKLAHOMA"]),
+    ("OR", &["OREGON"]),
+    ("PA", &["PENNSYLVANIA"]),
+    ("RI", &["RHODE ISLAND"]),
+    ("SC", &["SOUTH CAROLINA"]),
+    ("SD", &["SOUTH DAKOTA"]),
+    ("TN", &["TENNESSEE"]),
+    ("TX", &["TEXAS"]),
+    ("UT", &["UTAH"]),
+    ("VT", &["VERMONT"]),
+    ("VA", &["VIRGINIA"]),
+    ("WA", &["WASHINGTON"]),
+    ("WV", &["WEST VIRGINIA"]),
+    ("WI", &["WISCONSIN"]),
+    ("WY", &["WYOMING"]),
+    ("DC", &["DISTRICT OF COLUMBIA"]),
+    ("PR", &["PUERTO RICO"]),
+    ("GU", &["GUAM"]),
+    ("VI", &["U.S. VIRGIN ISLANDS", "US VIRGIN ISLANDS", "VIRGIN ISLANDS"]),
+    ("AS", &["AMERICAN SAMOA"]),
+    ("MP", &["NORTHERN MARIANA ISLANDS"]),
+    ("AB", &["ALBERTA"]),
+    ("BC", &["BRITISH COLUMBIA"]),
+    ("MB", &["MANITOBA"]),
+    ("NB", &["NEW BRUNSWICK"]),
+    ("NL", &["NEWFOUNDLAND AND LABRADOR"]),
+    ("NS", &["NOVA SCOTIA"]),
+    ("NT", &["NORTHWEST TERRITORIES"]),
+    ("NU", &["NUNAVUT"]),
+    ("ON", &["ONTARIO"]),
+    ("PE", &["PRINCE EDWARD ISLAND"]),
+    ("QC", &["QUEBEC", "QUÉBEC"]),
+    ("SK", &["SASKATCHEWAN"]),
+    ("YT", &["YUKON"]),
 ];
 const CANADA_FROM: usize = 56;
 
@@ -107,7 +173,17 @@ impl Jurisdiction {
     /// Postal codes only, in any case: `QB` and `Texas` are refused.
     pub fn from_code(code: &str) -> Option<Jurisdiction> {
         let upper = code.trim().to_ascii_uppercase();
-        JURISDICTIONS.iter().find(|known| **known == upper).map(|known| Jurisdiction(known))
+        JURISDICTIONS.iter().find(|(known, _)| *known == upper).map(|(known, _)| Jurisdiction(known))
+    }
+
+    /// A postal code with or without a trailing dot, or a full name, in any case.
+    fn read(text: &str) -> Option<Jurisdiction> {
+        let code = text.strip_suffix('.').unwrap_or(text);
+        if code.len() == 2 {
+            return Jurisdiction::from_code(code);
+        }
+        let upper = text.to_uppercase();
+        JURISDICTIONS.iter().find(|(_, names)| names.contains(&upper.as_str())).map(|(known, _)| Jurisdiction(known))
     }
 
     pub fn code(self) -> &'static str {
@@ -115,7 +191,7 @@ impl Jurisdiction {
     }
 
     pub fn country(self) -> Country {
-        let index = JURISDICTIONS.iter().position(|known| *known == self.0).expect("constructed from the list");
+        let index = JURISDICTIONS.iter().position(|(known, _)| *known == self.0).expect("constructed from the list");
         if index >= CANADA_FROM { Country::Canada } else { Country::UnitedStates }
     }
 }
@@ -269,14 +345,19 @@ pub enum PostalCode {
     Canada([u8; 6]),
 }
 
-/// The form's dropdown, finer than the matcher's entity kinds: S and C corporations stay apart.
+/// The form's dropdown read as the matcher's entity kinds, except that S and C corporations stay
+/// apart.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Entity {
     Llc,
+    /// Also a professional corporation.
     Corporation,
     SCorporation,
     CCorporation,
     SoleProprietorship,
+    /// A general, limited or limited liability partnership.
+    Partnership,
+    NonProfit,
 }
 
 /// A business date at the precision the merchant wrote: `04/15/2019` is a day, `04/2019` a month.
@@ -292,9 +373,9 @@ pub struct BirthDate(Date);
 /// The scheme is read from the digits' grouping only; nothing asserts that an authority issued it.
 #[derive(Clone, PartialEq)]
 pub enum TaxId {
-    /// `99-9999999`.
+    /// Grouped `99-9999999`.
     Ein([u8; 9]),
-    /// `999999999`: an EIN or a Canadian business number.
+    /// Nine digits grouped otherwise: an EIN, an SSN or a Canadian business number.
     Unclassified([u8; 9]),
     /// `999999999AA9999`: the business number, its program and its reference number.
     CanadianBusinessNumber { number: [u8; 9], program: [u8; 2], reference: [u8; 4] },
@@ -306,7 +387,8 @@ pub struct PersonalTaxId {
     scheme: IdScheme,
 }
 
-/// From the grouping only: `999-99-9999` is written as an SSN, `999 999 999` as a SIN.
+/// From the grouping only: `999-99-9999` is written as an SSN, `999 999 999` as a SIN, whatever
+/// separates the groups.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IdScheme {
     UsSsn,
@@ -401,10 +483,7 @@ impl FieldKind {
             FieldKind::Text => FieldValue::Text(normalized.clone()),
             FieldKind::Email => FieldValue::Email(email(s)?),
             FieldKind::Phone => FieldValue::Phone(phone(s)?),
-            FieldKind::Jurisdiction => {
-                let code = (s.len() == 2).then(|| Jurisdiction::from_code(s)).flatten();
-                FieldValue::Jurisdiction(code.ok_or(Refusal::NotInList)?)
-            }
+            FieldKind::Jurisdiction => FieldValue::Jurisdiction(Jurisdiction::read(s).ok_or(Refusal::NotInList)?),
             FieldKind::PostalCode => FieldValue::PostalCode(postal_code(s)?),
             FieldKind::Entity => FieldValue::Entity(entity(s)?),
             FieldKind::StatedDate => FieldValue::StatedDate(stated_date(s, context)?),
@@ -540,29 +619,42 @@ fn email(s: &str) -> Result<Email, Refusal> {
     Ok(Email { local: local.to_string(), domain: domain.to_ascii_lowercase() })
 }
 
+/// Ten digits, or eleven with a leading `1` (also `+1`), between any spaces and `-`, `.`, `(`, `)`,
+/// `/` or `=`. The area code and the exchange start at 2 or more.
 fn phone(s: &str) -> Result<Phone, Refusal> {
-    let digit_count = s.bytes().filter(u8::is_ascii_digit).count();
-    let strip_separator = |rest: &str| rest.strip_prefix([' ', '-', '.']).unwrap_or(rest).to_string();
-    let rest = if let Some(rest) = s.strip_prefix("+1") {
-        strip_separator(rest)
-    } else if digit_count == 11 && s.starts_with('1') {
-        strip_separator(&s[1..])
-    } else {
-        s.to_string()
+    let (plus, rest) = match s.strip_prefix('+') {
+        Some(rest) => (true, rest),
+        None => (false, s),
     };
-    const SHAPES: [&str; 6] =
-        ["9999999999", "999-999-9999", "999 999 9999", "999.999.9999", "(999) 999-9999", "(999)999-9999"];
-    if !SHAPES.iter().any(|shape| matches_shape(&rest, shape)) {
+    if !rest.chars().all(|c| c.is_ascii_digit() || " -.()/=".contains(c)) {
         return Err(Refusal::Format);
     }
-    let d: [u8; 10] = digit_array(&rest);
+    let digits: Vec<u8> = rest.bytes().filter(u8::is_ascii_digit).map(|b| b - b'0').collect();
+    let d: [u8; 10] = match digits.as_slice() {
+        [1, ten @ ..] if ten.len() == 10 => ten.try_into().expect("ten digits"),
+        ten if ten.len() == 10 && !plus => ten.try_into().expect("ten digits"),
+        _ => return Err(Refusal::Format),
+    };
     if d[0] < 2 || d[3] < 2 {
         return Err(Refusal::Format);
     }
     Ok(Phone(d))
 }
 
+/// The digit runs of `s` when it starts and ends with a digit and only `separators` lie between
+/// them.
+fn digit_groups<'a>(s: &'a str, separators: &str) -> Option<Vec<&'a str>> {
+    let digit_ends = s.starts_with(|c: char| c.is_ascii_digit()) && s.ends_with(|c: char| c.is_ascii_digit());
+    (digit_ends && s.chars().all(|c| c.is_ascii_digit() || separators.contains(c)))
+        .then(|| s.split(|c: char| !c.is_ascii_digit()).filter(|group| !group.is_empty()).collect())
+}
+
+/// What may separate the digit groups of an SSN or a tax ID.
+const ID_SEPARATORS: &str = " -.";
+
+/// A trailing backtick, period or comma is dropped.
 fn postal_code(s: &str) -> Result<PostalCode, Refusal> {
+    let s = s.trim_end_matches(['`', '.', ',']).trim_end();
     if matches_shape(s, "99999") {
         return Ok(PostalCode::Us { five: digit_array(s), plus_four: None });
     }
@@ -597,16 +689,31 @@ fn entity_text(entity: Entity) -> &'static str {
         Entity::SCorporation => "S CORPORATION (S CORP)",
         Entity::CCorporation => "C CORPORATION (C CORP)",
         Entity::SoleProprietorship => "SOLE PROPRIETORSHIP",
+        Entity::Partnership => "PARTNERSHIP",
+        Entity::NonProfit => "NONPROFIT",
     }
 }
 
+/// Each dropdown text, also without its parenthesis and as the abbreviation in it.
 fn entity(s: &str) -> Result<Entity, Refusal> {
     match s.to_uppercase().as_str() {
-        "LIMITED LIABILITY COMPANY" | "LLC" => Ok(Entity::Llc),
+        "LIMITED LIABILITY COMPANY (LLC)" | "LIMITED LIABILITY COMPANY" | "LLC" => Ok(Entity::Llc),
         "CORPORATION" | "CORP" | "INC" => Ok(Entity::Corporation),
+        "PROFESSIONAL CORPORATION (PC)" | "PROFESSIONAL CORPORATION" | "PC" => Ok(Entity::Corporation),
         "S CORPORATION (S CORP)" | "S CORPORATION" | "S CORP" => Ok(Entity::SCorporation),
         "C CORPORATION (C CORP)" | "C CORPORATION" | "C CORP" => Ok(Entity::CCorporation),
         "SOLE PROPRIETORSHIP" => Ok(Entity::SoleProprietorship),
+        "PARTNERSHIP"
+        | "LIMITED LIABILITY PARTNERSHIP (LLP)"
+        | "LIMITED LIABILITY PARTNERSHIP"
+        | "LLP"
+        | "GENERAL PARTNERSHIP (GP)"
+        | "GENERAL PARTNERSHIP"
+        | "GP"
+        | "LIMITED PARTNERSHIP (LP)"
+        | "LIMITED PARTNERSHIP"
+        | "LP" => Ok(Entity::Partnership),
+        "NONPROFIT" => Ok(Entity::NonProfit),
         "S CORPORATION (C CORP)" | "C CORPORATION (S CORP)" => Err(Refusal::Ambiguous),
         _ => Err(Refusal::NotInList),
     }
@@ -799,14 +906,18 @@ fn us_date(date: Date) -> String {
     format!("{:02}/{:02}/{:04}", date.month() as u8, date.day(), date.year())
 }
 
+/// Nine digits in any grouping, an EIN when grouped 2 and 7, or a Canadian business number: nine
+/// digits, two letters and four digits, with spaces anywhere.
 fn tax_id(s: &str) -> Result<TaxId, Refusal> {
-    if matches_shape(s, "99-9999999") {
-        return Ok(TaxId::Ein(digit_array(s)));
+    if let Some(groups) = digit_groups(s, ID_SEPARATORS) {
+        let lengths: Vec<usize> = groups.iter().map(|group| group.len()).collect();
+        return match lengths.as_slice() {
+            _ if lengths.iter().sum::<usize>() != 9 => Err(Refusal::Format),
+            [2, 7] => Ok(TaxId::Ein(digit_array(s))),
+            _ => Ok(TaxId::Unclassified(digit_array(s))),
+        };
     }
-    if matches_shape(s, "999999999") {
-        return Ok(TaxId::Unclassified(digit_array(s)));
-    }
-    let upper = s.to_ascii_uppercase();
+    let upper: String = s.chars().filter(|c| *c != ' ').collect::<String>().to_ascii_uppercase();
     let bytes = upper.as_bytes();
     if bytes.len() == 15
         && bytes[..9].iter().all(u8::is_ascii_digit)
@@ -822,15 +933,16 @@ fn tax_id(s: &str) -> Result<TaxId, Refusal> {
     Err(Refusal::Format)
 }
 
+/// Nine digits in any grouping. Grouped 3, 2 and 4 they are written as an SSN, grouped in threes
+/// as a SIN.
 fn personal_tax_id(s: &str) -> Result<PersonalTaxId, Refusal> {
-    let scheme = if matches_shape(s, "999-99-9999") {
-        IdScheme::UsSsn
-    } else if matches_shape(s, "999 999 999") {
-        IdScheme::CanadianSin
-    } else if matches_shape(s, "999999999") {
-        IdScheme::Unclassified
-    } else {
-        return Err(Refusal::Format);
+    let groups = digit_groups(s, ID_SEPARATORS).ok_or(Refusal::Format)?;
+    let lengths: Vec<usize> = groups.iter().map(|group| group.len()).collect();
+    let scheme = match lengths.as_slice() {
+        _ if lengths.iter().sum::<usize>() != 9 => return Err(Refusal::Format),
+        [3, 2, 4] => IdScheme::UsSsn,
+        [3, 3, 3] => IdScheme::CanadianSin,
+        _ => IdScheme::Unclassified,
     };
     Ok(PersonalTaxId { digits: digit_array(s), scheme })
 }
@@ -1072,6 +1184,12 @@ mod tests {
                 ("1-512-555-0100", "512-555-0100"),
                 ("+1 512 555 0100", "512-555-0100"),
                 ("+1 (512) 555-0100", "512-555-0100"),
+                ("512/555/0100", "512-555-0100"),
+                ("512-555=0100", "512-555-0100"),
+                ("512 555-0100", "512-555-0100"),
+                ("(512)-555-0100", "512-555-0100"),
+                ("512-5550-100", "512-555-0100"),
+                ("1 (512) 555.0100", "512-555-0100"),
             ],
         );
         refuses(
@@ -1079,21 +1197,47 @@ mod tests {
             &[
                 ("512-555-010", Refusal::Format),
                 ("512-555-0100 x12", Refusal::Format),
-                ("512/555/0100", Refusal::Format),
+                ("512-555-01000", Refusal::Format),
                 ("112-555-0100", Refusal::Format),
                 ("512-155-0100", Refusal::Format),
-                ("512-5550-100", Refusal::Format),
+                ("+512 555 0100", Refusal::Format),
+                ("512_555_0100", Refusal::Format),
             ],
         );
     }
 
     #[test]
-    fn jurisdictions_take_postal_codes_only() {
-        accepts(FieldKind::Jurisdiction, &[("TX", "TX"), ("tx", "TX"), ("ON", "ON")]);
+    fn jurisdictions_take_postal_codes_and_full_names() {
+        accepts(
+            FieldKind::Jurisdiction,
+            &[
+                ("TX", "TX"),
+                ("tx", "TX"),
+                ("ON", "ON"),
+                ("TX.", "TX"),
+                ("Tx.", "TX"),
+                ("Texas", "TX"),
+                ("TEXAS", "TX"),
+                ("new york", "NY"),
+                ("District of Columbia", "DC"),
+                ("Puerto Rico", "PR"),
+                ("Québec", "QC"),
+                ("QUEBEC", "QC"),
+                ("Newfoundland and Labrador", "NL"),
+            ],
+        );
         refuses(
             FieldKind::Jurisdiction,
-            &[("QB", Refusal::NotInList), ("Texas", Refusal::NotInList), ("TX.", Refusal::NotInList)],
+            &[
+                ("QB", Refusal::NotInList),
+                ("Tex", Refusal::NotInList),
+                ("T X", Refusal::NotInList),
+                ("TX..", Refusal::NotInList),
+                ("Washington DC", Refusal::NotInList),
+                ("New York City", Refusal::NotInList),
+            ],
         );
+        assert_eq!(Jurisdiction::from_code("Texas"), None, "a stored code is a code");
         assert_eq!(Jurisdiction::from_code("PR").map(Jurisdiction::country), Some(Country::UnitedStates));
         assert_eq!(Jurisdiction::from_code("AB").map(Jurisdiction::country), Some(Country::Canada));
         assert_eq!(Jurisdiction::from_code("YT").map(Jurisdiction::country), Some(Country::Canada));
@@ -1109,6 +1253,9 @@ mod tests {
                 ("78701-1234", "78701-1234"),
                 ("K1A 0B1", "K1A 0B1"),
                 ("k1a0b1", "K1A 0B1"),
+                ("K1A 0B1`", "K1A 0B1"),
+                ("78701.", "78701"),
+                ("78701-1234,", "78701-1234"),
             ],
         );
         refuses(
@@ -1119,6 +1266,8 @@ mod tests {
                 ("D1A 0B1", Refusal::Format),
                 ("W1A 0B1", Refusal::Format),
                 ("K1A-0B1", Refusal::Format),
+                ("78701;", Refusal::Format),
+                (".", Refusal::Format),
             ],
         );
     }
@@ -1128,6 +1277,7 @@ mod tests {
         accepts(
             FieldKind::Entity,
             &[
+                ("LIMITED LIABILITY COMPANY (LLC)", "LIMITED LIABILITY COMPANY"),
                 ("LIMITED LIABILITY COMPANY", "LIMITED LIABILITY COMPANY"),
                 ("llc", "LIMITED LIABILITY COMPANY"),
                 ("S CORPORATION (S CORP)", "S CORPORATION (S CORP)"),
@@ -1135,7 +1285,12 @@ mod tests {
                 ("C CORPORATION (C CORP)", "C CORPORATION (C CORP)"),
                 ("CORPORATION", "CORPORATION"),
                 ("INC", "CORPORATION"),
+                ("PROFESSIONAL CORPORATION (PC)", "CORPORATION"),
                 ("SOLE PROPRIETORSHIP", "SOLE PROPRIETORSHIP"),
+                ("NONPROFIT", "NONPROFIT"),
+                ("LIMITED LIABILITY PARTNERSHIP (LLP)", "PARTNERSHIP"),
+                ("GENERAL PARTNERSHIP (GP)", "PARTNERSHIP"),
+                ("Limited Partnership (LP)", "PARTNERSHIP"),
             ],
         );
         refuses(
@@ -1143,8 +1298,9 @@ mod tests {
             &[
                 ("S CORPORATION (C CORP)", Refusal::Ambiguous),
                 ("C CORPORATION (S CORP)", Refusal::Ambiguous),
-                ("PARTNERSHIP", Refusal::NotInList),
                 ("LLC.", Refusal::NotInList),
+                ("TRUST", Refusal::NotInList),
+                ("NON PROFIT CORPORATION", Refusal::NotInList),
             ],
         );
     }
@@ -1285,11 +1441,23 @@ mod tests {
                 ("012345678", "012345678"),
                 ("123456789RT0001", "123456789RT0001"),
                 ("123456789rt0001", "123456789RT0001"),
+                ("01 2345678", "01-2345678"),
+                ("123-45-6789", "123456789"),
+                ("12-345-6789", "123456789"),
+                ("12345 6789", "123456789"),
+                ("12345 6789 RT 0001", "123456789RT0001"),
+                ("123456789 RT0001", "123456789RT0001"),
             ],
         );
         refuses(
             FieldKind::TaxId,
-            &[("12-345678", Refusal::Format), ("123-45-6789", Refusal::Format), ("123456789RT001", Refusal::Format)],
+            &[
+                ("12-345678", Refusal::Format),
+                ("12-34567890", Refusal::Format),
+                ("123456789RT001", Refusal::Format),
+                ("12/3456789", Refusal::Format),
+                ("-123456789", Refusal::Format),
+            ],
         );
     }
 
@@ -1297,11 +1465,25 @@ mod tests {
     fn personal_ids_keep_the_grouping_they_were_written_with() {
         accepts(
             FieldKind::Ssn,
-            &[("900-12-3456", "900-12-3456"), ("900123456", "900123456"), ("900 123 456", "900 123 456")],
+            &[
+                ("900-12-3456", "900-12-3456"),
+                ("900123456", "900123456"),
+                ("900 123 456", "900 123 456"),
+                ("900 12 3456", "900-12-3456"),
+                ("900.12.3456", "900-12-3456"),
+                ("900 - 12 - 3456", "900-12-3456"),
+                ("900-123-456", "900 123 456"),
+                ("900-123456", "900123456"),
+            ],
         );
         refuses(
             FieldKind::Ssn,
-            &[("900-123-456", Refusal::Format), ("900 12 3456", Refusal::Format), ("90012345", Refusal::Format)],
+            &[
+                ("90012345", Refusal::Format),
+                ("9001234567", Refusal::Format),
+                ("900-12-345", Refusal::Format),
+                ("900_12_3456", Refusal::Format),
+            ],
         );
         let FieldValue::Ssn(id) = value(FieldKind::Ssn, "900 123 456") else { unreachable!() };
         assert_eq!(id.scheme(), IdScheme::CanadianSin);
@@ -1400,14 +1582,14 @@ mod tests {
             (FieldKind::Text, &["CONTOSO LLC"]),
             (FieldKind::Email, &["Owner@example.com"]),
             (FieldKind::Phone, &["(512) 555-0100"]),
-            (FieldKind::Jurisdiction, &["on"]),
+            (FieldKind::Jurisdiction, &["on", "Texas"]),
             (FieldKind::PostalCode, &["78701-1234", "k1a0b1"]),
-            (FieldKind::Entity, &["S CORP", "INC", "LLC", "C CORP", "SOLE PROPRIETORSHIP"]),
+            (FieldKind::Entity, &["S CORP", "INC", "LLC", "C CORP", "SOLE PROPRIETORSHIP", "LLP", "NONPROFIT"]),
             (FieldKind::StatedDate, &["4/15/19", "04/2019", "120156"]),
             (FieldKind::BirthDate, &["041580"]),
             (FieldKind::SignatureDate, &["10/19/26"]),
-            (FieldKind::TaxId, &["01-2345678", "012345678", "123456789rt0001"]),
-            (FieldKind::Ssn, &["900-12-3456", "900123456", "900 123 456"]),
+            (FieldKind::TaxId, &["01-2345678", "012345678", "123456789rt0001", "123-45-6789"]),
+            (FieldKind::Ssn, &["900-12-3456", "900123456", "900 123 456", "900.123.456"]),
             (FieldKind::Money, &["50000", "$ 50000", "USD 1000.5", "CAD 7"]),
             (FieldKind::Percent, &["51.5%"]),
             (FieldKind::Score, &["700+", "650 - 700", "700"]),

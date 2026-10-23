@@ -162,6 +162,12 @@ A PDF reads by these rules:
   prints it, when other label text lies in its runs, or when one of its runs starts in two regions. A run inside the
   form that starts in no region is unplaced as a whole, whatever its font. The band between the last field row and
   the signature lines holds the certification paragraph and is not checked.
+- A state is a postal code, with or without a trailing dot, or a full US, territory or Canadian province name in any
+  case. A phone is 10 digits, or 11 with a leading 1, between spaces and `- . ( ) / =`. An SSN and a tax ID are 9
+  digits in any grouping by spaces, `-` or `.`; the grouping only decides how they are written back. A Canadian
+  business number may hold spaces. A zip code may end in a stray backtick, period or comma. The entity dropdown's
+  texts read as the matcher's kinds: LLP, GP and LP are partnerships, PC is a corporation, and "S CORPORATION
+  (C CORP)" is refused as ambiguous.
 - Dates read month first. For a business outside the US, or one whose state did not read, a date whose month and
   day could swap is refused. The signing day is the certificate's completion day, else the PDF's creation date. A
   business or signature date after it, an owner outside 18 to 100 years old on it, and a six-digit date that reads

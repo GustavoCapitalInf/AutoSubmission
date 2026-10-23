@@ -405,7 +405,7 @@ pub fn sample_values() -> Vec<(FieldId, &'static str)> {
         (FieldId::Business(B::Zip), "78701"),
         (FieldId::Business(B::Phone), "(512) 555-0100"),
         (FieldId::Business(B::Fax), "512.555.0101"),
-        (FieldId::Business(B::Entity), "LIMITED LIABILITY COMPANY"),
+        (FieldId::Business(B::Entity), "LIMITED LIABILITY COMPANY (LLC)"),
         (FieldId::Business(B::Email), "office@example.com"),
         (FieldId::Business(B::StartDate), "04/15/2019"),
         (FieldId::Business(B::OwnershipStart), "05/2020"),
@@ -459,6 +459,7 @@ pub fn expected() -> Vec<(FieldId, &'static str)> {
     let canonical = [
         (FieldId::Business(B::Phone), "512-555-0100"),
         (FieldId::Business(B::Fax), "512-555-0101"),
+        (FieldId::Business(B::Entity), "LIMITED LIABILITY COMPANY"),
         (FieldId::Business(B::LandlordPhone), "512-555-0102"),
         (FieldId::Business(B::MonthlyRent), "2,500.00"),
         (FieldId::Owner(OwnerSlot::Secondary, O::OwnershipPercent), "50.00"),
