@@ -319,6 +319,24 @@ fn names_codes_and_identifiers_read_in_the_shapes_merchants_type() {
 }
 
 #[test]
+fn dates_and_amounts_read_in_the_shapes_merchants_type() {
+    let p = OwnerSlot::Principal;
+    let typed = [
+        (FieldId::Business(B::StartDate), "Jan 2019", "01/2019"),
+        (FieldId::Business(B::OwnershipStart), "2020-05-01", "05/01/2020"),
+        (FieldId::Owner(p, O::BirthDate), "April 15, 1980", "04/15/1980"),
+        (FieldId::Property(P::AnnualRevenue), "1.2 million", "1,200,000.00"),
+        (FieldId::Property(P::RequestedAmount), "$50K", "$50,000.00"),
+    ];
+    let form_with = typed.iter().fold(Form::word(), |form, (field, text, _)| form.set(*field, text));
+    let reading = read_form_page(&form_with);
+    let form = form(&reading);
+    for (field, _, canonical_text) in typed {
+        assert_eq!(canonical(form, field).as_deref(), Some(canonical_text), "{field}: {:?}", outcome(form, field));
+    }
+}
+
+#[test]
 fn a_canadian_business_refuses_dates_whose_month_and_day_could_swap() {
     let reading = read_form_page(
         &Form::word()

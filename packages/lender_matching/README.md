@@ -168,12 +168,16 @@ A PDF reads by these rules:
   business number may hold spaces. A zip code may end in a stray backtick, period or comma. The entity dropdown's
   texts read as the matcher's kinds: LLP, GP and LP are partnerships, PC is a corporation, and "S CORPORATION
   (C CORP)" is refused as ambiguous.
-- Dates read month first. For a business outside the US, or one whose state did not read, a date whose month and
-  day could swap is refused. The signing day is the certificate's completion day, else the PDF's creation date. A
-  business or signature date after it, an owner outside 18 to 100 years old on it, and a six-digit date that reads
-  both as MMYYYY and as MMDDYY are refused.
-- Amounts keep their cents and their denomination: `USD`, `CAD`, a bare `$`, or none. `N/A` means nothing applies,
-  except on the four history questions (open judgements, bankruptcy, tax liens, seasonal), where it means no.
+- Dates read month first, with `/`, `-`, `.` or spaces between the numbers. Year first (`2019-04-15`,
+  `2019/04/15`) and month names (`Apr 15, 2019`, `15 Apr 2019`) read as written. A business date may give only the
+  month (`04/2019`, `April 2019`, `Apr/2019`). For a business outside the US, or one whose state did not read, a
+  numeric month-first date whose month and day could swap is refused. The signing day is the certificate's
+  completion day, else the PDF's creation date. A business or signature date after it, an owner outside 18 to 100
+  years old on it, and a six-digit date that reads both as MMYYYY and as MMDDYY are refused.
+- Amounts keep their cents and their denomination: `USD`, `CAD`, a bare `$`, or none. A `k`, `thousand`, `m`,
+  `mil` or `million` multiplies the amount; a range, a trailing `+` or any other word is refused. `N/A` means
+  nothing applies, except on the four history questions (open judgements, bankruptcy, tax liens, seasonal), where
+  it means no.
 
 ### Get pdfium
 

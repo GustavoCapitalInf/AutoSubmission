@@ -725,43 +725,105 @@ enum Year {
 }
 
 enum DateParts {
-    /// Month, day and year, month first.
+    /// Month, day and year written month first, where the month and the day could swap.
     Full(u8, u8, Year),
+    /// Year, month and day of a date whose month is certain: written year first, or by name.
+    Exact(i32, u8, u8),
     MonthYear(u8, i32),
     SixDigits([u8; 6]),
 }
 
+/// `part` as a number when it is all digits and one of `widths` long.
+fn number(part: &str, widths: &[usize]) -> Option<i32> {
+    (widths.contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit())).then(|| part.parse().ok())?
+}
+
+/// Numbers separated by one kind of separator, `/`, `-` or `.` with spaces around it allowed, or
+/// by spaces alone; eight or six digits written together; or a date with the month's name.
 fn date_parts(s: &str) -> Option<DateParts> {
-    let number = |part: &str, widths: &[usize]| {
-        (widths.contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit())).then(|| part.parse::<i32>().ok())?
+    if s.chars().any(char::is_alphabetic) {
+        return named_date_parts(s);
+    }
+    let mut separators = s.chars().filter(|c| "/-.".contains(*c));
+    let separator = separators.next();
+    if separators.any(|other| Some(other) != separator) {
+        return None;
+    }
+    let parts: Vec<&str> = match separator {
+        Some(separator) => s.split(separator).map(str::trim).collect(),
+        None => s.split(' ').collect(),
     };
-    let separator = match (s.contains('/'), s.contains('-')) {
-        (true, false) => Some('/'),
-        (false, true) => Some('-'),
-        (false, false) => None,
-        (true, true) => return None,
-    };
-    let Some(separator) = separator else {
-        if matches_shape(s, "99999999") {
-            let d: [u8; 8] = digit_array(s);
-            let year = i32::from(d[4]) * 1000 + i32::from(d[5]) * 100 + i32::from(d[6]) * 10 + i32::from(d[7]);
-            return Some(DateParts::Full(d[0] * 10 + d[1], d[2] * 10 + d[3], Year::Four(year)));
-        }
-        return matches_shape(s, "999999").then(|| DateParts::SixDigits(digit_array(s)));
-    };
-    let parts: Vec<&str> = s.split(separator).collect();
+    let byte = |part: &str| u8::try_from(number(part, &[1, 2])?).ok();
     match parts.as_slice() {
+        [digits] if matches_shape(digits, "99999999") => {
+            let d: [u8; 8] = digit_array(digits);
+            let year = i32::from(d[4]) * 1000 + i32::from(d[5]) * 100 + i32::from(d[6]) * 10 + i32::from(d[7]);
+            Some(DateParts::Full(d[0] * 10 + d[1], d[2] * 10 + d[3], Year::Four(year)))
+        }
+        [digits] => matches_shape(digits, "999999").then(|| DateParts::SixDigits(digit_array(digits))),
+        [year, month, day] if year.len() == 4 => {
+            matches!(separator, Some('-' | '/')).then_some(())?;
+            Some(DateParts::Exact(number(year, &[4])?, byte(month)?, byte(day)?))
+        }
         [month, day, year] => {
-            let month = u8::try_from(number(month, &[1, 2])?).ok()?;
-            let day = u8::try_from(number(day, &[1, 2])?).ok()?;
             let year = match year.len() {
                 4 => Year::Four(number(year, &[4])?),
                 2 => Year::Two(number(year, &[2])?),
                 _ => return None,
             };
-            Some(DateParts::Full(month, day, year))
+            Some(DateParts::Full(byte(month)?, byte(day)?, year))
         }
-        [month, year] => Some(DateParts::MonthYear(u8::try_from(number(month, &[1, 2])?).ok()?, number(year, &[4])?)),
+        [month, year] => Some(DateParts::MonthYear(byte(month)?, number(year, &[4])?)),
+        _ => None,
+    }
+}
+
+const MONTHS: [&str; 12] = [
+    "JANUARY",
+    "FEBRUARY",
+    "MARCH",
+    "APRIL",
+    "MAY",
+    "JUNE",
+    "JULY",
+    "AUGUST",
+    "SEPTEMBER",
+    "OCTOBER",
+    "NOVEMBER",
+    "DECEMBER",
+];
+
+/// A month's name, its first three letters, or `SEPT`, in upper case.
+fn month_named(token: &str) -> Option<u8> {
+    let named = |name: &&str| *name == token || (token.len() == 3 && name.starts_with(token));
+    let index = MONTHS.iter().position(named).or((token == "SEPT").then_some(8))?;
+    u8::try_from(index + 1).ok()
+}
+
+/// `Jan 15 1980`, `January 15, 1980`, `15 Jan 1980`, and the month alone with its year:
+/// `January 2019`, `Jan/2019`. Commas, `/`, `-` and an abbreviation's period separate the parts;
+/// the year has four digits.
+fn named_date_parts(s: &str) -> Option<DateParts> {
+    let upper = s.to_uppercase();
+    let mut spaced = String::with_capacity(upper.len());
+    let mut after_letter = false;
+    for c in upper.chars() {
+        spaced.push(if matches!(c, ',' | '/' | '-') || (c == '.' && after_letter) { ' ' } else { c });
+        after_letter = c.is_alphabetic();
+    }
+    let tokens: Vec<&str> = spaced.split_whitespace().collect();
+    let day = |token: &str| u8::try_from(number(token, &[1, 2])?).ok();
+    let year = |token: &str| number(token, &[4]);
+    match tokens.as_slice() {
+        [first, second, third] => {
+            let (month, day) = match (month_named(first), month_named(second)) {
+                (Some(month), None) => (month, day(second)?),
+                (None, Some(month)) => (month, day(first)?),
+                _ => return None,
+            };
+            Some(DateParts::Exact(year(third)?, month, day))
+        }
+        [month, year_token] => Some(DateParts::MonthYear(month_named(month)?, year(year_token)?)),
         _ => None,
     }
 }
@@ -827,6 +889,9 @@ fn stated_date(s: &str, context: &ReadContext) -> Result<StatedDate, Refusal> {
             let date = day_month_first(month, day, year, context, business_century)?;
             Ok(StatedDate::Day(not_after_signing(date, context)?))
         }
+        DateParts::Exact(year, month, day) => {
+            Ok(StatedDate::Day(not_after_signing(calendar(year, month, day).ok_or(Refusal::Format)?, context)?))
+        }
         DateParts::MonthYear(month, year) => stated_month(month, year, context),
         DateParts::SixDigits(d) => {
             let month = d[0] * 10 + d[1];
@@ -871,6 +936,7 @@ fn birth_date(s: &str, context: &ReadContext) -> Result<Date, Refusal> {
     };
     let date = match date_parts(s).ok_or(Refusal::Format)? {
         DateParts::Full(month, day, year) => day_month_first(month, day, year, context, by_age)?,
+        DateParts::Exact(year, month, day) => calendar(year, month, day).ok_or(Refusal::Format)?,
         DateParts::SixDigits(d) => day_month_first(
             d[0] * 10 + d[1],
             d[2] * 10 + d[3],
@@ -890,6 +956,7 @@ fn birth_date(s: &str, context: &ReadContext) -> Result<Date, Refusal> {
 fn signature_date(s: &str, context: &ReadContext) -> Result<Date, Refusal> {
     let date = match date_parts(s).ok_or(Refusal::Format)? {
         DateParts::Full(month, day, year) => day_month_first(month, day, year, context, business_century)?,
+        DateParts::Exact(year, month, day) => calendar(year, month, day).ok_or(Refusal::Format)?,
         DateParts::SixDigits(d) => day_month_first(
             d[0] * 10 + d[1],
             d[2] * 10 + d[3],
@@ -947,8 +1014,9 @@ fn personal_tax_id(s: &str) -> Result<PersonalTaxId, Refusal> {
     Ok(PersonalTaxId { digits: digit_array(s), scheme })
 }
 
-/// Digits with optional comma grouping and up to two decimals, as hundredths.
-fn decimal_hundredths(s: &str) -> Option<i64> {
+/// Digits with optional comma grouping and a fraction of 1 to `max_fraction` digits: all the
+/// digits as one integer, and the fraction's length.
+fn decimal(s: &str, max_fraction: usize) -> Option<(i128, u32)> {
     let (whole, fraction) = match s.split_once('.') {
         Some((whole, fraction)) => (whole, Some(fraction)),
         None => (s, None),
@@ -964,15 +1032,23 @@ fn decimal_hundredths(s: &str) -> Option<i64> {
     {
         return None;
     }
-    let cents = match fraction {
-        None => 0,
-        Some(f) if (1..=2).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()) => {
-            f.parse::<i64>().ok()? * if f.len() == 1 { 10 } else { 1 }
-        }
+    let fraction = match fraction {
+        None => "",
+        Some(f) if (1..=max_fraction).contains(&f.len()) && f.bytes().all(|b| b.is_ascii_digit()) => f,
         Some(_) => return None,
     };
-    Some(whole_digits.parse::<i64>().ok()? * 100 + cents)
+    Some((format!("{whole_digits}{fraction}").parse().ok()?, u32::try_from(fraction.len()).ok()?))
 }
+
+/// Digits with optional comma grouping and up to two decimals, as hundredths.
+fn decimal_hundredths(s: &str) -> Option<i64> {
+    let (digits, scale) = decimal(s, 2)?;
+    i64::try_from(digits * 10i128.pow(2 - scale)).ok()
+}
+
+/// The words and letters that multiply an amount, longest first, in upper case.
+const MULTIPLIERS: [(&str, i128); 5] =
+    [("THOUSAND", 1_000), ("MILLION", 1_000_000), ("MIL", 1_000_000), ("K", 1_000), ("M", 1_000_000)];
 
 fn grouped_cents(cents: i64) -> String {
     let whole = (cents / 100).to_string();
@@ -986,6 +1062,9 @@ fn grouped_cents(cents: i64) -> String {
     format!("{grouped}.{:02}", cents % 100)
 }
 
+/// An amount with an optional `USD` or `CAD` code, an optional `$`, and an optional multiplier: `k`,
+/// `thousand`, `m`, `mil` or `million`, in any case. Ranges, a trailing `+` and other words are
+/// refused.
 fn money(s: &str) -> Result<Money, Refusal> {
     let upper = s.to_ascii_uppercase();
     let mut rest = upper.as_str();
@@ -1009,7 +1088,18 @@ fn money(s: &str) -> Result<Money, Refusal> {
         }
         None => false,
     };
-    let cents = decimal_hundredths(rest).ok_or(Refusal::Format)?;
+    let multiplied = MULTIPLIERS
+        .iter()
+        .find_map(|(suffix, factor)| rest.strip_suffix(suffix).map(|number| (number.trim_end(), *factor)));
+    let cents = match multiplied {
+        None => decimal_hundredths(rest),
+        Some((number, factor)) => decimal(number, 6).and_then(|(digits, scale)| {
+            let hundredths = digits.checked_mul(factor * 100)?;
+            let divisor = 10i128.pow(scale);
+            (hundredths % divisor == 0).then(|| i64::try_from(hundredths / divisor).ok()).flatten()
+        }),
+    }
+    .ok_or(Refusal::Format)?;
     let denomination = match (code, dollar) {
         (Some(currency), _) => Denomination::Explicit(currency),
         (None, true) => Denomination::DollarSign,
@@ -1338,6 +1428,21 @@ mod tests {
                 ("05/06/2019", "05/06/2019"),
                 ("04/15/19", "04/15/2019"),
                 ("04/15/27", "04/15/1927"),
+                ("04.15.2019", "04/15/2019"),
+                ("04 15 2019", "04/15/2019"),
+                ("04 / 15 / 2019", "04/15/2019"),
+                ("04/15 /2019", "04/15/2019"),
+                ("04 2019", "04/2019"),
+                ("2019-04-15", "04/15/2019"),
+                ("2019/04/15", "04/15/2019"),
+                ("Apr 15 2019", "04/15/2019"),
+                ("APR 15, 2019", "04/15/2019"),
+                ("15 apr 2019", "04/15/2019"),
+                ("April 15, 2019", "04/15/2019"),
+                ("Sept. 3, 2019", "09/03/2019"),
+                ("January 2019", "01/2019"),
+                ("Jan 2019", "01/2019"),
+                ("Jan/2019", "01/2019"),
             ],
         );
         refuses(
@@ -1349,8 +1454,16 @@ mod tests {
                 ("2019", Refusal::Format),
                 ("04/19", Refusal::Format),
                 ("04/15-2019", Refusal::Format),
-                ("2019-04-15", Refusal::Format),
-                ("04 15 2019", Refusal::Format),
+                ("04/15 2019", Refusal::Format),
+                ("2019.04.15", Refusal::Format),
+                ("2019-04", Refusal::Format),
+                ("2019-15-04", Refusal::Format),
+                ("Apr 15th 2019", Refusal::Format),
+                ("Apr 19", Refusal::Format),
+                ("Janu 2019", Refusal::Format),
+                ("Q2 2019", Refusal::Format),
+                ("Apr 31 2019", Refusal::Format),
+                ("Nov 2026", Refusal::OutOfRange),
                 ("11/2026", Refusal::OutOfRange),
                 ("10/21/2026", Refusal::OutOfRange),
                 ("01/01/1899", Refusal::OutOfRange),
@@ -1378,6 +1491,8 @@ mod tests {
             assert_eq!(read_in(FieldKind::StatedDate, "05/05/2019", context), Ok(Some("05/05/2019".to_string())));
             assert_eq!(read_in(FieldKind::StatedDate, "05/16/2019", context), Ok(Some("05/16/2019".to_string())));
             assert_eq!(read_in(FieldKind::StatedDate, "05/2019", context), Ok(Some("05/2019".to_string())));
+            assert_eq!(read_in(FieldKind::StatedDate, "2019-05-06", context), Ok(Some("05/06/2019".to_string())));
+            assert_eq!(read_in(FieldKind::BirthDate, "6 May 1980", context), Ok(Some("05/06/1980".to_string())));
         }
     }
 
@@ -1394,12 +1509,24 @@ mod tests {
                 ("041580", "04/15/1980"),
                 ("04/15/05", "04/15/2005"),
                 ("10/20/2008", "10/20/2008"),
+                ("04.15.1980", "04/15/1980"),
+                ("04 / 15 / 1980", "04/15/1980"),
+                ("1980-04-15", "04/15/1980"),
+                ("1980/04/15", "04/15/1980"),
+                ("Apr 15 1980", "04/15/1980"),
+                ("Apr 15, 1980", "04/15/1980"),
+                ("15 Apr 1980", "04/15/1980"),
+                ("April 15, 1980", "04/15/1980"),
+                ("APR 5 1980", "04/05/1980"),
             ],
         );
         refuses(
             FieldKind::BirthDate,
             &[
                 ("04/1980", Refusal::Format),
+                ("April 1980", Refusal::Format),
+                ("Apr 15 80", Refusal::Format),
+                ("Apr 15 2015", Refusal::OutOfRange),
                 ("10/21/2008", Refusal::OutOfRange),
                 ("10/19/1925", Refusal::OutOfRange),
                 ("04/15/2015", Refusal::OutOfRange),
@@ -1513,12 +1640,31 @@ mod tests {
                 ("USD 50,000", "50,000.00 USD"),
                 ("50,000 CAD", "50,000.00 CAD"),
                 ("CAD $50,000", "50,000.00 CAD"),
+                ("500k", "500,000.00"),
+                ("500 K", "500,000.00"),
+                ("$1.2M", "$1,200,000.00"),
+                ("1.2 million", "1,200,000.00"),
+                ("1.25 Million", "1,250,000.00"),
+                ("2 mil", "2,000,000.00"),
+                ("1.5MIL", "1,500,000.00"),
+                ("250 thousand", "250,000.00"),
+                ("1,500k", "1,500,000.00"),
+                ("$ 50K", "$50,000.00"),
+                ("USD 1.2M", "1,200,000.00 USD"),
             ],
         );
         refuses(
             FieldKind::Money,
             &[
-                ("50K", Refusal::Format),
+                ("500k+", Refusal::Format),
+                ("999,999+", Refusal::Format),
+                ("500k-1M", Refusal::Format),
+                ("10k to 20k", Refusal::Format),
+                ("1.2MM", Refusal::Format),
+                ("1.2 billion", Refusal::Format),
+                ("1.2345678M", Refusal::Format),
+                ("500 000", Refusal::Format),
+                ("K", Refusal::Format),
                 ("-500", Refusal::Format),
                 ("10,000-20,000", Refusal::Format),
                 ("50,00", Refusal::Format),
@@ -1585,12 +1731,12 @@ mod tests {
             (FieldKind::Jurisdiction, &["on", "Texas"]),
             (FieldKind::PostalCode, &["78701-1234", "k1a0b1"]),
             (FieldKind::Entity, &["S CORP", "INC", "LLC", "C CORP", "SOLE PROPRIETORSHIP", "LLP", "NONPROFIT"]),
-            (FieldKind::StatedDate, &["4/15/19", "04/2019", "120156"]),
-            (FieldKind::BirthDate, &["041580"]),
+            (FieldKind::StatedDate, &["4/15/19", "04/2019", "120156", "Jan 2019", "2019-04-15"]),
+            (FieldKind::BirthDate, &["041580", "April 15, 1980"]),
             (FieldKind::SignatureDate, &["10/19/26"]),
             (FieldKind::TaxId, &["01-2345678", "012345678", "123456789rt0001", "123-45-6789"]),
             (FieldKind::Ssn, &["900-12-3456", "900123456", "900 123 456", "900.123.456"]),
-            (FieldKind::Money, &["50000", "$ 50000", "USD 1000.5", "CAD 7"]),
+            (FieldKind::Money, &["50000", "$ 50000", "USD 1000.5", "CAD 7", "$1.2M", "250 thousand"]),
             (FieldKind::Percent, &["51.5%"]),
             (FieldKind::Score, &["700+", "650 - 700", "700"]),
             (FieldKind::YesNo, &["y", "NONE"]),

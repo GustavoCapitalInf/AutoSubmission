@@ -48,7 +48,7 @@ fn evaluate_prints_counts_and_never_a_value_or_a_file_name() {
         ("SAMPLE 2019.pdf", application(&Form::word().set(start, "2019"))),
         ("SAMPLE 2018.pdf", application(&Form::word().set(start, "2018"))),
         ("SAMPLE 2017.pdf", application(&Form::word().set(start, "2017"))),
-        ("SAMPLE April.pdf", application(&Form::word().set(start, "April 2019"))),
+        ("SAMPLE quarter.pdf", application(&Form::word().set(start, "Q2 2019"))),
         ("FABRIKAM contract.pdf", contract()),
         ("SAMPLE unknown.pdf", application(&unknown)),
         ("SAMPLE broken.pdf", b"SAMPLE OWNER 900-12-3456, not a PDF".to_vec()),
@@ -80,7 +80,7 @@ fn evaluate_prints_counts_and_never_a_value_or_a_file_name() {
 
     let mut secrets: Vec<String> = sample_values().into_iter().map(|(_, value)| value.to_string()).collect();
     secrets.extend(
-        ["CONTOSO", "NORTHWIND", "FABRIKAM", "SAMPLE", "owner@example.com", "April", "900-12-3456"].map(String::from),
+        ["CONTOSO", "NORTHWIND", "FABRIKAM", "SAMPLE", "owner@example.com", "Q2 2019", "900-12-3456"].map(String::from),
     );
     secrets.extend(files.iter().map(|(name, _)| name.to_string()));
     secrets.push(corpus.path().to_string_lossy().into_owned());

@@ -410,7 +410,7 @@ mod tests {
         tally.add(&reading(&Form::word()));
         tally.add(&reading(&Form { layout: pdfescape(), ..Form::word() }));
         let start = FieldId::Business(BusinessField::StartDate);
-        for text in ["2019", "2018", "2020", "April 2019"] {
+        for text in ["2019", "2018", "2020", "Q2 2019"] {
             tally.add(&reading(&Form::word().set(start, text)));
         }
         tally.add_failure(Failure::Worker(WorkerError::Read(ReadError::NotPdf)));
@@ -441,7 +441,7 @@ mod tests {
         let text = tally.lines().join("\n");
         let json = serde_json::to_string(&tally).unwrap();
         let mut values: Vec<&str> = sample_values().into_iter().map(|(_, value)| value).collect();
-        values.extend(["SAMPLE OWNER", "owner@example.com", "April", "0F8FAD5B", "ORIGINATOR"]);
+        values.extend(["SAMPLE OWNER", "owner@example.com", "Q2 2019", "0F8FAD5B", "ORIGINATOR"]);
         for value in values.into_iter().filter(|value| value.len() > 3) {
             assert!(!text.contains(value), "the text report holds a value");
             assert!(!json.contains(value), "the JSON report holds a value");
