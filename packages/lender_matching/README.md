@@ -147,12 +147,15 @@ A PDF reads by these rules:
   the label's own run splits after the label. Characters of other fonts are skipped while a label is matched, so a
   value that runs over the label to its right does not hide it. In each section the labels bind in reading order. A label that two
   equally long matchings place differently is out of place, never "the nearer one".
-- A value lies on its label's row, with its top within −10 to +8 pt of the label's top, from the label's end to the
-  next label on the row. Prior/Current Loan Company also takes the next line.
+- A field's region lies on its label's row, with tops within −10 to +8 pt of the label's top, from the label's end
+  to the next label on the row. Prior/Current Loan Company also takes the next line.
+- Values are read as runs: characters consecutive in the PDF's content, in one font and size, on one baseline, with
+  small gaps. A run belongs to the region that holds its first character, even where it runs on past the next label,
+  and the next field does not get its characters.
 - A field is in doubt, and gets no value, when its label's text occurs more often in its section than the form
-  prints it, when other label text lies in its region, or when a character lies in two regions. Text inside the
-  form that lies in no region counts as unplaced, whatever its font. The band between the last field row and the
-  signature lines holds the certification paragraph and is not checked.
+  prints it, when other label text lies in its runs, or when one of its runs starts in two regions. A run inside the
+  form that starts in no region is unplaced as a whole, whatever its font. The band between the last field row and
+  the signature lines holds the certification paragraph and is not checked.
 - Dates read month first. For a business outside the US, or one whose state did not read, a date whose month and
   day could swap is refused. The signing day is the certificate's completion day, else the PDF's creation date. A
   business or signature date after it, an owner outside 18 to 100 years old on it, and a six-digit date that reads

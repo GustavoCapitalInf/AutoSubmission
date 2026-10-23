@@ -103,6 +103,31 @@ fn a_label_that_a_value_runs_over_is_still_found() {
 }
 
 #[test]
+fn a_value_belongs_to_the_field_where_it_starts() {
+    let reading = read_form_page(&Form::word().set(FieldId::Business(B::LegalName), LONG_LEGAL_NAME));
+    let form = form(&reading);
+    assert_eq!(canonical(form, FieldId::Business(B::LegalName)).as_deref(), Some(LONG_LEGAL_NAME));
+    assert_eq!(canonical(form, FieldId::Business(B::Dba)).as_deref(), Some("NORTHWIND"));
+    assert!(form.unplaced.is_empty(), "unplaced: {}", form.unplaced.len());
+}
+
+#[test]
+fn a_value_that_starts_over_its_label_is_unplaced_whole_and_never_split() {
+    let mut rows = word_rows();
+    rows[2].1.retain(|(text, _, _)| *text != "City");
+    rows[2].1.push(("City", 40.0, None));
+    let page = Form { layout: Layout { rows, ..word() }, ..Form::word() }
+        .draw(PageBuilder::new())
+        .text("ArialMT", VALUE_SIZE, 50.0, HEADING.1 + 54.0 + 1.6, "AUSTIN")
+        .build();
+    let reading = read_pages(vec![page]);
+    let form = form(&reading);
+    assert_eq!(outcome(form, FieldId::Business(B::City)), Outcome::Blank);
+    let runs: Vec<&str> = form.unplaced.iter().map(|run| run.evidence.text.as_str()).collect();
+    assert_eq!(runs, ["AUSTIN"]);
+}
+
+#[test]
 fn repeated_labels_belong_to_their_owner() {
     let reading = read_form_page(&Form::word());
     let form = form(&reading);

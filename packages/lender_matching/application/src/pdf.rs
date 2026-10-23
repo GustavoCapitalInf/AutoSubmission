@@ -244,6 +244,7 @@ mod tests {
 
     use super::*;
     use crate::extract::{Document, RefusalReason, read};
+    use crate::fields::{BusinessField, FieldId};
     use crate::support::form::{Canvas, Form, certificate, expected, pdfescape};
     use crate::support::pdf::{FakePage, FakePdf};
     use crate::support::pdfium_library;
@@ -255,6 +256,7 @@ mod tests {
         let Some(library) = pdfium_library() else { return };
         let mut engine = PdfEngine::bind(&library).expect("PDFIUM_LIBRARY loads");
         a_fabricated_application_reads_every_field(&mut engine);
+        a_value_over_the_next_label_reads_whole_in_its_own_field(&mut engine);
         glyphs_keep_their_font_size_and_loose_box(&mut engine);
         coordinates_follow_the_crop_box_and_the_rotation_pdfium_displays(&engine);
         image_cover_counts_the_largest_image_also_inside_a_form(&mut engine);
@@ -285,6 +287,17 @@ mod tests {
             let signers = &reading.certificate.as_ref().expect("a certificate").signers;
             assert_eq!(signers.len(), 1);
         }
+    }
+
+    fn a_value_over_the_next_label_reads_whole_in_its_own_field(engine: &mut PdfEngine) {
+        let long = "CONTOSO FABRIKAM NORTHWIND HOLDINGS OF SAMPLE";
+        let form = Form::word().set(FieldId::Business(BusinessField::LegalName), long);
+        let reading = read(&engine.facts(&application(&form)).unwrap());
+        let Document::Application(found) = &reading.document else { panic!("not read as an application") };
+        let text = |field| found.fields.get(FieldId::Business(field)).value().map(|value| value.canonical());
+        assert_eq!(text(BusinessField::LegalName).as_deref(), Some(long));
+        assert_eq!(text(BusinessField::Dba).as_deref(), Some("NORTHWIND"));
+        assert!(found.unplaced.is_empty(), "{} unplaced", found.unplaced.len());
     }
 
     fn glyphs_keep_their_font_size_and_loose_box(engine: &mut PdfEngine) {

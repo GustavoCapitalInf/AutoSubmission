@@ -3,7 +3,7 @@ use time::Date;
 
 use crate::certificate::{Certificate, read_certificate};
 use crate::fields::{BusinessField, FieldId, FieldMap};
-use crate::page::{PdfFacts, ReadingOrder, Rect, TextPage, words};
+use crate::page::{Glyph, PdfFacts, ReadingOrder, Rect, TextPage, words};
 use crate::template::{
     self, CONTRACT_TITLE, FORM, LAYOUT_TOLERANCE_PT, LabelSpec, NEXT_LINE_BOTTOM_PT, ROW_BAND_PT, SectionStart, Shape,
     Target,
@@ -90,8 +90,9 @@ pub struct FormReading {
 
 pub enum FieldReading {
     Unlocated(Unlocated),
-    /// `region` is where the value belongs, whether or not anything is there: a glyph belongs to it
-    /// when its horizontal center lies within `x0..x1` and its top within `top..=bottom`.
+    /// `region` is where the value starts, whether or not anything is there: a run of value glyphs
+    /// belongs to it when the run's first glyph has its horizontal center within `x0..x1` and its
+    /// top within `top..=bottom`. The rest of the run may lie past `x1`.
     Located {
         label: Rect,
         region: Rect,
@@ -122,7 +123,7 @@ pub enum Doubt {
     LabelFoundTwice,
     /// Label text the form's order did not place lies in the region.
     StrayLabel,
-    /// A glyph in the region also lies in another field's region.
+    /// A value run starts inside this field's region and another field's.
     SharedGlyph,
 }
 
@@ -497,6 +498,47 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
     (Document::Application(FormReading { layout: *layout, fields, unplaced }), offsets)
 }
 
+/// Two glyphs consecutive in content order stay in one value run when the second starts within
+/// this share of the font size after the first one's box ends.
+const RUN_GAP: f32 = 1.0;
+/// Glyphs of one font and size whose boxes' bottoms lie within this share of the size share a
+/// baseline.
+const BASELINE_TOLERANCE: f32 = 0.1;
+
+/// The value glyphs as they were typed: runs of glyphs consecutive in content order, in one font
+/// and size, on one baseline, each starting at or right of the one before and within `RUN_GAP`
+/// of its end. A run holds glyph indices and starts at a character that is not a space; glyphs
+/// that `form_text` marks are in none.
+fn value_runs(page: &TextPage, form_text: &[bool]) -> Vec<Vec<usize>> {
+    let continues = |a: &Glyph, b: &Glyph| {
+        a.font == b.font
+            && a.size == b.size
+            && (a.rect.bottom - b.rect.bottom).abs() <= BASELINE_TOLERANCE * a.size
+            && b.rect.x0 >= a.rect.x0
+            && b.rect.x0 - a.rect.x1 <= RUN_GAP * a.size
+    };
+    let mut runs: Vec<Vec<usize>> = Vec::new();
+    let mut run: Vec<usize> = Vec::new();
+    for (index, glyph) in page.glyphs.iter().enumerate() {
+        let joins = !form_text[index] && run.last().is_some_and(|&last| continues(&page.glyphs[last], glyph));
+        if !joins {
+            if !run.is_empty() {
+                runs.push(std::mem::take(&mut run));
+            }
+            if form_text[index] || glyph.ch.is_whitespace() {
+                continue;
+            }
+        }
+        run.push(index);
+    }
+    if !run.is_empty() {
+        runs.push(run);
+    }
+    runs
+}
+
+/// Each value run belongs to the region that holds its first glyph, even where it runs on past
+/// the next label; a run whose first glyph lies in no region is unplaced.
 fn place_and_read(
     order: &ReadingOrder,
     candidates: &[Candidate],
@@ -505,25 +547,20 @@ fn place_and_read(
     bound: &[Bound],
     signed_on: Option<Date>,
 ) -> (FieldMap<FieldReading>, Vec<Unplaced>) {
-    let glyph_count = order.order.len();
-    let mut template_text = vec![false; glyph_count];
-    for b in bound {
-        for at in &candidates[b.candidate].positions {
-            template_text[*at] = true;
+    let page = order.page;
+    let mut position_of = vec![0; order.order.len()];
+    for (at, glyph) in order.order.iter().enumerate() {
+        position_of[*glyph] = at;
+    }
+    let mut form_text = vec![false; page.glyphs.len()];
+    let headings = starts.iter().copied().filter(|&c| candidates[c].heading);
+    for c in bound.iter().map(|b| b.candidate).chain(headings) {
+        for at in &candidates[c].positions {
+            form_text[order.order[*at]] = true;
         }
     }
-    for start in starts {
-        if candidates[*start].heading {
-            for at in &candidates[*start].positions {
-                template_text[*at] = true;
-            }
-        }
-    }
+    let runs = value_runs(page, &form_text);
 
-    let mut assigned: Vec<Vec<usize>> = vec![Vec::new(); bound.len()];
-    let mut shared = vec![false; bound.len()];
-    let mut stray = vec![false; bound.len()];
-    let mut loose = vec![false; glyph_count];
     let business_top = candidates[starts[0]].first.top;
     let area_bottom = bound.iter().map(|b| b.region.bottom).fold(business_top, f32::max);
     // The certification paragraph lies between the last field row and the first signature line.
@@ -532,47 +569,51 @@ fn place_and_read(
     let fields_bottom =
         bound.iter().filter(|b| b.section < signatures).map(|b| b.region.bottom).fold(f32::MIN, f32::max);
     let signature_top = bound.iter().filter(|b| b.section == signatures).map(|b| b.region.top).fold(f32::MAX, f32::min);
-    for at in 0..glyph_count {
-        let glyph = order.glyph(at);
-        if glyph.ch.is_whitespace() || template_text[at] {
-            continue;
+    let in_form_area =
+        |top: f32| top >= business_top && top <= area_bottom && !(top > fields_bottom && top < signature_top);
+
+    let mut assigned: Vec<Vec<usize>> = vec![Vec::new(); bound.len()];
+    let mut shared = vec![false; bound.len()];
+    let mut holders_of: Vec<Vec<usize>> = Vec::with_capacity(runs.len());
+    let mut run_of: Vec<Option<usize>> = vec![None; page.glyphs.len()];
+    let mut loose_runs: Vec<usize> = Vec::new();
+    for (r, run) in runs.iter().enumerate() {
+        let first = page.glyphs[run[0]].rect;
+        let holders: Vec<usize> = (0..bound.len()).filter(|&b| in_region(&bound[b].region, first)).collect();
+        for &b in &holders {
+            assigned[b].extend(run);
+            shared[b] |= holders.len() > 1;
         }
-        let holders: Vec<usize> = (0..bound.len()).filter(|&b| in_region(&bound[b].region, glyph.rect)).collect();
-        match holders.as_slice() {
-            [] => {
-                let top = glyph.rect.top;
-                let certification = top > fields_bottom && top < signature_top;
-                loose[at] = top >= business_top && top <= area_bottom && !certification;
-            }
-            [only] => assigned[*only].push(at),
-            several => {
-                for b in several {
-                    assigned[*b].push(at);
-                    shared[*b] = true;
-                }
-            }
+        if holders.is_empty() && in_form_area(first.top) {
+            loose_runs.push(r);
         }
+        for glyph in run {
+            run_of[*glyph] = Some(r);
+        }
+        holders_of.push(holders);
     }
+    let mut stray = vec![false; bound.len()];
     let bound_candidates: Vec<usize> = bound.iter().map(|b| b.candidate).collect();
     for (c, candidate) in candidates.iter().enumerate() {
         if candidate.heading || bound_candidates.contains(&c) {
             continue;
         }
-        let first = order.glyph(candidate.start()).rect;
-        for (b, holder) in bound.iter().enumerate() {
-            if in_region(&holder.region, first) {
+        if let Some(r) = run_of[order.order[candidate.start()]] {
+            for &b in &holders_of[r] {
                 stray[b] = true;
             }
         }
     }
 
-    let evidence = |positions: &[usize]| -> Option<(RawText, Evidence)> {
+    let evidence = |glyphs: &[usize]| -> Option<(RawText, Evidence)> {
+        let mut positions: Vec<usize> = glyphs.iter().map(|glyph| position_of[*glyph]).collect();
+        positions.sort_unstable();
         let rect = positions.iter().map(|at| order.glyph(*at).rect).reduce(Rect::union)?;
-        let raw = RawText::placed(words(order, positions));
+        let raw = RawText::placed(words(order, &positions));
         let text = raw.as_str().to_string();
         Some((raw, Evidence { text, rect }))
     };
-    let mut raw: Vec<Option<(RawText, Evidence)>> = assigned.iter().map(|positions| evidence(positions)).collect();
+    let mut raw: Vec<Option<(RawText, Evidence)>> = assigned.iter().map(|glyphs| evidence(glyphs)).collect();
     let index_of = |field: FieldId| bound.iter().position(|b| b.label.target == Target::Field(field));
     let state = FieldId::Business(BusinessField::State);
     let business_country = index_of(state).and_then(|b| raw[b].as_ref()).and_then(|(text, _)| {
@@ -632,31 +673,15 @@ fn place_and_read(
         })
         .collect();
     field_starts.sort_by_key(|(at, _)| *at);
-    let mut unplaced = Vec::new();
-    let mut run: Vec<usize> = Vec::new();
-    let flush = |run: &mut Vec<usize>, unplaced: &mut Vec<Unplaced>| {
-        if let Some((_, evidence)) = evidence(run) {
-            let after = field_starts.iter().rev().find(|(at, _)| *at < run[0]).map(|(_, field)| *field);
-            unplaced.push(Unplaced { evidence, after });
-        }
-        run.clear();
-    };
-    for (at, &is_loose) in loose.iter().enumerate() {
-        let glyph = order.glyph(at);
-        if is_loose {
-            let continues = run.last().is_some_and(|&last| {
-                order.line[last] == order.line[at]
-                    && (last + 1..at).all(|between| order.glyph(between).ch.is_whitespace())
-            });
-            if !continues {
-                flush(&mut run, &mut unplaced);
-            }
-            run.push(at);
-        } else if !glyph.ch.is_whitespace() {
-            flush(&mut run, &mut unplaced);
-        }
-    }
-    flush(&mut run, &mut unplaced);
+    let unplaced = loose_runs
+        .into_iter()
+        .filter_map(|r| {
+            let (_, evidence) = evidence(&runs[r])?;
+            let first = position_of[runs[r][0]];
+            let after = field_starts.iter().rev().find(|(at, _)| *at < first).map(|(_, field)| *field);
+            Some(Unplaced { evidence, after })
+        })
+        .collect();
     (readings, unplaced)
 }
 

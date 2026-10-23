@@ -154,9 +154,9 @@ impl<'a> ReadingOrder<'a> {
     }
 }
 
-/// Words from glyphs given in reading order. A new line, a wide gap, or a space glyph between two
-/// of them in reading order ends a word, whether or not the space is among `positions`: a loose
-/// box can be wider than the glyph's advance, so a gap alone can hide a typed space.
+/// Words from glyphs given in reading order. A new line, a wide gap or a space among them ends a
+/// word; glyphs of other text that lie between two of them in reading order do not. A loose box
+/// can be wider than the glyph's advance, so only the space glyph shows a typed space.
 pub(crate) fn words(order: &ReadingOrder, positions: &[usize]) -> Vec<Word> {
     let mut words: Vec<Word> = Vec::new();
     let mut previous: Option<usize> = None;
@@ -167,10 +167,7 @@ pub(crate) fn words(order: &ReadingOrder, positions: &[usize]) -> Vec<Word> {
             continue;
         }
         let joins = previous.is_some_and(|before| {
-            let before_glyph = order.glyph(before);
-            order.line[before] == order.line[at]
-                && (before + 1..at).all(|between| !order.glyph(between).ch.is_whitespace())
-                && glyph.rect.x0 - before_glyph.rect.x1 <= WORD_GAP * glyph.size
+            order.line[before] == order.line[at] && glyph.rect.x0 - order.glyph(before).rect.x1 <= WORD_GAP * glyph.size
         });
         match words.last_mut() {
             Some(word) if joins => {
@@ -262,15 +259,28 @@ mod tests {
     }
 
     #[test]
-    fn a_space_outside_the_chosen_glyphs_still_ends_a_word() {
+    fn a_space_ends_a_word_even_where_the_boxes_overlap() {
         let mut page = PageBuilder::new().text("ArialMT", 9.0, 100.0, 100.0, "AM PM").build();
         for glyph in &mut page.glyphs {
             glyph.rect.x1 += 3.0;
         }
         let order = ReadingOrder::new(&page);
-        let letters: Vec<usize> = (0..order.order.len()).filter(|at| !order.glyph(*at).ch.is_whitespace()).collect();
-        let found: Vec<String> = words(&order, &letters).into_iter().map(|word| word.text).collect();
+        let all: Vec<usize> = (0..order.order.len()).collect();
+        let found: Vec<String> = words(&order, &all).into_iter().map(|word| word.text).collect();
         assert_eq!(found, ["AM", "PM"]);
+    }
+
+    #[test]
+    fn other_text_between_the_glyphs_in_reading_order_does_not_split_a_word() {
+        let page = PageBuilder::new()
+            .text("ArialMT", 9.0, 100.0, 100.0, "CONTOSO")
+            .text("Calibri", 11.0, 107.0, 99.0, "A B")
+            .build();
+        let order = ReadingOrder::new(&page);
+        let value: Vec<usize> =
+            (0..order.order.len()).filter(|at| order.page.font_name(order.glyph(*at)) == "ArialMT").collect();
+        let found: Vec<String> = words(&order, &value).into_iter().map(|word| word.text).collect();
+        assert_eq!(found, ["CONTOSO"]);
     }
 
     #[test]
