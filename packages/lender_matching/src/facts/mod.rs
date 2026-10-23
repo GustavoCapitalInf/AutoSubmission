@@ -489,7 +489,11 @@ fn stated<V>(fact: FactKey, value: Option<V>, field: &str) -> Fact<V> {
 }
 
 fn needs_person<V>() -> Fact<V> {
-    Fact::Unknown { gap: Gap::NeedsConfirmation, seen: None, source: Source::Application("confirmation".to_string()) }
+    Fact::Unknown {
+        gap: Gap::NeedsConfirmation,
+        seen: None,
+        source: Source::Application("a confirmation on the match page".to_string()),
+    }
 }
 
 fn confirmable<V: Clone>(unconfirmed: Fact<V>, confirmation: Option<&Confirmed<V>>) -> Fact<V> {

@@ -284,3 +284,171 @@ pub fn bare_deal(package: Option<Uuid>) -> serde_json::Value {
 pub fn bearer(token: &str) -> String {
     format!("Bearer {token}")
 }
+
+pub struct Page {
+    pub status: reqwest::StatusCode,
+    pub location: Option<String>,
+    pub headers: reqwest::header::HeaderMap,
+    pub body: String,
+}
+
+/// A browser without JavaScript: it keeps cookies and submits forms as urlencoded bodies.
+pub struct Browser {
+    http: reqwest::Client,
+    base: String,
+    cookies: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
+}
+
+impl Browser {
+    pub fn new(server: &Server) -> Browser {
+        Browser { http: http(), base: server.base.clone(), cookies: Default::default() }
+    }
+
+    fn cookie_header(&self) -> String {
+        let cookies = self.cookies.lock().unwrap();
+        cookies.iter().map(|(name, value)| format!("{name}={value}")).collect::<Vec<_>>().join("; ")
+    }
+
+    async fn finish(&self, response: reqwest::Response) -> Page {
+        for value in response.headers().get_all(reqwest::header::SET_COOKIE) {
+            let text = value.to_str().unwrap();
+            let (pair, attributes) = text.split_once(';').unwrap_or((text, ""));
+            let (name, value) = pair.split_once('=').unwrap();
+            let mut cookies = self.cookies.lock().unwrap();
+            if attributes.contains("Max-Age=0") || value.is_empty() {
+                cookies.remove(name);
+            } else {
+                cookies.insert(name.to_string(), value.to_string());
+            }
+        }
+        Page {
+            status: response.status(),
+            location: response.headers().get(reqwest::header::LOCATION).map(|l| l.to_str().unwrap().to_string()),
+            headers: response.headers().clone(),
+            body: response.text().await.unwrap(),
+        }
+    }
+
+    pub async fn get(&self, path: &str) -> Page {
+        let response = self.http.get(format!("{}{path}", self.base)).header("Cookie", self.cookie_header()).send();
+        self.finish(response.await.unwrap()).await
+    }
+
+    pub async fn post(&self, path: &str, fields: &[(String, String)]) -> Page {
+        let body = form_urlencoded::Serializer::new(String::new()).extend_pairs(fields).finish();
+        let response = self
+            .http
+            .post(format!("{}{path}", self.base))
+            .header("Cookie", self.cookie_header())
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send();
+        self.finish(response.await.unwrap()).await
+    }
+
+    pub async fn sign_in(&self, username: &str) {
+        let login = self.get("/login").await;
+        let mut fields = form_fields(&login.body, "/login");
+        set(&mut fields, "username", username);
+        set(&mut fields, "password", PASSWORD);
+        let signed_in = self.post("/login", &fields).await;
+        assert_eq!(signed_in.location.as_deref(), Some("/admin"), "sign in {username}: {}", signed_in.body);
+    }
+
+    /// Submits the page's form for `action` as a browser would, with `changes` applied and the
+    /// named submit button pressed.
+    pub async fn submit(
+        &self,
+        page: &Page,
+        action: &str,
+        changes: &[(&str, &str)],
+        button: Option<(&str, &str)>,
+    ) -> Page {
+        let mut fields = form_fields(&page.body, action);
+        for (name, value) in changes {
+            set(&mut fields, name, value);
+        }
+        if let Some((name, value)) = button {
+            fields.push((name.to_string(), value.to_string()));
+        }
+        self.post(action, &fields).await
+    }
+}
+
+pub fn set(fields: &mut Vec<(String, String)>, name: &str, value: &str) {
+    fields.retain(|(key, _)| key != name);
+    fields.push((name.to_string(), value.to_string()));
+}
+
+fn unescape(text: &str) -> String {
+    text.replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'").replace("&amp;", "&")
+}
+
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let needle = format!(" {name}=\"");
+    let start = tag.find(&needle)? + needle.len();
+    let end = tag[start..].find('"')? + start;
+    Some(unescape(&tag[start..end]))
+}
+
+fn has_flag(tag: &str, name: &str) -> bool {
+    tag.split(|c: char| c.is_whitespace() || c == '>' || c == '/').any(|part| part == name)
+}
+
+/// The fields a browser would submit from the form whose action is `action`: text and hidden
+/// inputs, checked boxes and radios, each select's selected option and each textarea's text.
+/// Submit buttons are left out.
+pub fn form_fields(html: &str, action: &str) -> Vec<(String, String)> {
+    let marker = format!("action=\"{action}\"");
+    let start = html.find(&marker).unwrap_or_else(|| panic!("no form for {action} in {html}"));
+    let end = html[start..].find("</form>").unwrap() + start;
+    let form = &html[start..end];
+    let mut fields = Vec::new();
+    let mut rest = form;
+    while let Some(open) = rest.find('<') {
+        rest = &rest[open..];
+        let close = rest.find('>').unwrap();
+        let tag = &rest[..=close];
+        if tag.starts_with("<input") {
+            let kind = attribute(tag, "type").unwrap_or_else(|| "text".to_string());
+            if let Some(name) = attribute(tag, "name") {
+                let value = attribute(tag, "value").unwrap_or_default();
+                match kind.as_str() {
+                    "checkbox" | "radio" => {
+                        if has_flag(tag, "checked") {
+                            fields
+                                .push((name, if attribute(tag, "value").is_some() { value } else { "on".to_string() }));
+                        }
+                    }
+                    "submit" => {}
+                    _ => fields.push((name, value)),
+                }
+            }
+        } else if tag.starts_with("<textarea") {
+            let name = attribute(tag, "name").unwrap();
+            let text_end = rest.find("</textarea>").unwrap();
+            fields.push((name, unescape(&rest[close + 1..text_end])));
+        } else if tag.starts_with("<select") {
+            let name = attribute(tag, "name").unwrap();
+            let select_end = rest.find("</select>").unwrap();
+            let options: Vec<&str> = rest[close + 1..select_end].split("<option").skip(1).collect();
+            let chosen = options
+                .iter()
+                .find(|option| has_flag(option.split('>').next().unwrap(), "selected"))
+                .or(options.first());
+            if let Some(option) = chosen {
+                let head = format!("<option{}", option.split('>').next().unwrap());
+                fields.push((name, attribute(&head, "value").unwrap_or_default()));
+            }
+        }
+        rest = &rest[close + 1..];
+    }
+    fields
+}
+
+pub fn csrf_of(page: &Page) -> String {
+    let at = page.body.find("name=\"csrf\"").expect("a csrf field");
+    let start = page.body[..at].rfind('<').unwrap();
+    let end = page.body[at..].find('>').unwrap() + at;
+    attribute(&page.body[start..=end], "value").unwrap()
+}

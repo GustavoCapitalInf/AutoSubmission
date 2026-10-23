@@ -1,5 +1,8 @@
-//! The HTTP server. `/api/v1` authenticates only a bearer token; `/healthz` takes none.
+//! Two front doors that share no credential: `/api/v1` authenticates only a bearer token, and
+//! `/login` and `/admin` only a session cookie, refusing a request that carries `Authorization`.
+//! `/healthz` takes neither.
 
+pub mod admin;
 pub mod api;
 
 use std::sync::Arc;
@@ -31,7 +34,11 @@ impl AppState {
 }
 
 pub fn router(state: Shared) -> Router {
-    Router::new().route("/healthz", get(|| async { "ok" })).nest("/api/v1", api::router()).with_state(state)
+    Router::new()
+        .route("/healthz", get(|| async { "ok" }))
+        .nest("/api/v1", api::router())
+        .merge(admin::router())
+        .with_state(state)
 }
 
 /// Prints only the error's own text, which holds no request or response body.
