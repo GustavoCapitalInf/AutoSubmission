@@ -953,20 +953,15 @@ fn birth_date(s: &str, context: &ReadContext) -> Result<Date, Refusal> {
     Ok(date)
 }
 
+/// DocuSign's date-signed stamp, `M/D/YYYY`, on or before the signing day.
 fn signature_date(s: &str, context: &ReadContext) -> Result<Date, Refusal> {
-    let date = match date_parts(s).ok_or(Refusal::Format)? {
-        DateParts::Full(month, day, year) => day_month_first(month, day, year, context, business_century)?,
-        DateParts::Exact(year, month, day) => calendar(year, month, day).ok_or(Refusal::Format)?,
-        DateParts::SixDigits(d) => day_month_first(
-            d[0] * 10 + d[1],
-            d[2] * 10 + d[3],
-            Year::Two(i32::from(d[4]) * 10 + i32::from(d[5])),
-            context,
-            business_century,
-        )?,
-        DateParts::MonthYear(..) => return Err(Refusal::Format),
+    let parts: Vec<&str> = s.split('/').collect();
+    let [month, day, year] = parts.as_slice() else { return Err(Refusal::Format) };
+    let byte = |part: &str| number(part, &[1, 2]).and_then(|n| u8::try_from(n).ok());
+    let (Some(month), Some(day), Some(year)) = (byte(month), byte(day), number(year, &[4])) else {
+        return Err(Refusal::Format);
     };
-    not_after_signing(date, context)
+    not_after_signing(calendar(year, month, day).ok_or(Refusal::Format)?, context)
 }
 
 fn us_date(date: Date) -> String {
@@ -1551,12 +1546,25 @@ mod tests {
     }
 
     #[test]
-    fn signature_dates_are_days_on_or_before_signing() {
+    fn signature_dates_are_docusign_stamps_on_or_before_signing() {
         accepts(
             FieldKind::SignatureDate,
-            &[("10/20/2026", "10/20/2026"), ("10/19/26", "10/19/2026"), ("10202026", "10/20/2026")],
+            &[("10/20/2026", "10/20/2026"), ("9/9/2026", "09/09/2026"), ("10/9/2026", "10/09/2026")],
         );
-        refuses(FieldKind::SignatureDate, &[("10/21/2026", Refusal::OutOfRange), ("10/2026", Refusal::Format)]);
+        refuses(
+            FieldKind::SignatureDate,
+            &[
+                ("10/21/2026", Refusal::OutOfRange),
+                ("10/2026", Refusal::Format),
+                ("10/19/26", Refusal::Format),
+                ("10202026", Refusal::Format),
+                ("2026-10-20", Refusal::Format),
+                ("Oct 20, 2026", Refusal::Format),
+                ("10/20/2026 _____", Refusal::Format),
+            ],
+        );
+        let canada = ReadContext { business_country: Some(Country::Canada), ..SIGNED };
+        assert_eq!(read_in(FieldKind::SignatureDate, "5/6/2026", &canada), Ok(Some("05/06/2026".to_string())));
     }
 
     #[test]
@@ -1733,7 +1741,7 @@ mod tests {
             (FieldKind::Entity, &["S CORP", "INC", "LLC", "C CORP", "SOLE PROPRIETORSHIP", "LLP", "NONPROFIT"]),
             (FieldKind::StatedDate, &["4/15/19", "04/2019", "120156", "Jan 2019", "2019-04-15"]),
             (FieldKind::BirthDate, &["041580", "April 15, 1980"]),
-            (FieldKind::SignatureDate, &["10/19/26"]),
+            (FieldKind::SignatureDate, &["9/9/2026"]),
             (FieldKind::TaxId, &["01-2345678", "012345678", "123456789rt0001", "123-45-6789"]),
             (FieldKind::Ssn, &["900-12-3456", "900123456", "900 123 456", "900.123.456"]),
             (FieldKind::Money, &["50000", "$ 50000", "USD 1000.5", "CAD 7", "$1.2M", "250 thousand"]),

@@ -158,6 +158,8 @@ A PDF reads by these rules:
 - Values are read as runs: characters consecutive in the PDF's content, in one font and size, on one baseline, with
   small gaps. A run belongs to the region that holds its first character, even where it runs on past the next label,
   and the next field does not get its characters.
+- A run of underscores is a printed blank line, such as the one after each signature line's "Date:", and is form
+  text. A signature date is DocuSign's date-signed stamp, `M/D/YYYY`; any other shape is refused.
 - A field is in doubt, and gets no value, when its label's text occurs more often in its section than the form
   prints it, when other label text lies in its runs, or when one of its runs starts in two regions. A run inside the
   form that starts in no region is unplaced as a whole, whatever its font. The band between the last field row and

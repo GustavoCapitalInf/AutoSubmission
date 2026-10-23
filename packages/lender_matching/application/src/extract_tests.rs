@@ -210,6 +210,14 @@ fn a_label_word_inside_a_value_in_the_label_font_puts_both_fields_in_doubt() {
 }
 
 #[test]
+fn the_printed_date_line_is_form_text_under_the_date_stamp() {
+    let reading = read_form_page(&Form::word().clear(FieldId::Signature(S::ApplicantTwoDate)));
+    let form = form(&reading);
+    assert_eq!(canonical(form, FieldId::Signature(S::ApplicantOneDate)).as_deref(), Some("10/20/2026"));
+    assert_eq!(outcome(form, FieldId::Signature(S::ApplicantTwoDate)), Outcome::Blank);
+}
+
+#[test]
 fn signature_lines_side_by_side_leave_their_dates_out_of_place() {
     let mut rows = word_rows();
     rows.truncate(rows.len() - 2);
@@ -217,7 +225,9 @@ fn signature_lines_side_by_side_leave_their_dates_out_of_place() {
     let date_two = Some(FieldId::Signature(S::ApplicantTwoDate));
     rows.push((560.0, vec![("Signature of Applicant One", 40.0, None), ("Signature of Applicant Two", 330.0, None)]));
     rows.push((590.0, vec![("Date", 40.0, date_one), ("Date", 330.0, date_two)]));
-    let reading = read_form_page(&Form { layout: Layout { rows, ..word() }, ..Form::word() });
+    let mut layout = Layout { rows, ..word() };
+    layout.extras.retain(|extra| extra.text != SIGNATURE_DATE_LINE);
+    let reading = read_form_page(&Form { layout, ..Form::word() });
     let form = form(&reading);
     for field in [S::ApplicantOneDate, S::ApplicantTwoDate] {
         assert_eq!(outcome(form, FieldId::Signature(field)), Outcome::LabelOutOfPlace);

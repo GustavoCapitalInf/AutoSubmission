@@ -219,6 +219,9 @@ pub struct Layout {
     pub extras: Vec<Extra>,
 }
 
+/// The blank line printed after each signature line's "Date", which the date stamp overprints.
+pub const SIGNATURE_DATE_LINE: &str = "_______________";
+
 pub fn word() -> Layout {
     let seasonal = 484.0;
     Layout {
@@ -234,6 +237,8 @@ pub fn word() -> Layout {
             printed(10.0, 40.0, 510.0, "I certify that the information above is true and correct,"),
             printed(10.0, 40.0, 524.0, "and I authorize SAMPLE to verify it."),
             typed("DancingScript", 14.0, 200.0, 558.0, "Sample Owner"),
+            printed(LABEL_SIZE, 353.0, 560.0, SIGNATURE_DATE_LINE),
+            printed(LABEL_SIZE, 353.0, 590.0, SIGNATURE_DATE_LINE),
         ],
     }
 }
@@ -386,6 +391,8 @@ pub fn pdfescape() -> Layout {
             printed(10.0, 40.0, 470.0, "I certify that the information above is true and correct,"),
             printed(10.0, 40.0, 484.0, "and I authorize SAMPLE to verify it."),
             typed("DancingScript", 14.0, 200.0, 609.0, "Sample Owner"),
+            printed(LABEL_SIZE, 353.0, 611.0, SIGNATURE_DATE_LINE),
+            printed(LABEL_SIZE, 353.0, 638.0, SIGNATURE_DATE_LINE),
             printed(12.0, x(89.0), 660.0, "Fax: 512-555-0199"),
             printed(12.0, x(196.0), 660.0, "Email: forms@example.com"),
         ],

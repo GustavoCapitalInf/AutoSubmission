@@ -588,7 +588,9 @@ fn place_and_read(
     }
     let choices: Vec<Vec<ChoiceSpan>> =
         bound.iter().map(|b| find_choices(order, &candidates[b.candidate], b, &mut form_text)).collect();
-    let runs = value_runs(page, &form_text);
+    // A run of underscores is a printed blank line, such as the one after "Date:": form text.
+    let underscores = |run: &Vec<usize>| run.iter().all(|glyph| matches!(page.glyphs[*glyph].ch, '_' | ' '));
+    let runs: Vec<Vec<usize>> = value_runs(page, &form_text).into_iter().filter(|run| !underscores(run)).collect();
 
     let business_top = candidates[starts[0]].first.top;
     let area_bottom = bound.iter().map(|b| b.region.bottom).fold(business_top, f32::max);
