@@ -430,7 +430,7 @@ pub enum FieldKind {
 
 impl FieldKind {
     /// Kinds whose refused values `applications evaluate --shapes` may describe. Names, emails and
-    /// other free text never get a shape.
+    /// other free text get none.
     pub fn is_structured(self) -> bool {
         !matches!(self, FieldKind::Text | FieldKind::Email)
     }

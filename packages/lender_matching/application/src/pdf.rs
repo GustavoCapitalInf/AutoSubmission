@@ -39,7 +39,7 @@ impl fmt::Display for EngineError {
     }
 }
 
-/// Why a PDF gives no page data. A closed set: it never carries document text.
+/// Why a PDF gives no page data. A closed set that carries no document text.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadError {

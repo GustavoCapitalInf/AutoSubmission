@@ -19,10 +19,12 @@ Run every command below from this folder. The machine API is specified in [`docs
 | Info Hub import | Seeds lenders from the "Lenders Module" sheet; rerunnable | `src/info_hub.rs` |
 | Server | `/api/v1` for machine clients with named bearer tokens; `/admin` pages for people with accounts | `src/web/` |
 | Wire types | The v1 request and response types, shared with clients | `wire/` |
+| Application PDFs | Reads merchant application PDFs into typed field readings, with pdfium in a child process | `application/` |
 
 ## Run it
 
 Rust stable is the only requirement. SQLite is compiled in and TLS uses rustls, so Windows needs no system library.
+Only `applications evaluate` also needs pdfium (see [Get pdfium](#get-pdfium)).
 
 ```bash
 cargo build --release
@@ -117,6 +119,81 @@ The owner confirmed these readings of the sheet and the application.
 Negative days of several accounts in one month run from the largest account's count to their sum, since one day can
 be negative in more than one account.
 
+## Read application PDFs
+
+The `application/` member (crate `lender_matching_application`) reads Capital Infusion's merchant application PDFs
+into typed field readings. It reaches no store, network or log. Only `application/src/pdf.rs` calls pdfium, and
+`lender-matching` runs it in a child process (the hidden `pdf-worker` command), so a crash or a hang in pdfium stops
+only that process.
+
+| Part | What it does | Where (`application/src/`) |
+|---|---|---|
+| Field catalog | `FieldId` names the 55 fields: business, principal owner, secondary owner, property and the two signature dates. `FieldId::spec` gives each field's kind, whether it is required, and whether it is identity data or derived | `fields.rs` |
+| Value grammar | `FieldId::read` turns a field's text into a typed value or a closed refusal: `format`, `ambiguous`, `out_of_range`, `not_in_list`, `mark_unclear`, `undecodable` or `no_signing_date` | `values.rs` |
+| Page model | Each page's characters with font, size and box, in points from the top-left of the displayed page | `page.rs` |
+| Template | The form's sections, labels, label fonts and known layouts (`word`, `pdfescape`) as static data | `template.rs` |
+| Extraction | Classifies page 1, binds the labels, cuts the value regions and reads each field | `extract.rs` |
+| Certificate | Reads the envelope id, the completion day and the signers under Signer Events, never the originator | `certificate.rs` |
+| Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout | `worker.rs` |
+| Tally | The counts `applications evaluate` prints | `tally.rs` |
+
+A PDF reads by these rules:
+
+- Page 1 decides the document. The RECEIVABLES PURCHASE AGREEMENT heading refuses it as a contract. A page without
+  the form's headings is other paperwork, or a suspected scan when one image covers 80% of it or it holds fewer than
+  300 characters. A page with both kinds of heading, a scan-like page, or labels that fit no single known layout
+  sends the document to manual entry.
+- Labels are found by their printed text in Calibri or AdobeDevanagari, character by character, so a value typed into
+  the label's own run splits after the label. In each section the labels bind in reading order. A label that two
+  equally long matchings place differently is out of place, never "the nearer one".
+- A value lies on its label's row, with its top within −10 to +8 pt of the label's top, from the label's end to the
+  next label on the row. Prior/Current Loan Company also takes the next line.
+- A field is in doubt, and gets no value, when its label's text occurs more often in its section than the form
+  prints it, when other label text lies in its region, or when a character lies in two regions. Text inside the
+  form that lies in no region counts as unplaced, whatever its font. The band between the last field row and the
+  signature lines holds the certification paragraph and is not checked.
+- Dates read month first. For a business outside the US, or one whose state did not read, a date whose month and
+  day could swap is refused. The signing day is the certificate's completion day, else the PDF's creation date. A
+  business or signature date after it, an owner outside 18 to 100 years old on it, and a six-digit date that reads
+  both as MMYYYY and as MMDDYY are refused.
+- Amounts keep their cents and their denomination: `USD`, `CAD`, a bare `$`, or none. `N/A` means nothing applies,
+  except on the four history questions (open judgements, bankruptcy, tax liens, seasonal), where it means no.
+
+### Get pdfium
+
+`pdfium.lock` pins the pdfium build `chromium/7881` from bblanchon/pdfium-binaries, with one archive URL and SHA-256
+per target. CI downloads the archive, checks its SHA-256, and sets `PDFIUM_LIBRARY` and `PDFIUM_REQUIRED=1`. To get
+the Linux build:
+
+```bash
+gh release download chromium/7881 --repo bblanchon/pdfium-binaries --pattern pdfium-linux-x64.tgz --dir "<scratch folder>"
+cd "<scratch folder>"
+sha256sum --check <<<"1470e21b8b4a3b4ad7f85684e2da11d94f3b69a86d81dee11b9b6709d927ac1d  pdfium-linux-x64.tgz"
+tar -xzf pdfium-linux-x64.tgz
+export PDFIUM_LIBRARY="$PWD/lib/libpdfium.so"
+```
+
+On Windows the library is `bin\pdfium.dll` in `pdfium-win-x64.tgz`. `PDFIUM_LIBRARY` is an absolute path, and the
+service looks nowhere else.
+
+### Measure the parser on a folder
+
+```bash
+export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
+lender-matching applications evaluate "<folder of application PDFs>" --offsets --shapes --json "<report file>"
+```
+
+The command reads every `.pdf` file under the folder in sorted order and keeps nothing. It prints counts and closed
+reasons only: documents by kind, failures, layouts, where the signing day came from, certificate counts, the signer
+check, unplaced text by the label before it, and for each field how often it was read, blank, not applicable,
+refused, unlocated or in doubt. It never prints a value, a file name or a path inside the folder.
+
+- `--offsets` adds, for each sentinel label, a histogram of its offset from the BUSINESS INFORMATION heading in
+  whole points. Use it to measure a new layout.
+- `--shapes` adds the shapes of refused structured values, with digits as `9` and letters as `A` or `a`. A shape
+  seen fewer than 3 times for a field counts as `other`. Names, emails and other free text get no shape.
+- `--json` also writes the counts to the file as JSON.
+
 ## Develop
 
 ```bash
@@ -133,6 +210,10 @@ cargo run -p lender_matching_wire --example write_contract   # rewrites docs/api
 - API responses in the tests are checked against this package's own `docs/api/v1.schema.json`, and
   `contract_files_are_current` fails when the schema or the reference block of `docs/api/v1.md` is stale.
 - `no_model_crate_is_locked` fails when `Cargo.lock` holds a model or ML crate.
+- Tests that need pdfium read `PDFIUM_LIBRARY`. Without it they print why they skip, and with `PDFIUM_REQUIRED=1`
+  they fail. They read PDFs that `application/tests/support/` writes with `pdf-writer`; the service's tests include
+  the same files.
+- A change that makes the same PDF read differently bumps `PARSER_VERSION` (`application/src/lib.rs`).
 - Tests and docs use fabricated names only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE) and `example` domains.
 - A changed verdict for the same inputs bumps `ENGINE_VERSION` (`src/matching.rs`). A changed stored JSON layout bumps
   `RECORD_FORMAT` (`src/criteria/mod.rs`) or `MATCH_FORMAT` (`src/matching.rs`) and needs a reader for the old one,

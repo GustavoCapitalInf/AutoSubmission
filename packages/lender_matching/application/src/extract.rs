@@ -301,7 +301,7 @@ enum Placement {
 
 /// The longest order-preserving matching of the section's labels to its candidates (both in
 /// reading order). A label is bound only when every longest matching puts it on the same
-/// candidate; otherwise it is out of place, never "the nearer one".
+/// candidate; otherwise it is out of place.
 fn align(labels: &[LabelSpec], candidates: &[usize], all: &[Candidate]) -> Vec<Placement> {
     const MAX_CANDIDATES: usize = 64;
     if candidates.len() > MAX_CANDIDATES {
