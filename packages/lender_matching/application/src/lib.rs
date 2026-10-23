@@ -21,7 +21,7 @@ extern crate self as lender_matching_application;
 #[path = "../tests/support/mod.rs"]
 mod support;
 
-pub use certificate::{Certificate, SignerCheck, compare_signer};
+pub use certificate::{Certificate, DetailCheck, SignerCheck, SignerComparison, compare_signer};
 pub use extract::{Document, FieldReading, Outcome, Reading, read};
 pub use fields::{FieldId, FieldKind, FieldMap, FieldSpec};
 pub use page::{Glyph, PdfFacts, Rect, TextPage};

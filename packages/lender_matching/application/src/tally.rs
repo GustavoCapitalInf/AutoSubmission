@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Serialize, Serializer};
 
 use crate::PARSER_VERSION;
-use crate::certificate::{SignerCheck, compare_signer};
+use crate::certificate::{DetailCheck, SignerCheck, compare_signer};
 use crate::extract::{Document, ManualEntryReason, Outcome, Reading, RefusalReason, SignedOn};
 use crate::fields::{FieldId, FieldMap, OwnerField, OwnerSlot};
 use crate::pdf::ReadError;
@@ -32,6 +32,12 @@ pub struct Tally {
     /// Applications only.
     #[serde(serialize_with = "keyed")]
     pub signer_check: BTreeMap<SignerCheck, u32>,
+    /// The principal owner's name against the signers' names, applications only.
+    #[serde(serialize_with = "keyed")]
+    pub signer_name: BTreeMap<DetailCheck, u32>,
+    /// The principal owner's email against the signers' emails, applications only.
+    #[serde(serialize_with = "keyed")]
+    pub signer_email: BTreeMap<DetailCheck, u32>,
     pub unplaced: UnplacedCounts,
     pub fields: FieldMap<FieldCounts>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,6 +137,12 @@ impl Key for SignerCheck {
     }
 }
 
+impl Key for DetailCheck {
+    fn key(&self) -> String {
+        snake(self)
+    }
+}
+
 impl Key for Outcome {
     fn key(&self) -> String {
         match self {
@@ -221,6 +233,8 @@ impl Tally {
             signed_on: SignedOnCounts::default(),
             certificate: CertificateCounts::default(),
             signer_check: BTreeMap::new(),
+            signer_name: BTreeMap::new(),
+            signer_email: BTreeMap::new(),
             unplaced: UnplacedCounts::default(),
             fields: FieldMap::default(),
             offsets: options.offsets.then(BTreeMap::new),
@@ -293,7 +307,10 @@ impl Tally {
             _ => None,
         };
         let signers = reading.certificate.as_ref().map_or(&[][..], |certificate| &certificate.signers);
-        *self.signer_check.entry(compare_signer(name, email, signers)).or_insert(0) += 1;
+        let comparison = compare_signer(name, email, signers);
+        *self.signer_check.entry(comparison.check).or_insert(0) += 1;
+        *self.signer_name.entry(comparison.name).or_insert(0) += 1;
+        *self.signer_email.entry(comparison.email).or_insert(0) += 1;
     }
 
     /// The report as text lines.
@@ -325,6 +342,8 @@ impl Tally {
                 self.certificate.more_signers
             ),
             format!("signer check  {}", listed(self.signer_check.iter().map(|(k, n)| (k.key(), *n)).collect())),
+            format!("signer name   {}", listed(self.signer_name.iter().map(|(k, n)| (k.key(), *n)).collect())),
+            format!("signer email  {}", listed(self.signer_email.iter().map(|(k, n)| (k.key(), *n)).collect())),
             format!(
                 "unplaced      {} applications hold {} runs · by the label before them: {}",
                 self.unplaced.applications,
@@ -409,6 +428,10 @@ mod tests {
         let mut tally = Tally::new(TallyOptions { offsets: true, shapes: true });
         tally.add(&reading(&Form::word()));
         tally.add(&reading(&Form { layout: pdfescape(), ..Form::word() }));
+        let principal = |field| FieldId::Owner(OwnerSlot::Principal, field);
+        tally.add(&reading(&Form::word().set(principal(OwnerField::Name), "SAMPLE Q. OWNER")));
+        tally.add(&reading(&Form::word().set(principal(OwnerField::Email), "Owner@Example.com")));
+        tally.add(&reading(&Form::word().set(principal(OwnerField::Name), "NORTHWIND OWNER")));
         let start = FieldId::Business(BusinessField::StartDate);
         for text in ["2019", "2018", "2020", "Q2 2019"] {
             tally.add(&reading(&Form::word().set(start, text)));
@@ -421,18 +444,23 @@ mod tests {
     #[test]
     fn a_tally_counts_documents_fields_and_failures() {
         let tally = sample_tally();
-        assert_eq!(tally.pdf_files, 8);
-        assert_eq!(tally.documents.get(&DocumentKind::Application), Some(&6));
-        assert_eq!(tally.layouts.get("word"), Some(&5));
+        assert_eq!(tally.pdf_files, 11);
+        assert_eq!(tally.documents.get(&DocumentKind::Application), Some(&9));
+        assert_eq!(tally.layouts.get("word"), Some(&8));
         assert_eq!(tally.layouts.get("pdfescape"), Some(&1));
-        assert_eq!(tally.signer_check.get(&SignerCheck::Agreement), Some(&6));
+        assert_eq!(tally.signer_check.get(&SignerCheck::Agreement), Some(&8));
+        assert_eq!(tally.signer_check.get(&SignerCheck::Disagreement), Some(&1));
+        assert_eq!(tally.signer_name.get(&DetailCheck::Difference), Some(&1));
+        assert_eq!(tally.signer_email.get(&DetailCheck::Agreement), Some(&9));
         let start = tally.fields.get(FieldId::Business(BusinessField::StartDate));
-        assert_eq!(start.0.get(&Outcome::Read), Some(&2));
+        assert_eq!(start.0.get(&Outcome::Read), Some(&5));
         assert_eq!(start.0.get(&Outcome::Refused(crate::values::Refusal::Format)), Some(&4));
         let lines = tally.lines().join("\n");
         assert!(lines.contains("failures      not_pdf 1 · unopened 1"), "{lines}");
         assert!(lines.contains("9999 ×3 · other ×1"), "{lines}");
-        assert!(lines.contains("dy +15 ×1 · +18 ×5"), "{lines}");
+        assert!(lines.contains("dy +15 ×1 · +18 ×8"), "{lines}");
+        assert!(lines.contains("signer name   agreement 8 · difference 1"), "{lines}");
+        assert!(lines.contains("signer email  agreement 9"), "{lines}");
     }
 
     #[test]
@@ -442,6 +470,7 @@ mod tests {
         let json = serde_json::to_string(&tally).unwrap();
         let mut values: Vec<&str> = sample_values().into_iter().map(|(_, value)| value).collect();
         values.extend(["SAMPLE OWNER", "owner@example.com", "Q2 2019", "0F8FAD5B", "ORIGINATOR"]);
+        values.extend(["SAMPLE Q. OWNER", "NORTHWIND OWNER", "Owner@Example.com"]);
         for value in values.into_iter().filter(|value| value.len() > 3) {
             assert!(!text.contains(value), "the text report holds a value");
             assert!(!json.contains(value), "the JSON report holds a value");

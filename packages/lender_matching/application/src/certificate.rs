@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::Serialize;
 use time::{Date, Month};
 
@@ -159,30 +161,80 @@ pub enum SignerCheck {
     Unavailable,
 }
 
-/// Names compare in upper case with spacing collapsed; emails by local part as written and domain
-/// in lower case. Nothing is repaired or matched loosely.
-pub fn compare_signer(name: Option<&str>, email: Option<&Email>, signers: &[Signer]) -> SignerCheck {
-    let (Some(name), Some(email)) = (name, email) else {
-        return SignerCheck::Unavailable;
-    };
-    if signers.is_empty() {
-        return SignerCheck::Unavailable;
+/// How one of the principal owner's details compares with the signers'.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetailCheck {
+    /// A signer has the owner's detail.
+    Agreement,
+    /// No signer has it.
+    Difference,
+    /// The owner's detail, or the signers, are missing.
+    Unavailable,
+}
+
+pub struct SignerComparison {
+    pub check: SignerCheck,
+    pub name: DetailCheck,
+    pub email: DetailCheck,
+}
+
+/// A name's words in upper case, with punctuation removed.
+fn name_words(name: &str) -> Vec<String> {
+    let kept: String = name.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect();
+    kept.to_uppercase().split_whitespace().map(String::from).collect()
+}
+
+/// The same set of words, or the same but one more word inside the longer name: a middle name.
+fn same_name(a: &str, b: &str) -> bool {
+    let (a, b) = (name_words(a), name_words(b));
+    let set = |words: &[String]| words.iter().cloned().collect::<BTreeSet<String>>();
+    let (long, short) = if a.len() >= b.len() { (a, b) } else { (b, a) };
+    let short_set = set(&short);
+    if set(&long) == short_set {
+        return !short_set.is_empty();
     }
-    let normal = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ").to_uppercase();
-    let same_email = |signer: &Signer| {
-        reads_as_email(&signer.email)
-            .is_some_and(|other| other.local() == email.local() && other.domain() == email.domain())
+    let extra: Vec<usize> = (0..long.len()).filter(|&i| !short_set.contains(&long[i])).collect();
+    let [middle] = extra.as_slice() else { return false };
+    short_set.len() >= 2 && short_set.len() + 1 == long.len() && *middle > 0 && *middle + 1 < long.len()
+}
+
+/// Names compare by their words, a middle name aside; emails as whole addresses in any case.
+pub fn compare_signer(name: Option<&str>, email: Option<&Email>, signers: &[Signer]) -> SignerComparison {
+    let address = |email: &Email| format!("{}@{}", email.local(), email.domain()).to_lowercase();
+    let by_name: Option<Vec<bool>> =
+        name.map(|name| signers.iter().map(|signer| same_name(&signer.name, name)).collect());
+    let by_email: Option<Vec<bool>> = email.map(|email| {
+        let owner = address(email);
+        signers
+            .iter()
+            .map(|signer| reads_as_email(&signer.email).is_some_and(|other| address(&other) == owner))
+            .collect()
+    });
+    let detail = |matches: &Option<Vec<bool>>| match matches {
+        _ if signers.is_empty() => DetailCheck::Unavailable,
+        None => DetailCheck::Unavailable,
+        Some(matches) if matches.contains(&true) => DetailCheck::Agreement,
+        Some(_) => DetailCheck::Difference,
     };
-    let corresponding: Vec<(bool, bool)> = signers
-        .iter()
-        .map(|signer| (normal(&signer.name) == normal(name), same_email(signer)))
-        .filter(|(by_name, by_email)| *by_name || *by_email)
-        .collect();
-    match corresponding.as_slice() {
-        [(true, true)] => SignerCheck::Agreement,
-        [] | [_] => SignerCheck::Disagreement,
-        _ => SignerCheck::Ambiguous,
-    }
+    let check = match (&by_name, &by_email) {
+        _ if signers.is_empty() => SignerCheck::Unavailable,
+        (Some(by_name), Some(by_email)) => {
+            let corresponding: Vec<(bool, bool)> = by_name
+                .iter()
+                .zip(by_email)
+                .map(|(name, email)| (*name, *email))
+                .filter(|(name, email)| *name || *email)
+                .collect();
+            match corresponding.as_slice() {
+                [(true, true)] => SignerCheck::Agreement,
+                [] | [_] => SignerCheck::Disagreement,
+                _ => SignerCheck::Ambiguous,
+            }
+        }
+        _ => SignerCheck::Unavailable,
+    };
+    SignerComparison { check, name: detail(&by_name), email: detail(&by_email) }
 }
 
 #[cfg(test)]
@@ -253,16 +305,56 @@ mod tests {
             Signer { name: "SAMPLE OWNER".to_string(), email: "owner@example.com".to_string() },
             Signer { name: "NORTHWIND PARTNER".to_string(), email: "partner@example.com".to_string() },
         ];
-        let check = |name: &str, address: &str| compare_signer(Some(name), Some(&email(address)), &signers);
+        let check = |name: &str, address: &str| compare_signer(Some(name), Some(&email(address)), &signers).check;
         assert_eq!(check("Sample  Owner", "owner@EXAMPLE.com"), SignerCheck::Agreement);
+        assert_eq!(check("SAMPLE OWNER", "Owner@Example.com"), SignerCheck::Agreement, "the whole address in any case");
         assert_eq!(check("SAMPLE OWNER", "other@example.com"), SignerCheck::Disagreement);
-        assert_eq!(check("CONTOSO OWNER", "Owner@example.com"), SignerCheck::Disagreement, "the local part is exact");
+        assert_eq!(check("CONTOSO OWNER", "owner@example.com"), SignerCheck::Disagreement);
         assert_eq!(check("FABRIKAM", "nobody@example.com"), SignerCheck::Disagreement);
         assert_eq!(check("SAMPLE OWNER", "partner@example.com"), SignerCheck::Ambiguous);
-        assert_eq!(compare_signer(None, Some(&email("owner@example.com")), &signers), SignerCheck::Unavailable);
+        let unavailable = compare_signer(None, Some(&email("owner@example.com")), &signers);
+        assert_eq!((unavailable.check, unavailable.name), (SignerCheck::Unavailable, DetailCheck::Unavailable));
+        assert_eq!(unavailable.email, DetailCheck::Agreement);
+        let no_signers = compare_signer(Some("SAMPLE OWNER"), Some(&email("owner@example.com")), &[]);
         assert_eq!(
-            compare_signer(Some("SAMPLE OWNER"), Some(&email("owner@example.com")), &[]),
-            SignerCheck::Unavailable
+            (no_signers.check, no_signers.name, no_signers.email),
+            (SignerCheck::Unavailable, DetailCheck::Unavailable, DetailCheck::Unavailable)
         );
+    }
+
+    #[test]
+    fn names_agree_by_their_words_with_a_middle_name_aside() {
+        for (a, b) in [
+            ("SAMPLE OWNER", "Sample  Owner"),
+            ("OWNER, SAMPLE", "SAMPLE OWNER"),
+            ("SAMPLE Q. OWNER", "SAMPLE OWNER"),
+            ("SAMPLE OWNER", "SAMPLE NORTHWIND OWNER"),
+            ("O'NEIL SAMPLE", "ONEIL SAMPLE"),
+        ] {
+            assert!(same_name(a, b), "{a} and {b} agree");
+        }
+        for (a, b) in [
+            ("SAMPLE OWNER JR", "SAMPLE OWNER"),
+            ("Q SAMPLE OWNER", "SAMPLE OWNER"),
+            ("SAMPLE", "SAMPLE OWNER"),
+            ("SAMPLE ANNE MARIE OWNER", "SAMPLE OWNER"),
+            ("SAMPLE OWNER", "SAMPLE PARTNER"),
+            ("", ""),
+        ] {
+            assert!(!same_name(a, b), "{a} and {b} differ");
+        }
+    }
+
+    #[test]
+    fn the_name_and_the_email_are_also_checked_one_by_one() {
+        let signers = [Signer { name: "SAMPLE OWNER".to_string(), email: "owner@example.com".to_string() }];
+        let compare = |name: &str, address: &str| {
+            let comparison = compare_signer(Some(name), Some(&email(address)), &signers);
+            (comparison.check, comparison.name, comparison.email)
+        };
+        use DetailCheck::{Agreement, Difference};
+        assert_eq!(compare("SAMPLE Q OWNER", "Owner@example.com"), (SignerCheck::Agreement, Agreement, Agreement));
+        assert_eq!(compare("NORTHWIND OWNER", "owner@example.com"), (SignerCheck::Disagreement, Difference, Agreement));
+        assert_eq!(compare("SAMPLE OWNER", "other@example.com"), (SignerCheck::Disagreement, Agreement, Difference));
     }
 }

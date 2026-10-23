@@ -181,6 +181,10 @@ A PDF reads by these rules:
   nothing applies, except on the four history questions (open judgements, bankruptcy, tax liens, seasonal), where
   it means no.
 
+The signer check compares the principal owner with the certificate's signers. Names agree when their words, in
+upper case and without punctuation, are the same, or the same but one middle name. Emails agree as whole addresses
+in any case. It agrees when one signer has both; the name and the email are also counted one by one.
+
 ### Get pdfium
 
 `pdfium.lock` pins the pdfium build `chromium/7881` from bblanchon/pdfium-binaries, with one archive URL and SHA-256
@@ -207,8 +211,8 @@ lender-matching applications evaluate "<folder of application PDFs>" --offsets -
 
 The command reads every `.pdf` file under the folder in sorted order and keeps nothing. It prints counts and closed
 reasons only: documents by kind, failures, layouts, where the signing day came from, certificate counts, the signer
-check, unplaced text by the label before it, and for each field how often it was read, blank, not applicable,
-refused, unlocated or in doubt. It never prints a value, a file name or a path inside the folder.
+check with separate name and email counts, unplaced text by the label before it, and for each field how often it was
+read, blank, not applicable, refused, unlocated or in doubt. It never prints a value, a file name or a path inside the folder.
 
 - `--offsets` adds, for each sentinel label, a histogram of its offset from the BUSINESS INFORMATION heading in
   whole points. Use it to measure a new layout.
