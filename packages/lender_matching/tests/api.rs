@@ -1,5 +1,3 @@
-//! The machine API, end to end: the built binary, a fake analysis service and fabricated packages.
-
 mod common;
 
 use common::*;

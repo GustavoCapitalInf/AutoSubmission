@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// This contract's version.
+/// Every response's `api_version`; a bump within 1.x only adds (`docs/api/v1.md` Versioning).
 pub const API_VERSION: &str = "1.0";
 
 /// `POST /api/v1/matches`: match one deal against every active lender.

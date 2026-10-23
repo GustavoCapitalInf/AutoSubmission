@@ -22,7 +22,6 @@ impl YearMonth {
         YearMonth { year: date.year(), month: date.month() as u8 }
     }
 
-    /// Accepts exactly `YYYY-MM`.
     pub fn parse(text: &str) -> Option<YearMonth> {
         let bytes = text.as_bytes();
         if bytes.len() != 7
@@ -108,7 +107,6 @@ fn add_months(date: Date, months: i64) -> Date {
     Date::from_calendar_date(year, month, day).expect("clamped day is valid")
 }
 
-/// A US state, DC, a US territory or a Canadian province or territory, by postal code.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct Jurisdiction(&'static str);
 
@@ -120,7 +118,7 @@ const JURISDICTIONS: [&str; 69] = [
 ];
 
 impl Jurisdiction {
-    /// Takes a postal code in any case. The Info Hub's `QB` is not a postal code; the import maps it.
+    /// The Info Hub's `QB` is not a postal code; `info_hub` maps it to `QC`.
     pub fn from_code(code: &str) -> Option<Jurisdiction> {
         let upper = code.trim().to_ascii_uppercase();
         JURISDICTIONS.iter().find(|known| **known == upper).map(|known| Jurisdiction(known))
@@ -204,8 +202,6 @@ impl EntityKind {
 pub struct IndustryId(String);
 
 impl IndustryId {
-    /// A slug the Info Hub plan proposes for a label the picklist lacks; `info_hub::run` adds the
-    /// industry before it writes a rule naming it.
     pub fn unsaved(slug: String) -> IndustryId {
         IndustryId(slug)
     }
@@ -243,12 +239,10 @@ impl Industries {
         Industries { by_slug }
     }
 
-    /// An active industry by slug.
     pub fn resolve(&self, slug: &str) -> Option<IndustryId> {
         self.by_slug.get(slug).filter(|industry| !industry.retired).map(|industry| industry.id.clone())
     }
 
-    /// Any industry, retired ones included, whose label matches ignoring case and surrounding space.
     pub fn by_label(&self, label: &str) -> Option<IndustryId> {
         let wanted = label.trim();
         self.by_slug
@@ -269,8 +263,6 @@ impl Industries {
         self.by_slug.values().filter(|industry| !industry.retired)
     }
 
-    /// The slug a new label would get: lower-case words joined by `-`, with a numeric suffix when
-    /// another industry already holds that slug.
     pub fn slug_for(&self, label: &str) -> String {
         let mut base = String::new();
         for word in label.split(|c: char| !c.is_ascii_alphanumeric()).filter(|word| !word.is_empty()) {
@@ -292,7 +284,6 @@ impl Industries {
     }
 }
 
-/// What the caller states about a deal, already parsed.
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct ApplicationFacts {
     pub business_state: Option<Jurisdiction>,
@@ -308,7 +299,6 @@ pub struct ApplicationFacts {
     pub industry_suggestion: Option<IndustryId>,
 }
 
-/// Facts that a signed-in person confirmed on the match page.
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Confirmations {
     pub industry: Option<Confirmed<IndustryId>>,

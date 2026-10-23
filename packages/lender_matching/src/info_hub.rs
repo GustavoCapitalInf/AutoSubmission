@@ -86,7 +86,6 @@ impl Column {
         }
     }
 
-    /// Ignores case and repeated whitespace.
     fn from_header(text: &str) -> Option<Column> {
         let wanted = collapse(text).to_lowercase();
         Column::ALL.into_iter().find(|column| column.header().to_lowercase() == wanted)
@@ -96,7 +95,6 @@ impl Column {
         self as usize
     }
 
-    /// Columns that hold criteria, as opposed to the lender's name, contacts and terms.
     pub fn is_criterion(self) -> bool {
         matches!(
             self,
@@ -209,7 +207,6 @@ pub fn read_sheet_bytes(bytes: Vec<u8>) -> Result<Sheet, SheetError> {
     Ok(Sheet { sha256, rows: parsed })
 }
 
-/// A cell as text, trimmed; None when empty. A whole float prints without a decimal point.
 fn cell_text(cell: &Data) -> Option<String> {
     let text = match cell {
         Data::Empty => return None,
@@ -225,8 +222,7 @@ fn cell_text(cell: &Data) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// The owner's still-open readings. A rerun with another reading updates every lender the import
-/// still owns.
+/// A rerun with another reading updates every lender the import still owns.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct ImportReadings {
     pub open_positions: OpenPositionReading,
@@ -245,7 +241,6 @@ pub enum OpenPositionReading {
     CappedAtB,
 }
 
-/// `record:<Record Id>`, or `name:<the name upper-cased with whitespace collapsed>`.
 fn import_key(row: &SheetRow) -> Option<String> {
     match (row.cell(Column::RecordId), row.cell(Column::LenderName)) {
         (Some(record), _) => Some(format!("record:{record}")),
@@ -261,7 +256,6 @@ pub struct CellReport {
     pub outcome: CellOutcome,
 }
 
-/// `Empty` exactly when the cell is empty.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum CellOutcome {
@@ -283,7 +277,6 @@ pub enum CellOutcome {
         ids: Vec<RuleId>,
         unread: NoteId,
     },
-    /// A `Condition` note quoting the cell.
     Unread {
         note: NoteId,
     },
@@ -344,7 +337,6 @@ fn num(fact: NumFact, bound: Bound) -> Predicate {
     Predicate::Num { fact, bound }
 }
 
-/// Digits, optionally grouped with commas and led by `$`.
 fn dollars(raw: &str) -> Option<i64> {
     count(&raw.trim().trim_start_matches('$').replace(',', ""))
 }
@@ -610,14 +602,12 @@ fn read_cell(
 pub enum RowAction {
     /// A new lender, status Draft.
     Create(LenderRecord),
-    /// The head was written by an import and the sheet now reads differently.
     Update {
         lender: LenderId,
         base: u32,
         record: LenderRecord,
     },
     Unchanged(LenderId),
-    /// A person wrote the head; the import leaves it as it is.
     KeptAdminEdits {
         lender: LenderId,
         head: u32,
@@ -813,8 +803,6 @@ impl ImportReport {
         self.rows.iter().filter(|row| kind(&row.action)).count()
     }
 
-    /// The terminal summary: totals, blockers, and each row's action with the cells that need an
-    /// admin's eye (notes, mappings, defaults, unread text).
     pub fn lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!(
@@ -953,7 +941,6 @@ pub(crate) mod testing {
         Number(f64),
     }
 
-    /// A workbook with the full header row and one row per entry, each naming only its filled cells.
     pub fn workbook(rows: &[Vec<(Column, Value)>]) -> Vec<u8> {
         workbook_with_headers(&Column::ALL.map(Column::header), rows)
     }

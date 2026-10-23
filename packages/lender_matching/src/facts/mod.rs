@@ -14,8 +14,6 @@ use uuid::Uuid;
 use analysis::{AnalysisFacts, ReadyPackage, StatementMonth};
 use application::{ApplicationFacts, Confirmations, Confirmed, EntityKind, IndustryId, Jurisdiction, whole_months};
 
-/// A numeric deal fact. `DealFacts::num` matches on it, so a new variant needs a field and a
-/// source before it builds.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NumFact {
@@ -104,7 +102,6 @@ impl FlagFact {
     }
 }
 
-/// Names any fact. Its wire name is `key()`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FactKey {
@@ -183,7 +180,6 @@ impl Interval {
         Interval { lo, hi: None }
     }
 
-    /// The smallest interval holding both values.
     pub fn hull(a: i64, b: i64) -> Interval {
         Interval { lo: a.min(b), hi: Some(a.max(b)) }
     }
@@ -247,9 +243,7 @@ impl fmt::Display for Interval {
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Fact<V> {
-    /// The inputs fix the value (or, for an interval, bound it).
     Known { value: V, basis: Basis, source: Source },
-    /// The inputs do not establish it. `seen` is an unproven value shown as evidence and not evaluated.
     Unknown { gap: Gap, seen: Option<V>, source: Source },
 }
 
@@ -333,14 +327,12 @@ pub struct AnalysisRef {
     pub revision: String,
 }
 
-/// What the caller supplies about a deal, already parsed.
 #[derive(Clone, Default, PartialEq, Debug, Serialize, Deserialize)]
 pub struct DealInput {
     pub application: ApplicationFacts,
     pub confirmations: Confirmations,
 }
 
-/// Every fact of one deal at `as_of`. Built only by `assemble`.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct DealFacts {
     #[serde(with = "iso_date")]

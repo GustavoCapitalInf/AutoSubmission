@@ -127,7 +127,6 @@ pub fn verify_password(password: &str, phc: Option<&str>) -> bool {
     Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok()
 }
 
-/// At least 12 characters.
 pub fn acceptable_password(password: &str) -> bool {
     password.chars().count() >= 12
 }

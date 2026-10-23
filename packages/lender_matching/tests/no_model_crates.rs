@@ -2,7 +2,6 @@
 
 use std::path::Path;
 
-/// Crates that run or call a model.
 const MODEL_CRATES: [&str; 24] = [
     "async-openai",
     "openai",

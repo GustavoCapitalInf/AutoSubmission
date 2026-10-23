@@ -49,7 +49,6 @@ pub mod contract {
         })
     }
 
-    /// The definitions `roots` name through `$ref`, directly or through other definitions.
     fn reachable(roots: &[Value], definitions: &Map<String, Value>) -> BTreeSet<String> {
         fn refs(value: &Value, found: &mut Vec<String>) {
             match value {

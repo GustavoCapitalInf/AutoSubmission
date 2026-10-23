@@ -1,5 +1,3 @@
-//! The admin pages, end to end, driven as a browser without JavaScript would drive them.
-
 mod common;
 
 use common::*;

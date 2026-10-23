@@ -35,7 +35,6 @@ fn dollars(cents: i64) -> String {
     if cents % 100 == 0 { (cents / 100).to_string() } else { format!("{}.{:02}", cents / 100, (cents % 100).abs()) }
 }
 
-/// Dollars with at most two decimals, optionally led by `$` and grouped with commas.
 fn parse_dollars(text: &str) -> Option<i64> {
     let text: String = text.trim().trim_start_matches('$').chars().filter(|c| *c != ',').collect();
     let (whole, cents) = text.split_once('.').unwrap_or((&text, ""));
@@ -70,7 +69,6 @@ const OPS: [(&str, &str); 8] = [
     ("no", "is no"),
 ];
 
-/// One `[fact] [op] [value]` row, as typed.
 #[derive(Clone, Default)]
 pub struct PredicateRow {
     pub fact: String,
@@ -324,7 +322,6 @@ impl BaseForm {
         }
     }
 
-    /// The predicate each filled slot stands for, with errors named by the field's label.
     fn predicates(&self, industries: &Industries, errors: &mut Vec<String>) -> Vec<(&'static str, Predicate)> {
         let mut out = Vec::new();
         let mut number = |slot: &'static str, fact: NumFact, text: &str, label: &str, at_least: bool| {

@@ -1,6 +1,5 @@
-//! A match's evidence for a person, and the reviewer form. The form does not edit a match: it makes
-//! a new one (analysis fetched again, current heads) that names the match it supersedes, with the
-//! person's confirmations and waivers.
+//! The reviewer form does not edit a match: it makes a new one (analysis fetched again, current
+//! heads) that names the match it supersedes, with the person's confirmations and waivers.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -44,8 +43,6 @@ fn label(fact: &str) -> String {
     FactKey::from_key(fact).map_or_else(|| fact.to_string(), |key| describe::fact_label(key).to_string())
 }
 
-/// The checks and notes a person can set aside on this verdict: those that fail or are unproven,
-/// and condition notes that may apply.
 fn waivable(verdict: &wire::Verdict) -> Vec<(String, String)> {
     let checks = verdict
         .checks

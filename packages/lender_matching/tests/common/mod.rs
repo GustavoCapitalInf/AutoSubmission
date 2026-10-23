@@ -1,5 +1,3 @@
-//! Drives the built `lender-matching` binary: its CLI, and its server against a fake analysis API
-//! that serves the fabricated packages in `tests/fixtures/analysis`.
 #![allow(dead_code)]
 
 use std::collections::HashMap;
@@ -21,7 +19,6 @@ use uuid::Uuid;
 pub const ANALYSIS_TOKEN: &str = "sample-analysis-token";
 pub const PASSWORD: &str = "correct horse battery staple";
 
-/// A scratch directory outside the checkout, removed on drop.
 pub struct TempDir(PathBuf);
 
 impl TempDir {
@@ -42,7 +39,6 @@ impl Drop for TempDir {
     }
 }
 
-/// The binary with a data directory and none of the developer's environment.
 pub fn command(data: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lender-matching"));
     for name in ["LENDER_MATCHING_DATA_DIR", "ANALYSIS_API_URL", "ANALYSIS_API_TOKEN", "PUBLIC_URL"] {
@@ -134,8 +130,6 @@ pub fn fixture(name: &str) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(path.with_extension("json")).unwrap()).unwrap()
 }
 
-/// Serves `GET /api/v1/packages/<id>` for each id: a fixture by name, with its `package_id` set to
-/// the id; `processing` adds `Retry-After: 7`; `broken` answers a body outside the contract.
 pub async fn fake_analysis(packages: Vec<(Uuid, &'static str)>) -> String {
     let packages: Arc<HashMap<Uuid, &'static str>> = Arc::new(packages.into_iter().collect());
     let app = Router::new().route("/api/v1/packages/{id}", get(serve_package)).with_state(packages);
@@ -193,7 +187,6 @@ const HEADERS: [&str; 16] = [
     "Record Id",
 ];
 
-/// Writes a "Lenders Module" workbook; each row names its filled cells by header.
 pub fn workbook(dir: &Path, rows: &[&[(&str, &str)]]) -> PathBuf {
     let mut book = Workbook::new();
     let sheet = book.add_worksheet();
@@ -292,7 +285,6 @@ pub struct Page {
     pub body: String,
 }
 
-/// A browser without JavaScript: it keeps cookies and submits forms as urlencoded bodies.
 pub struct Browser {
     http: reqwest::Client,
     base: String,
@@ -355,8 +347,6 @@ impl Browser {
         assert_eq!(signed_in.location.as_deref(), Some("/admin"), "sign in {username}: {}", signed_in.body);
     }
 
-    /// Submits the page's form for `action` as a browser would, with `changes` applied and the
-    /// named submit button pressed.
     pub async fn submit(
         &self,
         page: &Page,
@@ -395,9 +385,6 @@ fn has_flag(tag: &str, name: &str) -> bool {
     tag.split(|c: char| c.is_whitespace() || c == '>' || c == '/').any(|part| part == name)
 }
 
-/// The fields a browser would submit from the form whose action is `action`: text and hidden
-/// inputs, checked boxes and radios, each select's selected option and each textarea's text.
-/// Submit buttons are left out.
 pub fn form_fields(html: &str, action: &str) -> Vec<(String, String)> {
     let marker = format!("action=\"{action}\"");
     let start = html.find(&marker).unwrap_or_else(|| panic!("no form for {action} in {html}"));
@@ -453,7 +440,6 @@ pub fn csrf_of(page: &Page) -> String {
     attribute(&page.body[start..=end], "value").unwrap()
 }
 
-/// Asserts that `body` is a valid `definition` of this server's own `docs/api/v1.schema.json`.
 pub fn assert_contract(definition: &str, body: &serde_json::Value) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs").join("api").join("v1.schema.json");
     let schema: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
@@ -468,7 +454,6 @@ pub fn assert_contract(definition: &str, body: &serde_json::Value) {
     assert!(errors.is_empty(), "not a valid {definition}: {errors:#?}");
 }
 
-/// The body as `T`, after checking it against the published contract.
 pub async fn contract_body<T: serde::de::DeserializeOwned>(definition: &str, response: reqwest::Response) -> T {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_contract(definition, &body);

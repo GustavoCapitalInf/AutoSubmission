@@ -1,5 +1,3 @@
-//! Where the database lives: outside any git work tree, on a local disk.
-
 use std::path::{Component, Path, PathBuf, Prefix};
 
 pub struct DataDir(PathBuf);

@@ -216,8 +216,6 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
 }
 
-/// `PUBLIC_URL` is the address people open: https, unless the server binds a loopback address.
-/// Session cookies are `Secure` whenever it is https.
 fn secure_cookies(bind: SocketAddr) -> Result<bool, String> {
     match env("PUBLIC_URL") {
         Some(url) if url.starts_with("https://") => Ok(true),

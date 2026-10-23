@@ -1,5 +1,3 @@
-//! The command line: the import's dry run and apply, accounts, tokens, and the start-up refusals.
-
 mod common;
 
 use common::*;

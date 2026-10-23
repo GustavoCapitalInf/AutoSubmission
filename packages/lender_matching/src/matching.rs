@@ -1,6 +1,3 @@
-//! Making a match: fetch the analysis package, assemble the deal's facts, evaluate every lender's
-//! head revision and store the record with the revision each verdict read.
-
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,24 +18,18 @@ pub const ENGINE_VERSION: u32 = 1;
 /// The JSON layout of `matches.input` and `matches.facts`; a bump leaves older matches unreadable without a reader.
 pub const MATCH_FORMAT: u32 = 1;
 
-/// Everything a match was asked, as stored.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct MatchInput {
     pub analysis_package: Option<Uuid>,
     pub product: Product,
     pub deal: DealInput,
-    /// Given by a signed-in person on the match page.
     pub waivers: Vec<Waiver>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Requester {
     Client(i64),
-    /// A person re-matching from the match page.
-    Person {
-        user: i64,
-        supersedes: Uuid,
-    },
+    Person { user: i64, supersedes: Uuid },
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -64,7 +55,6 @@ pub struct LenderVerdict {
 pub enum VerdictResult {
     Evaluated(Evaluation),
     Inactive(LenderStatus),
-    /// Active, but not offering the requested product.
     NotOffered,
 }
 
@@ -116,8 +106,8 @@ impl Matcher {
         Matcher { store, analysis }
     }
 
-    /// Fetches the package, assembles the facts at today's UTC date, then reads every head and
-    /// stores the match inside one write transaction, so each verdict names the revision it read.
+    /// Reads every head and stores the match in one write transaction, so each verdict names the
+    /// revision it read.
     pub async fn run(&self, by: Requester, input: MatchInput) -> Result<MatchRecord, MatchError> {
         let package = match input.analysis_package {
             None => None,
@@ -166,8 +156,6 @@ fn verdict(head: &Revision, facts: &DealFacts, input: &MatchInput) -> LenderVerd
     LenderVerdict { lender: head.lender.clone(), revision: head.number, result }
 }
 
-/// A stored match with what reading it needs: the revision each verdict read, each lender's
-/// current head, and who made it.
 pub struct MatchView {
     pub record: MatchRecord,
     pub revisions: BTreeMap<LenderId, Revision>,

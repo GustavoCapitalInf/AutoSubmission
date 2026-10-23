@@ -1,5 +1,3 @@
-//! Writes `docs/api/v1.schema.json` and the GENERATED block of `docs/api/v1.md`.
-
 use std::path::Path;
 
 use lender_matching_wire::contract;

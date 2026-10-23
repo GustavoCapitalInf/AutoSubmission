@@ -1,5 +1,3 @@
-//! The client of the bank statement analysis API (`GET /api/v1/packages/<id>`).
-
 use std::time::Duration;
 
 use reqwest::StatusCode;
@@ -70,7 +68,6 @@ impl AnalysisClient {
         Ok(AnalysisClient { base, token, http })
     }
 
-    /// One GET of the package.
     pub async fn fetch(&self, id: Uuid) -> Result<Fetched, AnalysisError> {
         let url = format!("{}/packages/{}", self.base, id.as_hyphenated());
         let response = self.http.get(&url).bearer_auth(&self.token).send().await.map_err(|error| {

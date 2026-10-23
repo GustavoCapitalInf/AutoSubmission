@@ -58,7 +58,6 @@ pub fn router() -> Router<Shared> {
         }))
 }
 
-/// A page that is not the one asked for: a redirect, a refusal or an error, already rendered.
 pub struct PageError(Box<Response>);
 
 impl IntoResponse for PageError {
@@ -119,7 +118,6 @@ pub fn require(user: &AdminUser, role: Role) -> Result<(), PageError> {
     }
 }
 
-/// A submitted form: every field in order, a name possibly repeated.
 pub struct Fields(Vec<(String, String)>);
 
 impl Fields {
@@ -298,7 +296,6 @@ async fn logout(
     Ok(response)
 }
 
-/// What an admin should look at before trusting a lender's verdicts.
 pub fn attention(head: &Revision, reports: &BTreeMap<i64, ImportReport>) -> Vec<String> {
     let record = &head.record;
     let mut badges = Vec::new();
@@ -383,7 +380,6 @@ async fn lenders(
     ))
 }
 
-/// To the minute, in UTC.
 pub fn shown_time(time: time::OffsetDateTime) -> String {
     time.format(time::macros::format_description!("[year]-[month]-[day] [hour]:[minute] UTC"))
         .expect("a UTC time formats")

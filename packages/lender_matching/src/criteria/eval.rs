@@ -26,7 +26,6 @@ pub struct Waiver {
 pub struct Evaluation {
     pub checks: Vec<CheckResult>,
     pub notes: Vec<NoteResult>,
-    /// Waivers for this lender given on another lender or analysis revision; not applied.
     pub stale_waivers: Vec<Waiver>,
 }
 
@@ -48,14 +47,10 @@ pub struct NoteResult {
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {
     Pass,
-    /// The rule's `when` is false for this deal.
     NotApplicable,
     Fail,
     Unproven(Unproven),
-    Waived {
-        waiver: Waiver,
-        overruled: Overruled,
-    },
+    Waived { waiver: Waiver, overruled: Overruled },
 }
 
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
@@ -68,9 +63,7 @@ pub enum Overruled {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Unproven {
-    /// The fact the check reads is unknown.
     FactUnknown(FactKey),
-    /// The fact's interval crosses the bound.
     Straddles(FactKey),
     /// The rule may apply, and this fact, which decides whether it does, is not proven.
     ScopeUnknown(FactKey),
@@ -115,8 +108,6 @@ impl VerdictStatus {
 }
 
 impl Evaluation {
-    /// NoMatch if any check fails. Otherwise Review if any check is unproven, or a `Condition` note
-    /// may apply and is not waived. Otherwise Match.
     pub fn status(&self) -> VerdictStatus {
         if self.checks.iter().any(|check| check.outcome == Outcome::Fail) {
             return VerdictStatus::NoMatch;
@@ -136,8 +127,7 @@ enum Tri {
     Maybe(Unproven),
 }
 
-/// Pure and deterministic. `waivers` are this lender's; a waiver applies only to a check that
-/// fails or is unproven, or to a `Condition` note that may apply.
+/// Pure and deterministic. `waivers` are this lender's: `Waiver::lender` is not checked.
 pub fn evaluate(policy: &LenderPolicy, revision: u32, facts: &DealFacts, waivers: &[Waiver]) -> Evaluation {
     let analysis_revision = facts.analysis.as_ref().map(|analysis| analysis.revision.as_str());
     let (live, stale): (Vec<&Waiver>, Vec<&Waiver>) = waivers.iter().partition(|waiver| {
@@ -195,7 +185,6 @@ fn fact_of(why: Unproven) -> FactKey {
     }
 }
 
-/// Kleene AND: any `No` is `No`; otherwise the first `Maybe`; an empty list is `Yes`.
 fn all(predicates: &[Predicate], facts: &DealFacts) -> Tri {
     let mut maybe = None;
     for predicate in predicates {
@@ -208,7 +197,6 @@ fn all(predicates: &[Predicate], facts: &DealFacts) -> Tri {
     maybe.map_or(Tri::Yes, Tri::Maybe)
 }
 
-/// The facts a predicate reads.
 pub fn reads(predicate: &Predicate) -> FactKey {
     match predicate {
         Predicate::Num { fact, .. } => FactKey::Num(*fact),

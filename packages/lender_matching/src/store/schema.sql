@@ -71,7 +71,6 @@ CREATE VIEW lender_heads AS
   SELECT r.* FROM lender_revisions r
   WHERE r.revision = (SELECT MAX(x.revision) FROM lender_revisions x WHERE x.lender_id = r.lender_id);
 
--- A match made by a machine client, or by a signed-in person who superseded an earlier match.
 CREATE TABLE matches (
   id                  TEXT PRIMARY KEY,                          -- UUID
   created_at          TEXT NOT NULL,

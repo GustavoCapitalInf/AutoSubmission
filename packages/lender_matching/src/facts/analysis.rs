@@ -10,14 +10,12 @@ use uuid::Uuid;
 use super::application::YearMonth;
 use super::{Basis, Fact, Gap, Interval, Source};
 
-/// The parts of a ready v1 package that matching reads. Built only by `parse`.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ReadyPackage {
     pub package_id: Uuid,
     pub revision: String,
     pub review_required: bool,
     pub figures: Option<Figures>,
-    /// One per included account of an analysed statement.
     pub periods: Vec<AccountPeriod>,
 }
 
@@ -246,7 +244,6 @@ pub struct StatementMonth {
     pub deposits: Interval,
 }
 
-/// The analysis facts of one deal, before application facts join them.
 pub struct AnalysisFacts {
     pub monthly_true_revenue: Fact<Interval>,
     pub worst_month_negative_days: Fact<Interval>,

@@ -1,4 +1,4 @@
-//! What a lender requires and offers. A `LenderRecord` is the whole content of one revision.
+//! A `LenderRecord` is the whole content of one lender revision.
 
 pub mod describe;
 pub mod eval;
@@ -70,7 +70,6 @@ pub struct LenderProfile {
     pub name: String,
     pub legacy_record_id: Option<String>,
     pub bucket: Option<Bucket>,
-    /// A lender is evaluated only for a product it offers.
     pub products: BTreeSet<Product>,
     pub submission: Option<SubmissionChannel>,
     pub contacts: Vec<Contact>,
@@ -81,11 +80,8 @@ pub struct LenderProfile {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
 pub enum Bucket {
-    /// Trusted: the original application.
     Original = 1,
-    /// Uncertain: selected contact fields changed.
     ContactsAltered = 2,
-    /// Known to share or resell merchant data: broadly changed.
     BroadlyAltered = 3,
 }
 
@@ -164,7 +160,6 @@ pub enum SubmissionChannel {
     Portal { url: PortalUrl },
 }
 
-/// An address with one `@`, a non-empty local part, a dotted domain and no whitespace.
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct EmailAddress(String);
@@ -200,7 +195,6 @@ impl From<EmailAddress> for String {
     }
 }
 
-/// An `https://` URL without whitespace.
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct PortalUrl(String);
@@ -272,7 +266,6 @@ pub struct Terms {
     pub commission: Option<String>,
 }
 
-/// Only `Active` lenders are evaluated; the others are listed as inactive.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LenderStatus {
@@ -291,7 +284,6 @@ impl LenderStatus {
     }
 }
 
-/// Everything that decides a verdict. Built only by `LenderPolicy::new`.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(try_from = "PolicyParts")]
 pub struct LenderPolicy {
@@ -405,7 +397,6 @@ macro_rules! prefixed_id {
 prefixed_id!(RuleId, "r");
 prefixed_id!(NoteId, "n");
 
-/// A rule or a note of one policy: what a waiver names.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub enum CheckId {
@@ -479,7 +470,6 @@ impl NoteKind {
     }
 }
 
-/// The one predicate language, shared by guards and requirements.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Predicate {
@@ -490,7 +480,7 @@ pub enum Predicate {
     Flag { fact: FlagFact, is: bool },
 }
 
-/// Inclusive, in the fact's unit. Built only by `Bound::new`.
+/// Inclusive, in the fact's unit.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(try_from = "BoundParts", into = "BoundParts")]
 pub struct Bound {

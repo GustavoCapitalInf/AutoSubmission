@@ -1,6 +1,3 @@
-//! The one SQLite database. `Store::read` and `Store::write` run a closure inside one transaction;
-//! a write is `BEGIN IMMEDIATE` and commits only when the closure returns `Ok`.
-
 pub mod auth;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -126,7 +123,6 @@ pub struct Revision {
 #[derive(Debug)]
 pub enum Saved {
     New(Revision),
-    /// The record equals the head; nothing was written.
     Unchanged(Revision),
 }
 
@@ -230,7 +226,6 @@ impl ReadTx<'_> {
         rows.into_iter().map(RevisionRow::parse).collect()
     }
 
-    /// Every lender's head revision, by name.
     pub fn heads(&self) -> Result<Vec<Revision>, StoreError> {
         let mut heads = self.revisions("lender_heads r LEFT JOIN users u ON u.id = r.author_user_id", [])?;
         heads.sort_by_key(|head| (head.record.profile.name.to_lowercase(), head.lender.clone()));
@@ -253,7 +248,6 @@ impl ReadTx<'_> {
         Ok(rows.into_iter().next())
     }
 
-    /// Oldest first.
     pub fn history(&self, lender: &LenderId) -> Result<Vec<Revision>, StoreError> {
         self.revisions(
             "lender_revisions r LEFT JOIN users u ON u.id = r.author_user_id WHERE r.lender_id = ?1 ORDER BY r.revision",
@@ -261,7 +255,6 @@ impl ReadTx<'_> {
         )
     }
 
-    /// Every lender the import created, by import key.
     pub fn import_keys(&self) -> Result<Vec<(String, LenderId)>, StoreError> {
         let mut statement = self.conn.prepare("SELECT import_key, id FROM lenders WHERE import_key IS NOT NULL")?;
         let rows = statement.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
@@ -322,7 +315,6 @@ impl ReadTx<'_> {
         Ok(Some(MachineClient { id, name, scopes }))
     }
 
-    /// Newest first.
     pub fn import_runs(&self) -> Result<Vec<ImportRun>, StoreError> {
         let mut statement = self.conn.prepare("SELECT id, report FROM import_runs ORDER BY id DESC")?;
         let rows = statement.query_map([], |row| Ok(ImportRun { id: row.get(0)?, report: row.get(1)? }))?;
@@ -419,7 +411,6 @@ impl ReadTx<'_> {
             .transpose()
     }
 
-    /// Newest first: id, creation time, and how many verdicts are match, review and no match.
     pub fn recent_matches(&self, limit: u32) -> Result<Vec<MatchSummary>, StoreError> {
         let mut statement = self.conn.prepare(
             "SELECT m.id, m.created_at, COALESCE(c.name, u.username, ''), \

@@ -1,5 +1,3 @@
-//! Criteria in words, for the admin pages, the API's check text and revision diffs.
-
 use super::{LenderRecord, Membership, Note, NoteKind, Predicate, Rule, SubmissionChannel};
 use crate::facts::application::Industries;
 use crate::facts::{FactKey, FlagFact, NumFact};
@@ -102,7 +100,6 @@ pub fn note_kind(kind: NoteKind) -> &'static str {
     }
 }
 
-/// One line per fact of the record, in a fixed order; a diff compares these lines.
 pub fn record_lines(record: &LenderRecord, industries: &Industries) -> Vec<String> {
     let profile = &record.profile;
     let policy = &record.policy;
@@ -162,7 +159,6 @@ pub enum Change {
     Added(String),
 }
 
-/// Lines only in `old`, then lines only in `new`, each in its own order.
 pub fn diff(old: &[String], new: &[String]) -> Vec<Change> {
     let removed = old.iter().filter(|line| !new.contains(line)).cloned().map(Change::Removed);
     let added = new.iter().filter(|line| !old.contains(line)).cloned().map(Change::Added);

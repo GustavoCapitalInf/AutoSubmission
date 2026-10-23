@@ -1,5 +1,3 @@
-//! The fabricated analysis packages the tests serve are valid v1 bodies.
-
 use std::fs;
 use std::path::Path;
 

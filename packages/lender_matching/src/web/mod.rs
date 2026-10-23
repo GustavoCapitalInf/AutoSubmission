@@ -16,7 +16,6 @@ use crate::store::{ReadTx, Store, StoreError, WriteTx};
 pub struct AppState {
     pub store: Arc<Store>,
     pub matcher: Matcher,
-    /// Session cookies carry `Secure` when the public URL is https.
     pub secure_cookies: bool,
 }
 

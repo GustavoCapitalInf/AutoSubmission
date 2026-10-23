@@ -1,5 +1,3 @@
-//! `/api/v1`: parse the wire request into domain types, run the matcher once, render the result.
-
 use std::time::Duration;
 
 use axum::body::Bytes;
@@ -112,7 +110,6 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// The token after `Bearer`, in any case, with surrounding whitespace ignored.
 fn bearer(parts: &Parts) -> Option<&str> {
     let value = parts.headers.get(AUTHORIZATION)?.to_str().ok()?.trim();
     let (scheme, token) = value.split_once(char::is_whitespace)?;
