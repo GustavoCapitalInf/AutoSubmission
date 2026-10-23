@@ -20,6 +20,7 @@ import uuid
 import pytest
 
 from webapp import app as app_module
+from webapp import intake as intake_module
 from webapp.artifact_cache import ArtifactCache
 from webapp.storage import Storage, content_sha256
 
@@ -123,7 +124,7 @@ def test_two_writers_of_one_cache_entry_never_fail(tmp_path):
 
 @pytest.fixture
 def upload_seams(monkeypatch):
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     queued: list[str] = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda job_id, *args: queued.append(job_id))
     return queued
@@ -158,13 +159,13 @@ def test_a_storage_failure_mid_batch_queues_nothing_and_answers_fixed_json(uploa
     response = _post([(f"sample-{n}.pdf", _sample_bytes()) for n in range(3)])
     assert response.status_code == 503
     assert response.is_json
-    assert response.get_json() == {"error": app_module.UPLOAD_NOT_STORED}
+    assert response.get_json() == {"error": intake_module.UPLOAD_NOT_STORED}
     assert "SAMPLE-SECRET" not in response.get_data(as_text=True)
     assert upload_seams == []
     assert len(created) == 2
     for job_id in created:
         job = app_module.store.get(job_id)
-        assert (job.status, job.error) == ("error", app_module.UPLOAD_NOT_STORED)
+        assert (job.status, job.error) == ("error", intake_module.UPLOAD_NOT_STORED)
         assert job.pdf_bytes is None
         assert storage.load_job(job_id)["status"] == "error"
 

@@ -16,7 +16,7 @@ This tool lives in `packages/bank_statement_analysis/` of the Capital Infusion m
 
 | Stage | What happens | Where |
 |---|---|---|
-| Intake | Upload checks (100 MB, 25 files, 500 pages, a `%PDF-` header, no encrypted PDF), the whole batch before any job; preflight profile and content hash | `webapp/app.py`, `ocr/inspect.py` |
+| Intake | Upload checks (100 MB, 25 files, 500 pages, a `%PDF-` header, no encrypted PDF), the whole batch before any job; preflight profile and content hash | `webapp/intake.py`, `ocr/inspect.py` |
 | Native text | PyMuPDF reads the PDF's own text: six bank-specific readers, a printed-rows reader, then generic text | `ocr/pipeline.py` (`parse_statement`), `ocr/native_text.py` |
 | Scans | When the native readers return nothing (a scan, or too little text), the pages are rendered at 200 dpi, 8 at a time, and read by local Tesseract (`--psm 6`) one page at a time; under 200 characters is no read. A step past 120 s, a document past an hour, or a host failure (a full, failing or read-only disk, a disk quota or memory run out while pages are rendered or read; a tesseract that cannot start or is killed) fails the job and caches nothing | `ocr/local_tesseract.py`, `ocr/rasterize.py` |
 | Dispatch | 84 registered per-bank parsers score the text; exactly one must claim it. Ambiguous, unclaimed or a parser crash publishes nothing | `analysis/parser_registry.py`, `analysis/parser_registry_entries.py`, `analysis/pipeline.py` |

@@ -20,9 +20,6 @@ from pathlib import Path
 import pytest
 
 from webapp.app import (
-    MAX_UPLOAD_BYTES,
-    MAX_UPLOAD_FILES,
-    MAX_UPLOAD_PAGES,
     _safe_download_name,
     _server_config,
     app,
@@ -30,6 +27,7 @@ from webapp.app import (
     store,
 )
 from webapp.export_view import _mask_account, masked
+from webapp.intake import MAX_UPLOAD_BYTES, MAX_UPLOAD_FILES, MAX_UPLOAD_PAGES
 from webapp.spreadsheet import _escape_formula
 
 
@@ -162,7 +160,7 @@ def test_oversize_request_returns_a_json_error_not_an_html_page(monkeypatch):
 
 
 def test_upload_rejects_a_file_that_is_not_a_pdf(monkeypatch):
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     enqueued = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
 
@@ -179,8 +177,8 @@ def test_upload_rejects_a_file_that_is_not_a_pdf(monkeypatch):
 
 
 def test_upload_rejects_an_oversize_individual_file(monkeypatch):
-    monkeypatch.setattr("webapp.app.MAX_UPLOAD_BYTES", 64)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.MAX_UPLOAD_BYTES", 64)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     enqueued = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
 
@@ -195,7 +193,7 @@ def test_upload_rejects_an_oversize_individual_file(monkeypatch):
 
 
 def test_upload_rejects_more_files_than_the_batch_cap(monkeypatch):
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     enqueued = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
 
@@ -212,7 +210,7 @@ def test_upload_rejects_more_files_than_the_batch_cap(monkeypatch):
 
 def test_upload_rejects_a_file_over_the_page_cap(monkeypatch):
     monkeypatch.setattr(
-        "webapp.app.pdf_page_count", lambda pdf_bytes: MAX_UPLOAD_PAGES + 1
+        "webapp.intake.pdf_page_count", lambda pdf_bytes: MAX_UPLOAD_PAGES + 1
     )
     enqueued = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
@@ -231,7 +229,7 @@ def test_upload_rejects_an_unreadable_pdf(monkeypatch):
     def boom(pdf_bytes):
         raise ValueError("damaged xref")
 
-    monkeypatch.setattr("webapp.app.pdf_page_count", boom)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", boom)
     enqueued = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
 
@@ -248,7 +246,7 @@ def test_upload_rejects_an_unreadable_pdf(monkeypatch):
 def test_upload_rejects_the_whole_batch_when_one_file_is_bad(monkeypatch):
     """A partially accepted batch would leave the dashboard aggregating an
     incomplete package without ever saying so."""
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     enqueued = []
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
 
@@ -269,7 +267,7 @@ def test_upload_rejects_the_whole_batch_when_one_file_is_bad(monkeypatch):
 
 def test_upload_still_accepts_a_valid_pdf(monkeypatch):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 2)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 2)
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
 
     resp = app.test_client().post(

@@ -24,12 +24,12 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthorized
 
-from ocr.inspect import inspect_pdf
-from ocr.rasterize import pdf_page_count, rasterize_page
+from ocr.rasterize import rasterize_page
 from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META
 from analysis import package as package_view
 from analysis import zelle_view
 from analysis.served_view import displayed, zelle_setting
+from .intake import IntakeRefused, MAX_UPLOAD_BYTES, Upload, accepted_statements, check_batch_size
 from .jobs import JobStore, UnknownJobs
 from .settings import load_settings, save_settings
 from .storage import SCHEMA_VERSION, Storage
@@ -38,12 +38,6 @@ from .reanalysis import replay_reviews, rerun_analysis
 from .export_view import masked, package_for_export
 from .statement_export import analysis_csv, analysis_xlsx
 from .package_export import package_csv, package_xlsx
-
-# Upload ceilings. Every value here is enforced server-side and mirrored in the
-# dropzone caption, so what the operator is told is what the server does.
-MAX_UPLOAD_BYTES = 100 * 1024 * 1024
-MAX_UPLOAD_FILES = 25
-MAX_UPLOAD_PAGES = 500
 
 # waitress worker threads. The dashboard polls /status for every in-flight job
 # at once, so the stock four would head-of-line block.
@@ -75,8 +69,7 @@ def _min_free_bytes(raw: str | None) -> int:
 
 MIN_FREE_BYTES = _min_free_bytes(os.environ.get("WEBAPP_MIN_FREE_MB"))
 
-#: The refusals the floor answers with (507): fixed text, never a measured figure or a path.
-STORAGE_NEARLY_FULL = "the server's storage is nearly full; no statement was accepted"
+#: The reason the floor gives a refused re-analysis (507): fixed text, never a measured figure or a path.
 STORAGE_NEARLY_FULL_REASON = "the server's storage is nearly full"
 
 
@@ -260,58 +253,6 @@ def _upload_too_large(_exc):
     }), 413
 
 
-def _checked_upload(filename: str, pdf_bytes: bytes) -> tuple[int | None, object, dict | None]:
-    """Server-side gate for a single uploaded file. Returns
-    (page_count, profile, error) with the error exclusive of the other two.
-
-    Validation order and error shape are D-2a's; O-1 adds the preflight
-    profile and rejects password-protected PDFs before any parsing —
-    processing one could only ever fail later with a worse message.
-
-    A multipart filename carrying a raw
-    CR/LF is refused HERE, first, with a class-name-only message — never the
-    raw filename echoed back (unlike every other branch below, which is safe
-    to echo because ordinary filenames carry no attack shape). Before this,
-    such a filename reached `ocr.document.StatementMarkdown.__post_init__`
-    deep inside the reading stage, which refuses it too (`ProvenanceTokenError`
-    on a line-break in `source_file`) — but as an opaque per-job failure
-    instead of a clean 400 at upload, and `_stage_failure` (`webapp/
-    worker.py`) already withholds that message from the job record, so the
-    only change here is WHERE the refusal happens, not what it reveals.
-
-    NEW-4: the same reasoning extends to `-->`, which
-    `StatementMarkdown.__post_init__` also refuses (the writer-side belt) but
-    this function did not — a filename like `a-->b.pdf` reached the view (a raw
-    `-->` does not corrupt multipart framing the way CR/LF does) and then died
-    as the same opaque per-job failure as CR/LF. Refused here
-    too, for consistency, with the identical class-name-only shape."""
-    if "\r" in filename or "\n" in filename or "-->" in filename:
-        return None, None, {"error": "ProvenanceTokenError"}
-    if len(pdf_bytes) > MAX_UPLOAD_BYTES:
-        return None, None, {
-            "error": f"file exceeds the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit",
-            "filename": filename,
-        }
-    if not pdf_bytes.startswith(b"%PDF-"):
-        return None, None, {"error": "file is not a PDF", "filename": filename}
-    profile = inspect_pdf(pdf_bytes)
-    if profile.encrypted:
-        return None, None, {
-            "error": "PDF is password-protected; upload a decrypted copy",
-            "filename": filename,
-        }
-    try:
-        page_count = pdf_page_count(pdf_bytes)
-    except Exception:
-        return None, None, {"error": "PDF could not be read", "filename": filename}
-    if page_count > MAX_UPLOAD_PAGES:
-        return None, None, {
-            "error": f"PDF has {page_count} pages (limit {MAX_UPLOAD_PAGES})",
-            "filename": filename,
-        }
-    return page_count, profile, None
-
-
 @app.route("/api/settings", methods=["GET"])
 def get_settings():
     return jsonify({"settings": load_settings(store.storage.data_dir)})
@@ -334,10 +275,6 @@ def update_settings():
     return jsonify({"settings": settings})
 
 
-#: /upload's answer when the batch could not be stored: every job the request created is marked failed with this
-#: text and none is queued. Fixed text, never an exception's.
-UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
-
 #: /upload's answer (HTTP 400) to a request that still sends `force_ocr=1` (an API caller, or a page cached from before
 #: the change): the product uses no model, so there is no visual OCR to force. Refused before any file is read, stored
 #: or queued. The jobs table's force_ocr column and the field in /status stay, so a job stored with the flag still
@@ -347,75 +284,32 @@ FORCE_OCR_REMOVED = "Force visual OCR was removed: statements are read determini
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    """The dashboard's upload, on the statement intake (`webapp/intake.py`). `force_ocr=1` is refused after the
+    batch size and before any file is read."""
     files = request.files.getlist("files")
-    if not files:
-        return jsonify({"error": "no files uploaded"}), 400
-    if len(files) > MAX_UPLOAD_FILES:
-        return jsonify({
-            "error": f"{len(files)} files uploaded (limit {MAX_UPLOAD_FILES} per batch)",
-        }), 400
+    check_batch_size(len(files))
     if request.form.get("force_ocr") == "1":
         return jsonify({"error": FORCE_OCR_REMOVED}), 400
-    # Every job is read the same way (native PDF text, then local OCR); the field stays in the job row and the answer.
-    force_ocr = False
-
-    # Validate the whole batch before creating any job. A half-accepted upload
-    # would leave the dashboard aggregating an incomplete package with nothing
-    # on screen to say a statement is missing.
-    accepted: list[tuple[str, bytes, int, object]] = []
-    for f in files:
-        pdf_bytes = f.read()
-        page_count, profile, error = _checked_upload(f.filename, pdf_bytes)
-        if error is not None:
-            return jsonify(error), 400
-        accepted.append((f.filename, pdf_bytes, page_count, profile))
-
-    # The free-space floor: validation answers first, then nothing is written when the batch would leave the
-    # data volume below MIN_FREE_BYTES.
-    if _data_volume_nearly_full(sum(len(pdf_bytes) for _name, pdf_bytes, _pages, _profile in accepted)):
-        return jsonify({"error": STORAGE_NEARLY_FULL}), 507
-
-    # Store the whole batch before queueing any of it, so a storage failure on
-    # file k never leaves files 1..k-1 processed under ids the dashboard never
-    # received. A failure marks every job this request created failed, queues
-    # none of them, and answers with fixed text, never the exception's own.
-    created = []
-    try:
-        for filename, pdf_bytes, page_count, profile in accepted:
-            # Records the document row (with content_sha256) and the job row, and
-            # writes the PDF bytes to the disk store.
-            job = store.create(
-                filename,
-                page_count=page_count,
-                force_ocr=force_ocr,
-                pdf_bytes=pdf_bytes,
-            )
-            created.append(job)
-            # O-1: persist the preflight profile with the document row.
-            store.storage.set_document_profile(job.id, json.dumps(profile.to_dict()))
-    except Exception:
-        for job in created:
-            try:
-                store.set_error(job.id, UPLOAD_NOT_STORED)
-            except Exception:
-                pass  # best effort: a job still `queued` in storage is marked interrupted at the next start
-        return jsonify({"error": UPLOAD_NOT_STORED}), 503
-
-    jobs = []
-    for job, (filename, pdf_bytes, page_count, profile) in zip(created, accepted):
-        _enqueue_job(job.id, pdf_bytes, filename, force_ocr)
-        jobs.append({
+    uploads = [Upload(f.filename, f.read()) for f in files]
+    accepted = accepted_statements(store, uploads, enqueue=_enqueue_job, volume_nearly_full=_data_volume_nearly_full)
+    with accepted as jobs:
+        body = {"jobs": [{
             "id": job.id,
             "filename": job.filename,
             "page_count": job.page_count,
-            "force_ocr": force_ocr,
+            "force_ocr": False,
             "parse_mode": job.parse_mode,
             "content_sha256": job.content_sha256,
-            # A re-upload of identical bytes names the earliest prior job holding
-            # them, read in the transaction that created the job.
+            # A re-upload of identical bytes names the earliest prior job holding them, read in the transaction that
+            # created the job.
             "duplicate_of": job.duplicate_of,
-        })
-    return jsonify({"jobs": jobs})
+        } for job in jobs]}
+    return jsonify(body)
+
+
+@app.errorhandler(IntakeRefused)
+def _intake_refused(refusal):
+    return jsonify(refusal.browser_body()), refusal.status
 
 
 @app.route("/status/<job_id>")

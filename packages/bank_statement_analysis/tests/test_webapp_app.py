@@ -23,7 +23,7 @@ class _FakeDoc:
 
 def _mock_processing(monkeypatch, page_count=2):
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: page_count)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: page_count)
 
     # O-1 delta: the worker feeds the unified ladder capability flags and a
     # preflight profile, so worker-level fakes take **kwargs.
@@ -164,23 +164,22 @@ def test_upload_with_no_files_returns_400():
 
 def test_checked_upload_refuses_a_filename_with_a_line_break():
     """MINOR-8: a multipart filename carrying a
-    raw CR/LF is refused at `_checked_upload`, with a class-name-only
+    raw CR/LF is refused at `checked_upload`, with a class-name-only
     message — never the raw filename echoed back (unlike every other
-    `_checked_upload` error branch, which safely echoes an ordinary
+    `checked_upload` refusal, which safely echoes an ordinary
     filename). Tested at the function level, not through the werkzeug test
     client's multipart encoder: a raw `\\r\\n` inside a `Content-Disposition`
     filename corrupts the multipart framing itself (the same two bytes are
     the section delimiter), so the HTTP transport cannot reliably carry this
-    shape at all — `_checked_upload` is exercised directly so the refusal is
+    shape at all — `checked_upload` is exercised directly so the refusal is
     proven regardless of what any given multipart parser does with it."""
-    from webapp.app import _checked_upload
+    from webapp.intake import IntakeRefused, Upload, checked_upload
 
     for hostile in ("evil\r\nname.pdf", "evil\nname.pdf", "evil\rname.pdf"):
-        page_count, profile, error = _checked_upload(hostile, b"%PDF-fake")
-        assert page_count is None
-        assert profile is None
-        assert error == {"error": "ProvenanceTokenError"}
-        assert "filename" not in error
+        with pytest.raises(IntakeRefused) as refused:
+            checked_upload(Upload(hostile, b"%PDF-fake"))
+        assert (refused.value.status, refused.value.filename) == (400, None)
+        assert refused.value.browser_body() == {"error": "ProvenanceTokenError"}
 
 
 def test_checked_upload_refuses_a_filename_with_a_comment_close():
@@ -189,23 +188,23 @@ def test_checked_upload_refuses_a_filename_with_a_comment_close():
     `-->` does not corrupt multipart framing the way CR/LF does, so a
     filename like `a-->b.pdf` reached the view and then died as the same
     opaque per-job failure MINOR-8 fixed for CR/LF. Refused at
-    `_checked_upload` too now, with the identical class-name-only shape."""
-    from webapp.app import _checked_upload
+    `checked_upload` too now, with the identical class-name-only shape."""
+    from webapp.intake import IntakeRefused, Upload, checked_upload
 
-    page_count, profile, error = _checked_upload("evil-->name.pdf", b"%PDF-fake")
-    assert page_count is None
-    assert profile is None
-    assert error == {"error": "ProvenanceTokenError"}
-    assert "filename" not in error
+    with pytest.raises(IntakeRefused) as refused:
+        checked_upload(Upload("evil-->name.pdf", b"%PDF-fake"))
+    assert (refused.value.status, refused.value.filename) == (400, None)
+    assert refused.value.browser_body() == {"error": "ProvenanceTokenError"}
 
 
 def test_checked_upload_still_echoes_an_ordinary_filename():
     """The refusal above is scoped to the line-break shape — every other
-    `_checked_upload` error keeps echoing the (safe) filename it always did."""
-    from webapp.app import _checked_upload
+    `checked_upload` refusal keeps echoing the (safe) filename it always did."""
+    from webapp.intake import IntakeRefused, Upload, checked_upload
 
-    page_count, profile, error = _checked_upload("not-a-pdf.pdf", b"not a pdf")
-    assert error == {"error": "file is not a PDF", "filename": "not-a-pdf.pdf"}
+    with pytest.raises(IntakeRefused) as refused:
+        checked_upload(Upload("not-a-pdf.pdf", b"not a pdf"))
+    assert refused.value.browser_body() == {"error": "file is not a PDF", "filename": "not-a-pdf.pdf"}
 
 
 def test_upload_refuses_force_visual_ocr(monkeypatch):
@@ -214,7 +213,7 @@ def test_upload_refuses_force_visual_ocr(monkeypatch):
     from webapp.app import FORCE_OCR_REMOVED
 
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: pytest.fail("the upload was checked"))
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: pytest.fail("the upload was checked"))
     monkeypatch.setattr("webapp.app._enqueue_job", lambda *args: pytest.fail("a job was queued"))
     monkeypatch.setattr("webapp.worker.parse_statement", lambda *args, **kwargs: pytest.fail("a reader ran"))
 
@@ -231,7 +230,7 @@ def test_upload_refuses_force_visual_ocr(monkeypatch):
 def test_upload_ignores_a_parse_mode_field(monkeypatch):
     seen = {}
     monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
-    monkeypatch.setattr("webapp.app.pdf_page_count", lambda pdf_bytes: 1)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
     # O-1 delta: the native rung is patched at its one home in ocr.pipeline
     # (the worker no longer owns a private ladder to patch).
     monkeypatch.setattr("ocr.pipeline._native_statement",

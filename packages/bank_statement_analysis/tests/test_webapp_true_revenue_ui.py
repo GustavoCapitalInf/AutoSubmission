@@ -1197,7 +1197,7 @@ def test_a_file_uploaded_before_and_twice_in_a_new_batch_reads_as_a_repeat(tmp_p
 
     monkeypatch.setattr(webapp_app, "store", JobStore(Storage(tmp_path)))
     monkeypatch.setattr(webapp_app, "_enqueue_job", lambda *args, **kwargs: None)
-    monkeypatch.setattr(webapp_app, "pdf_page_count", lambda pdf_bytes: 2)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 2)
     client = webapp_app.app.test_client()
 
     def post(batch):
