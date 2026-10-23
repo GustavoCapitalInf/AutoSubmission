@@ -5,6 +5,7 @@ PDFs. `apps/auto_submission/` holds only a planning README. Run PKG commands fro
 
 ## Read the current contracts (paths in PKG)
 - `README.md`, `docs/transaction-classification.md` and `docs/intern-testing.md` (the password-gated demo host).
+- `docs/api/v1.md`, the machine API that `apps/auto_submission/` calls, and its `docs/api/v1.schema.json`.
 - `docs/superpowers/specs/2026-09-28-true-revenue-design.md` and `2026-09-24-lender-detection-design.md`.
 - `docs/moneythumb-replacement/CURRENCY_DOCTRINE.md`, `H3_SCHEMA.md` and `W3_2_TAXONOMY.md`.
 - The docstrings of `analysis/adb.py` (ADB), `analysis/nsf_days.py` (NSF) and `corpus_gate.py`.
@@ -26,7 +27,8 @@ names and "read this first" lines. The contracts win over all of them.
 - Fail closed. Publish only what printed figures prove. Never change a printed value or invent a row to reconcile.
 - Never hand-edit generated files. `python -m tools.build_lender_registry --write` writes
   `docs/lender-registry-evidence.md` and the GENERATED block of `analysis/classification_registry.py` from the
-  ledger. The two `*_forensic_audit.py` scripts write the audit CSVs and reports.
+  ledger. The two `*_forensic_audit.py` scripts write the audit CSVs and reports. `python -m tools.api_contract
+  --write` writes `docs/api/v1.schema.json` and the GENERATED block of `docs/api/v1.md` from `webapp/api/contract.py`.
 - Changed analysis output bumps `ANALYSIS_STAGE_VERSION` (`webapp/artifact_cache.py`), changed classification bumps
   `CLASSIFICATION_VERSION`, and a changed `webapp/static/app.js` bumps its `?v=` in `webapp/templates/index.html`.
   Tests pin each value. Stored cache keys use the FROZEN literals in `webapp/artifact_cache.py`, so leave them.

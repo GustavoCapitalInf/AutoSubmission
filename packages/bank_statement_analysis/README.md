@@ -27,6 +27,7 @@ This tool lives in `packages/bank_statement_analysis/` of the Capital Infusion m
 | Lenders | Registry matching and evidence, payment changes, active positions, 12 flag groups | `analysis/classification_registry.py`, `analysis/payee_matcher.py`, `analysis/detect.py`, `analysis/flag_groups.py`, `analysis/lender_payment_changes.py`, `analysis/active_positions.py` |
 | Display layer | Steps run on a copy when a result is served (the Zelle reading, the NSF basis, hidden flag groups, revenue figures, active positions), so a Settings change needs no re-analysis | `analysis/zelle_view.py`, `analysis/nsf_days.py`, `analysis/flagged_view.py`, `analysis/revenue_view.py`, `analysis/active_positions.py` |
 | Web app | Flask on waitress (16 threads), one worker thread, SQLite store, an artifact cache keyed by content hash, packages, re-analysis and review decisions | `webapp/app.py`, `webapp/worker.py`, `webapp/storage.py`, `webapp/artifact_cache.py`, `webapp/reanalysis.py` |
+| Machine API | `/api/v1` for Auto-Submission: packages submitted and read as typed JSON, one snapshot per read | `webapp/api/`, `docs/api/v1.md` |
 | Dashboard | New analysis, the results (Statements, Packages, Revenue review) and Settings; downloads and copied memos | `webapp/templates/index.html`, `webapp/static/app.js` |
 
 Each statement ends as `validated`, `review`, `withheld`, `refused` or `failed`. A package groups several
@@ -106,6 +107,14 @@ docker compose up --build
 
 Browser login is HTTP Basic (username `intern` plus that password); `/healthz` answers without it. The Fly demo
 runs the same image. Full runbook: [`docs/intern-testing.md`](docs/intern-testing.md).
+
+## Machine API
+
+Auto-Submission (`apps/auto_submission/`) reads analyses over HTTP: it submits a deal's statement PDFs with
+`PUT /api/v1/packages/<package_id>` and reads the package's figures with `GET`, as JSON in integer cents under one
+fixed reading. The API needs its own bearer token, `WEBAPP_API_TOKEN`; the browser password never opens it, and the
+token never opens a browser route. The contract, with the token setup and every field:
+[`docs/api/v1.md`](docs/api/v1.md).
 
 ## How a statement is read
 
@@ -253,6 +262,7 @@ basis, currency and currency source to pinned values. Checks, in order: `invento
 | `WEBAPP_HOST` | `127.0.0.1` | Bind address. Beyond loopback it exposes an app with no login. |
 | `WEBAPP_PORT` | `5000` | Port. |
 | `WEBAPP_DATA_DIR` | unset | The data directory; absolute and outside the checkout. |
+| `WEBAPP_API_TOKEN` | unset | The machine API's bearer token ([`docs/api/v1.md`](docs/api/v1.md)). Unset, shorter than 32 characters or equal to `WEBAPP_AUTH_PASSWORD`, the API answers 503 to every request. |
 | `WEBAPP_MIN_FREE_MB` | `256` | Free space the data volume keeps: an upload or a Re-analyze that would leave less is refused (507) before anything is written. `0` turns it off; a value that is not a whole number falls back to the default. |
 | `VISUAL_PAIR_PRIVATE_ROOT` | `~/.local/share/bank-statement-analysis/phase31-private` | Root of the default data directory (`<root>/webapp_data`), under the same data-directory rule: absolute and outside the checkout, symlinks included. The name is kept for compatibility. |
 | `POPPLER_PATH` | `C:\poppler-24.08.0\Library\bin` | Windows only: the folder holding `pdfinfo.exe`. Set it in the shell: `run.ps1` checks the shell's value, not `.env`. |

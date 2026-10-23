@@ -22,13 +22,15 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-from .auth import refuse_unauthenticated_bind, request_is_authorized, unauthorized
+from .auth import gate, refuse_unauthenticated_bind
 
 from ocr.rasterize import rasterize_page
 from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META
 from analysis import package as package_view
 from analysis import zelle_view
 from analysis.served_view import displayed, zelle_setting
+from .api.routes import READ_ONLY_ENDPOINTS as API_READ_ONLY_ENDPOINTS, api_blueprint
+from .api.wire import error_response, is_api_path
 from .intake import IntakeRefused, MAX_UPLOAD_BYTES, Upload, accepted_statements, check_batch_size
 from .jobs import JobStore, UnknownJobs
 from .settings import load_settings, save_settings
@@ -287,9 +289,7 @@ def upload():
     check_batch_size(len(files))
     if request.form.get("force_ocr") == "1":
         return jsonify({"error": FORCE_OCR_REMOVED}), 400
-    uploads = [Upload(f.filename, f.read()) for f in files]
-    accepted = accepted_statements(store, uploads, enqueue=_enqueue_job, volume_nearly_full=_data_volume_nearly_full)
-    with accepted as jobs:
+    with _accepted([Upload(f.filename, f.read()) for f in files]) as jobs:
         body = {"jobs": [{
             "id": job.id,
             "filename": job.filename,
@@ -305,6 +305,13 @@ def upload():
 @app.errorhandler(IntakeRefused)
 def _intake_refused(refusal):
     return jsonify(refusal.browser_body()), refusal.status
+
+
+def _accepted(uploads):
+    return accepted_statements(store, uploads, enqueue=_enqueue_job, volume_nearly_full=_data_volume_nearly_full)
+
+
+app.register_blueprint(api_blueprint(store=lambda: store, accept=_accepted))
 
 
 @app.route("/status/<job_id>")
@@ -823,23 +830,21 @@ def download(job_id, fmt):
 _READ_ONLY_ENDPOINTS = frozenset({
     "index", "static", "healthz", "get_settings", "status", "markdown", "analysis", "package_analysis", "page",
     "result",
-})
+}) | API_READ_ONLY_ENDPOINTS
 #: What a start-up whose store cannot be read at all still serves: the page and the probe.
 _UNAVAILABLE_ENDPOINTS = frozenset({"index", "static", "healthz"})
 
 
 def _storage_degraded_error():
+    if is_api_path(request.path):
+        return error_response("storage_degraded")
     text = STORAGE_READ_ONLY_ERROR if STORE_STATE == STORE_READ_ONLY else STORAGE_UNAVAILABLE_ERROR
     return jsonify({"error": text}), 503
 
 
-# The password gate is registered before every other request hook, so an unauthenticated request is answered 401
-# before any other hook (the degraded-store refusal included) can say anything about the server.
-@app.before_request
-def _gate_intern_auth():
-    if request_is_authorized():
-        return None
-    return unauthorized()
+# The gate is registered before every other request hook, so an unauthenticated request is answered 401 before any
+# other hook (the degraded-store refusal included) can say anything about the server.
+app.before_request(gate)
 
 
 @app.before_request

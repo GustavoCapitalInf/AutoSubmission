@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import Literal, NamedTuple
+from typing import NamedTuple
 
 from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.rasterize import pdf_page_count
 
+from .intake_refusals import IntakeRefusalCode
 from .jobs import Job, JobStore
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
@@ -18,11 +19,6 @@ MAX_UPLOAD_PAGES = 500
 
 STORAGE_NEARLY_FULL = "the server's storage is nearly full; no statement was accepted"
 UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
-
-IntakeRefusalCode = Literal[
-    "no_statements", "too_many_statements", "invalid_filename", "statement_too_large", "not_a_pdf", "pdf_encrypted",
-    "pdf_unreadable", "too_many_pages", "storage_full", "not_stored",
-]
 
 
 class Upload(NamedTuple):

@@ -1,0 +1,1438 @@
+{
+  "$defs": {
+    "AnalysedDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "description": "Each account, in printed order (a statement-wide exclusion first).",
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "excluded": "#/$defs/ExcludedAccount",
+                "included": "#/$defs/IncludedAccount"
+              },
+              "propertyName": "status"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/IncludedAccount"
+              },
+              {
+                "$ref": "#/$defs/ExcludedAccount"
+              }
+            ]
+          },
+          "minItems": 1,
+          "title": "Accounts",
+          "type": "array",
+          "x-source": "documents[], excluded_accounts[]"
+        },
+        "document_id": {
+          "description": "The statement's id within the package.",
+          "title": "Document Id",
+          "type": "string",
+          "x-source": "job.id"
+        },
+        "filename": {
+          "description": "The file's name as submitted.",
+          "title": "Filename",
+          "type": "string",
+          "x-source": "job.filename"
+        },
+        "sha256": {
+          "description": "Lowercase hex SHA-256 of the PDF bytes.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string",
+          "x-source": "job.content_sha256"
+        },
+        "status": {
+          "const": "analysed",
+          "description": "The statement was analysed; its accounts say which entered the figures.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "filename",
+        "sha256",
+        "status",
+        "accounts"
+      ],
+      "title": "AnalysedDocument",
+      "type": "object"
+    },
+    "ApiError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "What was refused; the error catalog gives each code's HTTP status.",
+          "enum": [
+            "no_statements",
+            "too_many_statements",
+            "invalid_filename",
+            "statement_too_large",
+            "not_a_pdf",
+            "pdf_encrypted",
+            "pdf_unreadable",
+            "too_many_pages",
+            "storage_full",
+            "not_stored",
+            "invalid_package_id",
+            "invalid_request",
+            "request_too_large",
+            "package_conflict",
+            "package_not_found",
+            "route_not_found",
+            "method_not_allowed",
+            "unauthorized",
+            "api_disabled",
+            "storage_degraded",
+            "internal_error"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "filename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The refused file's name, when one file was refused; null for `invalid_filename`.",
+          "title": "Filename"
+        },
+        "message": {
+          "description": "The code's one fixed message; never statement content or exception text.",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "filename"
+      ],
+      "title": "ApiError",
+      "type": "object"
+    },
+    "DocumentProgress": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "description": "The statement's id within the package.",
+          "title": "Document Id",
+          "type": "string",
+          "x-source": "job.id"
+        },
+        "filename": {
+          "description": "The file's name as submitted.",
+          "title": "Filename",
+          "type": "string",
+          "x-source": "job.filename"
+        },
+        "sha256": {
+          "description": "Lowercase hex SHA-256 of the PDF bytes.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string",
+          "x-source": "job.content_sha256"
+        },
+        "status": {
+          "description": "`finished`: analysed, failed or interrupted; the ready package says which.",
+          "enum": [
+            "queued",
+            "processing",
+            "finished"
+          ],
+          "title": "Status",
+          "type": "string",
+          "x-source": "job.status"
+        }
+      },
+      "required": [
+        "document_id",
+        "filename",
+        "sha256",
+        "status"
+      ],
+      "title": "DocumentProgress",
+      "type": "object"
+    },
+    "DuplicateDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "description": "The statement's id within the package.",
+          "title": "Document Id",
+          "type": "string",
+          "x-source": "job.id"
+        },
+        "duplicate_of": {
+          "description": "`document_id` of the statement kept in its place.",
+          "title": "Duplicate Of",
+          "type": "string",
+          "x-source": "documents[].duplicate_of"
+        },
+        "filename": {
+          "description": "The file's name as submitted.",
+          "title": "Filename",
+          "type": "string",
+          "x-source": "job.filename"
+        },
+        "reason": {
+          "description": "Why, in an open vocabulary: same_content, same_statement, superseded_long_printout, superseded_interim.",
+          "title": "Reason",
+          "type": "string",
+          "x-source": "documents[].duplicate_reason"
+        },
+        "sha256": {
+          "description": "Lowercase hex SHA-256 of the PDF bytes.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string",
+          "x-source": "job.content_sha256"
+        },
+        "status": {
+          "const": "duplicate",
+          "description": "The statement repeats another of the package; nothing of it is counted.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "filename",
+        "sha256",
+        "status",
+        "duplicate_of",
+        "reason"
+      ],
+      "title": "DuplicateDocument",
+      "type": "object"
+    },
+    "ErrorResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ApiError",
+          "description": "The refusal."
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "title": "ErrorResponse",
+      "type": "object"
+    },
+    "ExcludedAccount": {
+      "additionalProperties": false,
+      "properties": {
+        "account_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "1-based place of the account in its statement; null when the whole statement is left out because its main account was not verified or printed no activity.",
+          "title": "Account Index",
+          "x-source": "excluded_accounts[].account_index"
+        },
+        "reason": {
+          "description": "Why, in an open vocabulary: main_account_unverified, main_account_idle, document_transfer_pairing_ambiguous, document_omission_unratified, duplicate_statement, superseded_long_printout, superseded_interim, or the account's own outcome reason.",
+          "title": "Reason",
+          "type": "string",
+          "x-source": "excluded_accounts[].reason"
+        },
+        "status": {
+          "const": "excluded",
+          "description": "An account left out of the package's figures.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "account_index",
+        "reason"
+      ],
+      "title": "ExcludedAccount",
+      "type": "object"
+    },
+    "FailedDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "document_id": {
+          "description": "The statement's id within the package.",
+          "title": "Document Id",
+          "type": "string",
+          "x-source": "job.id"
+        },
+        "failure": {
+          "$ref": "#/$defs/Failure",
+          "description": "Why.",
+          "x-source": "job.status, job.analysis_error"
+        },
+        "filename": {
+          "description": "The file's name as submitted.",
+          "title": "Filename",
+          "type": "string",
+          "x-source": "job.filename"
+        },
+        "sha256": {
+          "description": "Lowercase hex SHA-256 of the PDF bytes.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string",
+          "x-source": "job.content_sha256"
+        },
+        "status": {
+          "const": "failed",
+          "description": "The statement has no analysis under the v1 reading; nothing of it is counted.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "filename",
+        "sha256",
+        "status",
+        "failure"
+      ],
+      "title": "FailedDocument",
+      "type": "object"
+    },
+    "Failure": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "description": "Why the statement has no analysis under the v1 reading.",
+          "enum": [
+            "unreadable",
+            "unsupported_statement",
+            "analysis_failed",
+            "processing_failed",
+            "interrupted",
+            "reading_unavailable"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "description": "The code's one fixed message.",
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "Failure",
+      "type": "object"
+    },
+    "Funder": {
+      "additionalProperties": false,
+      "properties": {
+        "account_periods": {
+          "description": "Included account periods with a payment to the funder, paid or returned unpaid.",
+          "minimum": 0,
+          "title": "Account Periods",
+          "type": "integer",
+          "x-source": "funders[].documents"
+        },
+        "name": {
+          "description": "The confirmed funder.",
+          "title": "Name",
+          "type": "string",
+          "x-source": "funders[].funder"
+        },
+        "paid_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Paid to the funder; null under a currency refusal.",
+          "title": "Paid Cents",
+          "x-source": "funders[].total_debited"
+        },
+        "payment_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Payments to the funder; null when no match counted them.",
+          "title": "Payment Count",
+          "x-source": "funders[].debit_count"
+        },
+        "returned_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Returned unpaid; null under a currency refusal.",
+          "title": "Returned Cents",
+          "x-source": "funders[].returned_payment_total"
+        },
+        "returned_payment_count": {
+          "description": "Payments to the funder returned unpaid.",
+          "minimum": 0,
+          "title": "Returned Payment Count",
+          "type": "integer",
+          "x-source": "funders[].returned_payment_count"
+        }
+      },
+      "required": [
+        "name",
+        "account_periods",
+        "payment_count",
+        "paid_cents",
+        "returned_payment_count",
+        "returned_cents"
+      ],
+      "title": "Funder",
+      "type": "object"
+    },
+    "IncludedAccount": {
+      "additionalProperties": false,
+      "description": "One account whose figures are in the package's. Every source is a key of the package's member row,\n`documents[]`.",
+      "properties": {
+        "account_index": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "1-based place of the account in a statement that prints several; null for a statement of one account.",
+          "title": "Account Index",
+          "x-source": "account_index"
+        },
+        "account_masked": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`****` and the last four digits of the account number, or fewer when fewer were read; null when no number was read.",
+          "title": "Account Masked",
+          "x-source": "account, masked"
+        },
+        "active_positions": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Confirmed lenders' positions active in the period; null when not read.",
+          "title": "Active Positions",
+          "x-source": "active_positions"
+        },
+        "average_daily_balance_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Average daily balance over every calendar day of the period; null unless the daily ledger is validated.",
+          "title": "Average Daily Balance Cents",
+          "x-source": "average_daily_balance"
+        },
+        "average_daily_balance_days": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Calendar days the average daily balance covers; null with it.",
+          "title": "Average Daily Balance Days",
+          "x-source": "adb_calendar_days, when adb_validated"
+        },
+        "bank": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The bank, as printed.",
+          "title": "Bank",
+          "x-source": "bank"
+        },
+        "closing_balance_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Closing balance; null unless the transactions or the bank's printed summary reconcile to it.",
+          "title": "Closing Balance Cents",
+          "x-source": "ending_balance"
+        },
+        "corporate_use": {
+          "description": "Whether the statement's figures can be used as they are.",
+          "enum": [
+            "approved",
+            "summary_only",
+            "manual_review_required"
+          ],
+          "title": "Corporate Use",
+          "type": "string",
+          "x-source": "corporate_use"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ISO 4217 code of this account's money figures, as printed or as the default for its bank's country; null when the stored analysis names none.",
+          "title": "Currency",
+          "x-source": "currency"
+        },
+        "deposit_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of the credits in `deposits_cents`; null when no count pairs with that total.",
+          "title": "Deposit Count",
+          "x-source": "deposit_count"
+        },
+        "deposits_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Credits, less transfers between the statement's own accounts.",
+          "title": "Deposits Cents",
+          "x-source": "credits"
+        },
+        "held_for_review_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Credits held for an analyst's review; null when revenue is not established.",
+          "title": "Held For Review Cents",
+          "x-source": "excluded_pending_review_total"
+        },
+        "integrity_risk": {
+          "description": "Document integrity finding.",
+          "enum": [
+            "clear",
+            "review",
+            "high"
+          ],
+          "title": "Integrity Risk",
+          "type": "string",
+          "x-source": "integrity_risk"
+        },
+        "lender_payment_count": {
+          "description": "Number of the payments in `lender_payments_cents`.",
+          "minimum": 0,
+          "title": "Lender Payment Count",
+          "type": "integer",
+          "x-source": "lender_debit_count"
+        },
+        "lender_payments_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Payments to confirmed lenders.",
+          "title": "Lender Payments Cents",
+          "x-source": "lender_debits"
+        },
+        "negative_days": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Printed days that end below zero; null when the count is on another basis or not computable.",
+          "title": "Negative Days",
+          "x-source": "nsf_count, when nsf_source is negative_printed_days"
+        },
+        "non_revenue_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Credits that are not revenue.",
+          "title": "Non Revenue Cents",
+          "x-source": "non_revenue_total"
+        },
+        "opening_balance_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Opening balance.",
+          "title": "Opening Balance Cents",
+          "x-source": "beginning_balance"
+        },
+        "period_end": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Last day of the printed statement period.",
+          "title": "Period End",
+          "x-source": "period_end"
+        },
+        "period_start": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "First day of the printed statement period.",
+          "title": "Period Start",
+          "x-source": "period_start"
+        },
+        "possible_positions": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Potential lenders' positions active in the period; null when not read.",
+          "title": "Possible Positions",
+          "x-source": "possible_positions"
+        },
+        "quality": {
+          "description": "How the statement's figures were established.",
+          "enum": [
+            "transaction_level",
+            "summary_aggregate",
+            "needs_review"
+          ],
+          "title": "Quality",
+          "type": "string",
+          "x-source": "quality"
+        },
+        "reconciles": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whether the transactions reconcile the opening balance to the closing balance; when false, the printed summary can still support the closing balance.",
+          "title": "Reconciles",
+          "x-source": "reconciles"
+        },
+        "returned_funder_payments_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Funder payments returned unpaid.",
+          "title": "Returned Funder Payments Cents",
+          "x-source": "returned_funder_payment_total"
+        },
+        "revenue_review_required": {
+          "description": "Whether the account's revenue needs an analyst's review.",
+          "title": "Revenue Review Required",
+          "type": "boolean",
+          "x-source": "revenue_review_required"
+        },
+        "status": {
+          "const": "included",
+          "description": "An account whose figures are in the package's figures.",
+          "title": "Status",
+          "type": "string"
+        },
+        "true_revenue_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "True revenue: verified plus counted credits; null when not established.",
+          "title": "True Revenue Cents",
+          "x-source": "true_revenue_total"
+        },
+        "true_revenue_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of the credits in True revenue.",
+          "title": "True Revenue Count",
+          "x-source": "true_revenue_count"
+        },
+        "withdrawals_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Debits, less transfers between the statement's own accounts.",
+          "title": "Withdrawals Cents",
+          "x-source": "debits"
+        },
+        "withholding_rate_bps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Paid lender payments less lump-sum payoffs, plus funder payments returned unpaid and not debited again, over the withholding basis; null when the basis publishes no rate.",
+          "title": "Withholding Rate Bps",
+          "x-source": "withholding_rate"
+        }
+      },
+      "required": [
+        "status",
+        "account_index",
+        "bank",
+        "account_masked",
+        "currency",
+        "period_start",
+        "period_end",
+        "opening_balance_cents",
+        "closing_balance_cents",
+        "deposits_cents",
+        "deposit_count",
+        "withdrawals_cents",
+        "true_revenue_cents",
+        "true_revenue_count",
+        "held_for_review_cents",
+        "non_revenue_cents",
+        "average_daily_balance_cents",
+        "average_daily_balance_days",
+        "negative_days",
+        "lender_payments_cents",
+        "lender_payment_count",
+        "returned_funder_payments_cents",
+        "active_positions",
+        "possible_positions",
+        "withholding_rate_bps",
+        "quality",
+        "corporate_use",
+        "integrity_risk",
+        "reconciles",
+        "revenue_review_required"
+      ],
+      "title": "IncludedAccount",
+      "type": "object"
+    },
+    "MonthPositions": {
+      "additionalProperties": false,
+      "properties": {
+        "active_positions": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Confirmed lenders' positions active that month; null when not read.",
+          "title": "Active Positions",
+          "x-source": "active_positions_by_month[].active_positions"
+        },
+        "month": {
+          "description": "A calendar month the statements stand for.",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+          "title": "Month",
+          "type": "string",
+          "x-source": "active_positions_by_month[].month"
+        },
+        "possible_positions": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Potential lenders' positions active that month; null when not read.",
+          "title": "Possible Positions",
+          "x-source": "active_positions_by_month[].possible_positions"
+        }
+      },
+      "required": [
+        "month",
+        "active_positions",
+        "possible_positions"
+      ],
+      "title": "MonthPositions",
+      "type": "object"
+    },
+    "Package": {
+      "discriminator": {
+        "mapping": {
+          "processing": "#/$defs/ProcessingPackage",
+          "ready": "#/$defs/ReadyPackage"
+        },
+        "propertyName": "status"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ProcessingPackage"
+        },
+        {
+          "$ref": "#/$defs/ReadyPackage"
+        }
+      ]
+    },
+    "PackageFigures": {
+      "additionalProperties": false,
+      "properties": {
+        "active_positions_by_month": {
+          "description": "Positions per calendar month.",
+          "items": {
+            "$ref": "#/$defs/MonthPositions"
+          },
+          "title": "Active Positions By Month",
+          "type": "array",
+          "x-source": "active_positions_by_month"
+        },
+        "average_daily_balance_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Days-weighted average daily balance of the validated accounts; null when none is validated or two accounts of one statement would be averaged.",
+          "title": "Average Daily Balance Cents",
+          "x-source": "totals.average_daily_balance"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "ISO 4217 code of every money figure here; null when refused.",
+          "title": "Currency",
+          "x-source": "totals.currency"
+        },
+        "currency_refusal": {
+          "anyOf": [
+            {
+              "enum": [
+                "multiple_currencies",
+                "undetermined_statement_currency"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Why the money figures here are null: the included accounts are in several currencies, or one names none.",
+          "title": "Currency Refusal",
+          "x-source": "totals.currency_refusal_reason"
+        },
+        "deposits_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Gross credits of the included accounts.",
+          "title": "Deposits Cents",
+          "x-source": "totals.total_credits"
+        },
+        "funders": {
+          "description": "Confirmed funders, largest paid first (by count under a currency refusal).",
+          "items": {
+            "$ref": "#/$defs/Funder"
+          },
+          "title": "Funders",
+          "type": "array",
+          "x-source": "funders"
+        },
+        "held_for_review_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Credits held for an analyst's review.",
+          "title": "Held For Review Cents",
+          "x-source": "totals.excluded_pending_review_total"
+        },
+        "lender_payment_count": {
+          "description": "Number of the payments in `lender_payments_cents`.",
+          "minimum": 0,
+          "title": "Lender Payment Count",
+          "type": "integer",
+          "x-source": "totals.lender_debit_count"
+        },
+        "lender_payments_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Payments to confirmed lenders.",
+          "title": "Lender Payments Cents",
+          "x-source": "totals.lender_debits"
+        },
+        "monthly_deposits_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Gross credits per month.",
+          "title": "Monthly Deposits Cents",
+          "x-source": "totals.avg_monthly_credits"
+        },
+        "monthly_lender_payments_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Payments to confirmed lenders per month.",
+          "title": "Monthly Lender Payments Cents",
+          "x-source": "totals.monthly_lender_debits"
+        },
+        "monthly_true_revenue_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "True revenue per month.",
+          "title": "Monthly True Revenue Cents",
+          "x-source": "totals.avg_monthly_true_revenue"
+        },
+        "monthly_withdrawals_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Debits per month.",
+          "title": "Monthly Withdrawals Cents",
+          "x-source": "totals.avg_monthly_debits"
+        },
+        "months": {
+          "description": "The divisor of every monthly figure: the calendar months the included accounts' statements stand for, a statement without a readable period counting as a month of its own, and never fewer than the whole months any one account's statements cover.",
+          "minimum": 0,
+          "title": "Months",
+          "type": "integer",
+          "x-source": "totals.months"
+        },
+        "negative_days": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Printed days ending below zero, summed over the included accounts; null when any count is on another basis.",
+          "title": "Negative Days",
+          "x-source": "totals.nsf_count, when totals.nsf_source is negative_printed_days"
+        },
+        "non_revenue_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Credits that are not revenue.",
+          "title": "Non Revenue Cents",
+          "x-source": "totals.non_revenue_total"
+        },
+        "potential_lenders": {
+          "description": "Potential lenders, by name.",
+          "items": {
+            "$ref": "#/$defs/PotentialLender"
+          },
+          "title": "Potential Lenders",
+          "type": "array",
+          "x-source": "potential_lenders"
+        },
+        "returned_funder_payments_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Funder payments returned unpaid.",
+          "title": "Returned Funder Payments Cents",
+          "x-source": "totals.returned_funder_payment_total"
+        },
+        "statement_periods": {
+          "description": "Statement periods counted (one per statement and printed cycle).",
+          "minimum": 0,
+          "title": "Statement Periods",
+          "type": "integer",
+          "x-source": "totals.statement_periods, else totals.months"
+        },
+        "true_revenue_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "True revenue; null unless every included account's is established.",
+          "title": "True Revenue Cents",
+          "x-source": "totals.true_revenue_total"
+        },
+        "true_revenue_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Number of the credits in True revenue.",
+          "title": "True Revenue Count",
+          "x-source": "totals.true_revenue_count"
+        },
+        "withdrawals_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Debits of the included accounts.",
+          "title": "Withdrawals Cents",
+          "x-source": "totals.total_debits"
+        },
+        "withholding_rate_bps": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Paid lender payments less lump-sum payoffs, plus funder payments returned unpaid and not debited again, over the withholding basis; null when the basis publishes no rate.",
+          "title": "Withholding Rate Bps",
+          "x-source": "totals.package_withholding_rate"
+        }
+      },
+      "required": [
+        "currency",
+        "currency_refusal",
+        "months",
+        "statement_periods",
+        "deposits_cents",
+        "monthly_deposits_cents",
+        "withdrawals_cents",
+        "monthly_withdrawals_cents",
+        "true_revenue_cents",
+        "true_revenue_count",
+        "monthly_true_revenue_cents",
+        "held_for_review_cents",
+        "non_revenue_cents",
+        "average_daily_balance_cents",
+        "negative_days",
+        "lender_payments_cents",
+        "lender_payment_count",
+        "monthly_lender_payments_cents",
+        "returned_funder_payments_cents",
+        "withholding_rate_bps",
+        "funders",
+        "potential_lenders",
+        "active_positions_by_month"
+      ],
+      "title": "PackageFigures",
+      "type": "object"
+    },
+    "PotentialLender": {
+      "additionalProperties": false,
+      "properties": {
+        "account_periods": {
+          "description": "Account periods in which it was paid.",
+          "minimum": 0,
+          "title": "Account Periods",
+          "type": "integer",
+          "x-source": "potential_lenders[].documents"
+        },
+        "name": {
+          "description": "The potential lender, which an analyst confirms or dismisses.",
+          "title": "Name",
+          "type": "string",
+          "x-source": "potential_lenders[].funder"
+        },
+        "paid_cents": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Paid to it; null under a currency refusal.",
+          "title": "Paid Cents",
+          "x-source": "potential_lenders[].total_debited"
+        },
+        "payment_count": {
+          "description": "Payments to it.",
+          "minimum": 0,
+          "title": "Payment Count",
+          "type": "integer",
+          "x-source": "potential_lenders[].debit_count"
+        }
+      },
+      "required": [
+        "name",
+        "account_periods",
+        "payment_count",
+        "paid_cents"
+      ],
+      "title": "PotentialLender",
+      "type": "object"
+    },
+    "ProcessingPackage": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "description": "This contract's version: `1.0`.",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "When the package was created (UTC).",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string",
+          "x-source": "packages.created_at"
+        },
+        "documents": {
+          "description": "Each statement, in submitted order.",
+          "items": {
+            "$ref": "#/$defs/DocumentProgress"
+          },
+          "title": "Documents",
+          "type": "array"
+        },
+        "package_id": {
+          "description": "The id the caller chose for the package.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Package Id",
+          "type": "string"
+        },
+        "status": {
+          "const": "processing",
+          "description": "A statement is still queued or processing; no figure is computed yet.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "package_id",
+        "created_at",
+        "status",
+        "documents"
+      ],
+      "title": "ProcessingPackage",
+      "type": "object"
+    },
+    "ReadyPackage": {
+      "additionalProperties": false,
+      "properties": {
+        "api_version": {
+          "description": "This contract's version: `1.0`.",
+          "title": "Api Version",
+          "type": "string"
+        },
+        "complete": {
+          "description": "Every statement analysed, no account left out (repeats aside) and no section omitted.",
+          "title": "Complete",
+          "type": "boolean",
+          "x-source": "totals.completeness"
+        },
+        "created_at": {
+          "description": "When the package was created (UTC).",
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string",
+          "x-source": "packages.created_at"
+        },
+        "documents": {
+          "description": "Each statement, in submitted order.",
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "analysed": "#/$defs/AnalysedDocument",
+                "duplicate": "#/$defs/DuplicateDocument",
+                "failed": "#/$defs/FailedDocument"
+              },
+              "propertyName": "status"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AnalysedDocument"
+              },
+              {
+                "$ref": "#/$defs/FailedDocument"
+              },
+              {
+                "$ref": "#/$defs/DuplicateDocument"
+              }
+            ]
+          },
+          "title": "Documents",
+          "type": "array"
+        },
+        "figures": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackageFigures"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The package's figures; null when no account entered them.",
+          "x-source": "totals, when totals.completed is not 0"
+        },
+        "package_id": {
+          "description": "The id the caller chose for the package.",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Package Id",
+          "type": "string"
+        },
+        "review": {
+          "$ref": "#/$defs/Review",
+          "description": "Whether a person must look before the figures are used."
+        },
+        "revision": {
+          "description": "Opaque change token, compared for equality: it changes whenever another field of this body does, such as after an analyst's review in the dashboard.",
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Revision",
+          "type": "string"
+        },
+        "status": {
+          "const": "ready",
+          "description": "Every statement is analysed, failed or a duplicate.",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "api_version",
+        "package_id",
+        "created_at",
+        "status",
+        "revision",
+        "review",
+        "complete",
+        "figures",
+        "documents"
+      ],
+      "title": "ReadyPackage",
+      "type": "object"
+    },
+    "Review": {
+      "additionalProperties": false,
+      "properties": {
+        "analysis_rules_outdated": {
+          "description": "A statement with an included account was analysed under older classification rules; no other statement sets it.",
+          "title": "Analysis Rules Outdated",
+          "type": "boolean",
+          "x-source": "analysis_rules_outdated"
+        },
+        "decision": {
+          "description": "The analysis' publication status; not a funder's credit decision.",
+          "enum": [
+            "approved",
+            "limited_review",
+            "review_required"
+          ],
+          "title": "Decision",
+          "type": "string",
+          "x-source": "totals.decision"
+        },
+        "required": {
+          "description": "True unless `decision` is approved, the package is complete and `analysis_rules_outdated` is false.",
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "required",
+        "decision",
+        "analysis_rules_outdated"
+      ],
+      "title": "Review",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/Package"
+    },
+    {
+      "$ref": "#/$defs/ErrorResponse"
+    }
+  ],
+  "title": "bank-statement-analysis API v1",
+  "x-api-version": "1.0"
+}
