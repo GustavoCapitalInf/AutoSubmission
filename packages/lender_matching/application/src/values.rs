@@ -208,7 +208,8 @@ impl Refusal {
 pub enum Answer {
     Value(FieldValue),
     /// `N/A`, `NA`, `-`, or `NONE` outside a yes or no question: the merchant answered that
-    /// nothing applies. It supplies no fact.
+    /// nothing applies. It supplies no fact. `FieldId::read` reads `N/A` as no on the fields whose
+    /// `NaMeans` is `No`.
     NotApplicable,
 }
 
@@ -373,8 +374,9 @@ const FICO: std::ops::RangeInclusive<u16> = 300..=850;
 const MARKS: [&str; 3] = ["X", "✓", "✔"];
 
 impl FieldKind {
-    /// Reads one field's text, from the page or from a person; the same rules serve both. Every
-    /// refusal is a closed `Refusal`, and none is a guess.
+    /// The grammar of one kind, for text from the page or from a person; the same rules serve
+    /// both. Every refusal is a closed `Refusal`, and none is a guess. A field's text is read
+    /// through `FieldId::read`, which applies the field's own meaning of `N/A` first.
     pub fn read(self, text: &RawText, context: &ReadContext) -> Result<Answer, Refusal> {
         let normalized = text.as_str().split_whitespace().collect::<Vec<_>>().join(" ");
         if normalized.chars().any(|c| c == '\u{FFFD}' || c.is_control()) {
@@ -485,6 +487,12 @@ impl FieldValue {
             FieldValue::YesNo(YesNo::No) => "NO".to_string(),
         }
     }
+}
+
+/// `N/A` or `NA`, in any case and spacing.
+pub(crate) fn says_na(text: &RawText) -> bool {
+    let compact: String = text.text.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_uppercase();
+    compact == "N/A" || compact == "NA"
 }
 
 fn says_not_applicable(kind: FieldKind, normalized: &str) -> bool {

@@ -2,6 +2,8 @@ use std::fmt;
 
 use serde::{Serialize, Serializer};
 
+use crate::values::{self, Answer, FieldValue, RawText, ReadContext, Refusal, YesNo};
+
 /// One field of the application form. Its `Display` (`business.legal_name`, `principal.ssn`) is the
 /// key every report uses.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -246,9 +248,9 @@ impl FieldId {
     /// An exhaustive `match`, so a new field does not compile without its spec.
     pub fn spec(self) -> FieldSpec {
         use FieldKind as K;
-        let (kind, required, masked) = match self {
+        match self {
             FieldId::Business(field) => {
-                let kind = match field {
+                let mut spec = FieldSpec::plain(match field {
                     BusinessField::LegalName
                     | BusinessField::Dba
                     | BusinessField::Address
@@ -266,8 +268,8 @@ impl FieldId {
                     BusinessField::TaxId => K::TaxId,
                     BusinessField::MonthlyRent => K::Money,
                     BusinessField::RentCurrent => K::YesNo,
-                };
-                let required = matches!(
+                });
+                if matches!(
                     field,
                     BusinessField::Address
                         | BusinessField::City
@@ -275,11 +277,13 @@ impl FieldId {
                         | BusinessField::Email
                         | BusinessField::StartDate
                         | BusinessField::TaxId
-                );
-                (kind, required, false)
+                ) {
+                    spec.required = Required::Always;
+                }
+                spec
             }
             FieldId::Owner(slot, field) => {
-                let kind = match field {
+                let mut spec = FieldSpec::plain(match field {
                     OwnerField::Name | OwnerField::Address | OwnerField::City => K::Text,
                     OwnerField::OwnershipPercent => K::Percent,
                     OwnerField::Email => K::Email,
@@ -288,13 +292,28 @@ impl FieldId {
                     OwnerField::Zip => K::PostalCode,
                     OwnerField::Ssn => K::Ssn,
                     OwnerField::BirthDate => K::BirthDate,
+                });
+                spec.masked = matches!(field, OwnerField::Ssn | OwnerField::BirthDate);
+                spec.derived = field == OwnerField::OwnershipPercent;
+                let needed = matches!(
+                    field,
+                    OwnerField::Phone
+                        | OwnerField::Address
+                        | OwnerField::City
+                        | OwnerField::State
+                        | OwnerField::Zip
+                        | OwnerField::Ssn
+                        | OwnerField::BirthDate
+                );
+                spec.required = match (slot, needed) {
+                    (_, false) => Required::Never,
+                    (OwnerSlot::Principal, true) => Required::Always,
+                    (OwnerSlot::Secondary, true) => Required::IfFilled(FieldId::Owner(slot, OwnerField::Name)),
                 };
-                let required = slot == OwnerSlot::Principal
-                    && matches!(field, OwnerField::Phone | OwnerField::Address | OwnerField::City);
-                (kind, required, matches!(field, OwnerField::Ssn | OwnerField::BirthDate))
+                spec
             }
             FieldId::Property(field) => {
-                let kind = match field {
+                let mut spec = FieldSpec::plain(match field {
                     PropertyField::Description | PropertyField::FundsPurpose | PropertyField::PriorLender => K::Text,
                     PropertyField::AnnualRevenue
                     | PropertyField::CardVolume
@@ -306,12 +325,36 @@ impl FieldId {
                     | PropertyField::Bankruptcy
                     | PropertyField::TaxLiens
                     | PropertyField::Seasonal => K::YesNo,
-                };
-                (kind, false, false)
+                });
+                if matches!(
+                    field,
+                    PropertyField::OpenJudgements
+                        | PropertyField::Bankruptcy
+                        | PropertyField::TaxLiens
+                        | PropertyField::Seasonal
+                ) {
+                    spec.na_means = NaMeans::No;
+                }
+                spec
             }
-            FieldId::Signature(_) => (K::SignatureDate, false, false),
-        };
-        FieldSpec { kind, required, masked }
+            FieldId::Signature(_) => FieldSpec::plain(K::SignatureDate),
+        }
+    }
+
+    /// Reads this field's text: the field's own meaning of `N/A`, then its kind's grammar.
+    pub fn read(self, text: &RawText, context: &ReadContext) -> Result<Answer, Refusal> {
+        let spec = self.spec();
+        if spec.na_means == NaMeans::No && values::says_na(text) {
+            return Ok(Answer::Value(FieldValue::YesNo(YesNo::No)));
+        }
+        spec.kind.read(text, context)
+    }
+}
+
+impl OwnerSlot {
+    /// The slot's ten fields, in reading order.
+    pub fn fields(self) -> impl Iterator<Item = FieldId> {
+        OWNER.into_iter().map(move |field| FieldId::Owner(self, field))
     }
 }
 
@@ -330,10 +373,37 @@ impl Serialize for FieldId {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FieldSpec {
     pub kind: FieldKind,
-    /// Required for a complete application: the fields the owner's screenshot stars.
-    pub required: bool,
+    /// Whether a complete application holds a value here.
+    pub required: Required,
     /// Identity data: the SSN and the date of birth.
     pub masked: bool,
+    /// Set from other fields rather than typed: an owner's ownership percent follows the number of
+    /// owners. The printed value is still read, as evidence.
+    pub derived: bool,
+    pub na_means: NaMeans,
+}
+
+impl FieldSpec {
+    const fn plain(kind: FieldKind) -> FieldSpec {
+        FieldSpec { kind, required: Required::Never, masked: false, derived: false, na_means: NaMeans::NotAnswered }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Required {
+    Always,
+    Never,
+    /// Once that field holds a value, as every secondary-owner detail once `secondary.name` does.
+    IfFilled(FieldId),
+}
+
+/// What `N/A` or `NA` answers in a field.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NaMeans {
+    /// Nothing applies, which supplies no fact: on `business.rent_current` it means no rent is paid.
+    NotAnswered,
+    /// No: on a history question, N/A says there is none.
+    No,
 }
 
 /// How a field's text reads; `FieldKind::read` holds the grammar of each kind.
@@ -429,12 +499,14 @@ mod tests {
         assert_eq!(FieldId::Signature(SignatureField::ApplicantTwoDate).to_string(), "signatures.applicant_two_date");
     }
 
+    fn keys(filter: impl Fn(FieldSpec) -> bool) -> Vec<String> {
+        FieldId::ALL.into_iter().filter(|field| filter(field.spec())).map(|field| field.to_string()).collect()
+    }
+
     #[test]
-    fn required_fields_match_the_owner_screenshot() {
-        let required: Vec<String> =
-            FieldId::ALL.into_iter().filter(|field| field.spec().required).map(|field| field.to_string()).collect();
+    fn required_fields_follow_the_screenshot_and_the_owner_rulings() {
         assert_eq!(
-            required,
+            keys(|spec| spec.required == Required::Always),
             [
                 "business.address",
                 "business.city",
@@ -445,8 +517,76 @@ mod tests {
                 "principal.phone",
                 "principal.address",
                 "principal.city",
+                "principal.state",
+                "principal.zip",
+                "principal.ssn",
+                "principal.birth_date",
             ]
         );
+        let secondary_name = FieldId::Owner(OwnerSlot::Secondary, OwnerField::Name);
+        assert_eq!(
+            keys(|spec| spec.required == Required::IfFilled(secondary_name)),
+            [
+                "secondary.phone",
+                "secondary.address",
+                "secondary.city",
+                "secondary.state",
+                "secondary.zip",
+                "secondary.ssn",
+                "secondary.birth_date",
+            ]
+        );
+        assert!(keys(|spec| matches!(spec.required, Required::IfFilled(other) if other != secondary_name)).is_empty());
+    }
+
+    #[test]
+    fn ownership_is_derived_and_not_required() {
+        assert_eq!(keys(|spec| spec.derived), ["principal.ownership_percent", "secondary.ownership_percent"]);
+        assert!(keys(|spec| spec.derived && spec.required != Required::Never).is_empty());
+    }
+
+    #[test]
+    fn na_means_no_only_on_the_history_questions() {
+        assert_eq!(
+            keys(|spec| spec.na_means == NaMeans::No),
+            ["property.open_judgements", "property.bankruptcy", "property.tax_liens", "property.seasonal"]
+        );
+        assert!(keys(|spec| spec.na_means == NaMeans::No && spec.kind != FieldKind::YesNo).is_empty());
+    }
+
+    fn answer(field: FieldId, text: &str) -> Option<String> {
+        match field.read(&RawText::typed(text), &ReadContext::default()) {
+            Ok(Answer::Value(value)) => Some(value.canonical()),
+            Ok(Answer::NotApplicable) => None,
+            Err(why) => panic!("{field} refused {text}: {why:?}"),
+        }
+    }
+
+    #[test]
+    fn na_on_a_history_question_reads_as_no_and_on_rent_stays_not_answered() {
+        for field in
+            [PropertyField::OpenJudgements, PropertyField::Bankruptcy, PropertyField::TaxLiens, PropertyField::Seasonal]
+        {
+            let field = FieldId::Property(field);
+            for text in ["N/A", "na", "n / a", "NO", "N", "NONE", "0"] {
+                assert_eq!(answer(field, text).as_deref(), Some("NO"), "{field} {text}");
+            }
+            assert_eq!(answer(field, "YES").as_deref(), Some("YES"));
+            assert_eq!(answer(field, "-"), None, "{field}: a dash is not N/A");
+        }
+        let rent = FieldId::Business(BusinessField::RentCurrent);
+        for text in ["N/A", "NA"] {
+            assert_eq!(answer(rent, text), None, "{text} on rent means no rent");
+        }
+        assert_eq!(answer(rent, "NONE").as_deref(), Some("NO"));
+    }
+
+    #[test]
+    fn a_slot_names_its_ten_fields() {
+        let secondary: Vec<FieldId> = OwnerSlot::Secondary.fields().collect();
+        assert_eq!(secondary.len(), 10);
+        assert!(secondary.iter().all(|field| matches!(field, FieldId::Owner(OwnerSlot::Secondary, _))));
+        assert_eq!(secondary[0].to_string(), "secondary.name");
     }
 
     #[test]
