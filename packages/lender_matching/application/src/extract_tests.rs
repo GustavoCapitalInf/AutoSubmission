@@ -60,6 +60,50 @@ fn the_pdfescape_layout_reads_the_same_values() {
 }
 
 #[test]
+fn the_pdfescape_rep_header_and_footer_are_form_text() {
+    let reading = read_form_page(&Form { layout: pdfescape(), ..Form::word() });
+    let form = form(&reading);
+    let evidence = form.fields.iter().filter_map(|(_, reading)| reading.evidence());
+    let texts: Vec<&str> =
+        evidence.chain(form.unplaced.iter().map(|run| &run.evidence)).map(|e| e.text.as_str()).collect();
+    for rep in ["SAMPLE REP", "512-555-0198", "rep@example.com", "512-555-0199", "forms@example.com"] {
+        assert!(texts.iter().all(|text| !text.contains(rep)), "{rep} was read");
+    }
+}
+
+/// The PDFescape form with `typed` as the only text typed on its entity row.
+fn pdfescape_entity(typed_on_row: &[(f32, &'static str)]) -> (Outcome, Option<String>) {
+    let mut layout = pdfescape();
+    layout.extras.retain(|extra| extra.dy != ENTITY_MARK_DY);
+    layout.extras.extend(typed_on_row.iter().map(|(x, text)| typed("ArialMT", VALUE_SIZE, *x, ENTITY_MARK_DY, text)));
+    let reading = read_form_page(&Form { layout, ..Form::word() });
+    let entity = FieldId::Business(B::Entity);
+    (outcome(form(&reading), entity), canonical(form(&reading), entity))
+}
+
+#[test]
+fn the_pdfescape_entity_reads_the_printed_choice_beside_the_mark() {
+    let read = |typed: &[(f32, &'static str)]| pdfescape_entity(typed).1;
+    assert_eq!(read(&[(168.0, "X")]).as_deref(), Some("CORPORATION"), "before Corporation");
+    assert_eq!(read(&[(244.0, "x")]).as_deref(), Some("CORPORATION"), "after Corporation");
+    assert_eq!(read(&[(320.0, "X")]).as_deref(), Some("LIMITED LIABILITY COMPANY"));
+    let sole = Some("SOLE PROPRIETORSHIP");
+    assert_eq!(read(&[(362.0, "X"), (512.0, "SOLE PROPRIETORSHIP")]).as_deref(), sole, "Other, described");
+    assert_eq!(read(&[(512.0, "SOLE PROPRIETORSHIP")]).as_deref(), sole, "described without a mark");
+}
+
+#[test]
+fn an_unclear_pdfescape_entity_mark_is_refused() {
+    let refused = |typed: &[(f32, &'static str)]| pdfescape_entity(typed).0;
+    assert_eq!(refused(&[(268.0, "X")]), Outcome::Refused(Refusal::MarkUnclear), "midway");
+    assert_eq!(refused(&[(244.0, "X"), (320.0, "X")]), Outcome::Refused(Refusal::MarkUnclear), "two marks");
+    assert_eq!(refused(&[(320.0, "X"), (512.0, "SAMPLE")]), Outcome::Refused(Refusal::Ambiguous), "LLC, described");
+    assert_eq!(refused(&[(362.0, "X")]), Outcome::Refused(Refusal::NotInList), "Other, not described");
+    assert_eq!(refused(&[(512.0, "SAMPLE")]), Outcome::Refused(Refusal::NotInList));
+    assert_eq!(refused(&[]), Outcome::Blank);
+}
+
+#[test]
 fn reading_does_not_depend_on_content_order() {
     let reading = read_pages(vec![Form::word().draw(PageBuilder::new()).reversed().build()]);
     assert_reads_every_sample_value(&reading, "word");

@@ -5,10 +5,10 @@ use crate::certificate::{Certificate, read_certificate};
 use crate::fields::{BusinessField, FieldId, FieldMap};
 use crate::page::{Glyph, PdfFacts, ReadingOrder, Rect, TextPage, words};
 use crate::template::{
-    self, CONTRACT_TITLE, FORM, LAYOUT_TOLERANCE_PT, LabelSpec, NEXT_LINE_BOTTOM_PT, ROW_BAND_PT, SectionStart, Shape,
-    Target,
+    self, CONTRACT_TITLE, FORM, LAYOUT_TOLERANCE_PT, LabelSpec, LayoutSpec, NEXT_LINE_BOTTOM_PT, ROW_BAND_PT,
+    SectionStart, Shape, Target,
 };
-use crate::values::{Answer, FieldValue, RawText, ReadContext, Refusal};
+use crate::values::{Answer, Entity, FieldValue, RawText, ReadContext, Refusal, Word, is_mark};
 
 /// What one PDF reads as. It holds application data, so it has no `Debug`.
 pub struct Reading {
@@ -16,7 +16,8 @@ pub struct Reading {
     pub certificate: Option<Certificate>,
     pub signed_on: Option<SignedOn>,
     /// Each sentinel label's offset from the BUSINESS INFORMATION heading, wherever both were
-    /// placed; how a new layout is measured.
+    /// placed by the layout that fits, else by the first layout whose sections are found; how a
+    /// new layout is measured.
     pub offsets: Vec<SentinelOffset>,
 }
 
@@ -225,29 +226,25 @@ impl Candidate {
 /// label. Where occurrences overlap, the longer one wins.
 fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
     let mut texts: Vec<(&'static str, bool)> = vec![(CONTRACT_TITLE, true)];
-    for section in FORM.sections {
-        if let SectionStart::Heading(text) = section.start {
-            texts.push((text, true));
-        }
-        for label in section.labels {
-            if !texts.contains(&(label.text, false)) {
-                texts.push((label.text, false));
+    for section in FORM.layouts.iter().flat_map(|layout| layout.sections) {
+        let section_texts = match section.start {
+            SectionStart::Heading(text) => Some((text, true)),
+            SectionStart::FirstLabel => None,
+        };
+        for text in section_texts.into_iter().chain(section.labels.iter().map(|label| (label.text, false))) {
+            if !texts.contains(&text) {
+                texts.push(text);
             }
         }
     }
-    let in_label_view = |at: usize| {
-        let glyph = order.glyph(at);
-        let name = order.page.font_name(glyph);
-        glyph.ch.is_whitespace() || FORM.label_fonts.iter().any(|prefix| name.starts_with(prefix))
-    };
     let mut found = Vec::new();
     for at in 0..order.order.len() {
         let heading_start = order.starts_word(at, |_| true);
-        let label_start = in_label_view(at) && order.starts_word(at, in_label_view);
+        let label_start = starts_label_word(order, at);
         for (text, heading) in &texts {
             let found_here = match heading {
                 true if heading_start => match_at(order, at, text, |_| true),
-                false if label_start => match_at(order, at, text, in_label_view),
+                false if label_start => match_at(order, at, text, |at| in_label_view(order, at)),
                 _ => None,
             };
             if let Some(positions) = found_here {
@@ -270,6 +267,17 @@ fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
     }
     kept.sort_by_key(Candidate::start);
     kept
+}
+
+/// Spaces and glyphs in a label font: what a label is matched among.
+fn in_label_view(order: &ReadingOrder, at: usize) -> bool {
+    let glyph = order.glyph(at);
+    let name = order.page.font_name(glyph);
+    glyph.ch.is_whitespace() || FORM.label_fonts.iter().any(|prefix| name.starts_with(prefix))
+}
+
+fn starts_label_word(order: &ReadingOrder, at: usize) -> bool {
+    in_label_view(order, at) && order.starts_word(at, |at| in_label_view(order, at))
 }
 
 /// `text` from `start` on its line, matched among the positions `seen` keeps, spacing aside.
@@ -374,6 +382,28 @@ struct Bound {
     found_twice: bool,
 }
 
+/// The page's labels placed by one layout's label set.
+struct Binding {
+    layout: &'static LayoutSpec,
+    /// The candidate each section starts at.
+    starts: Vec<usize>,
+    /// Each label of each section, by section and label index.
+    placements: Vec<(usize, usize, Placement)>,
+    bound: Vec<Bound>,
+    offsets: Vec<SentinelOffset>,
+}
+
+impl Binding {
+    fn fits(&self) -> bool {
+        self.layout.sentinels.iter().all(|(field, dx, dy)| {
+            self.offsets.iter().find(|offset| offset.field == *field).is_some_and(|offset| {
+                (offset.dy - dy).abs() <= LAYOUT_TOLERANCE_PT
+                    && dx.is_none_or(|dx| (offset.dx - dx).abs() <= LAYOUT_TOLERANCE_PT)
+            })
+        })
+    }
+}
+
 fn in_region(region: &Rect, glyph: Rect) -> bool {
     let x = glyph.center_x();
     x >= region.x0 && x < region.x1 && glyph.top >= region.top && glyph.top <= region.bottom
@@ -383,7 +413,7 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
     let order = ReadingOrder::new(page);
     let candidates = find_candidates(&order);
     let heading_count = |text: &str| candidates.iter().filter(|c| c.heading && c.text == text).count();
-    let form_headings = FORM
+    let form_headings = FORM.layouts[0]
         .sections
         .iter()
         .filter(|section| matches!(section.start, SectionStart::Heading(text) if heading_count(text) > 0))
@@ -401,20 +431,30 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
     if let Some(document) = early {
         return (document, Vec::new());
     }
-    let unknown = || Document::ManualEntry(ManualEntryReason::UnknownLayout);
+    let unknown = Document::ManualEntry(ManualEntryReason::UnknownLayout);
+    let bindings: Vec<Binding> =
+        FORM.layouts.iter().filter_map(|layout| bind(layout, &candidates, page.width)).collect();
+    let fits: Vec<&Binding> = bindings.iter().filter(|binding| binding.fits()).collect();
+    let offsets = fits.first().copied().or(bindings.first()).map_or(Vec::new(), |binding| binding.offsets.clone());
+    let [binding] = fits.as_slice() else { return (unknown, offsets) };
+    let (fields, unplaced) = place_and_read(&order, &candidates, binding, signed_on);
+    (Document::Application(FormReading { layout: LayoutId(binding.layout.id), fields, unplaced }), offsets)
+}
 
-    // Each section starts at exactly one occurrence of its heading or first label, in order.
-    let mut starts = Vec::with_capacity(FORM.sections.len());
-    for section in FORM.sections {
+/// Places the candidates by `layout`'s label set: none when a section does not start at exactly
+/// one occurrence of its heading or first label, in order.
+fn bind(layout: &'static LayoutSpec, candidates: &[Candidate], page_width: f32) -> Option<Binding> {
+    let mut starts = Vec::with_capacity(layout.sections.len());
+    for section in layout.sections {
         let (text, heading) = match section.start {
             SectionStart::Heading(text) => (text, true),
             SectionStart::FirstLabel => (section.labels[0].text, false),
         };
         let found: Vec<usize> =
             (0..candidates.len()).filter(|&c| candidates[c].heading == heading && candidates[c].text == text).collect();
-        let [only] = found.as_slice() else { return (unknown(), Vec::new()) };
+        let [only] = found.as_slice() else { return None };
         if starts.last().is_some_and(|&previous: &usize| candidates[previous].start() >= candidates[*only].start()) {
-            return (unknown(), Vec::new());
+            return None;
         }
         starts.push(*only);
     }
@@ -422,11 +462,11 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
     let business_heading = candidates[starts[0]].first;
 
     let mut placements: Vec<(usize, usize, Placement)> = Vec::new();
-    for (s, section) in FORM.sections.iter().enumerate() {
+    for (s, section) in layout.sections.iter().enumerate() {
         let mine: Vec<usize> = (0..candidates.len())
             .filter(|&c| !candidates[c].heading && section_of(candidates[c].start()) == Some(s))
             .collect();
-        for (i, placement) in align(section.labels, &mine, &candidates).into_iter().enumerate() {
+        for (i, placement) in align(section.labels, &mine, candidates).into_iter().enumerate() {
             placements.push((s, i, placement));
         }
     }
@@ -440,7 +480,7 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
     let mut bound: Vec<Bound> = Vec::new();
     for (s, i, placement) in &placements {
         let Placement::Bound(c) = *placement else { continue };
-        let label = &FORM.sections[*s].labels[*i];
+        let label = &layout.sections[*s].labels[*i];
         let candidate = &candidates[c];
         let top = candidate.first.top;
         let x1 = label_tops
@@ -449,9 +489,9 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
                 *other_top >= top + ROW_BAND_PT.0 && *other_top <= top + ROW_BAND_PT.1 && *x0 >= candidate.end_x
             })
             .map(|(_, x0)| *x0)
-            .fold(page.width, f32::min);
+            .fold(page_width, f32::min);
         let bottom = match label.shape {
-            Shape::Row => top + ROW_BAND_PT.1,
+            Shape::Row | Shape::Choices { .. } => top + ROW_BAND_PT.1,
             Shape::RowAndNextLine => {
                 let next_row = label_tops.iter().map(|(other_top, _)| *other_top).filter(|t| *t > top + ROW_BAND_PT.1);
                 let next_band = next_row.fold(f32::MAX, f32::min) + ROW_BAND_PT.0;
@@ -459,7 +499,7 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
             }
         };
         let region = Rect { x0: candidate.end_x, top: top + ROW_BAND_PT.0, x1, bottom };
-        let printed = FORM.sections[*s].labels.iter().filter(|other| other.text == label.text).count();
+        let printed = layout.sections[*s].labels.iter().filter(|other| other.text == label.text).count();
         let present = (0..candidates.len())
             .filter(|&o| {
                 let other = &candidates[o];
@@ -472,7 +512,7 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
     let field_bound = |field: FieldId| {
         bound.iter().find(|b| b.label.target == Target::Field(field)).map(|b| &candidates[b.candidate])
     };
-    let offsets: Vec<SentinelOffset> = FORM.layouts[0]
+    let offsets: Vec<SentinelOffset> = layout
         .sentinels
         .iter()
         .filter_map(|(field, _, _)| {
@@ -483,23 +523,7 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
             })
         })
         .collect();
-    let fits: Vec<LayoutId> = FORM
-        .layouts
-        .iter()
-        .filter(|layout| {
-            layout.sentinels.iter().all(|(field, dx, dy)| {
-                offsets.iter().find(|offset| offset.field == *field).is_some_and(|offset| {
-                    (offset.dy - dy).abs() <= LAYOUT_TOLERANCE_PT
-                        && dx.is_none_or(|dx| (offset.dx - dx).abs() <= LAYOUT_TOLERANCE_PT)
-                })
-            })
-        })
-        .map(|layout| LayoutId(layout.id))
-        .collect();
-    let [layout] = fits.as_slice() else { return (unknown(), offsets) };
-
-    let (fields, unplaced) = place_and_read(&order, &candidates, &starts, &placements, &bound, signed_on);
-    (Document::Application(FormReading { layout: *layout, fields, unplaced }), offsets)
+    Some(Binding { layout, starts, placements, bound, offsets })
 }
 
 /// Two glyphs consecutive in content order stay in one value run when the second starts within
@@ -546,11 +570,10 @@ fn value_runs(page: &TextPage, form_text: &[bool]) -> Vec<Vec<usize>> {
 fn place_and_read(
     order: &ReadingOrder,
     candidates: &[Candidate],
-    starts: &[usize],
-    placements: &[(usize, usize, Placement)],
-    bound: &[Bound],
+    binding: &Binding,
     signed_on: Option<Date>,
 ) -> (FieldMap<FieldReading>, Vec<Unplaced>) {
+    let Binding { layout, starts, placements, bound, .. } = binding;
     let page = order.page;
     let mut position_of = vec![0; order.order.len()];
     for (at, glyph) in order.order.iter().enumerate() {
@@ -563,13 +586,15 @@ fn place_and_read(
             form_text[order.order[*at]] = true;
         }
     }
+    let choices: Vec<Vec<ChoiceSpan>> =
+        bound.iter().map(|b| find_choices(order, &candidates[b.candidate], b, &mut form_text)).collect();
     let runs = value_runs(page, &form_text);
 
     let business_top = candidates[starts[0]].first.top;
     let area_bottom = bound.iter().map(|b| b.region.bottom).fold(business_top, f32::max);
     // The certification paragraph lies between the last field row and the first signature line.
     // Its text is not in the template, so that band is left out of the unplaced check.
-    let signatures = FORM.sections.len() - 1;
+    let signatures = layout.sections.len() - 1;
     let fields_bottom =
         bound.iter().filter(|b| b.section < signatures).map(|b| b.region.bottom).fold(f32::MIN, f32::max);
     let signature_top = bound.iter().filter(|b| b.section == signatures).map(|b| b.region.top).fold(f32::MAX, f32::min);
@@ -630,7 +655,7 @@ fn place_and_read(
 
     let mut slots: Vec<Option<FieldReading>> = FieldId::ALL.iter().map(|_| None).collect();
     for (s, i, placement) in placements {
-        let Target::Field(field) = FORM.sections[*s].labels[*i].target else { continue };
+        let Target::Field(field) = layout.sections[*s].labels[*i].target else { continue };
         let reading = match placement {
             Placement::Missing => FieldReading::Unlocated(Unlocated::LabelMissing),
             Placement::OutOfPlace => FieldReading::Unlocated(Unlocated::LabelOutOfPlace),
@@ -655,7 +680,7 @@ fn place_and_read(
                 let value = match (doubt, found) {
                     (Some(doubt), found) => RegionValue::Doubtful(doubt, found.map(|(_, evidence)| evidence)),
                     (None, None) => RegionValue::Blank,
-                    (None, Some((text, evidence))) => match field.read(&text, &context) {
+                    (None, Some((text, evidence))) => match read_value(field, &choices[b], &text, &context) {
                         Ok(Answer::Value(value)) => RegionValue::Read(value, evidence),
                         Ok(Answer::NotApplicable) => RegionValue::NotApplicable(evidence),
                         Err(why) => RegionValue::Refused(why, evidence),
@@ -687,6 +712,85 @@ fn place_and_read(
         })
         .collect();
     (readings, unplaced)
+}
+
+/// A printed choice and its box, when the row prints it exactly once.
+struct ChoiceSpan {
+    entity: Option<Entity>,
+    span: Option<Rect>,
+}
+
+/// On a choice row, the printed choices and other form text in the label font on the label's line
+/// inside its region, which this marks in `form_text`. Empty for any other label.
+fn find_choices(order: &ReadingOrder, label: &Candidate, bound: &Bound, form_text: &mut [bool]) -> Vec<ChoiceSpan> {
+    let Shape::Choices { choices, printed } = bound.label.shape else { return Vec::new() };
+    let line = order.line[label.start()];
+    let mut found = |text: &str| -> Vec<Vec<usize>> {
+        let matches: Vec<Vec<usize>> = (0..order.order.len())
+            .filter(|&at| order.line[at] == line && in_region(&bound.region, order.glyph(at).rect))
+            .filter(|&at| starts_label_word(order, at))
+            .filter_map(|at| match_at(order, at, text, |at| in_label_view(order, at)))
+            .collect();
+        for at in matches.iter().flatten() {
+            form_text[order.order[*at]] = true;
+        }
+        matches
+    };
+    for text in printed {
+        found(text);
+    }
+    choices
+        .iter()
+        .map(|choice| {
+            let span = match found(choice.text).as_slice() {
+                [positions] => positions.iter().map(|at| order.glyph(*at).rect).reduce(Rect::union),
+                _ => None,
+            };
+            ChoiceSpan { entity: choice.entity, span }
+        })
+        .collect()
+}
+
+/// A field's text by its grammar, or on a choice row by the mark: one mark picks the printed
+/// choice nearest it when it lies under half as far from that choice as from any other. Text
+/// typed without a mark, or with the mark on the choice that has no entity, is read by the field's
+/// grammar. A row whose choices are not each printed once refuses any mark.
+fn read_value(
+    field: FieldId,
+    choices: &[ChoiceSpan],
+    text: &RawText,
+    context: &ReadContext,
+) -> Result<Answer, Refusal> {
+    if choices.is_empty() {
+        return field.read(text, context);
+    }
+    let (marks, typed): (Vec<&Word>, Vec<&Word>) = text.words().iter().partition(|word| is_mark(&word.text));
+    let description = (!typed.is_empty())
+        .then(|| RawText::typed(&typed.iter().map(|word| word.text.as_str()).collect::<Vec<_>>().join(" ")));
+    let picked = match marks.as_slice() {
+        [] => None,
+        [mark] => {
+            let center = (mark.x0 + mark.x1) / 2.0;
+            let mut distances = Vec::with_capacity(choices.len());
+            for choice in choices {
+                let span = choice.span.ok_or(Refusal::MarkUnclear)?;
+                distances.push(((span.x0 - center).max(center - span.x1).max(0.0), choice.entity));
+            }
+            distances.sort_by(|a, b| a.0.total_cmp(&b.0));
+            match distances.as_slice() {
+                [(nearest, entity), (next, _), ..] if *nearest < next / 2.0 => Some(*entity),
+                _ => return Err(Refusal::MarkUnclear),
+            }
+        }
+        _ => return Err(Refusal::MarkUnclear),
+    };
+    match (picked, description) {
+        (Some(Some(entity)), None) => Ok(Answer::Value(FieldValue::Entity(entity))),
+        (Some(Some(_)), Some(_)) => Err(Refusal::Ambiguous),
+        (Some(None) | None, Some(description)) => field.read(&description, context),
+        (Some(None), None) => Err(Refusal::NotInList),
+        (None, None) => Err(Refusal::Format),
+    }
 }
 
 #[cfg(test)]

@@ -187,34 +187,209 @@ pub fn word_rows() -> Vec<Row> {
     ]
 }
 
+/// Text a layout prints besides its labels and the values typed after them.
+pub struct Extra {
+    /// The layout's label font when none is named.
+    pub font: Option<&'static str>,
+    pub size: f32,
+    pub x: f32,
+    /// The top, as an offset like a row's.
+    pub dy: f32,
+    pub text: &'static str,
+}
+
+/// Form text in the layout's label font.
+pub fn printed(size: f32, x: f32, dy: f32, text: &'static str) -> Extra {
+    Extra { font: None, size, x, dy, text }
+}
+
+/// Text typed in `font`.
+pub fn typed(font: &'static str, size: f32, x: f32, dy: f32, text: &'static str) -> Extra {
+    Extra { font: Some(font), size, x, dy, text }
+}
+
 pub struct Layout {
     pub rows: Vec<Row>,
-    /// The OWNER INFORMATION and BUSINESS PROPERTY INFORMATION headings' Word offsets.
+    /// The OWNER INFORMATION and BUSINESS PROPERTY INFORMATION headings' offsets.
     pub headings: [f32; 2],
     pub label_font: &'static str,
     pub dx: f32,
-    /// Maps a Word offset to this layout's.
+    /// Maps an offset to where the page prints it.
     pub dy: fn(f32) -> f32,
+    pub extras: Vec<Extra>,
 }
 
 pub fn word() -> Layout {
-    Layout { rows: word_rows(), headings: [201.0, 352.0], label_font: "Calibri", dx: 0.0, dy: |dy| dy }
+    let seasonal = 484.0;
+    Layout {
+        rows: word_rows(),
+        headings: [201.0, 352.0],
+        label_font: "Calibri",
+        dx: 0.0,
+        dy: |dy| dy,
+        extras: vec![
+            printed(LABEL_SIZE, 170.0, seasonal, "YES"),
+            printed(LABEL_SIZE, 220.0, seasonal, "NO"),
+            typed("ArialMT", VALUE_SIZE, 236.0, seasonal + 1.6, "X"),
+            printed(10.0, 40.0, 510.0, "I certify that the information above is true and correct,"),
+            printed(10.0, 40.0, 524.0, "and I authorize SAMPLE to verify it."),
+            typed("DancingScript", 14.0, 200.0, 558.0, "Sample Owner"),
+        ],
+    }
 }
 
-/// The PDFescape placement: the sentinels at their measured offsets, the rows between them
-/// spaced in proportion, and every label 2 pt to the right.
+/// The PDFescape entity row: its printed choices start at x 180 (Corporation), 300 (LLC) and 370
+/// (Other), and the mark sits on this top.
+pub const ENTITY_MARK_DY: f32 = 86.0 + 1.6;
+
+/// The PDFescape version at its measured offsets: its own label set, a sales rep header above
+/// BUSINESS INFORMATION and a Fax and Email footer under the signature lines.
 pub fn pdfescape() -> Layout {
-    fn dy(dy: f32) -> f32 {
-        let knots = [(0.0, 0.0), (18.0, 15.0), (129.0, 121.0), (256.0, 231.0), (330.0, 296.0)];
-        for pair in knots.windows(2) {
-            let ((a, fa), (b, fb)) = (pair[0], pair[1]);
-            if dy <= b {
-                return fa + (dy - a) * (fb - fa) / (b - a);
-            }
-        }
-        dy - 34.0
+    let x = |dx: f32| HEADING.0 + dx;
+    let rows = vec![
+        (
+            15.0,
+            vec![
+                ("Business Legal Name", x(2.0), business(B::LegalName)),
+                ("Doing Business As (DBA)", x(260.0), business(B::Dba)),
+            ],
+        ),
+        (33.0, vec![("Address", x(2.0), business(B::Address)), ("Suite/Floor", x(260.0), business(B::Suite))]),
+        (
+            50.0,
+            vec![
+                ("City", x(2.0), business(B::City)),
+                ("State", x(176.0), business(B::State)),
+                ("Zip", x(344.0), business(B::Zip)),
+            ],
+        ),
+        (
+            65.0,
+            vec![
+                ("Phone", x(2.0), business(B::Phone)),
+                ("Fax", x(176.0), business(B::Fax)),
+                ("Email", x(344.0), business(B::Email)),
+            ],
+        ),
+        (86.0, vec![("Type of Entity", x(2.0), None)]),
+        (
+            106.0,
+            vec![
+                ("Business Start Date (MM/YYYY)", x(2.0), business(B::StartDate)),
+                ("Date Current Ownership Started", x(260.0), business(B::OwnershipStart)),
+            ],
+        ),
+        (121.0, vec![("Federal Tax ID", x(2.0), business(B::TaxId)), ("Website", x(260.0), business(B::Website))]),
+        (
+            136.0,
+            vec![
+                ("Landlord Name", x(2.0), business(B::LandlordName)),
+                ("Landlord Phone", x(176.0), business(B::LandlordPhone)),
+                ("Time Left on Lease", x(344.0), business(B::LeaseTimeLeft)),
+            ],
+        ),
+        (
+            151.0,
+            vec![
+                ("Monthly Rent/Mortgage Payment", x(2.0), business(B::MonthlyRent)),
+                ("Are You Current with Rent/Mortgage?", x(260.0), business(B::RentCurrent)),
+            ],
+        ),
+        (
+            183.0,
+            vec![("Ownership %", x(207.0), principal(O::OwnershipPercent)), ("Email", x(341.0), principal(O::Email))],
+        ),
+        (184.0, vec![("Principle Owner Name", x(2.0), principal(O::Name))]),
+        (197.0, vec![("Phone", x(2.0), principal(O::Phone)), ("Address", x(260.0), principal(O::Address))]),
+        (212.0, vec![("City", x(2.0), principal(O::City)), ("Zip", x(345.0), principal(O::Zip))]),
+        (214.0, vec![("State", x(228.0), principal(O::State))]),
+        (231.0, vec![("SSN", x(2.0), principal(O::Ssn)), ("Date of Birth", x(260.0), principal(O::BirthDate))]),
+        (
+            247.0,
+            vec![("Ownership %", x(206.0), secondary(O::OwnershipPercent)), ("Email", x(341.0), secondary(O::Email))],
+        ),
+        (248.0, vec![("Secondary Owner Name", x(2.0), secondary(O::Name))]),
+        (262.0, vec![("Phone", x(2.0), secondary(O::Phone)), ("Address", x(260.0), secondary(O::Address))]),
+        (
+            277.0,
+            vec![
+                ("City", x(2.0), secondary(O::City)),
+                ("State", x(228.0), secondary(O::State)),
+                ("Zip", x(345.0), secondary(O::Zip)),
+            ],
+        ),
+        (296.0, vec![("SSN", x(2.0), secondary(O::Ssn)), ("Date of Birth", x(260.0), secondary(O::BirthDate))]),
+        (327.0, vec![("Annual Business Revenue", x(260.0), property(P::AnnualRevenue))]),
+        (329.0, vec![("Business Description", x(2.0), property(P::Description))]),
+        (
+            345.0,
+            vec![
+                ("Purpose of Funds Requested", x(2.0), property(P::FundsPurpose)),
+                ("Estimated Fico Score", x(260.0), property(P::EstimatedFico)),
+            ],
+        ),
+        (
+            363.0,
+            vec![
+                ("Average Monthly Credit Card Volume", x(2.0), property(P::CardVolume)),
+                ("Amount of Receivable Outstanding", x(260.0), property(P::ReceivablesOutstanding)),
+            ],
+        ),
+        (382.0, vec![("Prior/Current Loan Company (if applicable)", x(2.0), property(P::PriorLender))]),
+        (401.0, vec![("Requested Advance Amount", x(260.0), property(P::RequestedAmount))]),
+        (402.0, vec![("Existing Loan Balance", x(2.0), property(P::LoanBalance))]),
+        (417.0, vec![("Any bankruptcy?", x(259.0), property(P::Bankruptcy))]),
+        (418.0, vec![("Any open judgements?", x(1.0), property(P::OpenJudgements))]),
+        (
+            434.0,
+            vec![
+                ("Any tax liens?", x(1.0), property(P::TaxLiens)),
+                ("Is business seasonal?", x(260.0), property(P::Seasonal)),
+            ],
+        ),
+        (
+            611.0,
+            vec![
+                ("Signature of Applicant One", x(2.0), None),
+                ("Date", x(290.0), Some(FieldId::Signature(S::ApplicantOneDate))),
+            ],
+        ),
+        (
+            638.0,
+            vec![
+                ("Signature of Applicant Two", x(2.0), None),
+                ("Date", x(290.0), Some(FieldId::Signature(S::ApplicantTwoDate))),
+            ],
+        ),
+    ];
+    let seasonal = 434.0;
+    Layout {
+        rows,
+        headings: [167.0, 311.0],
+        label_font: "AdobeDevanagari-Regular",
+        dx: 0.0,
+        dy: |dy| dy,
+        extras: vec![
+            printed(8.0, x(-3.0), -60.0, "Sales Rep Name:"),
+            typed("ArialMT", VALUE_SIZE, x(70.0), -59.0, "SAMPLE REP"),
+            printed(10.0, x(149.0), -54.0, "FAX COMPLETED APPLICATION TO:"),
+            typed("ArialMT", VALUE_SIZE, x(330.0), -53.0, "512-555-0198"),
+            printed(8.0, x(-3.0), -38.0, "Contact Email:"),
+            typed("ArialMT", VALUE_SIZE, x(70.0), -37.0, "rep@example.com"),
+            printed(LABEL_SIZE, 180.0, 86.0, "Corporation"),
+            printed(LABEL_SIZE, 300.0, 86.0, "LLC"),
+            printed(LABEL_SIZE, 370.0, 86.0, "Other: (please describe):"),
+            typed("ArialMT", VALUE_SIZE, 320.0, ENTITY_MARK_DY, "X"),
+            printed(LABEL_SIZE, 440.0, seasonal, "YES"),
+            printed(LABEL_SIZE, 480.0, seasonal, "NO"),
+            typed("ArialMT", VALUE_SIZE, 496.0, seasonal + 1.6, "X"),
+            printed(10.0, 40.0, 470.0, "I certify that the information above is true and correct,"),
+            printed(10.0, 40.0, 484.0, "and I authorize SAMPLE to verify it."),
+            typed("DancingScript", 14.0, 200.0, 609.0, "Sample Owner"),
+            printed(12.0, x(89.0), 660.0, "Fax: 512-555-0199"),
+            printed(12.0, x(196.0), 660.0, "Email: forms@example.com"),
+        ],
     }
-    Layout { label_font: "AdobeDevanagari-Regular", dx: 2.0, dy, ..word() }
 }
 
 pub fn sample_values() -> Vec<(FieldId, &'static str)> {
@@ -354,19 +529,11 @@ impl Form {
                 }
             }
         }
-        let seasonal = self.label_top(484.0);
-        page.text(self.layout.label_font, LABEL_SIZE, 170.0, seasonal, "YES")
-            .text(self.layout.label_font, LABEL_SIZE, 220.0, seasonal, "NO")
-            .text("ArialMT", VALUE_SIZE, 236.0, seasonal + 1.6, "X")
-            .text(
-                self.layout.label_font,
-                10.0,
-                40.0,
-                self.label_top(510.0),
-                "I certify that the information above is true and correct,",
-            )
-            .text(self.layout.label_font, 10.0, 40.0, self.label_top(524.0), "and I authorize SAMPLE to verify it.")
-            .text("DancingScript", 14.0, 200.0, self.label_top(560.0) - 2.0, "Sample Owner")
+        for extra in &self.layout.extras {
+            let font = extra.font.unwrap_or(self.layout.label_font);
+            page = page.text(font, extra.size, extra.x + self.layout.dx, self.label_top(extra.dy), extra.text);
+        }
+        page
     }
 }
 

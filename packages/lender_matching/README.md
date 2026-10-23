@@ -131,7 +131,7 @@ only that process.
 | Field catalog | `FieldId` names the 55 fields: business, principal owner, secondary owner, property and the two signature dates. `FieldId::spec` gives each field's kind, whether it is required, and whether it is identity data or derived | `fields.rs` |
 | Value grammar | `FieldId::read` turns a field's text into a typed value or a closed refusal: `format`, `ambiguous`, `out_of_range`, `not_in_list`, `mark_unclear`, `undecodable` or `no_signing_date` | `values.rs` |
 | Page model | Each page's characters with font, size and box, in points from the top-left of the displayed page | `page.rs` |
-| Template | The form's sections, labels, label fonts and known layouts (`word`, `pdfescape`) as static data | `template.rs` |
+| Template | The form's known layouts (`word`, `pdfescape`) as static data: each one's label set, sections and sentinel offsets, and the label fonts | `template.rs` |
 | Extraction | Classifies page 1, binds the labels, cuts the value regions and reads each field | `extract.rs` |
 | Certificate | Reads the envelope id, the completion day and the signers under Signer Events, never the originator | `certificate.rs` |
 | Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout | `worker.rs` |
@@ -143,6 +143,11 @@ A PDF reads by these rules:
   the form's headings is other paperwork, or a suspected scan when one image covers 80% of it or it holds fewer than
   300 characters. A page with both kinds of heading, a scan-like page, or labels that fit no single known layout
   sends the document to manual entry.
+- Each layout prints its own label set, and the document must fit exactly one: its labels bind, and its sentinel
+  labels sit within 3 pt of where pdfium measured them. The PDFescape version prints Email on the Phone row, and
+  Type of Entity as a row of printed choices (Corporation, LLC, Other). A mark beside one choice picks it, a
+  description typed on the row is read as the entity, and an unclear mark is refused. Its sales rep header above
+  BUSINESS INFORMATION and its Fax and Email footer under the signature lines are form text, outside the form area.
 - Labels are found by their printed text in Calibri or AdobeDevanagari, character by character, so a value typed into
   the label's own run splits after the label. Characters of other fonts are skipped while a label is matched, so a
   value that runs over the label to its right does not hide it. In each section the labels bind in reading order. A label that two

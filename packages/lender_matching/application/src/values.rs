@@ -166,6 +166,10 @@ impl RawText {
     pub fn as_str(&self) -> &str {
         &self.text
     }
+
+    pub(crate) fn words(&self) -> &[Word] {
+        &self.words
+    }
 }
 
 /// What a reading of a date needs to know about the application.
@@ -371,7 +375,11 @@ impl fmt::Debug for FieldValue {
 }
 
 const FICO: std::ops::RangeInclusive<u16> = 300..=850;
-const MARKS: [&str; 3] = ["X", "✓", "✔"];
+
+/// A check mark or an X, in any case.
+pub(crate) fn is_mark(text: &str) -> bool {
+    ["X", "✓", "✔"].contains(&text.to_uppercase().as_str())
+}
 
 impl FieldKind {
     /// The grammar of one kind, for text from the page or from a person; the same rules serve
@@ -938,14 +946,13 @@ fn yes_no(s: &str, words: &[Word]) -> Result<YesNo, Refusal> {
             _ => Err(Refusal::Format),
         };
     }
-    let is_mark = |token: &str| MARKS.contains(&token);
     if !tokens.iter().all(|token| token == "YES" || token == "NO" || is_mark(token)) {
         return Err(Refusal::Format);
     }
     let center = |wanted: &dyn Fn(&str) -> bool| -> Vec<f32> {
         words.iter().filter(|word| wanted(&word.text.to_uppercase())).map(|word| (word.x0 + word.x1) / 2.0).collect()
     };
-    let (marks, yes, no) = (center(&is_mark), center(&|t| t == "YES"), center(&|t| t == "NO"));
+    let (marks, yes, no) = (center(&|t| is_mark(t)), center(&|t| t == "YES"), center(&|t| t == "NO"));
     let ([mark], [yes], [no]) = (marks.as_slice(), yes.as_slice(), no.as_slice()) else {
         return Err(Refusal::MarkUnclear);
     };
