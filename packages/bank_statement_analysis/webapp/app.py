@@ -798,8 +798,6 @@ def _unique_ids(ids: list[str]) -> list[str]:
 
 
 def _package_from_request():
-    """The requested package, built on one snapshot of its jobs (`JobStore.snapshot`), so a job that finishes or is
-    reviewed while it is built is read as it stood before. A job the store does not hold raises UnknownJobs."""
     ids, error = _requested_job_ids()
     if error is not None:
         return error

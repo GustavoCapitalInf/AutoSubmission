@@ -56,9 +56,8 @@ class Job:
 
 @dataclass(frozen=True)
 class JobSnapshot:
-    """What a package reads off one job (`analysis.package.model.JobLike`), as the job stood at one moment
-    (`JobStore.snapshot`). `analysis` is the dict the job held then, shared rather than copied: every JobStore write
-    replaces a job's analysis and none edits it in place (tests/test_job_snapshot.py)."""
+    """`analysis` is shared with the job rather than copied: every JobStore write replaces a job's analysis and none
+    edits it in place (test_a_snapshot_outlives_a_review_a_reanalysis_and_a_result)."""
 
     id: str
     filename: str
@@ -70,8 +69,6 @@ class JobSnapshot:
 
 
 class UnknownJobs(LookupError):
-    """A snapshot named jobs the store does not hold. `ids`: every such id, in the order named."""
-
     def __init__(self, ids: list[str]) -> None:
         super().__init__(ids)
         self.ids = ids
@@ -223,10 +220,8 @@ class JobStore:
             return self._jobs.setdefault(job_id, job)
 
     def snapshot(self, job_ids: Sequence[str]) -> list[JobSnapshot]:
-        """The jobs as they stood at one moment, in `job_ids` order. Every job is loaded first (storage reads stay
-        outside the lock), then every field is copied under one hold of the lock every in-memory write takes, so no
-        job is read mid-update and no two are read at different moments. Raises UnknownJobs naming every id the store
-        does not hold."""
+        """The jobs at one moment, in `job_ids` order: every field is copied under one hold of `_lock`, which every
+        in-memory write takes. Raises UnknownJobs naming every id the store does not hold."""
         missing = [job_id for job_id in job_ids if self.get(job_id) is None]
         if missing:
             raise UnknownJobs(missing)

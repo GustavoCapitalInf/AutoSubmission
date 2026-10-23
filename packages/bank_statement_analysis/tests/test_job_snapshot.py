@@ -1,4 +1,3 @@
-"""`JobStore.snapshot`: the jobs a package reads, copied at one moment. Fabricated analyses only."""
 import copy
 import json
 import sys
