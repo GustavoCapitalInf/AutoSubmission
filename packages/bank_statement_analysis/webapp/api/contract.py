@@ -87,7 +87,8 @@ PackageId = Annotated[str, Field(pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-
 class ApiError(_Wire):
     code: ErrorCode = _field("What was refused; the error catalog gives each code's HTTP status.")
     message: str = _field("The code's one fixed message; never statement content or exception text.")
-    filename: str | None = _field("The refused file's name, when one file was refused.")
+    filename: str | None = _field("The refused file's name, when one file was refused; null for "
+                                  "`invalid_filename`.")
 
 
 class ErrorResponse(_Wire):
@@ -114,14 +115,18 @@ class IncludedAccount(_Wire):
         "1-based place of the account in a statement that prints several; null for a statement of one account.",
         "account_index")
     bank: str | None = _field("The bank, as printed.", "bank")
-    account_masked: str | None = _field("`****` and the last four digits of the account number.", "account, masked")
+    account_masked: str | None = _field(
+        "`****` and the last four digits of the account number, or fewer when fewer were read; null when no "
+        "number was read.", "account, masked")
     currency: str | None = _field(
-        "ISO 4217 code of this account's money figures; null when the statement names none.", "currency")
+        "ISO 4217 code of this account's money figures, as printed or as the default for its bank's country; "
+        "null when the stored analysis names none.", "currency")
     period_start: date | None = _field("First day of the printed statement period.", "period_start")
     period_end: date | None = _field("Last day of the printed statement period.", "period_end")
     opening_balance_cents: Cents | None = _field("Opening balance.", "beginning_balance")
-    closing_balance_cents: Cents | None = _field("Closing balance; null unless the statement reconciles.",
-                                                 "ending_balance")
+    closing_balance_cents: Cents | None = _field(
+        "Closing balance; null unless the transactions or the bank's printed summary reconcile to it.",
+        "ending_balance")
     deposits_cents: Cents | None = _field("Credits, less transfers between the statement's own accounts.", "credits")
     deposit_count: Count | None = _field(
         "Number of the credits in `deposits_cents`; null when no count pairs with that total.", "deposit_count")
@@ -149,12 +154,14 @@ class IncludedAccount(_Wire):
     possible_positions: Count | None = _field(
         "Potential lenders' positions active in the period; null when not read.", "possible_positions")
     withholding_rate_bps: BasisPoints | None = _field(
-        "Lender payments (paid and returned) over the withholding basis; null when the basis publishes no rate.",
-        "withholding_rate")
+        "Paid lender payments less lump-sum payoffs, plus funder payments returned unpaid and not debited again, "
+        "over the withholding basis; null when the basis publishes no rate.", "withholding_rate")
     quality: Quality = _field("How the statement's figures were established.", "quality")
     corporate_use: CorporateUse = _field("Whether the statement's figures can be used as they are.", "corporate_use")
     integrity_risk: IntegrityRisk = _field("Document integrity finding.", "integrity_risk")
-    reconciles: bool | None = _field("Whether the account's own figures reconcile to the bank's.", "reconciles")
+    reconciles: bool | None = _field(
+        "Whether the transactions reconcile the opening balance to the closing balance; when false, the "
+        "printed summary can still support the closing balance.", "reconciles")
     revenue_review_required: bool = _field(
         "Whether the account's revenue needs an analyst's review.", "revenue_review_required")
 
@@ -200,16 +207,18 @@ TerminalDocument = Annotated[AnalysedDocument | FailedDocument | DuplicateDocume
 
 
 class Review(_Wire):
-    required: bool = _field("True unless `decision` is approved, the package is complete and no statement was "
-                            "analysed under older classification rules.")
+    required: bool = _field("True unless `decision` is approved, the package is complete and "
+                            "`analysis_rules_outdated` is false.")
     decision: Decision = _field("The analysis' publication status; not a funder's credit decision.", "totals.decision")
-    analysis_rules_outdated: bool = _field("A statement was analysed under older classification rules.",
-                                           "analysis_rules_outdated")
+    analysis_rules_outdated: bool = _field(
+        "A statement with an included account was analysed under older classification rules; no other "
+        "statement sets it.", "analysis_rules_outdated")
 
 
 class Funder(_Wire):
     name: str = _field("The confirmed funder.", "funders[].funder")
-    account_periods: Count = _field("Account periods in which the funder was paid.", "funders[].documents")
+    account_periods: Count = _field(
+        "Included account periods with a payment to the funder, paid or returned unpaid.", "funders[].documents")
     payment_count: Count | None = _field("Payments to the funder; null when no match counted them.",
                                          "funders[].debit_count")
     paid_cents: Cents | None = _field("Paid to the funder; null under a currency refusal.", "funders[].total_debited")
@@ -237,10 +246,13 @@ class MonthPositions(_Wire):
 class PackageFigures(_Wire):
     currency: str | None = _field("ISO 4217 code of every money figure here; null when refused.", "totals.currency")
     currency_refusal: CurrencyRefusal | None = _field(
-        "Why the package's money figures are null: its statements are in several currencies, or one names none.",
+        "Why the money figures here are null: the included accounts are in several currencies, or one names "
+        "none.",
         "totals.currency_refusal_reason")
-    months: Count = _field("Calendar months the counted statements stand for; every monthly figure divides by it.",
-                           "totals.months")
+    months: Count = _field(
+        "The divisor of every monthly figure: the calendar months the included accounts' statements stand for, "
+        "a statement without a readable period counting as a month of its own, and never fewer than the whole "
+        "months any one account's statements cover.", "totals.months")
     statement_periods: Count = _field("Statement periods counted (one per statement and printed cycle).",
                                       "totals.statement_periods, else totals.months")
     deposits_cents: Cents | None = _field("Gross credits of the included accounts.", "totals.total_credits")
@@ -268,8 +280,8 @@ class PackageFigures(_Wire):
     returned_funder_payments_cents: Cents | None = _field("Funder payments returned unpaid.",
                                                           "totals.returned_funder_payment_total")
     withholding_rate_bps: BasisPoints | None = _field(
-        "Lender payments (paid and returned) over the withholding basis; null when the basis publishes no rate.",
-        "totals.package_withholding_rate")
+        "Paid lender payments less lump-sum payoffs, plus funder payments returned unpaid and not debited again, "
+        "over the withholding basis; null when the basis publishes no rate.", "totals.package_withholding_rate")
     funders: list[Funder] = _field("Confirmed funders, largest paid first (by count under a currency refusal).",
                                    "funders")
     potential_lenders: list[PotentialLender] = _field("Potential lenders, by name.", "potential_lenders")
@@ -290,8 +302,8 @@ class ProcessingPackage(_PackageHead):
 
 class ReadyPackage(_PackageHead):
     status: Literal["ready"] = _field("Every statement is analysed, failed or a duplicate.")
-    revision: Sha256 = _field("Lowercase hex SHA-256 of this body without `revision`; it changes whenever another "
-                              "field does, such as after an analyst's review in the dashboard.")
+    revision: Sha256 = _field("Opaque change token, compared for equality: it changes whenever another field of "
+                              "this body does, such as after an analyst's review in the dashboard.")
     review: Review = _field("Whether a person must look before the figures are used.")
     complete: bool = _field("Every statement analysed, no account left out (repeats aside) and no section omitted.",
                             "totals.completeness")

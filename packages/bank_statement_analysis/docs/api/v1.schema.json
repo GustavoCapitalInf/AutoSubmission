@@ -103,7 +103,7 @@
               "type": "null"
             }
           ],
-          "description": "The refused file's name, when one file was refused.",
+          "description": "The refused file's name, when one file was refused; null for `invalid_filename`.",
           "title": "Filename"
         },
         "message": {
@@ -344,7 +344,7 @@
       "additionalProperties": false,
       "properties": {
         "account_periods": {
-          "description": "Account periods in which the funder was paid.",
+          "description": "Included account periods with a payment to the funder, paid or returned unpaid.",
           "minimum": 0,
           "title": "Account Periods",
           "type": "integer",
@@ -442,7 +442,7 @@
               "type": "null"
             }
           ],
-          "description": "`****` and the last four digits of the account number.",
+          "description": "`****` and the last four digits of the account number, or fewer when fewer were read; null when no number was read.",
           "title": "Account Masked",
           "x-source": "account, masked"
         },
@@ -509,7 +509,7 @@
               "type": "null"
             }
           ],
-          "description": "Closing balance; null unless the statement reconciles.",
+          "description": "Closing balance; null unless the transactions or the bank's printed summary reconcile to it.",
           "title": "Closing Balance Cents",
           "x-source": "ending_balance"
         },
@@ -533,7 +533,7 @@
               "type": "null"
             }
           ],
-          "description": "ISO 4217 code of this account's money figures; null when the statement names none.",
+          "description": "ISO 4217 code of this account's money figures, as printed or as the default for its bank's country; null when the stored analysis names none.",
           "title": "Currency",
           "x-source": "currency"
         },
@@ -710,7 +710,7 @@
               "type": "null"
             }
           ],
-          "description": "Whether the account's own figures reconcile to the bank's.",
+          "description": "Whether the transactions reconcile the opening balance to the closing balance; when false, the printed summary can still support the closing balance.",
           "title": "Reconciles",
           "x-source": "reconciles"
         },
@@ -789,7 +789,7 @@
               "type": "null"
             }
           ],
-          "description": "Lender payments (paid and returned) over the withholding basis; null when the basis publishes no rate.",
+          "description": "Paid lender payments less lump-sum payoffs, plus funder payments returned unpaid and not debited again, over the withholding basis; null when the basis publishes no rate.",
           "title": "Withholding Rate Bps",
           "x-source": "withholding_rate"
         }
@@ -944,7 +944,7 @@
               "type": "null"
             }
           ],
-          "description": "Why the package's money figures are null: its statements are in several currencies, or one names none.",
+          "description": "Why the money figures here are null: the included accounts are in several currencies, or one names none.",
           "title": "Currency Refusal",
           "x-source": "totals.currency_refusal_reason"
         },
@@ -1056,7 +1056,7 @@
           "x-source": "totals.avg_monthly_debits"
         },
         "months": {
-          "description": "Calendar months the counted statements stand for; every monthly figure divides by it.",
+          "description": "The divisor of every monthly figure: the calendar months the included accounts' statements stand for, a statement without a readable period counting as a month of its own, and never fewer than the whole months any one account's statements cover.",
           "minimum": 0,
           "title": "Months",
           "type": "integer",
@@ -1168,7 +1168,7 @@
               "type": "null"
             }
           ],
-          "description": "Lender payments (paid and returned) over the withholding basis; null when the basis publishes no rate.",
+          "description": "Paid lender payments less lump-sum payoffs, plus funder payments returned unpaid and not debited again, over the withholding basis; null when the basis publishes no rate.",
           "title": "Withholding Rate Bps",
           "x-source": "totals.package_withholding_rate"
         }
@@ -1363,7 +1363,7 @@
           "description": "Whether a person must look before the figures are used."
         },
         "revision": {
-          "description": "Lowercase hex SHA-256 of this body without `revision`; it changes whenever another field does, such as after an analyst's review in the dashboard.",
+          "description": "Opaque change token, compared for equality: it changes whenever another field of this body does, such as after an analyst's review in the dashboard.",
           "pattern": "^[0-9a-f]{64}$",
           "title": "Revision",
           "type": "string"
@@ -1393,7 +1393,7 @@
       "additionalProperties": false,
       "properties": {
         "analysis_rules_outdated": {
-          "description": "A statement was analysed under older classification rules.",
+          "description": "A statement with an included account was analysed under older classification rules; no other statement sets it.",
           "title": "Analysis Rules Outdated",
           "type": "boolean",
           "x-source": "analysis_rules_outdated"
@@ -1410,7 +1410,7 @@
           "x-source": "totals.decision"
         },
         "required": {
-          "description": "True unless `decision` is approved, the package is complete and no statement was analysed under older classification rules.",
+          "description": "True unless `decision` is approved, the package is complete and `analysis_rules_outdated` is false.",
           "title": "Required",
           "type": "boolean"
         }
