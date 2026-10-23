@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import threading
 import uuid
+from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 
@@ -51,6 +52,26 @@ class Job:
     # see `Storage.record_upload`.
     duplicate_of: str | None = None
     duplicate_of_known: bool = False
+
+
+@dataclass(frozen=True)
+class JobSnapshot:
+    """`analysis` is shared with the job rather than copied: every JobStore write replaces a job's analysis and none
+    edits it in place (test_a_snapshot_outlives_a_review_a_reanalysis_and_a_result)."""
+
+    id: str
+    filename: str
+    status: str
+    analysis: dict | None
+    analysis_error: str | None
+    error: str | None
+    content_sha256: str | None
+
+
+class UnknownJobs(LookupError):
+    def __init__(self, ids: list[str]) -> None:
+        super().__init__(ids)
+        self.ids = ids
 
 
 def _classification_for(
@@ -197,6 +218,22 @@ class JobStore:
         with self._lock:
             # setdefault: another thread may have hydrated it meanwhile.
             return self._jobs.setdefault(job_id, job)
+
+    def snapshot(self, job_ids: Sequence[str]) -> list[JobSnapshot]:
+        """The jobs at one moment, in `job_ids` order: every field is copied under one hold of `_lock`, which every
+        in-memory write takes. Raises UnknownJobs naming every id the store does not hold."""
+        missing = [job_id for job_id in job_ids if self.get(job_id) is None]
+        if missing:
+            raise UnknownJobs(missing)
+        with self._lock:
+            jobs = [self._jobs[job_id] for job_id in job_ids]
+            return [
+                JobSnapshot(
+                    id=job.id, filename=job.filename, status=job.status, analysis=job.analysis,
+                    analysis_error=job.analysis_error, error=job.error, content_sha256=job.content_sha256,
+                )
+                for job in jobs
+            ]
 
     @staticmethod
     def _job_from_row(row: dict) -> Job:

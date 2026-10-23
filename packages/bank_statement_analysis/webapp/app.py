@@ -30,7 +30,7 @@ from ocr.render import REPORT_CSP_HEADER, REPORT_CSP_META
 from analysis import package as package_view
 from analysis import zelle_view
 from analysis.served_view import displayed, zelle_setting
-from .jobs import JobStore
+from .jobs import JobStore, UnknownJobs
 from .settings import load_settings, save_settings
 from .storage import SCHEMA_VERSION, Storage
 from .worker import run_job
@@ -801,17 +801,12 @@ def _package_from_request():
     ids, error = _requested_job_ids()
     if error is not None:
         return error
-    jobs = []
-    missing = []
-    for job_id in ids:
-        job = store.get(job_id)
-        if job is None:
-            missing.append(job_id)
-        else:
-            jobs.append(job)
-    if missing:
-        return jsonify({"error": "unknown job ids", "missing": missing}), 404
-    return package_view.package_analysis(jobs, settings=load_settings(store.storage.data_dir))
+    return package_view.package_analysis(store.snapshot(ids), settings=load_settings(store.storage.data_dir))
+
+
+@app.errorhandler(UnknownJobs)
+def _unknown_jobs(unknown):
+    return jsonify({"error": "unknown job ids", "missing": unknown.ids}), 404
 
 
 @app.route("/package", methods=["POST"])
