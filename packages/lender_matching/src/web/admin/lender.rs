@@ -776,22 +776,19 @@ impl LenderForm {
         })
     }
 
-    /// Handles a button that changes the form instead of saving it; false for `save`.
+    /// Handles a button that changes the form instead of saving it; false for `save`. A note row
+    /// left blank is dropped on reading, so its "Add a rule from this note" only re-renders.
     fn apply(&mut self, action: &str) -> bool {
         match action {
             "add_rule" => self.rules.push(RuleRow::default()),
             "add_note" => self.notes.push(NoteRow { kind: "condition".into(), ..Default::default() }),
-            other => match other.strip_prefix("rule_from_note.").and_then(|index| index.parse::<usize>().ok()) {
-                Some(index) if index < self.notes.len() => {
-                    let note = &self.notes[index];
-                    self.rules.push(RuleRow {
-                        when: note.when.clone(),
-                        source: note.text.clone(),
-                        ..Default::default()
-                    });
+            other => {
+                let Some(index) = other.strip_prefix("rule_from_note.") else { return false };
+                if let Some(note) = index.parse::<usize>().ok().and_then(|index| self.notes.get(index)) {
+                    let rule = RuleRow { when: note.when.clone(), source: note.text.clone(), ..Default::default() };
+                    self.rules.push(rule);
                 }
-                _ => return false,
-            },
+            }
         }
         true
     }
