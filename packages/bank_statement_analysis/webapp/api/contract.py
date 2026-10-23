@@ -7,13 +7,11 @@ from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..intake_refusals import IntakeRefusalCode
+
 #: Sent in every body; a bump needs a SCHEMA_FINGERPRINTS pin (test_the_schema_is_pinned_to_its_api_version).
 API_VERSION = "1.0"
 
-IntakeRefusalCode = Literal[
-    "no_statements", "too_many_statements", "invalid_filename", "statement_too_large", "not_a_pdf", "pdf_encrypted",
-    "pdf_unreadable", "too_many_pages", "storage_full", "not_stored",
-]
 ErrorCode = Literal[
     IntakeRefusalCode, "invalid_package_id", "invalid_request", "request_too_large", "package_conflict",
     "package_not_found", "route_not_found", "method_not_allowed", "unauthorized", "api_disabled", "storage_degraded",

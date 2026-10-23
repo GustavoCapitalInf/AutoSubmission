@@ -67,7 +67,7 @@ def test_money_and_rates_convert_once_to_integers_or_null():
 
 
 def _imports(path: Path) -> set[str]:
-    package = ("webapp", "api")
+    package = path.relative_to(ROOT).parent.parts
     names = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
@@ -85,6 +85,11 @@ def test_the_api_package_imports_neither_the_app_nor_the_saved_settings():
         imported = _imports(path)
         assert not {"webapp.app", "webapp.settings"} & imported, path.name
         assert not any(name.startswith(("webapp.app.", "webapp.settings.")) for name in imported), path.name
+
+
+def test_the_intake_imports_nothing_of_the_api():
+    imported = _imports(ROOT / "webapp" / "intake.py")
+    assert [name for name in imported if name == "webapp.api" or name.startswith("webapp.api.")] == []
 
 
 def test_the_contract_imports_without_flask_or_the_store():

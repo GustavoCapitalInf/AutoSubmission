@@ -8,7 +8,7 @@ from typing import NamedTuple
 from ocr.inspect import DocumentProfile, inspect_pdf
 from ocr.rasterize import pdf_page_count
 
-from .api.contract import IntakeRefusalCode
+from .intake_refusals import IntakeRefusalCode
 from .jobs import Job, JobStore
 
 # Upload ceilings. Every value here is enforced server-side and mirrored in the
