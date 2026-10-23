@@ -34,3 +34,10 @@ uuid = { version = "1.29.0", features = ["v4", "serde"] }
 [dev-dependencies]
 jsonschema = { version = "0.60.1", default-features = false }
 rust_xlsxwriter = "0.101.0"
+
+# Password hashing in tests and debug builds would otherwise take seconds per hash.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
