@@ -109,6 +109,10 @@ The owner confirmed these readings of the sheet and the application.
 - "Accept Default History? No" stays `review` until a person confirms the deal has no default history.
 - Time in business counts from the business start month. The application gives only MM/YYYY, so a deal within a
   month of a minimum is `review`.
+- A funding cap or minimum decides the match. An editor writes it as a Requested amount rule, guarded by a state or
+  industry when the cap applies to one, so a deal asking for more than a cap, or less than a minimum, is `no_match`.
+  A deal without a requested amount is `review` for that lender. The import leaves these limits in the Additional
+  Info condition note, which holds the deal at review until the rule replaces it.
 
 Negative days of several accounts in one month run from the largest account's count to their sum, since one day can
 be negative in more than one account.
