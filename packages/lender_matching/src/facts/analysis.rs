@@ -367,8 +367,11 @@ fn new_position(by_month: &[MonthPositions]) -> Fact<Interval> {
 /// The per-month view of the included account periods behind `NumFact::WorstMonthNegativeDays`,
 /// `NumFact::WorstMonthDeposits` and `NumFact::StatementMonths`:
 ///
-/// - A period of about one month (28 to 31 days, or at most 31 days mostly in one calendar month)
-///   stands for the calendar month holding most of its days and adds its counts there.
+/// - A period of 28 to 31 days stands for the calendar month holding most of its days and adds its
+///   counts there.
+/// - A shorter period mostly in one calendar month, such as a month-to-date statement, adds its
+///   negative days to that month and its deposits as a lower bound, since the month's other days
+///   are not on the statement. It does not count as a statement month.
 /// - A longer period touching `m` months adds `[0, n]` to each of them, and the worst month holds
 ///   at least `ceil(n / m)` of its negative days.
 /// - A period without both dates may fall in any month: it adds `[0, n]` to every month and is
@@ -411,6 +414,7 @@ impl MonthTotal {
 
 enum Placement {
     One(YearMonth),
+    Part(YearMonth),
     Spread(Vec<YearMonth>),
     Undated,
 }
@@ -427,8 +431,10 @@ fn place(start: Option<Date>, end: Option<Date>) -> Placement {
         .map(|month| (*month, overlap_days(*month, start, end)))
         .max_by(|a, b| a.1.cmp(&b.1).then(b.0.cmp(&a.0)))
         .expect("a dated period touches its own month");
-    if days <= 31 && (days >= 28 || majority_days * 2 > days) {
+    if (28..=31).contains(&days) {
         Placement::One(majority)
+    } else if days < 28 && majority_days * 2 > days {
+        Placement::Part(majority)
     } else {
         Placement::Spread(touched)
     }
@@ -467,6 +473,9 @@ impl MonthlyDerivation {
                 Placement::One(month) => {
                     dated.entry(month).or_insert(MonthTotal::EMPTY).add(negative, deposits);
                     covered.insert(month);
+                }
+                Placement::Part(month) => {
+                    dated.entry(month).or_insert(MonthTotal::EMPTY).add(negative, Interval::at_least(deposits.lo()));
                 }
                 Placement::Spread(months) => {
                     let count = i64::try_from(months.len()).expect("few months");
@@ -604,6 +613,19 @@ mod tests {
         assert_eq!(months, ["2026-07", "2026-08"]);
         assert_eq!(known(&facts.worst_month_negative_days), Interval::point(4));
         assert_eq!(known(&facts.worst_month_deposits), Interval::point(10));
+    }
+
+    #[test]
+    fn a_month_to_date_statement_bounds_its_deposits_below_and_is_not_a_statement_month() {
+        let mut package = three_clean_months();
+        package.periods.push(period("2026-10-01", "2026-10-12", 3, 4, 5));
+        package.figures.as_mut().unwrap().months = 4;
+        let facts = AnalysisFacts::derive(Some(&package));
+        assert_eq!(facts.months.len(), 4);
+        assert_eq!(facts.months[3].deposits, Interval::at_least(4));
+        assert_eq!(known(&facts.worst_month_negative_days), Interval::point(3));
+        assert_eq!(known(&facts.worst_month_deposits), interval(4, 16), "August still caps the worst month");
+        assert_eq!(known(&facts.statement_months), interval(3, 4));
     }
 
     #[test]
