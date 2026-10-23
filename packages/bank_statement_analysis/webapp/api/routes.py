@@ -43,13 +43,15 @@ def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint
                 held = [(document.filename, document.content_sha256) for document in jobs.snapshot(members)]
                 if held != submitted:
                     return error_response("package_conflict")
-                return _package_response(jobs, package_id, 200)
-            try:
-                with accept(uploads) as accepted:
-                    jobs.storage.create_package([job.id for job in accepted], package_id=package_id)
-            except (sqlite3.Error, OSError):
-                return error_response("not_stored")
-        return _package_response(jobs, package_id, 201)
+                status = 200
+            else:
+                try:
+                    with accept(uploads) as accepted:
+                        jobs.storage.create_package([job.id for job in accepted], package_id=package_id)
+                except (sqlite3.Error, OSError):
+                    return error_response("not_stored")
+                status = 201
+        return _package_response(jobs, package_id, status)
 
     @api.get("/packages/<package_id>", provide_automatic_options=False)
     def get_package(package_id: str) -> Response:

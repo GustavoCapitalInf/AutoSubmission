@@ -1,15 +1,17 @@
 import io
 import json
 import sqlite3
+import threading
 import uuid
 from contextlib import closing
 
 import pytest
 
 from tests import zelle_setting_fixtures as zelle
-from tests.api_client import analysed, crashed, make_api, package_path, pdf, refused
+from tests.api_client import Api, analysed, crashed, make_api, package_path, pdf, refused
 from tests.test_webapp_revenue_batch import _two_accounts
 from tests.test_webapp_studio_views import CHECKING_ROWS, _document, _single
+from webapp.api import routes
 from webapp.intake import UPLOAD_NOT_STORED
 from webapp.worker import NO_PARSER_MATCHED, NO_USABLE_TEXT
 
@@ -67,6 +69,28 @@ def test_an_identical_request_is_answered_again_without_a_new_job(api):
     assert "Location" not in again.headers
     assert again.get_data() == first.get_data()
     assert _job_count(api) == jobs_before
+
+
+def test_another_package_is_created_while_a_replay_builds_its_answer(api, monkeypatch):
+    path, files = package_path(), [("march.pdf", pdf())]
+    api.put(path, files)
+    build, building, released, waits, replies = routes.package_resource, threading.Event(), threading.Event(), [], []
+
+    def parked(package_id, *args):
+        if path.endswith(package_id):
+            building.set()
+            waits.append(released.wait(5))
+        return build(package_id, *args)
+
+    monkeypatch.setattr(routes, "package_resource", parked)
+    second_client = Api(api.client.application.test_client(), api.store, api.outcomes)
+    replay = threading.Thread(target=lambda: replies.append(second_client.put(path, files)))
+    replay.start()
+    assert building.wait(5)
+    other = api.put(package_path(), [("april.pdf", pdf())])
+    released.set()
+    replay.join(5)
+    assert (other.status_code, [reply.status_code for reply in replies], waits) == (201, [200], [True])
 
 
 @pytest.mark.parametrize("change", ["other bytes", "other name", "other order", "one fewer"])
