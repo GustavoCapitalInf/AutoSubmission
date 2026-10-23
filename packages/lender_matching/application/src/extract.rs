@@ -452,7 +452,11 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
             .fold(page.width, f32::min);
         let bottom = match label.shape {
             Shape::Row => top + ROW_BAND_PT.1,
-            Shape::RowAndNextLine => top + NEXT_LINE_BOTTOM_PT,
+            Shape::RowAndNextLine => {
+                let next_row = label_tops.iter().map(|(other_top, _)| *other_top).filter(|t| *t > top + ROW_BAND_PT.1);
+                let next_band = next_row.fold(f32::MAX, f32::min) + ROW_BAND_PT.0;
+                (top + NEXT_LINE_BOTTOM_PT).min(next_band.next_down())
+            }
         };
         let region = Rect { x0: candidate.end_x, top: top + ROW_BAND_PT.0, x1, bottom };
         let printed = FORM.sections[*s].labels.iter().filter(|other| other.text == label.text).count();

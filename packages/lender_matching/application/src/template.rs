@@ -42,7 +42,8 @@ pub(crate) enum Target {
 pub(crate) enum Shape {
     /// On the label's row, to its right.
     Row,
-    /// The row, then one more line under it, for a value that wraps.
+    /// The row, then one more line under it for a value that wraps, ending above the band of the
+    /// next label row.
     RowAndNextLine,
 }
 

@@ -192,15 +192,40 @@ fn a_wrapped_value_reads_its_next_line() {
 }
 
 #[test]
-fn a_glyph_in_two_regions_puts_both_fields_in_doubt() {
+fn the_wrapped_line_stops_above_the_next_label_row() {
+    let mut rows = word_rows();
+    let loan_row = rows.iter_mut().find(|(_, labels)| labels.iter().any(|(text, ..)| *text == "Existing Loan Balance"));
+    loan_row.unwrap().0 = 424.0 + 17.0;
+    let reading = read_form_page(&Form { layout: Layout { rows, ..word() }, ..Form::word() });
+    let form = form(&reading);
+    for (field, text) in
+        [(P::PriorLender, "SAMPLE FUNDING"), (P::LoanBalance, "10,000.00"), (P::RequestedAmount, "$50,000.00")]
+    {
+        let field = FieldId::Property(field);
+        assert_eq!(canonical(form, field).as_deref(), Some(text), "{field}: {:?}", outcome(form, field));
+    }
+}
+
+#[test]
+fn text_in_the_next_rows_band_belongs_to_that_row_and_not_to_the_wrapped_line() {
     let page = Form::word()
         .draw(PageBuilder::new())
         .text("ArialMT", VALUE_SIZE, 277.0, HEADING.1 + 424.0 + 15.0, "GROUP")
         .build();
     let reading = read_pages(vec![page]);
     let form = form(&reading);
-    assert_eq!(outcome(form, FieldId::Property(P::PriorLender)), Outcome::Doubtful(Doubt::SharedGlyph));
-    assert_eq!(outcome(form, FieldId::Property(P::LoanBalance)), Outcome::Doubtful(Doubt::SharedGlyph));
+    assert_eq!(canonical(form, FieldId::Property(P::PriorLender)).as_deref(), Some("SAMPLE FUNDING"));
+    assert_eq!(outcome(form, FieldId::Property(P::LoanBalance)), Outcome::Refused(Refusal::Format));
+}
+
+#[test]
+fn a_run_that_starts_in_two_regions_puts_both_fields_in_doubt() {
+    let page =
+        Form::word().draw(PageBuilder::new()).text("ArialMT", VALUE_SIZE, 200.0, HEADING.1 + 26.0, "FAB").build();
+    let reading = read_pages(vec![page]);
+    let form = form(&reading);
+    assert_eq!(outcome(form, FieldId::Business(B::LegalName)), Outcome::Doubtful(Doubt::SharedGlyph));
+    assert_eq!(outcome(form, FieldId::Business(B::Address)), Outcome::Doubtful(Doubt::SharedGlyph));
 }
 
 #[test]

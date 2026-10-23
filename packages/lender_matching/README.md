@@ -148,7 +148,8 @@ A PDF reads by these rules:
   value that runs over the label to its right does not hide it. In each section the labels bind in reading order. A label that two
   equally long matchings place differently is out of place, never "the nearer one".
 - A field's region lies on its label's row, with tops within −10 to +8 pt of the label's top, from the label's end
-  to the next label on the row. Prior/Current Loan Company also takes the next line.
+  to the next label on the row. Prior/Current Loan Company also takes the next line, which ends above the band of
+  the next label row, so the two never share a character.
 - Values are read as runs: characters consecutive in the PDF's content, in one font and size, on one baseline, with
   small gaps. A run belongs to the region that holds its first character, even where it runs on past the next label,
   and the next field does not get its characters.
