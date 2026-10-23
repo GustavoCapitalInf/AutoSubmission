@@ -129,7 +129,7 @@ only that process.
 | Part | What it does | Where (`application/src/`) |
 |---|---|---|
 | Field catalog | `FieldId` names the 55 fields: business, principal owner, secondary owner, property and the two signature dates. `FieldId::spec` gives each field's kind, whether it is required, and whether it is identity data or derived | `fields.rs` |
-| Value grammar | `FieldId::read` turns a field's text into a typed value or a closed refusal: `format`, `ambiguous`, `out_of_range`, `not_in_list`, `mark_unclear`, `undecodable` or `no_signing_date` | `values.rs` |
+| Value grammar | `FieldId::read` turns a field's text into a typed value or a closed refusal: `format`, `ambiguous`, `out_of_range`, `not_in_list`, `mark_unclear`, `undecodable` or `no_signing_date`. An email's `format` refusal also says why: `no_at`, `several_at`, `inner_space`, `trailing_punctuation`, `bad_local` or `bad_domain` | `values.rs` |
 | Page model | Each page's characters with font, size and box, in points from the top-left of the displayed page | `page.rs` |
 | Template | The form's known layouts (`word`, `pdfescape`) as static data: each one's label set, sections and sentinel offsets, and the label fonts | `template.rs` |
 | Extraction | Classifies page 1, binds the labels, cuts the value regions and reads each field | `extract.rs` |
@@ -169,7 +169,8 @@ A PDF reads by these rules:
   digits in any grouping by spaces, `-` or `.`; the grouping only decides how they are written back. A Canadian
   business number may hold spaces. A zip code may end in a stray backtick, period or comma. The entity dropdown's
   texts read as the matcher's kinds: LLP, GP and LP are partnerships, PC is a corporation, and "S CORPORATION
-  (C CORP)" is refused as ambiguous.
+  (C CORP)" is refused as ambiguous. An email address may be wrapped in quotes, brackets or sentence punctuation,
+  and may have spaces around its `@`.
 - Dates read month first, with `/`, `-`, `.` or spaces between the numbers. Year first (`2019-04-15`,
   `2019/04/15`) and month names (`Apr 15, 2019`, `15 Apr 2019`) read as written. A business date may give only the
   month (`04/2019`, `April 2019`, `Apr/2019`). For a business outside the US, or one whose state did not read, a

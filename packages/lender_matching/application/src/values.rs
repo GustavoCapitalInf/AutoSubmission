@@ -263,6 +263,8 @@ pub struct ReadContext {
 #[serde(rename_all = "snake_case")]
 pub enum Refusal {
     Format,
+    /// Not an email address, for this reason.
+    Email(EmailFault),
     Ambiguous,
     OutOfRange,
     NotInList,
@@ -275,6 +277,12 @@ impl Refusal {
     pub fn key(self) -> &'static str {
         match self {
             Refusal::Format => "format",
+            Refusal::Email(EmailFault::NoAt) => "format.no_at",
+            Refusal::Email(EmailFault::SeveralAt) => "format.several_at",
+            Refusal::Email(EmailFault::InnerSpace) => "format.inner_space",
+            Refusal::Email(EmailFault::TrailingPunctuation) => "format.trailing_punctuation",
+            Refusal::Email(EmailFault::BadLocal) => "format.bad_local",
+            Refusal::Email(EmailFault::BadDomain) => "format.bad_domain",
             Refusal::Ambiguous => "ambiguous",
             Refusal::OutOfRange => "out_of_range",
             Refusal::NotInList => "not_in_list",
@@ -283,6 +291,22 @@ impl Refusal {
             Refusal::NoSigningDate => "no_signing_date",
         }
     }
+}
+
+/// Why a field's text is not an email address, checked in this order. It carries no text.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EmailFault {
+    NoAt,
+    SeveralAt,
+    /// A space inside the local part or the domain.
+    InnerSpace,
+    /// The address ends in punctuation that is not stripped from around it.
+    TrailingPunctuation,
+    /// The local part is empty or holds a character an unquoted one cannot.
+    BadLocal,
+    /// The domain has fewer than two labels, an empty label, or a character a domain cannot hold.
+    BadDomain,
 }
 
 pub enum Answer {
@@ -609,12 +633,31 @@ fn digit_array<const N: usize>(text: &str) -> [u8; N] {
     out
 }
 
+/// Quotes, brackets and sentence punctuation stripped from around the address, and spaces around
+/// the `@` removed.
 fn email(s: &str) -> Result<Email, Refusal> {
-    let (local, domain) = s.split_once('@').ok_or(Refusal::Format)?;
-    let forbidden = |c: char| c.is_whitespace() || "@,;<>()[]\\\"".contains(c);
-    let labels_ok = domain.split('.').count() >= 2 && domain.split('.').all(|label| !label.is_empty());
-    if local.is_empty() || local.chars().any(forbidden) || domain.chars().any(forbidden) || !labels_ok {
-        return Err(Refusal::Format);
+    let address = s
+        .trim_start_matches(|c: char| c.is_whitespace() || "\"'<([{.,;:".contains(c))
+        .trim_end_matches(|c: char| c.is_whitespace() || "\"'>)]}.,;:!?".contains(c));
+    let fault = |fault| Err(Refusal::Email(fault));
+    let parts: Vec<&str> = address.split('@').collect();
+    let (local, domain) = match parts.as_slice() {
+        [local, domain] => (local.trim_end(), domain.trim_start()),
+        [_] => return fault(EmailFault::NoAt),
+        _ => return fault(EmailFault::SeveralAt),
+    };
+    if local.contains(char::is_whitespace) || domain.contains(char::is_whitespace) {
+        return fault(EmailFault::InnerSpace);
+    }
+    if domain.ends_with(|c: char| !c.is_alphanumeric()) && !domain.is_empty() {
+        return fault(EmailFault::TrailingPunctuation);
+    }
+    let forbidden = |c: char| ",;<>()[]\\\"".contains(c);
+    if local.is_empty() || local.chars().any(forbidden) {
+        return fault(EmailFault::BadLocal);
+    }
+    if domain.split('.').count() < 2 || domain.split('.').any(str::is_empty) || domain.chars().any(forbidden) {
+        return fault(EmailFault::BadDomain);
     }
     Ok(Email { local: local.to_string(), domain: domain.to_ascii_lowercase() })
 }
@@ -1394,18 +1437,35 @@ mod tests {
     fn emails_keep_the_local_part_and_lower_the_domain() {
         accepts(
             FieldKind::Email,
-            &[("Owner@Example.COM", "Owner@example.com"), ("a.b+c@mail.example.com", "a.b+c@mail.example.com")],
+            &[
+                ("Owner@Example.COM", "Owner@example.com"),
+                ("a.b+c@mail.example.com", "a.b+c@mail.example.com"),
+                ("<owner@example.com>", "owner@example.com"),
+                ("(owner@example.com)", "owner@example.com"),
+                ("\"owner@example.com\",", "owner@example.com"),
+                ("owner@example.com.", "owner@example.com"),
+                ("owner @ example.com", "owner@example.com"),
+                ("owner@ example.com", "owner@example.com"),
+            ],
         );
+        let fault = |fault| Refusal::Email(fault);
         refuses(
             FieldKind::Email,
             &[
-                ("owner@example", Refusal::Format),
-                ("owner example.com", Refusal::Format),
-                ("@example.com", Refusal::Format),
-                ("a@b@example.com", Refusal::Format),
-                ("owner@example..com", Refusal::Format),
+                ("owner example.com", fault(EmailFault::NoAt)),
+                ("a@b@example.com", fault(EmailFault::SeveralAt)),
+                ("owner name@example.com", fault(EmailFault::InnerSpace)),
+                ("owner@example .com", fault(EmailFault::InnerSpace)),
+                ("owner@example.com/", fault(EmailFault::TrailingPunctuation)),
+                ("owner@example-", fault(EmailFault::TrailingPunctuation)),
+                ("@example.com", fault(EmailFault::BadLocal)),
+                ("own,er@example.com", fault(EmailFault::BadLocal)),
+                ("owner@example", fault(EmailFault::BadDomain)),
+                ("owner@example..com", fault(EmailFault::BadDomain)),
+                ("owner@", fault(EmailFault::BadDomain)),
             ],
         );
+        assert_eq!(Refusal::Email(EmailFault::InnerSpace).key(), "format.inner_space");
     }
 
     #[test]

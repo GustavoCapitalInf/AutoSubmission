@@ -464,6 +464,22 @@ mod tests {
     }
 
     #[test]
+    fn refused_emails_are_counted_by_why_and_never_by_their_text() {
+        let mut tally = Tally::new(TallyOptions { offsets: false, shapes: true });
+        let email = FieldId::Business(BusinessField::Email);
+        for text in ["office at example.com", "office@example.com/", "office @ example.com."] {
+            tally.add(&reading(&Form::word().set(email, text)));
+        }
+        let fields = tally.fields.get(email);
+        assert_eq!(fields.0.get(&Outcome::Read), Some(&1));
+        let lines = tally.lines().join("\n");
+        assert!(lines.contains("refused.format.no_at 1 · refused.format.trailing_punctuation 1"), "{lines}");
+        let json = serde_json::to_string(&tally).unwrap();
+        assert!(json.contains(r#""refused.format.no_at":1"#), "{json}");
+        assert!(!lines.contains("office") && !json.contains("office"), "a report holds an address");
+    }
+
+    #[test]
     fn a_tally_holds_no_fabricated_value() {
         let tally = sample_tally();
         let text = tally.lines().join("\n");

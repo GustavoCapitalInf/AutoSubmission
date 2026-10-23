@@ -25,4 +25,4 @@ pub use certificate::{Certificate, DetailCheck, SignerCheck, SignerComparison, c
 pub use extract::{Document, FieldReading, Outcome, Reading, read};
 pub use fields::{FieldId, FieldKind, FieldMap, FieldSpec};
 pub use page::{Glyph, PdfFacts, Rect, TextPage};
-pub use values::{Answer, Country, FieldValue, Jurisdiction, RawText, ReadContext, Refusal, YearMonth};
+pub use values::{Answer, Country, EmailFault, FieldValue, Jurisdiction, RawText, ReadContext, Refusal, YearMonth};
