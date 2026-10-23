@@ -452,3 +452,25 @@ pub fn csrf_of(page: &Page) -> String {
     let end = page.body[at..].find('>').unwrap() + at;
     attribute(&page.body[start..=end], "value").unwrap()
 }
+
+/// Asserts that `body` is a valid `definition` of this server's own `docs/api/v1.schema.json`.
+pub fn assert_contract(definition: &str, body: &serde_json::Value) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs").join("api").join("v1.schema.json");
+    let schema: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let root = serde_json::json!({
+        "$schema": schema["$schema"],
+        "$defs": schema["$defs"],
+        "$ref": format!("#/$defs/{definition}"),
+    });
+    let validator = jsonschema::validator_for(&root).unwrap();
+    let errors: Vec<String> =
+        validator.iter_errors(body).map(|error| format!("{error} at {}", error.instance_path())).collect();
+    assert!(errors.is_empty(), "not a valid {definition}: {errors:#?}");
+}
+
+/// The body as `T`, after checking it against the published contract.
+pub async fn contract_body<T: serde::de::DeserializeOwned>(definition: &str, response: reqwest::Response) -> T {
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_contract(definition, &body);
+    serde_json::from_value(body).unwrap()
+}

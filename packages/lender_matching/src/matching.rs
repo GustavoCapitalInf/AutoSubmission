@@ -15,12 +15,10 @@ use crate::criteria::{LenderId, LenderStatus, Product};
 use crate::facts::{DealFacts, DealInput, assemble};
 use crate::store::{ReadTx, Revision, Store, StoreError, now};
 
-/// Bump when `assemble` or `evaluate` would give another verdict for the same inputs; stored
-/// matches keep the version that computed them.
+/// Bump when `assemble` or `evaluate` would give another verdict for the same inputs; it marks older matches.
 pub const ENGINE_VERSION: u32 = 1;
 
-/// The JSON layout of a stored match's `input` and `facts`. A bump needs a reader for every older
-/// format still in `matches`.
+/// The JSON layout of `matches.input` and `matches.facts`; a bump leaves older matches unreadable without a reader.
 pub const MATCH_FORMAT: u32 = 1;
 
 /// Everything a match was asked, as stored.
@@ -206,10 +204,6 @@ impl MatchView {
 
     pub fn is_current(&self, verdict: &LenderVerdict) -> bool {
         self.heads.get(&verdict.lender) == Some(&verdict.revision)
-    }
-
-    pub fn name(&self, lender: &LenderId) -> &str {
-        self.revisions.get(lender).map_or("", |revision| revision.record.profile.name.as_str())
     }
 }
 

@@ -23,7 +23,7 @@ pub struct AppState {
 pub type Shared = Arc<AppState>;
 
 impl AppState {
-    /// Store calls block; this runs them off the async worker.
+    /// Store calls block; this tells the runtime so it moves other tasks off this worker meanwhile.
     pub fn read<R>(&self, f: impl FnOnce(&ReadTx) -> Result<R, StoreError>) -> Result<R, StoreError> {
         tokio::task::block_in_place(|| self.store.read(f))
     }

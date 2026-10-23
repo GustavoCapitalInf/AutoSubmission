@@ -1,0 +1,832 @@
+{
+  "$defs": {
+    "AnalysisRef": {
+      "properties": {
+        "package_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The analysis package's opaque change token.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package_id",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ApiError": {
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "field": {
+          "description": "For `invalid_fact`: the JSON pointer of the refused field, such as `/application/business_state`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "description": "The code's one fixed message.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "field",
+        "message"
+      ],
+      "type": "object"
+    },
+    "Application": {
+      "additionalProperties": false,
+      "properties": {
+        "bankruptcy": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "business_start_month": {
+          "default": null,
+          "description": "The business start month, `YYYY-MM`, not after the current month.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "business_state": {
+          "default": null,
+          "description": "A US state, DC, US territory or Canadian province postal code, such as `TX`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "entity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Entity"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "estimated_fico": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Range"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The estimated FICO score, 300 to 850; a stated range such as 650-700 stays a range."
+        },
+        "industry_suggestion": {
+          "default": null,
+          "description": "An active industry `id` from `GET /api/v1/industries`. Shown as evidence only: the industry\nis a fact only once a person confirms it on the match page.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "open_judgements": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "requested_amount_cents": {
+          "default": null,
+          "description": "The requested advance in USD cents; greater than 0.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tax_liens": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Basis": {
+      "oneOf": [
+        {
+          "const": "printed",
+          "description": "Published by the bank statement analysis.",
+          "type": "string"
+        },
+        {
+          "const": "stated",
+          "description": "Stated on the application.",
+          "type": "string"
+        },
+        {
+          "const": "confirmed",
+          "description": "Confirmed by a signed-in person.",
+          "type": "string"
+        }
+      ]
+    },
+    "Check": {
+      "properties": {
+        "facts": {
+          "description": "The facts the rule reads.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "The rule's id within the lender revision, such as `r1`.",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        },
+        "overruled": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Outcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For `waived`: what the waiver overruled, `fail` or `unproven`."
+        },
+        "text": {
+          "description": "The rule in words.",
+          "type": "string"
+        },
+        "waiver": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Waiver"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "why": {
+          "description": "For `unproven`, or `waived` over an unproven check: `fact_unknown`, `straddles` or `scope_unknown`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "facts",
+        "id",
+        "outcome",
+        "overruled",
+        "text",
+        "waiver",
+        "why"
+      ],
+      "type": "object"
+    },
+    "CreatedBy": {
+      "oneOf": [
+        {
+          "description": "A machine client, by its token name.",
+          "properties": {
+            "kind": {
+              "const": "client",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A signed-in person, by username.",
+          "properties": {
+            "kind": {
+              "const": "person",
+              "type": "string"
+            },
+            "username": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "username"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Entity": {
+      "enum": [
+        "sole_proprietorship",
+        "partnership",
+        "llc",
+        "corporation",
+        "non_profit",
+        "other"
+      ],
+      "type": "string"
+    },
+    "ErrorCode": {
+      "enum": [
+        "invalid_request",
+        "invalid_fact",
+        "unauthorized",
+        "scope_required",
+        "match_not_found",
+        "route_not_found",
+        "method_not_allowed",
+        "analysis_not_ready",
+        "analysis_package_not_found",
+        "internal_error",
+        "analysis_unavailable",
+        "analysis_contract_mismatch",
+        "analysis_not_configured"
+      ],
+      "type": "string"
+    },
+    "ErrorResponse": {
+      "description": "Every error body.",
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/ApiError"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "Fact": {
+      "properties": {
+        "basis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Basis"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where a known value comes from; null when unknown."
+        },
+        "fact": {
+          "description": "The fact's name, such as `monthly_true_revenue_cents`.",
+          "type": "string"
+        },
+        "gap": {
+          "description": "Why the fact is unknown, such as `needs_confirmation`; null when known.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "known": {
+          "type": "boolean"
+        },
+        "seen": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An unproven value shown as evidence and not evaluated, such as a stated industry."
+        },
+        "source": {
+          "description": "The field it came from, or who confirmed it and when.",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FactValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The proven value, or for a number the interval it is proven to lie within; null when unknown."
+        }
+      },
+      "required": [
+        "basis",
+        "fact",
+        "gap",
+        "known",
+        "seen",
+        "source",
+        "value"
+      ],
+      "type": "object"
+    },
+    "FactValue": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Range"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "Inactive": {
+      "properties": {
+        "current": {
+          "type": "boolean"
+        },
+        "lender_id": {
+          "type": "string"
+        },
+        "lender_revision": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/InactiveStatus"
+        }
+      },
+      "required": [
+        "current",
+        "lender_id",
+        "lender_revision",
+        "name",
+        "status"
+      ],
+      "type": "object"
+    },
+    "InactiveStatus": {
+      "enum": [
+        "draft",
+        "paused",
+        "not_offered"
+      ],
+      "type": "string"
+    },
+    "IndustriesResponse": {
+      "description": "`GET /api/v1/industries`: the active industry picklist.",
+      "properties": {
+        "api_version": {
+          "type": "string"
+        },
+        "industries": {
+          "items": {
+            "$ref": "#/$defs/Industry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "api_version",
+        "industries"
+      ],
+      "type": "object"
+    },
+    "Industry": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "type": "object"
+    },
+    "MatchRequest": {
+      "additionalProperties": false,
+      "description": "`POST /api/v1/matches`: match one deal against every active lender.",
+      "properties": {
+        "analysis_package_id": {
+          "default": null,
+          "description": "The bank statement analysis package to read; absent or null matches on the application alone.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "application": {
+          "$ref": "#/$defs/Application",
+          "description": "What the merchant stated on the application. Every field may be absent or null."
+        },
+        "product": {
+          "$ref": "#/$defs/Product",
+          "default": "mca",
+          "description": "The funding product sought; `mca` when absent. A lender that does not offer it is listed as `not_offered`."
+        }
+      },
+      "required": [
+        "application"
+      ],
+      "type": "object"
+    },
+    "MatchResponse": {
+      "description": "A stored match: the facts it read, and one verdict per active lender that offers the product.",
+      "properties": {
+        "analysis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AnalysisRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The analysis package and revision the facts came from; null when the request named none."
+        },
+        "api_version": {
+          "type": "string"
+        },
+        "as_of": {
+          "description": "The date, `YYYY-MM-DD` in UTC, that time in business is counted to.",
+          "type": "string"
+        },
+        "created_at": {
+          "description": "RFC 3339, UTC.",
+          "type": "string"
+        },
+        "created_by": {
+          "$ref": "#/$defs/CreatedBy"
+        },
+        "engine_version": {
+          "description": "The version of the fact assembly and evaluation that computed this match.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "facts": {
+          "description": "Every fact, known or not, once each.",
+          "items": {
+            "$ref": "#/$defs/Fact"
+          },
+          "type": "array"
+        },
+        "inactive": {
+          "description": "Lenders not evaluated: not active, or not offering the product.",
+          "items": {
+            "$ref": "#/$defs/Inactive"
+          },
+          "type": "array"
+        },
+        "match_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "months": {
+          "description": "The per-month numbers behind the worst-month facts.",
+          "items": {
+            "$ref": "#/$defs/StatementMonth"
+          },
+          "type": "array"
+        },
+        "product": {
+          "$ref": "#/$defs/Product"
+        },
+        "superseded_by": {
+          "description": "The newer match a person made from this one; null while this one is the latest.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "supersedes": {
+          "description": "The match this one replaced, when a person made it from the match page.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "verdicts": {
+          "items": {
+            "$ref": "#/$defs/Verdict"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "analysis",
+        "api_version",
+        "as_of",
+        "created_at",
+        "created_by",
+        "engine_version",
+        "facts",
+        "inactive",
+        "match_id",
+        "months",
+        "product",
+        "superseded_by",
+        "supersedes",
+        "verdicts"
+      ],
+      "type": "object"
+    },
+    "NoteKind": {
+      "oneOf": [
+        {
+          "const": "condition",
+          "description": "Holds the verdict at review while it may apply.",
+          "type": "string"
+        },
+        {
+          "const": "info",
+          "description": "Shown; does not change a verdict.",
+          "type": "string"
+        }
+      ]
+    },
+    "NoteResult": {
+      "properties": {
+        "id": {
+          "description": "The note's id within the lender revision, such as `n1`.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/NoteKind"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "text": {
+          "type": "string"
+        },
+        "waiver": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Waiver"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "when": {
+          "description": "The note's condition in words; null when it always applies.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "scope",
+        "text",
+        "waiver",
+        "when"
+      ],
+      "type": "object"
+    },
+    "Outcome": {
+      "oneOf": [
+        {
+          "enum": [
+            "pass",
+            "fail",
+            "unproven",
+            "waived"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "not_applicable",
+          "description": "The rule's condition is false for this deal.",
+          "type": "string"
+        }
+      ]
+    },
+    "Product": {
+      "enum": [
+        "mca",
+        "term_loan",
+        "line_of_credit",
+        "equipment",
+        "sba"
+      ],
+      "type": "string"
+    },
+    "Range": {
+      "additionalProperties": false,
+      "description": "Inclusive integer bounds; `max` null is unbounded above.",
+      "properties": {
+        "max": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "min"
+      ],
+      "type": "object"
+    },
+    "Scope": {
+      "enum": [
+        "in_scope",
+        "out_of_scope",
+        "scope_unknown"
+      ],
+      "type": "string"
+    },
+    "StatementMonth": {
+      "properties": {
+        "deposits": {
+          "$ref": "#/$defs/Range"
+        },
+        "month": {
+          "description": "`YYYY-MM`; null for a statement without a readable period.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "negative_days": {
+          "$ref": "#/$defs/Range"
+        }
+      },
+      "required": [
+        "deposits",
+        "month",
+        "negative_days"
+      ],
+      "type": "object"
+    },
+    "Verdict": {
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/Check"
+          },
+          "type": "array"
+        },
+        "current": {
+          "description": "Whether that revision is still the lender's current one.",
+          "type": "boolean"
+        },
+        "lender_id": {
+          "type": "string"
+        },
+        "lender_revision": {
+          "description": "The lender revision this verdict read.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "$ref": "#/$defs/NoteResult"
+          },
+          "type": "array"
+        },
+        "stale_waivers": {
+          "description": "Waivers given on another lender or analysis revision; they were not applied.",
+          "items": {
+            "$ref": "#/$defs/Waiver"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/VerdictStatus"
+        }
+      },
+      "required": [
+        "checks",
+        "current",
+        "lender_id",
+        "lender_revision",
+        "name",
+        "notes",
+        "stale_waivers",
+        "status"
+      ],
+      "type": "object"
+    },
+    "VerdictStatus": {
+      "oneOf": [
+        {
+          "const": "match",
+          "description": "Every check passes or is waived, and no condition note may apply unwaived.",
+          "type": "string"
+        },
+        {
+          "const": "review",
+          "description": "No check fails, but a check is unproven or a condition note may apply.",
+          "type": "string"
+        },
+        {
+          "const": "no_match",
+          "description": "A check fails.",
+          "type": "string"
+        }
+      ]
+    },
+    "Waiver": {
+      "description": "A signed-in person's decision to set a check or note aside for this deal.",
+      "properties": {
+        "analysis_revision": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "at": {
+          "description": "RFC 3339, UTC.",
+          "type": "string"
+        },
+        "by": {
+          "description": "The person's username.",
+          "type": "string"
+        },
+        "check": {
+          "type": "string"
+        },
+        "lender_revision": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "analysis_revision",
+        "at",
+        "by",
+        "check",
+        "lender_revision",
+        "reason"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/MatchRequest"
+    },
+    {
+      "$ref": "#/$defs/MatchResponse"
+    },
+    {
+      "$ref": "#/$defs/IndustriesResponse"
+    },
+    {
+      "$ref": "#/$defs/ErrorResponse"
+    }
+  ],
+  "title": "lender-matching API v1",
+  "x-api-version": "1.0"
+}

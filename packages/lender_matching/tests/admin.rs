@@ -34,7 +34,7 @@ impl Api {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
-        response.json().await.unwrap()
+        contract_body("MatchResponse", response).await
     }
 
     async fn get(&self, id: Uuid) -> wire::MatchResponse {
@@ -45,7 +45,7 @@ impl Api {
             .send()
             .await
             .unwrap();
-        response.json().await.unwrap()
+        contract_body("MatchResponse", response).await
     }
 }
 

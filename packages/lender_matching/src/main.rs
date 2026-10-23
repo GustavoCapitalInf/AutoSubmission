@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod analysis_api;
 mod criteria;
 mod data_dir;
@@ -147,15 +145,15 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 },
             };
             let mode = if apply { ImportMode::Apply } else { ImportMode::DryRun };
-            let (report, code) = match info_hub::run(&store, &sheet, readings, mode) {
-                Ok(report) => (report, ExitCode::SUCCESS),
-                Err(ImportError::Blocked(report)) => (*report, ExitCode::FAILURE),
+            let report = match info_hub::run(&store, &sheet, readings, mode) {
+                Ok(report) => report,
+                Err(ImportError::Blocked(report)) => *report,
                 Err(ImportError::Store(error)) => return Err(error.to_string()),
             };
             for line in report.lines() {
                 println!("{line}");
             }
-            Ok(code)
+            Ok(if report.blockers.is_empty() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
         }
         Command::User { command: UserCommand::Add { username, role, password_stdin } } => {
             let username = username.trim().to_string();

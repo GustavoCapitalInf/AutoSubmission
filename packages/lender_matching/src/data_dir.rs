@@ -18,18 +18,23 @@ impl DataDir {
             return Err(format!("{} is on a network share; use a local disk", path.display()));
         }
         std::fs::create_dir_all(&path).map_err(|error| format!("cannot create {}: {error}", path.display()))?;
-        let path = std::fs::canonicalize(&path).map_err(|error| format!("cannot open {}: {error}", path.display()))?;
-        if is_network_share(&path) {
+        // On Windows the canonical form is a `\\?\` path, and a mapped network drive resolves to
+        // `\\?\UNC\…`; it serves the checks, and the database opens through the plain absolute path.
+        let canonical =
+            std::fs::canonicalize(&path).map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+        if is_network_share(&canonical) {
             return Err(format!("{} is on a network share; use a local disk", path.display()));
         }
-        if let Some(tree) = path.ancestors().find(|dir| dir.join(".git").exists()) {
+        if let Some(tree) = canonical.ancestors().find(|dir| dir.join(".git").exists()) {
             return Err(format!(
                 "{} is inside the git work tree {}; keep the database outside every checkout",
                 path.display(),
                 tree.display()
             ));
         }
-        Ok(DataDir(path))
+        let absolute =
+            std::path::absolute(&path).map_err(|error| format!("cannot open {}: {error}", path.display()))?;
+        Ok(DataDir(absolute))
     }
 
     pub fn path(&self) -> &Path {

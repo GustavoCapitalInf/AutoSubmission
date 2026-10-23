@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 async fn error_code(response: reqwest::Response) -> (StatusCode, wire::ApiError) {
     let status = response.status();
-    let body: wire::ErrorResponse = response.json().await.unwrap();
+    let body: wire::ErrorResponse = contract_body("ErrorResponse", response).await;
     assert_eq!(body.error.message, body.error.code.message());
     (status, body.error)
 }
@@ -48,7 +48,7 @@ async fn only_a_live_token_with_the_right_scope_opens_the_api() {
         http.get(server.url("/api/v1/industries")).header("Authorization", format!("bearer   {reader} ")).send();
     let listed = listed.await.unwrap();
     assert_eq!(listed.status(), StatusCode::OK);
-    assert_eq!(listed.json::<wire::IndustriesResponse>().await.unwrap().industries, []);
+    assert_eq!(contract_body::<wire::IndustriesResponse>("IndustriesResponse", listed).await.industries, []);
 
     let refused =
         http.post(server.url("/api/v1/matches")).header("Authorization", bearer(&reader)).json(&bare_deal(None));
@@ -101,7 +101,7 @@ async fn a_match_reads_the_analysis_package_and_stores_what_it_read() {
     assert_eq!(created.status(), StatusCode::CREATED, "{}", server.log());
     assert_eq!(created.headers()[CACHE_CONTROL], "no-store");
     let location = created.headers()[LOCATION].to_str().unwrap().to_string();
-    let body: wire::MatchResponse = created.json().await.unwrap();
+    let body: wire::MatchResponse = contract_body("MatchResponse", created).await;
     assert_eq!(location, format!("/api/v1/matches/{}", body.match_id));
     assert_eq!(body.analysis.as_ref().map(|analysis| analysis.package_id), Some(ready));
     assert_eq!(body.created_by, wire::CreatedBy::Client { name: "auto-submission".to_string() });
@@ -124,7 +124,7 @@ async fn a_match_reads_the_analysis_package_and_stores_what_it_read() {
     assert!(body.inactive.iter().all(|lender| lender.status == wire::InactiveStatus::Draft && lender.current));
 
     let stored = http.get(server.url(&location)).header("Authorization", bearer(&token)).send().await.unwrap();
-    assert_eq!(stored.json::<wire::MatchResponse>().await.unwrap(), body);
+    assert_eq!(contract_body::<wire::MatchResponse>("MatchResponse", stored).await, body);
 
     let waiting = post(deal(Some(processing))).await.unwrap();
     assert_eq!(waiting.headers()[RETRY_AFTER], "7");
@@ -134,11 +134,11 @@ async fn a_match_reads_the_analysis_package_and_stores_what_it_read() {
     let mismatch = post(deal(Some(broken))).await.unwrap();
     assert_eq!(error_code(mismatch).await, (StatusCode::BAD_GATEWAY, error(wire::ErrorCode::AnalysisContractMismatch)));
 
-    let held: wire::MatchResponse = post(deal(Some(held))).await.unwrap().json().await.unwrap();
+    let held: wire::MatchResponse = contract_body("MatchResponse", post(deal(Some(held))).await.unwrap()).await;
     let revenue = fact(&held, "monthly_true_revenue_cents");
     assert_eq!(revenue.gap.as_deref(), Some("analysis_review_required"));
     assert_eq!(revenue.seen, range(3_125_000, 3_125_000));
-    let refused: wire::MatchResponse = post(deal(Some(refused))).await.unwrap().json().await.unwrap();
+    let refused: wire::MatchResponse = contract_body("MatchResponse", post(deal(Some(refused))).await.unwrap()).await;
     assert_eq!(fact(&refused, "monthly_true_revenue_cents").gap.as_deref(), Some("currency_refused"));
     assert_eq!(fact(&refused, "worst_month_negative_days").value, range(2, 2), "counts survive a currency refusal");
 }
@@ -214,4 +214,10 @@ async fn requests_are_read_strictly() {
         let response = http.get(server.url(path)).header("Authorization", bearer(&token)).send().await.unwrap();
         assert_eq!(error_code(response).await.1.code, wire::ErrorCode::MatchNotFound, "{path}");
     }
+}
+
+#[test]
+#[should_panic(expected = "not a valid MatchResponse")]
+fn the_contract_check_refuses_a_body_missing_a_field() {
+    assert_contract("MatchResponse", &serde_json::json!({"api_version": "1.0"}));
 }

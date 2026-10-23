@@ -2,7 +2,7 @@
 
 use super::{LenderRecord, Membership, Note, NoteKind, Predicate, Rule, SubmissionChannel};
 use crate::facts::application::Industries;
-use crate::facts::{FactKey, FlagFact, Interval, NumFact};
+use crate::facts::{FactKey, FlagFact, NumFact};
 
 pub fn money(cents: i64) -> String {
     let sign = if cents < 0 { "-" } else { "" };
@@ -43,14 +43,6 @@ pub fn fact_label(key: FactKey) -> &'static str {
 
 pub fn number(fact: NumFact, value: i64) -> String {
     if fact.is_money() { money(value) } else { value.to_string() }
-}
-
-pub fn interval(fact: NumFact, value: Interval) -> String {
-    match value.hi() {
-        Some(hi) if hi == value.lo() => number(fact, hi),
-        Some(hi) => format!("{} to {}", number(fact, value.lo()), number(fact, hi)),
-        None => format!("at least {}", number(fact, value.lo())),
-    }
 }
 
 pub fn predicate(predicate: &Predicate, industries: &Industries) -> String {

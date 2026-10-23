@@ -254,6 +254,7 @@ pub enum Fact<V> {
 }
 
 impl<V> Fact<V> {
+    #[cfg(test)]
     pub fn known(&self) -> Option<&V> {
         match self {
             Fact::Known { value, .. } => Some(value),

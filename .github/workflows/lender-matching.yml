@@ -1,0 +1,51 @@
+name: Lender matching
+
+# The fixtures test reads the analysis API schema, so a change to it runs this workflow too.
+on:
+  pull_request:
+    paths:
+      - "packages/lender_matching/**"
+      - "packages/bank_statement_analysis/docs/api/v1.schema.json"
+      - ".github/workflows/lender-matching.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/lender_matching/**"
+      - "packages/bank_statement_analysis/docs/api/v1.schema.json"
+      - ".github/workflows/lender-matching.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: packages/lender_matching
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the stable toolchain with rustfmt and clippy
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/lender_matching
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --locked

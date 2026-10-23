@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::facts::application::{EntityKind, IndustryId, Jurisdiction};
 use crate::facts::{FlagFact, NumFact};
 
-/// The JSON layout of a stored `LenderRecord`. Revisions are immutable, so a bump needs an upgrade
-/// in `LenderRecord::from_stored` for every older format still in `lender_revisions`.
+/// The stored `LenderRecord` JSON layout; a bump leaves older revisions unreadable until `from_stored` upgrades them.
 pub const RECORD_FORMAT: u32 = 1;
 
 /// `lnd_` and 10 lower-case base32 characters.
@@ -357,14 +356,6 @@ impl LenderPolicy {
 
     pub fn with_status(&self, status: LenderStatus) -> Result<LenderPolicy, PolicyError> {
         LenderPolicy::new(status, self.rules.clone(), self.notes.clone())
-    }
-
-    pub fn next_rule_id(&self) -> RuleId {
-        RuleId(self.rules.iter().map(|rule| rule.id.0).max().unwrap_or(0) + 1)
-    }
-
-    pub fn next_note_id(&self) -> NoteId {
-        NoteId(self.notes.iter().map(|note| note.id.0).max().unwrap_or(0) + 1)
     }
 }
 

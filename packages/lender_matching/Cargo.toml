@@ -1,5 +1,6 @@
 [workspace]
 members = [".", "wire"]
+default-members = [".", "wire"]
 resolver = "3"
 
 [package]

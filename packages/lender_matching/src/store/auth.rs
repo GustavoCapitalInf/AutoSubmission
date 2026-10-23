@@ -96,12 +96,6 @@ impl MachineClient {
     }
 }
 
-/// A new session's secrets, returned once at sign-in.
-pub struct NewSession {
-    pub cookie: String,
-    pub user: AdminUser,
-}
-
 /// 32 random bytes, base64url without padding.
 pub fn random_secret() -> String {
     let mut bytes = [0u8; 32];

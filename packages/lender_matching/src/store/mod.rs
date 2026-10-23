@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::criteria::{LenderId, LenderRecord, RECORD_FORMAT};
 use crate::facts::application::{Industries, IndustryId};
 use crate::matching::{LenderVerdict, MATCH_FORMAT, MatchRecord, Requester, VerdictResult};
-use auth::{AdminUser, MachineClient, NewSession, Role, Scope};
+use auth::{AdminUser, MachineClient, Role, Scope};
 
 const MIGRATIONS: [&str; 1] = [include_str!("schema.sql")];
 
@@ -153,7 +153,6 @@ pub struct MatchSummary {
 
 pub struct ImportRun {
     pub id: i64,
-    pub run_at: OffsetDateTime,
     /// JSON `info_hub::ImportReport`.
     pub report: String,
 }
@@ -325,13 +324,9 @@ impl ReadTx<'_> {
 
     /// Newest first.
     pub fn import_runs(&self) -> Result<Vec<ImportRun>, StoreError> {
-        let mut statement = self.conn.prepare("SELECT id, run_at, report FROM import_runs ORDER BY id DESC")?;
-        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get::<_, String>(1)?, row.get(2)?)))?;
-        rows.map(|row| {
-            let (id, run_at, report) = row?;
-            Ok(ImportRun { id, run_at: parse_time(&run_at)?, report })
-        })
-        .collect()
+        let mut statement = self.conn.prepare("SELECT id, report FROM import_runs ORDER BY id DESC")?;
+        let rows = statement.query_map([], |row| Ok(ImportRun { id: row.get(0)?, report: row.get(1)? }))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn import_run(&self, id: i64) -> Result<Option<ImportRun>, StoreError> {
@@ -607,8 +602,9 @@ impl WriteTx<'_> {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// None when the username or password is wrong or the account is disabled.
-    pub fn sign_in(&self, username: &str, password: &str) -> Result<Option<NewSession>, StoreError> {
+    /// The new session's cookie; None when the username or password is wrong or the account is
+    /// disabled. The cookie is stored only as its digest.
+    pub fn sign_in(&self, username: &str, password: &str) -> Result<Option<String>, StoreError> {
         let row = self
             .conn
             .query_row(
@@ -633,8 +629,7 @@ impl WriteTx<'_> {
                 time_text(created + time::Duration::hours(SESSION_HOURS))
             ],
         )?;
-        let user = self.session(&cookie)?.ok_or_else(|| StoreError::Corrupt("a session just written".to_string()))?;
-        Ok(Some(NewSession { cookie, user }))
+        Ok(Some(cookie))
     }
 
     pub fn sign_out(&self, cookie: &str) -> Result<(), StoreError> {
@@ -802,17 +797,18 @@ mod tests {
         assert!(store.write(|tx| tx.sign_in("sample.reviewer", "wrong password")).unwrap().is_none());
         assert!(store.write(|tx| tx.sign_in("nobody", "correct horse battery")).unwrap().is_none());
         let session = store.write(|tx| tx.sign_in("SAMPLE.REVIEWER", "correct horse battery")).unwrap().unwrap();
-        let user = store.read(|tx| tx.session(&session.cookie)).unwrap().unwrap();
+        let user = store.read(|tx| tx.session(&session)).unwrap().unwrap();
         assert_eq!((user.username.as_str(), user.role), ("sample.reviewer", Role::Reviewer));
         assert!(user.can(Role::Viewer) && user.can(Role::Reviewer) && !user.can(Role::Editor));
-        assert!(user.csrf_matches(&session.user.csrf) && !user.csrf_matches("forged"));
+        let again = store.read(|tx| tx.session(&session)).unwrap().unwrap();
+        assert!(user.csrf_matches(&again.csrf) && !user.csrf_matches("forged"), "one CSRF token per session");
 
         store.conn.lock().unwrap().execute("UPDATE sessions SET expires_at = '2000-01-01T00:00:00Z'", []).unwrap();
-        assert!(store.read(|tx| tx.session(&session.cookie)).unwrap().is_none());
+        assert!(store.read(|tx| tx.session(&session)).unwrap().is_none());
 
         let fresh = store.write(|tx| tx.sign_in("sample.reviewer", "correct horse battery")).unwrap().unwrap();
-        store.write(|tx| tx.sign_out(&fresh.cookie)).unwrap();
-        assert!(store.read(|tx| tx.session(&fresh.cookie)).unwrap().is_none());
+        store.write(|tx| tx.sign_out(&fresh)).unwrap();
+        assert!(store.read(|tx| tx.session(&fresh)).unwrap().is_none());
     }
 
     #[test]

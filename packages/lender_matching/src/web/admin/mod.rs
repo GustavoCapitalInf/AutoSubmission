@@ -274,9 +274,9 @@ async fn login(State(app): State<Shared>, headers: HeaderMap, form: RawForm) -> 
     let username = form.get("username").trim().to_string();
     let password = form.get("password").to_string();
     match app.write(|tx| tx.sign_in(&username, &password))? {
-        Some(session) => {
+        Some(cookie) => {
             let mut response = redirect("/admin");
-            response.headers_mut().append(SET_COOKIE, session_cookie(&session.cookie, 12 * 3600, app.secure_cookies));
+            response.headers_mut().append(SET_COOKIE, session_cookie(&cookie, 12 * 3600, app.secure_cookies));
             Ok(response)
         }
         None => Ok((StatusCode::UNAUTHORIZED, login_form(&expected, true)).into_response()),

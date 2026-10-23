@@ -1,5 +1,6 @@
 //! Lender matching API v1. In a response, `fact`, `gap`, `why` and `source` are open strings
-//! that 1.x may extend; every enum here is a closed set, and a new value needs v2.
+//! that 1.x may extend; every enum here is a closed set, and a new value needs v2. A response
+//! field that can be null is always present.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
