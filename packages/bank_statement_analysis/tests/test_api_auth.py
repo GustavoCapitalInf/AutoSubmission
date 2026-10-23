@@ -1,4 +1,5 @@
 import base64
+import uuid
 
 import pytest
 
@@ -87,6 +88,18 @@ def test_an_unknown_api_route_is_named_only_to_a_caller_with_the_token(api):
     for path in ("/api/v1/no-such-route", "/api/v1", "/api/v1/packages"):
         response = api.get(path)
         assert (response.status_code, response.get_json()["error"]["code"]) == (404, "route_not_found")
+
+
+@pytest.mark.parametrize("path", ["/api/v1//packages/{id}", "/api/v1/packages//{id}", "/api/v1%2F%2Fpackages/{id}"])
+@pytest.mark.parametrize("method", ["GET", "PUT", "HEAD", "POST"])
+def test_a_doubled_slash_is_an_unknown_route_in_the_envelope_not_a_redirect(api, method, path):
+    response = api.client.open(path.format(id=uuid.uuid4()), method=method, headers=BEARER)
+    assert (response.status_code, response.mimetype, response.headers["Cache-Control"]) == (
+        404, "application/json", "no-store")
+    if method == "HEAD":
+        assert response.get_data() == b""
+    else:
+        assert validated(response).get_json()["error"]["code"] == "route_not_found"
 
 
 @pytest.mark.parametrize("method", ["POST", "DELETE", "PATCH", "OPTIONS"])

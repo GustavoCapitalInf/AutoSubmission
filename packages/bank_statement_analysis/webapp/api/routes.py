@@ -30,7 +30,9 @@ def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint
     api = Blueprint(BLUEPRINT_NAME, __name__, url_prefix=API_PREFIX)
     submitting = threading.Lock()
 
-    @api.put("/packages/<package_id>", provide_automatic_options=False)
+    # Both routes turn slash merging off: Werkzeug would answer a doubled slash with an HTML 308 redirect, outside the
+    # envelope.
+    @api.put("/packages/<package_id>", provide_automatic_options=False, merge_slashes=False)
     def put_package(package_id: str) -> Response:
         if not _canonical_uuid(package_id):
             return error_response("invalid_package_id")
@@ -53,7 +55,7 @@ def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint
                 status = 201
         return _package_response(jobs, package_id, status)
 
-    @api.get("/packages/<package_id>", provide_automatic_options=False)
+    @api.get("/packages/<package_id>", provide_automatic_options=False, merge_slashes=False)
     def get_package(package_id: str) -> Response:
         return _package_response(store(), package_id, 200)
 
@@ -82,6 +84,10 @@ def api_blueprint(*, store: Callable[[], JobStore], accept: Accept) -> Blueprint
     def _no_method(exc: MethodNotAllowed) -> Response | MethodNotAllowed:
         if not is_api_path(request.path):
             return exc
+        # Werkzeug retries a doubled slash merged and reports a route it finds then for another method; the path as
+        # sent names no route.
+        if "//" in request.path:
+            return error_response("route_not_found")
         return error_response("method_not_allowed", headers={"Allow": ", ".join(sorted(exc.valid_methods or ()))})
 
     return api
