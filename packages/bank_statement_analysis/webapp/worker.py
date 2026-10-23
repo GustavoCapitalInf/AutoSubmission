@@ -72,6 +72,9 @@ _STUCK_JOB_FAILURE = (
     "(message withheld; an exception message can quote statement text)"
 )
 
+#: The pipeline's refusal of a statement no registered parser claims (`analysis/pipeline.py`).
+NO_PARSER_MATCHED = "no deterministic parser matched this statement"
+
 #: The analysis pipeline's DECLARED refusals.
 #:
 #: `analysis/pipeline.py` raises a small number of refusals that are FIXED
@@ -95,9 +98,7 @@ _STUCK_JOB_FAILURE = (
 #: carry safe messages (registry ids, class names) but their text VARIES, so
 #: they cannot be pinned to a constant here — they publish their class name,
 #: which already names the finding.
-_DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (
-    "no deterministic parser matched this statement",
-)
+_DECLARED_ANALYSIS_REFUSALS: tuple[str, ...] = (NO_PARSER_MATCHED,)
 
 #: What a job asked for with Force visual OCR ends in. `/upload` refuses `force_ocr=1` before anything is stored
 #: (webapp/app.py), so only a job stored before that ruling still carries the flag, and only its re-analysis

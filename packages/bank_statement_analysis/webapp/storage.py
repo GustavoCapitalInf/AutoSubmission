@@ -835,8 +835,12 @@ class Storage:
     # packages
     # ------------------------------------------------------------------
 
-    def create_package(self, job_ids: list[str], reference: str | None = None) -> str:
-        package_id = str(uuid.uuid4())
+    def create_package(
+        self, job_ids: list[str], reference: str | None = None, *, package_id: str | None = None
+    ) -> str:
+        """A package of `job_ids` in order, with its audit row, in one transaction; its id is `package_id`, or a new
+        uuid4. sqlite3.IntegrityError when the id is taken."""
+        package_id = package_id or str(uuid.uuid4())
         with closing(self._connect()) as conn, conn:
             conn.execute(
                 "INSERT INTO packages (id, caller_reference, created_at) VALUES (?, ?, ?)",
@@ -854,19 +858,21 @@ class Storage:
             )
         return package_id
 
-    def package_member_ids(self, package_id: str) -> list[str] | None:
-        """Ordered member job ids, or None if the package does not exist."""
+    def package(self, package_id: str) -> dict | None:
+        """`{"created_at", "job_ids"}` of a package, its members in order, or None if it does not exist."""
         with closing(self._connect()) as conn:
-            package = conn.execute(
-                "SELECT id FROM packages WHERE id = ?", (package_id,)
-            ).fetchone()
+            package = conn.execute("SELECT created_at FROM packages WHERE id = ?", (package_id,)).fetchone()
             if package is None:
                 return None
             rows = conn.execute(
-                "SELECT job_id FROM package_members WHERE package_id = ? ORDER BY position",
-                (package_id,),
+                "SELECT job_id FROM package_members WHERE package_id = ? ORDER BY position", (package_id,)
             ).fetchall()
-            return [row["job_id"] for row in rows]
+            return {"created_at": package["created_at"], "job_ids": [row["job_id"] for row in rows]}
+
+    def package_member_ids(self, package_id: str) -> list[str] | None:
+        """Ordered member job ids, or None if the package does not exist."""
+        stored = self.package(package_id)
+        return None if stored is None else stored["job_ids"]
 
     # ------------------------------------------------------------------
     # audit log (append-only)

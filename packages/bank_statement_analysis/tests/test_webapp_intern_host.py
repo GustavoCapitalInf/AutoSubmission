@@ -123,8 +123,9 @@ def test_upload_without_password_is_401_when_auth_is_on(monkeypatch):
 def test_the_password_gate_runs_before_every_other_request_hook():
     """Flask runs before_request hooks in registration order: the gate must come first, so an unauthenticated
     request is answered 401 before any other hook (the audit's degraded-store refusal included) says anything."""
-    hooks = app.before_request_funcs[None]
-    assert hooks[0].__name__ == "_gate_intern_auth"
+    from webapp.auth import gate
+
+    assert app.before_request_funcs[None][0] is gate
 
 
 def test_a_degraded_store_answers_401_before_its_503_when_auth_is_on(monkeypatch):
