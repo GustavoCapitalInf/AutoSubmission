@@ -1,7 +1,8 @@
 name: fly-deploy
 
 # Deploys the intern tryout (https://bank-statement-tryout.fly.dev) from main. It runs when the Corpus gate passes
-# for a push to main (that workflow runs only when the push changes packages/bank_statement_analysis/), or by hand.
+# for a push to main (that workflow runs when the push changes packages/bank_statement_analysis/, its own workflow
+# file or .gitattributes), or by hand.
 # A run started by hand on another branch builds and smoke-tests the image but never deploys.
 # Before deploying, the image is built on the runner and started once: it must pass /healthz, refuse a request
 # without the login, and take a generated one-page PDF through the worker to `done`. Fly's remote builder then
@@ -15,9 +16,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# queue: max keeps every pending run in order. With the default queue, a run arriving while one is pending cancels
+# it, so a newer package's deploy could be dropped and the older run would then skip itself as superseded.
 concurrency:
   group: fly-deploy-bank-statement-tryout
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -66,10 +70,11 @@ jobs:
             -v smoke-data:/data "$IMAGE" >/dev/null
           trap 'docker logs smoke 2>&1 | tail -n 50; docker rm -f smoke >/dev/null' EXIT
           base=http://127.0.0.1:5000
-          for _ in $(seq 60); do curl -fsS "$base/healthz" >/dev/null 2>&1 && break; sleep 2; done
-          curl -fsS "$base/healthz"
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$base/")" = 401
-          curl -fsS -o /dev/null -u "intern:$password" "$base/"
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          for _ in $(seq 60); do [ "$(code "$base/healthz")" = 200 ] && break; sleep 2; done
+          test "$(code "$base/healthz")" = 200
+          test "$(code "$base/")" = 401
+          test "$(code -u "intern:$password" "$base/")" = 200
           docker run --rm "$IMAGE" python -c '
           import sys, fitz
           doc = fitz.open()
@@ -87,7 +92,7 @@ jobs:
           done
           echo "smoke job status: $status"
           test "$status" = done
-          curl -fsS -o /dev/null -u "intern:$password" "$base/analysis/$job"
+          test "$(code -u "intern:$password" "$base/analysis/$job")" = 200
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
         if: steps.current.outputs.deploy == 'true' && github.ref == 'refs/heads/main'
