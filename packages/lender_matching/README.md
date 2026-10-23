@@ -80,7 +80,7 @@ client sees the same criteria.
 ## The admin's work
 
 Sign in at `/login`. The lender list shows each lender's status, bucket, revision and attention badges: draft,
-condition notes, no rules, no bucket, no submission channel, and an import reading that uses an unconfirmed default.
+condition notes, no rules, no bucket and no submission channel.
 
 - **Review and activate** shows the lender's Info Hub row cell by cell beside its rules, with each empty criteria
   column marked "no requirement". Activation refuses a lender with no rules, which would match every deal. Check the
@@ -97,18 +97,21 @@ condition notes, no rules, no bucket, no submission channel, and an import readi
   analysis fetched again and every lender's current revision. A waiver holds only for the lender revision and the
   analysis revision it was given on.
 
-## Readings the owner has not confirmed
+## Readings
 
-These defaults are in the code and the import report labels each use of one.
+The owner confirmed these readings of the sheet and the application.
 
+- A stated estimated FICO passes a credit-score minimum, labelled `stated`.
 - Min Dep No. is the worst statement month, read like NSF Per Month. A month's deposits lie between its True revenue
   credits and all its credits, so a minimum between the two is `review`.
-- Positions `A-B+` match positions A to B and hold higher positions at review.
+- Positions `A+` and `A-B+` admit positions from A to 7, or to the cell's last number when that is higher. A higher
+  position fails the check. An explicit range such as `2-8` admits only its own positions.
 - "Accept Default History? No" stays `review` until a person confirms the deal has no default history.
-- A stated estimated FICO passes a credit-score minimum, labelled `stated`.
-- Negative days of several accounts in one month run from the largest account's count to their sum.
 - Time in business counts from the business start month. The application gives only MM/YYYY, so a deal within a
   month of a minimum is `review`.
+
+Negative days of several accounts in one month run from the largest account's count to their sum, since one day can
+be negative in more than one account.
 
 ## Develop
 

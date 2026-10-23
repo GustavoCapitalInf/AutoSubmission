@@ -280,8 +280,8 @@ async fn lenders_are_activated_edited_reviewed_and_paused_through_the_pages() {
     let review_action = format!("/admin/matches/{}/review", second.match_id);
     let page = reviewer.get(&format!("/admin/matches/{}", second.match_id)).await;
     assert!(page.body.contains("Make a new match"));
-    let waive = format!("waive.{fabrikam}.n2");
-    let reason = format!("reason.{fabrikam}.n2");
+    let waive = format!("waive.{fabrikam}.n1");
+    let reason = format!("reason.{fabrikam}.n1");
     let confirmations = [("confirm.industry", "general-retail"), ("confirm.default_history", "no")];
     let mut missing_reason: Vec<(&str, &str)> = confirmations.to_vec();
     missing_reason.push((&waive, "on"));
@@ -305,7 +305,7 @@ async fn lenders_are_activated_edited_reviewed_and_paused_through_the_pages() {
     assert_eq!(verdict(&third, "CONTOSO CAPITAL").status, wire::VerdictStatus::Match);
     let fabrikam_third = verdict(&third, "FABRIKAM FUNDING");
     assert_eq!(fabrikam_third.status, wire::VerdictStatus::Match, "{fabrikam_third:#?}");
-    let additional_info = fabrikam_third.notes.iter().find(|note| note.id == "n2").unwrap();
+    let additional_info = fabrikam_third.notes.iter().find(|note| note.id == "n1").unwrap();
     assert_eq!(additional_info.waiver.as_ref().map(|w| w.by.as_str()), Some("sample.reviewer"));
     assert_eq!(verdict(&third, "NORTHWIND ADVANCE").status, wire::VerdictStatus::NoMatch);
     assert_eq!(api.get(second.match_id).await.superseded_by, Some(third_id));
@@ -363,5 +363,5 @@ async fn industries_and_import_reports_have_pages() {
     assert!(
         report.contains("FABRIKAM FUNDING") && report.contains("Additional Info") && report.contains("condition note")
     );
-    assert!(report.contains("default: positions above 5"));
+    assert!(report.contains("mapped: an open range runs to position 7"));
 }

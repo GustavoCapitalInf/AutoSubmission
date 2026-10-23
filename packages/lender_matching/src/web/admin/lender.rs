@@ -1127,8 +1127,7 @@ pub async fn view(State(app): State<Shared>, user: AdminUser, Path(id): Path<Str
     let lender = lender_id(&id)?;
     let (head, industries) = app.read(|tx| Ok((tx.head(&lender)?, tx.industries()?)))?;
     let head = head.ok_or_else(PageError::not_found)?;
-    let reports = reports(&app)?;
-    let badges = super::attention(&head, &reports);
+    let badges = super::attention(&head);
     let status = head.record.policy.status();
     Ok(page(
         Some(&user),

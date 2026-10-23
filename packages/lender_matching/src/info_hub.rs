@@ -269,8 +269,6 @@ pub enum Reading {
     Exact,
     /// Read through a stated mapping.
     Mapped(String),
-    /// Read through a default the owner has not confirmed.
-    Default(String),
 }
 
 struct Builder<'a> {
@@ -353,30 +351,29 @@ fn tib_months(raw: &str) -> Option<(i64, bool)> {
     Some((scaled(number, factor)?, named))
 }
 
+/// An open Positions cell, `A+` or `A-B+`, admits positions from A to the higher of this and the
+/// cell's last number.
+const OPEN_POSITIONS_THROUGH: i64 = 7;
+
 enum PositionsCell {
-    Range(i64, Option<i64>),
+    Range(i64, i64),
+    /// The cell's first and last numbers; `A+` has A as both.
     OpenRange(i64, i64),
 }
 
 fn positions(raw: &str) -> Option<PositionsCell> {
     let text: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
     if let Some(rest) = text.strip_suffix('+') {
-        return match rest.split_once('-') {
-            Some((low, high)) => {
-                let (low, high) = (count(low)?, count(high)?);
-                (low <= high).then_some(PositionsCell::OpenRange(low, high))
-            }
-            None => Some(PositionsCell::Range(count(rest)?, None)),
-        };
+        let (low, high) = rest.split_once('-').unwrap_or((rest, rest));
+        let (low, high) = (count(low)?, count(high)?);
+        return (low <= high).then_some(PositionsCell::OpenRange(low, high));
     }
     match text.split_once('-') {
         Some((low, high)) => {
             let (low, high) = (count(low)?, count(high)?);
-            (low <= high).then_some(PositionsCell::Range(low, Some(high)))
+            (low <= high).then_some(PositionsCell::Range(low, high))
         }
-        None => count(&text)
-            .filter(|position| *position >= 1)
-            .map(|position| PositionsCell::Range(position, Some(position))),
+        None => count(&text).filter(|position| *position >= 1).map(|position| PositionsCell::Range(position, position)),
     }
 }
 
@@ -464,21 +461,14 @@ fn read_cell(builder: &mut Builder, terms: &mut Terms, column: Column, raw: &str
         },
         Column::Positions => match positions(raw) {
             Some(PositionsCell::Range(low, high)) => {
-                let bound = Bound::new(Some(low), high).expect("low <= high");
+                let bound = Bound::new(Some(low), Some(high)).expect("low <= high");
                 builder.one_rule(num(NumFact::NewPosition, bound), raw, exact())
             }
             Some(PositionsCell::OpenRange(low, high)) => {
-                let low = low.max(1);
-                let id = builder.rule(vec![], num(NumFact::NewPosition, Bound::at_least(low)), raw);
-                builder.note(
-                    NoteKind::Condition,
-                    vec![num(NumFact::NewPosition, Bound::at_least(high + 1))],
-                    format!("Positions {raw}: positions above {high} are case by case"),
-                );
-                CellOutcome::Rules {
-                    ids: vec![id],
-                    reading: Reading::Default(format!("positions above {high} hold the deal at review")),
-                }
+                let through = high.max(OPEN_POSITIONS_THROUGH);
+                let bound = Bound::new(Some(low.max(1)), Some(through)).expect("low <= high <= through");
+                let reading = Reading::Mapped(format!("an open range runs to position {through}"));
+                builder.one_rule(num(NumFact::NewPosition, bound), raw, reading)
             }
             None => builder.unread(column, raw),
         },
@@ -671,12 +661,6 @@ pub struct RowReport {
     pub cells: Vec<CellReport>,
 }
 
-impl RowReport {
-    pub fn uses_default_reading(&self) -> bool {
-        self.cells.iter().any(|cell| matches!(cell.outcome, CellOutcome::Rules { reading: Reading::Default(_), .. }))
-    }
-}
-
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActionReport {
@@ -778,7 +762,6 @@ impl ImportReport {
             for cell in &row.cells {
                 let flag = match &cell.outcome {
                     CellOutcome::Rules { reading: Reading::Mapped(how), .. } => Some(format!("mapped: {how}")),
-                    CellOutcome::Rules { reading: Reading::Default(how), .. } => Some(format!("default: {how}")),
                     CellOutcome::Note { note: NoteKind::Condition, .. } => Some("condition note".to_string()),
                     CellOutcome::Note { note: NoteKind::Info, .. } => Some("info note".to_string()),
                     CellOutcome::PartlyRead { .. } => Some("partly read; the rest is a condition note".to_string()),
@@ -965,24 +948,12 @@ mod tests {
             (Column::Positions, Number(1.0), &["New position is 1"]),
             (Column::Positions, Text("1-3"), &["New position from 1 to 3"]),
             (Column::Positions, Text("1-5"), &["New position from 1 to 5"]),
-            (Column::Positions, Text("2+"), &["New position at least 2"]),
+            (Column::Positions, Text("2+"), &["New position from 2 to 7"]),
+            (Column::Positions, Text("9+"), &["New position is 9"]),
             (Column::Positions, Text("2-8"), &["New position from 2 to 8"]),
-            (
-                Column::Positions,
-                Text("0-5+"),
-                &[
-                    "New position at least 1",
-                    "condition note [When New position at least 6]: Positions 0-5+: positions above 5 are case by case",
-                ],
-            ),
-            (
-                Column::Positions,
-                Text("1-5+"),
-                &[
-                    "New position at least 1",
-                    "condition note [When New position at least 6]: Positions 1-5+: positions above 5 are case by case",
-                ],
-            ),
+            (Column::Positions, Text("0-5+"), &["New position from 1 to 7"]),
+            (Column::Positions, Text("1-5+"), &["New position from 1 to 7"]),
+            (Column::Positions, Text("2-9+"), &["New position from 2 to 9"]),
             (Column::Tib, Text("1 Year"), &["Months in business at least 12"]),
             (Column::Tib, Text("1.5 Years"), &["Months in business at least 18"]),
             (Column::Tib, Text("6 Months"), &["Months in business at least 6"]),
@@ -1048,7 +1019,7 @@ mod tests {
         assert!(matches!(one_row(Column::Tib, Text("2 Years")).1, CellOutcome::Rules { reading: Reading::Exact, .. }));
         assert!(matches!(
             one_row(Column::Positions, Text("0-5+")).1,
-            CellOutcome::Rules { reading: Reading::Default(_), .. }
+            CellOutcome::Rules { reading: Reading::Mapped(_), .. }
         ));
         assert!(matches!(one_row(Column::RestrictedStates, Text("CA;XX")).1, CellOutcome::PartlyRead { .. }));
         assert!(matches!(one_row(Column::AcceptDefaultHistory, Text("Yes")).1, CellOutcome::NoRule { .. }));
@@ -1225,10 +1196,30 @@ mod tests {
     }
 
     #[test]
+    fn open_positions_pass_through_7_and_fail_above_while_explicit_ranges_stay() {
+        let industries = crate::facts::application::test_industries();
+        let input = DealInput { application: application(), confirmations: everything_confirmed() };
+        let cases = [("0-5+", 1..=7), ("1-5+", 1..=7), ("2+", 2..=7), ("2-9+", 2..=9), ("1-5", 1..=5), ("2-8", 2..=8)];
+        for (cell, admitted) in cases {
+            let rows = [lender("CONTOSO CAPITAL", "REC-1", vec![(Column::Positions, Text(cell))])];
+            let plan = plan(&sheet(&rows), &BTreeMap::new(), &industries);
+            let RowAction::Create(record) = &plan.rows[0].action else { panic!("a new lender") };
+            let policy = record.policy.with_status(LenderStatus::Active).unwrap();
+            for position in 1..=10 {
+                let mut package = three_clean_months();
+                package.figures.as_mut().unwrap().positions_by_month[1].active = Some(position - 1);
+                let status = evaluate(&policy, 1, &assemble(Some(&package), &input, AS_OF), &[]).status();
+                let expected = if admitted.contains(&position) { VerdictStatus::Match } else { VerdictStatus::NoMatch };
+                assert_eq!(status, expected, "Positions {cell}, new position {position}");
+            }
+        }
+    }
+
+    #[test]
     fn reports_round_trip_through_json() {
         let store = Store::open_in_memory();
         let report = run(&store, &sheet(&seed_rows()), ImportMode::Apply).unwrap();
         assert_eq!(parse_report(&report_json(&report)).unwrap(), report);
-        assert!(report.lines().iter().any(|line| line.contains("default: positions above 5")));
+        assert!(report.lines().iter().any(|line| line.contains("mapped: an open range runs to position 7")));
     }
 }

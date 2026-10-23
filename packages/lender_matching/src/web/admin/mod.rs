@@ -296,7 +296,7 @@ async fn logout(
     Ok(response)
 }
 
-pub fn attention(head: &Revision, reports: &BTreeMap<i64, ImportReport>) -> Vec<String> {
+pub fn attention(head: &Revision) -> Vec<String> {
     let record = &head.record;
     let mut badges = Vec::new();
     match record.policy.status() {
@@ -316,12 +316,6 @@ pub fn attention(head: &Revision, reports: &BTreeMap<i64, ImportReport>) -> Vec<
     }
     if record.profile.submission.is_none() {
         badges.push("no submission channel".to_string());
-    }
-    if let Author::Import(run) = head.author
-        && let Some(row) = reports.get(&run).and_then(|report| import_row(report, &head.lender))
-        && row.uses_default_reading()
-    {
-        badges.push("unconfirmed default reading".to_string());
     }
     badges
 }
@@ -346,12 +340,11 @@ async fn lenders(
     Query(query): Query<ListQuery>,
 ) -> Result<Markup, PageError> {
     let heads = app.read(|tx| tx.heads())?;
-    let reports = reports(&app)?;
     let only_attention = query.attention.is_some();
     let rows: Vec<(Revision, Vec<String>)> = heads
         .into_iter()
         .map(|head| {
-            let badges = attention(&head, &reports);
+            let badges = attention(&head);
             (head, badges)
         })
         .filter(|(_, badges)| !only_attention || !badges.is_empty())
@@ -487,7 +480,6 @@ pub fn cell_outcome(outcome: &CellOutcome) -> String {
     let reading = |reading: &Reading| match reading {
         Reading::Exact => String::new(),
         Reading::Mapped(how) => format!(" (mapped: {how})"),
-        Reading::Default(how) => format!(" (default: {how})"),
     };
     let ids = |ids: &[crate::criteria::RuleId]| ids.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ");
     match outcome {
