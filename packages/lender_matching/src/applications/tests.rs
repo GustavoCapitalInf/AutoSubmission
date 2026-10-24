@@ -369,3 +369,41 @@ fn matching_reads_the_start_month_the_entity_kind_and_the_history_answers() {
     let refused = facts_of(Form::word().set(start, "Q2 2019").set(FieldId::Property(P::Bankruptcy), "MAYBE"));
     assert_eq!((refused.business_start, refused.bankruptcy), (None, None), "a refused reading supplies no fact");
 }
+
+#[test]
+fn a_sampled_document_waits_for_its_audit_before_any_other_change_and_is_scored_by_it() {
+    let setup = setup();
+    let pdf = setup.reader.knows(application(Form::word(), ENVELOPE, 21));
+    assert_eq!(setup.applications.sample(&pdf, setup.reviewer).unwrap(), Sampled::Form);
+    assert_eq!(setup.applications.sample(&pdf, setup.reviewer).unwrap(), Sampled::AlreadyStored);
+    let contract = setup.reader.knows(contract());
+    assert_eq!(setup.applications.sample(&contract, setup.reviewer).unwrap(), Sampled::Refused, "kept for its audit");
+    let listed = setup.applications.list().unwrap();
+    let (_, form) =
+        listed.iter().find(|(_, head)| matches!(head.parse.reading.document, Document::Application(_))).unwrap();
+    let base = form.revision.reference;
+    assert_eq!(form.revision.state.admission, Admission::AwaitingAudit);
+    let accuracy = setup.applications.accuracy().unwrap();
+    assert_eq!((accuracy.awaiting, accuracy.audited), (2, 0));
+
+    let edits = setup.edits(base, &[(LEGAL_NAME, EditInput::Text("FABRIKAM LLC"))]);
+    for refused in [
+        setup.applications.correct(base, &edits, Cause::Reading, None, setup.reviewer),
+        setup.applications.confirm_application(base, setup.reviewer),
+        setup.applications.correct(base, &Edits::remove_second_owner(), Cause::Merchant, None, setup.reviewer),
+    ] {
+        assert!(matches!(refused, Err(ApplicationError::AwaitingAudit)));
+    }
+    let audited = saved(setup.applications.audit(base, &edits, true, setup.reviewer));
+    assert_eq!((audited.revision.kind, audited.revision.state.admission), (RevisionKind::Audit, Admission::Confirmed));
+    assert_eq!(audited.revision.parse, form.revision.parse, "the audit keeps the frozen parse");
+    let again = setup.applications.audit(audited.revision.reference, &edits, true, setup.reviewer);
+    assert!(matches!(again, Err(ApplicationError::NotAwaitingAudit)));
+    let accuracy = setup.applications.accuracy().unwrap();
+    assert_eq!((accuracy.awaiting, accuracy.audited, accuracy.applications), (1, 1, 1));
+    assert_eq!(accuracy.fields.get(LEGAL_NAME).wrong, 1, "the parse read CONTOSO LLC");
+    let later = setup.edits(audited.revision.reference, &[(LEGAL_NAME, EditInput::Text("CONTOSO LLC"))]);
+    saved(setup.applications.correct(audited.revision.reference, &later, Cause::Reading, None, setup.reviewer));
+    assert_eq!(setup.applications.accuracy().unwrap().fields.get(LEGAL_NAME).wrong, 1);
+    assert_eq!(setup.applications.accuracy().unwrap().audited, 1, "a later correction leaves the audit as it was");
+}

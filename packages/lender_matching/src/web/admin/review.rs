@@ -208,9 +208,10 @@ pub fn refused(error: MatchError) -> PageError {
             StatusCode::CONFLICT,
             &format!("The application changed: revision {current} is current. Open it again and match that one."),
         ),
-        MatchError::ApplicationUnconfirmed => {
-            PageError::status(StatusCode::CONFLICT, "Confirm that this document is an application before matching it.")
-        }
+        MatchError::ApplicationUnconfirmed => PageError::status(
+            StatusCode::CONFLICT,
+            "This document is not confirmed as an application, so it is not matched.",
+        ),
         MatchError::Store(error) => error.into(),
         other @ (MatchError::AnalysisNotConfigured
         | MatchError::AnalysisPackageNotFound

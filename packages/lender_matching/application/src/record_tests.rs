@@ -296,6 +296,24 @@ fn a_manual_entry_draft_waits_for_a_person_and_fills_from_overrides_only() {
 }
 
 #[test]
+fn a_sampled_document_waits_for_its_audit_which_settles_whether_it_is_an_application() {
+    let form = reading(&Form::word());
+    let sampled = RevisionState::awaiting_audit();
+    assert!(!sampled.admission.admits_matching());
+    assert_eq!(sampled.adopting(&form.document).unwrap().admission, Admission::AwaitingAudit);
+    assert!(sampled.confirmed() == sampled, "only an audit settles it");
+    let typed = edits(&form, &sampled, &[(business(B::LegalName), EditInput::Text("FABRIKAM LLC"))]);
+    let audited = sampled.audited(&typed, true);
+    assert_eq!(audited.admission, Admission::Confirmed);
+    let resolved = Record { reading: &form, state: &audited }.resolve();
+    assert_eq!(text(&resolved, business(B::LegalName)).as_deref(), Some("FABRIKAM LLC"));
+    let other = sampled.audited(&typed, false);
+    assert_eq!(other.admission, Admission::NotAnApplication);
+    assert!(!other.admission.admits_matching());
+    assert_eq!(other.adopting(&form.document).unwrap().admission, Admission::NotAnApplication);
+}
+
+#[test]
 fn a_refused_document_has_no_state() {
     let contract =
         PageBuilder::new().text("TimesNewRomanPS-BoldMT", 12.0, 40.0, 40.0, "RECEIVABLES PURCHASE AGREEMENT");

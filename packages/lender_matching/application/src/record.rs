@@ -50,6 +50,10 @@ pub enum Admission {
     AwaitingConfirmation,
     /// A person confirmed that the document is an application.
     Confirmed,
+    /// Sampled for a blind audit, whatever the parse reads it as: nothing but the audit changes it.
+    AwaitingAudit,
+    /// The audit found that the document is not an application.
+    NotAnApplication,
 }
 
 impl Admission {
@@ -63,7 +67,7 @@ impl Admission {
     }
 
     pub fn admits_matching(self) -> bool {
-        self != Admission::AwaitingConfirmation
+        matches!(self, Admission::Recognized | Admission::Confirmed)
     }
 }
 
@@ -90,14 +94,26 @@ impl RevisionState {
         next
     }
 
+    /// Revision 1 of a document sampled for a blind audit, refused ones included.
+    pub fn awaiting_audit() -> RevisionState {
+        RevisionState { overrides: FieldMap::from_fn(|_| Override::Inherit), admission: Admission::AwaitingAudit }
+    }
+
     /// The state with `document` selected instead: every override kept, and the admission it
-    /// reads as unless a person confirmed the document. None for a refused document.
+    /// reads as unless a person or an audit settled it. None for a refused document.
     pub fn adopting(&self, document: &Document) -> Option<RevisionState> {
         let admission = match (self.admission, Admission::of(document)?) {
-            (Admission::Confirmed, _) => Admission::Confirmed,
+            (settled @ (Admission::Confirmed | Admission::AwaitingAudit | Admission::NotAnApplication), _) => settled,
             (_, read) => read,
         };
         Some(RevisionState { overrides: self.overrides.clone(), admission })
+    }
+
+    /// A blind audit's result: what the auditor typed, and whether the document is an application.
+    pub fn audited(&self, edits: &Edits, application: bool) -> RevisionState {
+        let mut next = self.edited(edits);
+        next.admission = if application { Admission::Confirmed } else { Admission::NotAnApplication };
+        next
     }
 
     /// A manual-entry draft confirmed as an application; any other state is unchanged.

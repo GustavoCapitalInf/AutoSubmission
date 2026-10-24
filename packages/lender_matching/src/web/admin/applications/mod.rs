@@ -1,5 +1,6 @@
-//! The application pages: the list, upload, and the form in the cards of the owner's screenshot.
-//! Viewers read; reviewers and editors upload, correct and match. An SSN shows by its last four
+//! The application pages: the list, upload, the form in the cards of the owner's screenshot, and
+//! the blind audit of a sampled document. Viewers read; reviewers and editors upload, correct,
+//! audit and match. An SSN shows by its last four
 //! digits and a date of birth as recorded or missing, and no input holds either
 //! (`empty_required_fields_are_red_unread_ones_amber_and_identity_data_stays_masked`).
 
@@ -57,6 +58,7 @@ pub fn router() -> Router<Shared> {
         .route("/admin/applications/{id}/history", get(history))
         .route("/admin/applications/{id}/reparse", post(reparse))
         .route("/admin/applications/{id}/adopt", post(adopt))
+        .route("/admin/applications/{id}/audit", post(save_audit))
         .route("/admin/applications/{id}/matches", post(create_match))
 }
 
@@ -110,8 +112,25 @@ fn failed(error: ApplicationError) -> PageError {
             unprocessable("The PDF could not be read in time. Nothing was saved.")
         }
         ApplicationError::Unstorable => unprocessable("The PDF's reading could not be stored. Nothing was saved."),
+        ApplicationError::AwaitingAudit => PageError::status(
+            StatusCode::CONFLICT,
+            "This document waits for its blind audit, which comes first. Open it and save the audit.",
+        ),
+        ApplicationError::NotAwaitingAudit => PageError::status(
+            StatusCode::CONFLICT,
+            "This document is not waiting for an audit; it was audited already.",
+        ),
         ApplicationError::Store(error) => error.into(),
     }
+}
+
+fn awaiting_audit(head: &Snapshot) -> bool {
+    head.revision.state.admission == Admission::AwaitingAudit
+}
+
+/// Refuses what would show a reading before its blind audit.
+fn not_before_audit(head: &Snapshot) -> Result<(), PageError> {
+    if awaiting_audit(head) { Err(failed(ApplicationError::AwaitingAudit)) } else { Ok(()) }
 }
 
 fn text_of(resolved: &Resolved, field: FieldId) -> Option<String> {
@@ -169,11 +188,19 @@ async fn list(State(app): State<Shared>, user: AdminUser) -> Result<Markup, Page
                 @for (upload, head) in &rows {
                     @let resolved = head.record().resolve();
                     tr {
-                        td { a href={ "/admin/applications/" (upload.id) } { (text_of(&resolved, LEGAL_NAME).unwrap_or_else(|| "no legal name".to_string())) } }
-                        td { (text_of(&resolved, PRINCIPAL_NAME).unwrap_or_default()) }
-                        td { (upload.by) " " span.note { (shown_time(upload.at)) } }
-                        td { (layout(head)) }
-                        td { @for badge in badges(head, &resolved) { span.badge { (badge) } } }
+                        @if awaiting_audit(head) {
+                            td { a href={ "/admin/applications/" (upload.id) } { "awaiting its audit" } }
+                            td {}
+                            td { (upload.by) " " span.note { (shown_time(upload.at)) } }
+                            td {}
+                            td { span.badge { "audit" } }
+                        } @else {
+                            td { a href={ "/admin/applications/" (upload.id) } { (text_of(&resolved, LEGAL_NAME).unwrap_or_else(|| "no legal name".to_string())) } }
+                            td { (text_of(&resolved, PRINCIPAL_NAME).unwrap_or_default()) }
+                            td { (upload.by) " " span.note { (shown_time(upload.at)) } }
+                            td { (layout(head)) }
+                            td { @for badge in badges(head, &resolved) { span.badge { (badge) } } }
+                        }
                     }
                 }
             }
@@ -260,6 +287,9 @@ fn done_notice(done: &str) -> Option<&'static str> {
         "confirmed" => "Confirmed as an application.",
         "adopted" => "The new reading was adopted; every person's value is kept.",
         "current" => "The current parser reads this PDF as the selected reading does; there is nothing to adopt.",
+        "audited" => {
+            "The audit was saved. The parser's reading now shows in History, and applications accuracy scores it."
+        }
         _ => return None,
     })
 }
@@ -491,11 +521,14 @@ async fn view(
     user: AdminUser,
     Path(id): Path<String>,
     Query(query): Query<ViewQuery>,
-) -> Result<Markup, PageError> {
+) -> Result<Response, PageError> {
     let applications = service(&app)?;
     let id = application_id(&id)?;
     let head = blocking(|| applications.current(id))?;
     let context = context(&app, applications, id)?;
+    if awaiting_audit(&head) {
+        return audit_page(applications, &user, &head, &context, None, &AuditProblems::default());
+    }
     let mut shown = Shown::new(&user, &head, &context);
     if query.existing.is_some() {
         shown.notices.push(html! { p.notice { "This file was uploaded already; this is its application." } });
@@ -503,7 +536,96 @@ async fn view(
     if let Some(notice) = query.done.as_deref().and_then(done_notice) {
         shown.notices.push(html! { p.notice { (notice) } });
     }
-    Ok(application_page(&shown))
+    Ok(application_page(&shown).into_response())
+}
+
+#[derive(Default)]
+struct AuditProblems {
+    all: Vec<String>,
+    fields: BTreeMap<FieldId, String>,
+}
+
+/// A sampled document before its blind audit. A reviewer gets page 1 uncovered, logged as an
+/// audit access, beside empty inputs; a viewer gets neither. No reading of the parser shows.
+fn audit_page(
+    applications: &Applications,
+    user: &AdminUser,
+    head: &Snapshot,
+    context: &Context,
+    submitted: Option<(&Submission, bool)>,
+    problems: &AuditProblems,
+) -> Result<Response, PageError> {
+    let status = if problems.all.is_empty() { StatusCode::OK } else { StatusCode::UNPROCESSABLE_ENTITY };
+    let uploaded = html! { p.note { "Drawn for a blind audit by " (context.upload.by) " at " (shown_time(context.upload.at)) "." } };
+    if !user.can(Role::Reviewer) {
+        let body = html! { (uploaded) p.note { "A reviewer or an editor audits this document first; until then nothing of it shows." } };
+        return Ok((status, page(Some(user), "Awaiting its audit", body)).into_response());
+    }
+    let id = head.revision.reference.id;
+    blocking(|| applications.log_access(id, user.id, Access::Audit))?;
+    let image = match tokio::task::block_in_place(|| applications.page_image(head, Cover::Nothing)) {
+        Ok(Some(png)) => html! { img src={ "data:image/png;base64," (STANDARD.encode(png)) } alt="Page 1"; },
+        Ok(None) | Err(_) => html! { p.note { "Page 1 could not be drawn." } },
+    };
+    let not_application = submitted.is_some_and(|(_, application)| !application);
+    let body = html! {
+        (uploaded)
+        p.notice {
+            "Type each field as page 1 shows it, and leave it blank where the page shows nothing. "
+            "The parser's reading stays hidden until the audit is saved. Opening this page is logged."
+        }
+        (errors(&problems.all))
+        div.split {
+            aside.page-image { (image) }
+            div {
+                form method="post" action={ "/admin/applications/" (id) "/audit" } {
+                    (csrf(user))
+                    input type="hidden" name="base_revision" value=(head.revision.reference.revision);
+                    section.card {
+                        label { input type="checkbox" name="not_application" checked[not_application]; " This is not an application" }
+                    }
+                    (form::render_audit_cards(submitted.map(|(submission, _)| submission), &problems.fields))
+                    section.card { button { "Save the audit" } }
+                }
+            }
+        }
+    };
+    Ok((status, wide_page(Some(user), "Blind audit", body)).into_response())
+}
+
+/// `POST /admin/applications/{id}/audit`: what the auditor typed, read with each field's grammar,
+/// or that the document is not an application.
+async fn save_audit(
+    State(app): State<Shared>,
+    user: AdminUser,
+    Path(id): Path<String>,
+    form: RawForm,
+) -> Result<Response, PageError> {
+    require(&user, Role::Reviewer)?;
+    let applications = service(&app)?;
+    let id = application_id(&id)?;
+    let fields = fields(form);
+    fields.check_csrf(&user)?;
+    let base_ref = base_of(&fields, id)?;
+    let base = blocking(|| applications.at(base_ref))?;
+    let application = !fields.has("not_application");
+    let submission = form::read_audit(&fields);
+    let inputs = if application { submission.inputs() } else { Vec::new() };
+    let edits = match Edits::read(base.record(), &inputs, now().date()) {
+        Ok(edits) => edits,
+        Err(refused) => {
+            let context = context(&app, applications, id)?;
+            let mut problems = AuditProblems::default();
+            for (field, why) in refused {
+                let message = text::edit_refusal(field, why);
+                problems.all.push(message.clone());
+                problems.fields.insert(field, message);
+            }
+            return audit_page(applications, &user, &base, &context, Some((&submission, application)), &problems);
+        }
+    };
+    let result = tokio::task::block_in_place(|| applications.audit(base_ref, &edits, application, user.id));
+    saved(result, "audited", |head| Err(failed(ApplicationError::Conflict { head })))
 }
 
 /// The revision a form was rendered from, by its `base_revision`.
@@ -671,6 +793,7 @@ async fn reveal(
     let id = application_id(&id)?;
     fields(form).check_csrf(&user)?;
     let head = blocking(|| applications.current(id))?;
+    not_before_audit(&head)?;
     let context = context(&app, applications, id)?;
     blocking(|| applications.log_access(id, user.id, Access::Reveal))?;
     let picture = match tokio::task::block_in_place(|| applications.page_image(&head, Cover::Nothing)) {
@@ -692,6 +815,7 @@ async fn page_image(State(app): State<Shared>, user: AdminUser, Path(id): Path<S
     let applications = service(&app)?;
     let id = application_id(&id)?;
     let head = blocking(|| applications.current(id))?;
+    not_before_audit(&head)?;
     match blocking(|| applications.page_image(&head, Cover::Identity))? {
         Some(png) => Ok(([(CONTENT_TYPE, "image/png")], png).into_response()),
         None => Err(PageError::not_found()),
@@ -704,6 +828,7 @@ async fn history(State(app): State<Shared>, user: AdminUser, Path(id): Path<Stri
     let applications = service(&app)?;
     let id = application_id(&id)?;
     let (snapshots, accesses) = blocking(|| Ok((applications.history(id)?, applications.accesses(id)?)))?;
+    not_before_audit(snapshots.last().expect("history holds a revision"))?;
     let resolved: Vec<Resolved> = snapshots.iter().map(|snapshot| snapshot.record().resolve()).collect();
     let mut entries = Vec::new();
     for (index, snapshot) in snapshots.iter().enumerate() {
@@ -759,6 +884,7 @@ async fn reparse(
     let id = application_id(&id)?;
     fields(form).check_csrf(&user)?;
     let head = blocking(|| applications.current(id))?;
+    not_before_audit(&head)?;
     let candidate = blocking(|| applications.reparse(id))?;
     if candidate == head.revision.parse {
         return Ok(redirect(&format!("/admin/applications/{id}?done=current")));

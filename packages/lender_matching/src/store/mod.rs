@@ -17,7 +17,8 @@ use crate::facts::application::{Industries, IndustryId};
 use crate::matching::{LenderVerdict, MATCH_FORMAT, MatchRecord, Requester, VerdictResult};
 use auth::{AdminUser, MachineClient, Role, Scope};
 
-const MIGRATIONS: [&str; 2] = [include_str!("schema.sql"), include_str!("migration_2.sql")];
+const MIGRATIONS: [&str; 3] =
+    [include_str!("schema.sql"), include_str!("migration_2.sql"), include_str!("migration_3.sql")];
 
 const SESSION_HOURS: i64 = 12;
 
@@ -726,7 +727,7 @@ mod tests {
         drop(Store::open(&path).unwrap());
         drop(Store::open(&path).unwrap());
         Connection::open(&path).unwrap().pragma_update(None, "user_version", 99).unwrap();
-        assert!(matches!(Store::open(&path), Err(StoreError::NewerSchema { found: 99, known: 2 })));
+        assert!(matches!(Store::open(&path), Err(StoreError::NewerSchema { found: 99, known: 3 })));
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
@@ -806,6 +807,85 @@ mod tests {
             format!(
                 "INSERT INTO matches (id, created_at, client_id, supersedes, as_of, engine_version, format, input, facts) VALUES ('m9', '2026-10-23T00:00:00Z', {client}, '{}', '2026-10-23', 1, 1, '{{}}', '{{}}')",
                 first.id
+            ),
+        ] {
+            assert!(conn.execute(&sql, []).is_err(), "{sql}");
+        }
+        drop(conn);
+        drop(store);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn migration_3_keeps_every_application_row_and_admits_audits() {
+        use crate::applications::{ApplicationId, ApplicationRef, RevisionKind};
+        let directory = std::env::temp_dir().join(format!("lender-matching-store-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("store.sqlite3");
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch(MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        let (application, parse) = (Uuid::new_v4(), Uuid::new_v4());
+        let tx = conn.transaction().unwrap();
+        let write = WriteTx { read: ReadTx { conn: &tx } };
+        let user = write.add_user("sample.reviewer", "correct horse battery", Role::Reviewer).unwrap();
+        let author = Author::User { id: user, username: "sample.reviewer".to_string() };
+        let lender = write.create_lender(&record("CONTOSO CAPITAL", 2), &author, None).unwrap();
+        let matched = made_by(Requester::Person { user, supersedes: None }, &lender);
+        write.insert_match(&matched).unwrap();
+        tx.execute_batch(&format!(
+            "INSERT INTO applications (id, source_sha256, uploaded_at, uploaded_by, source_pdf) \
+               VALUES ('{application}', zeroblob(32), '2026-10-23T00:00:00Z', {user}, x'00'); \
+             INSERT INTO application_parses (id, application_id, parser_version, parser_fingerprint, created_at, \
+               format, payload) VALUES ('{parse}', '{application}', 3, zeroblob(32), '2026-10-23T00:00:00Z', 1, x'00'); \
+             INSERT INTO application_revisions (application_id, revision, selected_parse_id, saved_at, author_user_id, \
+               kind, cause, format, state) VALUES ('{application}', 1, '{parse}', '2026-10-23T00:00:00Z', {user}, \
+               'upload', NULL, 1, x'00'); \
+             INSERT INTO application_access (application_id, user_id, occurred_at, action) \
+               VALUES ('{application}', {user}, '2026-10-23T00:00:00Z', 'reveal'); \
+             INSERT INTO match_applications (match_id, application_id, revision) VALUES ('{}', '{application}', 1);",
+            matched.id
+        ))
+        .unwrap();
+        assert!(
+            tx.execute_batch(&format!(
+                "INSERT INTO application_access (application_id, user_id, occurred_at, action) \
+                 VALUES ('{application}', {user}, '2026-10-23T00:00:00Z', 'audit')"
+            ))
+            .is_err(),
+            "version 2 logs no audit"
+        );
+        tx.commit().unwrap();
+        drop(conn);
+
+        let store = Store::open(&path).unwrap();
+        let id = ApplicationId(application);
+        let revisions = store.read(|tx| tx.application_revisions(id)).unwrap();
+        assert_eq!(
+            revisions.iter().map(|row| (row.revision, row.kind)).collect::<Vec<_>>(),
+            [(1, RevisionKind::Upload)]
+        );
+        assert_eq!(
+            store.read(|tx| tx.match_application(matched.id)).unwrap(),
+            Some(ApplicationRef { id, revision: 1 })
+        );
+        assert_eq!(store.read(|tx| tx.application_accesses(id)).unwrap().len(), 1);
+        store.write(|tx| tx.insert_application_access(id, user, "audit")).unwrap();
+        let conn = store.conn.lock().unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO application_revisions (application_id, revision, selected_parse_id, saved_at, author_user_id, \
+             kind, format, state) VALUES ('{application}', 2, '{parse}', '2026-10-23T00:00:00Z', {user}, 'audit', 1, x'00')"
+        ))
+        .unwrap();
+        for sql in [
+            "UPDATE application_revisions SET format = 2".to_string(),
+            "DELETE FROM application_revisions".to_string(),
+            "UPDATE application_access SET action = 'reveal'".to_string(),
+            "DELETE FROM application_access".to_string(),
+            format!(
+                "INSERT INTO application_access (application_id, user_id, occurred_at, action) \
+                 VALUES ('{application}', {user}, '2026-10-23T00:00:00Z', 'download')"
             ),
         ] {
             assert!(conn.execute(&sql, []).is_err(), "{sql}");

@@ -217,5 +217,6 @@ pub fn revision_kind(kind: RevisionKind) -> &'static str {
         RevisionKind::Edit(Cause::Merchant) => "Corrected: the merchant typed it wrong",
         RevisionKind::AdoptParse => "A new reading of the PDF adopted",
         RevisionKind::ConfirmApplication => "Confirmed as an application",
+        RevisionKind::Audit => "Audited blind",
     }
 }

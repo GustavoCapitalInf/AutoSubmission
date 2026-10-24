@@ -161,6 +161,19 @@ pub fn read_submission(fields: &Fields, base: &Snapshot) -> (Submission, Vec<Str
     (submission, problems)
 }
 
+/// A blind audit's inputs: each field's text, and an empty input as empty.
+pub fn read_audit(fields: &Fields) -> Submission {
+    let changes = FieldId::ALL
+        .into_iter()
+        .filter(|field| field.spec().editable())
+        .map(|field| {
+            let typed = normalized(fields.get(&format!("f.{field}")));
+            (field, if typed.is_empty() { Change::Clear } else { Change::Text(typed) })
+        })
+        .collect();
+    Submission { changes, cause: None, reason: String::new() }
+}
+
 /// One change as a conflict page lists it; a typed SSN or date of birth is not shown.
 pub fn change_text(field: FieldId, change: &Change) -> String {
     let what = match change {
@@ -354,6 +367,32 @@ fn signer_check(view: &FormView) -> Markup {
             },
             SignerCheck::Ambiguous => p.check-warn { "DocuSign check: several of the envelope's signers match this owner." },
             SignerCheck::Unavailable => p.note { "DocuSign check: not possible; the owner's name or email, or the envelope's signers, are missing." },
+        }
+    }
+}
+
+/// The cards with an empty input for every field a person enters, and what an earlier
+/// submission typed, except an SSN or a date of birth.
+pub fn render_audit_cards(submitted: Option<&Submission>, problems: &BTreeMap<FieldId, String>) -> Markup {
+    html! {
+        @for (title, fields) in cards() {
+            section.card {
+                h2 { (title) }
+                div.grid {
+                    @for field in fields.iter().copied().filter(|field| field.spec().editable()) {
+                        @let id = format!("f-{}", field.to_string().replace('.', "-"));
+                        @let typed = match submitted.and_then(|submitted| submitted.change(field)) {
+                            Some(Change::Text(text)) if !field.spec().masked => text.as_str(),
+                            _ => "",
+                        };
+                        div.field {
+                            label for=(id) { (label(field)) }
+                            input id=(id) type="text" name={ "f." (field) } value=(typed) autocomplete="off";
+                            @if let Some(problem) = problems.get(&field) { p.problem { (problem) } }
+                        }
+                    }
+                }
+            }
         }
     }
 }

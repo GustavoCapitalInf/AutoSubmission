@@ -10,6 +10,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use lender_matching_application::Rect;
 use lender_matching_application::extract::{Document, read};
+use lender_matching_application::pdf::PageImage;
 use lender_matching_application::worker::PdfWorker;
 
 use common::*;
@@ -648,4 +649,183 @@ async fn find_lenders_matches_the_corrected_application_and_the_match_says_when_
     assert_eq!(pages.reviewer.submit(&page, &path, &later, None).await.status, StatusCode::SEE_OTHER);
     let changed = pages.viewer.get(&matched).await;
     assert!(changed.body.contains("The application changed after this match: revision 3 is current."));
+}
+
+/// Page 1 as the server draws it beside an audit's inputs.
+fn page_png(library: &Path, pdf: &[u8]) -> Vec<u8> {
+    let binary = Path::new(env!("CARGO_BIN_EXE_lender-matching"));
+    let mut worker = PdfWorker::start(binary, &["pdf-worker"], library).unwrap();
+    let image = PageImage { page: 0, width: 1100, covers: Vec::new() };
+    worker.page_png(pdf, &image, Duration::from_secs(60)).unwrap()
+}
+
+fn sample(data: &Path, folder: &Path, library: &Path, count: &str) -> Output {
+    let mut command = command(data);
+    command.env("APPLICATION_DATA_KEY", KEY).env("PDFIUM_LIBRARY", library);
+    let folder = folder.to_str().unwrap();
+    command.args(["applications", "sample", folder, "--count", count, "--seed", "7", "--by", "sample.reviewer"]);
+    command.output().unwrap()
+}
+
+/// What the auditor types for `form`: what it prints in each field a person enters.
+fn transcribed(form: &Form) -> Vec<(String, String)> {
+    let entered = form.values.iter().filter(|(field, _)| field.spec().editable());
+    entered.map(|(field, text)| (format!("f.{field}"), text.to_string())).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_blind_audit_hides_the_parse_until_it_is_saved_and_accuracy_scores_it() {
+    let Some(library) = support::pdfium_library() else { return };
+    let legal_name = FieldId::Business(BusinessField::LegalName);
+    let city = FieldId::Business(BusinessField::City);
+    let forms =
+        [Form::word(), Form::word().set(legal_name, "FABRIKAM LLC"), Form::word().set(legal_name, "NORTHWIND LLC")];
+    let draft = Form { omit: vec!["Secondary Owner Name"], ..Form::word() };
+    let inbox = TempDir::new();
+    let mut documents: Vec<(&str, Vec<u8>)> = vec![
+        ("CONTOSO.pdf", application(&forms[0], 21)),
+        ("FABRIKAM.pdf", application(&forms[1], 22)),
+        ("NORTHWIND.pdf", application(&forms[2], 23)),
+        ("SAMPLE contract.pdf", contract()),
+        ("SAMPLE draft.pdf", application(&draft, 24)),
+    ];
+    for (name, bytes) in &documents {
+        std::fs::write(inbox.path().join(name), bytes).unwrap();
+    }
+    std::fs::write(inbox.path().join("SAMPLE broken.pdf"), b"SAMPLE OWNER, not a PDF").unwrap();
+    documents.push(("SAMPLE broken.pdf", Vec::new()));
+
+    let mixed = TempDir::new();
+    add_user(mixed.path(), "sample.reviewer", "reviewer");
+    let upload = inbox.path().join("CONTOSO.pdf");
+    assert!(import(mixed.path(), &[upload], "sample.reviewer", Some(KEY), Some(&library)).status.success());
+    let refused = sample(mixed.path(), inbox.path(), &library, "2");
+    assert!(!refused.status.success() && text(&refused.stderr).contains("not drawn for an audit"));
+
+    let pages = pages(&library).await;
+    let drawn = sample(pages.data.path(), inbox.path(), &library, "6");
+    assert!(drawn.status.success(), "{}", text(&drawn.stderr));
+    let stdout = text(&drawn.stdout);
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        [
+            "applications sample: drew 6 of 6 PDF files with seed 7. Counts only.",
+            "stored for the audit: application forms 3, hand-entry drafts 1, refused documents 1",
+            "already stored 0; not stored, as the PDF could not be read, 1",
+        ]
+    );
+    let again = sample(pages.data.path(), inbox.path(), &library, "6");
+    assert!(text(&again.stdout).contains("already stored 5;"), "a repeat stores nothing new");
+    assert!(sample(pages.data.path(), inbox.path(), &library, "7").status.code() == Some(1));
+
+    let parsed = ["CONTOSO", "FABRIKAM", "NORTHWIND", "AUSTIN", "SAMPLE OWNER", "owner@example.com", "hand entry"];
+    let list = pages.reviewer.get("/admin/applications").await;
+    assert_no_secret("the list before the audits", &list.body, &parsed);
+    let ids: Vec<String> = list
+        .body
+        .split("href=\"/admin/applications/")
+        .skip(1)
+        .filter_map(|rest| {
+            let id = rest.split('"').next().unwrap();
+            (id.len() == 36).then(|| id.to_string())
+        })
+        .collect();
+    assert_eq!(ids.len(), 5, "{}", list.body);
+    assert_eq!(list.body.matches("awaiting its audit").count(), 5);
+
+    let renders: Vec<Vec<u8>> = documents[..5].iter().map(|(_, pdf)| page_png(&library, pdf)).collect();
+    let mut audits = Vec::new();
+    for id in &ids {
+        let path = format!("/admin/applications/{id}");
+        let page = pages.reviewer.get(&path).await;
+        assert!(page.body.contains("<h1>Blind audit</h1>"), "{}", page.body);
+        assert_no_secret("an audit page", &page.body, &parsed);
+        let inline = page.body.split("src=\"data:image/png;base64,").nth(1).expect("page 1, uncovered");
+        let png = STANDARD.decode(inline.split('"').next().unwrap()).unwrap();
+        let document = renders.iter().position(|render| *render == png).expect("the page of a sampled file");
+        let seen = pages.viewer.get(&path).await;
+        assert!(seen.body.contains("Awaiting its audit") && !seen.body.contains("<img"));
+        assert_eq!(pages.reviewer.get(&format!("{path}/history")).await.status, StatusCode::CONFLICT);
+        assert_eq!(pages.reviewer.get_bytes(&format!("{path}/page/1.png")).await.0, StatusCode::CONFLICT);
+        let csrf = vec![("csrf".to_string(), csrf_of(&page))];
+        assert_eq!(pages.reviewer.post(&format!("{path}/reveal"), &csrf).await.status, StatusCode::CONFLICT);
+        audits.push((path, page, document));
+    }
+    audits.sort_by_key(|(_, _, document)| *document);
+    let [contoso, fabrikam, northwind, contract, draft] = &audits[..] else { panic!("five audits") };
+
+    let audit = |path: &String| format!("{path}/audit");
+    let mut typed = transcribed(&forms[0]);
+    set(&mut typed, "f.business.start_date", "13/45/2019");
+    let typed: Vec<(&str, &str)> = typed.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
+    let unreadable = pages.reviewer.submit(&contoso.1, &audit(&contoso.0), &typed, None).await;
+    assert_eq!(unreadable.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(unreadable.body.contains("Business Start Date: Could not read this as a date"));
+    assert_eq!(value_of(&form_fields(&unreadable.body, &audit(&contoso.0)), "f.principal.ssn").as_deref(), Some(""));
+
+    let not_application = || vec![("not_application".to_string(), "on".to_string())];
+    let saves = [
+        (contoso, transcribed(&forms[0])),
+        (fabrikam, transcribed(&Form::word().set(legal_name, "FABRIKAM LLC").set(city, "DALLAS"))),
+        (northwind, not_application()),
+        (contract, not_application()),
+        (draft, vec![("f.business.legal_name".to_string(), "SAMPLE DRAFT LLC".to_string())]),
+    ];
+    for ((path, page, _), changes) in saves {
+        let changes: Vec<(&str, &str)> = changes.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
+        let saved = pages.reviewer.submit(page, &audit(path), &changes, None).await;
+        assert_eq!(saved.location.as_deref(), Some(format!("{path}?done=audited").as_str()), "{}", saved.body);
+    }
+    let after = pages.reviewer.get(&contoso.0).await;
+    assert!(after.body.contains("<h1>CONTOSO LLC</h1>"), "the form shows once audited");
+    let history = pages.reviewer.get(&format!("{}/history", contoso.0)).await;
+    assert!(history.body.contains("Audited blind by sample.reviewer"));
+    let resubmitted = pages.reviewer.submit(&contoso.1, &audit(&contoso.0), &[], None).await;
+    assert_eq!(resubmitted.status, StatusCode::CONFLICT, "an audit is saved once");
+    let audits_logged = access_log(pages.data.path()).iter().filter(|(action, _)| action == "audit").count();
+    assert!(audits_logged >= 5);
+
+    let scored = cli(pages.data.path(), &["applications", "accuracy"]);
+    assert!(!scored.status.success(), "the key is needed");
+    let scored = command(pages.data.path())
+        .env("APPLICATION_DATA_KEY", KEY)
+        .args(["applications", "accuracy"])
+        .output()
+        .unwrap();
+    let report = text(&scored.stdout);
+    let lines: Vec<&str> = report.lines().collect();
+    assert_eq!(
+        lines[0],
+        "applications accuracy: 5 sampled, 5 audited, 0 awaiting their audit. Counts only; intervals are Wilson 95%."
+    );
+    assert!(
+        lines[1].starts_with(
+            "documents: 4 classified right, 1 wrong (applications refused 0, other documents kept 1); right 80.0%"
+        ),
+        "{report}"
+    );
+    let row = |field: &str, counts: [u32; 4]| {
+        format!("{field:<34} {:>6} {:>6} {:>8} {:>7}", counts[0], counts[1], counts[2], counts[3])
+    };
+    assert!(lines.iter().any(|line| line.starts_with(&row("business.city", [2, 1, 0, 0]))), "{report}");
+    assert!(lines.iter().any(|line| line.starts_with(&row("business.legal_name", [2, 0, 1, 0]))), "{report}");
+    assert!(lines.last().unwrap().starts_with("applications with every field right: 1 of 3"), "{report}");
+
+    let mut secrets: Vec<&str> = parsed.to_vec();
+    secrets.extend(IDENTITY);
+    secrets.extend(["SAMPLE DRAFT LLC", "DALLAS", "SAMPLE broken", "SAMPLE contract"]);
+    for (what, printed) in [
+        ("sample's stdout", stdout.as_str()),
+        ("accuracy's stdout", report.as_str()),
+        ("the server log", &pages.server.log()),
+    ] {
+        assert_no_secret(what, printed, &secrets);
+    }
+    let database = database_bytes(pages.data.path());
+    for secret in secrets.iter().filter(|secret| secret.len() > 3) {
+        assert!(
+            !database.windows(secret.len()).any(|window| window == secret.as_bytes()),
+            "the database holds {secret}"
+        );
+    }
 }

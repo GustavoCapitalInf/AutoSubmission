@@ -3,6 +3,7 @@
 //! so every current value derives from what is stored.
 
 pub mod evaluate;
+pub mod sample;
 mod seal;
 
 use std::fmt;
@@ -10,13 +11,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
+use lender_matching_application::audit::Accuracy;
 use lender_matching_application::extract::{self, Document, ManualEntryReason, Reading, RefusalReason};
 use lender_matching_application::fields::{BusinessField, FieldId, PropertyField};
 use lender_matching_application::pdf::PageImage;
 use lender_matching_application::values::{Country, Currency, Denomination, Entity, StatedDate, YesNo};
 use lender_matching_application::worker::{PdfWorker, WorkerError};
 use lender_matching_application::{
-    FieldValue, PARSER_VERSION, PDFIUM_BUILD, PdfFacts, Record, Resolved, RevisionState, YearMonth,
+    Admission, Edits, FieldValue, PARSER_VERSION, PDFIUM_BUILD, PdfFacts, Record, Resolved, RevisionState, YearMonth,
 };
 use sha2::{Digest, Sha256};
 use time::{Date, OffsetDateTime};
@@ -67,6 +69,8 @@ pub enum RevisionKind {
     Edit(Cause),
     AdoptParse,
     ConfirmApplication,
+    /// What a person typed from page 1 of a sampled document before seeing its parse.
+    Audit,
 }
 
 /// Why a person corrected a field.
@@ -87,6 +91,7 @@ impl RevisionKind {
             RevisionKind::Edit(Cause::Merchant) => ("edit", Some("merchant")),
             RevisionKind::AdoptParse => ("adopt_parse", None),
             RevisionKind::ConfirmApplication => ("confirm_application", None),
+            RevisionKind::Audit => ("audit", None),
         }
     }
 
@@ -97,6 +102,7 @@ impl RevisionKind {
             ("edit", Some("merchant")) => RevisionKind::Edit(Cause::Merchant),
             ("adopt_parse", None) => RevisionKind::AdoptParse,
             ("confirm_application", None) => RevisionKind::ConfirmApplication,
+            ("audit", None) => RevisionKind::Audit,
             _ => return None,
         })
     }
@@ -165,6 +171,21 @@ pub enum Intake {
     Refused(RefusalReason),
 }
 
+/// What `Applications::sample` did with a PDF: stored awaiting its audit, by how its parse reads
+/// it, or found stored already.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Sampled {
+    Form,
+    ManualEntry,
+    Refused,
+    AlreadyStored,
+}
+
+enum Inserted {
+    New { reference: ApplicationRef, same_envelope: Option<ApplicationId> },
+    Existing(ApplicationRef),
+}
+
 /// A stored parse. It holds application data, so it has no `Debug`.
 pub struct StoredParse {
     pub id: ParseId,
@@ -223,12 +244,15 @@ pub enum Cover {
 pub enum Access {
     /// The page with SSNs, dates of birth and page 1 uncovered.
     Reveal,
+    /// A blind audit's page, which shows page 1 uncovered.
+    Audit,
 }
 
 impl Access {
     pub fn key(self) -> &'static str {
         match self {
             Access::Reveal => "reveal",
+            Access::Audit => "audit",
         }
     }
 }
@@ -250,6 +274,10 @@ pub enum ApplicationError {
     Pdf(WorkerError),
     /// The parse holds a value that would not read back as stored.
     Unstorable,
+    /// The document waits for its blind audit, which comes before any other change.
+    AwaitingAudit,
+    /// The document is not waiting for a blind audit.
+    NotAwaitingAudit,
     Store(StoreError),
 }
 
@@ -271,6 +299,8 @@ impl fmt::Display for ApplicationError {
             }
             ApplicationError::Pdf(error) => write!(f, "the PDF could not be read: {}", worker_error(*error)),
             ApplicationError::Unstorable => f.write_str("the parse could not be stored as read"),
+            ApplicationError::AwaitingAudit => f.write_str("the document waits for its blind audit"),
+            ApplicationError::NotAwaitingAudit => f.write_str("the document is not waiting for a blind audit"),
             ApplicationError::Store(error) => error.fmt(f),
         }
     }
@@ -486,14 +516,48 @@ impl Applications {
         if let Some(stored) = self.store.read(|tx| head_ref(tx, &source_sha256))? {
             return Ok(Intake::AlreadyStored(stored));
         }
-        let facts = self.reader.facts(pdf).map_err(ApplicationError::Pdf)?;
-        let reading = extract::read(&facts);
+        let reading = extract::read(&self.reader.facts(pdf).map_err(ApplicationError::Pdf)?);
         let manual_entry = match reading.document {
             Document::Refused(reason) => return Ok(Intake::Refused(reason)),
             Document::ManualEntry(reason) => Some(reason),
             Document::Application(_) => None,
         };
         let state = RevisionState::initial(&reading.document).expect("only a refused document has no state");
+        Ok(match self.insert(pdf, source_sha256, &reading, &state, by)? {
+            Inserted::New { reference, same_envelope } => Intake::Stored { reference, manual_entry, same_envelope },
+            Inserted::Existing(reference) => Intake::AlreadyStored(reference),
+        })
+    }
+
+    /// Stores a document drawn for a blind audit, refused ones included, at revision 1 awaiting
+    /// its audit; its parse stays the one the audit is scored against.
+    pub fn sample(&self, pdf: &[u8], by: i64) -> Result<Sampled, ApplicationError> {
+        let source_sha256 = sha256(pdf);
+        if self.store.read(|tx| head_ref(tx, &source_sha256))?.is_some() {
+            return Ok(Sampled::AlreadyStored);
+        }
+        let reading = extract::read(&self.reader.facts(pdf).map_err(ApplicationError::Pdf)?);
+        let reads_as = match reading.document {
+            Document::Application(_) => Sampled::Form,
+            Document::ManualEntry(_) => Sampled::ManualEntry,
+            Document::Refused(_) => Sampled::Refused,
+        };
+        Ok(match self.insert(pdf, source_sha256, &reading, &RevisionState::awaiting_audit(), by)? {
+            Inserted::New { .. } => reads_as,
+            Inserted::Existing(_) => Sampled::AlreadyStored,
+        })
+    }
+
+    /// One transaction stores the sealed PDF, its reading and revision 1 with `state`, unless the
+    /// same bytes were stored meanwhile.
+    fn insert(
+        &self,
+        pdf: &[u8],
+        source_sha256: [u8; 32],
+        reading: &Reading,
+        state: &RevisionState,
+        by: i64,
+    ) -> Result<Inserted, ApplicationError> {
         let envelope_id_sha256 = reading
             .certificate
             .as_ref()
@@ -501,12 +565,12 @@ impl Applications {
             .map(|envelope| sha256(envelope.as_str().as_bytes()));
         let id = ApplicationId(Uuid::new_v4());
         let parse = ParseId(Uuid::new_v4());
-        let payload = seal_parse(&self.key, id, parse, &reading)?;
+        let payload = seal_parse(&self.key, id, parse, reading)?;
         let source_pdf = Sealed::SourcePdf.seal(&self.key, id, pdf);
-        let sealed_state = self.seal_state(id, 1, &state);
+        let sealed_state = self.seal_state(id, 1, state);
         self.store.write(|tx| {
             if let Some(stored) = head_ref(tx, &source_sha256)? {
-                return Ok(Intake::AlreadyStored(stored));
+                return Ok(Inserted::Existing(stored));
             }
             let same_envelope =
                 envelope_id_sha256.map(|digest| tx.application_by_envelope(&digest)).transpose()?.flatten();
@@ -536,7 +600,7 @@ impl Applications {
                 state: &sealed_state,
                 reason: None,
             })?;
-            Ok(Intake::Stored { reference: ApplicationRef { id, revision: 1 }, manual_entry, same_envelope })
+            Ok(Inserted::New { reference: ApplicationRef { id, revision: 1 }, same_envelope })
         })
     }
 
@@ -671,7 +735,7 @@ impl Applications {
     pub fn correct(
         &self,
         base: ApplicationRef,
-        edits: &lender_matching_application::Edits,
+        edits: &Edits,
         cause: Cause,
         reason: Option<&str>,
         by: i64,
@@ -688,6 +752,50 @@ impl Applications {
         })
     }
 
+    /// Saves a blind audit of a sampled document: what a person typed from page 1, and whether it
+    /// is an application.
+    pub fn audit(
+        &self,
+        base: ApplicationRef,
+        edits: &Edits,
+        application: bool,
+        by: i64,
+    ) -> Result<Saved, ApplicationError> {
+        self.save(base, by, RevisionKind::Audit, None, |_, head| {
+            if head.revision.state.admission != Admission::AwaitingAudit {
+                return Err(ApplicationError::NotAwaitingAudit);
+            }
+            Ok((head.revision.parse, head.revision.state.audited(edits, application)))
+        })
+    }
+
+    /// Scores each audited document's frozen parse, the one its audit revision selects, against
+    /// the audit, and counts the sampled documents still awaiting theirs.
+    pub fn accuracy(&self) -> Result<Accuracy, ApplicationError> {
+        Ok(self.store.read(|tx| {
+            let mut accuracy = Accuracy::default();
+            for upload in tx.application_uploads()? {
+                let rows = tx.application_revisions(upload.id)?;
+                let awaiting = rows.len() == 1;
+                match rows.into_iter().find(|row| row.kind == RevisionKind::Audit) {
+                    Some(row) => {
+                        let audited = snapshot(tx, &self.key, row)?;
+                        accuracy.add(&audited.parse.reading, &audited.revision.state);
+                    }
+                    None if awaiting => {
+                        let head = current_in(tx, &self.key, upload.id)?
+                            .ok_or_else(|| StoreError::Corrupt("an application without a revision".to_string()))?;
+                        if head.revision.state.admission == Admission::AwaitingAudit {
+                            accuracy.awaiting += 1;
+                        }
+                    }
+                    None => {}
+                }
+            }
+            Ok(accuracy)
+        })?)
+    }
+
     /// Applies `change` to the current revision. A result equal to it writes nothing, whatever
     /// `base` is, so a repeated submission is a no-op; otherwise a stale `base` is a conflict.
     fn save(
@@ -701,6 +809,9 @@ impl Applications {
         let reason = reason.map(str::trim).filter(|reason| !reason.is_empty());
         self.store.write(|tx| {
             let head = current_in(tx, &self.key, base.id)?.ok_or(ApplicationError::NotFound)?;
+            if head.revision.state.admission == Admission::AwaitingAudit && kind != RevisionKind::Audit {
+                return Err(ApplicationError::AwaitingAudit);
+            }
             let (parse, state) = change(tx, &head)?;
             if parse == head.revision.parse && state == head.revision.state {
                 return Ok(Saved::Unchanged(head));

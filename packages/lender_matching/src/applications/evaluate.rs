@@ -39,7 +39,7 @@ pub fn pdfium_library() -> Result<PathBuf, String> {
 
 /// Every `.pdf` file under `folder` (any case), sorted, and the count of other entries. Symbolic
 /// links are counted as other entries and not followed.
-fn pdf_files(folder: &Path) -> Result<(Vec<PathBuf>, u32), String> {
+pub(crate) fn pdf_files(folder: &Path) -> Result<(Vec<PathBuf>, u32), String> {
     let mut pdfs = Vec::new();
     let mut others = 0;
     let mut pending = vec![folder.to_path_buf()];
