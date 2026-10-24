@@ -19,10 +19,12 @@ Run every command below from this folder. The machine API is specified in [`docs
 | Info Hub import | Seeds lenders from the "Lenders Module" sheet; rerunnable | `src/info_hub.rs` |
 | Server | `/api/v1` for machine clients with named bearer tokens; `/admin` pages for people with accounts | `src/web/` |
 | Wire types | The v1 request and response types, shared with clients | `wire/` |
+| Application PDFs | Reads merchant application PDFs into typed field readings, with pdfium in a child process | `application/` |
 
 ## Run it
 
 Rust stable is the only requirement. SQLite is compiled in and TLS uses rustls, so Windows needs no system library.
+Only `applications evaluate` also needs pdfium (see [Get pdfium](#get-pdfium)).
 
 ```bash
 cargo build --release
@@ -117,6 +119,110 @@ The owner confirmed these readings of the sheet and the application.
 Negative days of several accounts in one month run from the largest account's count to their sum, since one day can
 be negative in more than one account.
 
+## Read application PDFs
+
+The `application/` member (crate `lender_matching_application`) reads Capital Infusion's merchant application PDFs
+into typed field readings. It reaches no store, network or log. Only `application/src/pdf.rs` calls pdfium, and
+`lender-matching` runs it in a child process (the hidden `pdf-worker` command), so a crash or a hang in pdfium stops
+only that process.
+
+| Part | What it does | Where (`application/src/`) |
+|---|---|---|
+| Field catalog | `FieldId` names the 55 fields: business, principal owner, secondary owner, property and the two signature dates. `FieldId::spec` gives each field's kind, whether it is required, and whether it is identity data or derived | `fields.rs` |
+| Value grammar | `FieldId::read` turns a field's text into a typed value or a closed refusal: `format`, `ambiguous`, `out_of_range`, `not_in_list`, `mark_unclear`, `undecodable` or `no_signing_date`. An email's `format` refusal also says why: `no_at`, `several_at`, `inner_space`, `trailing_punctuation`, `bad_local` or `bad_domain` | `values.rs` |
+| Page model | Each page's characters with font, size and box, in points from the top-left of the displayed page | `page.rs` |
+| Template | The form's known layouts (`word`, `pdfescape`) as static data: each one's label set, sections and sentinel offsets, and the label fonts | `template.rs` |
+| Extraction | Classifies page 1, binds the labels, cuts the value regions and reads each field | `extract.rs` |
+| Certificate | Reads the envelope id, the completion day and the signers under Signer Events, never the originator | `certificate.rs` |
+| Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout | `worker.rs` |
+| Tally | The counts `applications evaluate` prints | `tally.rs` |
+
+A PDF reads by these rules:
+
+- Page 1 decides the document. The RECEIVABLES PURCHASE AGREEMENT heading refuses it as a contract. A page without
+  the form's headings is other paperwork, or a suspected scan when one image covers 80% of it or it holds fewer than
+  300 characters. A page with both kinds of heading, a scan-like page, or labels that fit no single known layout
+  sends the document to manual entry.
+- Each layout prints its own label set, and the document must fit exactly one: its labels bind, and its sentinel
+  labels sit within 3 pt of where pdfium measured them. The PDFescape version prints Email on the Phone row, and
+  Type of Entity and Is business seasonal? as rows of printed choices (Corporation, LLC, Other; Yes, No), each
+  after its box. A mark picks the choice whose left edge is the first at or right of the mark's centre, within
+  30 pt. A description typed on the entity row is read as the entity. Two marks, or a mark with no choice in
+  reach, are refused. The PDFescape sales rep header above BUSINESS INFORMATION and its Fax and Email footer under
+  the signature lines are form text, outside the form area. The Word version's seasonal answer is typed.
+- Labels are found by their printed text in Calibri or AdobeDevanagari, character by character, so a value typed into
+  the label's own run splits after the label. Characters of other fonts are skipped while a label is matched, so a
+  value that runs over the label to its right does not hide it. In each section the labels bind in reading order. A label that two
+  equally long matchings place differently is out of place, never "the nearer one".
+- A field's region lies on its label's row, with tops within −10 to +8 pt of the label's top, from the label's end
+  to the next label on the row. Prior/Current Loan Company also takes the next line, which ends above the band of
+  the next label row, so the two never share a character.
+- Values are read as runs: characters consecutive in the PDF's content, in one font and size, on one baseline, with
+  small gaps. A run belongs to the region that holds its first character, even where it runs on past the next label,
+  and the next field does not get its characters.
+- A run of underscores is a printed blank line, such as the one after each signature line's "Date:", and is form
+  text. A signature date is DocuSign's date-signed stamp, `M/D/YYYY`; any other shape is refused.
+- A field is in doubt, and gets no value, when its label's text occurs more often in its section than the form
+  prints it, when other label text lies in its runs, or when one of its runs starts in two regions. A run inside the
+  form that starts in no region is unplaced as a whole, whatever its font. The band between the last field row and
+  the signature lines holds the certification paragraph and is not checked.
+- A state is a postal code, with or without a trailing dot, or a full US, territory or Canadian province name in any
+  case. A phone is 10 digits, or 11 with a leading 1, between spaces and `- . ( ) / =`. An SSN and a tax ID are 9
+  digits in any grouping by spaces, `-` or `.`; the grouping only decides how they are written back. A Canadian
+  business number may hold spaces. A zip code may end in a stray backtick, period or comma. The entity dropdown's
+  texts read as the matcher's kinds: LLP, GP and LP are partnerships, PC is a corporation, and "S CORPORATION
+  (C CORP)" is refused as ambiguous. An email address may be wrapped in quotes, brackets or sentence punctuation,
+  and may have spaces around its `@`.
+- Dates read month first, with `/`, `-`, `.` or spaces between the numbers. Year first (`2019-04-15`,
+  `2019/04/15`) and month names (`Apr 15, 2019`, `15 Apr 2019`) read as written. A business date may give only the
+  month (`04/2019`, `April 2019`, `Apr/2019`). For a business outside the US, or one whose state did not read, a
+  numeric month-first date whose month and day could swap is refused. The signing day is the certificate's
+  completion day, else the PDF's creation date. A business or signature date after it, an owner outside 18 to 100
+  years old on it, and a six-digit date that reads both as MMYYYY and as MMDDYY are refused.
+- Amounts keep their cents and their denomination: `USD`, `CAD`, a bare `$`, or none. A `k`, `thousand`, `m`,
+  `mil` or `million` multiplies the amount; a range, a trailing `+` or any other word is refused. `N/A` means
+  nothing applies, except on the four history questions (open judgements, bankruptcy, tax liens, seasonal), where
+  it means no.
+
+The signer check compares the principal owner with the certificate's signers. Names agree when their words, in
+upper case and without punctuation, are the same, or the same but one middle name. Emails agree as whole addresses
+in any case. It agrees when one signer has both; the name and the email are also counted one by one.
+
+### Get pdfium
+
+`pdfium.lock` pins the pdfium build `chromium/7881` from bblanchon/pdfium-binaries, with one archive URL and SHA-256
+per target. CI downloads the archive, checks its SHA-256, and sets `PDFIUM_LIBRARY` and `PDFIUM_REQUIRED=1`. To get
+the Linux build:
+
+```bash
+gh release download chromium/7881 --repo bblanchon/pdfium-binaries --pattern pdfium-linux-x64.tgz --dir "<scratch folder>"
+cd "<scratch folder>"
+sha256sum --check <<<"1470e21b8b4a3b4ad7f85684e2da11d94f3b69a86d81dee11b9b6709d927ac1d  pdfium-linux-x64.tgz"
+tar -xzf pdfium-linux-x64.tgz
+export PDFIUM_LIBRARY="$PWD/lib/libpdfium.so"
+```
+
+On Windows the library is `bin\pdfium.dll` in `pdfium-win-x64.tgz`. `PDFIUM_LIBRARY` is an absolute path, and the
+service looks nowhere else.
+
+### Measure the parser on a folder
+
+```bash
+export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
+lender-matching applications evaluate "<folder of application PDFs>" --offsets --shapes --json "<report file>"
+```
+
+The command reads every `.pdf` file under the folder in sorted order and keeps nothing. It prints counts and closed
+reasons only: documents by kind, failures, layouts, where the signing day came from, certificate counts, the signer
+check with separate name and email counts, unplaced text by the label before it, and for each field how often it was
+read, blank, not applicable, refused, unlocated or in doubt. It never prints a value, a file name or a path inside the folder.
+
+- `--offsets` adds, for each sentinel label, a histogram of its offset from the BUSINESS INFORMATION heading in
+  whole points. Use it to measure a new layout.
+- `--shapes` adds the shapes of refused structured values, with digits as `9` and letters as `A` or `a`. A shape
+  seen fewer than 3 times for a field counts as `other`. Names, emails and other free text get no shape.
+- `--json` also writes the counts to the file as JSON.
+
 ## Develop
 
 ```bash
@@ -133,6 +239,10 @@ cargo run -p lender_matching_wire --example write_contract   # rewrites docs/api
 - API responses in the tests are checked against this package's own `docs/api/v1.schema.json`, and
   `contract_files_are_current` fails when the schema or the reference block of `docs/api/v1.md` is stale.
 - `no_model_crate_is_locked` fails when `Cargo.lock` holds a model or ML crate.
+- Tests that need pdfium read `PDFIUM_LIBRARY`. Without it they print why they skip, and with `PDFIUM_REQUIRED=1`
+  they fail. They read PDFs that `application/tests/support/` writes with `pdf-writer`; the service's tests include
+  the same files.
+- A change that makes the same PDF read differently bumps `PARSER_VERSION` (`application/src/lib.rs`).
 - Tests and docs use fabricated names only (CONTOSO, FABRIKAM, NORTHWIND, SAMPLE) and `example` domains.
 - A changed verdict for the same inputs bumps `ENGINE_VERSION` (`src/matching.rs`). A changed stored JSON layout bumps
   `RECORD_FORMAT` (`src/criteria/mod.rs`) or `MATCH_FORMAT` (`src/matching.rs`) and needs a reader for the old one,

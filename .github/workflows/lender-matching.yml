@@ -41,6 +41,28 @@ jobs:
         with:
           workspaces: packages/lender_matching
 
+      - name: Fetch and verify pdfium
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Linux) target=linux-x64 ;;
+            Windows) target=win-x64 ;;
+            *) echo "no pdfium target for $RUNNER_OS"; exit 1 ;;
+          esac
+          read -r url sha <<<"$(awk -v target="$target" '$1 !~ /^#/ && $2 == target { print $3, $4 }' pdfium.lock)"
+          test -n "$url" && test -n "$sha"
+          root="$RUNNER_TEMP/pdfium"
+          if [ "$RUNNER_OS" = Windows ]; then root="$(cygpath -u "$RUNNER_TEMP")/pdfium"; fi
+          mkdir -p "$root"
+          curl --fail --silent --show-error --location "$url" --output "$root/pdfium.tgz"
+          (cd "$root" && echo "$sha  pdfium.tgz" | sha256sum --check - && tar -xzf pdfium.tgz)
+          if [ "$RUNNER_OS" = Windows ]; then file="$root/bin/pdfium.dll"; else file="$root/lib/libpdfium.so"; fi
+          test -f "$file"
+          library="$file"
+          if [ "$RUNNER_OS" = Windows ]; then library="$(cygpath -w "$file")"; fi
+          echo "PDFIUM_LIBRARY=$library" >> "$GITHUB_ENV"
+          echo "PDFIUM_REQUIRED=1" >> "$GITHUB_ENV"
+
       - name: Format
         run: cargo fmt --all --check
 

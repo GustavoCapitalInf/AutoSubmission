@@ -1,89 +1,11 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+pub use lender_matching_application::{Jurisdiction, YearMonth};
+use serde::{Deserialize, Serialize};
 use time::{Date, Month, OffsetDateTime};
 
 use super::Interval;
-
-/// A calendar month, written `YYYY-MM`.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct YearMonth {
-    year: i32,
-    month: u8,
-}
-
-impl YearMonth {
-    pub fn new(year: i32, month: u8) -> Option<YearMonth> {
-        ((1..=12).contains(&month) && (1000..=9999).contains(&year)).then_some(YearMonth { year, month })
-    }
-
-    pub fn of(date: Date) -> YearMonth {
-        YearMonth { year: date.year(), month: date.month() as u8 }
-    }
-
-    pub fn parse(text: &str) -> Option<YearMonth> {
-        let bytes = text.as_bytes();
-        if bytes.len() != 7
-            || bytes[4] != b'-'
-            || !text[..4].bytes().chain(text[5..].bytes()).all(|b| b.is_ascii_digit())
-        {
-            return None;
-        }
-        YearMonth::new(text[..4].parse().ok()?, text[5..].parse().ok()?)
-    }
-
-    fn time_month(self) -> Month {
-        Month::try_from(self.month).expect("month is 1..=12 by construction")
-    }
-
-    pub fn first_day(self) -> Date {
-        Date::from_calendar_date(self.year, self.time_month(), 1).expect("valid calendar month")
-    }
-
-    pub fn last_day(self) -> Date {
-        let month = self.time_month();
-        Date::from_calendar_date(self.year, month, month.length(self.year)).expect("valid calendar month")
-    }
-
-    pub fn next(self) -> YearMonth {
-        if self.month == 12 {
-            YearMonth { year: self.year + 1, month: 1 }
-        } else {
-            YearMonth { year: self.year, month: self.month + 1 }
-        }
-    }
-
-    /// Every month from `self` to `last`, both included; empty when `last` is earlier.
-    pub fn through(self, last: YearMonth) -> Vec<YearMonth> {
-        let mut months = Vec::new();
-        let mut month = self;
-        while month <= last {
-            months.push(month);
-            month = month.next();
-        }
-        months
-    }
-}
-
-impl fmt::Display for YearMonth {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:04}-{:02}", self.year, self.month)
-    }
-}
-
-impl Serialize for YearMonth {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.collect_str(self)
-    }
-}
-
-impl<'de> Deserialize<'de> for YearMonth {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        YearMonth::parse(&text).ok_or_else(|| serde::de::Error::custom("expected a YYYY-MM month"))
-    }
-}
 
 /// Whole months from `from` to `to`: the largest `m` with `from + m months <= to`, a day past
 /// the end of a shorter month counting as that month's last day. Zero when `to` is earlier.
@@ -105,47 +27,6 @@ fn add_months(date: Date, months: i64) -> Date {
     let month = Month::try_from(u8::try_from(index.rem_euclid(12) + 1).expect("1..=12")).expect("1..=12");
     let day = date.day().min(month.length(year));
     Date::from_calendar_date(year, month, day).expect("clamped day is valid")
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
-pub struct Jurisdiction(&'static str);
-
-const JURISDICTIONS: [&str; 69] = [
-    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME",
-    "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA",
-    "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY", "DC", "PR", "GU", "VI", "AS", "MP", "AB",
-    "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT",
-];
-
-impl Jurisdiction {
-    /// The Info Hub's `QB` is not a postal code; `info_hub` maps it to `QC`.
-    pub fn from_code(code: &str) -> Option<Jurisdiction> {
-        let upper = code.trim().to_ascii_uppercase();
-        JURISDICTIONS.iter().find(|known| **known == upper).map(|known| Jurisdiction(known))
-    }
-
-    pub fn code(self) -> &'static str {
-        self.0
-    }
-}
-
-impl fmt::Display for Jurisdiction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.0)
-    }
-}
-
-impl Serialize for Jurisdiction {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.0)
-    }
-}
-
-impl<'de> Deserialize<'de> for Jurisdiction {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(deserializer)?;
-        Jurisdiction::from_code(&text).ok_or_else(|| serde::de::Error::custom("unknown jurisdiction code"))
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
@@ -333,14 +214,6 @@ mod tests {
     use time::macros::date;
 
     #[test]
-    fn year_month_parses_only_the_canonical_form() {
-        assert_eq!(YearMonth::parse("2026-09"), YearMonth::new(2026, 9));
-        for bad in ["2026-9", "2026-13", "2026-00", "26-09", "2026/09", " 2026-09", "2026-09-01"] {
-            assert_eq!(YearMonth::parse(bad), None, "{bad}");
-        }
-    }
-
-    #[test]
     fn whole_months_counts_completed_months_only() {
         let cases = [
             (date!(2025 - 10 - 01), date!(2026 - 10 - 23), 12),
@@ -352,14 +225,6 @@ mod tests {
         for (from, to, expected) in cases {
             assert_eq!(whole_months(from, to), expected, "{from} to {to}");
         }
-    }
-
-    #[test]
-    fn jurisdictions_take_postal_codes_only() {
-        assert_eq!(Jurisdiction::from_code("tx").map(Jurisdiction::code), Some("TX"));
-        assert_eq!(Jurisdiction::from_code("QC").map(Jurisdiction::code), Some("QC"));
-        assert_eq!(Jurisdiction::from_code("QB"), None);
-        assert_eq!(Jurisdiction::from_code("XX"), None);
     }
 
     #[test]

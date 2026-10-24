@@ -1,4 +1,5 @@
 mod analysis_api;
+mod applications;
 mod criteria;
 mod data_dir;
 mod facts;
@@ -19,6 +20,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use analysis_api::AnalysisClient;
 use data_dir::DataDir;
 use info_hub::{ImportError, ImportMode};
+use lender_matching_application::tally::TallyOptions;
 use matching::Matcher;
 use store::Store;
 use store::auth::{Role, Scope, acceptable_password};
@@ -57,6 +59,14 @@ enum Command {
         #[command(subcommand)]
         command: TokenCommand,
     },
+    /// Work with merchant application PDFs.
+    Applications {
+        #[command(subcommand)]
+        command: ApplicationsCommand,
+    },
+    /// Read PDFs with pdfium for a supervising process: frames on stdin, page data on stdout.
+    #[command(hide = true)]
+    PdfWorker,
 }
 
 #[derive(Subcommand)]
@@ -69,6 +79,24 @@ enum UserCommand {
         /// Read the password from the first line of standard input instead of prompting.
         #[arg(long)]
         password_stdin: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ApplicationsCommand {
+    /// Read every PDF under a folder and print counts and closed reasons only: no value, file
+    /// name or path. Needs PDFIUM_LIBRARY.
+    Evaluate {
+        folder: PathBuf,
+        /// Add each sentinel label's offset from the BUSINESS INFORMATION heading, in whole points.
+        #[arg(long)]
+        offsets: bool,
+        /// Add the shapes of refused structured values (digits as 9, letters as A or a).
+        #[arg(long)]
+        shapes: bool,
+        /// Also write the counts as JSON to this file.
+        #[arg(long, value_name = "FILE")]
+        json: Option<PathBuf>,
     },
 }
 
@@ -117,6 +145,27 @@ fn open_store(data_dir: Option<PathBuf>) -> Result<(DataDir, Store), String> {
 
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Applications { command: ApplicationsCommand::Evaluate { folder, offsets, shapes, json } } => {
+            let tally = applications::evaluate(&folder, TallyOptions { offsets, shapes })?;
+            for line in tally.lines() {
+                println!("{line}");
+            }
+            if let Some(json) = json {
+                let text = serde_json::to_string_pretty(&tally).map_err(|error| error.to_string())?;
+                std::fs::write(&json, text + "\n").map_err(|_| "cannot write the JSON file".to_string())?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::PdfWorker => {
+            let library = std::env::var_os("PDFIUM_LIBRARY").map(PathBuf::from);
+            lender_matching_application::worker::serve(
+                library.as_deref(),
+                std::io::stdin().lock(),
+                std::io::stdout().lock(),
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Serve { bind } => {
             let (dir, store) = open_store(cli.data_dir)?;
             serve(dir, store, bind)
