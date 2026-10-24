@@ -4,5 +4,5 @@ from typing import Literal
 
 IntakeRefusalCode = Literal[
     "no_statements", "too_many_statements", "invalid_filename", "statement_too_large", "not_a_pdf", "pdf_encrypted",
-    "pdf_unreadable", "too_many_pages", "storage_full", "not_stored",
+    "pdf_unreadable", "too_many_pages", "page_too_large", "storage_full", "not_stored",
 ]

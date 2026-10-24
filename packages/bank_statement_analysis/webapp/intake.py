@@ -17,6 +17,11 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 MAX_UPLOAD_FILES = 25
 MAX_UPLOAD_PAGES = 500
 
+#: The largest page side a statement may print, in PDF points (72 to an inch). Bank statement pages are
+#: letter/legal/A4; a page beyond this is never a statement, and rasterizing one (the `/page` display route and
+#: the OCR rung) allocates a bitmap big enough to exhaust a small host's memory.
+MAX_PAGE_POINTS = 25 * 72
+
 STORAGE_NEARLY_FULL = "the server's storage is nearly full; no statement was accepted"
 UPLOAD_NOT_STORED = "the statements could not be stored; none was accepted. Upload them again"
 
@@ -64,6 +69,10 @@ def checked_upload(upload: Upload) -> CheckedUpload:
     profile = inspect_pdf(pdf_bytes)
     if profile.encrypted:
         raise IntakeRefused(400, "pdf_encrypted", "PDF is password-protected; upload a decrypted copy", filename)
+    if max(profile.max_page_width_points, profile.max_page_height_points) > MAX_PAGE_POINTS:
+        limit = MAX_PAGE_POINTS // 72
+        raise IntakeRefused(
+            400, "page_too_large", f"a page is wider or taller than {limit} inches", filename)
     try:
         page_count = pdf_page_count(pdf_bytes)
     except Exception:

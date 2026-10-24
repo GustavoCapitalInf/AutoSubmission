@@ -71,9 +71,11 @@ def pdf_page_count(pdf_bytes: bytes) -> int:
     return pdfinfo_from_bytes(pdf_bytes, poppler_path=POPPLER_PATH)["Pages"]
 
 
-def rasterize_page(pdf_bytes: bytes, page_index: int, dpi: int = 100) -> Image.Image:
-    """Rasterize a single 0-indexed page to a PIL image (for on-demand display)."""
+def rasterize_page(pdf_bytes: bytes, page_index: int, dpi: int = 100, timeout: float = 120) -> Image.Image:
+    """Rasterize a single 0-indexed page to a PIL image (for on-demand display). `timeout` kills a `pdftoppm`
+    that runs past it (pdf2image's `PDFPopplerTimeoutError`) so a hung page cannot pin the server's thread."""
     n = page_index + 1
     return convert_from_bytes(
-        pdf_bytes, dpi=dpi, first_page=n, last_page=n, poppler_path=POPPLER_PATH, use_cropbox=True
+        pdf_bytes, dpi=dpi, first_page=n, last_page=n, poppler_path=POPPLER_PATH, use_cropbox=True,
+        timeout=timeout,
     )[0]

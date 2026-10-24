@@ -18,6 +18,9 @@ from werkzeug.exceptions import RequestEntityTooLarge
 # ocr.rasterize's import, WEBAPP_MIN_FREE_MB below, ...). ocr/config.py and analysis/config.py also load it for the
 # command-line tools. The first load wins (override=False), and
 # every load reads the package folder's .env, so the order only decides WHEN the values are there, not which they are.
+import base64
+import hashlib
+
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -86,6 +89,49 @@ def _data_volume_nearly_full(incoming_bytes: int = 0) -> bool:
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+#: The security headers every response carries. `Strict-Transport-Security` is honoured only on the HTTPS
+#: connection the hosting platform terminates; `X-Frame-Options` and the CSP's `frame-ancestors` keep the
+#: review UI out of another site's frame. The report routes set their own stricter CSP (`_REPORT_HEADERS`),
+#: and `setdefault` below keeps it.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "X-Frame-Options": "SAMEORIGIN",
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+}
+
+
+def _dashboard_csp() -> str:
+    """A CSP allowing the page exactly what it loads: its own bundle and styles, Google Fonts, `data:` icons and
+    same-origin requests. The theme bootstrap in `templates/index.html` is the one inline script; its hash is
+    computed from the template, so editing it moves the CSP with it
+    (tests/test_webapp_security.py pins the wiring)."""
+    template = (Path(__file__).resolve().parent / "templates" / "index.html").read_text(encoding="utf-8")
+    inline = " ".join(
+        "'sha256-" + base64.b64encode(hashlib.sha256(script.encode("utf-8")).digest()).decode("ascii") + "'"
+        for script in re.findall(r"<script>(.*?)</script>", template, re.DOTALL)
+    )
+    return (
+        "default-src 'self'; script-src 'self' " + inline + ";"
+        " style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;"
+        " font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self';"
+        " object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+    )
+
+
+DASHBOARD_CSP = _dashboard_csp()
+
+
+@app.after_request
+def _security_headers(response):
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    # Only a page needs a CSP; a JSON or spreadsheet answer renders no document. The report routes set their own
+    # stricter policy (`_REPORT_HEADERS`), and `setdefault` keeps it.
+    if response.mimetype == "text/html":
+        response.headers.setdefault("Content-Security-Policy", DASHBOARD_CSP)
+    return response
 
 #: How the store opened at start-up: None normally; STORE_READ_ONLY when it could not be opened or written but can
 #: be read (saved statements are served, every write is refused); STORE_UNAVAILABLE when it cannot be read either
