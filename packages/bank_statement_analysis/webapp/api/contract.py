@@ -41,6 +41,7 @@ ERRORS: Mapping[str, ErrorEntry] = MappingProxyType({
     "pdf_encrypted": ErrorEntry(400, "a PDF is password-protected; send a decrypted copy"),
     "pdf_unreadable": ErrorEntry(400, "a PDF could not be read"),
     "too_many_pages": ErrorEntry(400, "a PDF has more than 500 pages"),
+    "page_too_large": ErrorEntry(400, "a PDF page is wider or taller than 25 inches"),
     "invalid_package_id": ErrorEntry(400, "the package id must be a UUID in lowercase canonical form"),
     "invalid_request": ErrorEntry(400, "the request could not be read"),
     "unauthorized": ErrorEntry(401, "a valid bearer token is required"),

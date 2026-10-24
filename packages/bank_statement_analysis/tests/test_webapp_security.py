@@ -754,3 +754,140 @@ def test_the_other_downloads_are_unchanged_by_the_report_policy():
     client = app.test_client()
     for fmt in ("json", "csv", "xlsx"):
         assert "Content-Security-Policy" not in client.get(f"/download/{job.id}/{fmt}").headers
+
+
+# --------------------------------------------------------------------------
+# 6. Page-size ceiling, cross-site forms and security headers
+# --------------------------------------------------------------------------
+
+
+def _pdf_page(width_pt: float, height_pt: float) -> bytes:
+    import fitz
+
+    doc = fitz.open()
+    doc.new_page(width=width_pt, height=height_pt)
+    return doc.tobytes()
+
+
+def _post_upload(client, pdf_bytes: bytes, filename: str, headers=None):
+    return client.post(
+        "/upload",
+        data={"files": (io.BytesIO(pdf_bytes), filename)},
+        content_type="multipart/form-data",
+        headers=headers,
+    )
+
+
+def test_upload_rejects_a_page_beyond_the_size_ceiling(monkeypatch):
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
+    enqueued = []
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: enqueued.append(a))
+
+    resp = _post_upload(app.test_client(), _pdf_page(14400, 14400), "poster.pdf")
+
+    assert resp.status_code == 400
+    body = resp.get_json()
+    assert "25 inches" in body["error"]
+    assert body["filename"] == "poster.pdf"
+    assert enqueued == []
+
+
+def test_upload_accepts_a_legal_sized_page(monkeypatch):
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
+
+    resp = _post_upload(app.test_client(), _pdf_page(612, 1008), "legal.pdf")
+
+    assert resp.status_code == 200
+    assert resp.get_json()["jobs"][0]["page_count"] == 1
+
+
+def _basic_auth_header(password: str) -> dict:
+    import base64
+
+    return {"Authorization": "Basic " + base64.b64encode(f"intern:{password}".encode()).decode()}
+
+
+def test_upload_refuses_a_cross_site_form(monkeypatch):
+    monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "fabricated-password")
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
+
+    resp = _post_upload(
+        app.test_client(), _pdf(64), "csrf.pdf",
+        headers={**_basic_auth_header("fabricated-password"), "Origin": "https://evil.example"},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_upload_refuses_a_null_origin(monkeypatch):
+    monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "fabricated-password")
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
+
+    resp = _post_upload(
+        app.test_client(), _pdf(64), "sandboxed.pdf",
+        headers={**_basic_auth_header("fabricated-password"), "Origin": "null"},
+    )
+
+    assert resp.status_code == 403
+
+
+def test_upload_accepts_a_same_origin_form(monkeypatch):
+    monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "fabricated-password")
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
+
+    resp = _post_upload(
+        app.test_client(), _pdf_page(612, 792), "same-origin.pdf",
+        headers={**_basic_auth_header("fabricated-password"), "Origin": "http://localhost"},
+    )
+
+    assert resp.status_code == 200
+
+
+def test_upload_accepts_a_form_that_names_no_origin(monkeypatch):
+    monkeypatch.setenv("WEBAPP_AUTH_PASSWORD", "fabricated-password")
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
+
+    resp = _post_upload(app.test_client(), _pdf(64), "curl.pdf", headers=_basic_auth_header("fabricated-password"))
+
+    assert resp.status_code == 200
+
+
+def test_a_cross_site_form_without_the_password_is_not_refused(monkeypatch):
+    # Loopback development runs without the password: no cached credentials exist for another site to ride.
+    monkeypatch.delenv("WEBAPP_AUTH_PASSWORD", raising=False)
+    monkeypatch.setattr("webapp.app.threading.Thread", _FakeThread)
+    monkeypatch.setattr("webapp.app._enqueue_job", lambda *a, **k: None)
+    monkeypatch.setattr("webapp.intake.pdf_page_count", lambda pdf_bytes: 1)
+
+    resp = _post_upload(app.test_client(), _pdf(64), "loopback.pdf", headers={"Origin": "https://evil.example"})
+
+    assert resp.status_code == 200
+
+
+def test_the_dashboard_carries_security_headers():
+    resp = app.test_client().get("/")
+
+    assert resp.status_code == 200
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert resp.headers["X-Frame-Options"] == "SAMEORIGIN"
+    assert resp.headers["Referrer-Policy"] == "same-origin"
+    assert resp.headers["Strict-Transport-Security"] == "max-age=31536000; includeSubDomains"
+    csp = resp.headers["Content-Security-Policy"]
+    assert csp.startswith("default-src 'self'")
+    assert "script-src 'self' 'sha256-" in csp
+    assert "frame-ancestors 'self'" in csp
+
+
+def test_the_report_csp_is_kept_over_the_dashboard_one():
+    job = _completed_job()
+    client = app.test_client()
+
+    served = client.get(f"/result/{job.id}")
+
+    assert served.headers["Content-Security-Policy"].startswith("sandbox; default-src 'none'")

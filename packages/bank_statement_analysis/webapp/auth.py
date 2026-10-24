@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 from hashlib import sha256
 from secrets import compare_digest
+from urllib.parse import urlsplit
 
 from flask import Response, request
 
@@ -102,4 +103,40 @@ def gate() -> Response | None:
         return error_response("unauthorized", headers={"WWW-Authenticate": API_CHALLENGE})
     if _bearer() is not None or not request_is_authorized():
         return unauthorized()
+    return cross_site_refusal()
+
+
+#: The methods a browser can drive cross-site through a plain HTML form. A JSON body needs a CORS preflight, and
+#: the API routes take a bearer token the browser never attaches by itself, so only these need the check.
+_STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _cross_site() -> Response:
+    return Response("Cross-site request refused", 403)
+
+
+def _names_this_host(header_value: str) -> bool:
+    try:
+        netloc = urlsplit(header_value).netloc.lower()
+    except ValueError:
+        return False
+    return bool(netloc) and netloc == request.host.lower()
+
+
+def cross_site_refusal() -> Response | None:
+    """403 when a state-changing browser request names another site (tests/test_webapp_security.py).
+
+    The browser attaches this origin's cached Basic credentials to every request it makes here, so a page on
+    another site can POST a plain HTML form (an upload) as the signed-in intern. A request that names no site
+    (curl, tests, the machine API) passes. `Origin: null` never passes: it is a sandboxed or privacy context,
+    not this origin, and a page on another site can force it. Only active when the password is set: loopback
+    has no credentials to ride."""
+    if request.method not in _STATE_CHANGING or not auth_password():
+        return None
+    origin = request.headers.get("Origin", "").strip()
+    if origin:
+        return None if (origin.lower() != "null" and _names_this_host(origin)) else _cross_site()
+    referer = request.headers.get("Referer", "").strip()
+    if referer and not _names_this_host(referer):
+        return _cross_site()
     return None

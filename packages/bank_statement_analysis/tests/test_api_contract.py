@@ -13,7 +13,7 @@ from webapp.api.projection import API_READING, basis_points, cents
 
 ROOT = Path(__file__).resolve().parent.parent
 
-SCHEMA_FINGERPRINTS = {"1.0": "432cf3a46817c52634d464df3282c229eb198a7267f1ea19c6ca93bf57f9675a"}
+SCHEMA_FINGERPRINTS = {"1.0": "711c978cdef6071429c0ddd21ac16994d0f6fccae432bdcd1d61d9d6b6c3d939"}
 
 
 def test_the_committed_schema_and_reference_are_generated():

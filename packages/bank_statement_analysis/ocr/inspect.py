@@ -99,6 +99,10 @@ class DocumentProfile:
     valid_pdf: bool = False
     encrypted: bool = False
     page_count: int = 0
+    # The widest/tallest page in PDF points; 0 when unknown (invalid or encrypted PDF). Intake refuses a page
+    # whose side exceeds its ceiling so every later rasterization stays a bounded bitmap.
+    max_page_width_points: float = 0.0
+    max_page_height_points: float = 0.0
     page_text_chars: list[int] = field(default_factory=list)
     text_pages: list[bool] = field(default_factory=list)
     classification: str = "unknown"  # digital | scanned | mixed | unknown
@@ -209,6 +213,13 @@ def inspect_pdf(pdf_bytes: bytes) -> DocumentProfile:
         return profile
 
     pages, malformed = _page_texts(doc)
+    for page in doc:
+        try:
+            rect = page.rect
+        except Exception:
+            continue
+        profile.max_page_width_points = max(profile.max_page_width_points, rect.width)
+        profile.max_page_height_points = max(profile.max_page_height_points, rect.height)
     profile.page_text_chars = [len(page.strip()) for page in pages]
     profile.text_pages = [
         chars >= MIN_PAGE_TEXT_CHARS for chars in profile.page_text_chars
