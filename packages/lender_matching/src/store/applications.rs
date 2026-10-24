@@ -130,7 +130,7 @@ impl ReadTx<'_> {
         let id: Option<String> = self
             .conn
             .query_row(
-                "SELECT id FROM applications WHERE envelope_id_sha256 = ?1 ORDER BY uploaded_at, id LIMIT 1",
+                "SELECT id FROM applications WHERE envelope_id_sha256 = ?1 ORDER BY rowid LIMIT 1",
                 [envelope_id_sha256.as_slice()],
                 |row| row.get(0),
             )

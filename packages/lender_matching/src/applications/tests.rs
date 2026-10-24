@@ -135,6 +135,14 @@ fn another_file_of_the_same_envelope_is_another_application_that_names_the_first
     };
     assert_ne!(reference.id, first.id);
     assert_eq!(same_envelope, Some(first.id));
+    let third = setup.reader.knows(application(Form::word(), ENVELOPE, 24));
+    assert!(
+        matches!(
+            setup.applications.upload(&third, setup.reviewer).unwrap(),
+            Intake::Stored { same_envelope: Some(named), .. } if named == first.id
+        ),
+        "the first file of the envelope is named"
+    );
     let other = setup.reader.knows(application(Form::word(), OTHER_ENVELOPE, 23));
     assert!(matches!(
         setup.applications.upload(&other, setup.reviewer).unwrap(),
