@@ -344,6 +344,14 @@ async fn an_upload_opens_its_form_and_a_duplicate_or_a_contract_stores_nothing_n
     let forged =
         pages.reviewer.post_multipart("/admin/applications", &[("csrf", b"forged"), ("pdf", &contract())]).await;
     assert_eq!(forged.status, StatusCode::FORBIDDEN);
+    let csrf = csrf_of(&page);
+    let contract_pdf = contract();
+    let file_first = [("pdf", contract_pdf.as_slice()), ("csrf", csrf.as_bytes())];
+    assert_eq!(pages.reviewer.post_multipart("/admin/applications", &file_first).await.status, StatusCode::FORBIDDEN);
+    let large = vec![b' '; 33 << 20];
+    let too_large =
+        pages.reviewer.post_multipart("/admin/applications", &[("csrf", csrf.as_bytes()), ("pdf", &large)]).await;
+    assert_eq!(too_large.status, StatusCode::PAYLOAD_TOO_LARGE, "{}", too_large.body);
     assert_eq!(upload(&pages.viewer, &application(&Form::word(), 23)).await.status, StatusCode::FORBIDDEN);
 
     let list = pages.viewer.get("/admin/applications").await;
