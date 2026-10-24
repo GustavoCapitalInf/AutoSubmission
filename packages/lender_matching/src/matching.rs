@@ -29,7 +29,11 @@ pub struct MatchInput {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Requester {
     Client(i64),
-    Person { user: i64, supersedes: Uuid },
+    /// A person's first match of a deal supersedes nothing.
+    Person {
+        user: i64,
+        supersedes: Option<Uuid>,
+    },
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -120,8 +124,8 @@ impl Matcher {
         let facts = assemble(package.as_ref(), &input.deal, created_at.date());
         tokio::task::block_in_place(|| {
             self.store.write(|tx| {
-                if let Requester::Person { supersedes, .. } = &by
-                    && tx.superseded_by(*supersedes)?.is_some()
+                if let Requester::Person { supersedes: Some(older), .. } = &by
+                    && tx.superseded_by(*older)?.is_some()
                 {
                     return Err(MatchError::AlreadySuperseded);
                 }
@@ -309,11 +313,24 @@ mod tests {
             at: now(),
             reason: "SAMPLE LENDER confirmed an exception".to_string(),
         });
-        let by = Requester::Person { user, supersedes: first.id };
+        let by = Requester::Person { user, supersedes: Some(first.id) };
         let second = matcher.run(by.clone(), reviewed.clone()).await.unwrap();
         assert_eq!(second.verdicts[0].result.key(), "match");
         assert_eq!(store.read(|tx| tx.superseded_by(first.id)).unwrap(), Some(second.id));
         assert!(matches!(matcher.run(by, reviewed).await, Err(MatchError::AlreadySuperseded)));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_person_can_make_the_first_match_of_a_deal() {
+        let store = Arc::new(Store::open_in_memory());
+        let author = editor(&store);
+        let Author::User { id: user, .. } = author.clone() else { unreachable!() };
+        active_lender(&store, &author, "CONTOSO CAPITAL", 600, vec![]);
+        let made =
+            Matcher::new(store.clone(), None).run(Requester::Person { user, supersedes: None }, input()).await.unwrap();
+        let view = store.read(|tx| MatchView::load(tx, made.id)).unwrap().unwrap();
+        assert_eq!(view.record, made);
+        assert!(matches!(view.created_by, Creator::Person(ref name) if name == "sample.editor"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

@@ -434,7 +434,7 @@ pub fn render_match(view: &MatchView, industries: &Industries) -> wire::MatchRes
             Creator::Person(username) => wire::CreatedBy::Person { username: username.clone() },
         },
         supersedes: match &record.by {
-            Requester::Person { supersedes, .. } => Some(*supersedes),
+            Requester::Person { supersedes, .. } => *supersedes,
             Requester::Client(_) => None,
         },
         superseded_by: view.superseded_by,

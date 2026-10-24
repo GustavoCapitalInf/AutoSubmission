@@ -371,7 +371,7 @@ pub async fn submit(
         waivers,
         ..view.record.input.clone()
     };
-    match app.matcher.run(Requester::Person { user: user.id, supersedes: id }, input).await {
+    match app.matcher.run(Requester::Person { user: user.id, supersedes: Some(id) }, input).await {
         Ok(record) => Ok(redirect(&format!("/admin/matches/{}", record.id))),
         Err(MatchError::AlreadySuperseded) => Err(PageError::status(
             StatusCode::CONFLICT,
