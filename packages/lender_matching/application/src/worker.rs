@@ -1,6 +1,9 @@
 //! pdfium runs in a child process, so a crash or a hang in it cannot take the caller down. The
-//! child reads frames of PDF bytes on stdin and writes one frame per document on stdout: the page
-//! data, or a closed error kind. A frame is a little-endian `u32` length, then that many bytes.
+//! child reads request frames on stdin and writes one response frame per request on stdout. A
+//! frame is a little-endian `u32` length, then that many bytes. A request is `FACTS_REQUEST` and
+//! the PDF, or `PNG_REQUEST`, the page (`u16`), the width (`u32`), the cover count (`u32`), each
+//! cover's x0, top, x1 and bottom (`f32`), and the PDF. A response is `FACTS` and the page data,
+//! `PNG` and the image, or `FAILED` and a closed error kind.
 
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -12,17 +15,24 @@ use std::time::Duration;
 use time::Date;
 
 use crate::page::{Glyph, PdfFacts, Rect, TextPage};
-use crate::pdf::{MAX_BYTES, PdfEngine, ReadError};
+use crate::pdf::{MAX_BYTES, PageImage, PdfEngine, ReadError};
 
-/// A response frame is page data, which outgrows its PDF; this bounds what the parent accepts.
+/// A response frame is page data or an image, which outgrow their PDF; this bounds what the
+/// parent accepts.
 const MAX_RESPONSE: usize = 256 << 20;
 /// How long the child may take to load pdfium.
 const START_TIMEOUT: Duration = Duration::from_secs(30);
+pub const MAX_COVERS: usize = 64;
+const MAX_REQUEST: usize = MAX_BYTES + 11 + 16 * MAX_COVERS;
 
 const READY: u8 = 0;
 const NO_ENGINE: u8 = 1;
+const FACTS_REQUEST: u8 = 0;
+const PNG_REQUEST: u8 = 1;
 const FACTS: u8 = 0;
 const FAILED: u8 = 1;
+const PNG: u8 = 2;
+const PNG_SIGNATURE: &[u8] = b"\x89PNG\r\n\x1a\n";
 
 fn read_frame(input: &mut impl Read, max: usize) -> io::Result<Option<Vec<u8>>> {
     let mut length = [0; 4];
@@ -47,18 +57,69 @@ fn write_frame(output: &mut impl Write, payload: &[u8]) -> io::Result<()> {
     output.flush()
 }
 
-/// The child's side: binds pdfium, answers `READY` or `NO_ENGINE`, then reads documents until
-/// stdin closes.
+/// The child's side: binds pdfium, answers `READY` or `NO_ENGINE`, then answers requests until
+/// stdin closes. A malformed request ends it with an error.
 pub fn serve(library: Option<&Path>, mut input: impl Read, mut output: impl Write) -> io::Result<()> {
     let Some(mut engine) = library.and_then(|library| PdfEngine::bind(library).ok()) else {
         return write_frame(&mut output, &[NO_ENGINE]);
     };
     write_frame(&mut output, &[READY])?;
-    while let Some(pdf) = read_frame(&mut input, MAX_BYTES)? {
-        write_frame(&mut output, &encode(&engine.facts(&pdf)))?;
+    while let Some(frame) = read_frame(&mut input, MAX_REQUEST)? {
+        let response = match parse_request(&frame).ok_or(io::ErrorKind::InvalidData)? {
+            Request::Facts(pdf) => encode(&engine.facts(pdf)),
+            Request::Png(image, pdf) => encode_png(&engine.page_png(pdf, &image)),
+        };
+        write_frame(&mut output, &response)?;
     }
     Ok(())
 }
+
+enum Request<'a> {
+    Facts(&'a [u8]),
+    Png(PageImage, &'a [u8]),
+}
+
+fn facts_request(pdf: &[u8]) -> Vec<u8> {
+    [&[FACTS_REQUEST], pdf].concat()
+}
+
+fn png_request(pdf: &[u8], image: &PageImage) -> Vec<u8> {
+    let mut out = vec![PNG_REQUEST];
+    out.extend(image.page.to_le_bytes());
+    out.extend(image.width.to_le_bytes());
+    out.extend(u32::try_from(image.covers.len()).unwrap_or(u32::MAX).to_le_bytes());
+    for cover in &image.covers {
+        for x in [cover.x0, cover.top, cover.x1, cover.bottom] {
+            out.extend(x.to_le_bytes());
+        }
+    }
+    out.extend(pdf);
+    out
+}
+
+fn parse_request(frame: &[u8]) -> Option<Request<'_>> {
+    let mut cursor = Cursor(frame);
+    match cursor.u8()? {
+        FACTS_REQUEST => Some(Request::Facts(cursor.0)),
+        PNG_REQUEST => {
+            let page = u16::from_le_bytes(cursor.take()?);
+            let width = u32::from_le_bytes(cursor.take()?);
+            let count = cursor.count()?;
+            if count > MAX_COVERS {
+                return None;
+            }
+            let mut covers = Vec::with_capacity(count);
+            for _ in 0..count {
+                covers.push(Rect { x0: cursor.f32()?, top: cursor.f32()?, x1: cursor.f32()?, bottom: cursor.f32()? });
+            }
+            Some(Request::Png(PageImage { page, width, covers }, cursor.0))
+        }
+        _ => None,
+    }
+}
+
+const ERRORS: [ReadError; 5] =
+    [ReadError::NotPdf, ReadError::Encrypted, ReadError::TooLarge, ReadError::Engine, ReadError::NoSuchPage];
 
 fn error_code(error: ReadError) -> u8 {
     match error {
@@ -66,13 +127,29 @@ fn error_code(error: ReadError) -> u8 {
         ReadError::Encrypted => 1,
         ReadError::TooLarge => 2,
         ReadError::Engine => 3,
+        ReadError::NoSuchPage => 4,
     }
 }
 
 fn error_of(code: u8) -> Option<ReadError> {
-    [ReadError::NotPdf, ReadError::Encrypted, ReadError::TooLarge, ReadError::Engine]
-        .into_iter()
-        .find(|error| error_code(*error) == code)
+    ERRORS.into_iter().find(|error| error_code(*error) == code)
+}
+
+fn encode_png(result: &Result<Vec<u8>, ReadError>) -> Vec<u8> {
+    match result {
+        Ok(png) => [&[PNG], png.as_slice()].concat(),
+        Err(error) => vec![FAILED, error_code(*error)],
+    }
+}
+
+/// None when the payload is not a well-formed response: the child broke the protocol.
+fn decode_png(payload: &[u8]) -> Option<Result<Vec<u8>, ReadError>> {
+    let (tag, rest) = payload.split_first()?;
+    match (*tag, rest) {
+        (FAILED, [code]) => Some(Err(error_of(*code)?)),
+        (PNG, png) if png.starts_with(PNG_SIGNATURE) => Some(Ok(png.to_vec())),
+        _ => None,
+    }
 }
 
 fn encode(result: &Result<PdfFacts, ReadError>) -> Vec<u8> {
@@ -288,11 +365,29 @@ impl PdfWorker {
         if pdf.len() > MAX_BYTES {
             return Err(WorkerError::Read(ReadError::TooLarge));
         }
+        self.ask(facts_request(pdf), timeout, decode)
+    }
+
+    /// Draws one page as a PNG within `timeout`, as `PdfEngine::page_png` does. More than
+    /// `MAX_COVERS` covers is `TooLarge`.
+    pub fn page_png(&mut self, pdf: &[u8], image: &PageImage, timeout: Duration) -> Result<Vec<u8>, WorkerError> {
+        if pdf.len() > MAX_BYTES || image.covers.len() > MAX_COVERS {
+            return Err(WorkerError::Read(ReadError::TooLarge));
+        }
+        self.ask(png_request(pdf, image), timeout, decode_png)
+    }
+
+    fn ask<T>(
+        &mut self,
+        request: Vec<u8>,
+        timeout: Duration,
+        decode: impl FnOnce(&[u8]) -> Option<Result<T, ReadError>>,
+    ) -> Result<T, WorkerError> {
         let running = match self.running.take() {
             Some(running) => running,
             None => self.spawn()?,
         };
-        if running.requests.send(pdf.to_vec()).is_err() {
+        if running.requests.send(request).is_err() {
             running.stop();
             return Err(WorkerError::Crashed);
         }
@@ -358,9 +453,39 @@ mod tests {
                 |page: &TextPage| page.glyphs.iter().map(|g| (g.ch, g.font, g.size, g.rect)).collect::<Vec<_>>();
             assert_eq!(glyphs(a), glyphs(b));
         }
-        for error in [ReadError::NotPdf, ReadError::Encrypted, ReadError::TooLarge, ReadError::Engine] {
+        for error in ERRORS {
             assert!(matches!(decode(&encode(&Err(error))), Some(Err(back)) if back == error));
+            assert!(matches!(decode_png(&encode_png(&Err(error))), Some(Err(back)) if back == error));
         }
+    }
+
+    #[test]
+    fn requests_cross_the_pipe_unchanged() {
+        let pdf = b"%PDF-1.7 SAMPLE";
+        let request = facts_request(pdf);
+        let Some(Request::Facts(back)) = parse_request(&request) else { panic!("a facts request") };
+        assert_eq!(back, pdf);
+        let covers =
+            vec![Rect { x0: 1.5, top: 2.0, x1: 30.25, bottom: 12.0 }, Rect { x0: 0.0, top: 0.0, x1: 1.0, bottom: 1.0 }];
+        let image = PageImage { page: 2, width: 1224, covers: covers.clone() };
+        let request = png_request(pdf, &image);
+        let Some(Request::Png(back, back_pdf)) = parse_request(&request) else { panic!("a PNG request") };
+        assert_eq!((back.page, back.width, back.covers, back_pdf), (2, 1224, covers, &pdf[..]));
+        let mut too_many = png_request(pdf, &PageImage { page: 0, width: 10, covers: vec![] });
+        too_many[7..11].copy_from_slice(&(MAX_COVERS as u32 + 1).to_le_bytes());
+        assert!(parse_request(&too_many).is_none(), "more covers than allowed");
+        assert!(parse_request(&[PNG_REQUEST, 0]).is_none(), "truncated");
+        assert!(parse_request(&[9]).is_none(), "unknown request");
+        assert!(parse_request(&[]).is_none());
+    }
+
+    #[test]
+    fn an_image_response_must_be_a_png() {
+        let png = [PNG_SIGNATURE, b"SAMPLE"].concat();
+        assert!(matches!(decode_png(&encode_png(&Ok(png.clone()))), Some(Ok(back)) if back == png));
+        assert!(decode_png(&[PNG, b'S']).is_none(), "not a PNG");
+        assert!(decode_png(&[FACTS]).is_none(), "page data where an image was asked");
+        assert!(decode_png(&[FAILED, 9]).is_none(), "unknown error kind");
     }
 
     #[test]

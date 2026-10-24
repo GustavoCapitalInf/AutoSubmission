@@ -471,3 +471,31 @@ fn a_value_in_a_label_font_that_is_not_a_label_reads_as_a_value() {
     let reading = read_pages(vec![page]);
     assert_eq!(canonical(form(&reading), FieldId::Business(B::TaxId)).as_deref(), Some("12-3456789"));
 }
+
+#[test]
+fn the_covers_hold_every_identity_value_and_need_every_identity_region() {
+    let reading = read_form_page(&Form::word());
+    let covers = reading.masked_covers().expect("every masked field has a region");
+    let fields = &form(&reading).fields;
+    let masked: Vec<FieldId> = FieldId::ALL.into_iter().filter(|field| field.spec().masked).collect();
+    assert_eq!(masked.len(), 4);
+    for field in masked {
+        let FieldReading::Located { region, .. } = fields.get(field) else { panic!("{field} located") };
+        let value = fields.get(field).evidence().expect("a value").rect;
+        assert!(covers.contains(region) && covers.contains(&value), "{field}");
+    }
+    assert_eq!(covers.len(), 8);
+
+    let wrapped = Form::word()
+        .draw(PageBuilder::new())
+        .text("ArialMT", VALUE_SIZE, 330.0, HEADING.1 + 268.0, "900-12-3456")
+        .build();
+    let reading = read_pages(vec![wrapped]);
+    let run = &form(&reading).unplaced[0];
+    assert_eq!(run.after, Some(FieldId::Owner(OwnerSlot::Principal, O::BirthDate)));
+    assert!(reading.masked_covers().unwrap().contains(&run.evidence.rect), "text after a masked label is covered");
+
+    let no_birth_date = read_form_page(&Form { omit: vec!["Date of Birth"], ..Form::word() });
+    assert!(matches!(no_birth_date.document, Document::Application(_)));
+    assert!(no_birth_date.masked_covers().is_none(), "an unlocated masked field makes no covered image");
+}

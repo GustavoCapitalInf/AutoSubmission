@@ -22,6 +22,25 @@ pub struct Reading {
     pub offsets: Vec<SentinelOffset>,
 }
 
+impl Reading {
+    /// What to paint over on page 1 so that no identity data shows: each masked field's region,
+    /// its value's own box, which can run past the region, and every unplaced run after a masked
+    /// field's label. None when a masked field has no region, as on a manual-entry draft: then no
+    /// covered image can be made.
+    pub fn masked_covers(&self) -> Option<Vec<Rect>> {
+        let Document::Application(form) = &self.document else { return None };
+        let mut covers = Vec::new();
+        for (_, reading) in form.fields.iter().filter(|(field, _)| field.spec().masked) {
+            let FieldReading::Located { region, .. } = reading else { return None };
+            covers.push(*region);
+            covers.extend(reading.evidence().map(|evidence| evidence.rect));
+        }
+        let after_masked = |run: &&Unplaced| run.after.is_some_and(|field| field.spec().masked);
+        covers.extend(form.unplaced.iter().filter(after_masked).map(|run| run.evidence.rect));
+        Some(covers)
+    }
+}
+
 /// The signing day: the certificate's completion day, else the PDF's creation day, so a reading
 /// is a function of the bytes alone.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]

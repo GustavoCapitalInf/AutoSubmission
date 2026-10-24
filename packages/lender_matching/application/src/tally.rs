@@ -113,6 +113,7 @@ impl Key for Failure {
             Failure::Worker(WorkerError::Read(ReadError::Encrypted)) => "encrypted",
             Failure::Worker(WorkerError::Read(ReadError::TooLarge)) => "too_large",
             Failure::Worker(WorkerError::Read(ReadError::Engine)) => "engine_error",
+            Failure::Worker(WorkerError::Read(ReadError::NoSuchPage)) => "no_such_page",
             Failure::Worker(WorkerError::Timeout) => "timeout",
             Failure::Worker(WorkerError::Crashed) => "worker_crashed",
             Failure::Worker(WorkerError::NoEngine) => "no_engine",

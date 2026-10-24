@@ -135,7 +135,7 @@ only that process.
 | Extraction | Classifies page 1, binds the labels, cuts the value regions and reads each field | `extract.rs` |
 | Certificate | Reads the envelope id, the completion day and the signers under Signer Events, never the originator | `certificate.rs` |
 | Record | A revision of a stored application: the parse it selects, one override per field (inherit, set or empty) and whether it is an application. `Record::resolve` gives each field's current value and what needs a person: a required field without a value, a refused value, a missing label or a doubt. `Edits::read` reads a person's corrections with each field's grammar | `record.rs` |
-| Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout | `worker.rs` |
+| Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout. It reads a PDF's page data, or draws a page as a PNG with boxes painted solid black in the bitmap. `Reading::masked_covers` gives the boxes that hide the SSNs and dates of birth: each one's region and its value's own box | `worker.rs` |
 | Tally | The counts `applications evaluate` prints | `tally.rs` |
 
 A PDF reads by these rules:
