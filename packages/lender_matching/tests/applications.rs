@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use common::*;
+use reqwest::StatusCode;
 use support::form::{Canvas, Form, certificate_of, sample_values};
 use support::pdf::{FakePage, FakePdf};
 
@@ -141,4 +142,103 @@ fn the_pdf_worker_refuses_the_data_key_and_a_data_directory() {
     assert!(!text(&with_key.stderr).contains(KEY));
     let with_data_dir = command(data.path()).arg("pdf-worker").output().unwrap();
     assert!(!with_data_dir.status.success(), "command() passes --data-dir");
+}
+
+fn stored_id(line: &str) -> String {
+    line.split_whitespace().nth(2).unwrap().trim_end_matches(';').to_string()
+}
+
+fn post_fields(csrf: &str, changes: &[(&str, &str)]) -> Vec<(String, String)> {
+    let mut fields = vec![("csrf".to_string(), csrf.to_string())];
+    fields.extend(changes.iter().map(|(name, value)| (name.to_string(), value.to_string())));
+    fields
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stored_application_is_matched_through_the_pages_and_the_server_logs_no_value() {
+    let Some(library) = support::pdfium_library() else { return };
+    let data = TempDir::new();
+    let inbox = TempDir::new();
+    add_user(data.path(), "sample.reviewer", "reviewer");
+    add_user(data.path(), "sample.viewer", "viewer");
+    let token = token(data.path(), "dashboard", &["read"]);
+    let application_pdf = inbox.path().join("CONTOSO application.pdf");
+    std::fs::write(&application_pdf, application(&Form::word(), 21)).unwrap();
+    let draft_pdf = inbox.path().join("NORTHWIND scan.pdf");
+    std::fs::write(&draft_pdf, application(&Form { omit: vec!["Secondary Owner Name"], ..Form::word() }, 22)).unwrap();
+    let imported = import(data.path(), &[application_pdf, draft_pdf], "sample.reviewer", Some(KEY), Some(&library));
+    let lines: Vec<String> = text(&imported.stdout).lines().map(str::to_string).collect();
+    let (id, draft) = (stored_id(&lines[0]), stored_id(&lines[1]));
+    let matches = format!("/admin/applications/{id}/matches");
+    let fields = |csrf: &str, revision: &str| {
+        post_fields(csrf, &[("base_revision", revision), ("product", "mca"), ("confirm.home_based", "no")])
+    };
+
+    let refused = command(data.path())
+        .args(["serve", "--bind", "127.0.0.1:0"])
+        .env("APPLICATION_DATA_KEY", OTHER_KEY)
+        .output()
+        .unwrap();
+    assert!(!refused.status.success() && text(&refused.stderr).contains("is not the key that sealed"));
+
+    let keyless = Server::start(data.path(), &[]);
+    assert!(keyless.log().contains("no APPLICATION_DATA_KEY is set; stored applications answer 503"));
+    let reviewer = Browser::new(&keyless);
+    reviewer.sign_in("sample.reviewer").await;
+    let csrf = csrf_of(&reviewer.get("/admin/matches").await);
+    assert_eq!(reviewer.post(&matches, &fields(&csrf, "1")).await.status, StatusCode::SERVICE_UNAVAILABLE);
+    drop(keyless);
+
+    let server = Server::start(data.path(), &[("APPLICATION_DATA_KEY", KEY)]);
+    let reviewer = Browser::new(&server);
+    reviewer.sign_in("sample.reviewer").await;
+    let csrf = csrf_of(&reviewer.get("/admin/matches").await);
+    let viewer = Browser::new(&server);
+    viewer.sign_in("sample.viewer").await;
+    let viewer_csrf = csrf_of(&viewer.get("/admin/matches").await);
+    assert_eq!(viewer.post(&matches, &fields(&viewer_csrf, "1")).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(reviewer.post(&matches, &fields("forged", "1")).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(reviewer.post(&matches, &fields(&csrf, "2")).await.status, StatusCode::CONFLICT, "a stale revision");
+    let draft_match = format!("/admin/applications/{draft}/matches");
+    assert_eq!(
+        reviewer.post(&draft_match, &fields(&csrf, "1")).await.status,
+        StatusCode::CONFLICT,
+        "an unconfirmed draft"
+    );
+    let unknown = format!("/admin/applications/{}/matches", uuid::Uuid::new_v4());
+    assert_eq!(reviewer.post(&unknown, &fields(&csrf, "1")).await.status, StatusCode::NOT_FOUND);
+
+    let made = reviewer.post(&matches, &fields(&csrf, "1")).await;
+    assert_eq!(made.status, StatusCode::SEE_OTHER, "{}", made.body);
+    let location = made.location.unwrap();
+    let page = reviewer.get(&location).await;
+    assert!(page.body.contains(&format!("Stored application <code>{id}</code>, revision 1.")), "{}", page.body);
+    assert!(page.body.contains("stated on the application"));
+    let match_id = location.trim_start_matches("/admin/matches/");
+    let review = format!("{location}/review");
+    let reviewed = reviewer.submit(&page, &review, &[], None).await;
+    assert_eq!(reviewed.status, StatusCode::SEE_OTHER, "{}", reviewed.body);
+    let second = reviewer.get(reviewed.location.as_deref().unwrap()).await;
+    assert!(second.body.contains(&format!("Stored application <code>{id}</code>, revision 1.")));
+
+    let response = http()
+        .get(server.url(&format!("/api/v1/matches/{match_id}")))
+        .header("Authorization", bearer(&token))
+        .send()
+        .await
+        .unwrap();
+    let body: lender_matching_wire::v1::MatchResponse = contract_body("MatchResponse", response).await;
+    assert_eq!(body.supersedes, None, "a person's first match supersedes nothing");
+    assert_eq!(
+        body.created_by,
+        lender_matching_wire::v1::CreatedBy::Person { username: "sample.reviewer".to_string() }
+    );
+
+    let log = server.log();
+    let mut secrets: Vec<String> = sample_values().into_iter().map(|(_, value)| value.to_string()).collect();
+    secrets.extend(["SAMPLE OWNER", "owner@example.com", ENVELOPE, KEY].map(String::from));
+    for secret in secrets.iter().filter(|secret| secret.len() > 3) {
+        assert!(!log.contains(secret.as_str()), "the server log holds {secret}");
+        assert!(!database_bytes(data.path()).windows(secret.len()).any(|window| window == secret.as_bytes()));
+    }
 }

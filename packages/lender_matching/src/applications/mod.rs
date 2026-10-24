@@ -11,12 +11,18 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use lender_matching_application::extract::{self, Document, ManualEntryReason, Reading, RefusalReason};
+use lender_matching_application::fields::{BusinessField, FieldId, PropertyField};
+use lender_matching_application::values::{Country, Currency, Denomination, Entity, StatedDate, YesNo};
 use lender_matching_application::worker::{PdfWorker, WorkerError};
-use lender_matching_application::{PARSER_VERSION, PDFIUM_BUILD, PdfFacts, Record, RevisionState};
+use lender_matching_application::{
+    FieldValue, PARSER_VERSION, PDFIUM_BUILD, PdfFacts, Record, Resolved, RevisionState, YearMonth,
+};
 use sha2::{Digest, Sha256};
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
+use crate::facts::Interval;
+use crate::facts::application::{ApplicationFacts, EntityKind};
 use crate::store::applications::{NewApplication, NewRevision, ParseRow, RevisionRow};
 use crate::store::{ReadTx, Store, StoreError, WriteTx, now};
 pub use seal::{Binding, DataKey, KEY_VARIABLE, SealError};
@@ -164,14 +170,12 @@ pub struct Revision {
 }
 
 /// A revision with the parse it selects.
-#[cfg_attr(not(test), expect(dead_code))]
 pub struct Snapshot {
     pub revision: Revision,
     pub parse: StoredParse,
 }
 
 impl Snapshot {
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn record(&self) -> Record<'_> {
         Record { reading: &self.parse.reading, state: &self.revision.state }
     }
@@ -338,6 +342,62 @@ fn snapshot(tx: &ReadTx, key: &DataKey, row: RevisionRow) -> Result<Snapshot, St
 /// The application's current revision.
 pub fn current_in(tx: &ReadTx, key: &DataKey, id: ApplicationId) -> Result<Option<Snapshot>, StoreError> {
     tx.application_head(id)?.map(|row| snapshot(tx, key, row)).transpose()
+}
+
+/// What matching reads from an application: its state, start month, entity, estimated FICO,
+/// requested amount and history answers. The requested amount counts only for a business in a US
+/// jurisdiction, above 0 and not marked CAD. An industry is never suggested: it needs a person.
+pub fn matching_facts(resolved: &Resolved, as_of: Date) -> ApplicationFacts {
+    let business = |field| resolved.value(FieldId::Business(field));
+    let property = |field| resolved.value(FieldId::Property(field));
+    let state = match business(BusinessField::State) {
+        Some(FieldValue::Jurisdiction(code)) => Some(*code),
+        _ => None,
+    };
+    let start = match business(BusinessField::StartDate) {
+        Some(FieldValue::StatedDate(StatedDate::Day(day))) => Some(YearMonth::of(*day)),
+        Some(FieldValue::StatedDate(StatedDate::Month(month))) => Some(*month),
+        _ => None,
+    };
+    let entity = match business(BusinessField::Entity) {
+        Some(FieldValue::Entity(entity)) => Some(match entity {
+            Entity::Llc => EntityKind::Llc,
+            Entity::Corporation | Entity::SCorporation | Entity::CCorporation => EntityKind::Corporation,
+            Entity::SoleProprietorship => EntityKind::SoleProprietorship,
+            Entity::Partnership => EntityKind::Partnership,
+            Entity::NonProfit => EntityKind::NonProfit,
+        }),
+        _ => None,
+    };
+    let fico = match property(PropertyField::EstimatedFico) {
+        Some(FieldValue::Score(score)) => Interval::between(score.min().into(), score.max().into()),
+        _ => None,
+    };
+    let in_us = state.is_some_and(|code| code.country() == Country::UnitedStates);
+    let requested = match property(PropertyField::RequestedAmount) {
+        Some(FieldValue::Money(amount))
+            if in_us && amount.cents() > 0 && amount.denomination() != Denomination::Explicit(Currency::Cad) =>
+        {
+            Some(amount.cents())
+        }
+        _ => None,
+    };
+    let answer = |field| match property(field) {
+        Some(FieldValue::YesNo(YesNo::Yes)) => Some(true),
+        Some(FieldValue::YesNo(YesNo::No)) => Some(false),
+        _ => None,
+    };
+    ApplicationFacts {
+        business_state: state,
+        business_start: start.filter(|month| *month <= YearMonth::of(as_of)),
+        entity,
+        estimated_fico: fico,
+        requested_amount_cents: requested,
+        open_judgements: answer(PropertyField::OpenJudgements),
+        bankruptcy: answer(PropertyField::Bankruptcy),
+        tax_liens: answer(PropertyField::TaxLiens),
+        industry_suggestion: None,
+    }
 }
 
 /// Refuses a key that did not seal the applications already stored.

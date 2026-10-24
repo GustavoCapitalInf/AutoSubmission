@@ -1,5 +1,7 @@
 //! The reviewer form does not edit a match: it makes a new one (analysis fetched again, current
-//! heads) that names the match it supersedes, with the person's confirmations and waivers.
+//! heads) that names the match it supersedes, with the person's confirmations and waivers. A match
+//! of a stored application reads the application's current revision; when that is newer than the
+//! one the match read, the confirmations and waivers are dropped, since they judged other facts.
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -8,13 +10,14 @@ use lender_matching_wire::v1 as wire;
 use maud::{Markup, html};
 use uuid::Uuid;
 
-use super::{PageError, RawForm, csrf, errors, fields, page, redirect, require};
+use super::{Fields, PageError, RawForm, csrf, errors, fields, page, redirect, require};
+use crate::applications::ApplicationRef;
 use crate::criteria::CheckId;
 use crate::criteria::describe;
 use crate::criteria::eval::{Outcome, Waiver};
 use crate::facts::application::{Confirmations, Confirmed, Industries};
 use crate::facts::{FactKey, FlagFact, NumFact};
-use crate::matching::{MatchError, MatchInput, MatchView, Requester, VerdictResult};
+use crate::matching::{ApplicationInput, MatchCommand, MatchError, MatchView, Requester, VerdictResult};
 use crate::store::auth::{AdminUser, Role};
 use crate::store::now;
 use crate::web::Shared;
@@ -129,8 +132,102 @@ fn kind_label(kind: wire::NoteKind) -> &'static str {
     }
 }
 
+/// The newer revision of the stored application the match read, if one exists.
+fn changed_application(view: &MatchView) -> Option<ApplicationRef> {
+    let read = view.record.application?;
+    let head = view.application_head?;
+    (head != read.revision).then_some(ApplicationRef { id: read.id, revision: head })
+}
+
+/// What a review submits: the facts the match read, or the stored application's revision. A
+/// changed application gives its current revision with no confirmation or waiver.
+fn next_command(view: &MatchView, confirmations: Confirmations, waivers: Vec<Waiver>) -> MatchCommand {
+    let input = &view.record.input;
+    let (application, confirmations, waivers) = match (view.record.application, changed_application(view)) {
+        (_, Some(current)) => (ApplicationInput::Stored(current), Confirmations::default(), Vec::new()),
+        (Some(read), None) => (ApplicationInput::Stored(read), confirmations, waivers),
+        (None, None) => (ApplicationInput::Inline(input.deal.application.clone()), confirmations, waivers),
+    };
+    MatchCommand {
+        analysis_package: input.analysis_package,
+        product: input.product,
+        application,
+        confirmations,
+        waivers,
+    }
+}
+
+/// The confirmations a form gives, and a problem for an industry that is not active.
+pub fn confirmations(fields: &Fields, industries: &Industries, user: &AdminUser) -> (Confirmations, Vec<String>) {
+    let at = now();
+    let mut problems = Vec::new();
+    let industry = match fields.get("confirm.industry") {
+        "" => None,
+        slug => match industries.resolve(slug) {
+            Some(id) => Some(Confirmed { value: id, by: user.username.clone(), at }),
+            None => {
+                problems.push("Industry: choose an active industry".to_string());
+                None
+            }
+        },
+    };
+    let flag = |name: &str| {
+        let value = match fields.get(name) {
+            "yes" => true,
+            "no" => false,
+            _ => return None,
+        };
+        Some(Confirmed { value, by: user.username.clone(), at })
+    };
+    let confirmations = Confirmations {
+        industry,
+        default_history: flag("confirm.default_history"),
+        home_based: flag("confirm.home_based"),
+        open_lawsuit: flag("confirm.open_lawsuit"),
+    };
+    (confirmations, problems)
+}
+
+/// The page for a match the matcher refused.
+pub fn refused(error: MatchError) -> PageError {
+    match error {
+        MatchError::AlreadySuperseded => PageError::status(
+            StatusCode::CONFLICT,
+            "Someone already made a newer match from this one; review that one.",
+        ),
+        MatchError::AnalysisNotReady { retry_after } => PageError::status(
+            StatusCode::CONFLICT,
+            &format!("The analysis package is processing again. Try again in {} seconds.", retry_after.as_secs()),
+        ),
+        MatchError::ApplicationsUnavailable => PageError::status(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Stored applications are off: this server has no APPLICATION_DATA_KEY.",
+        ),
+        MatchError::ApplicationNotFound => PageError::not_found(),
+        MatchError::ApplicationChanged { current } => PageError::status(
+            StatusCode::CONFLICT,
+            &format!("The application changed: revision {current} is current. Open it again and match that one."),
+        ),
+        MatchError::ApplicationUnconfirmed => {
+            PageError::status(StatusCode::CONFLICT, "Confirm that this document is an application before matching it.")
+        }
+        MatchError::Store(error) => error.into(),
+        other @ (MatchError::AnalysisNotConfigured
+        | MatchError::AnalysisPackageNotFound
+        | MatchError::AnalysisUnavailable(_)
+        | MatchError::AnalysisContractMismatch(_)) => {
+            crate::web::log_error("match", &other);
+            PageError::status(
+                StatusCode::BAD_GATEWAY,
+                "The analysis service could not give the package; nothing was saved.",
+            )
+        }
+    }
+}
+
 fn render(user: &AdminUser, view: &MatchView, industries: &Industries, problems: &[String]) -> Markup {
     let body = render_match(view, industries);
+    let changed = changed_application(view);
     let confirmations = &view.record.input.deal.confirmations;
     let flag_choice = |name: &str, current: Option<bool>| {
         html! {
@@ -159,6 +256,12 @@ fn render(user: &AdminUser, view: &MatchView, industries: &Industries, problems:
                 @match &body.analysis {
                     Some(analysis) => { "Analysis package " code { (analysis.package_id) } ", revision " code { (analysis.revision) } "." }
                     None => { "No analysis package: every statement fact is unknown." }
+                }
+            }
+            @if let Some(read) = view.record.application {
+                p {
+                    "Stored application " code { (read.id) } ", revision " (read.revision) "."
+                    @if let Some(current) = changed { " " span.badge { "revision " (current.revision) " is current" } }
                 }
             }
             h2 { "Facts" }
@@ -237,7 +340,14 @@ fn render(user: &AdminUser, view: &MatchView, industries: &Industries, problems:
                     }
                 }
             }
-            @if can_review {
+            @if can_review && changed.is_some() {
+                h2 { "Review" }
+                p.note { "The application changed after this match. A new match reads its current revision, with the analysis fetched again and every lender's current criteria, and starts without confirmations or waivers." }
+                form method="post" action={ "/admin/matches/" (body.match_id) "/review" } {
+                    (csrf(user))
+                    button { "Make a new match from the current application" }
+                }
+            } @else if can_review {
                 h2 { "Review" }
                 p.note { "Submitting makes a new match with the analysis fetched again and every lender's current criteria. A waiver holds only while the lender's revision and the analysis revision stay as shown here." }
                 (errors(problems))
@@ -308,31 +418,7 @@ pub async fn submit(
         ));
     }
     let at = now();
-    let mut problems = Vec::new();
-    let industry = match fields.get("confirm.industry") {
-        "" => None,
-        slug => match industries.resolve(slug) {
-            Some(id) => Some(Confirmed { value: id, by: user.username.clone(), at }),
-            None => {
-                problems.push("Industry: choose an active industry".to_string());
-                None
-            }
-        },
-    };
-    let flag = |name: &str| {
-        let value = match fields.get(name) {
-            "yes" => true,
-            "no" => false,
-            _ => return None,
-        };
-        Some(Confirmed { value, by: user.username.clone(), at })
-    };
-    let confirmations = Confirmations {
-        industry,
-        default_history: flag("confirm.default_history"),
-        home_based: flag("confirm.home_based"),
-        open_lawsuit: flag("confirm.open_lawsuit"),
-    };
+    let (confirmations, mut problems) = confirmations(&fields, &industries, &user);
     let body = render_match(&view, &industries);
     let analysis_revision = view.record.facts.analysis.as_ref().map(|analysis| analysis.revision.clone());
     let mut waivers = Vec::new();
@@ -366,28 +452,70 @@ pub async fn submit(
     if !problems.is_empty() {
         return Ok((StatusCode::UNPROCESSABLE_ENTITY, render(&user, &view, &industries, &problems)).into_response());
     }
-    let input = MatchInput {
-        deal: crate::facts::DealInput { confirmations, ..view.record.input.deal.clone() },
-        waivers,
-        ..view.record.input.clone()
-    };
-    match app.matcher.run(Requester::Person { user: user.id, supersedes: Some(id) }, input).await {
+    let command = next_command(&view, confirmations, waivers);
+    match app.matcher.run(Requester::Person { user: user.id, supersedes: Some(id) }, command).await {
         Ok(record) => Ok(redirect(&format!("/admin/matches/{}", record.id))),
-        Err(MatchError::AlreadySuperseded) => Err(PageError::status(
-            StatusCode::CONFLICT,
-            "Someone already made a newer match from this one; review that one.",
-        )),
-        Err(MatchError::AnalysisNotReady { retry_after }) => Err(PageError::status(
-            StatusCode::CONFLICT,
-            &format!("The analysis package is processing again. Try again in {} seconds.", retry_after.as_secs()),
-        )),
-        Err(MatchError::Store(error)) => Err(error.into()),
-        Err(other) => {
-            crate::web::log_error("review", &other);
-            Err(PageError::status(
-                StatusCode::BAD_GATEWAY,
-                "The analysis service could not give the package; nothing was saved.",
-            ))
-        }
+        Err(error) => Err(refused(error)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use lender_matching_application::{EditInput, Edits};
+
+    use super::*;
+    use crate::applications::testing::{LEGAL_NAME, key, service, support::form::Form, upload};
+    use crate::applications::{Cause, Saved};
+    use crate::criteria::Product;
+    use crate::facts::testing::everything_confirmed;
+    use crate::matching::Matcher;
+    use crate::store::Store;
+    use crate::store::auth::Role;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_review_keeps_its_choices_until_the_application_changes_and_then_drops_them() {
+        let store = Arc::new(Store::open_in_memory());
+        let user = store.write(|tx| tx.add_user("sample.reviewer", "correct horse battery", Role::Reviewer)).unwrap();
+        let (applications, reader) = service(&store);
+        let first = upload(&applications, &reader, Form::word(), user);
+        let matcher = Matcher::new(store.clone(), None, Some(Arc::new(key())));
+        let command = MatchCommand {
+            analysis_package: None,
+            product: Product::Mca,
+            application: ApplicationInput::Stored(first),
+            confirmations: everything_confirmed(),
+            waivers: Vec::new(),
+        };
+        let made = matcher.run(Requester::Person { user, supersedes: None }, command).await.unwrap();
+        let view = |id| store.read(|tx| MatchView::load(tx, id)).unwrap().unwrap();
+        let waiver = Waiver {
+            lender: crate::criteria::LenderId::generate(),
+            check: CheckId::Rule(crate::criteria::RuleId(1)),
+            lender_revision: 1,
+            analysis_revision: None,
+            by: "sample.reviewer".to_string(),
+            at: now(),
+            reason: "SAMPLE LENDER confirmed an exception".to_string(),
+        };
+
+        let unchanged = next_command(&view(made.id), everything_confirmed(), vec![waiver.clone()]);
+        assert_eq!(unchanged.application, ApplicationInput::Stored(first));
+        assert_eq!((unchanged.confirmations, unchanged.waivers), (everything_confirmed(), vec![waiver.clone()]));
+
+        let current = applications.current(first.id).unwrap();
+        let edits =
+            Edits::read(current.record(), &[(LEGAL_NAME, EditInput::Text("FABRIKAM LLC"))], now().date()).ok().unwrap();
+        assert!(matches!(applications.correct(first, &edits, Cause::Merchant, None, user), Ok(Saved::New(_))));
+        let changed = view(made.id);
+        assert_eq!(changed_application(&changed), Some(ApplicationRef { revision: 2, ..first }));
+        let next = next_command(&changed, everything_confirmed(), vec![waiver]);
+        assert_eq!(next.application, ApplicationInput::Stored(ApplicationRef { revision: 2, ..first }));
+        assert_eq!(next.confirmations, Confirmations::default(), "choices made on other facts are dropped");
+        assert!(next.waivers.is_empty());
+        let remade = matcher.run(Requester::Person { user, supersedes: Some(made.id) }, next).await.unwrap();
+        assert_eq!(remade.application, Some(ApplicationRef { revision: 2, ..first }));
+        assert_eq!(remade.input.deal.confirmations, Confirmations::default());
     }
 }

@@ -3,8 +3,8 @@
 #[path = "../../application/tests/support/mod.rs"]
 pub mod support;
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use lender_matching_application::pdf::ReadError;
 use lender_matching_application::worker::WorkerError;
@@ -13,7 +13,8 @@ use support::form::{Canvas, Form, certificate_of};
 use support::pdf::{FakePage, FakePdf};
 use time::{Date, Month};
 
-use super::ReadPdf;
+use super::{ApplicationRef, Applications, DataKey, Intake, ReadPdf};
+use crate::store::Store;
 
 /// Lays text out as the fabricated fonts do: each character half an em wide, its box one em tall.
 pub struct ModelPage(TextPage);
@@ -86,6 +87,28 @@ fn draw_contract<C: Canvas>(mut page: C) -> C {
 pub fn contract() -> Document {
     let pdf = FakePdf::new(vec![draw_contract(FakePage::new())]).to_bytes();
     Document { pdf, draw: Box::new(|| PdfFacts { created_on: None, pages: vec![draw_contract(ModelPage::new()).0] }) }
+}
+
+pub const LEGAL_NAME: lender_matching_application::FieldId =
+    lender_matching_application::FieldId::Business(lender_matching_application::fields::BusinessField::LegalName);
+
+pub fn key() -> DataKey {
+    DataKey::new([7; 32])
+}
+
+/// Applications over `store`, sealed with `key()`, reading fabricated documents.
+pub fn service(store: &Arc<Store>) -> (Applications, Arc<FakeReader>) {
+    let reader = Arc::new(FakeReader::default());
+    (Applications::new(store.clone(), Arc::new(key()), reader.clone()), reader)
+}
+
+/// Uploads `form` as a new application by `by`.
+pub fn upload(applications: &Applications, reader: &FakeReader, form: Form, by: i64) -> ApplicationRef {
+    let pdf = reader.knows(application(form, ENVELOPE, 21));
+    match applications.upload(&pdf, by).unwrap() {
+        Intake::Stored { reference, .. } => reference,
+        _ => panic!("not stored as a new application"),
+    }
 }
 
 /// Gives each known document's page data, counting reads; other bytes are not a PDF.

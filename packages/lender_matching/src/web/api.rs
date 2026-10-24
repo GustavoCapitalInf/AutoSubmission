@@ -17,8 +17,8 @@ use crate::criteria::describe;
 use crate::criteria::eval::{Evaluation, Outcome, Overruled, Scope as NoteScope, VerdictStatus, Waiver, reads};
 use crate::criteria::{LenderStatus, NoteKind, Product};
 use crate::facts::application::{ApplicationFacts, EntityKind, Industries, Jurisdiction, YearMonth};
-use crate::facts::{Basis, DealFacts, DealInput, Fact, FactKey, Interval, Source};
-use crate::matching::{Creator, MatchError, MatchInput, MatchView, Requester, VerdictResult};
+use crate::facts::{Basis, DealFacts, Fact, FactKey, Interval, Source};
+use crate::matching::{ApplicationInput, Creator, MatchCommand, MatchError, MatchView, Requester, VerdictResult};
 use crate::store::auth::{MachineClient, Scope};
 use crate::store::{Revision, StoreError, now, time_text};
 
@@ -80,7 +80,12 @@ impl From<MatchError> for ApiError {
                 log_error("analysis contract", &why);
                 ApiError::new(AnalysisContractMismatch)
             }
-            other @ (MatchError::AlreadySuperseded | MatchError::Store(_)) => ApiError::internal("match", &other),
+            other @ (MatchError::AlreadySuperseded
+            | MatchError::ApplicationsUnavailable
+            | MatchError::ApplicationNotFound
+            | MatchError::ApplicationChanged { .. }
+            | MatchError::ApplicationUnconfirmed
+            | MatchError::Store(_)) => ApiError::internal("match", &other),
         }
     }
 }
@@ -218,7 +223,7 @@ pub fn parse_request(
     request: wire::MatchRequest,
     industries: &Industries,
     today: Date,
-) -> Result<MatchInput, ApiError> {
+) -> Result<MatchCommand, ApiError> {
     let app = request.application;
     let state = app
         .business_state
@@ -251,23 +256,21 @@ pub fn parse_request(
         .industry_suggestion
         .map(|slug| industries.resolve(&slug).ok_or(ApiError::invalid_fact("/application/industry_suggestion")))
         .transpose()?;
-    Ok(MatchInput {
+    Ok(MatchCommand {
         analysis_package: request.analysis_package_id,
         product: product(request.product),
-        deal: DealInput {
-            application: ApplicationFacts {
-                business_state: state,
-                business_start: start,
-                entity: app.entity.map(entity),
-                estimated_fico: fico,
-                requested_amount_cents: amount,
-                open_judgements: app.open_judgements,
-                bankruptcy: app.bankruptcy,
-                tax_liens: app.tax_liens,
-                industry_suggestion: suggestion,
-            },
-            confirmations: Default::default(),
-        },
+        application: ApplicationInput::Inline(ApplicationFacts {
+            business_state: state,
+            business_start: start,
+            entity: app.entity.map(entity),
+            estimated_fico: fico,
+            requested_amount_cents: amount,
+            open_judgements: app.open_judgements,
+            bankruptcy: app.bankruptcy,
+            tax_liens: app.tax_liens,
+            industry_suggestion: suggestion,
+        }),
+        confirmations: Default::default(),
         waivers: Vec::new(),
     })
 }
@@ -493,9 +496,10 @@ mod tests {
             "business_state": "tx", "business_start_month": "2026-10", "estimated_fico": {"min": 650, "max": 700},
             "industry_suggestion": "cannabis", "entity": "llc"
         }));
-        let input = parse_request(accepted, &industries, today).unwrap();
-        assert_eq!(input.deal.application.business_state.map(Jurisdiction::code), Some("TX"));
-        assert_eq!(input.product, Product::Mca);
+        let command = parse_request(accepted, &industries, today).unwrap();
+        let ApplicationInput::Inline(application) = command.application else { panic!("the facts as sent") };
+        assert_eq!(application.business_state.map(Jurisdiction::code), Some("TX"));
+        assert_eq!(command.product, Product::Mca);
     }
 
     #[test]

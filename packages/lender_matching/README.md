@@ -75,6 +75,7 @@ lender-matching serve --bind 127.0.0.1:8080
 |---|---|
 | `ANALYSIS_API_URL`, `ANALYSIS_API_TOKEN` | The bank statement analysis API, as in [`apps/auto_submission/README.md`](../../apps/auto_submission/README.md). Set both or neither. Without them, a match that names a package answers 503 `analysis_not_configured`. The URL must be `https://` unless it names this machine |
 | `PUBLIC_URL` | The address people open. It must be `https://` unless the server binds a loopback address, and session cookies are `Secure` when it is. A non-loopback bind needs it |
+| `APPLICATION_DATA_KEY` | The key that seals stored applications (see [Store applications](#store-applications)). Without it the server starts, and matching a stored application answers 503. A key that did not seal the stored applications stops the start |
 
 One server process owns the database. Every person and every app is a client of that process, so every copy of a
 client sees the same criteria.
@@ -98,6 +99,11 @@ condition notes, no rules, no bucket and no submission channel.
   waive a check or a condition note with a reason. Submitting makes a new match that supersedes the old one, with the
   analysis fetched again and every lender's current revision. A waiver holds only for the lender revision and the
   analysis revision it was given on.
+- A match of a stored application (`POST /admin/applications/{id}/matches` with `base_revision`, `product`, an
+  optional `analysis_package_id` and the `confirm.*` choices) reads that revision, which must be current, and a
+  manual-entry draft only once a person confirms it. The match page names the revision. When the application has
+  changed since, its review makes a new match from the current revision without the old confirmations and waivers,
+  which judged other facts.
 
 ## Readings
 
@@ -244,6 +250,10 @@ export APPLICATION_DATA_KEY="$(openssl rand -base64 32)"   # once; keep it as a 
 export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
 lender-matching applications import "<application PDF>" --by sample.reviewer
 ```
+
+Matching reads the application's state, start month, entity, estimated FICO, the three history answers, and the
+requested amount when the business is in a US state or territory, the amount is above 0 and not marked CAD. The stored
+match keeps the facts it read, and `match_applications` names the revision.
 
 The import records each upload under the named reviewer or editor and prints each file's outcome
 by its position, never its name: stored, already stored (identical bytes), stored as a

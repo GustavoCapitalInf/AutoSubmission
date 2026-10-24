@@ -1,6 +1,7 @@
 //! The admin pages: server-rendered HTML forms behind a session cookie. Every POST carries the
 //! session's CSRF token, and a request that carries `Authorization` is refused.
 
+mod applications;
 mod lender;
 mod review;
 
@@ -44,6 +45,7 @@ pub fn router() -> Router<Shared> {
         .route("/admin/matches", get(matches))
         .route("/admin/matches/{id}", get(review::view))
         .route("/admin/matches/{id}/review", post(review::submit))
+        .route("/admin/applications/{id}/matches", post(applications::create_match))
         .layer(axum::middleware::map_response(|mut response: Response| async move {
             let headers = response.headers_mut();
             headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));

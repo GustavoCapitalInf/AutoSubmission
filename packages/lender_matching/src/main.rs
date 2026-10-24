@@ -326,11 +326,17 @@ fn serve(dir: DataDir, store: Store, bind: SocketAddr) -> Result<ExitCode, Strin
     if analysis.is_none() {
         eprintln!("lender-matching: no analysis service is configured; a match that names a package answers 503");
     }
+    let key = DataKey::from_env()?;
+    match &key {
+        Some(key) => applications::check_key(&store, key)?,
+        None => eprintln!("lender-matching: no {KEY_VARIABLE} is set; stored applications answer 503"),
+    }
     let runtime =
         tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|error| error.to_string())?;
     runtime.block_on(async move {
         let store = Arc::new(store);
-        let state = Arc::new(AppState { matcher: Matcher::new(store.clone(), analysis), store, secure_cookies });
+        let matcher = Matcher::new(store.clone(), analysis, key.map(Arc::new));
+        let state = Arc::new(AppState { matcher, store, secure_cookies });
         let listener =
             tokio::net::TcpListener::bind(bind).await.map_err(|error| format!("cannot bind {bind}: {error}"))?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;

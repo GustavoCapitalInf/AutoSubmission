@@ -292,3 +292,44 @@ fn the_database_file_holds_no_fabricated_value() {
     }
     std::fs::remove_dir_all(&directory).unwrap();
 }
+
+fn facts_of(form: Form) -> crate::facts::application::ApplicationFacts {
+    let setup = setup();
+    let reference = setup.upload(form);
+    matching_facts(&setup.applications.current(reference.id).unwrap().record().resolve(), date!(2026 - 10 - 23))
+}
+
+#[test]
+fn matching_reads_a_requested_amount_only_in_dollars_of_a_us_business() {
+    use lender_matching_application::fields::PropertyField as P;
+    let requested = FieldId::Property(P::RequestedAmount);
+    let state = FieldId::Business(B::State);
+    let amount = |form: Form| facts_of(form).requested_amount_cents;
+    assert_eq!(amount(Form::word()), Some(5_000_000), "a bare dollar sign in Texas");
+    assert_eq!(amount(Form::word().set(requested, "50,000")), Some(5_000_000), "unmarked in Texas");
+    assert_eq!(amount(Form::word().set(requested, "50,000 CAD")), None, "Canadian dollars");
+    assert_eq!(amount(Form::word().set(requested, "0")), None, "nothing requested");
+    assert_eq!(amount(Form::word().set(state, "ON")), None, "a Canadian business");
+    assert_eq!(amount(Form::word().set(state, "PR")), Some(5_000_000), "a US territory");
+}
+
+#[test]
+fn matching_reads_the_start_month_the_entity_kind_and_the_history_answers() {
+    use crate::facts::application::{EntityKind, YearMonth};
+    use lender_matching_application::fields::PropertyField as P;
+    let start = FieldId::Business(B::StartDate);
+    let facts = facts_of(
+        Form::word()
+            .set(start, "05/2020")
+            .set(FieldId::Business(B::Entity), "S CORP")
+            .set(FieldId::Property(P::OpenJudgements), "YES")
+            .set(FieldId::Property(P::EstimatedFico), "650-700"),
+    );
+    assert_eq!(facts.business_start, YearMonth::new(2020, 5));
+    assert_eq!(facts.entity, Some(EntityKind::Corporation));
+    assert_eq!((facts.open_judgements, facts.bankruptcy, facts.tax_liens), (Some(true), Some(false), Some(false)));
+    assert_eq!(facts.estimated_fico, crate::facts::Interval::between(650, 700));
+    assert_eq!(facts.industry_suggestion, None);
+    let refused = facts_of(Form::word().set(start, "Q2 2019").set(FieldId::Property(P::Bankruptcy), "MAYBE"));
+    assert_eq!((refused.business_start, refused.bankruptcy), (None, None), "a refused reading supplies no fact");
+}

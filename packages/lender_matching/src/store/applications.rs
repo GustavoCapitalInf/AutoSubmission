@@ -6,7 +6,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::{ReadTx, StoreError, WriteTx, now, parse_time, time_text};
-use crate::applications::{ApplicationId, ParseId, RevisionKind};
+use crate::applications::{ApplicationId, ApplicationRef, ParseId, RevisionKind};
 
 pub struct NewApplication<'a> {
     pub id: ApplicationId,
@@ -189,6 +189,19 @@ impl ReadTx<'_> {
         self.application_revision_where("WHERE r.application_id = ?1 ORDER BY r.revision", [id.0.to_string()])
     }
 
+    /// The application revision a match read.
+    pub fn match_application(&self, match_id: Uuid) -> Result<Option<ApplicationRef>, StoreError> {
+        let row: Option<(String, u32)> = self
+            .conn
+            .query_row(
+                "SELECT application_id, revision FROM match_applications WHERE match_id = ?1",
+                [match_id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        row.map(|(id, revision)| Ok(ApplicationRef { id: ApplicationId(uuid(&id)?), revision })).transpose()
+    }
+
     /// Any one sealed revision state, to tell which key the stored applications use.
     pub fn some_application_state(&self) -> Result<Option<Vec<u8>>, StoreError> {
         Ok(self.conn.query_row("SELECT state FROM application_revisions LIMIT 1", [], |row| row.get(0)).optional()?)
@@ -196,6 +209,14 @@ impl ReadTx<'_> {
 }
 
 impl WriteTx<'_> {
+    pub fn insert_match_application(&self, match_id: Uuid, read: ApplicationRef) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO match_applications (match_id, application_id, revision) VALUES (?1, ?2, ?3)",
+            params![match_id.to_string(), read.id.0.to_string(), read.revision],
+        )?;
+        Ok(())
+    }
+
     pub fn insert_application(&self, new: &NewApplication) -> Result<(), StoreError> {
         self.conn.execute(
             "INSERT INTO applications (id, source_sha256, envelope_id_sha256, uploaded_at, uploaded_by, source_pdf) \

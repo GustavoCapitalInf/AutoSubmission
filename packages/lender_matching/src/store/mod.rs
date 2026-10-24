@@ -361,6 +361,7 @@ impl ReadTx<'_> {
             return Err(StoreError::Corrupt(format!("match {id} has format {format}, unreadable by this build")));
         }
         let corrupt = |what: &str| StoreError::Corrupt(format!("match {id}: {what}"));
+        let application = self.match_application(id)?;
         let by = match (client, user, supersedes) {
             (Some(client), None, None) => Requester::Client(client),
             (None, Some(user), supersedes) => Requester::Person {
@@ -409,6 +410,7 @@ impl ReadTx<'_> {
             facts: serde_json::from_str(&facts).map_err(|error| corrupt(&format!("its facts: {error}")))?,
             engine_version,
             verdicts,
+            application,
         }))
     }
 
@@ -607,6 +609,9 @@ impl WriteTx<'_> {
                 params![record.id.to_string(), verdict.lender.as_str(), verdict.revision, verdict.result.key(), evaluation],
             )?;
         }
+        if let Some(application) = record.application {
+            self.insert_match_application(record.id, application)?;
+        }
         Ok(())
     }
 
@@ -751,6 +756,7 @@ mod tests {
             facts,
             engine_version: crate::matching::ENGINE_VERSION,
             verdicts: vec![verdict],
+            application: None,
         }
     }
 
