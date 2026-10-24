@@ -149,7 +149,7 @@ export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
 **Applications** lists every application with its legal name, principal owner, upload, layout ("hand entry" for a
 draft) and badges: required fields left empty, fields that need review, "awaiting confirmation" and "audit".
 
-- **Upload an application** takes one PDF of up to 32 MiB. The server reads it and opens its form. Identical bytes
+- **Upload an application** takes one PDF of up to 64 MiB, the most the parser reads. The server reads it and opens its form. Identical bytes
   open the application already stored, with a notice. A Receivables Purchase Agreement or other envelope paperwork
   answers 422 naming what it reads as, and nothing is stored. A scan or a layout the parser does not know is stored as
   a hand-entry draft, which a person confirms is an application ("This is an application") before it is matched.

@@ -19,7 +19,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use lender_matching_application::extract::Document;
 use lender_matching_application::fields::{BusinessField, OwnerField, OwnerSlot};
-use lender_matching_application::pdf::ReadError;
+use lender_matching_application::pdf::{MAX_BYTES, ReadError};
 use lender_matching_application::record::Attention;
 use lender_matching_application::worker::WorkerError;
 use lender_matching_application::{Admission, Current, Edits, FieldId, FieldValue, Record, Resolved};
@@ -43,8 +43,8 @@ use crate::store::now;
 use crate::web::Shared;
 use form::{FormView, Sensitive, Submission, render_cards};
 
-/// Uploads above this many bytes are refused.
-const UPLOAD_LIMIT: usize = 32 << 20;
+/// The request body may hold the largest PDF the parser reads, plus the CSRF part and the multipart framing.
+const UPLOAD_LIMIT: usize = MAX_BYTES + (1 << 20);
 
 pub fn router() -> Router<Shared> {
     Router::new()
@@ -236,8 +236,12 @@ async fn upload(State(app): State<Shared>, user: AdminUser, mut multipart: Multi
             "This form is stale or was not sent from these pages. Reload and try again.",
         )
     };
-    let too_large =
-        || PageError::status(StatusCode::PAYLOAD_TOO_LARGE, "The file is larger than 32 MiB. Nothing was saved.");
+    let too_large = || {
+        PageError::status(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &format!("The file is larger than {} MiB. Nothing was saved.", MAX_BYTES >> 20),
+        )
+    };
     let token = match multipart.next_field().await {
         Ok(Some(part)) if part.name() == Some("csrf") => part.text().await.map_err(|_| stale())?,
         _ => return Err(stale()),
@@ -256,6 +260,9 @@ async fn upload(State(app): State<Shared>, user: AdminUser, mut multipart: Multi
         Err(error) if error.status() == StatusCode::PAYLOAD_TOO_LARGE => return Err(too_large()),
         _ => return Err(unprocessable("Choose a PDF file. Nothing was saved.")),
     };
+    if pdf.len() > MAX_BYTES {
+        return Err(too_large());
+    }
     if pdf.is_empty() {
         return Err(unprocessable("Choose a PDF file. Nothing was saved."));
     }

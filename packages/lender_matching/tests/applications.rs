@@ -348,7 +348,7 @@ async fn an_upload_opens_its_form_and_a_duplicate_or_a_contract_stores_nothing_n
     let contract_pdf = contract();
     let file_first = [("pdf", contract_pdf.as_slice()), ("csrf", csrf.as_bytes())];
     assert_eq!(pages.reviewer.post_multipart("/admin/applications", &file_first).await.status, StatusCode::FORBIDDEN);
-    let large = vec![b' '; 33 << 20];
+    let large = vec![b' '; (64 << 20) + 1];
     let too_large =
         pages.reviewer.post_multipart("/admin/applications", &[("csrf", csrf.as_bytes()), ("pdf", &large)]).await;
     assert_eq!(too_large.status, StatusCode::PAYLOAD_TOO_LARGE, "{}", too_large.body);
