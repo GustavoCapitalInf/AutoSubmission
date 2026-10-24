@@ -7,6 +7,8 @@ use lender_matching_application::fields::{BusinessField as B, OwnerField as O, O
 use lender_matching_application::record::Attention;
 use lender_matching_application::{EditRefusal, EmailFault, FieldId, FieldKind, Refusal};
 
+use crate::applications::{Cause, RevisionKind};
+
 pub fn label(field: FieldId) -> String {
     match field {
         FieldId::Business(field) => match field {
@@ -205,5 +207,15 @@ pub fn refused_document(reason: RefusalReason) -> &'static str {
     match reason {
         RefusalReason::Contract => "a Receivables Purchase Agreement",
         RefusalReason::OtherPaperwork => "other envelope paperwork, without the application form's headings",
+    }
+}
+
+pub fn revision_kind(kind: RevisionKind) -> &'static str {
+    match kind {
+        RevisionKind::Upload => "Uploaded",
+        RevisionKind::Edit(Cause::Reading) => "Corrected: the parser read the PDF wrong",
+        RevisionKind::Edit(Cause::Merchant) => "Corrected: the merchant typed it wrong",
+        RevisionKind::AdoptParse => "A new reading of the PDF adopted",
+        RevisionKind::ConfirmApplication => "Confirmed as an application",
     }
 }

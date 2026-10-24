@@ -44,6 +44,13 @@ pub struct UploadRow {
     pub uploaded_by: String,
 }
 
+/// One logged look at an application's identity data.
+pub struct AccessRow {
+    pub action: String,
+    pub username: String,
+    pub occurred_at: OffsetDateTime,
+}
+
 pub struct RevisionRow {
     pub application: ApplicationId,
     pub revision: u32,
@@ -255,6 +262,19 @@ impl ReadTx<'_> {
             )
             .optional()?;
         row.map(|(id, revision)| Ok(ApplicationRef { id: ApplicationId(uuid(&id)?), revision })).transpose()
+    }
+
+    pub fn application_accesses(&self, id: ApplicationId) -> Result<Vec<AccessRow>, StoreError> {
+        let mut statement = self.conn.prepare(
+            "SELECT a.action, u.username, a.occurred_at FROM application_access a JOIN users u ON u.id = a.user_id \
+             WHERE a.application_id = ?1 ORDER BY a.id",
+        )?;
+        let rows = statement
+            .query_map([id.0.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, String>(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(|(action, username, at)| Ok(AccessRow { action, username, occurred_at: parse_time(&at)? }))
+            .collect()
     }
 
     /// Any one sealed revision state, to tell which key the stored applications use.

@@ -583,3 +583,35 @@ async fn page_one_is_covered_beside_the_form_and_only_a_logged_reveal_uncovers_i
     assert!(page.body.contains("No covered image of page 1 can be made") && !page.body.contains("<img"));
     assert_eq!(pages.reviewer.get_bytes(&format!("{draft}/page/1.png")).await.0, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_history_lists_every_revision_and_reveal_and_the_same_parser_has_nothing_to_adopt() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let path = stored_at(&upload(&pages.reviewer, &application(&Form::word(), 21)).await);
+    let page = pages.reviewer.get(&path).await;
+    let changes = [
+        ("f.business.legal_name", "FABRIKAM LLC"),
+        ("f.principal.birth_date", "05/16/1981"),
+        ("cause", "reading"),
+        ("reason", "SAMPLE REASON"),
+    ];
+    assert_eq!(pages.reviewer.submit(&page, &path, &changes, None).await.status, StatusCode::SEE_OTHER);
+    pages.reviewer.submit(&page, &format!("{path}/reveal"), &[], None).await;
+    let again = pages.reviewer.submit(&page, &format!("{path}/reparse"), &[], None).await;
+    assert_eq!(again.location.as_deref(), Some(format!("{path}?done=current").as_str()));
+    assert!(pages.reviewer.get(again.location.as_deref().unwrap()).await.body.contains("nothing to adopt"));
+
+    let history = pages.viewer.get(&format!("{path}/history")).await;
+    assert_eq!(history.status, StatusCode::OK);
+    let body = &history.body;
+    assert!(body.contains("<h1>History of FABRIKAM LLC</h1>"));
+    assert!(body.contains("Corrected: the parser read the PDF wrong by sample.reviewer at "));
+    assert!(body.contains(": SAMPLE REASON</p>"));
+    assert!(body.contains("<li>Business Legal Name: CONTOSO LLC → FABRIKAM LLC</li>"));
+    assert!(body.contains("<li>Principal Date of Birth: changed</li>"));
+    assert!(body.contains("Uploaded by sample.reviewer") && body.contains("<li>Read by parser"));
+    assert!(body.contains("<li>reveal by sample.reviewer at "));
+    assert!(body.find("<h2>Revision 2</h2>").unwrap() < body.find("<h2>Revision 1</h2>").unwrap(), "newest first");
+    assert_no_secret("the history", body, &["05/16/1981", "04/15/1980", "900-12-3456"]);
+}

@@ -21,7 +21,7 @@ use lender_matching_application::fields::{BusinessField, OwnerField, OwnerSlot};
 use lender_matching_application::pdf::ReadError;
 use lender_matching_application::record::Attention;
 use lender_matching_application::worker::WorkerError;
-use lender_matching_application::{Admission, Current, Edits, FieldId, FieldValue, Resolved};
+use lender_matching_application::{Admission, Current, Edits, FieldId, FieldValue, Record, Resolved};
 use maud::{Markup, html};
 use serde::Deserialize;
 use uuid::Uuid;
@@ -29,8 +29,8 @@ use uuid::Uuid;
 use super::review::{confirmations, refused};
 use super::{Fields, PageError, RawForm, csrf, errors, fields, page, redirect, require, shown_time, wide_page};
 use crate::applications::{
-    Access, ApplicationError, ApplicationId, ApplicationRef, Applications, Cause, Cover, Intake, Saved, Snapshot,
-    Upload,
+    Access, ApplicationError, ApplicationId, ApplicationRef, Applications, Cause, Cover, Intake, ParseId, Saved,
+    Snapshot, Upload,
 };
 use crate::criteria::Product;
 use crate::matching::{ApplicationInput, MatchCommand, Requester};
@@ -51,6 +51,9 @@ pub fn router() -> Router<Shared> {
         .route("/admin/applications/{id}/confirm", post(confirm))
         .route("/admin/applications/{id}/reveal", post(reveal))
         .route("/admin/applications/{id}/page/1.png", get(page_image))
+        .route("/admin/applications/{id}/history", get(history))
+        .route("/admin/applications/{id}/reparse", post(reparse))
+        .route("/admin/applications/{id}/adopt", post(adopt))
         .route("/admin/applications/{id}/matches", post(create_match))
 }
 
@@ -252,6 +255,8 @@ fn done_notice(done: &str) -> Option<&'static str> {
         "unchanged" => "Nothing changed, so nothing was saved.",
         "removed" => "The second owner was removed.",
         "confirmed" => "Confirmed as an application.",
+        "adopted" => "The new reading was adopted; every person's value is kept.",
+        "current" => "The current parser reads this PDF as the selected reading does; there is nothing to adopt.",
         _ => return None,
     })
 }
@@ -350,11 +355,16 @@ fn application_page(shown: &Shown) -> Markup {
                 }
             }
             @if !attention.is_empty() { p { @for badge in &attention { span.badge { (badge) } } } }
-            @if reviewer {
-                div.toolbar {
+            div.toolbar {
+                a href={ (action) "/history" } { "History" }
+                @if reviewer {
                     form method="post" action={ (action) "/reveal" } {
                         (csrf(shown.user))
                         button { "Reveal sensitive details" }
+                    }
+                    form method="post" action={ (action) "/reparse" } {
+                        (csrf(shown.user))
+                        button { "Read the PDF again" }
                     }
                 }
             }
@@ -617,6 +627,128 @@ async fn page_image(State(app): State<Shared>, user: AdminUser, Path(id): Path<S
     }
 }
 
+/// `GET /admin/applications/{id}/history`: every revision with who saved it, when, why and what
+/// changed, and every logged reveal. An SSN or a date of birth shows only that it changed.
+async fn history(State(app): State<Shared>, user: AdminUser, Path(id): Path<String>) -> Result<Markup, PageError> {
+    let applications = service(&app)?;
+    let id = application_id(&id)?;
+    let (snapshots, accesses) = blocking(|| Ok((applications.history(id)?, applications.accesses(id)?)))?;
+    let resolved: Vec<Resolved> = snapshots.iter().map(|snapshot| snapshot.record().resolve()).collect();
+    let mut entries = Vec::new();
+    for (index, snapshot) in snapshots.iter().enumerate() {
+        let mut lines = Vec::new();
+        match index.checked_sub(1) {
+            None => lines.push(format!("Read by parser {} as {}", snapshot.parse.parser_version, layout(snapshot))),
+            Some(before) => {
+                let previous = &snapshots[before];
+                if previous.parse.id != snapshot.parse.id {
+                    lines.push(format!(
+                        "Reading: parser {} → parser {}",
+                        previous.parse.parser_version, snapshot.parse.parser_version
+                    ));
+                }
+                lines.extend(form::differences(&resolved[before], &resolved[index]));
+            }
+        }
+        entries.push((snapshot, lines));
+    }
+    let latest = resolved.last().expect("history holds a revision");
+    let title = format!("History of {}", text_of(latest, LEGAL_NAME).unwrap_or_else(|| "an application".to_string()));
+    Ok(page(
+        Some(&user),
+        &title,
+        html! {
+            p { a href={ "/admin/applications/" (id) } { "Back to the application" } }
+            @for (snapshot, lines) in entries.iter().rev() {
+                @let revision = &snapshot.revision;
+                h2 { "Revision " (revision.reference.revision) }
+                p.note {
+                    (text::revision_kind(revision.kind)) " by " (revision.author) " at " (shown_time(revision.saved_at))
+                    @if let Some(reason) = &revision.reason { ": " (reason) }
+                }
+                ul { @for line in lines { li { (line) } } @if lines.is_empty() { li { "No field changed." } } }
+            }
+            h2 { "Reveals" }
+            @if accesses.is_empty() { p.note { "Nobody has revealed this application's sensitive details." } }
+            ul { @for access in &accesses { li { (access.action) " by " (access.username) " at " (shown_time(access.occurred_at)) } } }
+        },
+    ))
+}
+
+/// `POST /admin/applications/{id}/reparse`: reads the PDF with the current parser, stores that
+/// reading without selecting it, and shows what adopting it would change.
+async fn reparse(
+    State(app): State<Shared>,
+    user: AdminUser,
+    Path(id): Path<String>,
+    form: RawForm,
+) -> Result<Response, PageError> {
+    require(&user, Role::Reviewer)?;
+    let applications = service(&app)?;
+    let id = application_id(&id)?;
+    fields(form).check_csrf(&user)?;
+    let head = blocking(|| applications.current(id))?;
+    let candidate = blocking(|| applications.reparse(id))?;
+    if candidate == head.revision.parse {
+        return Ok(redirect(&format!("/admin/applications/{id}?done=current")));
+    }
+    let candidate = blocking(|| applications.parse(id, candidate))?;
+    let resolved = head.record().resolve();
+    let title =
+        format!("Read {} again", text_of(&resolved, LEGAL_NAME).unwrap_or_else(|| "the application".to_string()));
+    let adopted = head.revision.state.adopting(&candidate.reading.document);
+    let body = match &adopted {
+        None => html! {
+            p.error {
+                "Parser " (candidate.parser_version) " takes this document for "
+                @match &candidate.reading.document {
+                    Document::Refused(reason) => (text::refused_document(*reason)),
+                    _ => "something other than an application",
+                }
+                ", so its reading cannot be adopted."
+            }
+            p { a href={ "/admin/applications/" (id) } { "Back to the application" } }
+        },
+        Some(state) => {
+            let after = Record { reading: &candidate.reading, state }.resolve();
+            let changes = form::differences(&resolved, &after);
+            html! {
+                p {
+                    "Parser " (candidate.parser_version) " read the PDF at " (shown_time(candidate.created_at))
+                    ". Adopting its reading keeps every person's value; these fields change:"
+                }
+                ul { @for line in &changes { li { (line) } } @if changes.is_empty() { li { "No field changes." } } }
+                form method="post" action={ "/admin/applications/" (id) "/adopt" } {
+                    (csrf(&user))
+                    input type="hidden" name="base_revision" value=(head.revision.reference.revision);
+                    input type="hidden" name="parse" value=(candidate.id.0);
+                    button { "Adopt this reading" }
+                }
+                p { a href={ "/admin/applications/" (id) } { "Keep the current reading" } }
+            }
+        }
+    };
+    Ok(page(Some(&user), &title, body).into_response())
+}
+
+/// `POST /admin/applications/{id}/adopt`: a revision that selects the reading `parse`.
+async fn adopt(
+    State(app): State<Shared>,
+    user: AdminUser,
+    Path(id): Path<String>,
+    form: RawForm,
+) -> Result<Response, PageError> {
+    require(&user, Role::Reviewer)?;
+    let applications = service(&app)?;
+    let id = application_id(&id)?;
+    let fields = fields(form);
+    fields.check_csrf(&user)?;
+    let base_ref = base_of(&fields, id)?;
+    let parse = Uuid::parse_str(fields.get("parse")).map(ParseId).map_err(|_| PageError::not_found())?;
+    let result = tokio::task::block_in_place(|| applications.adopt_parse(base_ref, parse, user.id));
+    saved(result, "adopted", |head| Err(failed(ApplicationError::Conflict { head })))
+}
+
 /// `POST /admin/applications/{id}/matches`: a person's first match of revision `base_revision`,
 /// with `product`, an optional `analysis_package_id` and the review form's `confirm.*` choices.
 pub async fn create_match(
@@ -653,3 +785,6 @@ pub async fn create_match(
         Err(error) => Err(refused(error)),
     }
 }
+
+#[cfg(test)]
+mod tests;

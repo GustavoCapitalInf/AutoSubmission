@@ -203,7 +203,7 @@ fn a_correction_saves_a_revision_with_its_cause_and_reason_and_a_repeat_writes_n
     assert_eq!(head.record().resolve().value(LEGAL_NAME).map(FieldValue::canonical).as_deref(), Some("FABRIKAM LLC"));
 
     let history = setup.applications.history(first.id).unwrap();
-    let kinds: Vec<RevisionKind> = history.iter().map(|revision| revision.kind).collect();
+    let kinds: Vec<RevisionKind> = history.iter().map(|snapshot| snapshot.revision.kind).collect();
     assert_eq!(kinds, [RevisionKind::Upload, RevisionKind::Edit(Cause::Merchant)]);
     assert_eq!(rows(&setup.store, "application_revisions"), 2);
 }

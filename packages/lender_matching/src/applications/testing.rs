@@ -102,6 +102,16 @@ pub fn service(store: &Arc<Store>) -> (Applications, Arc<FakeReader>) {
     (Applications::new(store.clone(), Arc::new(key()), reader.clone()), reader)
 }
 
+/// Applications over `store`, sealed with `key()`, reading with `reader`.
+pub fn reading_with(store: &Arc<Store>, reader: Arc<FakeReader>) -> Applications {
+    Applications::new(store.clone(), Arc::new(key()), reader)
+}
+
+/// `applications` as an earlier parser: its parses carry another fingerprint.
+pub fn earlier_parser(applications: Applications) -> Applications {
+    Applications { parser: [1; 32], ..applications }
+}
+
 /// Uploads `form` as a new application by `by`.
 pub fn upload(applications: &Applications, reader: &FakeReader, form: Form, by: i64) -> ApplicationRef {
     let pdf = reader.knows(application(form, ENVELOPE, 21));

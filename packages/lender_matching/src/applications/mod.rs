@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::facts::Interval;
 use crate::facts::application::{ApplicationFacts, EntityKind};
+pub use crate::store::applications::AccessRow;
 use crate::store::applications::{NewApplication, NewRevision, ParseRow, RevisionRow, UploadRow};
 use crate::store::{ReadTx, Store, StoreError, WriteTx, now};
 use seal::{Binding, SealError};
@@ -165,7 +166,6 @@ pub enum Intake {
 }
 
 /// A stored parse. It holds application data, so it has no `Debug`.
-#[cfg_attr(not(test), expect(dead_code))]
 pub struct StoredParse {
     pub id: ParseId,
     pub parser_version: u32,
@@ -174,7 +174,6 @@ pub struct StoredParse {
 }
 
 /// A revision's metadata and state. It holds application data, so it has no `Debug`.
-#[cfg_attr(not(test), expect(dead_code))]
 pub struct Revision {
     pub reference: ApplicationRef,
     pub saved_at: OffsetDateTime,
@@ -601,17 +600,23 @@ impl Applications {
         Ok(self.store.write(|tx| tx.insert_application_access(id, by, access.key()))?)
     }
 
-    /// Every revision, oldest first.
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub fn history(&self, id: ApplicationId) -> Result<Vec<Revision>, ApplicationError> {
-        let rows = self.store.read(|tx| tx.application_revisions(id))?;
-        if rows.is_empty() {
+    /// Every revision with the parse it selects, oldest first.
+    pub fn history(&self, id: ApplicationId) -> Result<Vec<Snapshot>, ApplicationError> {
+        let snapshots = self.store.read(|tx| {
+            let rows = tx.application_revisions(id)?;
+            rows.into_iter().map(|row| snapshot(tx, &self.key, row)).collect::<Result<Vec<_>, _>>()
+        })?;
+        if snapshots.is_empty() {
             return Err(ApplicationError::NotFound);
         }
-        Ok(rows.into_iter().map(|row| open_revision(&self.key, row)).collect::<Result<_, _>>()?)
+        Ok(snapshots)
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
+    /// Each logged look at the application's identity data, oldest first.
+    pub fn accesses(&self, id: ApplicationId) -> Result<Vec<AccessRow>, ApplicationError> {
+        Ok(self.store.read(|tx| tx.application_accesses(id))?)
+    }
+
     pub fn parse(&self, id: ApplicationId, parse: ParseId) -> Result<StoredParse, ApplicationError> {
         let row = self.store.read(|tx| tx.application_parse(id, parse))?.ok_or(ApplicationError::NotFound)?;
         Ok(open_parse(&self.key, row)?)
@@ -619,7 +624,6 @@ impl Applications {
 
     /// Stores a parse by the current parser without selecting it, once per parser fingerprint: a
     /// repeat gives the stored one without reading the PDF.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn reparse(&self, id: ApplicationId) -> Result<ParseId, ApplicationError> {
         let fingerprint = self.parser;
         let (stored, source) = self
@@ -652,7 +656,6 @@ impl Applications {
 
     /// A new revision that selects `parse` and keeps every override. A parse that reads the
     /// document as not an application is refused.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn adopt_parse(&self, base: ApplicationRef, parse: ParseId, by: i64) -> Result<Saved, ApplicationError> {
         self.save(base, by, RevisionKind::AdoptParse, None, |tx, head| {
             let row = tx.application_parse(base.id, parse)?.ok_or(ApplicationError::NotFound)?;
