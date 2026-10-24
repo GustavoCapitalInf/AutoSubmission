@@ -31,7 +31,8 @@ fn property(field: P) -> Option<FieldId> {
 
 pub type Row = (f32, Vec<(&'static str, f32, Option<FieldId>)>);
 
-/// The Word placement, as offsets from the BUSINESS INFORMATION heading's top-left corner.
+/// The Word placement: each row's offset from the BUSINESS INFORMATION heading's top, and each
+/// label's x on the page.
 pub fn word_rows() -> Vec<Row> {
     vec![
         (
@@ -198,12 +199,10 @@ pub struct Extra {
     pub text: &'static str,
 }
 
-/// Form text in the layout's label font.
 pub fn printed(size: f32, x: f32, dy: f32, text: &'static str) -> Extra {
     Extra { font: None, size, x, dy, text }
 }
 
-/// Text typed in `font`.
 pub fn typed(font: &'static str, size: f32, x: f32, dy: f32, text: &'static str) -> Extra {
     Extra { font: Some(font), size, x, dy, text }
 }

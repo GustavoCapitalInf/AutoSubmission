@@ -1,4 +1,4 @@
-//! Fabricated test content, shared by this crate's tests and the service's through `#[path]`.
+//! Test content shared by this crate's tests and the service's through `#[path]`.
 //! Every value is fabricated: CONTOSO, FABRIKAM, NORTHWIND, SAMPLE, `example.com`, `555-01xx`
 //! phones and SSNs in the 9xx range.
 #![allow(dead_code)]

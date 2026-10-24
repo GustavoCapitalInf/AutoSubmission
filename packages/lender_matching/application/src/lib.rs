@@ -12,7 +12,7 @@ mod template;
 pub mod values;
 pub mod worker;
 
-/// Bumped when the same PDF would read differently; an evaluate report names it.
+/// A bump makes earlier evaluate reports stale; bump it when the same PDF would read differently.
 pub const PARSER_VERSION: u32 = 3;
 
 #[cfg(test)]

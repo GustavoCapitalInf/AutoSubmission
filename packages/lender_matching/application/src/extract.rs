@@ -72,7 +72,7 @@ pub enum RefusalReason {
     OtherPaperwork,
 }
 
-/// A `LayoutSpec` of the template; only the template makes one.
+/// The id of a template `LayoutSpec`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct LayoutId(&'static str);
 
@@ -244,7 +244,7 @@ fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
         for (text, heading) in &texts {
             let found_here = match heading {
                 true if heading_start => match_at(order, at, text, |_| true),
-                false if label_start => match_at(order, at, text, |at| in_label_view(order, at)),
+                false if label_start => match_at(order, at, text, |at| is_label_font_or_space(order, at)),
                 _ => None,
             };
             if let Some(positions) = found_here {
@@ -269,15 +269,14 @@ fn find_candidates(order: &ReadingOrder) -> Vec<Candidate> {
     kept
 }
 
-/// Spaces and glyphs in a label font: what a label is matched among.
-fn in_label_view(order: &ReadingOrder, at: usize) -> bool {
+fn is_label_font_or_space(order: &ReadingOrder, at: usize) -> bool {
     let glyph = order.glyph(at);
     let name = order.page.font_name(glyph);
     glyph.ch.is_whitespace() || FORM.label_fonts.iter().any(|prefix| name.starts_with(prefix))
 }
 
 fn starts_label_word(order: &ReadingOrder, at: usize) -> bool {
-    in_label_view(order, at) && order.starts_word(at, |at| in_label_view(order, at))
+    is_label_font_or_space(order, at) && order.starts_word(at, |at| is_label_font_or_space(order, at))
 }
 
 /// `text` from `start` on its line, matched among the positions `seen` keeps, spacing aside.
@@ -372,28 +371,25 @@ fn align(labels: &[LabelSpec], candidates: &[usize], all: &[Candidate]) -> Vec<P
         .collect()
 }
 
-/// A placed label and its value region.
-struct Bound {
+struct PlacedLabel {
     label: &'static LabelSpec,
     section: usize,
     candidate: usize,
     region: Rect,
-    /// The label's text occurs more often in its section than the form prints it.
     found_twice: bool,
 }
 
-/// The page's labels placed by one layout's label set.
-struct Binding {
+struct LayoutBinding {
     layout: &'static LayoutSpec,
     /// The candidate each section starts at.
     starts: Vec<usize>,
     /// Each label of each section, by section and label index.
     placements: Vec<(usize, usize, Placement)>,
-    bound: Vec<Bound>,
+    bound: Vec<PlacedLabel>,
     offsets: Vec<SentinelOffset>,
 }
 
-impl Binding {
+impl LayoutBinding {
     fn fits(&self) -> bool {
         self.layout.sentinels.iter().all(|(field, dx, dy)| {
             self.offsets.iter().find(|offset| offset.field == *field).is_some_and(|offset| {
@@ -432,9 +428,9 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
         return (document, Vec::new());
     }
     let unknown = Document::ManualEntry(ManualEntryReason::UnknownLayout);
-    let bindings: Vec<Binding> =
+    let bindings: Vec<LayoutBinding> =
         FORM.layouts.iter().filter_map(|layout| bind(layout, &candidates, page.width)).collect();
-    let fits: Vec<&Binding> = bindings.iter().filter(|binding| binding.fits()).collect();
+    let fits: Vec<&LayoutBinding> = bindings.iter().filter(|binding| binding.fits()).collect();
     let offsets = fits.first().copied().or(bindings.first()).map_or(Vec::new(), |binding| binding.offsets.clone());
     let [binding] = fits.as_slice() else { return (unknown, offsets) };
     let (fields, unplaced) = place_and_read(&order, &candidates, binding, signed_on);
@@ -443,7 +439,7 @@ fn read_form(page: &TextPage, signed_on: Option<Date>) -> (Document, Vec<Sentine
 
 /// Places the candidates by `layout`'s label set: none when a section does not start at exactly
 /// one occurrence of its heading or first label, in order.
-fn bind(layout: &'static LayoutSpec, candidates: &[Candidate], page_width: f32) -> Option<Binding> {
+fn bind(layout: &'static LayoutSpec, candidates: &[Candidate], page_width: f32) -> Option<LayoutBinding> {
     let mut starts = Vec::with_capacity(layout.sections.len());
     for section in layout.sections {
         let (text, heading) = match section.start {
@@ -477,7 +473,7 @@ fn bind(layout: &'static LayoutSpec, candidates: &[Candidate], page_width: f32) 
             _ => None,
         })
         .collect();
-    let mut bound: Vec<Bound> = Vec::new();
+    let mut bound: Vec<PlacedLabel> = Vec::new();
     for (s, i, placement) in &placements {
         let Placement::Bound(c) = *placement else { continue };
         let label = &layout.sections[*s].labels[*i];
@@ -506,7 +502,7 @@ fn bind(layout: &'static LayoutSpec, candidates: &[Candidate], page_width: f32) 
                 !other.heading && other.text == label.text && section_of(other.start()) == Some(*s)
             })
             .count();
-        bound.push(Bound { label, section: *s, candidate: c, region, found_twice: present > printed });
+        bound.push(PlacedLabel { label, section: *s, candidate: c, region, found_twice: present > printed });
     }
 
     let field_bound = |field: FieldId| {
@@ -523,7 +519,7 @@ fn bind(layout: &'static LayoutSpec, candidates: &[Candidate], page_width: f32) 
             })
         })
         .collect();
-    Some(Binding { layout, starts, placements, bound, offsets })
+    Some(LayoutBinding { layout, starts, placements, bound, offsets })
 }
 
 /// Two glyphs consecutive in content order stay in one value run when the second starts within
@@ -565,15 +561,15 @@ fn value_runs(page: &TextPage, form_text: &[bool]) -> Vec<Vec<usize>> {
     runs
 }
 
-/// Each value run belongs to the region that holds its first glyph, even where it runs on past
-/// the next label; a run whose first glyph lies in no region is unplaced.
+/// Each value run belongs to every region that holds its first glyph, even where it runs on past
+/// the next label; a run in the form area whose first glyph lies in no region is unplaced.
 fn place_and_read(
     order: &ReadingOrder,
     candidates: &[Candidate],
-    binding: &Binding,
+    binding: &LayoutBinding,
     signed_on: Option<Date>,
 ) -> (FieldMap<FieldReading>, Vec<Unplaced>) {
-    let Binding { layout, starts, placements, bound, .. } = binding;
+    let LayoutBinding { layout, starts, placements, bound, .. } = binding;
     let page = order.page;
     let mut position_of = vec![0; order.order.len()];
     for (at, glyph) in order.order.iter().enumerate() {
@@ -724,14 +720,19 @@ struct ChoiceSpan {
 
 /// On a choice row, the printed choices and other form text in the label font on the label's line
 /// inside its region, which this marks in `form_text`. Empty for any other label.
-fn find_choices(order: &ReadingOrder, label: &Candidate, bound: &Bound, form_text: &mut [bool]) -> Vec<ChoiceSpan> {
+fn find_choices(
+    order: &ReadingOrder,
+    label: &Candidate,
+    bound: &PlacedLabel,
+    form_text: &mut [bool],
+) -> Vec<ChoiceSpan> {
     let Shape::Choices { choices, printed } = bound.label.shape else { return Vec::new() };
     let line = order.line[label.start()];
     let mut found = |text: &str| -> Vec<Vec<usize>> {
         let matches: Vec<Vec<usize>> = (0..order.order.len())
             .filter(|&at| order.line[at] == line && in_region(&bound.region, order.glyph(at).rect))
             .filter(|&at| starts_label_word(order, at))
-            .filter_map(|at| match_at(order, at, text, |at| in_label_view(order, at)))
+            .filter_map(|at| match_at(order, at, text, |at| is_label_font_or_space(order, at)))
             .collect();
         for at in matches.iter().flatten() {
             form_text[order.order[*at]] = true;
@@ -753,11 +754,10 @@ fn find_choices(order: &ReadingOrder, label: &Candidate, bound: &Bound, form_tex
         .collect()
 }
 
-/// A field's text by its grammar, or on a choice row by the mark: one mark picks the printed
-/// choice whose left edge is the first at or right of the mark's centre, when that edge lies within
-/// `MARK_REACH_PT` of it. Text typed without a mark, or with the mark on the described choice, is
-/// read by the field's grammar. Two marks, a mark with no choice in reach, or a row whose choices
-/// are not each printed once refuses the mark.
+/// A field's text by its grammar, or on a choice row by the one mark, as `MARK_REACH_PT` says.
+/// Text typed without a mark, or with the mark on the described choice, is read by the field's
+/// grammar. Two marks, a mark with no choice in reach, or a row whose choices are not each printed
+/// once refuses the mark.
 fn read_value(
     field: FieldId,
     choices: &[ChoiceSpan],

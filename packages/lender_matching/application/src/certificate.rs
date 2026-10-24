@@ -8,7 +8,7 @@ use crate::page::{ReadingOrder, TextPage, words};
 use crate::values::{Answer, Email, FieldValue, RawText, ReadContext, Word};
 
 /// What a DocuSign Certificate of Completion says about its envelope. It holds no originator
-/// detail: the originator's block comes before "Signer Events", which is the only part read.
+/// detail: signers come only from the rows under "Signer Events", below the originator's block.
 pub struct Certificate {
     pub envelope: Option<EnvelopeId>,
     /// The date of the "Completed" row under "Envelope Summary Events".
@@ -61,22 +61,21 @@ fn page_lines(page: &TextPage) -> Vec<Line> {
         .collect()
 }
 
-/// Reads the pages from the last one after the first page that holds a "Certificate Of Completion"
-/// heading to the end. A row whose shape does not fit gives nothing rather than a guess.
+/// Reads from the last page after the first that holds a "Certificate Of Completion" heading to the
+/// end. A row whose shape does not fit gives nothing rather than a guess.
 pub(crate) fn read_certificate(pages: &[TextPage]) -> Option<Certificate> {
     let is_heading = |line: &Line| line.text.to_lowercase().contains("certificate of completion");
     let start = (1..pages.len()).rev().find(|&index| page_lines(&pages[index]).iter().any(is_heading))?;
     let lines: Vec<Line> = pages[start..].iter().flat_map(page_lines).collect();
-    let envelope = unique(lines.iter().filter_map(envelope_id));
+    let envelope = agreed_value(lines.iter().filter_map(envelope_id));
     let summary = lines.iter().position(|line| line.text.starts_with("Envelope Summary Events"));
     let completed_on = summary.and_then(|at| {
-        unique(lines[at + 1..].iter().filter(|line| line.text.starts_with("Completed ")).filter_map(first_date))
+        agreed_value(lines[at + 1..].iter().filter(|line| line.text.starts_with("Completed ")).filter_map(first_date))
     });
     Some(Certificate { envelope, completed_on, signers: signers(&lines) })
 }
 
-/// The one value all the items agree on; none when they are absent or disagree.
-fn unique<T: PartialEq>(mut items: impl Iterator<Item = T>) -> Option<T> {
+fn agreed_value<T: PartialEq>(mut items: impl Iterator<Item = T>) -> Option<T> {
     let first = items.next()?;
     items.all(|item| item == first).then_some(first)
 }
@@ -179,7 +178,6 @@ pub struct SignerComparison {
     pub email: DetailCheck,
 }
 
-/// A name's words in upper case, with punctuation removed.
 fn name_words(name: &str) -> Vec<String> {
     let kept: String = name.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace()).collect();
     kept.to_uppercase().split_whitespace().map(String::from).collect()

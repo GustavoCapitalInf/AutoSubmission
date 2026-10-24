@@ -71,8 +71,6 @@ fn the_pdfescape_rep_header_and_footer_are_form_text() {
     }
 }
 
-/// The PDFescape form with `typed_on_row` as the only text typed on the row whose marks sit on
-/// `mark_dy`, and what `field` reads.
 fn pdfescape_row(field: FieldId, mark_dy: f32, typed_on_row: &[(f32, &'static str)]) -> (Outcome, Option<String>) {
     let mut layout = pdfescape();
     layout.extras.retain(|extra| extra.dy != mark_dy);
@@ -169,7 +167,7 @@ fn a_value_typed_into_its_labels_run_splits_after_the_label() {
     assert_eq!(canonical(form, FieldId::Business(B::Zip)).as_deref(), Some("78701"));
 }
 
-/// The legal name runs from its label's end at x 150.5 to x 353, over the start of the label
+/// Typed after its label, the legal name runs from x 150.5 to x 353, over the start of the label
 /// "Doing Business As (DBA)" at x 330.
 const LONG_LEGAL_NAME: &str = "CONTOSO FABRIKAM NORTHWIND HOLDINGS OF SAMPLE";
 

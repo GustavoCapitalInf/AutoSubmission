@@ -482,7 +482,6 @@ impl fmt::Debug for FieldValue {
 
 const FICO: std::ops::RangeInclusive<u16> = 300..=850;
 
-/// A check mark or an X, in any case.
 pub(crate) fn is_mark(text: &str) -> bool {
     ["X", "✓", "✔"].contains(&text.to_uppercase().as_str())
 }
@@ -600,7 +599,6 @@ impl FieldValue {
     }
 }
 
-/// `N/A` or `NA`, in any case and spacing.
 pub(crate) fn says_na(text: &RawText) -> bool {
     let compact: String = text.text.chars().filter(|c| !c.is_whitespace()).collect::<String>().to_uppercase();
     compact == "N/A" || compact == "NA"
@@ -692,7 +690,6 @@ fn digit_groups<'a>(s: &'a str, separators: &str) -> Option<Vec<&'a str>> {
         .then(|| s.split(|c: char| !c.is_ascii_digit()).filter(|group| !group.is_empty()).collect())
 }
 
-/// What may separate the digit groups of an SSN or a tax ID.
 const ID_SEPARATORS: &str = " -.";
 
 /// A trailing backtick, period or comma is dropped.
@@ -776,7 +773,6 @@ enum DateParts {
     SixDigits([u8; 6]),
 }
 
-/// `part` as a number when it is all digits and one of `widths` long.
 fn number(part: &str, widths: &[usize]) -> Option<i32> {
     (widths.contains(&part.len()) && part.bytes().all(|b| b.is_ascii_digit())).then(|| part.parse().ok())?
 }

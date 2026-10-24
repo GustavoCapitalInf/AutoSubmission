@@ -221,7 +221,6 @@ pub(crate) mod build {
             self
         }
 
-        /// Reverses the content order, as `reading_does_not_depend_on_content_order` needs.
         pub fn reversed(mut self) -> PageBuilder {
             self.0.glyphs.reverse();
             self

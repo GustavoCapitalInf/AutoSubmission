@@ -245,7 +245,6 @@ impl FieldId {
         }
     }
 
-    /// An exhaustive `match`, so a new field does not compile without its spec.
     pub fn spec(self) -> FieldSpec {
         use FieldKind as K;
         match self {

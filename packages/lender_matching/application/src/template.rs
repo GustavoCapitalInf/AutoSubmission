@@ -134,7 +134,7 @@ const fn business_labels(after_phone: [LabelSpec; 3]) -> [LabelSpec; 20] {
     ]
 }
 
-/// The Word version: Fax and Entity, a DocuSign dropdown, share the Phone row; Email has its own.
+/// The Word version: Fax, then Entity, a DocuSign dropdown, then Email.
 static WORD_BUSINESS: [LabelSpec; 20] =
     business_labels([business("Fax", B::Fax), business("Entity", B::Entity), business("Email", B::Email)]);
 

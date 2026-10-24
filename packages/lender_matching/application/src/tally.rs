@@ -94,9 +94,9 @@ pub struct UnplacedCounts {
 #[derive(Clone, Default)]
 pub struct FieldCounts(BTreeMap<Outcome, u32>);
 
+/// Whole points, rounded.
 #[derive(Default, Serialize)]
 pub struct Offsets {
-    /// Whole points, rounded.
     pub dx: BTreeMap<i32, u32>,
     pub dy: BTreeMap<i32, u32>,
 }
@@ -201,7 +201,8 @@ fn folded<S: Serializer>(
     folded.serialize(serializer)
 }
 
-/// Digits as `9`, letters as `A` or `a`, other characters outside ASCII as `?`, spacing collapsed.
+/// Digits as `9`, letters as `A` or `a`, other characters outside ASCII as `?`, spacing collapsed;
+/// `long` past `SHAPE_MAX_LEN` characters.
 fn shape(text: &str) -> String {
     let words: Vec<String> = text
         .split_whitespace()
