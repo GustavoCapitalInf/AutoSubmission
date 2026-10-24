@@ -7,6 +7,7 @@ pub mod extract;
 pub mod fields;
 pub mod page;
 pub mod pdf;
+pub mod record;
 pub mod tally;
 mod template;
 pub mod values;
@@ -25,4 +26,7 @@ pub use certificate::{Certificate, DetailCheck, SignerCheck, SignerComparison, c
 pub use extract::{Document, FieldReading, Outcome, Reading, read};
 pub use fields::{FieldId, FieldKind, FieldMap, FieldSpec};
 pub use page::{Glyph, PdfFacts, Rect, TextPage};
+pub use record::{
+    Admission, Current, EditInput, EditRefusal, Edits, EmptyReason, Override, Record, Resolved, RevisionState,
+};
 pub use values::{Answer, Country, EmailFault, FieldValue, Jurisdiction, RawText, ReadContext, Refusal, YearMonth};

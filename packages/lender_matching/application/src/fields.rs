@@ -1,6 +1,7 @@
+use std::collections::BTreeMap;
 use std::fmt;
 
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::values::{self, Answer, FieldValue, RawText, ReadContext, Refusal, YesNo};
 
@@ -369,6 +370,13 @@ impl Serialize for FieldId {
     }
 }
 
+impl<'de> Deserialize<'de> for FieldId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let key = String::deserialize(deserializer)?;
+        FieldId::from_key(&key).ok_or_else(|| serde::de::Error::custom("not a field key"))
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct FieldSpec {
     pub kind: FieldKind,
@@ -385,6 +393,12 @@ pub struct FieldSpec {
 impl FieldSpec {
     const fn plain(kind: FieldKind) -> FieldSpec {
         FieldSpec { kind, required: Required::Never, masked: false, derived: false, na_means: NaMeans::NotAnswered }
+    }
+
+    /// Whether a person may correct the field: not a derived field, and not a signature date,
+    /// which is DocuSign's stamp.
+    pub fn editable(self) -> bool {
+        !self.derived && self.kind != FieldKind::SignatureDate
     }
 }
 
@@ -468,9 +482,26 @@ impl<T: Clone> Clone for FieldMap<T> {
     }
 }
 
+impl<T: PartialEq> PartialEq for FieldMap<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
 impl<T: Serialize> Serialize for FieldMap<T> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_map(self.iter())
+    }
+}
+
+/// A map with every field's key exactly once.
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for FieldMap<T> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut by_key = BTreeMap::<FieldId, T>::deserialize(deserializer)?;
+        if by_key.len() != FieldId::COUNT {
+            return Err(serde::de::Error::custom("a field map holds every field once"));
+        }
+        Ok(FieldMap(FieldId::ALL.iter().map(|field| by_key.remove(field).expect("every field is present")).collect()))
     }
 }
 

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use time::{Date, Month};
 
 use crate::fields::FieldKind;
@@ -9,16 +9,18 @@ use crate::values::{Answer, Email, FieldValue, RawText, ReadContext, Word};
 
 /// What a DocuSign Certificate of Completion says about its envelope. It holds no originator
 /// detail: signers come only from the rows under "Signer Events", below the originator's block.
+#[derive(Serialize, Deserialize)]
 pub struct Certificate {
     pub envelope: Option<EnvelopeId>,
     /// The date of the "Completed" row under "Envelope Summary Events".
+    #[serde(with = "crate::values::iso_date::option")]
     pub completed_on: Option<Date>,
     /// The rows under "Signer Events", in order.
     pub signers: Vec<Signer>,
 }
 
 /// 32 upper-case hexadecimal digits.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EnvelopeId(String);
 
 impl EnvelopeId {
@@ -27,6 +29,7 @@ impl EnvelopeId {
     }
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Signer {
     name: String,
     email: String,
