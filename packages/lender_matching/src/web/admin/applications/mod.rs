@@ -11,8 +11,11 @@ use std::collections::BTreeMap;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::StatusCode;
+use axum::http::header::CONTENT_TYPE;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use lender_matching_application::extract::Document;
 use lender_matching_application::fields::{BusinessField, OwnerField, OwnerSlot};
 use lender_matching_application::pdf::ReadError;
@@ -26,14 +29,15 @@ use uuid::Uuid;
 use super::review::{confirmations, refused};
 use super::{Fields, PageError, RawForm, csrf, errors, fields, page, redirect, require, shown_time, wide_page};
 use crate::applications::{
-    ApplicationError, ApplicationId, ApplicationRef, Applications, Cause, Intake, Saved, Snapshot, Upload,
+    Access, ApplicationError, ApplicationId, ApplicationRef, Applications, Cause, Cover, Intake, Saved, Snapshot,
+    Upload,
 };
 use crate::criteria::Product;
 use crate::matching::{ApplicationInput, MatchCommand, Requester};
 use crate::store::auth::{AdminUser, Role};
 use crate::store::now;
 use crate::web::Shared;
-use form::{FormView, Submission, render_cards};
+use form::{FormView, Sensitive, Submission, render_cards};
 
 /// Uploads above this many bytes are refused.
 const UPLOAD_LIMIT: usize = 32 << 20;
@@ -45,6 +49,8 @@ pub fn router() -> Router<Shared> {
         .route("/admin/applications/{id}", get(view).post(save))
         .route("/admin/applications/{id}/remove-second-owner", post(remove_second_owner))
         .route("/admin/applications/{id}/confirm", post(confirm))
+        .route("/admin/applications/{id}/reveal", post(reveal))
+        .route("/admin/applications/{id}/page/1.png", get(page_image))
         .route("/admin/applications/{id}/matches", post(create_match))
 }
 
@@ -250,12 +256,28 @@ fn done_notice(done: &str) -> Option<&'static str> {
     })
 }
 
+/// What shows beside the form.
+enum Picture {
+    /// Viewers see no page image.
+    Hidden,
+    /// Page 1 with the SSNs and dates of birth covered, from `.../page/1.png`.
+    Covered,
+    /// Page 1 uncovered, inline, so that no address shows it again.
+    Inline(String),
+    Unavailable(&'static str),
+}
+
+const NO_COVERS: &str = "No covered image of page 1 can be made, since the reading did not place every SSN and \
+                         date of birth. Reveal sensitive details to see the page.";
+
 /// One rendering of an application's page.
 struct Shown<'a> {
     user: &'a AdminUser,
     head: &'a Snapshot,
     upload: &'a Upload,
     earlier: Option<ApplicationId>,
+    sensitive: Sensitive,
+    picture: Picture,
     /// Above the form, such as the notice after an action or a conflict's two changes.
     notices: Vec<Markup>,
     /// A refused or conflicting submission, shown again in the form.
@@ -265,12 +287,20 @@ struct Shown<'a> {
 }
 
 impl<'a> Shown<'a> {
+    /// The page as it first opens: masked, with the covered page image for a reviewer.
     fn new(user: &'a AdminUser, head: &'a Snapshot, upload: &'a Upload, earlier: Option<ApplicationId>) -> Shown<'a> {
+        let picture = match head.parse.reading.masked_covers() {
+            _ if !user.can(Role::Reviewer) => Picture::Hidden,
+            Some(_) => Picture::Covered,
+            None => Picture::Unavailable(NO_COVERS),
+        };
         Shown {
             user,
             head,
             upload,
             earlier,
+            sensitive: Sensitive::Masked,
+            picture,
             notices: Vec::new(),
             submitted: None,
             problems: Vec::new(),
@@ -284,20 +314,16 @@ fn application_page(shown: &Shown) -> Markup {
     let reference = head.revision.reference;
     let id = reference.id;
     let resolved = head.record().resolve();
-    let editable = shown.user.can(Role::Reviewer);
+    let reviewer = shown.user.can(Role::Reviewer);
     let view = FormView {
         head,
         resolved: &resolved,
-        reviewer: editable,
+        reviewer,
+        sensitive: shown.sensitive,
         submitted: shown.submitted,
         problems: &shown.field_problems,
     };
     let action = format!("/admin/applications/{id}");
-    let remove = (editable && resolved.has_second_owner()).then(|| {
-        html! { button.small type="submit" formaction={ (action) "/remove-second-owner" } { "Remove second owner" } }
-    });
-    let cause = shown.submitted.and_then(|submitted| submitted.cause);
-    let reason = shown.submitted.map_or("", |submitted| submitted.reason.as_str());
     let title = text_of(&resolved, LEGAL_NAME).unwrap_or_else(|| "Application".to_string());
     let attention = badges(head, &resolved);
     wide_page(
@@ -315,7 +341,7 @@ fn application_page(shown: &Shown) -> Markup {
             @if let Document::ManualEntry(reason) = &head.parse.reading.document {
                 p.notice { "Hand entry: " (text::manual_entry(*reason)) ". Type the fields from the PDF." }
             }
-            @if head.revision.state.admission == Admission::AwaitingConfirmation && editable {
+            @if head.revision.state.admission == Admission::AwaitingConfirmation && reviewer {
                 form.notice method="post" action={ (action) "/confirm" } {
                     (csrf(shown.user))
                     input type="hidden" name="base_revision" value=(reference.revision);
@@ -324,30 +350,63 @@ fn application_page(shown: &Shown) -> Markup {
                 }
             }
             @if !attention.is_empty() { p { @for badge in &attention { span.badge { (badge) } } } }
-            (errors(&shown.problems))
-            @if editable {
-                form method="post" action=(action) {
-                    (csrf(shown.user))
-                    input type="hidden" name="base_revision" value=(reference.revision);
-                    (render_cards(&view, remove))
-                    section.card {
-                        h2 { "Save corrections" }
-                        p {
-                            "Why: "
-                            label { input type="radio" name="cause" value="reading" checked[cause == Some(Cause::Reading)]; " the parser read the PDF wrong" } " "
-                            label { input type="radio" name="cause" value="merchant" checked[cause == Some(Cause::Merchant)]; " the PDF is wrong: the merchant typed it wrong" }
-                        }
-                        p { label { "Reason (optional) " input type="text" name="reason" value=(reason) size="50"; } }
-                        button { "Save corrections" }
-                        p.note { "Only the inputs you change are saved, each as a person's value. A blank SSN or date of birth input keeps the stored one." }
+            @if reviewer {
+                div.toolbar {
+                    form method="post" action={ (action) "/reveal" } {
+                        (csrf(shown.user))
+                        button { "Reveal sensitive details" }
                     }
                 }
+            }
+            (errors(&shown.problems))
+            @if matches!(shown.picture, Picture::Hidden) {
+                (form_part(shown, &view, &action))
             } @else {
-                (render_cards(&view, None))
+                div.split {
+                    aside.page-image {
+                        @match &shown.picture {
+                            Picture::Covered => img src={ (action) "/page/1.png" } alt="Page 1, with the SSNs and dates of birth covered";,
+                            Picture::Inline(png) => img src={ "data:image/png;base64," (png) } alt="Page 1";,
+                            Picture::Unavailable(why) => p.note { (why) },
+                            Picture::Hidden => {},
+                        }
+                    }
+                    div { (form_part(shown, &view, &action)) }
+                }
             }
             p { a href="/admin/applications" { "All applications" } " · id " code { (id) } }
         },
     )
+}
+
+/// The cards, inside the corrections form for a reviewer.
+fn form_part(shown: &Shown, view: &FormView, action: &str) -> Markup {
+    if !view.reviewer {
+        return render_cards(view, None);
+    }
+    let remove = view.resolved.has_second_owner().then(|| {
+        html! { button.small type="submit" formaction={ (action) "/remove-second-owner" } { "Remove second owner" } }
+    });
+    let cause = shown.submitted.and_then(|submitted| submitted.cause);
+    let reason = shown.submitted.map_or("", |submitted| submitted.reason.as_str());
+    html! {
+        form method="post" action=(action) {
+            (csrf(shown.user))
+            input type="hidden" name="base_revision" value=(shown.head.revision.reference.revision);
+            (render_cards(view, remove))
+            section.card {
+                h2 { "Save corrections" }
+                p {
+                    "Why: "
+                    label { input type="radio" name="cause" value="reading" checked[cause == Some(Cause::Reading)]; " the parser read the PDF wrong" } " "
+                    label { input type="radio" name="cause" value="merchant" checked[cause == Some(Cause::Merchant)]; " the PDF is wrong: the merchant typed it wrong" }
+                }
+                p { label { "Reason (optional) " input type="text" name="reason" value=(reason) size="50"; } }
+                button { "Save corrections" }
+                p.note { "Only the inputs you change are saved, each as a person's value. A blank SSN or date of birth input keeps the stored one." }
+            }
+        }
+    }
 }
 
 async fn view(
@@ -517,6 +576,45 @@ async fn confirm(
     let base_ref = base_of(&fields, id)?;
     let result = tokio::task::block_in_place(|| applications.confirm_application(base_ref, user.id));
     saved(result, "confirmed", |head| Err(failed(ApplicationError::Conflict { head })))
+}
+
+/// `POST /admin/applications/{id}/reveal`: the page with SSNs and dates of birth in full and page 1
+/// uncovered inline, logged first. It answers the POST itself, so no address shows it again.
+async fn reveal(
+    State(app): State<Shared>,
+    user: AdminUser,
+    Path(id): Path<String>,
+    form: RawForm,
+) -> Result<Response, PageError> {
+    require(&user, Role::Reviewer)?;
+    let applications = service(&app)?;
+    let id = application_id(&id)?;
+    fields(form).check_csrf(&user)?;
+    let (head, (upload, earlier)) = blocking(|| Ok((applications.current(id)?, applications.upload_of(id)?)))?;
+    blocking(|| applications.log_access(id, user.id, Access::Reveal))?;
+    let picture = match tokio::task::block_in_place(|| applications.page_image(&head, Cover::Nothing)) {
+        Ok(Some(png)) => Picture::Inline(STANDARD.encode(png)),
+        Ok(None) | Err(_) => Picture::Unavailable("Page 1 could not be drawn."),
+    };
+    let mut shown = Shown::new(&user, &head, &upload, earlier);
+    shown.sensitive = Sensitive::Revealed;
+    shown.picture = picture;
+    shown.notices.push(
+        html! { p.notice { "Sensitive details are shown, and this view was logged. Leave the page to hide them." } },
+    );
+    Ok(application_page(&shown).into_response())
+}
+
+/// `GET /admin/applications/{id}/page/1.png`: page 1 with the SSNs and dates of birth covered.
+async fn page_image(State(app): State<Shared>, user: AdminUser, Path(id): Path<String>) -> Result<Response, PageError> {
+    require(&user, Role::Reviewer)?;
+    let applications = service(&app)?;
+    let id = application_id(&id)?;
+    let head = blocking(|| applications.current(id))?;
+    match blocking(|| applications.page_image(&head, Cover::Identity))? {
+        Some(png) => Ok(([(CONTENT_TYPE, "image/png")], png).into_response()),
+        None => Err(PageError::not_found()),
+    }
 }
 
 /// `POST /admin/applications/{id}/matches`: a person's first match of revision `base_revision`,

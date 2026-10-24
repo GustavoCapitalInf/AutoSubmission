@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use lender_matching_application::extract::{self, Document, ManualEntryReason, Reading, RefusalReason};
 use lender_matching_application::fields::{BusinessField, FieldId, PropertyField};
+use lender_matching_application::pdf::PageImage;
 use lender_matching_application::values::{Country, Currency, Denomination, Entity, StatedDate, YesNo};
 use lender_matching_application::worker::{PdfWorker, WorkerError};
 use lender_matching_application::{
@@ -105,9 +106,13 @@ pub fn parser_fingerprint() -> [u8; 32] {
     Sha256::digest(format!("lender_matching_application {PARSER_VERSION} with pdfium {PDFIUM_BUILD}")).into()
 }
 
-/// Turns PDF bytes into page data.
+/// The width of a page image beside the form, in pixels.
+pub const PAGE_IMAGE_WIDTH: u32 = 1100;
+
+/// Turns PDF bytes into page data and page images.
 pub trait ReadPdf: Send + Sync {
     fn facts(&self, pdf: &[u8]) -> Result<PdfFacts, WorkerError>;
+    fn page_png(&self, pdf: &[u8], image: &PageImage) -> Result<Vec<u8>, WorkerError>;
 }
 
 /// Reads PDFs in one pdfium worker process, started on first use. The worker's environment holds
@@ -126,15 +131,25 @@ impl WorkerReader {
     }
 }
 
-impl ReadPdf for WorkerReader {
-    fn facts(&self, pdf: &[u8]) -> Result<PdfFacts, WorkerError> {
+impl WorkerReader {
+    fn with<T>(&self, ask: impl FnOnce(&mut PdfWorker) -> Result<T, WorkerError>) -> Result<T, WorkerError> {
         let library = self.library.as_deref().ok_or(WorkerError::NoEngine)?;
         let mut worker = self.worker.lock().unwrap_or_else(PoisonError::into_inner);
         let worker = match &mut *worker {
             Some(worker) => worker,
             empty => empty.insert(PdfWorker::start(&self.program, &["pdf-worker"], library)?),
         };
-        worker.facts(pdf, DOCUMENT_TIMEOUT)
+        ask(worker)
+    }
+}
+
+impl ReadPdf for WorkerReader {
+    fn facts(&self, pdf: &[u8]) -> Result<PdfFacts, WorkerError> {
+        self.with(|worker| worker.facts(pdf, DOCUMENT_TIMEOUT))
+    }
+
+    fn page_png(&self, pdf: &[u8], image: &PageImage) -> Result<Vec<u8>, WorkerError> {
+        self.with(|worker| worker.page_png(pdf, image, DOCUMENT_TIMEOUT))
     }
 }
 
@@ -192,6 +207,30 @@ pub struct Upload {
 impl From<UploadRow> for Upload {
     fn from(row: UploadRow) -> Self {
         Upload { id: row.id, at: row.uploaded_at, by: row.uploaded_by }
+    }
+}
+
+/// Which page image to draw.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Cover {
+    /// The SSNs and dates of birth painted over.
+    Identity,
+    /// Nothing painted over, for a person who asked to see the page.
+    Nothing,
+}
+
+/// A logged look at an application's identity data.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Access {
+    /// The page with SSNs, dates of birth and page 1 uncovered.
+    Reveal,
+}
+
+impl Access {
+    pub fn key(self) -> &'static str {
+        match self {
+            Access::Reveal => "reveal",
+        }
     }
 }
 
@@ -538,6 +577,28 @@ impl Applications {
     pub fn upload_of(&self, id: ApplicationId) -> Result<(Upload, Option<ApplicationId>), ApplicationError> {
         let (upload, earlier) = self.store.read(|tx| Ok((tx.application_upload(id)?, tx.earlier_of_envelope(id)?)))?;
         Ok((upload.ok_or(ApplicationError::NotFound)?.into(), earlier))
+    }
+
+    /// Page 1 of the source PDF. With `Cover::Identity`, None when the selected parse locates no
+    /// region for some SSN or date of birth, so no covered image can be made.
+    pub fn page_image(&self, snapshot: &Snapshot, cover: Cover) -> Result<Option<Vec<u8>>, ApplicationError> {
+        let covers = match cover {
+            Cover::Identity => match snapshot.parse.reading.masked_covers() {
+                Some(covers) => covers,
+                None => return Ok(None),
+            },
+            Cover::Nothing => Vec::new(),
+        };
+        let id = snapshot.revision.reference.id;
+        let source = self.store.read(|tx| tx.application_source(id))?.ok_or(ApplicationError::NotFound)?;
+        let pdf = Sealed::SourcePdf.open(&self.key, id, &source)?;
+        let image = PageImage { page: 0, width: PAGE_IMAGE_WIDTH, covers };
+        self.reader.page_png(&pdf, &image).map(Some).map_err(ApplicationError::Pdf)
+    }
+
+    /// Records that `by` looked at the application's identity data.
+    pub fn log_access(&self, id: ApplicationId, by: i64, access: Access) -> Result<(), ApplicationError> {
+        Ok(self.store.write(|tx| tx.insert_application_access(id, by, access.key()))?)
     }
 
     /// Every revision, oldest first.

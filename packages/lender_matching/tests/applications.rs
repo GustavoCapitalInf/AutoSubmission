@@ -4,6 +4,13 @@ mod support;
 
 use std::path::{Path, PathBuf};
 use std::process::Output;
+use std::time::Duration;
+
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
+use lender_matching_application::Rect;
+use lender_matching_application::extract::{Document, read};
+use lender_matching_application::worker::PdfWorker;
 
 use common::*;
 use lender_matching_application::fields::{BusinessField, FieldId};
@@ -488,4 +495,91 @@ async fn removing_the_second_owner_gives_the_principal_all_of_it_and_a_draft_wai
     let confirmed = pages.reviewer.submit(&page, &format!("{draft}/confirm"), &[], None).await;
     assert_eq!(confirmed.location.as_deref(), Some(format!("{draft}?done=confirmed").as_str()));
     assert!(!pages.reviewer.get(&draft).await.body.contains("This is an application"));
+}
+
+/// The boxes of the SSNs and dates of birth on page 1, as pdfium reads them.
+fn identity_boxes(library: &Path, pdf: &[u8]) -> Vec<Rect> {
+    let binary = Path::new(env!("CARGO_BIN_EXE_lender-matching"));
+    let mut worker = PdfWorker::start(binary, &["pdf-worker"], library).unwrap();
+    let reading = read(&worker.facts(pdf, Duration::from_secs(60)).unwrap());
+    let Document::Application(form) = reading.document else { panic!("an application") };
+    let masked = form.fields.iter().filter(|(field, _)| field.spec().masked);
+    masked.map(|(_, reading)| reading.evidence().expect("a value").rect).collect()
+}
+
+/// How many pixels inside `rect` are black, of how many, for page 1 drawn at `PAGE_WIDTH`.
+fn black_in(png: &[u8], rect: &Rect) -> (usize, usize) {
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png).unwrap().into_rgba8();
+    let scale = image.width() as f32 / 612.0;
+    let (x0, x1) = ((rect.x0 * scale).ceil() as u32 + 1, (rect.x1 * scale).floor() as u32 - 1);
+    let (y0, y1) = ((rect.top * scale).ceil() as u32 + 1, (rect.bottom * scale).floor() as u32 - 1);
+    let pixels: Vec<_> = (y0..y1).flat_map(|y| (x0..x1).map(move |x| (x, y))).collect();
+    let black = pixels.iter().filter(|(x, y)| *image.get_pixel(*x, *y) == image::Rgba([0, 0, 0, 255])).count();
+    (black, pixels.len())
+}
+
+/// Every `value="…"` attribute on a page.
+fn values_on(body: &str) -> Vec<&str> {
+    body.split(" value=\"").skip(1).map(|rest| rest.split('"').next().unwrap()).collect()
+}
+
+fn access_log(data: &Path) -> Vec<(String, String)> {
+    let database = rusqlite::Connection::open(data.join("lender-matching.sqlite3")).unwrap();
+    let mut statement = database
+        .prepare("SELECT a.action, u.username FROM application_access a JOIN users u ON u.id = a.user_id ORDER BY a.id")
+        .unwrap();
+    statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().map(Result::unwrap).collect()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn page_one_is_covered_beside_the_form_and_only_a_logged_reveal_uncovers_it() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let pdf = application(&Form::word(), 21);
+    let path = stored_at(&upload(&pages.reviewer, &pdf).await);
+    let page = pages.reviewer.get(&path).await;
+    let image = format!("{path}/page/1.png");
+    assert!(page.body.contains(&format!("<img src=\"{image}\"")), "{}", page.body);
+    let (status, headers, covered) = pages.reviewer.get_bytes(&image).await;
+    assert_eq!((status, &headers["content-type"]), (StatusCode::OK, &"image/png".parse().unwrap()));
+    let boxes = identity_boxes(&library, &pdf);
+    assert_eq!(boxes.len(), 4);
+    for rect in &boxes {
+        let (black, all) = black_in(&covered, rect);
+        assert!(all > 0 && black == all, "an identity value is painted over");
+    }
+
+    let seen = pages.viewer.get(&path).await;
+    assert!(!seen.body.contains("<img") && !seen.body.contains("Reveal sensitive details"));
+    assert_eq!(pages.viewer.get_bytes(&image).await.0, StatusCode::FORBIDDEN);
+    let viewer_csrf = csrf_of(&seen);
+    let reveal = format!("{path}/reveal");
+    assert_eq!(pages.viewer.post(&reveal, &[("csrf".into(), viewer_csrf)]).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(pages.reviewer.post(&reveal, &[("csrf".into(), "forged".into())]).await.status, StatusCode::FORBIDDEN);
+    assert!(access_log(pages.data.path()).is_empty(), "a refused reveal logs nothing");
+
+    let revealed = pages.reviewer.submit(&page, &reveal, &[], None).await;
+    assert_eq!(revealed.status, StatusCode::OK);
+    assert_eq!(revealed.headers["cache-control"], "no-store");
+    for value in IDENTITY {
+        assert!(revealed.body.contains(value), "the reveal shows {value}");
+    }
+    for value in values_on(&revealed.body) {
+        assert_no_secret("an input's value", value, &IDENTITY);
+    }
+    let inline = revealed.body.split("src=\"data:image/png;base64,").nth(1).expect("an inline page image");
+    let png = STANDARD.decode(inline.split('"').next().unwrap()).unwrap();
+    for rect in &boxes {
+        let (black, all) = black_in(&png, rect);
+        assert!(black < all, "the revealed page shows the value");
+    }
+    assert!(!revealed.body.contains(&format!("src=\"{image}\"")), "the reveal names no image address");
+    assert_eq!(access_log(pages.data.path()), [("reveal".to_string(), "sample.reviewer".to_string())]);
+    assert_no_secret("the page after a reveal", &pages.reviewer.get(&path).await.body, &IDENTITY);
+
+    let draft = Form { omit: vec!["Secondary Owner Name"], ..Form::word() };
+    let draft = stored_at(&upload(&pages.reviewer, &application(&draft, 22)).await);
+    let page = pages.reviewer.get(&draft).await;
+    assert!(page.body.contains("No covered image of page 1 can be made") && !page.body.contains("<img"));
+    assert_eq!(pages.reviewer.get_bytes(&format!("{draft}/page/1.png")).await.0, StatusCode::NOT_FOUND);
 }

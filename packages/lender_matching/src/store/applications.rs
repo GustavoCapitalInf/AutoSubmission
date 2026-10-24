@@ -264,6 +264,14 @@ impl ReadTx<'_> {
 }
 
 impl WriteTx<'_> {
+    pub fn insert_application_access(&self, id: ApplicationId, user: i64, action: &str) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO application_access (application_id, user_id, occurred_at, action) VALUES (?1, ?2, ?3, ?4)",
+            params![id.0.to_string(), user, time_text(now()), action],
+        )?;
+        Ok(())
+    }
+
     pub fn insert_match_application(&self, match_id: Uuid, read: ApplicationRef) -> Result<(), StoreError> {
         self.conn.execute(
             "INSERT INTO match_applications (match_id, application_id, revision) VALUES (?1, ?2, ?3)",

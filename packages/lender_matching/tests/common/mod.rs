@@ -328,6 +328,14 @@ impl Browser {
         self.finish(response.await.unwrap()).await
     }
 
+    /// A GET whose body is not text, such as an image.
+    pub async fn get_bytes(&self, path: &str) -> (reqwest::StatusCode, reqwest::header::HeaderMap, Vec<u8>) {
+        let response =
+            self.http.get(format!("{}{path}", self.base)).header("Cookie", self.cookie_header()).send().await.unwrap();
+        let (status, headers) = (response.status(), response.headers().clone());
+        (status, headers, response.bytes().await.unwrap().to_vec())
+    }
+
     pub async fn post(&self, path: &str, fields: &[(String, String)]) -> Page {
         let body = form_urlencoded::Serializer::new(String::new()).extend_pairs(fields).finish();
         let response = self

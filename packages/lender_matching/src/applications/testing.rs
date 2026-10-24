@@ -6,7 +6,7 @@ pub mod support;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use lender_matching_application::pdf::ReadError;
+use lender_matching_application::pdf::{PageImage, ReadError};
 use lender_matching_application::worker::WorkerError;
 use lender_matching_application::{Glyph, PdfFacts, Rect, TextPage};
 use support::form::{Canvas, Form, certificate_of};
@@ -139,5 +139,12 @@ impl ReadPdf for FakeReader {
         let documents = self.documents.lock().unwrap();
         let document = documents.iter().find(|document| document.pdf == pdf);
         document.map(|document| (document.draw)()).ok_or(WorkerError::Read(ReadError::NotPdf))
+    }
+
+    /// Stands for a PNG: the page, the width and the number of covers, as text.
+    fn page_png(&self, pdf: &[u8], image: &PageImage) -> Result<Vec<u8>, WorkerError> {
+        let documents = self.documents.lock().unwrap();
+        documents.iter().find(|document| document.pdf == pdf).ok_or(WorkerError::Read(ReadError::NotPdf))?;
+        Ok(format!("page {} at {} px with {} covers", image.page, image.width, image.covers.len()).into_bytes())
     }
 }

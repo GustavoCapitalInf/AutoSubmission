@@ -216,6 +216,14 @@ pub fn differences(before: &Resolved, after: &Resolved) -> Vec<String> {
         .collect()
 }
 
+/// How SSNs and dates of birth show.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Sensitive {
+    Masked,
+    /// In full, on the page a logged reveal answers.
+    Revealed,
+}
+
 /// The form's state for one rendering.
 pub struct FormView<'a> {
     pub head: &'a Snapshot,
@@ -223,19 +231,28 @@ pub struct FormView<'a> {
     /// A reviewer or an editor: the inputs can be edited and the boxes ticked, and an SSN shows its
     /// last four digits. A viewer sees no digit of it.
     pub reviewer: bool,
+    pub sensitive: Sensitive,
     /// A refused or conflicting submission, shown again; what it typed for an SSN or a date of
     /// birth is not.
     pub submitted: Option<&'a Submission>,
     pub problems: &'a BTreeMap<FieldId, String>,
 }
 
-/// An SSN as its last four digits for a reviewer, and otherwise "Recorded" or "Missing".
+/// An SSN by its last four digits for a reviewer and a date of birth as "Recorded", or either in
+/// full once revealed.
 fn identity_text(view: &FormView, field: FieldId) -> String {
-    match &view.resolved.get(field).current {
-        Current::Value { value: FieldValue::Ssn(id), .. } if view.reviewer => format!("•••-••-{}", id.last_four()),
-        Current::Value { .. } => "Recorded".to_string(),
-        Current::Empty { .. } => "Missing".to_string(),
-        Current::NeedsReview => "Needs review".to_string(),
+    match (&view.resolved.get(field).current, view.sensitive) {
+        (Current::Value { value, .. }, Sensitive::Revealed) => value.canonical(),
+        (Current::Value { value: FieldValue::Ssn(id), .. }, Sensitive::Masked) if view.reviewer => {
+            format!("•••-••-{}", id.last_four())
+        }
+        (Current::Value { .. }, Sensitive::Masked) => "Recorded".to_string(),
+        (Current::Empty { .. }, _) => "Missing".to_string(),
+        (Current::NeedsReview, Sensitive::Revealed) => match evidence(view.head, field) {
+            Some(text) => format!("Needs review; the PDF shows {text}"),
+            None => "Needs review".to_string(),
+        },
+        (Current::NeedsReview, Sensitive::Masked) => "Needs review".to_string(),
     }
 }
 

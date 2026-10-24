@@ -148,6 +148,34 @@ fn another_file_of_the_same_envelope_is_another_application_that_names_the_first
         setup.applications.upload(&other, setup.reviewer).unwrap(),
         Intake::Stored { same_envelope: None, .. }
     ));
+    assert_eq!(setup.applications.upload_of(first.id).unwrap().1, None, "the first file names none");
+    let (upload, earlier) = setup.applications.upload_of(reference.id).unwrap();
+    assert_eq!((upload.id, upload.by.as_str(), earlier), (reference.id, "sample.reviewer", Some(first.id)));
+    let listed: Vec<ApplicationId> = setup.applications.list().unwrap().iter().map(|(upload, _)| upload.id).collect();
+    assert_eq!(listed.len(), 4);
+    assert_eq!(listed.last(), Some(&first.id), "the latest upload comes first");
+}
+
+#[test]
+fn a_page_image_covers_the_identity_fields_unless_asked_not_to_and_a_draft_has_none() {
+    let setup = setup();
+    let form = setup.applications.current(setup.upload(Form::word()).id).unwrap();
+    let image = |snapshot: &Snapshot, cover| {
+        setup.applications.page_image(snapshot, cover).unwrap().map(|png| String::from_utf8(png).unwrap())
+    };
+    let covers = form.parse.reading.masked_covers().unwrap().len();
+    assert!(covers >= 4);
+    assert_eq!(image(&form, Cover::Identity), Some(format!("page 0 at {PAGE_IMAGE_WIDTH} px with {covers} covers")));
+    assert_eq!(image(&form, Cover::Nothing), Some(format!("page 0 at {PAGE_IMAGE_WIDTH} px with 0 covers")));
+
+    let draft = Form { omit: vec!["Secondary Owner Name"], ..Form::word() };
+    let pdf = setup.reader.knows(application(draft, ENVELOPE, 22));
+    let Intake::Stored { reference, .. } = setup.applications.upload(&pdf, setup.reviewer).unwrap() else {
+        panic!("stored")
+    };
+    let draft = setup.applications.current(reference.id).unwrap();
+    assert_eq!(image(&draft, Cover::Identity), None, "a draft locates no identity field");
+    assert!(image(&draft, Cover::Nothing).is_some());
 }
 
 #[test]
