@@ -259,9 +259,9 @@ fn render(user: &AdminUser, view: &MatchView, industries: &Industries, problems:
                 }
             }
             @if let Some(read) = view.record.application {
-                p {
-                    "Stored application " code { (read.id) } ", revision " (read.revision) "."
-                    @if let Some(current) = changed { " " span.badge { "revision " (current.revision) " is current" } }
+                p { "Stored application " a href={ "/admin/applications/" (read.id) } { code { (read.id) } } ", revision " (read.revision) "." }
+                @if let Some(current) = changed {
+                    p.error { "The application changed after this match: revision " (current.revision) " is current." }
                 }
             }
             h2 { "Facts" }

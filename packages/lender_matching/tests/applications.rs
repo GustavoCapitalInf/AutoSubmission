@@ -220,14 +220,22 @@ async fn a_stored_application_is_matched_through_the_pages_and_the_server_logs_n
     assert_eq!(made.status, StatusCode::SEE_OTHER, "{}", made.body);
     let location = made.location.unwrap();
     let page = reviewer.get(&location).await;
-    assert!(page.body.contains(&format!("Stored application <code>{id}</code>, revision 1.")), "{}", page.body);
+    assert!(
+        page.body.contains(&format!(
+            "Stored application <a href=\"/admin/applications/{id}\"><code>{id}</code></a>, revision 1."
+        )),
+        "{}",
+        page.body
+    );
     assert!(page.body.contains("stated on the application"));
     let match_id = location.trim_start_matches("/admin/matches/");
     let review = format!("{location}/review");
     let reviewed = reviewer.submit(&page, &review, &[], None).await;
     assert_eq!(reviewed.status, StatusCode::SEE_OTHER, "{}", reviewed.body);
     let second = reviewer.get(reviewed.location.as_deref().unwrap()).await;
-    assert!(second.body.contains(&format!("Stored application <code>{id}</code>, revision 1.")));
+    assert!(second.body.contains(&format!(
+        "Stored application <a href=\"/admin/applications/{id}\"><code>{id}</code></a>, revision 1."
+    )));
 
     let response = http()
         .get(server.url(&format!("/api/v1/matches/{match_id}")))
@@ -614,4 +622,30 @@ async fn the_history_lists_every_revision_and_reveal_and_the_same_parser_has_not
     assert!(body.contains("<li>reveal by sample.reviewer at "));
     assert!(body.find("<h2>Revision 2</h2>").unwrap() < body.find("<h2>Revision 1</h2>").unwrap(), "newest first");
     assert_no_secret("the history", body, &["05/16/1981", "04/15/1980", "900-12-3456"]);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn find_lenders_matches_the_corrected_application_and_the_match_says_when_it_changed() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let path = stored_at(&upload(&pages.reviewer, &application(&Form::word(), 21)).await);
+    let page = pages.reviewer.get(&path).await;
+    let corrected = [("f.business.state", "FL"), ("cause", "merchant")];
+    assert_eq!(pages.reviewer.submit(&page, &path, &corrected, None).await.status, StatusCode::SEE_OTHER);
+    let page = pages.reviewer.get(&path).await;
+    let find = format!("{path}/matches");
+    assert_eq!(value_of(&form_fields(&page.body, &find), "base_revision").as_deref(), Some("2"));
+    let made = pages.reviewer.submit(&page, &find, &[("confirm.home_based", "no")], None).await;
+    assert_eq!(made.status, StatusCode::SEE_OTHER, "{}", made.body);
+    let matched = made.location.unwrap();
+    let shown = pages.viewer.get(&matched).await;
+    assert!(shown.body.contains("revision 2.") && shown.body.contains("<td>FL</td>"), "{}", shown.body);
+    assert!(!shown.body.contains("The application changed after this match"));
+
+    let viewed = pages.viewer.get(&path).await;
+    assert!(!viewed.body.contains("Find lenders"), "a viewer cannot match");
+    let later = [("f.business.city", "TAMPA"), ("cause", "merchant")];
+    assert_eq!(pages.reviewer.submit(&page, &path, &later, None).await.status, StatusCode::SEE_OTHER);
+    let changed = pages.viewer.get(&matched).await;
+    assert!(changed.body.contains("The application changed after this match: revision 3 is current."));
 }

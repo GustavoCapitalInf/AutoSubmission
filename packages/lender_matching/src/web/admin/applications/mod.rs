@@ -33,6 +33,9 @@ use crate::applications::{
     Snapshot, Upload,
 };
 use crate::criteria::Product;
+use crate::criteria::describe;
+use crate::facts::application::Industries;
+use crate::facts::{FactKey, FlagFact};
 use crate::matching::{ApplicationInput, MatchCommand, Requester};
 use crate::store::auth::{AdminUser, Role};
 use crate::store::now;
@@ -275,12 +278,24 @@ enum Picture {
 const NO_COVERS: &str = "No covered image of page 1 can be made, since the reading did not place every SSN and \
                          date of birth. Reveal sensitive details to see the page.";
 
+/// What an application's page reads besides the revision it shows.
+struct Context {
+    upload: Upload,
+    /// The first application stored before this one from the same DocuSign envelope.
+    earlier: Option<ApplicationId>,
+    industries: Industries,
+}
+
+fn context(app: &Shared, applications: &Applications, id: ApplicationId) -> Result<Context, PageError> {
+    let (upload, earlier) = blocking(|| applications.upload_of(id))?;
+    Ok(Context { upload, earlier, industries: app.read(|tx| tx.industries())? })
+}
+
 /// One rendering of an application's page.
 struct Shown<'a> {
     user: &'a AdminUser,
     head: &'a Snapshot,
-    upload: &'a Upload,
-    earlier: Option<ApplicationId>,
+    context: &'a Context,
     sensitive: Sensitive,
     picture: Picture,
     /// Above the form, such as the notice after an action or a conflict's two changes.
@@ -293,7 +308,7 @@ struct Shown<'a> {
 
 impl<'a> Shown<'a> {
     /// The page as it first opens: masked, with the covered page image for a reviewer.
-    fn new(user: &'a AdminUser, head: &'a Snapshot, upload: &'a Upload, earlier: Option<ApplicationId>) -> Shown<'a> {
+    fn new(user: &'a AdminUser, head: &'a Snapshot, context: &'a Context) -> Shown<'a> {
         let picture = match head.parse.reading.masked_covers() {
             _ if !user.can(Role::Reviewer) => Picture::Hidden,
             Some(_) => Picture::Covered,
@@ -302,8 +317,7 @@ impl<'a> Shown<'a> {
         Shown {
             user,
             head,
-            upload,
-            earlier,
+            context,
             sensitive: Sensitive::Masked,
             picture,
             notices: Vec::new(),
@@ -337,10 +351,10 @@ fn application_page(shown: &Shown) -> Markup {
         html! {
             p.note {
                 "Revision " (reference.revision) " · " (layout(head)) " · read by parser " (head.parse.parser_version)
-                " · uploaded by " (shown.upload.by) " at " (shown_time(shown.upload.at))
+                " · uploaded by " (shown.context.upload.by) " at " (shown_time(shown.context.upload.at))
             }
             @for notice in &shown.notices { (notice) }
-            @if let Some(earlier) = shown.earlier {
+            @if let Some(earlier) = shown.context.earlier {
                 p.notice { "Another file of the same DocuSign envelope was stored first: " a href={ "/admin/applications/" (earlier) } { "that application" } "." }
             }
             @if let Document::ManualEntry(reason) = &head.parse.reading.document {
@@ -416,6 +430,59 @@ fn form_part(shown: &Shown, view: &FormView, action: &str) -> Markup {
                 p.note { "Only the inputs you change are saved, each as a person's value. A blank SSN or date of birth input keeps the stored one." }
             }
         }
+        (find_lenders(shown))
+    }
+}
+
+/// The form that matches this revision against every lender's current criteria.
+fn find_lenders(shown: &Shown) -> Markup {
+    let reference = shown.head.revision.reference;
+    let flag = |name: &str, fact: FlagFact| {
+        html! {
+            div.field {
+                label { (describe::fact_label(FactKey::Flag(fact))) }
+                label { input type="radio" name=(name) value="" checked; " not confirmed" } " "
+                label { input type="radio" name=(name) value="no"; " no" } " "
+                label { input type="radio" name=(name) value="yes"; " yes" }
+            }
+        }
+    };
+    html! {
+        section.card {
+            h2 { "Find lenders" }
+            @if shown.head.revision.state.admission.admits_matching() {
+                form method="post" action={ "/admin/applications/" (reference.id) "/matches" } {
+                    (csrf(shown.user))
+                    input type="hidden" name="base_revision" value=(reference.revision);
+                    div.grid {
+                        div.field {
+                            label for="analysis_package_id" { "Analysis package id" }
+                            input #analysis_package_id type="text" name="analysis_package_id" placeholder="optional";
+                        }
+                        div.field {
+                            label for="product" { "Product" }
+                            select #product name="product" {
+                                @for product in Product::ALL { option value=(product.key()) selected[product == Product::Mca] { (product.label()) } }
+                            }
+                        }
+                        div.field {
+                            label for="industry" { "Industry" }
+                            select #industry name="confirm.industry" {
+                                option value="" selected { "not confirmed" }
+                                @for industry in shown.context.industries.active() { option value=(industry.id) { (industry.label) } }
+                            }
+                        }
+                        (flag("confirm.default_history", FlagFact::DefaultHistory))
+                        (flag("confirm.home_based", FlagFact::HomeBased))
+                        (flag("confirm.open_lawsuit", FlagFact::OpenLawsuit))
+                    }
+                    p { button { "Find lenders" } }
+                    p.note { "The match reads revision " (reference.revision) " of this application as it stands now, with the analysis package fetched when one is named." }
+                }
+            } @else {
+                p.note { "Matching waits until a person confirms this document is an application." }
+            }
+        }
     }
 }
 
@@ -427,8 +494,9 @@ async fn view(
 ) -> Result<Markup, PageError> {
     let applications = service(&app)?;
     let id = application_id(&id)?;
-    let (head, (upload, earlier)) = blocking(|| Ok((applications.current(id)?, applications.upload_of(id)?)))?;
-    let mut shown = Shown::new(&user, &head, &upload, earlier);
+    let head = blocking(|| applications.current(id))?;
+    let context = context(&app, applications, id)?;
+    let mut shown = Shown::new(&user, &head, &context);
     if query.existing.is_some() {
         shown.notices.push(html! { p.notice { "This file was uploaded already; this is its application." } });
     }
@@ -480,7 +548,8 @@ async fn save(
     let fields = fields(form);
     fields.check_csrf(&user)?;
     let base_ref = base_of(&fields, id)?;
-    let (base, (upload, earlier)) = blocking(|| Ok((applications.at(base_ref)?, applications.upload_of(id)?)))?;
+    let base = blocking(|| applications.at(base_ref))?;
+    let context = context(&app, applications, id)?;
     let (submission, mut problems) = form::read_submission(&fields, &base);
     if submission.changes.is_empty() && problems.is_empty() {
         return Ok(redirect(&format!("/admin/applications/{id}?done=unchanged")));
@@ -501,7 +570,7 @@ async fn save(
         problems.push(NO_CAUSE.to_string());
     }
     let (Some(edits), Some(cause), true) = (edits, submission.cause, problems.is_empty()) else {
-        let mut shown = Shown::new(&user, &base, &upload, earlier);
+        let mut shown = Shown::new(&user, &base, &context);
         shown.submitted = Some(&submission);
         shown.problems = problems;
         shown.field_problems = field_problems;
@@ -513,7 +582,7 @@ async fn save(
         let theirs = form::differences(&base.record().resolve(), &head.record().resolve());
         let yours: Vec<String> =
             submission.changes.iter().map(|(field, change)| form::change_text(*field, change)).collect();
-        let mut shown = Shown::new(&user, &head, &upload, earlier);
+        let mut shown = Shown::new(&user, &head, &context);
         shown.submitted = Some(&submission);
         shown.notices.push(html! {
             div.error {
@@ -546,7 +615,8 @@ async fn remove_second_owner(
     let fields = fields(form);
     fields.check_csrf(&user)?;
     let base_ref = base_of(&fields, id)?;
-    let (base, (upload, earlier)) = blocking(|| Ok((applications.at(base_ref)?, applications.upload_of(id)?)))?;
+    let base = blocking(|| applications.at(base_ref))?;
+    let context = context(&app, applications, id)?;
     let (submission, _) = form::read_submission(&fields, &base);
     let elsewhere =
         submission.changes.iter().any(|(field, _)| !matches!(field, FieldId::Owner(OwnerSlot::Secondary, _)));
@@ -558,7 +628,7 @@ async fn remove_second_owner(
         None
     };
     let (None, Some(cause)) = (problem, submission.cause) else {
-        let mut shown = Shown::new(&user, &base, &upload, earlier);
+        let mut shown = Shown::new(&user, &base, &context);
         shown.submitted = Some(&submission);
         shown.problems = problem.into_iter().map(str::to_string).collect();
         return Ok((StatusCode::UNPROCESSABLE_ENTITY, application_page(&shown)).into_response());
@@ -600,13 +670,14 @@ async fn reveal(
     let applications = service(&app)?;
     let id = application_id(&id)?;
     fields(form).check_csrf(&user)?;
-    let (head, (upload, earlier)) = blocking(|| Ok((applications.current(id)?, applications.upload_of(id)?)))?;
+    let head = blocking(|| applications.current(id))?;
+    let context = context(&app, applications, id)?;
     blocking(|| applications.log_access(id, user.id, Access::Reveal))?;
     let picture = match tokio::task::block_in_place(|| applications.page_image(&head, Cover::Nothing)) {
         Ok(Some(png)) => Picture::Inline(STANDARD.encode(png)),
         Ok(None) | Err(_) => Picture::Unavailable("Page 1 could not be drawn."),
     };
-    let mut shown = Shown::new(&user, &head, &upload, earlier);
+    let mut shown = Shown::new(&user, &head, &context);
     shown.sensitive = Sensitive::Revealed;
     shown.picture = picture;
     shown.notices.push(
