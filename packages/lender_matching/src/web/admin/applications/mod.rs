@@ -401,7 +401,7 @@ fn application_page(shown: &Shown) -> Markup {
             @if !attention.is_empty() { p { @for badge in &attention { span.badge { (badge) } } } }
             div.toolbar {
                 a href={ (action) "/history" } { "History" }
-                @if reviewer {
+                @if reviewer && shown.sensitive == Sensitive::Masked {
                     form method="post" action={ (action) "/reveal" } {
                         (csrf(shown.user))
                         button { "Reveal sensitive details" }
@@ -470,7 +470,7 @@ fn find_lenders(shown: &Shown) -> Markup {
     let flag = |name: &str, fact: FlagFact| {
         html! {
             div.field {
-                label { (describe::fact_label(FactKey::Flag(fact))) }
+                span.name { (describe::fact_label(FactKey::Flag(fact))) }
                 label { input type="radio" name=(name) value="" checked; " not confirmed" } " "
                 label { input type="radio" name=(name) value="no"; " no" } " "
                 label { input type="radio" name=(name) value="yes"; " yes" }
@@ -486,17 +486,17 @@ fn find_lenders(shown: &Shown) -> Markup {
                     input type="hidden" name="base_revision" value=(reference.revision);
                     div.grid {
                         div.field {
-                            label for="analysis_package_id" { "Analysis package id" }
+                            label.name for="analysis_package_id" { "Analysis package id" }
                             input #analysis_package_id type="text" name="analysis_package_id" placeholder="optional";
                         }
                         div.field {
-                            label for="product" { "Product" }
+                            label.name for="product" { "Product" }
                             select #product name="product" {
                                 @for product in Product::ALL { option value=(product.key()) selected[product == Product::Mca] { (product.label()) } }
                             }
                         }
                         div.field {
-                            label for="industry" { "Industry" }
+                            label.name for="industry" { "Industry" }
                             select #industry name="confirm.industry" {
                                 option value="" selected { "not confirmed" }
                                 @for industry in shown.context.industries.active() { option value=(industry.id) { (industry.label) } }

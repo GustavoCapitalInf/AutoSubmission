@@ -305,9 +305,24 @@ fn field_cell(view: &FormView, field: FieldId) -> Markup {
         .map(|attention| text::attention(spec.kind, *attention))
         .collect();
     let overridden = *view.head.revision.state.overrides.get(field) != Override::Inherit;
+    let cleared = matches!(submitted, Some(Change::Clear));
+    let reparsed = matches!(submitted, Some(Change::UseParse));
+    let controls = view.reviewer && spec.editable();
     html! {
         div class=(class) {
-            label for=(id) { (label(field)) @if required_now(view, field) { span.star { "*" } } }
+            div.label-row {
+                label.name for=(id) { (label(field)) @if required_now(view, field) { span.star { "*" } } }
+                @if controls {
+                    span.controls {
+                        @if !matches!(state.current, Current::Empty { .. }) || cleared {
+                            label { input type="checkbox" name={ "clear." (key) } checked[cleared]; " Clear" }
+                        }
+                        @if overridden || reparsed {
+                            label { input type="checkbox" name={ "parse." (key) } checked[reparsed]; " Use the PDF's reading" }
+                        }
+                    }
+                }
+            }
             @if !spec.editable() {
                 input id=(id) type="text" value=(value) readonly;
                 p.hint { @if spec.derived { "Set by the number of owners" } @else { "DocuSign's date stamp" } }
@@ -321,18 +336,6 @@ fn field_cell(view: &FormView, field: FieldId) -> Markup {
             }
             @for hint in &hints { p.hint { (hint) } }
             @if let Some(problem) = view.problems.get(&field) { p.problem { (problem) } }
-            @if view.reviewer && spec.editable() {
-                @let cleared = matches!(submitted, Some(Change::Clear));
-                @let reparsed = matches!(submitted, Some(Change::UseParse));
-                p.controls {
-                    @if !matches!(state.current, Current::Empty { .. }) || cleared {
-                        label { input type="checkbox" name={ "clear." (key) } checked[cleared]; " Clear" } " "
-                    }
-                    @if overridden || reparsed {
-                        label { input type="checkbox" name={ "parse." (key) } checked[reparsed]; " Use the PDF's reading" }
-                    }
-                }
-            }
         }
     }
 }
@@ -386,7 +389,7 @@ pub fn render_audit_cards(submitted: Option<&Submission>, problems: &BTreeMap<Fi
                             _ => "",
                         };
                         div.field {
-                            label for=(id) { (label(field)) }
+                            label.name for=(id) { (label(field)) }
                             input id=(id) type="text" name={ "f." (field) } value=(typed) autocomplete="off";
                             @if let Some(problem) = problems.get(&field) { p.problem { (problem) } }
                         }

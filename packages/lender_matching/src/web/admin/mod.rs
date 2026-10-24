@@ -179,12 +179,13 @@ main.wide{max-width:110em}.notice{background:#e8f0fe;border:1px solid #b6c8f0;bo
 .card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:1em 1.2em;margin:0 0 1.2em}\
 .card h2{font-size:1.1em;margin:0 0 .8em;display:flex;justify-content:space-between;align-items:center}\
 .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8em 1.2em}\
-.field label{display:block;font-size:.85em;color:#6b7280;margin-bottom:.25em}\
+.field .name{display:block;font-size:.85em;color:#6b7280;margin-bottom:.25em}\
+.label-row{display:flex;justify-content:space-between;align-items:baseline;gap:.6em}\
 .field input[type=text]{width:100%;box-sizing:border-box;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:.5em .7em}\
-.field input[readonly],.field input[disabled]{color:#4b5563}.field .controls label{display:inline;font-size:1em}\
-.required-empty label{color:#dc2626;font-weight:600}.required-empty input[type=text]{background:#fde8ec;border-color:#f5a3b5}\
-.needs-review label{color:#b45309;font-weight:600}.needs-review input[type=text]{background:#fff4d6;border-color:#f3c969}\
-.hint,.problem,.controls{margin:.25em 0 0;font-size:.85em;color:#6b7280}.needs-review .hint{color:#92400e}\
+.field input[readonly],.field input[disabled]{color:#4b5563}.controls label{margin-left:.6em;white-space:nowrap}\
+.required-empty .name{color:#dc2626;font-weight:600}.required-empty input[type=text]{background:#fde8ec;border-color:#f5a3b5}\
+.needs-review .name{color:#b45309;font-weight:600}.needs-review input[type=text]{background:#fff4d6;border-color:#f3c969}\
+.hint,.problem{margin:.25em 0 0;font-size:.85em;color:#6b7280}.controls{font-size:.8em;color:#6b7280}.needs-review .hint{color:#92400e}\
 .problem{color:#b91c1c}.masked{display:block;font-family:ui-monospace,monospace;margin:.2em 0 .35em}\
 .check-ok{color:#047857}.check-warn{color:#b45309}.toolbar{display:flex;gap:.6em;flex-wrap:wrap;align-items:center}\
 @media (max-width:70em){.split{grid-template-columns:minmax(0,1fr)}.page-image{position:static}}\

@@ -296,7 +296,7 @@ fn stored_at(page: &Page) -> String {
 fn cell<'a>(body: &'a str, key: &str) -> &'a str {
     let label = format!("for=\"f-{}\"", key.replace('.', "-"));
     let at = body.find(&label).unwrap_or_else(|| panic!("no cell for {key}"));
-    let open = body[..at].rfind("<div class=\"").unwrap();
+    let open = body[..at].rfind("<div class=\"field").unwrap();
     let rest = &body[at..];
     let end = [rest.find("<div class=\"field"), rest.find("</section>")].into_iter().flatten().min().unwrap();
     &body[open..at + end]
