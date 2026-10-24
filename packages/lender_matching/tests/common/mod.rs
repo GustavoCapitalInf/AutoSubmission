@@ -41,7 +41,9 @@ impl Drop for TempDir {
 
 pub fn command(data: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lender-matching"));
-    for name in ["LENDER_MATCHING_DATA_DIR", "ANALYSIS_API_URL", "ANALYSIS_API_TOKEN", "PUBLIC_URL"] {
+    for name in
+        ["LENDER_MATCHING_DATA_DIR", "ANALYSIS_API_URL", "ANALYSIS_API_TOKEN", "PUBLIC_URL", "APPLICATION_DATA_KEY"]
+    {
         command.env_remove(name);
     }
     command.arg("--data-dir").arg(data);
@@ -326,6 +328,14 @@ impl Browser {
         self.finish(response.await.unwrap()).await
     }
 
+    /// A GET whose body is not text, such as an image.
+    pub async fn get_bytes(&self, path: &str) -> (reqwest::StatusCode, reqwest::header::HeaderMap, Vec<u8>) {
+        let response =
+            self.http.get(format!("{}{path}", self.base)).header("Cookie", self.cookie_header()).send().await.unwrap();
+        let (status, headers) = (response.status(), response.headers().clone());
+        (status, headers, response.bytes().await.unwrap().to_vec())
+    }
+
     pub async fn post(&self, path: &str, fields: &[(String, String)]) -> Page {
         let body = form_urlencoded::Serializer::new(String::new()).extend_pairs(fields).finish();
         let response = self
@@ -333,6 +343,29 @@ impl Browser {
             .post(format!("{}{path}", self.base))
             .header("Cookie", self.cookie_header())
             .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send();
+        self.finish(response.await.unwrap()).await
+    }
+
+    /// A `multipart/form-data` POST of `parts` in order; a part named `pdf` is sent as a file.
+    pub async fn post_multipart(&self, path: &str, parts: &[(&str, &[u8])]) -> Page {
+        let boundary = "SAMPLE-BOUNDARY-7MA4YWxkTrZu0gW";
+        let mut body = Vec::new();
+        for (name, bytes) in parts {
+            let file = if *name == "pdf" { "; filename=\"sample.pdf\"\r\nContent-Type: application/pdf" } else { "" };
+            body.extend(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"{file}\r\n\r\n").as_bytes(),
+            );
+            body.extend_from_slice(bytes);
+            body.extend(b"\r\n");
+        }
+        body.extend(format!("--{boundary}--\r\n").as_bytes());
+        let response = self
+            .http
+            .post(format!("{}{path}", self.base))
+            .header("Cookie", self.cookie_header())
+            .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
             .body(body)
             .send();
         self.finish(response.await.unwrap()).await

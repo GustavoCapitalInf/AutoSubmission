@@ -1,10 +1,11 @@
+use serde::{Deserialize, Serialize};
 use time::Date;
 
 use crate::values::Word;
 
 /// A box in PDF points on the displayed page, after the crop box and rotation: origin at the
 /// top-left, y growing downward.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Rect {
     pub x0: f32,
     pub top: f32,

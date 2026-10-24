@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
+use image::{ImageFormat, Rgba};
 use pdfium_render::prelude::{
-    PdfDocumentMetadataTagType, PdfMatrix, PdfPage, PdfPageObject, PdfPageObjectCommon, PdfPageObjectsCommon,
-    PdfPageRenderRotation, PdfRect, Pdfium, PdfiumError, PdfiumInternalError,
+    PdfDocument, PdfDocumentMetadataTagType, PdfMatrix, PdfPage, PdfPageObject, PdfPageObjectCommon,
+    PdfPageObjectsCommon, PdfPageRenderRotation, PdfRect, PdfRenderConfig, Pdfium, PdfiumError, PdfiumInternalError,
 };
 use serde::Serialize;
 use time::{Date, Month};
@@ -18,6 +20,8 @@ pub const MAX_PAGES: usize = 128;
 pub const MAX_GLYPHS: usize = 1_000_000;
 /// Form XObjects nested deeper than this are not searched for images.
 const MAX_FORM_DEPTH: usize = 8;
+/// The widest page image, in pixels.
+pub const MAX_IMAGE_WIDTH: u32 = 3000;
 
 /// pdfium, bound once per process. Its calls take `&mut self` because pdfium is not thread-safe.
 pub struct PdfEngine {
@@ -47,6 +51,18 @@ pub enum ReadError {
     Encrypted,
     TooLarge,
     Engine,
+    /// A page image asked for a page the document does not have.
+    NoSuchPage,
+}
+
+/// Page `page` of a document drawn `width` pixels wide, its height in the page's proportions, with
+/// each cover painted solid black over it.
+pub struct PageImage {
+    /// The displayed page's index, from 0.
+    pub page: u16,
+    pub width: u32,
+    /// In points on the displayed page, as `Rect` measures.
+    pub covers: Vec<Rect>,
 }
 
 impl PdfEngine {
@@ -59,19 +75,23 @@ impl PdfEngine {
         Ok(PdfEngine { pdfium: Pdfium::new(bindings) })
     }
 
-    /// Opens `bytes` from memory and copies out every page's glyphs, fonts and image cover, and
-    /// the info dictionary's creation date.
-    pub fn facts(&mut self, bytes: &[u8]) -> Result<PdfFacts, ReadError> {
+    fn open<'a>(&'a self, bytes: &'a [u8]) -> Result<PdfDocument<'a>, ReadError> {
         if bytes.len() > MAX_BYTES {
             return Err(ReadError::TooLarge);
         }
-        let document = self.pdfium.load_pdf_from_byte_slice(bytes, None).map_err(|error| match error {
+        self.pdfium.load_pdf_from_byte_slice(bytes, None).map_err(|error| match error {
             PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::PasswordError)
             | PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::SecurityError) => ReadError::Encrypted,
             PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::FormatError)
             | PdfiumError::PdfiumLibraryInternalError(PdfiumInternalError::FileError) => ReadError::NotPdf,
             _ => ReadError::Engine,
-        })?;
+        })
+    }
+
+    /// Opens `bytes` from memory and copies out every page's glyphs, fonts and image cover, and
+    /// the info dictionary's creation date.
+    pub fn facts(&mut self, bytes: &[u8]) -> Result<PdfFacts, ReadError> {
+        let document = self.open(bytes)?;
         let created_on =
             document.metadata().get(PdfDocumentMetadataTagType::CreationDate).and_then(|tag| pdf_date(tag.value()));
         if usize::try_from(document.pages().len()).map_or(true, |count| count > MAX_PAGES) {
@@ -83,6 +103,36 @@ impl PdfEngine {
             pages.push(text_page(&page, &mut glyphs)?);
         }
         Ok(PdfFacts { created_on, pages })
+    }
+
+    /// The page as a PNG, with every cover painted in the bitmap itself. A width of 0 or over
+    /// `MAX_IMAGE_WIDTH` is `TooLarge`.
+    pub fn page_png(&mut self, bytes: &[u8], request: &PageImage) -> Result<Vec<u8>, ReadError> {
+        if request.width == 0 || request.width > MAX_IMAGE_WIDTH {
+            return Err(ReadError::TooLarge);
+        }
+        let document = self.open(bytes)?;
+        let page = document.pages().get(request.page.into()).map_err(|_| ReadError::NoSuchPage)?;
+        let (points_wide, points_high) = View::of(&page)?.size();
+        let width = i32::try_from(request.width).map_err(|_| ReadError::TooLarge)?;
+        let bitmap =
+            page.render_with_config(&PdfRenderConfig::new().set_target_width(width)).map_err(|_| ReadError::Engine)?;
+        let mut image = bitmap.as_image().map_err(|_| ReadError::Engine)?.into_rgba8();
+        let (w, h) = image.dimensions();
+        let (sx, sy) = (w as f32 / points_wide, h as f32 / points_high);
+        let pixel = |points: f32, scale: f32, limit: u32| (points * scale).clamp(0.0, limit as f32);
+        for cover in &request.covers {
+            let (x0, x1) = (pixel(cover.x0, sx, w).floor() as u32, pixel(cover.x1, sx, w).ceil() as u32);
+            let (y0, y1) = (pixel(cover.top, sy, h).floor() as u32, pixel(cover.bottom, sy, h).ceil() as u32);
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    image.put_pixel(x, y, Rgba([0, 0, 0, 255]));
+                }
+            }
+        }
+        let mut png = Vec::new();
+        image.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).map_err(|_| ReadError::Engine)?;
+        Ok(png)
     }
 }
 

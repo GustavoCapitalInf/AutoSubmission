@@ -1,3 +1,4 @@
+pub mod applications;
 pub mod auth;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,7 +17,8 @@ use crate::facts::application::{Industries, IndustryId};
 use crate::matching::{LenderVerdict, MATCH_FORMAT, MatchRecord, Requester, VerdictResult};
 use auth::{AdminUser, MachineClient, Role, Scope};
 
-const MIGRATIONS: [&str; 1] = [include_str!("schema.sql")];
+const MIGRATIONS: [&str; 3] =
+    [include_str!("schema.sql"), include_str!("migration_2.sql"), include_str!("migration_3.sql")];
 
 const SESSION_HOURS: i64 = 12;
 
@@ -46,9 +48,11 @@ impl Store {
         Store::setup(Connection::open_in_memory().unwrap()).unwrap()
     }
 
+    /// Migrations run with foreign keys off, as SQLite requires for rebuilding a table, and each
+    /// commits only when `foreign_key_check` finds nothing.
     fn setup(mut conn: Connection) -> Result<Store, StoreError> {
         conn.busy_timeout(Duration::from_secs(5))?;
-        conn.pragma_update(None, "foreign_keys", true)?;
+        conn.pragma_update(None, "foreign_keys", false)?;
         conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
         let current: u32 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
         let known = u32::try_from(MIGRATIONS.len()).expect("few migrations");
@@ -58,9 +62,14 @@ impl Store {
         for (version, sql) in (1..=known).zip(MIGRATIONS).skip(current as usize) {
             let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             tx.execute_batch(sql)?;
+            let broken: Option<String> = tx.query_row("PRAGMA foreign_key_check", [], |row| row.get(0)).optional()?;
+            if let Some(table) = broken {
+                return Err(StoreError::Corrupt(format!("migration {version} leaves a broken reference in {table}")));
+            }
             tx.pragma_update(None, "user_version", version)?;
             tx.commit()?;
         }
+        conn.pragma_update(None, "foreign_keys", true)?;
         Ok(Store { conn: Mutex::new(conn) })
     }
 
@@ -353,11 +362,15 @@ impl ReadTx<'_> {
             return Err(StoreError::Corrupt(format!("match {id} has format {format}, unreadable by this build")));
         }
         let corrupt = |what: &str| StoreError::Corrupt(format!("match {id}: {what}"));
+        let application = self.match_application(id)?;
         let by = match (client, user, supersedes) {
             (Some(client), None, None) => Requester::Client(client),
-            (None, Some(user), Some(supersedes)) => {
-                Requester::Person { user, supersedes: Uuid::parse_str(&supersedes).map_err(|_| corrupt("supersedes"))? }
-            }
+            (None, Some(user), supersedes) => Requester::Person {
+                user,
+                supersedes: supersedes
+                    .map(|older| Uuid::parse_str(&older).map_err(|_| corrupt("supersedes")))
+                    .transpose()?,
+            },
             _ => return Err(corrupt("who made it")),
         };
         let mut statement = self
@@ -398,6 +411,7 @@ impl ReadTx<'_> {
             facts: serde_json::from_str(&facts).map_err(|error| corrupt(&format!("its facts: {error}")))?,
             engine_version,
             verdicts,
+            application,
         }))
     }
 
@@ -445,6 +459,20 @@ impl ReadTx<'_> {
             })
         })
         .collect()
+    }
+
+    /// The live account with this username, ignoring case.
+    pub fn user_by_name(&self, username: &str) -> Result<Option<(i64, Role)>, StoreError> {
+        let row = self
+            .conn
+            .query_row("SELECT id, role FROM users WHERE username = ?1 AND disabled_at IS NULL", [username], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .optional()?;
+        row.map(|(id, role)| {
+            Ok((id, Role::from_key(&role).ok_or_else(|| StoreError::Corrupt(format!("role {role}")))?))
+        })
+        .transpose()
     }
 
     pub fn username(&self, user: i64) -> Result<Option<String>, StoreError> {
@@ -548,7 +576,7 @@ impl WriteTx<'_> {
     pub fn insert_match(&self, record: &MatchRecord) -> Result<(), StoreError> {
         let (client, user, supersedes) = match &record.by {
             Requester::Client(client) => (Some(*client), None, None),
-            Requester::Person { user, supersedes } => (None, Some(*user), Some(supersedes.to_string())),
+            Requester::Person { user, supersedes } => (None, Some(*user), supersedes.map(|older| older.to_string())),
         };
         let analysis = record.facts.analysis.as_ref();
         self.conn.execute(
@@ -581,6 +609,9 @@ impl WriteTx<'_> {
                 "INSERT INTO match_verdicts (match_id, lender_id, revision, status, evaluation) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![record.id.to_string(), verdict.lender.as_str(), verdict.revision, verdict.result.key(), evaluation],
             )?;
+        }
+        if let Some(application) = record.application {
+            self.insert_match_application(record.id, application)?;
         }
         Ok(())
     }
@@ -656,6 +687,16 @@ pub(crate) mod testing {
         let id = store.write(|tx| tx.add_user("sample.editor", "correct horse battery", Role::Editor)).unwrap();
         Author::User { id, username: "sample.editor".to_string() }
     }
+
+    /// Runs `sql` as a writer that bypasses the store would.
+    pub fn raw(store: &Store, sql: &str) -> rusqlite::Result<usize> {
+        store.conn.lock().unwrap().execute(sql, [])
+    }
+
+    pub fn rows(store: &Store, table: &str) -> i64 {
+        let conn = store.conn.lock().unwrap();
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0)).unwrap()
+    }
 }
 
 #[cfg(test)]
@@ -686,7 +727,171 @@ mod tests {
         drop(Store::open(&path).unwrap());
         drop(Store::open(&path).unwrap());
         Connection::open(&path).unwrap().pragma_update(None, "user_version", 99).unwrap();
-        assert!(matches!(Store::open(&path), Err(StoreError::NewerSchema { found: 99, known: 1 })));
+        assert!(matches!(Store::open(&path), Err(StoreError::NewerSchema { found: 99, known: 3 })));
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    fn made_by(by: Requester, lender: &Revision) -> MatchRecord {
+        use crate::criteria::eval::evaluate;
+        use crate::facts::testing::{AS_OF, application, everything_confirmed};
+        use crate::facts::{DealInput, assemble};
+        use crate::matching::MatchInput;
+        let deal = DealInput { application: application(), confirmations: everything_confirmed() };
+        let facts = assemble(None, &deal, AS_OF);
+        let evaluation = evaluate(&lender.record.policy, lender.number, &facts, &[]);
+        let verdict = LenderVerdict {
+            lender: lender.lender.clone(),
+            revision: lender.number,
+            result: VerdictResult::Evaluated(evaluation),
+        };
+        MatchRecord {
+            id: Uuid::new_v4(),
+            created_at: now(),
+            by,
+            input: MatchInput {
+                analysis_package: None,
+                product: crate::criteria::Product::Mca,
+                deal,
+                waivers: Vec::new(),
+            },
+            facts,
+            engine_version: crate::matching::ENGINE_VERSION,
+            verdicts: vec![verdict],
+            application: None,
+        }
+    }
+
+    #[test]
+    fn migration_2_keeps_every_match_of_a_version_1_database_and_lets_a_person_match_first() {
+        let directory = std::env::temp_dir().join(format!("lender-matching-store-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("store.sqlite3");
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.pragma_update(None, "user_version", 1).unwrap();
+        let tx = conn.transaction().unwrap();
+        let write = WriteTx { read: ReadTx { conn: &tx } };
+        let user = write.add_user("sample.reviewer", "correct horse battery", Role::Reviewer).unwrap();
+        let author = Author::User { id: user, username: "sample.reviewer".to_string() };
+        let lender = write.create_lender(&record("CONTOSO CAPITAL", 2), &author, None).unwrap();
+        let token = write.create_token("auto-submission", &BTreeSet::from([Scope::Match])).unwrap();
+        let client = write.machine_client(&token).unwrap().unwrap().id;
+        let first = made_by(Requester::Client(client), &lender);
+        let second = made_by(Requester::Person { user, supersedes: Some(first.id) }, &lender);
+        write.insert_match(&first).unwrap();
+        write.insert_match(&second).unwrap();
+        assert!(
+            write.insert_match(&made_by(Requester::Person { user, supersedes: None }, &lender)).is_err(),
+            "version 1 refuses a person's first match"
+        );
+        tx.commit().unwrap();
+        drop(conn);
+
+        let store = Store::open(&path).unwrap();
+        for original in [&first, &second] {
+            let back = store.read(|tx| tx.match_record(original.id)).unwrap().expect("the match is kept");
+            assert_eq!(&back, original);
+        }
+        assert_eq!(store.read(|tx| tx.superseded_by(first.id)).unwrap(), Some(second.id));
+        let person_first = made_by(Requester::Person { user, supersedes: None }, &lender);
+        store.write(|tx| tx.insert_match(&person_first)).unwrap();
+        assert_eq!(store.read(|tx| tx.match_record(person_first.id)).unwrap().unwrap(), person_first);
+        let conn = store.conn.lock().unwrap();
+        for sql in [
+            "UPDATE matches SET as_of = '2026-10-24'".to_string(),
+            "DELETE FROM matches".to_string(),
+            format!(
+                "INSERT INTO match_verdicts (match_id, lender_id, revision, status) VALUES ('missing', '{}', 1, 'inactive')",
+                lender.lender
+            ),
+            format!(
+                "INSERT INTO matches (id, created_at, client_id, supersedes, as_of, engine_version, format, input, facts) VALUES ('m9', '2026-10-23T00:00:00Z', {client}, '{}', '2026-10-23', 1, 1, '{{}}', '{{}}')",
+                first.id
+            ),
+        ] {
+            assert!(conn.execute(&sql, []).is_err(), "{sql}");
+        }
+        drop(conn);
+        drop(store);
+        std::fs::remove_dir_all(&directory).unwrap();
+    }
+
+    #[test]
+    fn migration_3_keeps_every_application_row_and_admits_audits() {
+        use crate::applications::{ApplicationId, ApplicationRef, RevisionKind};
+        let directory = std::env::temp_dir().join(format!("lender-matching-store-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("store.sqlite3");
+        let mut conn = Connection::open(&path).unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap();
+        conn.execute_batch(MIGRATIONS[1]).unwrap();
+        conn.pragma_update(None, "user_version", 2).unwrap();
+        let (application, parse) = (Uuid::new_v4(), Uuid::new_v4());
+        let tx = conn.transaction().unwrap();
+        let write = WriteTx { read: ReadTx { conn: &tx } };
+        let user = write.add_user("sample.reviewer", "correct horse battery", Role::Reviewer).unwrap();
+        let author = Author::User { id: user, username: "sample.reviewer".to_string() };
+        let lender = write.create_lender(&record("CONTOSO CAPITAL", 2), &author, None).unwrap();
+        let matched = made_by(Requester::Person { user, supersedes: None }, &lender);
+        write.insert_match(&matched).unwrap();
+        tx.execute_batch(&format!(
+            "INSERT INTO applications (id, source_sha256, uploaded_at, uploaded_by, source_pdf) \
+               VALUES ('{application}', zeroblob(32), '2026-10-23T00:00:00Z', {user}, x'00'); \
+             INSERT INTO application_parses (id, application_id, parser_version, parser_fingerprint, created_at, \
+               format, payload) VALUES ('{parse}', '{application}', 3, zeroblob(32), '2026-10-23T00:00:00Z', 1, x'00'); \
+             INSERT INTO application_revisions (application_id, revision, selected_parse_id, saved_at, author_user_id, \
+               kind, cause, format, state) VALUES ('{application}', 1, '{parse}', '2026-10-23T00:00:00Z', {user}, \
+               'upload', NULL, 1, x'00'); \
+             INSERT INTO application_access (application_id, user_id, occurred_at, action) \
+               VALUES ('{application}', {user}, '2026-10-23T00:00:00Z', 'reveal'); \
+             INSERT INTO match_applications (match_id, application_id, revision) VALUES ('{}', '{application}', 1);",
+            matched.id
+        ))
+        .unwrap();
+        assert!(
+            tx.execute_batch(&format!(
+                "INSERT INTO application_access (application_id, user_id, occurred_at, action) \
+                 VALUES ('{application}', {user}, '2026-10-23T00:00:00Z', 'audit')"
+            ))
+            .is_err(),
+            "version 2 logs no audit"
+        );
+        tx.commit().unwrap();
+        drop(conn);
+
+        let store = Store::open(&path).unwrap();
+        let id = ApplicationId(application);
+        let revisions = store.read(|tx| tx.application_revisions(id)).unwrap();
+        assert_eq!(
+            revisions.iter().map(|row| (row.revision, row.kind)).collect::<Vec<_>>(),
+            [(1, RevisionKind::Upload)]
+        );
+        assert_eq!(
+            store.read(|tx| tx.match_application(matched.id)).unwrap(),
+            Some(ApplicationRef { id, revision: 1 })
+        );
+        assert_eq!(store.read(|tx| tx.application_accesses(id)).unwrap().len(), 1);
+        store.write(|tx| tx.insert_application_access(id, user, "audit")).unwrap();
+        let conn = store.conn.lock().unwrap();
+        conn.execute_batch(&format!(
+            "INSERT INTO application_revisions (application_id, revision, selected_parse_id, saved_at, author_user_id, \
+             kind, format, state) VALUES ('{application}', 2, '{parse}', '2026-10-23T00:00:00Z', {user}, 'audit', 1, x'00')"
+        ))
+        .unwrap();
+        for sql in [
+            "UPDATE application_revisions SET format = 2".to_string(),
+            "DELETE FROM application_revisions".to_string(),
+            "UPDATE application_access SET action = 'reveal'".to_string(),
+            "DELETE FROM application_access".to_string(),
+            format!(
+                "INSERT INTO application_access (application_id, user_id, occurred_at, action) \
+                 VALUES ('{application}', {user}, '2026-10-23T00:00:00Z', 'download')"
+            ),
+        ] {
+            assert!(conn.execute(&sql, []).is_err(), "{sql}");
+        }
+        drop(conn);
+        drop(store);
         std::fs::remove_dir_all(&directory).unwrap();
     }
 

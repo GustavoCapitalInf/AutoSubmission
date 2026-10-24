@@ -1,6 +1,7 @@
 //! The admin pages: server-rendered HTML forms behind a session cookie. Every POST carries the
 //! session's CSRF token, and a request that carries `Authorization` is refused.
 
+mod applications;
 mod lender;
 mod review;
 
@@ -44,13 +45,14 @@ pub fn router() -> Router<Shared> {
         .route("/admin/matches", get(matches))
         .route("/admin/matches/{id}", get(review::view))
         .route("/admin/matches/{id}/review", post(review::submit))
+        .merge(applications::router())
         .layer(axum::middleware::map_response(|mut response: Response| async move {
             let headers = response.headers_mut();
             headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
             headers.insert(
                 CONTENT_SECURITY_POLICY,
                 HeaderValue::from_static(
-                    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+                    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'",
                 ),
             );
             headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
@@ -161,7 +163,7 @@ pub fn fields(Form(pairs): RawForm) -> Fields {
     Fields(pairs)
 }
 
-const STYLE: &str = "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#1d1d1f;background:#fafafa}\
+const STYLE: &str = "body{font:15px/1.45 system-ui,sans-serif;margin:0;color:#1d1d1f;background:#f2f3f5}\
 header{background:#22313f;color:#fff;padding:.6em 1.2em;display:flex;gap:1.2em;align-items:center;flex-wrap:wrap}\
 header a{color:#fff}header form{margin-left:auto}main{padding:1em 1.2em;max-width:72em}\
 table{border-collapse:collapse;margin:.5em 0 1em;background:#fff}td,th{border:1px solid #ccd;padding:.3em .5em;text-align:left;vertical-align:top}\
@@ -170,9 +172,35 @@ th{background:#eef}fieldset{border:1px solid #ccd;margin:1em 0;background:#fff}l
 .badge{display:inline-block;border-radius:3px;padding:0 .4em;margin:0 .2em;font-size:85%;background:#ffe7b3}\
 .match{background:#d4f5dd}.review{background:#ffe7b3}.no_match{background:#f9d0d0}\
 .removed{color:#900}.added{color:#060}input[type=text],textarea,select{font:inherit}textarea{width:100%}\
-.row{border-top:1px dashed #ccd;padding:.4em 0}";
+.row{border-top:1px dashed #ccd;padding:.4em 0}\
+main.wide{max-width:110em}.notice{background:#e8f0fe;border:1px solid #b6c8f0;border-radius:8px;padding:.5em .8em}\
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.3fr);gap:1.2em;align-items:start}\
+.page-image{position:sticky;top:1em}.page-image img{width:100%;border:1px solid #d1d5db;border-radius:8px;background:#fff}\
+.card{background:#fff;border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:1em 1.2em;margin:0 0 1.2em}\
+.card h2{font-size:1.1em;margin:0 0 .8em;display:flex;justify-content:space-between;align-items:center}\
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.8em 1.2em}\
+.field .name{display:block;font-size:.85em;color:#6b7280;margin-bottom:.25em}\
+.label-row{display:flex;justify-content:space-between;align-items:baseline;gap:.6em}\
+.field input[type=text]{width:100%;box-sizing:border-box;background:#f3f4f6;border:1px solid #e5e7eb;border-radius:8px;padding:.5em .7em}\
+.field input[readonly],.field input[disabled]{color:#4b5563}.controls label{margin-left:.6em;white-space:nowrap}\
+.required-empty .name{color:#dc2626;font-weight:600}.required-empty input[type=text]{background:#fde8ec;border-color:#f5a3b5}\
+.needs-review .name{color:#b45309;font-weight:600}.needs-review input[type=text]{background:#fff4d6;border-color:#f3c969}\
+.hint,.problem{margin:.25em 0 0;font-size:.85em;color:#6b7280}.controls{font-size:.8em;color:#6b7280}.needs-review .hint{color:#92400e}\
+.problem{color:#b91c1c}.masked{display:block;font-family:ui-monospace,monospace;margin:.2em 0 .35em}\
+.check-ok{color:#047857}.check-warn{color:#b45309}.toolbar{display:flex;gap:.6em;flex-wrap:wrap;align-items:center}\
+@media (max-width:70em){.split{grid-template-columns:minmax(0,1fr)}.page-image{position:static}}\
+@media (max-width:40em){.grid{grid-template-columns:minmax(0,1fr)}}";
 
 pub fn page(user: Option<&AdminUser>, title: &str, body: Markup) -> Markup {
+    layout(user, title, false, body)
+}
+
+/// `page` with room for two columns.
+pub fn wide_page(user: Option<&AdminUser>, title: &str, body: Markup) -> Markup {
+    layout(user, title, true, body)
+}
+
+fn layout(user: Option<&AdminUser>, title: &str, wide: bool, body: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html lang="en" {
@@ -191,6 +219,7 @@ pub fn page(user: Option<&AdminUser>, title: &str, body: Markup) -> Markup {
                         a href="/admin/industries" { "Industries" }
                         a href="/admin/imports" { "Imports" }
                         a href="/admin/matches" { "Matches" }
+                        a href="/admin/applications" { "Applications" }
                         form method="post" action="/logout" {
                             (csrf(user))
                             span { (user.username) " (" (user.role.key()) ") " }
@@ -198,7 +227,7 @@ pub fn page(user: Option<&AdminUser>, title: &str, body: Markup) -> Markup {
                         }
                     }
                 }
-                main {
+                main.wide[wide] {
                     h1 { (title) }
                     (body)
                 }

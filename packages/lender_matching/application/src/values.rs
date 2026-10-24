@@ -259,7 +259,7 @@ pub struct ReadContext {
 }
 
 /// Why a field's text gives no value. A closed set that carries no text.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Refusal {
     Format,
@@ -294,7 +294,7 @@ impl Refusal {
 }
 
 /// Why a field's text is not an email address, checked in this order. It carries no text.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EmailFault {
     NoAt,
@@ -318,7 +318,8 @@ pub enum Answer {
 }
 
 /// A field's value, of the variant its `FieldKind` reads. `Debug` names the variant only.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FieldValue {
     /// Trimmed, with inner whitespace collapsed.
     Text(String),
@@ -329,7 +330,7 @@ pub enum FieldValue {
     Entity(Entity),
     StatedDate(StatedDate),
     BirthDate(BirthDate),
-    SignatureDate(Date),
+    SignatureDate(#[serde(with = "iso_date")] Date),
     TaxId(TaxId),
     Ssn(PersonalTaxId),
     Money(Money),
@@ -339,7 +340,7 @@ pub enum FieldValue {
 }
 
 /// The local part as written, the domain in lower case.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Email {
     local: String,
     domain: String,
@@ -356,10 +357,11 @@ impl Email {
 }
 
 /// Ten NANP digits; a leading `1` or `+1` is dropped.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Phone([u8; 10]);
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PostalCode {
     Us {
         five: [u8; 5],
@@ -371,7 +373,8 @@ pub enum PostalCode {
 
 /// The form's dropdown read as the matcher's entity kinds, except that S and C corporations stay
 /// apart.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Entity {
     Llc,
     /// Also a professional corporation.
@@ -385,17 +388,19 @@ pub enum Entity {
 }
 
 /// A business date at the precision the merchant wrote: `04/15/2019` is a day, `04/2019` a month.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum StatedDate {
-    Day(Date),
+    Day(#[serde(with = "iso_date")] Date),
     Month(YearMonth),
 }
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct BirthDate(Date);
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct BirthDate(#[serde(with = "iso_date")] Date);
 
 /// The scheme is read from the digits' grouping only; nothing asserts that an authority issued it.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TaxId {
     /// Grouped `99-9999999`.
     Ein([u8; 9]),
@@ -405,7 +410,7 @@ pub enum TaxId {
     CanadianBusinessNumber { number: [u8; 9], program: [u8; 2], reference: [u8; 4] },
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonalTaxId {
     digits: [u8; 9],
     scheme: IdScheme,
@@ -413,7 +418,8 @@ pub struct PersonalTaxId {
 
 /// From the grouping only: `999-99-9999` is written as an SSN, `999 999 999` as a SIN, whatever
 /// separates the groups.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IdScheme {
     UsSsn,
     CanadianSin,
@@ -424,16 +430,21 @@ impl PersonalTaxId {
     pub fn scheme(&self) -> IdScheme {
         self.scheme
     }
+
+    pub fn last_four(&self) -> String {
+        digits(&self.digits[5..])
+    }
 }
 
 /// An amount in hundredths, as printed.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Money {
     cents: i64,
     denomination: Denomination,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Denomination {
     Explicit(Currency),
     /// A bare `$`, which does not say which dollar.
@@ -441,7 +452,8 @@ pub enum Denomination {
     Unmarked,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Currency {
     Usd,
     Cad,
@@ -458,17 +470,33 @@ impl Money {
 }
 
 /// Hundredths of one percent, 0 to 10,000.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Percent(u16);
 
+impl Percent {
+    pub(crate) const WHOLE: Percent = Percent(10_000);
+    pub(crate) const HALF: Percent = Percent(5_000);
+}
+
 /// 300 to 850; a stated range such as `650-700` stays a range, and `700+` runs to 850.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Score {
     min: u16,
     max: u16,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+impl Score {
+    pub fn min(self) -> u16 {
+        self.min
+    }
+
+    pub fn max(self) -> u16 {
+        self.max
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum YesNo {
     Yes,
     No,
@@ -1001,6 +1029,53 @@ fn signature_date(s: &str, context: &ReadContext) -> Result<Date, Refusal> {
         return Err(Refusal::Format);
     };
     not_after_signing(calendar(year, month, day).ok_or(Refusal::Format)?, context)
+}
+
+/// A stored date as `YYYY-MM-DD`.
+pub(crate) mod iso_date {
+    use serde::{Deserialize, Deserializer, Serializer};
+    use time::{Date, Month};
+
+    pub fn text(date: Date) -> String {
+        format!("{:04}-{:02}-{:02}", date.year(), date.month() as u8, date.day())
+    }
+
+    pub fn parse(text: &str) -> Option<Date> {
+        let mut parts = text.splitn(3, '-');
+        let (year, month, day) = (parts.next()?, parts.next()?, parts.next()?);
+        if year.len() != 4 || month.len() != 2 || day.len() != 2 {
+            return None;
+        }
+        let month = Month::try_from(month.parse::<u8>().ok()?).ok()?;
+        Date::from_calendar_date(year.parse().ok()?, month, day.parse().ok()?).ok()
+    }
+
+    pub fn serialize<S: Serializer>(date: &Date, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&text(*date))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Date, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        parse(&text).ok_or_else(|| serde::de::Error::custom("expected a YYYY-MM-DD date"))
+    }
+
+    pub mod option {
+        use serde::{Deserialize, Deserializer, Serializer};
+        use time::Date;
+
+        pub fn serialize<S: Serializer>(date: &Option<Date>, serializer: S) -> Result<S::Ok, S::Error> {
+            match date {
+                Some(date) => serializer.serialize_some(&super::text(*date)),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Date>, D::Error> {
+            Option::<String>::deserialize(deserializer)?
+                .map(|text| super::parse(&text).ok_or_else(|| serde::de::Error::custom("expected a YYYY-MM-DD date")))
+                .transpose()
+        }
+    }
 }
 
 fn us_date(date: Date) -> String {
@@ -1632,6 +1707,7 @@ mod tests {
         );
         let FieldValue::Ssn(id) = value(FieldKind::Ssn, "900 123 456") else { unreachable!() };
         assert_eq!(id.scheme(), IdScheme::CanadianSin);
+        assert_eq!(id.last_four(), "3456");
     }
 
     fn value(kind: FieldKind, text: &str) -> FieldValue {

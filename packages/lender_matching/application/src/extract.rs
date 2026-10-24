@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use time::Date;
 
 use crate::certificate::{Certificate, read_certificate};
@@ -11,6 +11,7 @@ use crate::template::{
 use crate::values::{Answer, FieldValue, RawText, ReadContext, Refusal, Word, is_mark};
 
 /// What one PDF reads as. It holds application data, so it has no `Debug`.
+#[derive(Serialize, Deserialize)]
 pub struct Reading {
     pub document: Document,
     pub certificate: Option<Certificate>,
@@ -21,12 +22,32 @@ pub struct Reading {
     pub offsets: Vec<SentinelOffset>,
 }
 
+impl Reading {
+    /// What to paint over on page 1 so that no identity data shows: each masked field's region,
+    /// its value's own box, which can run past the region, and every unplaced run after a masked
+    /// field's label. None when a masked field has no region, as on a manual-entry draft: then no
+    /// covered image can be made.
+    pub fn masked_covers(&self) -> Option<Vec<Rect>> {
+        let Document::Application(form) = &self.document else { return None };
+        let mut covers = Vec::new();
+        for (_, reading) in form.fields.iter().filter(|(field, _)| field.spec().masked) {
+            let FieldReading::Located { region, .. } = reading else { return None };
+            covers.push(*region);
+            covers.extend(reading.evidence().map(|evidence| evidence.rect));
+        }
+        let after_masked = |run: &&Unplaced| run.after.is_some_and(|field| field.spec().masked);
+        covers.extend(form.unplaced.iter().filter(after_masked).map(|run| run.evidence.rect));
+        Some(covers)
+    }
+}
+
 /// The signing day: the certificate's completion day, else the PDF's creation day, so a reading
 /// is a function of the bytes alone.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SignedOn {
-    Certificate(Date),
-    Created(Date),
+    Certificate(#[serde(with = "crate::values::iso_date")] Date),
+    Created(#[serde(with = "crate::values::iso_date")] Date),
 }
 
 impl SignedOn {
@@ -37,13 +58,15 @@ impl SignedOn {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub struct SentinelOffset {
     pub field: FieldId,
     pub dx: f32,
     pub dy: f32,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Document {
     Application(FormReading),
     /// A person enters the application by hand.
@@ -52,7 +75,7 @@ pub enum Document {
     Refused(RefusalReason),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ManualEntryReason {
     /// The first page is mostly image, or has too little text.
@@ -63,7 +86,7 @@ pub enum ManualEntryReason {
     AmbiguousDocument,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RefusalReason {
     /// A Receivables Purchase Agreement.
@@ -82,6 +105,25 @@ impl LayoutId {
     }
 }
 
+impl Serialize for LayoutId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0)
+    }
+}
+
+/// Only the id of a layout the template still holds.
+impl<'de> Deserialize<'de> for LayoutId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(deserializer)?;
+        FORM.layouts
+            .iter()
+            .find(|layout| layout.id == id)
+            .map(|layout| LayoutId(layout.id))
+            .ok_or_else(|| serde::de::Error::custom("not a layout of the template"))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct FormReading {
     pub layout: LayoutId,
     pub fields: FieldMap<FieldReading>,
@@ -89,6 +131,8 @@ pub struct FormReading {
     pub unplaced: Vec<Unplaced>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum FieldReading {
     Unlocated(Unlocated),
     /// `region` is where the value starts, whether or not anything is there: a run of value glyphs
@@ -101,7 +145,8 @@ pub enum FieldReading {
     },
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Unlocated {
     /// No text of the label in its section.
     LabelMissing,
@@ -109,6 +154,8 @@ pub enum Unlocated {
     LabelOutOfPlace,
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RegionValue {
     Blank,
     NotApplicable(Evidence),
@@ -118,7 +165,8 @@ pub enum RegionValue {
     Doubtful(Doubt, Option<Evidence>),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Doubt {
     /// The label's text occurs more often in its section than the form prints it.
     LabelFoundTwice,
@@ -129,11 +177,13 @@ pub enum Doubt {
 }
 
 /// Text from the page: application data, for a person to see. It has no `Debug`.
+#[derive(Serialize, Deserialize)]
 pub struct Evidence {
     pub text: String,
     pub rect: Rect,
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct Unplaced {
     pub evidence: Evidence,
     /// The last field label before it in reading order.

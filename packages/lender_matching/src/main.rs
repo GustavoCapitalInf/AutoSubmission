@@ -18,6 +18,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use analysis_api::AnalysisClient;
+use applications::{Applications, DataKey, Intake, KEY_VARIABLE, WorkerReader};
 use data_dir::DataDir;
 use info_hub::{ImportError, ImportMode};
 use lender_matching_application::tally::TallyOptions;
@@ -64,7 +65,7 @@ enum Command {
         #[command(subcommand)]
         command: ApplicationsCommand,
     },
-    /// Read PDFs with pdfium for a supervising process: frames on stdin, page data on stdout.
+    /// Read PDFs with pdfium for a supervising process: frames on stdin, page data and page images on stdout.
     #[command(hide = true)]
     PdfWorker,
 }
@@ -98,6 +99,32 @@ enum ApplicationsCommand {
         #[arg(long, value_name = "FILE")]
         json: Option<PathBuf>,
     },
+    /// Store application PDFs, sealed with APPLICATION_DATA_KEY, as uploads by a reviewer or an
+    /// editor. Prints each file's outcome by its position, not its name. Needs PDFIUM_LIBRARY.
+    Import {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// The account the uploads are recorded under.
+        #[arg(long, value_name = "USERNAME")]
+        by: String,
+    },
+    /// Draw a uniform random sample of the PDF files under a folder, refused ones included, into a
+    /// scratch data directory for a blind audit in the admin pages. Prints counts only. Needs
+    /// --data-dir, APPLICATION_DATA_KEY and PDFIUM_LIBRARY.
+    Sample {
+        folder: PathBuf,
+        #[arg(long)]
+        count: usize,
+        /// The same seed draws the same files from the same folder.
+        #[arg(long)]
+        seed: u64,
+        /// The account the sampled uploads are recorded under.
+        #[arg(long, value_name = "USERNAME")]
+        by: String,
+    },
+    /// Score the audited documents of a scratch data directory against their frozen parses.
+    /// Prints counts only. Needs --data-dir and APPLICATION_DATA_KEY.
+    Accuracy,
 }
 
 #[derive(Subcommand)]
@@ -143,10 +170,103 @@ fn open_store(data_dir: Option<PathBuf>) -> Result<(DataDir, Store), String> {
     Ok((dir, store))
 }
 
+fn required_data_key() -> Result<DataKey, String> {
+    DataKey::from_env()?
+        .ok_or_else(|| format!("set {KEY_VARIABLE} to the 32-byte key, in base64, that seals stored applications"))
+}
+
+/// A closed reason as its stored key, such as `unknown_layout`.
+fn reason_key(reason: impl serde::Serialize) -> String {
+    serde_json::to_value(reason).ok().and_then(|value| value.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+/// The stored applications of `data_dir`, read with pdfium when `library` names it.
+fn applications_in(data_dir: Option<PathBuf>, library: Option<PathBuf>) -> Result<(Arc<Store>, Applications), String> {
+    let data_key = required_data_key()?;
+    let (_, store) = open_store(data_dir)?;
+    applications::check_key(&store, &data_key)?;
+    let store = Arc::new(store);
+    let reader = WorkerReader::new(library)?;
+    Ok((store.clone(), Applications::new(store, Arc::new(data_key), Arc::new(reader))))
+}
+
+fn reviewer_or_editor_id(store: &Store, by: &str) -> Result<i64, String> {
+    match store.read(|tx| tx.user_by_name(by.trim())).map_err(|error| error.to_string())? {
+        Some((id, role)) if role >= Role::Reviewer => Ok(id),
+        _ => Err(format!("no live reviewer or editor account is named {by}")),
+    }
+}
+
+/// A blind audit runs in a data directory named for it, not in the OS default.
+fn scratch(data_dir: Option<PathBuf>) -> Result<Option<PathBuf>, String> {
+    data_dir.map(Some).ok_or_else(|| "name the audit's scratch data directory with --data-dir".to_string())
+}
+
+fn sample(
+    data_dir: Option<PathBuf>,
+    folder: &std::path::Path,
+    count: usize,
+    seed: u64,
+    by: &str,
+) -> Result<ExitCode, String> {
+    let library = applications::evaluate::pdfium_library()?;
+    let (store, applications) = applications_in(scratch(data_dir)?, Some(library))?;
+    let user = reviewer_or_editor_id(&store, by)?;
+    let stored = store.read(|tx| tx.application_uploads()).map_err(|error| error.to_string())?.len();
+    let accuracy = applications.accuracy().map_err(|error| error.to_string())?;
+    if stored != (accuracy.audited + accuracy.awaiting) as usize {
+        return Err(
+            "this data directory holds applications that were not drawn for an audit; name a scratch one".to_string()
+        );
+    }
+    let report = applications::sample::sample(&applications, folder, count, seed, user)?;
+    for line in report.lines(seed) {
+        println!("{line}");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn import(data_dir: Option<PathBuf>, files: &[PathBuf], by: &str) -> Result<ExitCode, String> {
+    required_data_key()?;
+    let library = applications::evaluate::pdfium_library()?;
+    let (store, applications) = applications_in(data_dir, Some(library))?;
+    let user = reviewer_or_editor_id(&store, by)?;
+    let mut failed = false;
+    for (number, path) in (1..).zip(files) {
+        let line = match std::fs::read(path).map(|bytes| applications.upload(&bytes, user)) {
+            Err(_) => Err("cannot read the file".to_string()),
+            Ok(Err(error)) => Err(format!("not stored: {error}")),
+            Ok(Ok(Intake::Stored { reference, manual_entry, same_envelope })) => {
+                let draft = manual_entry.map(|reason| format!(" as a manual-entry draft ({})", reason_key(reason)));
+                let envelope = same_envelope.map(|earlier| format!("; {earlier} is from the same envelope"));
+                Ok(format!("stored {}{}{}", reference.id, draft.unwrap_or_default(), envelope.unwrap_or_default()))
+            }
+            Ok(Ok(Intake::AlreadyStored(reference))) => Ok(format!("already stored as {}", reference.id)),
+            Ok(Ok(Intake::Refused(reason))) => Ok(format!("refused: {}", reason_key(reason))),
+        };
+        failed |= line.is_err();
+        println!("{number}: {}", line.unwrap_or_else(|message| message));
+    }
+    Ok(if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS })
+}
+
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Applications { command: ApplicationsCommand::Import { files, by } } => {
+            import(cli.data_dir, &files, &by)
+        }
+        Command::Applications { command: ApplicationsCommand::Sample { folder, count, seed, by } } => {
+            sample(cli.data_dir, &folder, count, seed, &by)
+        }
+        Command::Applications { command: ApplicationsCommand::Accuracy } => {
+            let (_, applications) = applications_in(scratch(cli.data_dir)?, None)?;
+            for line in applications.accuracy().map_err(|error| error.to_string())?.lines() {
+                println!("{line}");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Applications { command: ApplicationsCommand::Evaluate { folder, offsets, shapes, json } } => {
-            let tally = applications::evaluate(&folder, TallyOptions { offsets, shapes })?;
+            let tally = applications::evaluate::evaluate(&folder, TallyOptions { offsets, shapes })?;
             for line in tally.lines() {
                 println!("{line}");
             }
@@ -157,6 +277,9 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::PdfWorker => {
+            if cli.data_dir.is_some() || std::env::var_os(KEY_VARIABLE).is_some() {
+                return Err(format!("the PDF worker takes neither {KEY_VARIABLE} nor a data directory"));
+            }
             let library = std::env::var_os("PDFIUM_LIBRARY").map(PathBuf::from);
             lender_matching_application::worker::serve(
                 library.as_deref(),
@@ -269,11 +392,24 @@ fn serve(dir: DataDir, store: Store, bind: SocketAddr) -> Result<ExitCode, Strin
     if analysis.is_none() {
         eprintln!("lender-matching: no analysis service is configured; a match that names a package answers 503");
     }
+    let key = DataKey::from_env()?;
+    match &key {
+        Some(key) => applications::check_key(&store, key)?,
+        None => eprintln!("lender-matching: no {KEY_VARIABLE} is set; stored applications answer 503"),
+    }
     let runtime =
         tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|error| error.to_string())?;
+    let library = applications::evaluate::pdfium_library().ok();
+    if library.is_none() {
+        eprintln!("lender-matching: no PDFIUM_LIBRARY is set; uploads answer 503 and pages show no page image");
+    }
+    let reader: Arc<dyn applications::ReadPdf> = Arc::new(WorkerReader::new(library)?);
     runtime.block_on(async move {
         let store = Arc::new(store);
-        let state = Arc::new(AppState { matcher: Matcher::new(store.clone(), analysis), store, secure_cookies });
+        let key = key.map(Arc::new);
+        let applications = key.clone().map(|key| Applications::new(store.clone(), key, reader));
+        let matcher = Matcher::new(store.clone(), analysis, key);
+        let state = Arc::new(AppState { matcher, store, applications, secure_cookies });
         let listener =
             tokio::net::TcpListener::bind(bind).await.map_err(|error| format!("cannot bind {bind}: {error}"))?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;

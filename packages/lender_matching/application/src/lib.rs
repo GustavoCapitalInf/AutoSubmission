@@ -2,11 +2,13 @@
 //! store, network or log. `pdf` is the only part that touches pdfium, and `worker` runs it in a
 //! child process; every other function is pure.
 
+pub mod audit;
 pub mod certificate;
 pub mod extract;
 pub mod fields;
 pub mod page;
 pub mod pdf;
+pub mod record;
 pub mod tally;
 mod template;
 pub mod values;
@@ -14,6 +16,9 @@ pub mod worker;
 
 /// A bump makes earlier evaluate reports stale; bump it when the same PDF would read differently.
 pub const PARSER_VERSION: u32 = 3;
+
+/// The pdfium build that `pdfium.lock` pins and the `pdfium_7881` binding targets.
+pub const PDFIUM_BUILD: &str = "chromium/7881";
 
 #[cfg(test)]
 extern crate self as lender_matching_application;
@@ -25,4 +30,7 @@ pub use certificate::{Certificate, DetailCheck, SignerCheck, SignerComparison, c
 pub use extract::{Document, FieldReading, Outcome, Reading, read};
 pub use fields::{FieldId, FieldKind, FieldMap, FieldSpec};
 pub use page::{Glyph, PdfFacts, Rect, TextPage};
+pub use record::{
+    Admission, Current, EditInput, EditRefusal, Edits, EmptyReason, Override, Record, Resolved, RevisionState,
+};
 pub use values::{Answer, Country, EmailFault, FieldValue, Jurisdiction, RawText, ReadContext, Refusal, YearMonth};

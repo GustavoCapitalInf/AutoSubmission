@@ -546,10 +546,15 @@ impl Form {
 /// A fabricated certificate in DocuSign's arrangement, with an originator block above the
 /// signer rows.
 pub fn certificate<C: Canvas>(canvas: C, signers: &[(&str, &str)]) -> C {
+    certificate_of(canvas, "0F8FAD5BD9CB469FA16570867728950E", signers)
+}
+
+/// `certificate` for the envelope whose id is `envelope`, 32 hexadecimal digits.
+pub fn certificate_of<C: Canvas>(canvas: C, envelope: &str, signers: &[(&str, &str)]) -> C {
     let font = "ArialMT";
     let mut page = canvas
         .text(font, 12.0, 40.0, 40.0, "Certificate Of Completion")
-        .text(font, 9.0, 40.0, 60.0, "Envelope Id: 0F8FAD5BD9CB469FA16570867728950E")
+        .text(font, 9.0, 40.0, 60.0, &format!("Envelope Id: {envelope}"))
         .text(font, 9.0, 330.0, 60.0, "Status: Completed")
         .text(font, 9.0, 40.0, 75.0, "Document Pages: 1")
         .text(font, 9.0, 330.0, 75.0, "Envelope Originator:")

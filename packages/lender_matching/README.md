@@ -24,7 +24,8 @@ Run every command below from this folder. The machine API is specified in [`docs
 ## Run it
 
 Rust stable is the only requirement. SQLite is compiled in and TLS uses rustls, so Windows needs no system library.
-Only `applications evaluate` also needs pdfium (see [Get pdfium](#get-pdfium)).
+The application commands (`applications evaluate`, `import` and `sample`) also need pdfium, and so does the server to
+read uploads and draw page images (see [Get pdfium](#get-pdfium)).
 
 ```bash
 cargo build --release
@@ -35,8 +36,9 @@ The binary is `target/release/lender-matching` (`.exe` on Windows). Every comman
 `$XDG_DATA_HOME/lender-matching` on Linux. The commands refuse a data directory inside a git work tree or on a
 network share.
 
-**1. Accounts.** Roles are `viewer` (reads everything), `reviewer` (also confirms facts and waives checks on a match)
-and `editor` (also edits, activates and pauses lenders and manages industries).
+**1. Accounts.** Roles are `viewer` (reads everything but identity data), `reviewer` (also confirms facts and waives
+checks on a match, and uploads, corrects, reveals, audits and matches applications) and `editor` (also edits, activates
+and pauses lenders and manages industries).
 
 ```bash
 lender-matching user add sample.editor --role editor        # prompts for a password of 12 characters or more
@@ -75,6 +77,8 @@ lender-matching serve --bind 127.0.0.1:8080
 |---|---|
 | `ANALYSIS_API_URL`, `ANALYSIS_API_TOKEN` | The bank statement analysis API, as in [`apps/auto_submission/README.md`](../../apps/auto_submission/README.md). Set both or neither. Without them, a match that names a package answers 503 `analysis_not_configured`. The URL must be `https://` unless it names this machine |
 | `PUBLIC_URL` | The address people open. It must be `https://` unless the server binds a loopback address, and session cookies are `Secure` when it is. A non-loopback bind needs it |
+| `APPLICATION_DATA_KEY` | The key that seals stored applications (see [Applications](#applications)). Without it the server starts, and the application pages and matching a stored application answer 503. A key that did not seal the stored applications stops the start |
+| `PDFIUM_LIBRARY` | The absolute path of the pdfium library (see [Get pdfium](#get-pdfium)). Without it the server starts, an upload answers 503 and no page image is drawn |
 
 One server process owns the database. Every person and every app is a client of that process, so every copy of a
 client sees the same criteria.
@@ -98,6 +102,7 @@ condition notes, no rules, no bucket and no submission channel.
   waive a check or a condition note with a reason. Submitting makes a new match that supersedes the old one, with the
   analysis fetched again and every lender's current revision. A waiver holds only for the lender revision and the
   analysis revision it was given on.
+- A match of a stored application is made from its page (see [Find lenders](#find-lenders)).
 
 ## Readings
 
@@ -119,6 +124,133 @@ The owner confirmed these readings of the sheet and the application.
 Negative days of several accounts in one month run from the largest account's count to their sum, since one day can
 be negative in more than one account.
 
+## Applications
+
+The admin pages store merchant application PDFs, show each one as an editable form, and match it against the lenders.
+A stored application keeps its source PDF, each parse of it (one per parser version) and its revisions. A revision
+selects one parse and holds, for every field, the parse's reading, a person's value, or empty with a reason
+(`cleared`, `not_applicable`, `removed_owner`), and whether the document is an application. A save on a stale
+revision is refused, and a save that changes nothing writes nothing.
+
+### The key
+
+The PDF, every parse and every revision are sealed with XChaCha20-Poly1305 under `APPLICATION_DATA_KEY`: 32 bytes in
+base64, kept outside the data directory (on Fly.io, with `fly secrets set`). Without the key the stored applications
+cannot be read, and a command or `serve` refuses a key that did not seal them. The pdfium worker gets neither the key
+nor the data directory.
+
+```bash
+export APPLICATION_DATA_KEY="$(openssl rand -base64 32)"   # once; keep it as a secret
+export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
+```
+
+### Upload and the form
+
+**Applications** lists every application with its legal name, principal owner, upload, layout ("hand entry" for a
+draft) and badges: required fields left empty, fields that need review, "awaiting confirmation" and "audit".
+
+- **Upload an application** takes one PDF of up to 64 MiB, the most the parser reads. The server reads it and opens its form. Identical bytes
+  open the application already stored, with a notice. A Receivables Purchase Agreement or other envelope paperwork
+  answers 422 naming what it reads as, and nothing is stored. A scan or a layout the parser does not know is stored as
+  a hand-entry draft, which a person confirms is an application ("This is an application") before it is matched.
+  Another file of the same DocuSign envelope is another application, and its page names the first one.
+- The form shows the cards **Business**, **Principal Owner**, **Secondary Owner** and **Property & Funding**, each a
+  grid of labelled inputs holding the current values. A required field (`*`) that is empty has a red label and a pink
+  input. A field that needs review is amber, with the reason, such as "Could not read this as a date; write it as
+  04/15/2019 or 04/2019", and a reviewer sees the PDF's text in its input. Ownership follows the number of owners
+  (100%, or 50% each) and is read only. The principal owner card shows the DocuSign check against the envelope's
+  signers.
+- An SSN shows its last four digits to a reviewer and "Recorded" to a viewer, and a date of birth "Recorded" or
+  "Missing". Their inputs are blank: typing replaces the stored value, and a blank one keeps it.
+- Beside the form, a reviewer sees page 1 with every SSN and date of birth painted over in the image. When the
+  reading did not place each of them, as on a hand-entry draft, no image is drawn. Viewers see no page image.
+
+### Corrections
+
+**Save corrections** saves only the inputs a person changed: the server compares each input with what the form showed,
+so an input left alone stays the PDF's reading. Each field also has **Clear**, and a field a person set has **Use the
+PDF's reading**. A save needs its cause (the parser read the PDF wrong, or the merchant typed it wrong) and takes an
+optional reason. Text that a field cannot read answers 422 with the field's name and nothing is saved. If someone saved
+first, the page answers 409 with both changes and the newer form holding the person's change again.
+
+**Remove second owner** empties every secondary-owner field in one revision, so ownership becomes 100% and the
+secondary owner's required fields lapse. Typing a name brings the owner back.
+
+### Reveal and history
+
+**Reveal sensitive details** is a logged request. Its answer, which the browser does not cache, shows the SSNs and
+dates of birth in full and page 1 uncovered inside the page itself, so no address shows them again.
+
+**History** lists every revision, newest first: what made it, who and when, the cause and reason, and each field that
+changed, with an SSN or a date of birth shown only as changed. It ends with every reveal. **Read the PDF again** reads
+the stored PDF with the current parser and lists what adopting that reading would change; adopting keeps every
+person's value.
+
+### Find lenders
+
+The form's **Find lenders** card takes an optional analysis package id, the product and the four confirmations, and
+makes a match of the revision shown, which must be current. Matching reads the application's state, start month,
+entity, estimated FICO, the three history answers, and the requested amount when the business is in a US state or
+territory, the amount is above 0 and not marked CAD. The stored match keeps the facts it read, and
+`match_applications` names the revision. When the application changes later, the match page says "The application
+changed after this match", and its review makes a new match from the current revision without the old confirmations
+and waivers, which judged other facts.
+
+### Import from the command line
+
+```bash
+lender-matching applications import "<application PDF>" --by sample.reviewer
+```
+
+The import records each upload under the named reviewer or editor and prints each file's outcome by its position,
+never its name: stored, already stored (identical bytes), stored as a manual-entry draft (a suspected scan or an
+unknown layout), refused (a contract or other paperwork; nothing is stored), or not stored. Another file of the same
+DocuSign envelope is another application, and its line names the first one.
+
+### Measure the parser
+
+```bash
+export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
+lender-matching applications evaluate "<folder of application PDFs>" --offsets --shapes --json "<report file>"
+```
+
+The command reads every `.pdf` file under the folder in sorted order and keeps nothing. It prints counts and closed
+reasons only: documents by kind, failures, layouts, where the signing day came from, certificate counts, the signer
+check with separate name and email counts, unplaced text by the label before it, and for each field how often it was
+read, blank, not applicable, refused, unlocated or in doubt. It never prints a value, a file name or a path inside the folder.
+
+- `--offsets` adds, for each sentinel label, a histogram of its offset from the BUSINESS INFORMATION heading in
+  whole points. Use it to measure a new layout.
+- `--shapes` adds the shapes of refused structured values, with digits as `9` and letters as `A` or `a`. A shape
+  seen fewer than 3 times for a field counts as `other`. Names, emails and other free text get no shape.
+- `--json` also writes the counts to the file as JSON.
+
+### Blind audit
+
+A blind audit measures the parser's accuracy on a uniform random sample, in a scratch data directory sealed like
+production. Every command below runs with `APPLICATION_DATA_KEY`, and `sample` and `serve` with `PDFIUM_LIBRARY`.
+
+```bash
+lender-matching user add sample.reviewer --role reviewer --data-dir "<scratch data directory>"
+lender-matching applications sample "<folder of application PDFs>" --count 60 --seed 2026 --by sample.reviewer \
+  --data-dir "<scratch data directory>"
+lender-matching serve --data-dir "<scratch data directory>"
+lender-matching applications accuracy --data-dir "<scratch data directory>"
+```
+
+- `sample` draws `--count` of the PDF files under the folder, every set of files equally likely; the same seed draws
+  the same files from the same folder. Each drawn file is stored with its parse frozen, refused documents included, and a file pdfium
+  cannot open is counted and left out. It refuses a data directory that holds uploads not drawn for an audit. It
+  prints counts only.
+- In the pages, a sampled document awaits its audit: its page shows page 1 uncovered (each opening is logged) beside
+  empty inputs and "This is not an application", and nothing of the parse shows anywhere until the audit is saved.
+  Type each field as the page shows it and leave it blank where the page shows nothing.
+- `accuracy` scores each audit against the frozen parse: documents classified right or wrong; for each field of the
+  audited applications, right (the value the page shows, or nothing where it shows nothing; text without case),
+  wrong (a value the page does not show), refused (flagged for a person) or missed (nothing read, or the document
+  refused); and applications with every field right. Each share carries its Wilson 95% interval. It prints field keys
+  and counts only.
+
 ## Read application PDFs
 
 The `application/` member (crate `lender_matching_application`) reads Capital Infusion's merchant application PDFs
@@ -134,7 +266,8 @@ only that process.
 | Template | The form's known layouts (`word`, `pdfescape`) as static data: each one's label set, sections and sentinel offsets, and the label fonts | `template.rs` |
 | Extraction | Classifies page 1, binds the labels, cuts the value regions and reads each field | `extract.rs` |
 | Certificate | Reads the envelope id, the completion day and the signers under Signer Events, never the originator | `certificate.rs` |
-| Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout | `worker.rs` |
+| Record | A revision of a stored application: the parse it selects, one override per field (inherit, set or empty) and whether it is an application. `Record::resolve` gives each field's current value and what needs a person: a required field without a value, a refused value, a missing label or a doubt. `Edits::read` reads a person's corrections with each field's grammar | `record.rs` |
+| Worker | Supervises the pdfium process: a timeout per document, and a new process after a crash or a timeout. It reads a PDF's page data, or draws a page as a PNG with boxes painted solid black in the bitmap. `Reading::masked_covers` gives the boxes that hide the SSNs and dates of birth: each one's region and its value's own box | `worker.rs` |
 | Tally | The counts `applications evaluate` prints | `tally.rs` |
 
 A PDF reads by these rules:
@@ -204,24 +337,6 @@ export PDFIUM_LIBRARY="$PWD/lib/libpdfium.so"
 
 On Windows the library is `bin\pdfium.dll` in `pdfium-win-x64.tgz`. `PDFIUM_LIBRARY` is an absolute path, and the
 service looks nowhere else.
-
-### Measure the parser on a folder
-
-```bash
-export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
-lender-matching applications evaluate "<folder of application PDFs>" --offsets --shapes --json "<report file>"
-```
-
-The command reads every `.pdf` file under the folder in sorted order and keeps nothing. It prints counts and closed
-reasons only: documents by kind, failures, layouts, where the signing day came from, certificate counts, the signer
-check with separate name and email counts, unplaced text by the label before it, and for each field how often it was
-read, blank, not applicable, refused, unlocated or in doubt. It never prints a value, a file name or a path inside the folder.
-
-- `--offsets` adds, for each sentinel label, a histogram of its offset from the BUSINESS INFORMATION heading in
-  whole points. Use it to measure a new layout.
-- `--shapes` adds the shapes of refused structured values, with digits as `9` and letters as `A` or `a`. A shape
-  seen fewer than 3 times for a field counts as `other`. Names, emails and other free text get no shape.
-- `--json` also writes the counts to the file as JSON.
 
 ## Develop
 
