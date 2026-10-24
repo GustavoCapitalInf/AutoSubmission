@@ -112,7 +112,6 @@ pub fn earlier_parser(applications: Applications) -> Applications {
     Applications { parser: [1; 32], ..applications }
 }
 
-/// Uploads `form` as a new application by `by`.
 pub fn upload(applications: &Applications, reader: &FakeReader, form: Form, by: i64) -> ApplicationRef {
     let pdf = reader.knows(application(form, ENVELOPE, 21));
     match applications.upload(&pdf, by).unwrap() {

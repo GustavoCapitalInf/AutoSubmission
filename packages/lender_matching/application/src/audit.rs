@@ -53,7 +53,6 @@ impl FieldScore {
     }
 }
 
-/// Text and emails compare without case; every other value as read.
 fn same(truth: &FieldValue, parsed: &FieldValue) -> bool {
     match (truth, parsed) {
         (FieldValue::Text(_), FieldValue::Text(_)) | (FieldValue::Email(_), FieldValue::Email(_)) => {

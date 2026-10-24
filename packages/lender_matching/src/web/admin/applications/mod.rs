@@ -1,7 +1,7 @@
-//! The application pages: the list, upload, the form in the cards of the owner's screenshot, and
-//! the blind audit of a sampled document. Viewers read; reviewers and editors upload, correct,
-//! audit and match. An SSN shows by its last four
-//! digits and a date of birth as recorded or missing, and no input holds either
+//! The application pages: the list, upload, the form, and the blind audit of a sampled document.
+//! Viewers read; reviewers and editors upload, correct, audit and match. A reviewer sees an SSN's
+//! last four digits and a viewer only that it is recorded; a date of birth shows as recorded or
+//! missing. No input holds either
 //! (`empty_required_fields_are_red_unread_ones_amber_and_identity_data_stays_masked`).
 
 mod form;
@@ -66,7 +66,6 @@ fn unprocessable(message: &str) -> PageError {
     PageError::status(StatusCode::UNPROCESSABLE_ENTITY, message)
 }
 
-/// The stored applications, or 503 on a server without `APPLICATION_DATA_KEY`.
 fn service(app: &Shared) -> Result<&Applications, PageError> {
     app.applications.as_ref().ok_or_else(|| {
         PageError::status(
@@ -140,8 +139,7 @@ fn text_of(resolved: &Resolved, field: FieldId) -> Option<String> {
 const LEGAL_NAME: FieldId = FieldId::Business(BusinessField::LegalName);
 const PRINCIPAL_NAME: FieldId = FieldId::Owner(OwnerSlot::Principal, OwnerField::Name);
 
-/// The layout page 1 was read in, or how else the document reads.
-fn layout(head: &Snapshot) -> &'static str {
+fn read_as(head: &Snapshot) -> &'static str {
     match &head.parse.reading.document {
         Document::Application(form) => form.layout.as_str(),
         Document::ManualEntry(_) => "hand entry",
@@ -198,7 +196,7 @@ async fn list(State(app): State<Shared>, user: AdminUser) -> Result<Markup, Page
                             td { a href={ "/admin/applications/" (upload.id) } { (text_of(&resolved, LEGAL_NAME).unwrap_or_else(|| "no legal name".to_string())) } }
                             td { (text_of(&resolved, PRINCIPAL_NAME).unwrap_or_default()) }
                             td { (upload.by) " " span.note { (shown_time(upload.at)) } }
-                            td { (layout(head)) }
+                            td { (read_as(head)) }
                             td { @for badge in badges(head, &resolved) { span.badge { (badge) } } }
                         }
                     }
@@ -387,7 +385,7 @@ fn application_page(shown: &Shown) -> Markup {
         &title,
         html! {
             p.note {
-                "Revision " (reference.revision) " · " (layout(head)) " · read by parser " (head.parse.parser_version)
+                "Revision " (reference.revision) " · " (read_as(head)) " · read by parser " (head.parse.parser_version)
                 " · uploaded by " (shown.context.upload.by) " at " (shown_time(shown.context.upload.at))
             }
             @for notice in &shown.notices { (notice) }
@@ -440,7 +438,6 @@ fn application_page(shown: &Shown) -> Markup {
     )
 }
 
-/// The cards, inside the corrections form for a reviewer.
 fn form_part(shown: &Shown, view: &FormView, action: &str) -> Markup {
     if !view.reviewer {
         return render_cards(view, None);
@@ -841,7 +838,7 @@ async fn history(State(app): State<Shared>, user: AdminUser, Path(id): Path<Stri
     for (index, snapshot) in snapshots.iter().enumerate() {
         let mut lines = Vec::new();
         match index.checked_sub(1) {
-            None => lines.push(format!("Read by parser {} as {}", snapshot.parse.parser_version, layout(snapshot))),
+            None => lines.push(format!("Read by parser {} as {}", snapshot.parse.parser_version, read_as(snapshot))),
             Some(before) => {
                 let previous = &snapshots[before];
                 if previous.parse.id != snapshot.parse.id {

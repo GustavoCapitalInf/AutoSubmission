@@ -36,7 +36,6 @@ pub enum EmptyReason {
     Cleared,
     /// A person typed N/A: the merchant answered that nothing applies.
     NotApplicable,
-    /// The "remove second owner" edit.
     RemovedOwner,
 }
 
@@ -153,7 +152,6 @@ pub enum Origin {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Attention {
-    /// Required, and no value.
     RequiredEmpty,
     /// The parse refused the field's text.
     Refused(Refusal),
@@ -197,7 +195,6 @@ impl Resolved {
         self.0.iter()
     }
 
-    /// A secondary owner is present exactly when `secondary.name` has a value.
     pub fn has_second_owner(&self) -> bool {
         self.value(SECONDARY_NAME).is_some()
     }

@@ -65,7 +65,7 @@ enum Command {
         #[command(subcommand)]
         command: ApplicationsCommand,
     },
-    /// Read PDFs with pdfium for a supervising process: frames on stdin, page data on stdout.
+    /// Read PDFs with pdfium for a supervising process: frames on stdin, page data and page images on stdout.
     #[command(hide = true)]
     PdfWorker,
 }
@@ -170,7 +170,6 @@ fn open_store(data_dir: Option<PathBuf>) -> Result<(DataDir, Store), String> {
     Ok((dir, store))
 }
 
-/// The data key, refusing to go on without one.
 fn required_data_key() -> Result<DataKey, String> {
     DataKey::from_env()?
         .ok_or_else(|| format!("set {KEY_VARIABLE} to the 32-byte key, in base64, that seals stored applications"))
@@ -191,8 +190,7 @@ fn applications_in(data_dir: Option<PathBuf>, library: Option<PathBuf>) -> Resul
     Ok((store.clone(), Applications::new(store, Arc::new(data_key), Arc::new(reader))))
 }
 
-/// The live reviewer or editor named `by`.
-fn reviewer(store: &Store, by: &str) -> Result<i64, String> {
+fn reviewer_or_editor_id(store: &Store, by: &str) -> Result<i64, String> {
     match store.read(|tx| tx.user_by_name(by.trim())).map_err(|error| error.to_string())? {
         Some((id, role)) if role >= Role::Reviewer => Ok(id),
         _ => Err(format!("no live reviewer or editor account is named {by}")),
@@ -213,11 +211,9 @@ fn sample(
 ) -> Result<ExitCode, String> {
     let library = applications::evaluate::pdfium_library()?;
     let (store, applications) = applications_in(scratch(data_dir)?, Some(library))?;
-    let user = reviewer(&store, by)?;
+    let user = reviewer_or_editor_id(&store, by)?;
     let stored = store.read(|tx| tx.application_uploads()).map_err(|error| error.to_string())?.len();
     let accuracy = applications.accuracy().map_err(|error| error.to_string())?;
-    // A sample goes only where every application was drawn for an audit
-    // (`a_blind_audit_hides_the_parse_until_it_is_saved_and_accuracy_scores_it`).
     if stored != (accuracy.audited + accuracy.awaiting) as usize {
         return Err(
             "this data directory holds applications that were not drawn for an audit; name a scratch one".to_string()
@@ -234,7 +230,7 @@ fn import(data_dir: Option<PathBuf>, files: &[PathBuf], by: &str) -> Result<Exit
     required_data_key()?;
     let library = applications::evaluate::pdfium_library()?;
     let (store, applications) = applications_in(data_dir, Some(library))?;
-    let user = reviewer(&store, by)?;
+    let user = reviewer_or_editor_id(&store, by)?;
     let mut failed = false;
     for (number, path) in (1..).zip(files) {
         let line = match std::fs::read(path).map(|bytes| applications.upload(&bytes, user)) {

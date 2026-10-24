@@ -1,6 +1,6 @@
--- Migration 2: stored applications. A sealed column holds an `applications::seal` envelope: the
--- key's id, a random nonce and XChaCha20-Poly1305 ciphertext bound to its column, application, row
--- and format. Times are UTC RFC 3339 text.
+-- A sealed column holds an `applications::seal` envelope: the key's id, a random nonce and
+-- XChaCha20-Poly1305 ciphertext bound to its column, application, row and format. Times are UTC
+-- RFC 3339 text.
 
 -- A person's first match supersedes nothing. SQLite changes a CHECK only by rebuilding the table,
 -- which `Store::setup` runs with foreign keys off and checks before it commits.

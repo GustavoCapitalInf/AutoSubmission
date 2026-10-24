@@ -188,7 +188,6 @@ pub fn confirmations(fields: &Fields, industries: &Industries, user: &AdminUser)
     (confirmations, problems)
 }
 
-/// The page for a match the matcher refused.
 pub fn refused(error: MatchError) -> PageError {
     match error {
         MatchError::AlreadySuperseded => PageError::status(

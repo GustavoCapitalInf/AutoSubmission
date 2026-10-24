@@ -1,5 +1,5 @@
 //! What the application pages print for a field: its label, and why it needs a person. Every
-//! message is fixed text that names the field, never its value.
+//! message is fixed text that names the field; no function here takes a field's value.
 
 use lender_matching_application::extract::{Doubt, ManualEntryReason, RefusalReason, Unlocated};
 use lender_matching_application::fields::SignatureField;

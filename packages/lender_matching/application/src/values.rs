@@ -431,7 +431,6 @@ impl PersonalTaxId {
         self.scheme
     }
 
-    /// The last four digits, which a masked display shows.
     pub fn last_four(&self) -> String {
         digits(&self.digits[5..])
     }

@@ -1,5 +1,5 @@
--- Migration 3: blind audits. An `audit` revision holds what a person typed from page 1 before any
--- parser value was visible, and `application_access` also logs each opening of an audit page.
+-- An `audit` revision holds what a person typed from page 1 before any parser value was visible,
+-- and `application_access` also logs each opening of an audit page.
 -- SQLite changes a CHECK only by rebuilding the table, which `Store::setup` runs with foreign keys
 -- off and checks before it commits.
 CREATE TABLE application_revisions_rebuilt (

@@ -38,7 +38,8 @@ pub const PARSE_FORMAT: u32 = 1;
 /// The JSON layout of `application_revisions.state`; a bump leaves older revisions unreadable
 /// without a reader.
 pub const STATE_FORMAT: u32 = 1;
-/// The source PDF and a reason are stored as they are.
+/// The source PDF and a reason are sealed as they are. No column records it, so a bump leaves
+/// every stored PDF and reason unopenable.
 const BYTES_FORMAT: u32 = 1;
 
 /// A document taking longer than this stops the worker and counts as a timeout.
@@ -269,14 +270,12 @@ pub enum ApplicationError {
     Conflict {
         head: Box<Snapshot>,
     },
-    /// The parse reads the document as something other than an application.
     NotAnApplication,
     Pdf(WorkerError),
     /// The parse holds a value that would not read back as stored.
     Unstorable,
     /// The document waits for its blind audit, which comes before any other change.
     AwaitingAudit,
-    /// The document is not waiting for a blind audit.
     NotAwaitingAudit,
     Store(StoreError),
 }
@@ -420,7 +419,6 @@ fn snapshot(tx: &ReadTx, key: &DataKey, row: RevisionRow) -> Result<Snapshot, St
     Ok(Snapshot { parse: open_parse(key, parse)?, revision })
 }
 
-/// The application's current revision.
 pub fn current_in(tx: &ReadTx, key: &DataKey, id: ApplicationId) -> Result<Option<Snapshot>, StoreError> {
     tx.application_head(id)?.map(|row| snapshot(tx, key, row)).transpose()
 }
@@ -613,7 +611,6 @@ impl Applications {
         self.store.read(|tx| current_in(tx, &self.key, id))?.ok_or(ApplicationError::NotFound)
     }
 
-    /// The revision `at`, with the parse it selects.
     pub fn at(&self, at: ApplicationRef) -> Result<Snapshot, ApplicationError> {
         let found =
             self.store.read(|tx| tx.application_revision(at)?.map(|row| snapshot(tx, &self.key, row)).transpose())?;
