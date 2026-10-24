@@ -1,3 +1,4 @@
+pub mod applications;
 pub mod auth;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -457,6 +458,20 @@ impl ReadTx<'_> {
         .collect()
     }
 
+    /// The live account with this username, ignoring case.
+    pub fn user_by_name(&self, username: &str) -> Result<Option<(i64, Role)>, StoreError> {
+        let row = self
+            .conn
+            .query_row("SELECT id, role FROM users WHERE username = ?1 AND disabled_at IS NULL", [username], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .optional()?;
+        row.map(|(id, role)| {
+            Ok((id, Role::from_key(&role).ok_or_else(|| StoreError::Corrupt(format!("role {role}")))?))
+        })
+        .transpose()
+    }
+
     pub fn username(&self, user: i64) -> Result<Option<String>, StoreError> {
         Ok(self.conn.query_row("SELECT username FROM users WHERE id = ?1", [user], |row| row.get(0)).optional()?)
     }
@@ -665,6 +680,16 @@ pub(crate) mod testing {
     pub fn editor(store: &Store) -> Author {
         let id = store.write(|tx| tx.add_user("sample.editor", "correct horse battery", Role::Editor)).unwrap();
         Author::User { id, username: "sample.editor".to_string() }
+    }
+
+    /// Runs `sql` as a writer that bypasses the store would.
+    pub fn raw(store: &Store, sql: &str) -> rusqlite::Result<usize> {
+        store.conn.lock().unwrap().execute(sql, [])
+    }
+
+    pub fn rows(store: &Store, table: &str) -> i64 {
+        let conn = store.conn.lock().unwrap();
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0)).unwrap()
     }
 }
 

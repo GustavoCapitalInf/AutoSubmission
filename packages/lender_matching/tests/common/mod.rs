@@ -41,7 +41,9 @@ impl Drop for TempDir {
 
 pub fn command(data: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lender-matching"));
-    for name in ["LENDER_MATCHING_DATA_DIR", "ANALYSIS_API_URL", "ANALYSIS_API_TOKEN", "PUBLIC_URL"] {
+    for name in
+        ["LENDER_MATCHING_DATA_DIR", "ANALYSIS_API_URL", "ANALYSIS_API_TOKEN", "PUBLIC_URL", "APPLICATION_DATA_KEY"]
+    {
         command.env_remove(name);
     }
     command.arg("--data-dir").arg(data);

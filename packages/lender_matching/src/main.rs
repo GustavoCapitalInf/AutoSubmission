@@ -18,6 +18,7 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use analysis_api::AnalysisClient;
+use applications::{Applications, DataKey, Intake, KEY_VARIABLE, WorkerReader};
 use data_dir::DataDir;
 use info_hub::{ImportError, ImportMode};
 use lender_matching_application::tally::TallyOptions;
@@ -98,6 +99,15 @@ enum ApplicationsCommand {
         #[arg(long, value_name = "FILE")]
         json: Option<PathBuf>,
     },
+    /// Store application PDFs, sealed with APPLICATION_DATA_KEY, as uploads by a reviewer or an
+    /// editor. Prints each file's outcome by its position, never its name. Needs PDFIUM_LIBRARY.
+    Import {
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// The account the uploads are recorded under.
+        #[arg(long, value_name = "USERNAME")]
+        by: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -143,10 +153,54 @@ fn open_store(data_dir: Option<PathBuf>) -> Result<(DataDir, Store), String> {
     Ok((dir, store))
 }
 
+/// The data key, refusing to go on without one.
+fn required_data_key() -> Result<DataKey, String> {
+    DataKey::from_env()?
+        .ok_or_else(|| format!("set {KEY_VARIABLE} to the 32-byte key, in base64, that seals stored applications"))
+}
+
+/// A closed reason as its stored key, such as `unknown_layout`.
+fn reason_key(reason: impl serde::Serialize) -> String {
+    serde_json::to_value(reason).ok().and_then(|value| value.as_str().map(str::to_string)).unwrap_or_default()
+}
+
+fn import(data_dir: Option<PathBuf>, files: &[PathBuf], by: &str) -> Result<ExitCode, String> {
+    let data_key = required_data_key()?;
+    let library = applications::evaluate::pdfium_library()?;
+    let (_, store) = open_store(data_dir)?;
+    applications::check_key(&store, &data_key)?;
+    let user = match store.read(|tx| tx.user_by_name(by.trim())).map_err(|error| error.to_string())? {
+        Some((id, role)) if role >= Role::Reviewer => id,
+        _ => return Err(format!("no live reviewer or editor account is named {by}")),
+    };
+    let reader = WorkerReader::new(Some(library))?;
+    let applications = Applications::new(Arc::new(store), Arc::new(data_key), Arc::new(reader));
+    let mut failed = false;
+    for (number, path) in (1..).zip(files) {
+        let line = match std::fs::read(path).map(|bytes| applications.upload(&bytes, user)) {
+            Err(_) => Err("cannot read the file".to_string()),
+            Ok(Err(error)) => Err(format!("not stored: {error}")),
+            Ok(Ok(Intake::Stored { reference, manual_entry, same_envelope })) => {
+                let draft = manual_entry.map(|reason| format!(" as a manual-entry draft ({})", reason_key(reason)));
+                let envelope = same_envelope.map(|earlier| format!("; {earlier} is from the same envelope"));
+                Ok(format!("stored {}{}{}", reference.id, draft.unwrap_or_default(), envelope.unwrap_or_default()))
+            }
+            Ok(Ok(Intake::AlreadyStored(reference))) => Ok(format!("already stored as {}", reference.id)),
+            Ok(Ok(Intake::Refused(reason))) => Ok(format!("refused: {}", reason_key(reason))),
+        };
+        failed |= line.is_err();
+        println!("{number}: {}", line.unwrap_or_else(|message| message));
+    }
+    Ok(if failed { ExitCode::FAILURE } else { ExitCode::SUCCESS })
+}
+
 fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
+        Command::Applications { command: ApplicationsCommand::Import { files, by } } => {
+            import(cli.data_dir, &files, &by)
+        }
         Command::Applications { command: ApplicationsCommand::Evaluate { folder, offsets, shapes, json } } => {
-            let tally = applications::evaluate(&folder, TallyOptions { offsets, shapes })?;
+            let tally = applications::evaluate::evaluate(&folder, TallyOptions { offsets, shapes })?;
             for line in tally.lines() {
                 println!("{line}");
             }
@@ -157,6 +211,9 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::PdfWorker => {
+            if cli.data_dir.is_some() || std::env::var_os(KEY_VARIABLE).is_some() {
+                return Err(format!("the PDF worker takes neither {KEY_VARIABLE} nor a data directory"));
+            }
             let library = std::env::var_os("PDFIUM_LIBRARY").map(PathBuf::from);
             lender_matching_application::worker::serve(
                 library.as_deref(),

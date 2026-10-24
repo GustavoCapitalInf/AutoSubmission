@@ -1,5 +1,6 @@
--- Migration 2: stored applications. A sealed column holds ciphertext bound to its column,
--- application, row and format. Times are UTC RFC 3339 text.
+-- Migration 2: stored applications. A sealed column holds an `applications::seal` envelope: the
+-- key's id, a random nonce and XChaCha20-Poly1305 ciphertext bound to its column, application, row
+-- and format. Times are UTC RFC 3339 text.
 
 -- A person's first match supersedes nothing. SQLite changes a CHECK only by rebuilding the table,
 -- which `Store::setup` runs with foreign keys off and checks before it commits.
@@ -50,7 +51,7 @@ CREATE TABLE application_parses (
   parser_version     INTEGER NOT NULL,                           -- lender_matching_application::PARSER_VERSION
   parser_fingerprint BLOB NOT NULL CHECK (length(parser_fingerprint) = 32),
   created_at         TEXT NOT NULL,
-  format             INTEGER NOT NULL,                           -- the layout of `payload`
+  format             INTEGER NOT NULL,                           -- applications::PARSE_FORMAT of `payload`
   payload            BLOB NOT NULL,                              -- sealed JSON extract::Reading
   UNIQUE (application_id, parser_fingerprint),
   UNIQUE (application_id, id)
@@ -65,7 +66,7 @@ CREATE TABLE application_revisions (
   author_user_id    INTEGER NOT NULL REFERENCES users(id),
   kind              TEXT NOT NULL CHECK (kind IN ('upload', 'edit', 'adopt_parse', 'confirm_application')),
   cause             TEXT CHECK (cause IN ('reading', 'merchant')),
-  format            INTEGER NOT NULL,                            -- the layout of `state`
+  format            INTEGER NOT NULL,                            -- applications::STATE_FORMAT of `state`
   state             BLOB NOT NULL,                               -- sealed JSON record::RevisionState
   reason            BLOB,                                        -- sealed text
   PRIMARY KEY (application_id, revision),

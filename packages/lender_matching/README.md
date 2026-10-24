@@ -24,7 +24,7 @@ Run every command below from this folder. The machine API is specified in [`docs
 ## Run it
 
 Rust stable is the only requirement. SQLite is compiled in and TLS uses rustls, so Windows needs no system library.
-Only `applications evaluate` also needs pdfium (see [Get pdfium](#get-pdfium)).
+Only `applications evaluate` and `applications import` also need pdfium (see [Get pdfium](#get-pdfium)).
 
 ```bash
 cargo build --release
@@ -223,6 +223,34 @@ read, blank, not applicable, refused, unlocated or in doubt. It never prints a v
 - `--shapes` adds the shapes of refused structured values, with digits as `9` and letters as `A` or `a`. A shape
   seen fewer than 3 times for a field counts as `other`. Names, emails and other free text get no shape.
 - `--json` also writes the counts to the file as JSON.
+
+### Store applications
+
+A stored application keeps its source PDF, each parse of it (one per parser version) and its
+revisions. A revision selects one parse and holds, for every field, the parse's reading, a person's
+value, or empty with a reason (`cleared`, `not_applicable`, `removed_owner`). A correction records
+its cause: `reading` (the parser misread the PDF) or `merchant` (the PDF shows what the merchant
+typed, and it is wrong). A reparse stores a parse by the current parser without selecting it;
+adopting it is a new revision that keeps every person's value. A save on a stale revision is
+refused, and a save that changes nothing writes nothing.
+
+The PDF, every parse and every revision are sealed with XChaCha20-Poly1305 under
+`APPLICATION_DATA_KEY`: 32 bytes in base64, kept outside the data directory (on Fly.io, with
+`fly secrets set`). Without the key the stored applications cannot be read, and a command refuses a
+key that did not seal them. The pdfium worker gets neither the key nor the data directory.
+
+```bash
+export APPLICATION_DATA_KEY="$(openssl rand -base64 32)"   # once; keep it as a secret
+export PDFIUM_LIBRARY="<absolute path to libpdfium.so or pdfium.dll>"
+lender-matching applications import "<application PDF>" --by sample.reviewer
+```
+
+The import records each upload under the named reviewer or editor and prints each file's outcome
+by its position, never its name: stored, already stored (identical bytes), stored as a
+manual-entry draft (a suspected scan or an unknown layout, which a person confirms is an
+application before it is matched), refused (a contract or other paperwork; nothing is stored), or
+not stored. Another file of the same DocuSign envelope is another application, and its line names
+the first one.
 
 ## Develop
 

@@ -16,6 +16,9 @@ pub mod worker;
 /// A bump makes earlier evaluate reports stale; bump it when the same PDF would read differently.
 pub const PARSER_VERSION: u32 = 3;
 
+/// The pdfium build that `pdfium.lock` pins and the `pdfium_7881` binding targets.
+pub const PDFIUM_BUILD: &str = "chromium/7881";
+
 #[cfg(test)]
 extern crate self as lender_matching_application;
 #[cfg(test)]
