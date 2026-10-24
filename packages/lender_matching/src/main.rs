@@ -333,10 +333,17 @@ fn serve(dir: DataDir, store: Store, bind: SocketAddr) -> Result<ExitCode, Strin
     }
     let runtime =
         tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|error| error.to_string())?;
+    let library = applications::evaluate::pdfium_library().ok();
+    if library.is_none() {
+        eprintln!("lender-matching: no PDFIUM_LIBRARY is set; uploads answer 503 and pages show no page image");
+    }
+    let reader: Arc<dyn applications::ReadPdf> = Arc::new(WorkerReader::new(library)?);
     runtime.block_on(async move {
         let store = Arc::new(store);
-        let matcher = Matcher::new(store.clone(), analysis, key.map(Arc::new));
-        let state = Arc::new(AppState { matcher, store, secure_cookies });
+        let key = key.map(Arc::new);
+        let applications = key.clone().map(|key| Applications::new(store.clone(), key, reader));
+        let matcher = Matcher::new(store.clone(), analysis, key);
+        let state = Arc::new(AppState { matcher, store, applications, secure_cookies });
         let listener =
             tokio::net::TcpListener::bind(bind).await.map_err(|error| format!("cannot bind {bind}: {error}"))?;
         let address = listener.local_addr().map_err(|error| error.to_string())?;

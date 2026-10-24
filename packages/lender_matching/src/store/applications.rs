@@ -37,6 +37,13 @@ pub struct NewRevision<'a> {
     pub reason: Option<&'a [u8]>,
 }
 
+/// Who stored an application and when.
+pub struct UploadRow {
+    pub id: ApplicationId,
+    pub uploaded_at: OffsetDateTime,
+    pub uploaded_by: String,
+}
+
 pub struct RevisionRow {
     pub application: ApplicationId,
     pub revision: u32,
@@ -114,7 +121,47 @@ fn revision_of(raw: RawRevision) -> Result<RevisionRow, StoreError> {
     })
 }
 
+fn upload_of(raw: (String, String, String)) -> Result<UploadRow, StoreError> {
+    let (id, uploaded_at, uploaded_by) = raw;
+    Ok(UploadRow { id: ApplicationId(uuid(&id)?), uploaded_at: parse_time(&uploaded_at)?, uploaded_by })
+}
+
+const UPLOAD_COLUMNS: &str = "a.id, a.uploaded_at, u.username FROM applications a JOIN users u ON u.id = a.uploaded_by";
+
 impl ReadTx<'_> {
+    /// Every application, the latest upload first.
+    pub fn application_uploads(&self) -> Result<Vec<UploadRow>, StoreError> {
+        let mut statement = self.conn.prepare(&format!("SELECT {UPLOAD_COLUMNS} ORDER BY a.rowid DESC"))?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter().map(upload_of).collect()
+    }
+
+    pub fn application_upload(&self, id: ApplicationId) -> Result<Option<UploadRow>, StoreError> {
+        let raw = self
+            .conn
+            .query_row(&format!("SELECT {UPLOAD_COLUMNS} WHERE a.id = ?1"), [id.0.to_string()], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .optional()?;
+        raw.map(upload_of).transpose()
+    }
+
+    /// The first application stored before `id` from the same envelope.
+    pub fn earlier_of_envelope(&self, id: ApplicationId) -> Result<Option<ApplicationId>, StoreError> {
+        let earlier: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT e.id FROM applications a JOIN applications e ON e.envelope_id_sha256 = a.envelope_id_sha256 \
+                 WHERE a.id = ?1 AND e.rowid < a.rowid ORDER BY e.rowid LIMIT 1",
+                [id.0.to_string()],
+                |row| row.get(0),
+            )
+            .optional()?;
+        earlier.map(|id| Ok(ApplicationId(uuid(&id)?))).transpose()
+    }
+
     pub fn application_by_source(&self, source_sha256: &[u8; 32]) -> Result<Option<ApplicationId>, StoreError> {
         let id: Option<String> = self
             .conn
@@ -181,6 +228,14 @@ impl ReadTx<'_> {
         let rows = self.application_revision_where(
             "WHERE r.application_id = ?1 ORDER BY r.revision DESC LIMIT 1",
             [id.0.to_string()],
+        )?;
+        Ok(rows.into_iter().next())
+    }
+
+    pub fn application_revision(&self, at: ApplicationRef) -> Result<Option<RevisionRow>, StoreError> {
+        let rows = self.application_revision_where(
+            "WHERE r.application_id = ?1 AND r.revision = ?2",
+            params![at.id.0.to_string(), at.revision],
         )?;
         Ok(rows.into_iter().next())
     }

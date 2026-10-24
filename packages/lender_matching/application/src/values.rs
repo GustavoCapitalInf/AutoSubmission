@@ -430,6 +430,11 @@ impl PersonalTaxId {
     pub fn scheme(&self) -> IdScheme {
         self.scheme
     }
+
+    /// The last four digits, which a masked display shows.
+    pub fn last_four(&self) -> String {
+        digits(&self.digits[5..])
+    }
 }
 
 /// An amount in hundredths, as printed.
@@ -1703,6 +1708,7 @@ mod tests {
         );
         let FieldValue::Ssn(id) = value(FieldKind::Ssn, "900 123 456") else { unreachable!() };
         assert_eq!(id.scheme(), IdScheme::CanadianSin);
+        assert_eq!(id.last_four(), "3456");
     }
 
     fn value(kind: FieldKind, text: &str) -> FieldValue {

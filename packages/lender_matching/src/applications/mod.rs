@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::facts::Interval;
 use crate::facts::application::{ApplicationFacts, EntityKind};
-use crate::store::applications::{NewApplication, NewRevision, ParseRow, RevisionRow};
+use crate::store::applications::{NewApplication, NewRevision, ParseRow, RevisionRow, UploadRow};
 use crate::store::{ReadTx, Store, StoreError, WriteTx, now};
 use seal::{Binding, SealError};
 pub use seal::{DataKey, KEY_VARIABLE};
@@ -182,7 +182,19 @@ impl Snapshot {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
+/// Who stored an application and when. It holds no application data.
+pub struct Upload {
+    pub id: ApplicationId,
+    pub at: OffsetDateTime,
+    pub by: String,
+}
+
+impl From<UploadRow> for Upload {
+    fn from(row: UploadRow) -> Self {
+        Upload { id: row.id, at: row.uploaded_at, by: row.uploaded_by }
+    }
+}
+
 pub enum Saved {
     New(Snapshot),
     /// The change gave the current state, so nothing was written.
@@ -495,9 +507,37 @@ impl Applications {
         Sealed::State(revision).seal(&self.key, application, &json)
     }
 
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn current(&self, id: ApplicationId) -> Result<Snapshot, ApplicationError> {
         self.store.read(|tx| current_in(tx, &self.key, id))?.ok_or(ApplicationError::NotFound)
+    }
+
+    /// The revision `at`, with the parse it selects.
+    pub fn at(&self, at: ApplicationRef) -> Result<Snapshot, ApplicationError> {
+        let found =
+            self.store.read(|tx| tx.application_revision(at)?.map(|row| snapshot(tx, &self.key, row)).transpose())?;
+        found.ok_or(ApplicationError::NotFound)
+    }
+
+    /// Every application with its current revision, the latest upload first.
+    pub fn list(&self) -> Result<Vec<(Upload, Snapshot)>, ApplicationError> {
+        Ok(self.store.read(|tx| {
+            let uploads = tx.application_uploads()?;
+            uploads
+                .into_iter()
+                .map(|upload| {
+                    let head = current_in(tx, &self.key, upload.id)?
+                        .ok_or_else(|| StoreError::Corrupt("an application without a revision".to_string()))?;
+                    Ok((Upload::from(upload), head))
+                })
+                .collect::<Result<Vec<_>, StoreError>>()
+        })?)
+    }
+
+    /// Who stored the application and when, and the first application stored before it from the
+    /// same DocuSign envelope.
+    pub fn upload_of(&self, id: ApplicationId) -> Result<(Upload, Option<ApplicationId>), ApplicationError> {
+        let (upload, earlier) = self.store.read(|tx| Ok((tx.application_upload(id)?, tx.earlier_of_envelope(id)?)))?;
+        Ok((upload.ok_or(ApplicationError::NotFound)?.into(), earlier))
     }
 
     /// Every revision, oldest first.
@@ -564,7 +604,6 @@ impl Applications {
 
     /// A new revision with `edits` applied, recording why. Read the edits from the revision shown
     /// with `lender_matching_application::Edits::read`.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn correct(
         &self,
         base: ApplicationRef,
@@ -579,7 +618,6 @@ impl Applications {
     }
 
     /// Confirms that a manual-entry draft is an application.
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn confirm_application(&self, base: ApplicationRef, by: i64) -> Result<Saved, ApplicationError> {
         self.save(base, by, RevisionKind::ConfirmApplication, None, |_, head| {
             Ok((head.revision.parse, head.revision.state.confirmed()))

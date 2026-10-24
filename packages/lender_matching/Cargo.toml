@@ -11,7 +11,7 @@ publish = false
 
 [dependencies]
 argon2 = "0.6.0"
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "form", "json", "matched-path", "original-uri"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "query", "form", "json", "matched-path", "original-uri", "multipart"] }
 base64 = "0.23.1"
 calamine = "0.37.0"
 chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"] }

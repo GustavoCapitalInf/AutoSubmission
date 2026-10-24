@@ -10,12 +10,15 @@ use std::sync::Arc;
 use axum::Router;
 use axum::routing::get;
 
+use crate::applications::Applications;
 use crate::matching::Matcher;
 use crate::store::{ReadTx, Store, StoreError, WriteTx};
 
 pub struct AppState {
     pub store: Arc<Store>,
     pub matcher: Matcher,
+    /// None without `APPLICATION_DATA_KEY`: then the application pages answer 503.
+    pub applications: Option<Applications>,
     pub secure_cookies: bool,
 }
 

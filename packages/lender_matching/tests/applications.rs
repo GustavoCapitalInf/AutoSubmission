@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 
 use common::*;
+use lender_matching_application::fields::{BusinessField, FieldId};
 use reqwest::StatusCode;
 use support::form::{Canvas, Form, certificate_of, sample_values};
 use support::pdf::{FakePage, FakePdf};
@@ -241,4 +242,250 @@ async fn a_stored_application_is_matched_through_the_pages_and_the_server_logs_n
         assert!(!log.contains(secret.as_str()), "the server log holds {secret}");
         assert!(!database_bytes(data.path()).windows(secret.len()).any(|window| window == secret.as_bytes()));
     }
+}
+
+struct Pages {
+    data: TempDir,
+    server: Server,
+    reviewer: Browser,
+    viewer: Browser,
+}
+
+async fn pages(library: &Path) -> Pages {
+    let data = TempDir::new();
+    add_user(data.path(), "sample.reviewer", "reviewer");
+    add_user(data.path(), "sample.editor", "editor");
+    add_user(data.path(), "sample.viewer", "viewer");
+    let library = library.to_str().unwrap();
+    let server = Server::start(data.path(), &[("APPLICATION_DATA_KEY", KEY), ("PDFIUM_LIBRARY", library)]);
+    let reviewer = Browser::new(&server);
+    reviewer.sign_in("sample.reviewer").await;
+    let viewer = Browser::new(&server);
+    viewer.sign_in("sample.viewer").await;
+    Pages { data, server, reviewer, viewer }
+}
+
+async fn upload(browser: &Browser, pdf: &[u8]) -> Page {
+    let csrf = csrf_of(&browser.get("/admin/matches").await);
+    browser.post_multipart("/admin/applications", &[("csrf", csrf.as_bytes()), ("pdf", pdf)]).await
+}
+
+/// The application page an upload redirected to.
+fn stored_at(page: &Page) -> String {
+    assert_eq!(page.status, StatusCode::SEE_OTHER, "{}", page.body);
+    page.location.clone().unwrap().split('?').next().unwrap().to_string()
+}
+
+/// The HTML of the cell that labels `key`, up to the next cell or the end of its card.
+fn cell<'a>(body: &'a str, key: &str) -> &'a str {
+    let label = format!("for=\"f-{}\"", key.replace('.', "-"));
+    let at = body.find(&label).unwrap_or_else(|| panic!("no cell for {key}"));
+    let open = body[..at].rfind("<div class=\"").unwrap();
+    let rest = &body[at..];
+    let end = [rest.find("<div class=\"field"), rest.find("</section>")].into_iter().flatten().min().unwrap();
+    &body[open..at + end]
+}
+
+fn value_of(fields: &[(String, String)], name: &str) -> Option<String> {
+    fields.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone())
+}
+
+fn assert_no_secret(what: &str, text: &str, secrets: &[&str]) {
+    for secret in secrets {
+        assert!(!text.contains(secret), "{what} holds {secret}");
+    }
+}
+
+const IDENTITY: [&str; 4] = ["900-12-3456", "900654321", "04/15/1980", "06/01/1975"];
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_upload_opens_its_form_and_a_duplicate_or_a_contract_stores_nothing_new() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let first = upload(&pages.reviewer, &application(&Form::word(), 21)).await;
+    let path = stored_at(&first);
+    let page = pages.reviewer.get(&path).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(page.body.contains("<h1>CONTOSO LLC</h1>") && page.body.contains("word"), "{}", page.body);
+    assert!(page.headers["content-security-policy"].to_str().unwrap().contains("img-src 'self' data:"));
+
+    let again = upload(&pages.reviewer, &application(&Form::word(), 21)).await;
+    assert_eq!(again.location.as_deref(), Some(format!("{path}?existing=1").as_str()));
+    assert!(pages.reviewer.get(again.location.as_deref().unwrap()).await.body.contains("uploaded already"));
+    let sibling = stored_at(&upload(&pages.reviewer, &application(&Form::word(), 22)).await);
+    assert_ne!(sibling, path);
+    let sibling_page = pages.reviewer.get(&sibling).await;
+    assert!(
+        sibling_page.body.contains("same DocuSign envelope") && sibling_page.body.contains(&format!("href=\"{path}\""))
+    );
+
+    let refused = upload(&pages.reviewer, &contract()).await;
+    assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused.body.contains("reads as a Receivables Purchase Agreement, not an application. Nothing was saved."));
+    let broken = upload(&pages.reviewer, b"SAMPLE OWNER, not a PDF").await;
+    assert_eq!(broken.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(broken.body.contains("not a PDF"));
+    let forged =
+        pages.reviewer.post_multipart("/admin/applications", &[("csrf", b"forged"), ("pdf", &contract())]).await;
+    assert_eq!(forged.status, StatusCode::FORBIDDEN);
+    assert_eq!(upload(&pages.viewer, &application(&Form::word(), 23)).await.status, StatusCode::FORBIDDEN);
+
+    let list = pages.viewer.get("/admin/applications").await;
+    assert!(list.body.contains("2 applications."), "{}", list.body);
+    assert!(list.body.contains(&format!("href=\"{path}\">CONTOSO LLC</a>")) && list.body.contains("SAMPLE OWNER"));
+    assert!(!list.body.contains("Upload an application"), "a viewer cannot upload");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn empty_required_fields_are_red_unread_ones_amber_and_identity_data_stays_masked() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let address = FieldId::Business(BusinessField::Address);
+    let start = FieldId::Business(BusinessField::StartDate);
+    let form = Form::word().clear(address).set(start, "13/45/2019");
+    let path = stored_at(&upload(&pages.reviewer, &application(&form, 21)).await);
+
+    let page = pages.reviewer.get(&path).await;
+    let address = cell(&page.body, "business.address");
+    assert!(address.starts_with("<div class=\"field required-empty\">"), "{address}");
+    assert!(address.contains("Business Address<span class=\"star\">*</span>"));
+    let start = cell(&page.body, "business.start_date");
+    assert!(start.starts_with("<div class=\"field needs-review\">"), "{start}");
+    assert!(start.contains("Could not read this as a date; write it as 04/15/2019 or 04/2019"));
+    let fields = form_fields(&page.body, &path);
+    assert_eq!(
+        value_of(&fields, "f.business.start_date").as_deref(),
+        Some("13/45/2019"),
+        "a reviewer sees the PDF's text"
+    );
+    assert_eq!(value_of(&fields, "f.business.legal_name").as_deref(), Some("CONTOSO LLC"));
+    assert_eq!(value_of(&fields, "f.principal.ssn").as_deref(), Some(""), "an SSN input is a blank replacement");
+    assert!(cell(&page.body, "principal.ssn").contains("•••-••-3456"));
+    assert!(cell(&page.body, "principal.birth_date").contains("Recorded"));
+    assert!(cell(&page.body, "principal.ownership_percent").contains("value=\"50.00\" readonly"));
+    assert!(page.body.contains("DocuSign check: matches the envelope's signer."));
+    assert!(page.body.contains("1 required empty") && page.body.contains("1 needs review"));
+    assert_no_secret("the reviewer's page", &page.body, &IDENTITY);
+
+    let seen = pages.viewer.get(&path).await;
+    assert!(!seen.body.contains("<form method=\"post\" action=\"/admin/applications/"), "a viewer gets no form");
+    assert!(!seen.body.contains("13/45/2019"), "a viewer gets no unread text");
+    assert!(!seen.body.contains("•••-••-") && cell(&seen.body, "principal.ssn").contains("Recorded"));
+    assert_no_secret("the viewer's page", &seen.body, &IDENTITY);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_correction_writes_only_changed_inputs_and_a_stale_form_shows_both_changes() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let path = stored_at(&upload(&pages.reviewer, &application(&Form::word(), 21)).await);
+    let editor = Browser::new(&pages.server);
+    editor.sign_in("sample.editor").await;
+    let opened = pages.reviewer.get(&path).await;
+    let stale = editor.get(&path).await;
+
+    let unchanged = pages.reviewer.submit(&opened, &path, &[("cause", "reading")], None).await;
+    assert_eq!(unchanged.location.as_deref(), Some(format!("{path}?done=unchanged").as_str()));
+    let no_cause = pages.reviewer.submit(&opened, &path, &[("f.business.legal_name", "FABRIKAM LLC")], None).await;
+    assert_eq!(no_cause.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(no_cause.body.contains("Say why"));
+    let unreadable = pages
+        .reviewer
+        .submit(&opened, &path, &[("f.business.start_date", "13/45/2019"), ("cause", "merchant")], None)
+        .await;
+    assert_eq!(unreadable.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(unreadable.body.contains("Business Start Date: Could not read this as a date"));
+    assert_eq!(
+        value_of(&form_fields(&unreadable.body, &path), "f.business.start_date").as_deref(),
+        Some("13/45/2019"),
+        "the refused text is shown again"
+    );
+
+    let changes = [
+        ("f.business.legal_name", "FABRIKAM LLC"),
+        ("clear.business.dba", "on"),
+        ("f.principal.ssn", "900-55-1234"),
+        ("cause", "merchant"),
+        ("reason", "SAMPLE OWNER confirmed by phone"),
+    ];
+    let saved = pages.reviewer.submit(&opened, &path, &changes, None).await;
+    assert_eq!(saved.location.as_deref(), Some(format!("{path}?done=saved").as_str()), "{}", saved.body);
+    let after = pages.reviewer.get(saved.location.as_deref().unwrap()).await;
+    assert!(after.body.contains("Revision 2 ·") && after.body.contains("Saved."));
+    let fields = form_fields(&after.body, &path);
+    assert_eq!(value_of(&fields, "f.business.legal_name").as_deref(), Some("FABRIKAM LLC"));
+    assert_eq!(value_of(&fields, "f.business.dba").as_deref(), Some(""));
+    assert_eq!(value_of(&fields, "f.business.city").as_deref(), Some("AUSTIN"), "an unchanged input stays the PDF's");
+    assert!(cell(&after.body, "principal.ssn").contains("•••-••-1234"));
+    assert!(!after.body.contains("900-55-1234"));
+    assert!(cell(&after.body, "business.legal_name").contains("name=\"parse.business.legal_name\""));
+    assert!(!cell(&after.body, "business.city").contains("name=\"parse."), "only a person's value goes back");
+
+    let conflict = editor.submit(&stale, &path, &[("f.business.city", "DALLAS"), ("cause", "reading")], None).await;
+    assert_eq!(conflict.status, StatusCode::CONFLICT);
+    assert!(conflict.body.contains("Changed by sample.reviewer: revision 2"));
+    assert!(conflict.body.contains("Business Legal Name: CONTOSO LLC → FABRIKAM LLC"));
+    assert!(conflict.body.contains("Principal SSN: changed"));
+    assert!(conflict.body.contains("<li>Business City: DALLAS</li>"));
+    assert_eq!(value_of(&form_fields(&conflict.body, &path), "f.business.city").as_deref(), Some("DALLAS"));
+    let merged = editor.submit(&conflict, &path, &[], None).await;
+    assert_eq!(merged.location.as_deref(), Some(format!("{path}?done=saved").as_str()), "{}", merged.body);
+    let merged = editor.get(&path).await;
+    let fields = form_fields(&merged.body, &path);
+    assert!(merged.body.contains("Revision 3 ·"));
+    assert_eq!(value_of(&fields, "f.business.legal_name").as_deref(), Some("FABRIKAM LLC"));
+    assert_eq!(value_of(&fields, "f.business.city").as_deref(), Some("DALLAS"));
+
+    let back = editor.submit(&merged, &path, &[("parse.business.legal_name", "on"), ("cause", "reading")], None).await;
+    assert_eq!(back.status, StatusCode::SEE_OTHER);
+    let back = editor.get(&path).await;
+    assert_eq!(value_of(&form_fields(&back.body, &path), "f.business.legal_name").as_deref(), Some("CONTOSO LLC"));
+
+    let mut secrets = IDENTITY.to_vec();
+    secrets.extend(["900-55-1234", "SAMPLE OWNER confirmed by phone", "FABRIKAM LLC", "DALLAS"]);
+    assert_no_secret("the server log", &pages.server.log(), &secrets);
+    let database = database_bytes(pages.data.path());
+    for secret in &secrets {
+        assert!(
+            !database.windows(secret.len()).any(|window| window == secret.as_bytes()),
+            "the database holds {secret}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_the_second_owner_gives_the_principal_all_of_it_and_a_draft_waits_for_confirmation() {
+    let Some(library) = support::pdfium_library() else { return };
+    let pages = pages(&library).await;
+    let path = stored_at(&upload(&pages.reviewer, &application(&Form::word(), 21)).await);
+    let page = pages.reviewer.get(&path).await;
+    assert!(page.body.contains("Remove second owner"));
+    let remove = format!("{path}/remove-second-owner");
+    let mut fields = form_fields(&page.body, &path);
+    let no_cause = pages.reviewer.post(&remove, &fields).await;
+    assert_eq!(no_cause.status, StatusCode::UNPROCESSABLE_ENTITY);
+    set(&mut fields, "f.business.city", "DALLAS");
+    set(&mut fields, "cause", "merchant");
+    let elsewhere = pages.reviewer.post(&remove, &fields).await;
+    assert_eq!(elsewhere.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(elsewhere.body.contains("Save or undo your other changes"));
+    set(&mut fields, "f.business.city", "AUSTIN");
+    let removed = pages.reviewer.post(&remove, &fields).await;
+    assert_eq!(removed.location.as_deref(), Some(format!("{path}?done=removed").as_str()), "{}", removed.body);
+    let after = pages.reviewer.get(&path).await;
+    assert!(cell(&after.body, "principal.ownership_percent").contains("value=\"100.00\""));
+    assert!(cell(&after.body, "secondary.ownership_percent").contains("value=\"\""));
+    assert!(
+        !cell(&after.body, "secondary.phone").contains("star"),
+        "the second owner's details are no longer required"
+    );
+    assert!(!after.body.contains("Remove second owner"));
+
+    let draft = Form { omit: vec!["Secondary Owner Name"], ..Form::word() };
+    let draft = stored_at(&upload(&pages.reviewer, &application(&draft, 22)).await);
+    let page = pages.reviewer.get(&draft).await;
+    assert!(page.body.contains("Hand entry") && page.body.contains("awaiting confirmation"));
+    let confirmed = pages.reviewer.submit(&page, &format!("{draft}/confirm"), &[], None).await;
+    assert_eq!(confirmed.location.as_deref(), Some(format!("{draft}?done=confirmed").as_str()));
+    assert!(!pages.reviewer.get(&draft).await.body.contains("This is an application"));
 }

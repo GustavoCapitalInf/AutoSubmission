@@ -340,6 +340,29 @@ impl Browser {
         self.finish(response.await.unwrap()).await
     }
 
+    /// A `multipart/form-data` POST of `parts` in order; a part named `pdf` is sent as a file.
+    pub async fn post_multipart(&self, path: &str, parts: &[(&str, &[u8])]) -> Page {
+        let boundary = "SAMPLE-BOUNDARY-7MA4YWxkTrZu0gW";
+        let mut body = Vec::new();
+        for (name, bytes) in parts {
+            let file = if *name == "pdf" { "; filename=\"sample.pdf\"\r\nContent-Type: application/pdf" } else { "" };
+            body.extend(
+                format!("--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"{file}\r\n\r\n").as_bytes(),
+            );
+            body.extend_from_slice(bytes);
+            body.extend(b"\r\n");
+        }
+        body.extend(format!("--{boundary}--\r\n").as_bytes());
+        let response = self
+            .http
+            .post(format!("{}{path}", self.base))
+            .header("Cookie", self.cookie_header())
+            .header("Content-Type", format!("multipart/form-data; boundary={boundary}"))
+            .body(body)
+            .send();
+        self.finish(response.await.unwrap()).await
+    }
+
     pub async fn sign_in(&self, username: &str) {
         let login = self.get("/login").await;
         let mut fields = form_fields(&login.body, "/login");
