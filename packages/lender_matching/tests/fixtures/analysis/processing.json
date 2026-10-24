@@ -1,0 +1,20 @@
+{
+  "api_version": "1.0",
+  "package_id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "created_at": "2026-10-20T15:00:00Z",
+  "status": "processing",
+  "documents": [
+    {
+      "document_id": "doc-1",
+      "filename": "sample-statement-1.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000001",
+      "status": "finished"
+    },
+    {
+      "document_id": "doc-2",
+      "filename": "sample-statement-2.pdf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000002",
+      "status": "processing"
+    }
+  ]
+}
