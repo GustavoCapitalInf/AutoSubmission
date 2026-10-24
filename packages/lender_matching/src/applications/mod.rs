@@ -25,7 +25,8 @@ use crate::facts::Interval;
 use crate::facts::application::{ApplicationFacts, EntityKind};
 use crate::store::applications::{NewApplication, NewRevision, ParseRow, RevisionRow};
 use crate::store::{ReadTx, Store, StoreError, WriteTx, now};
-pub use seal::{Binding, DataKey, KEY_VARIABLE, SealError};
+use seal::{Binding, SealError};
+pub use seal::{DataKey, KEY_VARIABLE};
 
 /// The JSON layout of `application_parses.payload`; a bump leaves older parses unreadable without
 /// a reader.
@@ -139,7 +140,7 @@ impl ReadPdf for WorkerReader {
 
 /// What `Applications::upload` did with a PDF.
 pub enum Intake {
-    /// A new application at revision 1. `manual_entry` says why a person must type it in;
+    /// A new application at revision 1. `manual_entry` says why a person types it in;
     /// `same_envelope` names the first application stored from the same DocuSign envelope.
     Stored { reference: ApplicationRef, manual_entry: Option<ManualEntryReason>, same_envelope: Option<ApplicationId> },
     /// These bytes are stored already; this is their current revision.
@@ -346,7 +347,8 @@ pub fn current_in(tx: &ReadTx, key: &DataKey, id: ApplicationId) -> Result<Optio
 
 /// What matching reads from an application: its state, start month, entity, estimated FICO,
 /// requested amount and history answers. The requested amount counts only for a business in a US
-/// jurisdiction, above 0 and not marked CAD. An industry is never suggested: it needs a person.
+/// jurisdiction, above 0 and not marked CAD. It suggests no industry, which needs a person's
+/// confirmation.
 pub fn matching_facts(resolved: &Resolved, as_of: Date) -> ApplicationFacts {
     let business = |field| resolved.value(FieldId::Business(field));
     let property = |field| resolved.value(FieldId::Property(field));

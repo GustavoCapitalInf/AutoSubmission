@@ -34,7 +34,8 @@ pub struct MatchInput {
 #[derive(Clone, PartialEq, Debug)]
 pub enum ApplicationInput {
     Inline(ApplicationFacts),
-    /// A stored application's revision, which must still be current when the match is stored.
+    /// A stored application's revision. Matching refuses it unless it is current when the match
+    /// is stored.
     Stored(ApplicationRef),
 }
 
@@ -143,9 +144,9 @@ impl Matcher {
         Matcher { store, analysis, key }
     }
 
-    /// Fetches the analysis, then in one write transaction reads the stored application's
-    /// revision, which must be current and admitted, and every lender head, and stores the match,
-    /// so the match names each revision it read.
+    /// Fetches the analysis, then in one write transaction reads the stored application's revision,
+    /// refused unless it is current and admitted, and every lender head, and stores the match, so
+    /// the match names each revision it read.
     pub async fn run(&self, by: Requester, command: MatchCommand) -> Result<MatchRecord, MatchError> {
         if matches!(command.application, ApplicationInput::Stored(_)) && self.key.is_none() {
             return Err(MatchError::ApplicationsUnavailable);

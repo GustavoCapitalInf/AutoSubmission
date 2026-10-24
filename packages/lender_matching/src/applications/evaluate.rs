@@ -30,7 +30,7 @@ pub fn evaluate(folder: &Path, options: TallyOptions) -> Result<Tally, String> {
     Ok(tally)
 }
 
-/// `PDFIUM_LIBRARY`, which must be an absolute path.
+/// `PDFIUM_LIBRARY`, refused unless it is an absolute path.
 pub fn pdfium_library() -> Result<PathBuf, String> {
     std::env::var_os("PDFIUM_LIBRARY").map(PathBuf::from).filter(|path| path.is_absolute()).ok_or_else(|| {
         "set PDFIUM_LIBRARY to the absolute path of the pdfium library that pdfium.lock names".to_string()

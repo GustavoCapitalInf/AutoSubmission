@@ -53,7 +53,7 @@ pub enum Admission {
 }
 
 impl Admission {
-    /// None for a refused document, which is never stored.
+    /// None for a refused document, which an upload does not store.
     pub fn of(document: &Document) -> Option<Admission> {
         match document {
             Document::Application(_) => Some(Admission::Recognized),

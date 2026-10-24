@@ -20,7 +20,7 @@ pub const MAX_PAGES: usize = 128;
 pub const MAX_GLYPHS: usize = 1_000_000;
 /// Form XObjects nested deeper than this are not searched for images.
 const MAX_FORM_DEPTH: usize = 8;
-/// In pixels.
+/// The widest page image, in pixels.
 pub const MAX_IMAGE_WIDTH: u32 = 3000;
 
 /// pdfium, bound once per process. Its calls take `&mut self` because pdfium is not thread-safe.

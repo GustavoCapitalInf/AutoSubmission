@@ -100,7 +100,7 @@ enum ApplicationsCommand {
         json: Option<PathBuf>,
     },
     /// Store application PDFs, sealed with APPLICATION_DATA_KEY, as uploads by a reviewer or an
-    /// editor. Prints each file's outcome by its position, never its name. Needs PDFIUM_LIBRARY.
+    /// editor. Prints each file's outcome by its position, not its name. Needs PDFIUM_LIBRARY.
     Import {
         #[arg(required = true)]
         files: Vec<PathBuf>,
