@@ -1,5 +1,5 @@
 use crate::fields::{BusinessField as B, FieldId, OwnerField as O, OwnerSlot, PropertyField as P, SignatureField};
-use crate::values::Entity;
+use crate::values::{Entity, YesNo};
 
 /// Capital Infusion's application form in the versions it was printed in. A new placement of a
 /// known label set adds a `LayoutSpec`; only a new kind of value placement needs code.
@@ -44,16 +44,25 @@ pub(crate) enum Shape {
     /// The row, then one more line under it for a value that wraps, ending above the band of the
     /// next label row.
     RowAndNextLine,
-    /// The row prints `choices` in a label font: a mark beside one picks it. `printed` is more
-    /// form text on the row; anything else typed there describes the answer.
+    /// The row prints `choices` in a label font, each after its box: a mark picks the one it sits
+    /// before. `printed` is more form text on the row; anything else typed there describes the
+    /// answer.
     Choices { choices: &'static [Choice], printed: &'static [&'static str] },
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct Choice {
     pub text: &'static str,
-    /// None for the choice whose answer is the description typed on the row.
-    pub entity: Option<Entity>,
+    pub answer: ChoiceAnswer,
+}
+
+/// What a mark on a printed choice answers.
+#[derive(Clone, Copy)]
+pub(crate) enum ChoiceAnswer {
+    Entity(Entity),
+    YesNo(YesNo),
+    /// The description typed on the row, read by the field's grammar.
+    Described,
 }
 
 /// A known placement of the form: its label set, and where a few sentinel labels' top-left
@@ -72,6 +81,9 @@ pub(crate) struct LayoutSpec {
 pub(crate) const LAYOUT_TOLERANCE_PT: f32 = 3.0;
 /// A value's top lies within this band of its label's top.
 pub(crate) const ROW_BAND_PT: (f32, f32) = (-10.0, 8.0);
+/// A mark picks the printed choice whose left edge is the first at or right of the mark's centre,
+/// when that edge lies at most this far from it.
+pub(crate) const MARK_REACH_PT: f32 = 30.0;
 /// The line under a wrapping value's row: tops below the row band, down to this far under the
 /// label's top.
 pub(crate) const NEXT_LINE_BOTTOM_PT: f32 = 20.0;
@@ -136,9 +148,9 @@ static PDFESCAPE_BUSINESS: [LabelSpec; 20] = business_labels([
         target: Target::Field(FieldId::Business(B::Entity)),
         shape: Shape::Choices {
             choices: &[
-                Choice { text: "Corporation", entity: Some(Entity::Corporation) },
-                Choice { text: "LLC", entity: Some(Entity::Llc) },
-                Choice { text: "Other", entity: None },
+                Choice { text: "Corporation", answer: ChoiceAnswer::Entity(Entity::Corporation) },
+                Choice { text: "LLC", answer: ChoiceAnswer::Entity(Entity::Llc) },
+                Choice { text: "Other", answer: ChoiceAnswer::Described },
             ],
             printed: &["(please describe)"],
         },
@@ -163,25 +175,45 @@ const fn owner(slot: OwnerSlot, first: &'static str) -> [LabelSpec; 10] {
 static PRINCIPAL: [LabelSpec; 10] = owner(OwnerSlot::Principal, "Principle Owner Name");
 static SECONDARY: [LabelSpec; 10] = owner(OwnerSlot::Secondary, "Secondary Owner Name");
 
-static PROPERTY: [LabelSpec; 13] = [
-    property("Business Description", P::Description),
-    property("Annual Business Revenue", P::AnnualRevenue),
-    property("Purpose of Funds Requested", P::FundsPurpose),
-    property("Estimated Fico Score", P::EstimatedFico),
-    property("Average Monthly Credit Card Volume", P::CardVolume),
-    property("Amount of Receivable Outstanding", P::ReceivablesOutstanding),
-    LabelSpec {
-        text: "Prior/Current Loan Company (if applicable)",
-        target: Target::Field(FieldId::Property(P::PriorLender)),
-        shape: Shape::RowAndNextLine,
+/// The property labels in reading order; the versions differ only in how the seasonal question is
+/// answered.
+const fn property_labels(seasonal: LabelSpec) -> [LabelSpec; 13] {
+    [
+        property("Business Description", P::Description),
+        property("Annual Business Revenue", P::AnnualRevenue),
+        property("Purpose of Funds Requested", P::FundsPurpose),
+        property("Estimated Fico Score", P::EstimatedFico),
+        property("Average Monthly Credit Card Volume", P::CardVolume),
+        property("Amount of Receivable Outstanding", P::ReceivablesOutstanding),
+        LabelSpec {
+            text: "Prior/Current Loan Company (if applicable)",
+            target: Target::Field(FieldId::Property(P::PriorLender)),
+            shape: Shape::RowAndNextLine,
+        },
+        property("Existing Loan Balance", P::LoanBalance),
+        property("Requested Advance Amount", P::RequestedAmount),
+        property("Any open judgements?", P::OpenJudgements),
+        property("Any bankruptcy?", P::Bankruptcy),
+        property("Any tax liens?", P::TaxLiens),
+        seasonal,
+    ]
+}
+
+/// The Word version: the seasonal answer is typed.
+static WORD_PROPERTY: [LabelSpec; 13] = property_labels(property("Is business seasonal?", P::Seasonal));
+
+/// The PDFescape version: the seasonal answer is a row of the printed choices Yes and No.
+static PDFESCAPE_PROPERTY: [LabelSpec; 13] = property_labels(LabelSpec {
+    text: "Is business seasonal?",
+    target: Target::Field(FieldId::Property(P::Seasonal)),
+    shape: Shape::Choices {
+        choices: &[
+            Choice { text: "Yes", answer: ChoiceAnswer::YesNo(YesNo::Yes) },
+            Choice { text: "No", answer: ChoiceAnswer::YesNo(YesNo::No) },
+        ],
+        printed: &[],
     },
-    property("Existing Loan Balance", P::LoanBalance),
-    property("Requested Advance Amount", P::RequestedAmount),
-    property("Any open judgements?", P::OpenJudgements),
-    property("Any bankruptcy?", P::Bankruptcy),
-    property("Any tax liens?", P::TaxLiens),
-    property("Is business seasonal?", P::Seasonal),
-];
+});
 
 static SIGNATURES: [LabelSpec; 4] = [
     LabelSpec { text: "Signature of Applicant One", target: Target::Signature, shape: Shape::Row },
@@ -190,22 +222,22 @@ static SIGNATURES: [LabelSpec; 4] = [
     row("Date", FieldId::Signature(SignatureField::ApplicantTwoDate)),
 ];
 
-const fn sections(business: &'static [LabelSpec]) -> [SectionSpec; 6] {
+const fn sections(business: &'static [LabelSpec], property: &'static [LabelSpec]) -> [SectionSpec; 6] {
     [
         SectionSpec { start: SectionStart::Heading("BUSINESS INFORMATION"), labels: business },
         SectionSpec { start: SectionStart::Heading("OWNER INFORMATION"), labels: &[] },
         SectionSpec { start: SectionStart::FirstLabel, labels: &PRINCIPAL },
         SectionSpec { start: SectionStart::FirstLabel, labels: &SECONDARY },
-        SectionSpec { start: SectionStart::Heading("BUSINESS PROPERTY INFORMATION"), labels: &PROPERTY },
+        SectionSpec { start: SectionStart::Heading("BUSINESS PROPERTY INFORMATION"), labels: property },
         SectionSpec { start: SectionStart::FirstLabel, labels: &SIGNATURES },
     ]
 }
 
-static WORD_SECTIONS: [SectionSpec; 6] = sections(&WORD_BUSINESS);
+static WORD_SECTIONS: [SectionSpec; 6] = sections(&WORD_BUSINESS, &WORD_PROPERTY);
 /// Above BUSINESS INFORMATION this version prints the sales rep's header (Sales Rep Name, Contact
 /// Email, FAX COMPLETED APPLICATION TO), and under the signature lines a Fax and Email footer.
 /// Both lie outside the form area, so no field reads them and nothing there is unplaced.
-static PDFESCAPE_SECTIONS: [SectionSpec; 6] = sections(&PDFESCAPE_BUSINESS);
+static PDFESCAPE_SECTIONS: [SectionSpec; 6] = sections(&PDFESCAPE_BUSINESS, &PDFESCAPE_PROPERTY);
 
 pub(crate) static FORM: FormTemplate = FormTemplate {
     label_fonts: &["Calibri", "AdobeDevanagari"],

@@ -223,7 +223,6 @@ pub struct Layout {
 pub const SIGNATURE_DATE_LINE: &str = "_______________";
 
 pub fn word() -> Layout {
-    let seasonal = 484.0;
     Layout {
         rows: word_rows(),
         headings: [201.0, 352.0],
@@ -231,9 +230,6 @@ pub fn word() -> Layout {
         dx: 0.0,
         dy: |dy| dy,
         extras: vec![
-            printed(LABEL_SIZE, 170.0, seasonal, "YES"),
-            printed(LABEL_SIZE, 220.0, seasonal, "NO"),
-            typed("ArialMT", VALUE_SIZE, 236.0, seasonal + 1.6, "X"),
             printed(10.0, 40.0, 510.0, "I certify that the information above is true and correct,"),
             printed(10.0, 40.0, 524.0, "and I authorize SAMPLE to verify it."),
             typed("DancingScript", 14.0, 200.0, 558.0, "Sample Owner"),
@@ -243,9 +239,19 @@ pub fn word() -> Layout {
     }
 }
 
-/// The PDFescape entity row: its printed choices start at x 180 (Corporation), 300 (LLC) and 370
-/// (Other), and the mark sits on this top.
+/// Where the PDFescape version's printed choices start, and the tops its marks sit on.
+pub const CORPORATION_X: f32 = 180.0;
+pub const LLC_X: f32 = 300.0;
+pub const OTHER_X: f32 = 370.0;
 pub const ENTITY_MARK_DY: f32 = 86.0 + 1.6;
+pub const YES_X: f32 = 452.0;
+pub const NO_X: f32 = 498.0;
+pub const SEASONAL_MARK_DY: f32 = 434.0 + 1.6;
+
+/// The x of an X typed in `VALUE_SIZE` whose centre lies `gap` points before `left`.
+pub fn mark_x(left: f32, gap: f32) -> f32 {
+    left - gap - width(VALUE_SIZE, "X") / 2.0
+}
 
 /// The PDFescape version at its measured offsets: its own label set, a sales rep header above
 /// BUSINESS INFORMATION and a Fax and Email footer under the signature lines.
@@ -345,13 +351,7 @@ pub fn pdfescape() -> Layout {
         (402.0, vec![("Existing Loan Balance", x(2.0), property(P::LoanBalance))]),
         (417.0, vec![("Any bankruptcy?", x(259.0), property(P::Bankruptcy))]),
         (418.0, vec![("Any open judgements?", x(1.0), property(P::OpenJudgements))]),
-        (
-            434.0,
-            vec![
-                ("Any tax liens?", x(1.0), property(P::TaxLiens)),
-                ("Is business seasonal?", x(260.0), property(P::Seasonal)),
-            ],
-        ),
+        (434.0, vec![("Any tax liens?", x(1.0), property(P::TaxLiens)), ("Is business seasonal?", x(260.0), None)]),
         (
             611.0,
             vec![
@@ -367,7 +367,6 @@ pub fn pdfescape() -> Layout {
             ],
         ),
     ];
-    let seasonal = 434.0;
     Layout {
         rows,
         headings: [167.0, 311.0],
@@ -381,13 +380,13 @@ pub fn pdfescape() -> Layout {
             typed("ArialMT", VALUE_SIZE, x(330.0), -53.0, "512-555-0198"),
             printed(8.0, x(-3.0), -38.0, "Contact Email:"),
             typed("ArialMT", VALUE_SIZE, x(70.0), -37.0, "rep@example.com"),
-            printed(LABEL_SIZE, 180.0, 86.0, "Corporation"),
-            printed(LABEL_SIZE, 300.0, 86.0, "LLC"),
-            printed(LABEL_SIZE, 370.0, 86.0, "Other: (please describe):"),
-            typed("ArialMT", VALUE_SIZE, 320.0, ENTITY_MARK_DY, "X"),
-            printed(LABEL_SIZE, 440.0, seasonal, "YES"),
-            printed(LABEL_SIZE, 480.0, seasonal, "NO"),
-            typed("ArialMT", VALUE_SIZE, 496.0, seasonal + 1.6, "X"),
+            printed(LABEL_SIZE, CORPORATION_X, 86.0, "Corporation"),
+            printed(LABEL_SIZE, LLC_X, 86.0, "LLC"),
+            printed(LABEL_SIZE, OTHER_X, 86.0, "Other: (please describe):"),
+            typed("ArialMT", VALUE_SIZE, mark_x(LLC_X, 12.0), ENTITY_MARK_DY, "X"),
+            printed(LABEL_SIZE, YES_X, 434.0, "Yes"),
+            printed(LABEL_SIZE, NO_X, 434.0, "No"),
+            typed("ArialMT", VALUE_SIZE, mark_x(NO_X, 16.0), SEASONAL_MARK_DY, "X"),
             printed(10.0, 40.0, 470.0, "I certify that the information above is true and correct,"),
             printed(10.0, 40.0, 484.0, "and I authorize SAMPLE to verify it."),
             typed("DancingScript", 14.0, 200.0, 609.0, "Sample Owner"),
@@ -455,6 +454,7 @@ pub fn sample_values() -> Vec<(FieldId, &'static str)> {
         (FieldId::Property(P::OpenJudgements), "NO"),
         (FieldId::Property(P::Bankruptcy), "N/A"),
         (FieldId::Property(P::TaxLiens), "NONE"),
+        (FieldId::Property(P::Seasonal), "NO"),
         (FieldId::Signature(S::ApplicantOneDate), "10/20/2026"),
         (FieldId::Signature(S::ApplicantTwoDate), "10/20/2026"),
     ]
@@ -481,7 +481,6 @@ pub fn expected() -> Vec<(FieldId, &'static str)> {
     for (field, text) in canonical {
         values.iter_mut().find(|(f, _)| *f == field).unwrap().1 = text;
     }
-    values.push((FieldId::Property(P::Seasonal), "NO"));
     values
 }
 

@@ -71,34 +71,68 @@ fn the_pdfescape_rep_header_and_footer_are_form_text() {
     }
 }
 
-/// The PDFescape form with `typed` as the only text typed on its entity row.
-fn pdfescape_entity(typed_on_row: &[(f32, &'static str)]) -> (Outcome, Option<String>) {
+/// The PDFescape form with `typed_on_row` as the only text typed on the row whose marks sit on
+/// `mark_dy`, and what `field` reads.
+fn pdfescape_row(field: FieldId, mark_dy: f32, typed_on_row: &[(f32, &'static str)]) -> (Outcome, Option<String>) {
     let mut layout = pdfescape();
-    layout.extras.retain(|extra| extra.dy != ENTITY_MARK_DY);
-    layout.extras.extend(typed_on_row.iter().map(|(x, text)| typed("ArialMT", VALUE_SIZE, *x, ENTITY_MARK_DY, text)));
+    layout.extras.retain(|extra| extra.dy != mark_dy);
+    layout.extras.extend(typed_on_row.iter().map(|(x, text)| typed("ArialMT", VALUE_SIZE, *x, mark_dy, text)));
     let reading = read_form_page(&Form { layout, ..Form::word() });
-    let entity = FieldId::Business(B::Entity);
-    (outcome(form(&reading), entity), canonical(form(&reading), entity))
+    (outcome(form(&reading), field), canonical(form(&reading), field))
+}
+
+fn pdfescape_entity(typed_on_row: &[(f32, &'static str)]) -> (Outcome, Option<String>) {
+    pdfescape_row(FieldId::Business(B::Entity), ENTITY_MARK_DY, typed_on_row)
+}
+
+fn pdfescape_seasonal(typed_on_row: &[(f32, &'static str)]) -> (Outcome, Option<String>) {
+    pdfescape_row(FieldId::Property(P::Seasonal), SEASONAL_MARK_DY, typed_on_row)
 }
 
 #[test]
-fn the_pdfescape_entity_reads_the_printed_choice_beside_the_mark() {
+fn a_pdfescape_entity_mark_reads_the_printed_choice_to_its_right() {
     let read = |typed: &[(f32, &'static str)]| pdfescape_entity(typed).1;
-    assert_eq!(read(&[(168.0, "X")]).as_deref(), Some("CORPORATION"), "before Corporation");
-    assert_eq!(read(&[(244.0, "x")]).as_deref(), Some("CORPORATION"), "after Corporation");
-    assert_eq!(read(&[(320.0, "X")]).as_deref(), Some("LIMITED LIABILITY COMPANY"));
+    assert_eq!(read(&[(mark_x(LLC_X, 12.0), "X")]).as_deref(), Some("LIMITED LIABILITY COMPANY"));
+    assert_eq!(read(&[(mark_x(CORPORATION_X, 6.0), "x")]).as_deref(), Some("CORPORATION"));
     let sole = Some("SOLE PROPRIETORSHIP");
-    assert_eq!(read(&[(362.0, "X"), (512.0, "SOLE PROPRIETORSHIP")]).as_deref(), sole, "Other, described");
+    let described = [(mark_x(OTHER_X, 12.0), "X"), (512.0, "SOLE PROPRIETORSHIP")];
+    assert_eq!(read(&described).as_deref(), sole, "Other, described");
     assert_eq!(read(&[(512.0, "SOLE PROPRIETORSHIP")]).as_deref(), sole, "described without a mark");
 }
 
 #[test]
-fn an_unclear_pdfescape_entity_mark_is_refused() {
+fn a_pdfescape_seasonal_mark_reads_yes_or_no_to_its_right() {
+    let read = |typed: &[(f32, &'static str)]| pdfescape_seasonal(typed);
+    assert_eq!(read(&[(mark_x(NO_X, 16.0), "X")]).1.as_deref(), Some("NO"), "in the box between Yes and No");
+    assert_eq!(read(&[(mark_x(YES_X, 26.0), "X")]).1.as_deref(), Some("YES"), "in the box before Yes");
+    assert_eq!(read(&[]).0, Outcome::Blank, "no mark");
+}
+
+#[test]
+fn the_word_seasonal_answer_is_typed() {
+    let reading = read_form_page(&Form::word());
+    assert_eq!(canonical(form(&reading), FieldId::Property(P::Seasonal)).as_deref(), Some("NO"));
+}
+
+#[test]
+fn an_unclear_pdfescape_mark_is_refused() {
+    let unclear = Outcome::Refused(Refusal::MarkUnclear);
+    let entity = |typed: &[(f32, &'static str)]| pdfescape_entity(typed).0;
+    assert_eq!(entity(&[(mark_x(CORPORATION_X, 40.0), "X")]), unclear, "40 pt from every choice");
+    let two = [(mark_x(CORPORATION_X, 6.0), "X"), (mark_x(LLC_X, 12.0), "X")];
+    assert_eq!(entity(&two), unclear, "two marks");
+    let seasonal = |typed: &[(f32, &'static str)]| pdfescape_seasonal(typed).0;
+    assert_eq!(seasonal(&[(NO_X + 20.0, "X")]), unclear, "right of every choice");
+    assert_eq!(seasonal(&[(mark_x(YES_X, 26.0), "X"), (mark_x(NO_X, 16.0), "X")]), unclear, "two marks");
+}
+
+#[test]
+fn a_pdfescape_entity_answer_that_names_no_entity_is_refused() {
     let refused = |typed: &[(f32, &'static str)]| pdfescape_entity(typed).0;
-    assert_eq!(refused(&[(268.0, "X")]), Outcome::Refused(Refusal::MarkUnclear), "midway");
-    assert_eq!(refused(&[(244.0, "X"), (320.0, "X")]), Outcome::Refused(Refusal::MarkUnclear), "two marks");
-    assert_eq!(refused(&[(320.0, "X"), (512.0, "SAMPLE")]), Outcome::Refused(Refusal::Ambiguous), "LLC, described");
-    assert_eq!(refused(&[(362.0, "X")]), Outcome::Refused(Refusal::NotInList), "Other, not described");
+    let llc = mark_x(LLC_X, 12.0);
+    assert_eq!(refused(&[(llc, "X"), (512.0, "SAMPLE")]), Outcome::Refused(Refusal::Ambiguous), "LLC, described");
+    let other = mark_x(OTHER_X, 12.0);
+    assert_eq!(refused(&[(other, "X")]), Outcome::Refused(Refusal::NotInList), "Other, not described");
     assert_eq!(refused(&[(512.0, "SAMPLE")]), Outcome::Refused(Refusal::NotInList));
     assert_eq!(refused(&[]), Outcome::Blank);
 }

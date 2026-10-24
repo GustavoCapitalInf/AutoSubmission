@@ -216,7 +216,7 @@ impl<'de> Deserialize<'de> for Jurisdiction {
 }
 
 /// A field's text as the page or a person gives it. `words` carries each word's horizontal span on
-/// the page, which only a checkbox answer reads; typed text has none.
+/// the page, which only a choice row reads; typed text has none.
 pub struct RawText {
     text: String,
     words: Vec<Word>,
@@ -518,7 +518,7 @@ impl FieldKind {
             FieldKind::Money => FieldValue::Money(money(s)?),
             FieldKind::Percent => FieldValue::Percent(percent(s)?),
             FieldKind::Score => FieldValue::Score(score(s)?),
-            FieldKind::YesNo => FieldValue::YesNo(yes_no(s, &text.words)?),
+            FieldKind::YesNo => FieldValue::YesNo(yes_no(s)?),
         };
         Ok(Answer::Value(value))
     }
@@ -1175,34 +1175,11 @@ fn score(s: &str) -> Result<Score, Refusal> {
     Ok(Score { min, max })
 }
 
-/// A word answer, or a checkbox row of the words YES and NO with one mark, read when the mark's
-/// center lies under half as far from one word's center as from the other's.
-fn yes_no(s: &str, words: &[Word]) -> Result<YesNo, Refusal> {
-    let tokens: Vec<String> = s.split(' ').map(str::to_uppercase).collect();
-    if let [token] = tokens.as_slice() {
-        return match token.as_str() {
-            "YES" | "Y" => Ok(YesNo::Yes),
-            "NO" | "N" | "NONE" | "0" => Ok(YesNo::No),
-            _ => Err(Refusal::Format),
-        };
-    }
-    if !tokens.iter().all(|token| token == "YES" || token == "NO" || is_mark(token)) {
-        return Err(Refusal::Format);
-    }
-    let center = |wanted: &dyn Fn(&str) -> bool| -> Vec<f32> {
-        words.iter().filter(|word| wanted(&word.text.to_uppercase())).map(|word| (word.x0 + word.x1) / 2.0).collect()
-    };
-    let (marks, yes, no) = (center(&|t| is_mark(t)), center(&|t| t == "YES"), center(&|t| t == "NO"));
-    let ([mark], [yes], [no]) = (marks.as_slice(), yes.as_slice(), no.as_slice()) else {
-        return Err(Refusal::MarkUnclear);
-    };
-    let (to_yes, to_no) = ((mark - yes).abs(), (mark - no).abs());
-    if to_yes < to_no / 2.0 {
-        Ok(YesNo::Yes)
-    } else if to_no < to_yes / 2.0 {
-        Ok(YesNo::No)
-    } else {
-        Err(Refusal::MarkUnclear)
+fn yes_no(s: &str) -> Result<YesNo, Refusal> {
+    match s.to_uppercase().as_str() {
+        "YES" | "Y" => Ok(YesNo::Yes),
+        "NO" | "N" | "NONE" | "0" => Ok(YesNo::No),
+        _ => Err(Refusal::Format),
     }
 }
 
@@ -1263,38 +1240,15 @@ mod tests {
             FieldKind::YesNo,
             &[("YES", "YES"), ("y", "YES"), ("No", "NO"), ("N", "NO"), ("NONE", "NO"), ("0", "NO")],
         );
-        refuses(FieldKind::YesNo, &[("TRUE", Refusal::Format), ("NO WAY", Refusal::Format), ("1", Refusal::Format)]);
-    }
-
-    fn row(words: &[(&str, f32)]) -> RawText {
-        RawText::placed(
-            words
-                .iter()
-                .map(|(text, x0)| Word { text: text.to_string(), x0: *x0, x1: x0 + 6.0 * text.len() as f32 })
-                .collect(),
-        )
-    }
-
-    fn checkbox(words: &[(&str, f32)]) -> Result<Option<String>, Refusal> {
-        FieldKind::YesNo.read(&row(words), &SIGNED).map(|answer| match answer {
-            Answer::Value(value) => Some(value.canonical()),
-            Answer::NotApplicable => None,
-        })
-    }
-
-    #[test]
-    fn a_checkbox_row_reads_the_option_under_the_mark() {
-        assert_eq!(checkbox(&[("YES", 300.0), ("NO", 340.0), ("X", 302.0)]), Ok(Some("YES".to_string())));
-        assert_eq!(checkbox(&[("YES", 300.0), ("NO", 340.0), ("X", 342.0)]), Ok(Some("NO".to_string())));
-        assert_eq!(checkbox(&[("YES", 300.0), ("NO", 340.0), ("✓", 339.0)]), Ok(Some("NO".to_string())));
-        assert_eq!(checkbox(&[("YES", 300.0), ("NO", 340.0), ("X", 322.0)]), Err(Refusal::MarkUnclear), "between");
-        assert_eq!(checkbox(&[("YES", 300.0), ("NO", 340.0)]), Err(Refusal::MarkUnclear), "no mark");
-        assert_eq!(
-            checkbox(&[("YES", 300.0), ("NO", 340.0), ("X", 302.0), ("X", 342.0)]),
-            Err(Refusal::MarkUnclear),
-            "two marks"
+        refuses(
+            FieldKind::YesNo,
+            &[
+                ("TRUE", Refusal::Format),
+                ("NO WAY", Refusal::Format),
+                ("1", Refusal::Format),
+                ("YES NO X", Refusal::Format),
+            ],
         );
-        assert_eq!(read(FieldKind::YesNo, "YES NO X"), Err(Refusal::MarkUnclear), "typed text has no positions");
     }
 
     #[test]

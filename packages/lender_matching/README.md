@@ -145,9 +145,11 @@ A PDF reads by these rules:
   sends the document to manual entry.
 - Each layout prints its own label set, and the document must fit exactly one: its labels bind, and its sentinel
   labels sit within 3 pt of where pdfium measured them. The PDFescape version prints Email on the Phone row, and
-  Type of Entity as a row of printed choices (Corporation, LLC, Other). A mark beside one choice picks it, a
-  description typed on the row is read as the entity, and an unclear mark is refused. Its sales rep header above
-  BUSINESS INFORMATION and its Fax and Email footer under the signature lines are form text, outside the form area.
+  Type of Entity and Is business seasonal? as rows of printed choices (Corporation, LLC, Other; Yes, No), each
+  after its box. A mark picks the choice whose left edge is the first at or right of the mark's centre, within
+  30 pt. A description typed on the entity row is read as the entity. Two marks, or a mark with no choice in
+  reach, are refused. The PDFescape sales rep header above BUSINESS INFORMATION and its Fax and Email footer under
+  the signature lines are form text, outside the form area. The Word version's seasonal answer is typed.
 - Labels are found by their printed text in Calibri or AdobeDevanagari, character by character, so a value typed into
   the label's own run splits after the label. Characters of other fonts are skipped while a label is matched, so a
   value that runs over the label to its right does not hide it. In each section the labels bind in reading order. A label that two

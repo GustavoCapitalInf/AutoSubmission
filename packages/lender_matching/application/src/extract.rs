@@ -5,10 +5,10 @@ use crate::certificate::{Certificate, read_certificate};
 use crate::fields::{BusinessField, FieldId, FieldMap};
 use crate::page::{Glyph, PdfFacts, ReadingOrder, Rect, TextPage, words};
 use crate::template::{
-    self, CONTRACT_TITLE, FORM, LAYOUT_TOLERANCE_PT, LabelSpec, LayoutSpec, NEXT_LINE_BOTTOM_PT, ROW_BAND_PT,
-    SectionStart, Shape, Target,
+    self, CONTRACT_TITLE, ChoiceAnswer, FORM, LAYOUT_TOLERANCE_PT, LabelSpec, LayoutSpec, MARK_REACH_PT,
+    NEXT_LINE_BOTTOM_PT, ROW_BAND_PT, SectionStart, Shape, Target,
 };
-use crate::values::{Answer, Entity, FieldValue, RawText, ReadContext, Refusal, Word, is_mark};
+use crate::values::{Answer, FieldValue, RawText, ReadContext, Refusal, Word, is_mark};
 
 /// What one PDF reads as. It holds application data, so it has no `Debug`.
 pub struct Reading {
@@ -718,7 +718,7 @@ fn place_and_read(
 
 /// A printed choice and its box, when the row prints it exactly once.
 struct ChoiceSpan {
-    entity: Option<Entity>,
+    answer: ChoiceAnswer,
     span: Option<Rect>,
 }
 
@@ -748,15 +748,16 @@ fn find_choices(order: &ReadingOrder, label: &Candidate, bound: &Bound, form_tex
                 [positions] => positions.iter().map(|at| order.glyph(*at).rect).reduce(Rect::union),
                 _ => None,
             };
-            ChoiceSpan { entity: choice.entity, span }
+            ChoiceSpan { answer: choice.answer, span }
         })
         .collect()
 }
 
 /// A field's text by its grammar, or on a choice row by the mark: one mark picks the printed
-/// choice nearest it when it lies under half as far from that choice as from any other. Text
-/// typed without a mark, or with the mark on the choice that has no entity, is read by the field's
-/// grammar. A row whose choices are not each printed once refuses any mark.
+/// choice whose left edge is the first at or right of the mark's centre, when that edge lies within
+/// `MARK_REACH_PT` of it. Text typed without a mark, or with the mark on the described choice, is
+/// read by the field's grammar. Two marks, a mark with no choice in reach, or a row whose choices
+/// are not each printed once refuses the mark.
 fn read_value(
     field: FieldId,
     choices: &[ChoiceSpan],
@@ -773,24 +774,26 @@ fn read_value(
         [] => None,
         [mark] => {
             let center = (mark.x0 + mark.x1) / 2.0;
-            let mut distances = Vec::with_capacity(choices.len());
+            let mut next: Option<(f32, ChoiceAnswer)> = None;
             for choice in choices {
-                let span = choice.span.ok_or(Refusal::MarkUnclear)?;
-                distances.push(((span.x0 - center).max(center - span.x1).max(0.0), choice.entity));
+                let left = choice.span.ok_or(Refusal::MarkUnclear)?.x0;
+                if left >= center && next.is_none_or(|(nearest, _)| left < nearest) {
+                    next = Some((left, choice.answer));
+                }
             }
-            distances.sort_by(|a, b| a.0.total_cmp(&b.0));
-            match distances.as_slice() {
-                [(nearest, entity), (next, _), ..] if *nearest < next / 2.0 => Some(*entity),
+            match next {
+                Some((left, answer)) if left - center <= MARK_REACH_PT => Some(answer),
                 _ => return Err(Refusal::MarkUnclear),
             }
         }
         _ => return Err(Refusal::MarkUnclear),
     };
     match (picked, description) {
-        (Some(Some(entity)), None) => Ok(Answer::Value(FieldValue::Entity(entity))),
-        (Some(Some(_)), Some(_)) => Err(Refusal::Ambiguous),
-        (Some(None) | None, Some(description)) => field.read(&description, context),
-        (Some(None), None) => Err(Refusal::NotInList),
+        (Some(ChoiceAnswer::Described) | None, Some(description)) => field.read(&description, context),
+        (Some(ChoiceAnswer::Described), None) => Err(Refusal::NotInList),
+        (Some(_), Some(_)) => Err(Refusal::Ambiguous),
+        (Some(ChoiceAnswer::Entity(entity)), None) => Ok(Answer::Value(FieldValue::Entity(entity))),
+        (Some(ChoiceAnswer::YesNo(answer)), None) => Ok(Answer::Value(FieldValue::YesNo(answer))),
         (None, None) => Err(Refusal::Format),
     }
 }
